@@ -114,6 +114,21 @@ class Gate(TempHome):
             pass
         self.assertIsNone(self.decide("Grep", {"pattern": "some_identifier"}))
 
+    def test_nudge_survives_an_unwritable_global_cache(self):
+        # a sandboxed host (dsh) cannot write ~/.cache/tezgah; the once-per-
+        # session nudge must still fire from the fallback instead of failing open
+        self.make_index()
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        open(cache, "w").close()  # a file blocks the dir, like a denied write
+        self.envv = self.env(extra={
+            "TEZGAH_FALLBACK_CACHE": os.path.join(self.home, "fallback")})
+        first = self.decide("Grep", {"pattern": "some_identifier"}, session_id="sb")
+        self.assertIsNotNone(first)
+        self.assertIn("search_graph", first)
+        self.assertIsNone(
+            self.decide("Grep", {"pattern": "some_identifier"}, session_id="sb"))
+
 
 if __name__ == "__main__":
     unittest.main()

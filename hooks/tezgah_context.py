@@ -13,8 +13,8 @@ import subprocess
 import sys
 
 from tezgah_policy import CORE, PROMPT_REMINDER
-from tezgah_paths import (CACHE, cbm_bin, have_consult_key, off, orx_bin,
-                          root_for, roots, tool)
+from tezgah_paths import (CACHE, cache_dir, cbm_bin, have_consult_key, off,
+                          orx_bin, root_for, roots, tool, writable_dir)
 
 # the detached auto-index worker (lock-guarded, retrying); same dir as this file
 INDEX_WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -90,11 +90,24 @@ def autoindex(root):
     cbm = cbm_bin()
     if not cbm:
         return "codebase-memory-mcp is not installed on this machine, so there is no graph"
+    # The worker writes the codebase-memory-mcp cache. A host that sandboxes
+    # hook file writes (dsh workspace-write) denies that path, so do not spawn a
+    # doomed worker and report it as running: the MCP server is not sandboxed
+    # and serves the graph instead.
+    cbm_cache = os.environ.get("CBM_CACHE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".cache", "codebase-memory-mcp")
+    if not writable_dir(cbm_cache):
+        return ("graph index not started: hook writes are sandboxed on this host, "
+                "so the codebase-memory-mcp cache (%s) cannot be written from the "
+                "session hook. The codebase-memory-mcp MCP server is not sandboxed "
+                "and serves the graph; call index_repository for a repo it has not "
+                "indexed yet" % cbm_cache)
+    cache = cache_dir()
     name = slug(root)
     head = git(root, "rev-parse", "HEAD") or "nogit"
-    stamp_path = os.path.join(CACHE, name)
+    stamp_path = os.path.join(cache, name)
     try:
-        os.makedirs(os.path.join(CACHE, "logs"), exist_ok=True)
+        os.makedirs(os.path.join(cache, "logs"), exist_ok=True)
         with open(stamp_path) as fh:
             stamped = fh.read().strip()
     except OSError:
@@ -102,7 +115,7 @@ def autoindex(root):
     if stamped == head and head != "nogit":
         return "index current (HEAD unchanged since last index)"
     try:
-        log = open(os.path.join(CACHE, "logs", name + ".log"), "ab")
+        log = open(os.path.join(cache, "logs", name + ".log"), "ab")
         # Spawn the lock-guarded worker rather than indexing inline. Two sessions
         # in the same repo must not index at once, and a concurrent CBM
         # generation makes the CLI refuse to start (transient); the worker holds
@@ -110,7 +123,7 @@ def autoindex(root):
         # exit 0, so a failed run is retried on the next session start.
         subprocess.Popen(
             [sys.executable, INDEX_WORKER, cbm, root, head,
-             stamp_path, os.path.join(CACHE, "locks", name + ".lock")],
+             stamp_path, os.path.join(cache, "locks", name + ".lock")],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             start_new_session=True, cwd=root,
         )

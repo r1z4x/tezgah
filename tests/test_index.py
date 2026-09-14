@@ -130,6 +130,29 @@ class IndexCli(TempHome):
             time.sleep(0.1)
         self.assertTrue(os.path.exists(stamp), "auto-index did not stamp HEAD")
 
+    def test_sandboxed_hook_reports_instead_of_spawning(self):
+        # a host that sandboxes hook writes (dsh workspace-write) cannot write
+        # the cbm cache; the hook must say so, not spawn a doomed worker
+        repo = self.make_repo("proj")
+        fake = os.path.join(self.home, "fake-cbm")
+        with open(fake, "w") as fh:
+            fh.write(FAKE)
+        os.chmod(fake, 0o755)
+        cbm_cache = os.path.join(self.home, "cbm-cache-blocked")
+        open(cbm_cache, "w").close()  # a file blocks the cache dir, like EPERM
+        log = os.path.join(self.home, "calls.log")
+        env = self.env(extra={
+            "TEZGAH_CBM_BIN": fake,
+            "CBM_CACHE_DIR": cbm_cache,
+            "FAKE_CBM_LOG": log,
+            "FAKE_CBM_COUNTER": os.path.join(self.home, "counter"),
+        })
+        proc = subprocess.run([sys.executable, CLI, repo], capture_output=True,
+                              text=True, env=env, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("sandboxed", proc.stdout)
+        self.assertFalse(os.path.exists(log), "a worker was spawned anyway")
+
     def test_opencode_plugin_triggers_the_index(self):
         with open(os.path.join(REPO, "hosts", "opencode", "plugins",
                                "tezgah.js")) as fh:

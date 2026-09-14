@@ -82,5 +82,25 @@ class KillSwitches(TempHome):
         self.assertTrue(out)
 
 
+class CacheDirFallback(TempHome):
+    """cache_dir() must hand back a writable dir even when the global cache is
+    denied (the sandboxed-host case, simulated by a file in the dir's place)."""
+
+    def test_global_cache_when_writable(self):
+        out, proc = run_json([support.PROBE_PATHS, "cache_dir"], env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out, os.path.join(self.home, ".cache", "tezgah"))
+
+    def test_fallback_when_global_cache_is_unwritable(self):
+        path = os.path.join(self.home, ".cache", "tezgah")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").close()
+        fallback = os.path.join(self.home, "fallback")
+        env = self.env(extra={"TEZGAH_FALLBACK_CACHE": fallback})
+        out, proc = run_json([support.PROBE_PATHS, "cache_dir"], env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out, fallback)
+
+
 if __name__ == "__main__":
     unittest.main()

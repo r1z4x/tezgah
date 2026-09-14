@@ -14,10 +14,9 @@ Adapters translate the returned reason into their own permission envelope.
 import os
 import re
 
-from tezgah_paths import CACHE, off, root_for
+from tezgah_paths import cache_dir, off, root_for
 
 DB_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codebase-memory-mcp")
-NUDGED = os.path.join(CACHE, "nudged")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{2,}$")
 # ponytail: flags with a separate value (grep -A 3 foo) shift the token and the
 # search passes unnudged; not worth a real argv parser for a once-a-session hint.
@@ -85,12 +84,16 @@ def index_slug(cwd, base):
 
 
 def first_nudge(session_id):
-    """Consume the once-per-session nudge. False when already spent/unwritable."""
-    mark = os.path.join(NUDGED, session_id or "nosession")
+    """Consume the once-per-session nudge. False when already spent/unwritable.
+
+    The mark lands in cache_dir(), so a sandboxed host (dsh) still gets the
+    one-shot nudge instead of the write failing open."""
+    d = os.path.join(cache_dir(), "nudged")
+    mark = os.path.join(d, session_id or "nosession")
     if os.path.exists(mark):
         return False
     try:
-        os.makedirs(NUDGED, exist_ok=True)
+        os.makedirs(d, exist_ok=True)
         open(mark, "w").close()  # consume BEFORE denying: later greps pass
         return True
     except OSError:

@@ -15,6 +15,7 @@ is the reliable channel; the env var is the escape hatch, not the contract.
 import json
 import os
 import shutil
+import tempfile
 
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(
@@ -23,6 +24,12 @@ CONFIG = os.path.join(CONFIG_DIR, "config.json")
 BIN_DIR = os.path.join(CONFIG_DIR, "bin")
 STATE_DIR = os.path.join(CONFIG_DIR, "state")
 CACHE = os.path.join(HOME, ".cache", "tezgah")
+# Hosts that sandbox hook file writes (dsh workspace-write) deny writes to the
+# global cache; state that must be written from a hook falls back to the
+# platform temp dir, which the sandbox always allows. TEZGAH_FALLBACK_CACHE
+# overrides the fallback (tests).
+FALLBACK_CACHE = os.environ.get(
+    "TEZGAH_FALLBACK_CACHE", os.path.join(tempfile.gettempdir(), "tezgah"))
 DEFAULT_ROOT = os.path.join(HOME, "Projects")
 # this file lives in <plugin>/hooks, so the plugin root is one level up and
 # every path advertised to a model is derived from here rather than hardcoded
@@ -40,6 +47,34 @@ def config():
             return json.load(fh)
     except Exception:  # missing, unreadable or malformed: fall back to defaults
         return {}
+
+
+def writable_dir(path):
+    """True when `path` exists (or can be created) and a file can be written in it.
+
+    A sandboxed host denies this outside the workspace; callers use it to pick a
+    writable state dir instead of failing on the first write."""
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, ".tezgah-write-probe")
+        with open(probe, "w") as fh:
+            fh.write("")
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
+
+
+def cache_dir():
+    """A writable tezgah state dir: the global cache, else the temp fallback.
+
+    The global cache is preferred so state persists across sessions; sandboxed
+    hosts (dsh workspace-write) fall back to temp rather than dropping the
+    nudge/gate state on the floor."""
+    for d in (CACHE, FALLBACK_CACHE):
+        if writable_dir(d):
+            return d
+    return CACHE
 
 
 def roots():

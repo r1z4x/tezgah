@@ -70,7 +70,14 @@ source.
 dsh runs the same Claude hook files through its `dsh-hooks-claude-code` bridge,
 so the session-start contract, the attribution gate, and the first-grep nudge
 all apply there. dsh exposes a single `subagent` tool, so the grep-only-explorer
-denial is inert — there is no explorer subagent for it to refuse. The managed
+denial is inert — there is no explorer subagent for it to refuse. dsh's default
+`workspace-write` sandbox confines hook subprocesses to the workspace and the
+platform temp dir, so tezgah writes its hook state (nudge marks, index stamp) to
+a writable fallback there rather than failing on a denied write. The graph index
+is served by the `codebase-memory-mcp` MCP server, which dsh spawns unsandboxed:
+a session started on dsh reports the MCP-served graph and asks for
+`index_repository` on a repo the server has not indexed, instead of surfacing a
+raw `EPERM`. The managed
 patch block also declares two OpenAI-compatible LLM routes on the pi-ai adapter
 the base composition mounts: `openrouter` (`OPENROUTER_API_KEY`) and `deepseek`
 (`DEEPSEEK_API_KEY`), selectable alongside the native `deepseek-official`

@@ -21,6 +21,8 @@ elif op == "config":
     out = tp.config()
 elif op == "off_dirs":
     out = list(tp.OFF_DIRS)
+elif op == "cache_dir":
+    out = tp.cache_dir()
 else:
     raise SystemExit("unknown op: %s" % op)
 print(json.dumps(out))
