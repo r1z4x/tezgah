@@ -59,7 +59,7 @@ same text.
 | **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message | TUI plugin (no command statusLine) |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
 | **Cursor** | `hooks.json` + skills + MCP | `statusLine` in `cli-config.json` |
-| **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, and OpenRouter/DeepSeek LLM routes) | not yet — a UI plugin is needed and is unpackaged |
+| **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) | Web UI plugin: `tezgah-dsh-statusline` in the session header |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
 and subagent calls through the same check as the other hosts. On Claude, the
@@ -87,6 +87,20 @@ default. Keys resolve from the launch environment or the harness credential
 store; neither key enters the config file. tezgah-setup also puts a `dsh`
 launcher on PATH (`~/.local/bin/dsh`) that finds the installed CLI under
 `$DSH_HOME`, so `dsh --profile web` works from any directory.
+
+dsh has no command status line, so tezgah ships one as a Web UI plugin:
+`tezgah-dsh-statusline`. Its host half serves the `tezgah-status` string for the
+session's workspace over an authenticated `/api/tezgah.status` route; its
+browser half renders it in the session header, polling every 5s. `tezgah-setup`
+links the plugin into the web profile and enables it with a managed row in
+`profiles/web/cordis.patch.yml` (web-only, because the host half injects the
+web-only `connection` service); a profile that has never booted `web` is skipped
+with a hint instead of half-written. In `headless` mode, the hooks bridge injects
+the SessionStart contract as its own trailing turn (its `agent/session-start`
+calls `agent.inject()` detached, after the one-shot task is already the first
+message), so `dsh --profile headless "<task>"` spends one extra turn and, for a
+literal-answer prompt, prints the model's reaction to the contract rather than
+the task's answer; interactive web sessions are unaffected.
 
 `bin/tezgah-setup --install` also triggers `orx install-skills` for Claude,
 Codex, opencode and Cursor when `orx` is on PATH, so the research rule has a

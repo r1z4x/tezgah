@@ -43,6 +43,9 @@ OPENCODE = os.path.join(
 CURSOR = os.path.join(HOME, ".cursor")
 DSH = os.environ.get("DSH_HOME") or os.path.join(HOME, ".dsh")
 DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
+DSH_WEB = os.path.join(DSH, "profiles", "web")
+DSH_WEB_PATCH = os.path.join(DSH_WEB, "cordis.patch.yml")
+DSH_STATUSLINE = "tezgah-dsh-statusline"
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
           "plan-add", "plan-status", "plan-sync"]
@@ -185,6 +188,37 @@ def set_managed_block(path, block, start="# tezgah:start", end="# tezgah:end"):
 
 def cbm_command():
     return tp.cbm_bin() or tp.config().get("cbm_bin") or tp.CBM
+
+
+def dsh_run(args):
+    """Run the dsh CLI (its node entry, not the launcher) with args.
+
+    Returns False when node or the CLI is absent, so a host without dsh never
+    fails the install."""
+    cli = os.path.join(DSH, "profiles", "node_modules", "@deepseek-ai",
+                       "dsh", "lib", "bin.js")
+    node = shutil.which("node")
+    if not node or not os.path.isfile(cli):
+        return False
+    try:
+        return subprocess.run([node, cli] + args, capture_output=True,
+                              text=True).returncode == 0
+    except OSError:
+        return False
+
+
+def dsh_key_resolvable(name):
+    """True when the launch env or the harness credential store can resolve one
+    of the LLM-route key references. Values are never read, only the reference
+    name, so no secret enters tezgah's own config."""
+    if os.environ.get(name):
+        return True
+    try:
+        with open(os.path.join(DSH, ".credentials.yaml")) as fh:
+            text = fh.read()
+    except OSError:
+        return False
+    return re.search(r"(?m)^\s+%s\s*:" % re.escape(name), text) is not None
 
 
 def detected():
@@ -582,14 +616,48 @@ def dsh_patch_block():
         % (os.path.join(HERE, "hooks", "hooks.json"), HERE, cbm_command()))
 
 
+def dsh_status_block():
+    """Web-profile patch row for the tezgah status line.
+
+    The row lives in the web profile, not the shared home patch, because the
+    plugin's host half injects the web-only `connection` service: inserting it
+    into a headless tree would leave a permanently pending row."""
+    return (
+        "- insert:\n"
+        "    - id: tezgah-statusline\n"
+        "      name: '%s'\n" % DSH_STATUSLINE)
+
+
+def install_dsh_statusline():
+    """Link the status-line plugin into the web profile and enable its row.
+
+    The plugin is a plain dependency, not a bundle: pnpm links the repo package
+    under the profile's node_modules and the patch row inserts it into the
+    composed tree. A profile that has never booted `web` has no package.json, so
+    this is a no-op with a hint instead of a half-written profile."""
+    if not os.path.isfile(os.path.join(DSH_WEB, "package.json")):
+        print("%s dsh web profile not initialized; run `dsh web` once, then "
+              "re-run --install" % NO)
+        return
+    pkg = os.path.join(HERE, "hosts", "dsh", "statusline")
+    if not dsh_run(["plugin", "--profile", "web", "add", "link:" + pkg]):
+        print("%s could not link the dsh status line (dsh or pnpm missing)" % NO)
+        return
+    print("%s status line linked into the web profile" % OK)
+    set_managed_block(DSH_WEB_PATCH, dsh_status_block())
+    print("%s %s" % (OK, DSH_WEB_PATCH))
+
+
 def install_dsh():
     print("\ndsh:")
     for s in SKILLS:
         print(link(os.path.join(HERE, "skills", s), os.path.join(DSH, "skills", s)))
     set_managed_block(DSH_PATCH, dsh_patch_block())
     print("%s %s" % (OK, DSH_PATCH))
+    install_dsh_statusline()
     print(link(os.path.join(HERE, "bin", "tezgah-dsh"),
                os.path.join(LOCAL_BIN, "dsh")))
+
 
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
@@ -703,8 +771,12 @@ def remove_managed_block(path, start="# tezgah:start", end="# tezgah:end"):
         return
     while out and not out[-1].strip():
         out.pop()
+    # A dsh patch layer must stay a top-level YAML array; a file left holding
+    # only comments parses to null and the next dsh boot fails on it.
+    if not any(ln.strip() and not ln.strip().startswith("#") for ln in out):
+        out.append("[]")
     with open(path, "w") as fh:
-        fh.write(("\n".join(out) + "\n") if out else "")
+        fh.write("\n".join(out) + "\n")
     print("%s removed tezgah block from %s" % (OK, path))
 
 
@@ -827,6 +899,9 @@ def uninstall_dsh():
     for s in SKILLS:
         unlink_tezgah(os.path.join(DSH, "skills", s))
     remove_managed_block(DSH_PATCH)
+    if os.path.isfile(os.path.join(DSH_WEB, "package.json")):
+        remove_managed_block(DSH_WEB_PATCH)
+        dsh_run(["plugin", "--profile", "web", "remove", DSH_STATUSLINE])
     unlink_tezgah(os.path.join(LOCAL_BIN, "dsh"))
 
 
@@ -1042,6 +1117,12 @@ def host_checks_dsh():
             patched = fh.read()
     except OSError:
         patched = ""
+    try:
+        with open(DSH_WEB_PATCH) as fh:
+            web_patch = fh.read()
+    except OSError:
+        web_patch = ""
+    linked = os.path.join(DSH_WEB, "node_modules", DSH_STATUSLINE)
     return [
         ("claude-code hooks bridge in cordis.patch.yml", "dsh-hooks-claude-code" in patched),
         ("MCP bridge in cordis.patch.yml", "dsh-mcp-client" in patched),
@@ -1050,7 +1131,13 @@ def host_checks_dsh():
         ("dsh launcher on PATH (~/.local/bin/dsh)",
          is_tezgah_link(os.path.join(LOCAL_BIN, "dsh"))),
         ("skills linked", all(os.path.islink(os.path.join(DSH, "skills", s)) for s in SKILLS)),
+        ("LLM route keys resolvable (env or credential store)",
+         dsh_key_resolvable("OPENROUTER_API_KEY") and dsh_key_resolvable("DEEPSEEK_API_KEY")),
+        ("status-line plugin linked into the web profile",
+         os.path.exists(linked)),
+        ("status-line row in the web cordis.patch.yml", DSH_STATUSLINE in web_patch),
     ]
+
 
 
 HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,

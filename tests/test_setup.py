@@ -6,6 +6,7 @@ touched. TEZGAH_CBM_BIN points at nothing so no graph is registered.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -246,6 +247,94 @@ class Adopt(SetupBase):
         s = self.read_json(self.path(".claude", "settings.json"))
         self.assertNotIn("hooks", s)
         self.assertEqual(s["theme"], "dark")
+
+
+class DshStatusline(SetupBase):
+    """The dsh web status line: the plugin is linked into the web profile and
+    enabled by a managed patch row there, not in the shared home patch."""
+
+    def fake_node(self):
+        """A PATH `node` that logs its args and links the plugin for a
+        `dsh plugin ... add link:` call, so the wiring is testable without a
+        real dsh/pnpm install."""
+        d = self.path("fakebin")
+        os.makedirs(d, exist_ok=True)
+        node = os.path.join(d, "node")
+        with open(node, "w") as fh:
+            fh.write(
+                '#!/bin/sh\n'
+                'echo "$@" >> "$HOME/dsh-args.log"\n'
+                'dest="$HOME/.dsh/profiles/web/node_modules/tezgah-dsh-statusline"\n'
+                'case " $* " in *" remove "*) rm -rf "$dest"; exit 0;; esac\n'
+                'for a in "$@"; do case "$a" in link:*) pkg="${a#link:}";; esac; done\n'
+                'if [ -n "$pkg" ]; then mkdir -p "$(dirname "$dest")" && ln -sfn "$pkg" "$dest"; fi\n')
+        os.chmod(node, 0o755)
+        self.env["PATH"] = d + os.pathsep + self.env["PATH"]
+        cli = self.path(".dsh", "profiles", "node_modules", "@deepseek-ai",
+                        "dsh", "lib", "bin.js")
+        os.makedirs(os.path.dirname(cli), exist_ok=True)
+        with open(cli, "w"):
+            pass
+        return self.path("dsh-args.log")
+
+    def test_install_links_and_enables_statusline(self):
+        # no web profile yet: the status line is skipped, never half-written
+        proc = self.setup("--install", "--hosts", "dsh")
+        self.assertIn("web profile not initialized", proc.stdout)
+        self.assertFalse(os.path.exists(
+            self.path(".dsh", "profiles", "web", "cordis.patch.yml")))
+
+        self.write_json(self.path(".dsh", "profiles", "web", "package.json"),
+                        {"name": "dsh-profile-web"})
+        log = self.fake_node()
+        proc = self.setup("--install", "--hosts", "dsh")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        patch_path = self.path(".dsh", "profiles", "web", "cordis.patch.yml")
+        patch = self.read_text(patch_path)
+        self.assertEqual(patch.count("# tezgah:start"), 1)
+        self.assertIn("tezgah-dsh-statusline", patch)
+        # the row lives in the web profile, never the shared home patch
+        self.assertNotIn("tezgah-dsh-statusline",
+                         self.read_text(self.path(".dsh", "cordis.patch.yml")))
+        self.assertIn(
+            "plugin --profile web add link:" + os.path.join(
+                REPO, "hosts", "dsh", "statusline"),
+            self.read_text(log))
+        plug = self.path(".dsh", "profiles", "web", "node_modules",
+                         "tezgah-dsh-statusline")
+        self.assertTrue(os.path.islink(plug))
+
+        self.setup("--install", "--hosts", "dsh")
+        self.assertEqual(self.read_text(patch_path).count("# tezgah:start"), 1)
+
+    def test_uninstall_drops_statusline(self):
+        self.write_json(self.path(".dsh", "profiles", "web", "package.json"),
+                        {"name": "dsh-profile-web"})
+        log = self.fake_node()
+        self.setup("--install", "--hosts", "dsh")
+        proc = self.setup("--uninstall", "--hosts", "dsh")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("plugin --profile web remove tezgah-dsh-statusline",
+                      self.read_text(log))
+        self.assertFalse(os.path.exists(
+            self.path(".dsh", "profiles", "web", "node_modules",
+                      "tezgah-dsh-statusline")))
+        patch = self.path(".dsh", "profiles", "web", "cordis.patch.yml")
+        if os.path.exists(patch):
+            text = self.read_text(patch)
+            self.assertNotIn("# tezgah:start", text)
+            # a dsh patch layer must stay a top-level YAML array
+            self.assertIn("[]", text)
+
+    def test_plugin_bundles_are_valid_js(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not installed")
+        for f in ("lib/index.js", "lib/client.js"):
+            p = os.path.join(REPO, "hosts", "dsh", "statusline", f)
+            proc = subprocess.run([node, "--check", p],
+                                  capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, "%s: %s" % (f, proc.stderr))
 
 
 if __name__ == "__main__":
