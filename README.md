@@ -139,6 +139,7 @@ knowing:
 |---|---|
 | `bin/tezgah-setup` | Report what is armed, per host |
 | `bin/tezgah-status [PATH]` | Show whether the rules are active in that repo |
+| `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
 | `/plan-add` | Turn a piece of work into a tracked plan |
 | `/plan-status` | Summarize open plans and pick the next one |
 | `/plan-sync` | Close out finished plans |
@@ -192,6 +193,17 @@ The payoff shows up on caller questions. In one real repo, a default `grep`
 ignored the relevant folder and found nothing; with ignore disabled it took
 3.95 s and still mixed definitions with call sites. The code graph answered the
 same question in 16 ms, listing only the 8 true call sites.
+
+opencode is also armed for long-session context hygiene: `tezgah-setup --install`
+sets `compaction.prune` so old tool results are cleared from the prompt instead
+of being re-sent every step, and a `watcher.ignore` list keeps the file watcher
+out of `.git`, `node_modules` and build dirs. Both merge — an explicit user value
+wins. This matters because opencode only auto-compacts near the model's context
+limit (for a 1M-token model, about 980k), so without pruning the working set
+grows to hundreds of thousands of tokens. `bin/tezgah-doctor` reports the
+resulting disk footprint; `--prune-sessions DAYS` deletes idle sessions through
+the opencode CLI, which is the only action that actually shrinks the database —
+VACUUM alone cannot, since its pages are all live.
 
 ## Development
 

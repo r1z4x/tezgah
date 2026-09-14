@@ -103,6 +103,8 @@ class Install(SetupBase):
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
         self.assertTrue(any("tezgah" in i for i in oc.get("instructions", [])))
         self.assertIn("codebase-memory-mcp", oc.get("mcp", {}))
+        self.assertTrue((oc.get("compaction") or {}).get("prune"))
+        self.assertIn("node_modules/**", (oc.get("watcher") or {}).get("ignore", []))
         tui = self.read_json(self.path(".config", "opencode", "tui.json"))
         self.assertTrue(any("tezgah-tui" in (p if isinstance(p, str) else p[0])
                             for p in tui.get("plugin", [])))
@@ -142,6 +144,16 @@ class Install(SetupBase):
         self.assertIn("marketing & growth", body)
         self.assertIn("tezgah core", body)
         self.assertIn("harness", body)
+
+
+    def test_opencode_context_hygiene_respects_user_choice(self):
+        self.write_json(self.path(".config", "opencode", "opencode.json"),
+                        {"$schema": "https://opencode.ai/config.json",
+                         "compaction": {"prune": False}})
+        self.setup("--install", "--hosts", "opencode")
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertIs(oc["compaction"]["prune"], False)
+        self.assertIn(".git/**", oc["watcher"]["ignore"])
 
 
 class OpenResearch(SetupBase):
@@ -201,6 +213,8 @@ class Uninstall(SetupBase):
         self.setup("--uninstall", "--hosts", "opencode")
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
         self.assertNotIn("permission", oc)
+        self.assertNotIn("compaction", oc)
+        self.assertNotIn("watcher", oc)
         self.assertFalse(oc.get("instructions"))
         self.assertFalse(os.path.exists(self.path(".config", "tezgah",
                                                   "opencode-skills.md")))

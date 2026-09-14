@@ -46,6 +46,12 @@ DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
           "plan-add", "plan-status", "plan-sync"]
+# opencode context hygiene tezgah arms: prune clears old tool results from the
+# prompt (stops a long session re-sending every output each step) and the
+# watcher ignore keeps fs-events out of noisy trees. Both merge; a user's
+# explicit value wins.
+OPENCODE_IGNORE = [".git/**", "node_modules/**", "dist/**", "build/**",
+                   ".venv/**", "__pycache__/**", ".ruff_cache/**"]
 WORKFLOW_FILES = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh"]
 # orx ships an installable skill shim for these four; dsh has no orx harness,
@@ -214,6 +220,7 @@ def install_common(new_roots, hosts):
             ("codegen", os.path.join(HERE, "bin", "codegen")),
             ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
+            ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
@@ -466,8 +473,18 @@ def install_opencode():
     # Deny every skill so opencode stops injecting ~80 name+description blocks
     # into the system prompt; the generated router replaces them.
     cfg.setdefault("permission", {})["skill"] = "deny"
+    # Context hygiene: prune replaces old tool results in the prompt with
+    # "[Old tool result content cleared]" so a long session stops re-sending
+    # every output on every step. setdefault keeps a user's explicit choice.
+    cfg.setdefault("compaction", {}).setdefault("prune", True)
+    wat = cfg.setdefault("watcher", {})
+    ign = wat.setdefault("ignore", [])
+    for pat in OPENCODE_IGNORE:
+        if pat not in ign:
+            ign.append(pat)
     write_json(os.path.join(OPENCODE, "opencode.json"), cfg)
     print("%s opencode.json (instructions + skill router + mcp + skill deny)" % OK)
+    print("%s opencode.json (compaction.prune + watcher.ignore)" % OK)
     # TUI status line: opencode has no command statusLine, only a TUI plugin
     # declared in tui.json. Local path spec resolves relative to tui.json.
     print(link(os.path.join(HERE, "hosts", "opencode", "tui", "tezgah-tui.tsx"),
@@ -734,6 +751,21 @@ def unwire_opencode_config():
             if not perm:
                 c.pop("permission", None)
             changed = True
+        comp = c.get("compaction")
+        if isinstance(comp, dict) and comp.get("prune") is True:
+            c.pop("compaction", None)
+            changed = True
+        wat = c.get("watcher")
+        if isinstance(wat, dict) and isinstance(wat.get("ignore"), list):
+            kept = [p for p in wat["ignore"] if p not in OPENCODE_IGNORE]
+            if kept != wat["ignore"]:
+                if kept:
+                    wat["ignore"] = kept
+                else:
+                    wat.pop("ignore")
+                if not wat:
+                    c.pop("watcher", None)
+                changed = True
         if changed:
             write_json(p, c)
             print("%s removed tezgah instructions/skill-deny from %s" % (OK, p))
@@ -980,6 +1012,11 @@ def host_checks_opencode():
          SKILL_ROUTER in instr and os.path.isfile(SKILL_ROUTER)),
         ("permission.skill denied", (cfg.get("permission") or {}).get("skill") == "deny"),
         ("MCP in opencode.json", "codebase-memory-mcp" in (cfg.get("mcp") or {})),
+        ("context pruning armed (compaction.prune)",
+         (cfg.get("compaction") or {}).get("prune") is True),
+        ("watcher ignores noisy trees",
+         bool(set(OPENCODE_IGNORE)
+              & set(((cfg.get("watcher") or {}).get("ignore") or [])))),
         ("status line plugin in tui.json + linked",
          any("tezgah-tui" in s for s in specs)
          and os.path.exists(os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx"))),

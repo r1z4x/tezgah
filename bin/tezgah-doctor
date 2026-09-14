@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""tezgah-doctor - report and reclaim the state the armed harnesses leave behind.
+
+Two stores grow without bound and neither rotates on its own:
+  - opencode's SQLite session/event database (~/.local/share/opencode/opencode.db)
+  - codebase-memory-mcp's per-index log files (~/.cache/codebase-memory-mcp/logs)
+
+This tool is read-only by default. With --clean it deletes index logs older than
+--days and vacuums the opencode database (only when opencode is not running, so
+it cannot fight a live connection). VACUUM alone cannot shrink this database -
+its pages are all live - so --prune-sessions is the action that actually
+reclaims space: it deletes old sessions through the supported opencode command
+and then vacuums. Stdlib only.
+
+  tezgah-doctor                    report sizes and counts
+  tezgah-doctor --json             same, machine readable
+  tezgah-doctor --clean            reclaim (logs older than 7 days, vacuum)
+  tezgah-doctor --clean --days 30
+  tezgah-doctor --prune-sessions 30   delete sessions idle > 30 days, then vacuum
+"""
+import argparse
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import time
+
+HOME = os.path.expanduser("~")
+OPENCODE = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"), "opencode")
+CBM_CACHE = os.environ.get("TEZGAH_CBM_CACHE",
+                           os.path.join(HOME, ".cache", "codebase-memory-mcp"))
+CBM_LOGS = os.path.join(CBM_CACHE, "logs")
+OPENCODE_DATA = os.environ.get("TEZGAH_OPENCODE_DATA",
+                               os.path.join(HOME, ".local", "share", "opencode"))
+OPENCODE_DB = os.path.join(OPENCODE_DATA, "opencode.db")
+TEZGAH_CACHE = os.path.join(HOME, ".cache", "tezgah")
+OPENCODE_BIN = shutil.which("opencode")
+
+
+def du(path):
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def human(n):
+    n = float(n)
+    for unit in ("B", "K", "M", "G"):
+        if n < 1024:
+            return "%.1f%s" % (n, unit)
+        n /= 1024.0
+    return "%.1fT" % n
+
+
+def count_files(path):
+    if not os.path.isdir(path):
+        return 0
+    return sum(len(files) for _root, _dirs, files in os.walk(path))
+
+
+def db_rows(db, table):
+    if not os.path.exists(db):
+        return None
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+        try:
+            return con.execute("SELECT count(*) FROM %s" % table).fetchone()[0]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+
+
+def opencode_cfg():
+    try:
+        with open(os.path.join(OPENCODE, "opencode.json")) as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def opencode_running():
+    try:
+        return subprocess.run(["pgrep", "-x", "opencode"],
+                              capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+def collect():
+    cfg = opencode_cfg()
+    return {
+        "opencode_db_bytes": os.path.getsize(OPENCODE_DB) if os.path.exists(OPENCODE_DB) else 0,
+        "opencode_sessions": db_rows(OPENCODE_DB, "session"),
+        "opencode_events": db_rows(OPENCODE_DB, "event"),
+        "opencode_running": opencode_running(),
+        "compaction_prune": (cfg.get("compaction") or {}).get("prune"),
+        "watcher_ignore": len(((cfg.get("watcher") or {}).get("ignore") or [])),
+        "cbm_cache_bytes": du(CBM_CACHE) if os.path.isdir(CBM_CACHE) else 0,
+        "cbm_db_count": (len([f for f in os.listdir(CBM_CACHE) if f.endswith(".db")])
+                         if os.path.isdir(CBM_CACHE) else 0),
+        "cbm_log_files": count_files(CBM_LOGS),
+        "cbm_log_bytes": du(CBM_LOGS) if os.path.isdir(CBM_LOGS) else 0,
+        "tezgah_cache_bytes": du(TEZGAH_CACHE) if os.path.isdir(TEZGAH_CACHE) else 0,
+    }
+
+
+def clean_logs(days):
+    """Delete index logs older than `days`; never the live daemon log."""
+    cutoff = time.time() - days * 86400
+    removed = freed = 0
+    if not os.path.isdir(CBM_LOGS):
+        return removed, freed
+    for name in os.listdir(CBM_LOGS):
+        if name == "cbm-daemon.log":
+            continue
+        path = os.path.join(CBM_LOGS, name)
+        try:
+            st = os.stat(path)
+            if not os.path.isfile(path) or st.st_mtime >= cutoff:
+                continue
+            size = st.st_size
+            os.remove(path)
+            removed += 1
+            freed += size
+        except OSError:
+            pass
+    return removed, freed
+
+
+def vacuum_db():
+    before = os.path.getsize(OPENCODE_DB)
+    con = sqlite3.connect(OPENCODE_DB)
+    try:
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        con.execute("VACUUM")
+        con.commit()
+    finally:
+        con.close()
+    return before, os.path.getsize(OPENCODE_DB)
+
+
+def select_old_sessions(days):
+    """Sessions whose last update is older than `days`, oldest first."""
+    if not os.path.exists(OPENCODE_DB):
+        return []
+    cutoff = int((time.time() - days * 86400) * 1000)  # time_updated is epoch ms
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % OPENCODE_DB, uri=True)
+        try:
+            rows = con.execute(
+                "SELECT id FROM session WHERE time_updated < ? ORDER BY time_updated",
+                (cutoff,)).fetchall()
+            return [r[0] for r in rows]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return []
+
+
+def prune_sessions(days):
+    """Delete sessions older than `days` and return (deleted, failed).
+
+    Uses `opencode session delete` rather than raw SQL: that keeps the event log
+    and the running server consistent. The caller guarantees opencode is stopped.
+    """
+    ids = select_old_sessions(days)
+    if not ids or not OPENCODE_BIN:
+        return 0, len(ids)
+    deleted = failed = 0
+    for sid in ids:
+        proc = subprocess.run([OPENCODE_BIN, "session", "delete", sid],
+                              capture_output=True)
+        if proc.returncode == 0:
+            deleted += 1
+        else:
+            failed += 1
+    return deleted, failed
+
+
+def report(rep):
+    print("opencode")
+    print("  db            %s  (%s sessions, %s events)" % (
+        human(rep["opencode_db_bytes"]), rep["opencode_sessions"], rep["opencode_events"]))
+    print("  compaction    prune=%s  watcher.ignore=%d" % (
+        rep["compaction_prune"], rep["watcher_ignore"]))
+    print("  running       %s" % ("yes" if rep["opencode_running"] else "no"))
+    print("codebase-memory-mcp")
+    print("  cache         %s  (%d dbs)" % (human(rep["cbm_cache_bytes"]), rep["cbm_db_count"]))
+    print("  index logs    %s  (%d files)" % (human(rep["cbm_log_bytes"]), rep["cbm_log_files"]))
+    print("tezgah")
+    print("  cache         %s" % human(rep["tezgah_cache_bytes"]))
+
+
+def main():
+    ap = argparse.ArgumentParser(description="report and reclaim harness state")
+    ap.add_argument("--json", action="store_true", help="machine-readable report")
+    ap.add_argument("--clean", action="store_true",
+                    help="delete old index logs and vacuum (opt-in)")
+    ap.add_argument("--prune-sessions", type=int, metavar="DAYS",
+                    help="delete sessions idle longer than DAYS, then vacuum")
+    ap.add_argument("--days", type=int, default=7, help="age threshold for index logs")
+    args = ap.parse_args()
+
+    rep = collect()
+    cleaned = None
+    if args.clean or args.prune_sessions is not None:
+        cleaned = {}
+        if args.clean:
+            removed, freed = clean_logs(args.days)
+            cleaned["cbm_logs_removed"] = removed
+            cleaned["cbm_logs_bytes_freed"] = freed
+        if args.prune_sessions is not None and os.path.exists(OPENCODE_DB):
+            if rep["opencode_running"]:
+                cleaned["prune_sessions"] = "skipped: opencode is running"
+            else:
+                deleted, failed = prune_sessions(args.prune_sessions)
+                cleaned["prune_sessions"] = {"deleted": deleted, "failed": failed}
+        if os.path.exists(OPENCODE_DB):
+            if rep["opencode_running"]:
+                cleaned["vacuum"] = "skipped: opencode is running"
+            else:
+                try:
+                    before, after = vacuum_db()
+                    cleaned["vacuum"] = {"before": before, "after": after}
+                except sqlite3.Error as exc:
+                    cleaned["vacuum"] = "failed: %s" % exc
+        rep = collect()
+
+    if args.json:
+        out = dict(rep)
+        if cleaned is not None:
+            out["cleaned"] = cleaned
+        print(json.dumps(out, indent=2))
+        return 0
+    report(rep)
+    if cleaned is not None:
+        print("cleaned")
+        if "cbm_logs_removed" in cleaned:
+            print("  index logs    %d removed, %s freed" % (
+                cleaned["cbm_logs_removed"], human(cleaned["cbm_logs_bytes_freed"])))
+        ps = cleaned.get("prune_sessions")
+        if isinstance(ps, dict):
+            print("  sessions      %d deleted, %d failed" % (ps["deleted"], ps["failed"]))
+        elif ps:
+            print("  sessions      %s" % ps)
+        v = cleaned.get("vacuum")
+        if isinstance(v, dict):
+            print("  vacuum        %s -> %s" % (human(v["before"]), human(v["after"])))
+        elif v:
+            print("  vacuum        %s" % v)
+    elif rep["cbm_log_files"] > 2000 or rep["opencode_db_bytes"] > 500 * 1024 * 1024:
+        print("\nrun with --clean to reclaim; --prune-sessions DAYS to shrink the db")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
