@@ -1,11 +1,12 @@
 # Tezgah
 
 Tezgah, aynı repoda kullandığın yapay zekâ kodlama asistanlarını — Claude Code,
-opencode, Codex, Cursor — tek bir çalışma sözleşmesine bağlar. Normalde her
-birinin kendi alışkanlığı var: biri Türkçe cevap verir diğeri İngilizce, biri kod
-ararken `grep`'e abanır diğeri grafiği kullanır, biri test etmeden "tamam oldu"
-der. Tezgah kurulduğunda bu fark kalkar; hangi asistanı açarsan aç, aynı dilde,
-aynı disiplinde ve aynı doğrulukta çalışır.
+opencode, Codex, Cursor ve DeepSeek'in dsh harness'ı — tek bir çalışma
+sözleşmesine bağlar. Normalde her birinin kendi alışkanlığı var: biri Türkçe
+cevap verir diğeri İngilizce, biri kod ararken `grep`'e abanır diğeri grafiği
+kullanır, biri test etmeden "tamam oldu" der. Tezgah kurulduğunda bu fark
+kalkar; hangi asistanı açarsan aç, aynı dilde, aynı disiplinde ve aynı doğrulukta
+çalışır.
 
 İşin özü iki parçadan oluşur: ortak kurallar tek bir dosyada durur, her asistan
 da bu kuralları kendi anladığı biçime çeviren ince bir adaptöre sahiptir. Yani
@@ -24,13 +25,15 @@ Bir aracı kullanmak için anmak serbest; onu yazar olarak yazmak yasak.
 
 Bunun karşılığında küçük bir maliyet var ve dürüst olmak gerekirse: her oturum
 başında yaklaşık 12,5 KB (≈3.100 token) kural metni bağlama eklenir, Claude'da
-ayrıca her turda ~1,3 KB hatırlatma gider. Codex engelleme yeteneği sunmadığı
-için orada kurallar tavsiye olarak kalır. Kod grafiği için
-`codebase-memory-mcp`, dış görüş için OpenRouter anahtarı ayrıca gerekir; ikisi
-de yoksa tezgah sessizce yanlış davranmaz, "yok" der. Gecikme ölçüldü: oturum
-başlangıcında Python'un kendi tabanına (19 ms) ek yaklaşık 12 ms, her araç
-çağrısındaki kapı ise yaklaşık 0,1 ms. Kurulum ~47 ms sürer ve istendiği kadar
-tekrarlanabilir; düzenlediği her dosyayı önce `.tezgah-bak` olarak yedekler.
+ayrıca her turda ~1,3 KB hatırlatma gider. Codex'te tezgah henüz engelleme kapısı
+bağlamıyor, o yüzden orada kurallar tavsiye olarak kalır (Codex bunu destekliyor;
+adaptör işi sırada). dsh'te ise Claude hook köprüsü kullanıldığı için sözleşme ve
+kapı aynen çalışır. Kod grafiği için `codebase-memory-mcp`, dış görüş için
+OpenRouter anahtarı ayrıca gerekir; ikisi de yoksa tezgah sessizce yanlış
+davranmaz, "yok" der. Gecikme ölçüldü: oturum başlangıcında Python'un kendi
+tabanına (19 ms) ek yaklaşık 12 ms, her araç çağrısındaki kapı ise yaklaşık
+0,1 ms. Kurulum ~47 ms sürer ve istendiği kadar tekrarlanabilir; düzenlediği her
+dosyayı önce `.tezgah-bak` olarak yedekler.
 
 Kazanç en çok "bu fonksiyonu kim çağırıyor?" sorusunda görünüyor. Gerçek bir
 repoda ölçtüm: `grep` varsayılan haliyle ilgili klasörü ignore'a takıp hiçbir şey
@@ -38,8 +41,9 @@ bulamadı; ignore'ı kapatıp doğru cevabı aradığında 3,95 saniye sürdü v
 tanım ile çağrıyı karıştırdı. Kod grafiği aynı soruyu 16 milisaniyede, sadece
 gerçek 8 çağrı yerini göstererek yanıtladı.
 
-Kurulum basit. Repoyu klonla, `--install` ile dört asistanı bağla; eski bir
-kurulumun varsa `--adopt` ile onu devral (siler değil, taşır):
+Kurulum basit. Repoyu klonla, `--install` ile algılanan tüm asistanları (Claude,
+opencode, Codex, Cursor, dsh) bağla; eski bir kurulumun varsa `--adopt` ile onu
+devral (siler değil, taşır):
 
 ```bash
 git clone https://github.com/r1z4x/tezgah.git ~/Projects/tezgah

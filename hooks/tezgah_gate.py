@@ -57,11 +57,13 @@ def explored(subagent_type):
 
 
 def searched_identifier(tool, inp):
-    """The bare identifier this call searches for, or None."""
-    if tool == "Grep":
+    """The bare identifier this call searches for, or None. Host tool names
+    differ in case (Claude `Grep`/`Bash`, Codex/dsh `bash`), so match lowercased."""
+    t = str(tool or "").lower()
+    if t == "grep":
         pat = str(inp.get("pattern", ""))
         return pat if IDENT.match(pat) else None
-    if tool == "Bash":
+    if t in ("bash", "shell"):
         for m in BASH_SEARCH.finditer(str(inp.get("command", ""))):
             tok = m.group(2).strip("'\"")
             if IDENT.match(tok):
@@ -109,12 +111,11 @@ def decision(tool, inp, cwd, session_id=None):
     base = root_for(cwd)
     if not base:
         return None
-    if tool in ("Agent", "Task") and explored(inp.get("subagent_type")):
+    t = str(tool or "").lower()
+    sub = inp.get("subagent_type") or (inp.get("args") or {}).get("subagent_type")
+    if t in ("agent", "task", "subagent") and explored(sub):
         return EXPLORE_DENY
-    if tool in ("Task", "task") and explored(
-            inp.get("subagent_type") or (inp.get("args") or {}).get("subagent_type")):
-        return EXPLORE_DENY
-    if tool in ("Bash", "bash", "Shell", "shell") and attribution(inp.get("command")):
+    if t in ("bash", "shell") and attribution(inp.get("command")):
         return ATTRIB_DENY
     if searched_identifier(tool, inp):
         slug = index_slug(cwd, base)

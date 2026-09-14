@@ -87,7 +87,7 @@ production account or an external service.
 
 **Attribution: none, anywhere, ever.** Nothing you persist or publish may name
 the assistant, model, vendor or "AI" as author, co-author, generator or helper -
-on any host (Claude, opencode, Codex, Cursor), including subagents and cheap
+on any host (Claude, opencode, Codex, Cursor, dsh), including subagents and cheap
 models. This covers every durable or public artifact: git commit messages
 (subject, body and trailers), squash and merge messages, tags, release notes and
 `git notes`; PR titles and bodies; issue, review and discussion comments; code

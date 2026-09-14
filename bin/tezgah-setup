@@ -36,9 +36,11 @@ CODEX = os.path.join(HOME, ".codex")
 OPENCODE = os.path.join(
     os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"), "opencode")
 CURSOR = os.path.join(HOME, ".cursor")
+DSH = os.environ.get("DSH_HOME") or os.path.join(HOME, ".dsh")
+DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
 SKILLS = ["harness", "ponytail", "no-ai-slop", "plan-add", "plan-status", "plan-sync"]
 WORKFLOW_FILES = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
-ALL_HOSTS = ["claude", "codex", "opencode", "cursor"]
+ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh"]
 OK, NO = "  ok  ", " MISS "
 
 
@@ -98,6 +100,37 @@ def backup(path):
             pass
 
 
+def set_managed_block(path, block, start="# tezgah:start", end="# tezgah:end"):
+    """Replace the tezgah block in a text file, or append it. A YAML file that
+    is an empty sequence (`[]`, the dsh patch-layer default) loses that token
+    first, because a sequence cannot follow it."""
+    try:
+        with open(path) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        lines = []
+    out, skip = [], False
+    for ln in lines:
+        if ln.strip().startswith(start):
+            skip = True
+            continue
+        if ln.strip().startswith(end):
+            skip = False
+            continue
+        if not skip and ln.strip() != "[]":
+            out.append(ln)
+    while out and not out[-1].strip():
+        out.pop()
+    if not out:
+        out = ["# dsh home patch layer - tezgah-setup manages the marked block below"]
+    mkdirp(os.path.dirname(path))
+    backup(path)
+    text = "\n".join(out) + "\n" + start + " (managed by tezgah-setup; do not edit)\n" \
+        + block.strip() + "\n" + end + "\n"
+    with open(path, "w") as fh:
+        fh.write(text)
+
+
 def cbm_command():
     return tp.cbm_bin() or tp.config().get("cbm_bin") or tp.CBM
 
@@ -108,6 +141,7 @@ def detected():
         "codex": os.path.isdir(CODEX),
         "opencode": os.path.isdir(OPENCODE) or bool(shutil.which("opencode")),
         "cursor": os.path.isdir(CURSOR),
+        "dsh": os.path.isdir(DSH) or bool(shutil.which("dsh")),
     }
 
 
@@ -261,8 +295,38 @@ def install_cursor():
     print("%s %s" % (OK, mpath))
 
 
+def dsh_patch_block():
+    """dsh home-patch rows: run tezgah's existing Claude hooks in dsh through its
+    claude-code bridge (same contract, same grep/Explore gate, same attribution
+    gate), and register the code graph as an MCP server."""
+    return (
+        "- insert:\n"
+        "    - id: tezgah-hooks\n"
+        "      name: '@deepseek-ai/dsh-hooks-claude-code'\n"
+        "      config:\n"
+        "        configPath: %s\n"
+        "        pluginRoot: %s\n"
+        "        projectDir: .\n"
+        "    - id: tezgah-mcp\n"
+        "      name: '@deepseek-ai/dsh-mcp-client'\n"
+        "      config:\n"
+        "        serverName: codebase-memory-mcp\n"
+        "        transport: stdio\n"
+        "        command: %s\n"
+        % (os.path.join(HERE, "hooks", "hooks.json"), HERE, cbm_command()))
+
+
+def install_dsh():
+    print("\ndsh:")
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(DSH, "skills", s)))
+    set_managed_block(DSH_PATCH, dsh_patch_block())
+    print("%s %s" % (OK, DSH_PATCH))
+
+
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
-              "opencode": install_opencode, "cursor": install_cursor}
+              "opencode": install_opencode, "cursor": install_cursor,
+              "dsh": install_dsh}
 
 
 # ------------------------------------------------------------------ adopt ----
@@ -434,8 +498,22 @@ def host_checks_cursor():
     ]
 
 
+def host_checks_dsh():
+    try:
+        with open(DSH_PATCH) as fh:
+            patched = fh.read()
+    except OSError:
+        patched = ""
+    return [
+        ("claude-code hooks bridge in cordis.patch.yml", "dsh-hooks-claude-code" in patched),
+        ("MCP bridge in cordis.patch.yml", "dsh-mcp-client" in patched),
+        ("skills linked", all(os.path.islink(os.path.join(DSH, "skills", s)) for s in SKILLS)),
+    ]
+
+
 HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
-               "opencode": host_checks_opencode, "cursor": host_checks_cursor}
+               "opencode": host_checks_opencode, "cursor": host_checks_cursor,
+               "dsh": host_checks_dsh}
 
 
 def versions_agree():
