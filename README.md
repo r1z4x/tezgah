@@ -74,10 +74,12 @@ denial is inert — there is no explorer subagent for it to refuse. dsh's defaul
 `workspace-write` sandbox confines hook subprocesses to the workspace and the
 platform temp dir, so tezgah writes its hook state (nudge marks, index stamp) to
 a writable fallback there rather than failing on a denied write. The graph index
-is served by the `codebase-memory-mcp` MCP server, which dsh spawns unsandboxed:
-a session started on dsh reports the MCP-served graph and asks for
-`index_repository` on a repo the server has not indexed, instead of surfacing a
-raw `EPERM`. The managed
+worker cannot write the `codebase-memory-mcp` cache from inside that sandbox, so
+the `dsh` launcher warms the index in the user's unconfined shell before booting
+dsh — a new repo is indexed exactly as on the other hosts, HEAD-stamped. A
+session booted without the launcher still gets a clear report that the
+unsandboxed MCP server serves the graph and needs `index_repository` for a repo
+it has not indexed, instead of a raw `EPERM`. The managed
 patch block also declares two OpenAI-compatible LLM routes on the pi-ai adapter
 the base composition mounts: `openrouter` (`OPENROUTER_API_KEY`) and `deepseek`
 (`DEEPSEEK_API_KEY`), selectable alongside the native `deepseek-official`

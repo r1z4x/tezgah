@@ -17,6 +17,7 @@ from support import TempHome
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKER = os.path.join(REPO, "hooks", "tezgah_index.py")
 CLI = os.path.join(REPO, "bin", "tezgah-index")
+LAUNCHER = os.path.join(REPO, "bin", "tezgah-dsh")
 
 # a stand-in for codebase-memory-mcp: logs every call, and fails the first
 # FAKE_CBM_FAILS index calls so the worker's retry can be exercised
@@ -159,6 +160,40 @@ class IndexCli(TempHome):
             text = fh.read()
         self.assertIn('"chat.message"', text)
         self.assertIn("tezgah-index", text)
+
+
+class DshLauncher(TempHome):
+    """The dsh launcher must warm the graph index OUTSIDE dsh's sandbox, so a
+    repo dsh has never seen still gets indexed (the hook cannot write the cbm
+    cache from inside the workspace-write sandbox)."""
+
+    def fake(self, path, body):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(body)
+        os.chmod(path, 0o755)
+
+    def test_launcher_warms_the_index_then_boots_dsh(self):
+        self.fake(os.path.join(self.home, ".config", "tezgah", "bin",
+                               "tezgah-index"),
+                  '#!/bin/sh\necho "$@" >> "$IDX_LOG"\n')
+        dsh_home = os.path.join(self.home, "dsh-home")
+        self.fake(os.path.join(dsh_home, "profiles", "node_modules",
+                               "@deepseek-ai", "dsh", "lib", "bin.js"),
+                  'require("fs").appendFileSync(process.env.DSH_RUN_LOG,'
+                  ' process.argv.slice(2).join(" ") + "\\n")\n')
+        idx_log = os.path.join(self.home, "idx.log")
+        dsh_log = os.path.join(self.home, "dsh.log")
+        repo = self.make_repo("proj")
+        env = self.env(extra={"DSH_HOME": dsh_home, "IDX_LOG": idx_log,
+                              "DSH_RUN_LOG": dsh_log})
+        proc = subprocess.run([LAUNCHER, "--profile", "web"], capture_output=True,
+                              text=True, env=env, cwd=repo, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(idx_log) as fh:
+            self.assertIn(repo, fh.read())
+        with open(dsh_log) as fh:
+            self.assertIn("--profile web", fh.read())
 
 
 if __name__ == "__main__":

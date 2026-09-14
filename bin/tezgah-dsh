@@ -5,6 +5,13 @@
 # is no PATH command unless one is created. tezgah-setup symlinks ~/.local/bin/dsh
 # to this wrapper; the wrapper resolves the CLI so the symlink survives a version
 # change. Arguments are passed through untouched (e.g. --profile web|headless).
+#
+# dsh boots its hooks under a workspace-write sandbox that confines hook
+# subprocesses to the workspace plus the platform temp dir. The graph index
+# worker must write the codebase-memory-mcp cache, which that sandbox denies, so
+# a repo dsh has never seen would never get indexed from the hook. The launcher
+# runs in the user's shell, unconfined, so it starts the same worker the hooks
+# use - HEAD-stamped, so it is a no-op when the graph is already current.
 set -eu
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 BIN="$DSH_HOME/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js"
@@ -12,5 +19,9 @@ if [ ! -f "$BIN" ]; then
     echo "tezgah-dsh: dsh CLI not found at $BIN" >&2
     echo "tezgah-dsh: install the DeepSeek Harness, or set DSH_HOME, then re-run tezgah-setup --install" >&2
     exit 127
+fi
+INDEX="${TEZGAH_INDEX_BIN:-$HOME/.config/tezgah/bin/tezgah-index}"
+if [ -x "$INDEX" ]; then
+    "$INDEX" "$PWD" >/dev/null 2>&1 || true
 fi
 exec node "$BIN" "$@"
