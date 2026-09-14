@@ -214,13 +214,15 @@ def used(session_id):
 
 
 def health_lines(cwd, session_id=None):
-    """The armed/used checklist, host-neutral, for `tezgah-status`."""
-    if not under(cwd):
-        return ""
+    """The armed/used checklist, host-neutral, for `tezgah-status`.
+
+    Global, not root-scoped: tezgah ships as a globally loaded instructions
+    file on opencode (and the CLI is used outside repos), so the indicator must
+    not go silent off-root. Only the per-repo marks need an enclosing root."""
     marks = set()
     p = os.path.realpath(cwd)
     base = root_for(cwd)
-    while p.startswith(base):
+    while base and p.startswith(base):
         for f in (".no-ponytail", ".no-cbm"):
             if os.path.exists(os.path.join(p, f)):
                 marks.add(f)

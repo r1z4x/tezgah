@@ -52,83 +52,88 @@ try:
 except OSError:
     real = ""
 PROJECTS = root_for(real) if real else None
-seg = ""
-if PROJECTS:
-    def off(name):
-        return os.path.exists(os.path.join(HOME, ".config", "tezgah", name)) \
-            or os.path.exists(os.path.join(HOME, ".claude", name))
 
-    repo_flags = set()
-    p = real
-    while p.startswith(PROJECTS):
-        for f in (".no-ponytail", ".no-cbm"):
-            if os.path.exists(os.path.join(p, f)):
-                repo_flags.add(f)
-        if p == PROJECTS:
-            break
-        p = os.path.dirname(p)
 
-    key_ok = have_consult_key()
+def off(name):
+    return os.path.exists(os.path.join(HOME, ".config", "tezgah", name)) \
+        or os.path.exists(os.path.join(HOME, ".claude", name))
 
-    # which tezgah tools this session actually used
-    used = {"consult": False, "cbm": False, "orch": False}
-    if HOST == "cursor":
-        seen = used_kinds(payload.get("session_id"))
-        for k in used:
-            used[k] = k in seen
-    else:
-        # Parse tool_use blocks from the transcript — a substring scan would
-        # flag the tool NAME appearing in chat text as a use.
-        tp = payload.get("transcript_path")
-        files = [tp] if tp and os.path.exists(tp) else []
-        if tp:
-            files += glob.glob(os.path.splitext(tp)[0] + "/subagents/**/*.jsonl",
-                               recursive=True)
-        lines = []
-        for fp in files:
-            try:
-                size = os.path.getsize(fp)
-                with open(fp, encoding="utf-8", errors="ignore") as fh:
-                    if size > 2_000_000:
-                        fh.seek(size - 2_000_000)
-                    lines += fh.read().splitlines()
-            except OSError:
-                pass
-        for line in lines:
-            try:
-                content = (json.loads(line).get("message") or {}).get("content")
-            except Exception:
-                continue  # partial first line after seek, or non-message row
-            if not isinstance(content, list):
+
+# Global indicator: tezgah is loaded for the whole session on the hosts that
+# ship it as an instructions file, so the checklist prints for any cwd. Only
+# the per-repo marks and the plans count need an enclosing root.
+repo_flags = set()
+p = real
+while PROJECTS and p.startswith(PROJECTS):
+    for f in (".no-ponytail", ".no-cbm"):
+        if os.path.exists(os.path.join(p, f)):
+            repo_flags.add(f)
+    if p == PROJECTS:
+        break
+    p = os.path.dirname(p)
+
+key_ok = have_consult_key()
+
+# which tezgah tools this session actually used
+used = {"consult": False, "cbm": False, "orch": False}
+if HOST == "cursor":
+    seen = used_kinds(payload.get("session_id"))
+    for k in used:
+        used[k] = k in seen
+else:
+    # Parse tool_use blocks from the transcript — a substring scan would
+    # flag the tool NAME appearing in chat text as a use.
+    tp = payload.get("transcript_path")
+    files = [tp] if tp and os.path.exists(tp) else []
+    if tp:
+        files += glob.glob(os.path.splitext(tp)[0] + "/subagents/**/*.jsonl",
+                           recursive=True)
+    lines = []
+    for fp in files:
+        try:
+            size = os.path.getsize(fp)
+            with open(fp, encoding="utf-8", errors="ignore") as fh:
+                if size > 2_000_000:
+                    fh.seek(size - 2_000_000)
+                lines += fh.read().splitlines()
+        except OSError:
+            pass
+    for line in lines:
+        try:
+            content = (json.loads(line).get("message") or {}).get("content")
+        except Exception:
+            continue  # partial first line after seek, or non-message row
+        if not isinstance(content, list):
+            continue
+        for b in content:
+            if not isinstance(b, dict) or b.get("type") != "tool_use":
                 continue
-            for b in content:
-                if not isinstance(b, dict) or b.get("type") != "tool_use":
-                    continue
-                name = b.get("name", "")
-                if name.startswith("mcp__codebase-memory-mcp__"):
-                    used["cbm"] = True
-                elif name in ("Task", "Agent"):
-                    used["orch"] = True
-                elif name == "Bash" and "consult" in \
-                        (b.get("input") or {}).get("command", ""):
-                    used["consult"] = True
+            name = b.get("name", "")
+            if name.startswith("mcp__codebase-memory-mcp__"):
+                used["cbm"] = True
+            elif name in ("Task", "Agent"):
+                used["orch"] = True
+            elif name == "Bash" and "consult" in \
+                    (b.get("input") or {}).get("command", ""):
+                used["consult"] = True
 
-    # Behavioural rules (can't measure from transcript): armed ✓ / off ✗.
-    armed = [
-        ("pony", not off("ponytail-auto.off") and ".no-ponytail" not in repo_flags),
-        ("exec", not off("exec-mode.off")),
-    ]
-    # Measurable rules: used ✓ / armed-but-unused ○ / off ✗.
-    measurable = [
-        ("consult", not off("consult-off") and key_ok, used["consult"]),
-        ("cbm", ".no-cbm" not in repo_flags, used["cbm"]),
-        ("orch", not off("orchestrate-off"), used["orch"]),
-    ]
-    left = " ".join(n + ("✓" if on else "✗") for n, on in armed)
-    right = " ".join(
-        n + ("✗" if not on else ("✓" if u else "○")) for n, on, u in measurable)
-    seg = left + "  ·  " + right
-    # Plans layer: open plan count for the enclosing repo (plans/open/*.md).
+# Behavioural rules (can't measure from transcript): armed ✓ / off ✗.
+armed = [
+    ("pony", not off("ponytail-auto.off") and ".no-ponytail" not in repo_flags),
+    ("exec", not off("exec-mode.off")),
+]
+# Measurable rules: used ✓ / armed-but-unused ○ / off ✗.
+measurable = [
+    ("consult", not off("consult-off") and key_ok, used["consult"]),
+    ("cbm", ".no-cbm" not in repo_flags, used["cbm"]),
+    ("orch", not off("orchestrate-off"), used["orch"]),
+]
+left = " ".join(n + ("✓" if on else "✗") for n, on in armed)
+right = " ".join(
+    n + ("✗" if not on else ("✓" if u else "○")) for n, on, u in measurable)
+seg = left + "  ·  " + right
+# Plans layer: open plan count for the enclosing repo (plans/open/*.md).
+if PROJECTS:
     p = real
     while p.startswith(PROJECTS):
         plans = glob.glob(os.path.join(p, "plans", "open", "*.md"))

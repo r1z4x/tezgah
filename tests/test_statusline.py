@@ -32,11 +32,12 @@ class Statusline(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("consult\u2717", proc.stdout)
 
-    def test_outside_roots_does_not_crash(self):
-        # Regression: `seg` is bound before `if PROJECTS:`, so a cwd outside
-        # every tezgah root exits 0 with no output instead of NameError.
+    def test_outside_roots_still_shows_segment(self):
+        # Global indicator: cwd outside every root still prints the checklist
+        # (no repo marks / plan count, but not a blank line).
         proc = run([support.STATUSLINE], {"cwd": self.home}, env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), SEGMENT)
 
 
 if __name__ == "__main__":

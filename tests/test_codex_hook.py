@@ -25,12 +25,16 @@ class CodexHook(TempHome):
         self.assertIn("systemMessage", out)
         self.assertIn("tezgah", out["systemMessage"])
 
-    def test_outside_roots_is_silent(self):
-        proc = run([support.CODEX_HOOK],
-                   {"hook_event_name": "SessionStart", "cwd": self.home},
-                   env=self.env())
+    def test_outside_roots_reports_status_without_context(self):
+        # The status segment is a global indicator (tezgah loads globally where
+        # it ships as an instructions file), so it prints off-root too; the
+        # rule context itself stays root-scoped and is absent.
+        out, proc = run_json([support.CODEX_HOOK],
+                             {"hook_event_name": "SessionStart", "cwd": self.home},
+                             env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(proc.stdout.strip(), "")
+        self.assertIn("tezgah", out["systemMessage"])
+        self.assertNotIn("hookSpecificOutput", out)
 
     def test_post_tool_use_records_and_prints_nothing(self):
         repo = self.make_repo()

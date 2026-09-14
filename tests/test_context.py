@@ -37,12 +37,15 @@ class HealthLines(TempHome):
     def armed_key(self):
         self.touch(os.path.join(self.home, ".config", "openrouter", "key"))
 
-    def test_outside_roots_is_empty(self):
+    def test_outside_roots_still_shows_checklist(self):
+        # Global indicator: the checklist prints off-root too, so the opencode
+        # TUI does not go silent when the session cwd is outside ~/Projects.
         out, proc = run_json([support.PROBE_CONTEXT],
                              {"fn": "health_lines", "cwd": self.home},
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(out, "")
+        self.assertEqual(out, "pony\u2713 exec\u2713  \u00b7  "
+                              "consult\u2717 cbm\u25cb orch\u25cb")
 
     def test_armed_but_unused_checklist(self):
         repo = self.make_repo()
