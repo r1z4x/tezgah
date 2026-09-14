@@ -36,7 +36,9 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    invisible to plan-sync). Then `git add plans/README.md plans/open/NNN-slug.md &&
    git commit -m "plan: add NNN slug"`, and `git push` ONLY if `git remote` is non-empty
    (explicit paths only: `git add plans` would sweep in files another agent is writing)`.
-   The message must not contain Anthropic, Claude, or any Co-Authored-By trailer.
+   The message must carry no AI/model attribution of any kind: no Co-Authored-By,
+   no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
+   GPT/Codex/Gemini/Cursor/Copilot credit.
 8. Report the file path and the table row.
 
 ## Format

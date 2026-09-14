@@ -30,7 +30,9 @@ description: >
 7. If `git status --porcelain plans` shows changes:
    `git add plans/README.md <plan files you changed> && git commit -m "plan: update status" && git push
    (explicit paths only, never `git add plans`)`.
-   The message must not contain Anthropic, Claude, or any Co-Authored-By trailer.
+   The message must carry no AI/model attribution of any kind: no Co-Authored-By,
+   no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
+   GPT/Codex/Gemini/Cursor/Copilot credit.
 8. Print the table, then one line per plan with `status: blocked` quoting its
    `BLOCKED: <reason>`, then any gh failures.
 9. End with exactly one recommendation: "Work on NNN <slug> next: <reason>". No menu.

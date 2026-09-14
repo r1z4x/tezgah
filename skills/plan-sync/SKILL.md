@@ -36,7 +36,9 @@ description: >
    `git add plans/README.md plans/open/NNN-slug.md plans/done/NNN-slug.md && git commit -m "plan: done NNN slug"`
    (explicit paths only, never `git add -A plans`) (verb `discard` for
    discarded plans; the README change rides with the first commit), then `git push`.
-   Messages must not contain Anthropic, Claude, or any Co-Authored-By trailer.
+   Messages must carry no AI/model attribution of any kind: no Co-Authored-By,
+   no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
+   GPT/Codex/Gemini/Cursor/Copilot credit.
 9. Report three lists: moved plans (with done/discarded and the evidence line),
    still-open plans, and gh failures. Never delete branches, never edit code outside
    `plans/`.

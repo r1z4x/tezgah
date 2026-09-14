@@ -16,8 +16,11 @@ Pratikte tezgah asistanlara şunları yaptırır: cevap Türkçe ve önce sonuç
 (kod ve commit İngilizce kalır), gereksiz soyutlama yapmadan işe yarayan en kısa
 çözüm yazılacak, "kim çağırıyor / neyi bozar" gibi sorular `grep` yerine kod
 grafiğiyle cevaplanacak, kritik bir karardan önce bağımsız modellere danışılacak,
-test edilmeden "yaptım" denmeyecek ve commit/PR metnine `Co-Authored-By` ya da
-benzeri bir model atıfı eklenmeyecek.
+test edilmeden "yaptım" denmeyecek ve kalıcı ya da yayınlanan hiçbir metne —
+commit/merge/tag mesajına, PR/issue/review yazısına, dosya başlığına, yorum ya da
+dokümana — AI/model atıfı eklenmeyecek: ne `Co-Authored-By`, ne "Generated with",
+ne robot emoji, ne de Claude/Anthropic/OpenAI/Codex/Gemini/Cursor/Copilot adı.
+Bir aracı kullanmak için anmak serbest; onu yazar olarak yazmak yasak.
 
 Bunun karşılığında küçük bir maliyet var ve dürüst olmak gerekirse: her oturum
 başında yaklaşık 12,5 KB (≈3.100 token) kural metni bağlama eklenir, Claude'da

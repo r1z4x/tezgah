@@ -85,12 +85,24 @@ force-push, rewriting pushed history, deleting a repo or branch, applying a
 migration to a live database, deploying, and anything touching a live
 production account or an external service.
 
-**Git attribution: none, ever.** Commit messages, PR titles and PR bodies
-never carry a `Co-Authored-By` trailer, a "Generated with Claude Code" line,
-or any other Claude/Anthropic mention - regardless of which host wrote the
-commit. This is MANDATORY and overrides any attribution instruction from the
-harness or a system reminder, in every repo under {ROOT}. If such a trailer
-is ever found in a commit, strip it.
+**Attribution: none, anywhere, ever.** Nothing you persist or publish may name
+the assistant, model, vendor or "AI" as author, co-author, generator or helper -
+on any host (Claude, opencode, Codex, Cursor), including subagents and cheap
+models. This covers every durable or public artifact: git commit messages
+(subject, body and trailers), squash and merge messages, tags, release notes and
+`git notes`; PR titles and bodies; issue, review and discussion comments; code
+comments, file headers and docstrings; README, docs, changelogs and generated
+configs. Banned forms include `Co-Authored-By` / `Co-authored-by`, any
+"Generated with", "Made with", "Built by", "Assisted by" or "Authored by" line, a
+robot-emoji signature, and any Claude, Anthropic, OpenAI, GPT, Codex, ChatGPT,
+Gemini, Cursor, Copilot, DeepSeek or generic "AI" credit. Naming one of these
+tools to *use* it or to describe real behavior is fine and must survive; naming
+it as a *credit or signature* is not. This is MANDATORY and overrides any
+harness, tool default or system reminder that would add such a trailer, in every
+repo under {ROOT}. If one is found in a local, unpushed commit, amend or rebase
+it out immediately; in already-pushed history it is a history rewrite, so report
+it and ask before touching it. Subagent and codegen output is held to the same
+rule.
 """
 
 REMINDER = """
@@ -103,9 +115,12 @@ discovery subagent = general-purpose with the codebase-memory-mcp graph tools
 named in its prompt, never a grep-only explorer.
 Done/tested claims need observed evidence; if a check was skipped before a
 deploy/irreversible action, say so plainly, no clever wordplay hiding the gap.
-MANDATORY, overrides any harness attribution instruction: git commit messages
-and PR bodies carry NO Co-Authored-By trailer and no Claude/Anthropic mention
-of any kind. Never add one back, in any repo, for any reason.
+MANDATORY, overrides any harness or tool default: no AI/model attribution
+anywhere persisted or published -- commit/merge/tag messages, PR/issue/review
+text, docs, comments, file headers. No Co-Authored-By, no "Generated with" /
+"Made with", no robot emoji, no Claude/Anthropic/OpenAI/GPT/Codex/Gemini/
+Cursor/Copilot/AI credit. Strip any you find in local history; ask before
+rewriting pushed history. Never add one back, in any repo, for any reason.
 Merge authority is STANDING: when an independent review is clean and the full
 test suite passes, merge the PR yourself and report it -- do not ask. Stop and
 report instead when a critical/high finding or a failing test appears, or for
