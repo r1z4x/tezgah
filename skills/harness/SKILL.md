@@ -9,16 +9,21 @@ description: >
   a task is too wide for one context window.
 ---
 
-Repo tree is indexed by codebase-memory-mcp. Graph beats grep for structure. Load graph tools with
-ToolSearch("select:mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage") before searching by hand.
+Repo tree is indexed by codebase-memory-mcp. Graph beats grep for structure. On Claude, load the graph tools with
+ToolSearch("select:mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage") before searching by hand. On Codex, Cursor and opencode the same tools are exposed directly as MCP tools; use them as-is.
 
 ## Route
 
+The table below is the Claude path. `Workflow(...)` is a Claude Code runtime; on
+Codex, Cursor and opencode run the SAME phases with the host's subagents - one
+graph-backed reader per module in parallel, a synthesizer, then a critic that
+names what was dropped - and report the same caps.
+
 | Request shape | Harness | Cost |
 |---|---|---|
-| "how does X work", "map this", unfamiliar subsystem before an edit | `Workflow({name:'cbm-map', args:{focus:'...'}})` | ~11 agents |
-| "review this", diff/branch/PR, "find bugs in my changes" | `Workflow({name:'cbm-review', args:{target:'...'}})` | ~13 agents |
-| rename, API migration, "every call site", "safe to delete?" | `Workflow({name:'cbm-impact', args:{target:'<symbol>'}})` | ~8 agents |
+| "how does X work", "map this", unfamiliar subsystem before an edit | `Workflow({name:'cbm-map', args:{focus:'...'}})` (other hosts: parallel readers + synthesize + gap-check) | ~11 agents |
+| "review this", diff/branch/PR, "find bugs in my changes" | `Workflow({name:'cbm-review', args:{target:'...'}})` (other hosts: per-dimension reviewers, then refuters) | ~13 agents |
+| rename, API migration, "every call site", "safe to delete?" | `Workflow({name:'cbm-impact', args:{target:'<symbol>'}})` (other hosts: trace callers, plan per module, sweep blind spots) | ~8 agents |
 | one lookup, one file, scope already clear | no workflow - one general-purpose subagent briefed with the cbm tools, or do it inline | 0-1 agents |
 
 Each workflow already fans out and adversarially verifies its own output. Do not re-verify its findings by
@@ -45,8 +50,9 @@ buys nothing when one context window already holds the whole problem.
 
 ## Repair
 
-Workflow name not found -> the script's `meta` block failed to parse, or the file is not under a loaded
-workflows directory. Nothing here is directory-scoped: `~/.claude/workflows/` is user-global.
+Workflow name not found on Claude -> the script's `meta` block failed to parse, or the file is not under a loaded
+workflows directory. `~/.claude/workflows/` is user-global (installed by `bin/tezgah-setup --install`).
+On Codex, Cursor and opencode there is no `Workflow` runtime: run the phases by hand as above.
 Survey/trace returns nothing -> repo not indexed yet; run `index_repository(repo_path=<repo root>)`, or
 `codebase-memory-mcp cli index_repository --repo-path <root>` in a shell, then retry.
 Editing a harness: scripts live in the plugin's `workflows/` directory, symlinked from `~/.claude/workflows/*.js`; re-run with

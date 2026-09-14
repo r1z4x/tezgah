@@ -29,7 +29,7 @@ description: >
 5. For every plan marked done: if `## Acceptance` still has `- [ ]` boxes, still move
    it but append the line `acceptance boxes unchecked at sync` to `## State`.
 6. Move each done or discarded plan: `git mv plans/open/NNN-slug.md plans/done/NNN-slug.md`.
-7. Rewrite the README status table: `~/.claude/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
+7. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). For plan-status pass
    `--pr-info NNN='(STATE | review | checks)'` per enriched plan.
 8. If anything moved, one commit per moved plan:

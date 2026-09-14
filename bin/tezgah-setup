@@ -1,154 +1,462 @@
 #!/usr/bin/env python3
-"""tezgah-setup - arm the parts Claude Code does not install from a plugin.
+"""tezgah-setup - arm every host you have from this one checkout.
 
-  tezgah-setup                      report what is armed and what is missing
-  tezgah-setup --install            write the config, link statusline+workflows
-  tezgah-setup --roots ~/work:~/oss --install    set the roots while installing
-  tezgah-setup --sync               copy this checkout over the installed copy
+  tezgah-setup                         report what is armed, per host
+  tezgah-setup --install               wire every detected host
+  tezgah-setup --install --hosts claude,codex,opencode,cursor
+  tezgah-setup --roots ~/work:~/oss --install
+  tezgah-setup --adopt                 move the predecessor wiring aside
+  tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
+  tezgah-setup --status [PATH]         print the armed/used checklist
 
-A plugin gives you hooks, skills and its own files. It does NOT give you the
-bare-name ~/.claude/workflows scripts (the plugin's own copies load under the
-plugin-qualified name), the statusLine command, the stable ~/.claude/bin paths
-the plan skills call, or a machine-specific root list. This wires those up.
+Claude Code installs from a plugin; the other three do not have that channel,
+so they are wired here: Codex hooks.json + skills, Cursor hooks.json + skills,
+opencode plugins + instructions + skills, and the shared MCP registration.
+Re-running is idempotent; every write is backed up once as <file>.tezgah-bak.
 """
+import argparse
+import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_paths import CBM, CONFIG, CONFIG_DIR, DEFAULT_ROOT, cbm_bin, \
-    have_consult_key, roots  # noqa: E402
+import tezgah_context  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
+from tezgah_policy import (CBM_RULE, CONSULT, EXEC, NO_CONSULT, ORCHESTRATE,
+                           PONYTAIL, WORKFLOWS)  # noqa: E402
 
 HOME = os.path.expanduser("~")
 CLAUDE = os.path.join(HOME, ".claude")
-WORKFLOW_DIR = os.path.join(CLAUDE, "workflows")
-STATUSLINE = os.path.join(CLAUDE, "statusline.py")
-SHELL_BIN = os.path.join(CLAUDE, "bin")
-WORKFLOWS = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
+CODEX = os.path.join(HOME, ".codex")
+OPENCODE = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"), "opencode")
+CURSOR = os.path.join(HOME, ".cursor")
+SKILLS = ["harness", "ponytail", "no-ai-slop", "plan-add", "plan-status", "plan-sync"]
+WORKFLOW_FILES = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
+ALL_HOSTS = ["claude", "codex", "opencode", "cursor"]
 OK, NO = "  ok  ", " MISS "
 
 
+def mkdirp(p):
+    os.makedirs(p, exist_ok=True)
+
+
+def expand(p):
+    return os.path.expanduser(str(p))
+
+
 def link(src, dst):
-    """Idempotent symlink; returns a one-line result."""
-    if os.path.islink(dst) and os.path.realpath(dst) == os.path.realpath(src):
-        return "%s %s" % (OK, dst)
-    if os.path.exists(dst) and not os.path.islink(dst):
-        return "%s %s exists and is a real file - move it aside first" % (NO, dst)
+    """Idempotent symlink. A real file in the way is kept as <dst>.tezgah-bak
+    and replaced, so an old shim (codex/bin/consult) does not block the build."""
+    if os.path.isdir(dst) and not os.path.islink(dst):
+        return "%s %s is a directory - move it aside first" % (NO, dst)
+    if os.path.islink(dst):
+        if os.path.realpath(dst) == os.path.realpath(src):
+            return "%s %s" % (OK, dst)
+        os.unlink(dst)
+    elif os.path.exists(dst):
+        try:
+            os.replace(dst, dst + ".tezgah-bak")
+        except OSError as exc:
+            return "%s %s (%s)" % (NO, dst, exc)
     try:
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        if os.path.islink(dst):
-            os.unlink(dst)
+        mkdirp(os.path.dirname(dst))
         os.symlink(src, dst)
         return "%s %s -> %s" % (OK, dst, src)
     except OSError as exc:
         return "%s %s (%s)" % (NO, dst, exc)
 
 
+def read_json(path, default):
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except Exception:
+        return default
+
+
+def write_json(path, data):
+    mkdirp(os.path.dirname(path))
+    backup(path)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+def backup(path):
+    if os.path.exists(path) and not os.path.exists(path + ".tezgah-bak"):
+        try:
+            shutil.copy2(path, path + ".tezgah-bak")
+        except OSError:
+            pass
+
+
+def cbm_command():
+    return tp.cbm_bin() or tp.config().get("cbm_bin") or tp.CBM
+
+
+def detected():
+    return {
+        "claude": os.path.isdir(CLAUDE),
+        "codex": os.path.isdir(CODEX),
+        "opencode": os.path.isdir(OPENCODE) or bool(shutil.which("opencode")),
+        "cursor": os.path.isdir(CURSOR),
+    }
+
+
+# ---------------------------------------------------------------- install ----
+
+def install_common(new_roots, hosts):
+    cfg = tp.config()
+    cfg["roots"] = [expand(r) for r in new_roots] if new_roots else \
+        (tp.roots() or [tp.DEFAULT_ROOT])
+    if tp.cbm_bin():
+        cfg["cbm_bin"] = tp.cbm_bin()
+    cfg["hosts"] = hosts
+    write_json(tp.CONFIG, cfg)
+    print("%s %s  roots=%s" % (OK, tp.CONFIG, cfg["roots"]))
+    for name, src in [
+            ("consult", os.path.join(HERE, "bin", "consult")),
+            ("codegen", os.path.join(HERE, "bin", "codegen")),
+            ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
+            ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
+            ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
+            ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py"))]:
+        print(link(src, os.path.join(tp.BIN_DIR, name)))
+
+
 def statusline_wired():
-    try:
-        with open(os.path.join(CLAUDE, "settings.json")) as fh:
-            sl = json.load(fh).get("statusLine") or {}
-        # the command is usually written with $HOME or ~, so match the basename
-        return "statusline.py" in json.dumps(sl)
-    except Exception:
-        return False
+    sl = read_json(os.path.join(CLAUDE, "settings.json"), {}).get("statusLine") or {}
+    return "statusline.py" in json.dumps(sl)
 
 
-def mcp_registered():
+def install_claude():
+    print("\nclaude:")
+    print(link(os.path.join(HERE, "statusline.py"), os.path.join(CLAUDE, "statusline.py")))
+    for w in WORKFLOW_FILES:
+        print(link(os.path.join(HERE, "workflows", w), os.path.join(CLAUDE, "workflows", w)))
+    for b in ("consult", "codegen", "tezgah-render-table"):
+        src = (os.path.join(HERE, "bin", b) if b != "tezgah-render-table"
+               else os.path.join(HERE, "skills", "plan-add", "render_table.py"))
+        print(link(src, os.path.join(CLAUDE, "bin", b)))
+    if not statusline_wired():
+        print('  add to ~/.claude/settings.json (this script will not edit it):\n'
+              '    "statusLine": {"type": "command", "command": "python3 %s"}'
+              % os.path.join(CLAUDE, "statusline.py"))
+
+
+def install_codex():
+    print("\ncodex:")
+    cmd = 'python3 "%s"' % os.path.join(tp.BIN_DIR, "tezgah-codex-hook")
+    events = ["SessionStart", "UserPromptSubmit", "PostToolUse",
+              "SubagentStart", "PostCompact"]
+    path = os.path.join(CODEX, "hooks.json")
+    data = read_json(path, {"hooks": {}})
+    hooks = data.setdefault("hooks", {})
+    for ev in events:
+        arr = hooks.setdefault(ev, [])
+        arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+        arr.append({"hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
+    write_json(path, data)
+    print("%s %s" % (OK, path))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(CODEX, "skills", s)))
+    mcp = os.path.join(CODEX, "bin", "consult")
+    print(link(os.path.join(tp.BIN_DIR, "consult"), mcp))
+    ensure_toml_mcp(os.path.join(CODEX, "config.toml"))
+
+
+def ensure_toml_mcp(path):
     try:
-        with open(os.path.join(HOME, ".claude.json")) as fh:
-            return CBM in (json.load(fh).get("mcpServers") or {})
-    except Exception:
+        with open(path) as fh:
+            text = fh.read()
+    except OSError:
+        if not os.path.isdir(os.path.dirname(path)):
+            return
+        text = ""  # codex is installed but has no config.toml yet
+    if "mcp_servers.codebase-memory-mcp" in text:
+        print("%s MCP server already in %s" % (OK, path))
+        return
+    backup(path)
+    with open(path, "a") as fh:
+        fh.write(('\n' if text and not text.endswith("\n") else '')
+                 + '[mcp_servers.codebase-memory-mcp]\ncommand = "%s"\n' % cbm_command())
+    print("%s added MCP server to %s" % (OK, path))
+
+
+def opencode_contract():
+    """The standing contract for opencode, rendered from the shared policy."""
+    root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
+    blocks = [CBM_RULE % ("each repository", "index it with index_repository if unindexed"),
+              WORKFLOWS, ORCHESTRATE, PONYTAIL, EXEC,
+              CONSULT if tp.have_consult_key() else NO_CONSULT]
+    text = tezgah_context.render("\n\n".join(b.strip() for b in blocks), root)
+    path = os.path.join(tp.CONFIG_DIR, "opencode-contract.md")
+    mkdirp(tp.CONFIG_DIR)
+    with open(path, "w") as fh:
+        fh.write("<!-- generated by tezgah-setup from hooks/tezgah_policy.py;"
+                 " edit the source, re-run --install -->\n\n" + text + "\n")
+    return path
+
+
+def install_opencode():
+    print("\nopencode:")
+    src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
+    for d in ("plugins", "plugin"):  # opencode version drift; the plugin self-guards
+        print(link(src, os.path.join(OPENCODE, d, "tezgah.js")))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(OPENCODE, "skills", s)))
+    contract = opencode_contract()
+    cfg = read_json(os.path.join(OPENCODE, "opencode.json"),
+                    {"$schema": "https://opencode.ai/config.json"})
+    instr = cfg.get("instructions") or []
+    if contract not in instr:
+        instr.append(contract)
+    cfg["instructions"] = instr
+    mcp = cfg.setdefault("mcp", {})
+    mcp.setdefault("codebase-memory-mcp", {"enabled": True, "type": "local",
+                                           "command": [cbm_command()]})
+    write_json(os.path.join(OPENCODE, "opencode.json"), cfg)
+    print("%s opencode.json (instructions + mcp)" % OK)
+
+
+def install_cursor():
+    print("\ncursor:")
+    cmd = 'python3 "%s"' % os.path.join(tp.BIN_DIR, "tezgah-cursor-hook")
+    path = os.path.join(CURSOR, "hooks.json")
+    data = read_json(path, {"version": 1, "hooks": {}})
+    data.setdefault("version", 1)
+    hooks = data.setdefault("hooks", {})
+    spec = {
+        "sessionStart": {"timeout": 10},
+        "preToolUse": {"timeout": 5, "matcher": "Shell|Grep|Task"},
+        "postToolUse": {"timeout": 10},
+        "postToolUseFailure": {"timeout": 10},
+        "subagentStart": {"timeout": 5},
+        "beforeSubmitPrompt": {"timeout": 10},
+        "stop": {"timeout": 10},
+    }
+    for ev, extra in spec.items():
+        arr = hooks.setdefault(ev, [])
+        arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+        entry = {"command": cmd}
+        entry.update(extra)
+        arr.append(entry)
+    write_json(path, data)
+    print("%s %s" % (OK, path))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(CURSOR, "skills", s)))
+    mpath = os.path.join(CURSOR, "mcp.json")
+    mcfg = read_json(mpath, {"mcpServers": {}})
+    mcfg.setdefault("mcpServers", {}).setdefault(
+        "codebase-memory-mcp", {"command": cbm_command()})
+    write_json(mpath, mcfg)
+    print("%s %s" % (OK, mpath))
+
+
+INSTALLERS = {"claude": install_claude, "codex": install_codex,
+              "opencode": install_opencode, "cursor": install_cursor}
+
+
+# ------------------------------------------------------------------ adopt ----
+
+def _move(path, dest_dir):
+    if not os.path.exists(path):
         return False
+    mkdirp(dest_dir)
+    shutil.move(path, os.path.join(dest_dir, os.path.basename(path)))
+    return True
+
+
+def adopt():
+    """Retire the pre-tezgah wiring: the Codex projects-harness, the ~/.claude
+    cbm-* hook files and their settings.json entries. Nothing is deleted - it is
+    moved under ~/.config/tezgah/adopted/<timestamp>/."""
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = os.path.join(tp.CONFIG_DIR, "adopted", stamp)
+    print("adopt: moving predecessor wiring to %s\n" % dest)
+
+    # Codex: projects-harness dir + its hooks.json entries
+    print("%s projects-harness" % (OK if _move(os.path.join(CODEX, "projects-harness"),
+                                               dest) else NO))
+    path = os.path.join(CODEX, "hooks.json")
+    data = read_json(path, None)
+    if data:
+        for ev, arr in list((data.get("hooks") or {}).items()):
+            arr[:] = [e for e in arr
+                      if "projects-harness" not in json.dumps(e)
+                      and "Code discovery: prefer" not in json.dumps(e)]
+        data["hooks"] = {ev: arr for ev, arr in (data.get("hooks") or {}).items() if arr}
+        write_json(path, data)
+        print("%s cleaned %s" % (OK, path))
+
+    # Claude: the cbm-* hook scripts and the settings.json entries that call them
+    for name in ("cbm-code-discovery-gate", "cbm-session-reminder", "cbm-subagent-reminder"):
+        print("%s ~/.claude/hooks/%s" % (OK if _move(os.path.join(CLAUDE, "hooks", name),
+                                                     dest) else NO, name))
+    # Codex: the old bin shims that exec'd projects-harness
+    for name in ("codex-harness-status", "consult"):
+        f = os.path.join(CODEX, "bin", name)
+        if os.path.isfile(f) and not os.path.islink(f):
+            try:
+                stale = "projects-harness" in open(f).read()
+            except OSError:
+                stale = False
+            if stale:
+                print("%s ~/.codex/bin/%s" % (OK if _move(f, dest) else NO, name))
+    sp = os.path.join(CLAUDE, "settings.json")
+    settings = read_json(sp, None)
+    if settings:
+        changed = False
+        for ev, arr in (settings.get("hooks") or {}).items():
+            kept = []
+            for entry in arr:
+                hs = entry.get("hooks")
+                if isinstance(hs, list):
+                    before = len(hs)
+                    hs[:] = [h for h in hs if "cbm-" not in h.get("command", "")]
+                    changed = changed or len(hs) != before
+                    if not hs:
+                        continue
+                kept.append(entry)
+            arr[:] = kept
+        if changed:
+            settings["hooks"] = {ev: arr for ev, arr in (settings.get("hooks") or {}).items() if arr}
+            write_json(sp, settings)
+            print("%s cleaned cbm hook entries from %s" % (OK, sp))
+        else:
+            print("%s no cbm hook entries in %s" % (OK, sp))
+    print("\nrestart each host for the hooks to reload.")
+
+
+# ----------------------------------------------------------------- report ----
+
+def predecessors():
+    """Pre-tezgah wiring still present; --adopt retires it."""
+    out = []
+    if os.path.isdir(os.path.join(CODEX, "projects-harness")):
+        out.append("~/.codex/projects-harness present")
+    if _hooks_has(os.path.join(CODEX, "hooks.json"), "projects-harness"):
+        out.append("projects-harness entries in ~/.codex/hooks.json")
+    if any(os.path.exists(os.path.join(CLAUDE, "hooks", n)) for n in
+           ("cbm-code-discovery-gate", "cbm-session-reminder", "cbm-subagent-reminder")):
+        out.append("~/.claude/hooks/cbm-* present")
+    if "cbm-" in json.dumps(read_json(os.path.join(CLAUDE, "settings.json"), {})):
+        out.append("cbm hook entries in ~/.claude/settings.json")
+    return out
+
+
+def report(hosts):
+    print("tezgah checkout: %s\n" % HERE)
+    print("roots (%s):" % ("TEZGAH_ROOTS" if os.environ.get("TEZGAH_ROOTS")
+                           else "config" if os.path.exists(tp.CONFIG) else "default"))
+    for r in tp.roots():
+        print("  %s %s" % (OK if os.path.isdir(r) else NO, r))
+    print("\ncommon:")
+    rows = [
+        ("config %s" % tp.CONFIG, os.path.exists(tp.CONFIG)),
+        ("%s on PATH" % tp.CBM, bool(tp.cbm_bin())),
+        ("OpenRouter key (consult/codegen)", tp.have_consult_key()),
+        ("git", bool(shutil.which("git"))),
+        ("plugin.json and marketplace.json agree on the version", versions_agree()),
+    ]
+    for label, good in rows:
+        print("  %s %s" % (OK if good else NO, label))
+    pred = predecessors()
+    if pred:
+        print("\npredecessor wiring still present (retire with --adopt):")
+        for p in pred:
+            print("  ?    %s" % p)
+    for h in hosts:
+        print("\n%s:" % h)
+        for label, good in HOST_CHECKS[h]():
+            print("  %s %s" % (OK if good else NO, label))
+
+
+def host_checks_claude():
+    return [
+        ("statusline symlink", os.path.islink(os.path.join(CLAUDE, "statusline.py"))),
+        ("statusLine in settings.json", statusline_wired()),
+        ("workflows in ~/.claude/workflows",
+         all(os.path.islink(os.path.join(CLAUDE, "workflows", w)) for w in WORKFLOW_FILES)),
+        ("bin on ~/.claude/bin",
+         all(os.path.islink(os.path.join(CLAUDE, "bin", b))
+             for b in ("consult", "codegen", "tezgah-render-table"))),
+    ]
+
+
+def _hooks_has(path, marker, events=None):
+    data = read_json(path, {}) or {}
+    for ev, arr in (data.get("hooks") or {}).items():
+        if events and ev not in events:
+            continue
+        if any(marker in json.dumps(e) for e in arr):
+            return True
+    return False
+
+
+def host_checks_codex():
+    cmd = "tezgah-codex-hook"
+    return [
+        ("hooks.json wired", _hooks_has(os.path.join(CODEX, "hooks.json"), cmd)),
+        ("skills linked", all(os.path.islink(os.path.join(CODEX, "skills", s)) for s in SKILLS)),
+        ("MCP in config.toml", "mcp_servers.codebase-memory-mcp"
+         in (open(os.path.join(CODEX, "config.toml")).read()
+             if os.path.exists(os.path.join(CODEX, "config.toml")) else "")),
+    ]
+
+
+def host_checks_opencode():
+    cfg = read_json(os.path.join(OPENCODE, "opencode.json"), {})
+    instr = cfg.get("instructions") or []
+    return [
+        ("plugin linked", any(os.path.islink(os.path.join(OPENCODE, d, "tezgah.js"))
+                              for d in ("plugins", "plugin"))),
+        ("skills linked", all(os.path.islink(os.path.join(OPENCODE, "skills", s)) for s in SKILLS)),
+        ("contract in instructions", any("tezgah" in i for i in instr)),
+        ("MCP in opencode.json", "codebase-memory-mcp" in (cfg.get("mcp") or {})),
+    ]
+
+
+def host_checks_cursor():
+    mcp = read_json(os.path.join(CURSOR, "mcp.json"), {})
+    return [
+        ("hooks.json wired", _hooks_has(os.path.join(CURSOR, "hooks.json"), "tezgah-cursor-hook")),
+        ("skills linked", all(os.path.islink(os.path.join(CURSOR, "skills", s)) for s in SKILLS)),
+        ("MCP in mcp.json", "codebase-memory-mcp" in (mcp.get("mcpServers") or {})),
+    ]
+
+
+HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
+               "opencode": host_checks_opencode, "cursor": host_checks_cursor}
 
 
 def versions_agree():
-    """A bump in only one manifest makes `claude plugin update` a silent no-op."""
     try:
         v = []
-        for f, key in ((("plugin.json"), None), ("marketplace.json", "plugins")):
+        for f in ("plugin.json", "marketplace.json"):
             with open(os.path.join(HERE, ".claude-plugin", f)) as fh:
                 d = json.load(fh)
-            v.append(d["plugins"][0]["version"] if key else d["version"])
+            v.append(d["plugins"][0]["version"] if f == "marketplace.json" else d["version"])
         return v[0] == v[1]
     except Exception:
         return False
 
 
-def report():
-    print("tezgah checkout: %s\n" % HERE)
-    print("roots (%s):" % ("TEZGAH_ROOTS" if os.environ.get("TEZGAH_ROOTS")
-                           else "config" if os.path.exists(CONFIG) else "default"))
-    for r in roots():
-        print("  %s %s" % (OK if os.path.isdir(r) else NO, r))
-    rows = [
-        ("config %s" % CONFIG, os.path.exists(CONFIG)),
-        ("statusline symlink", os.path.islink(STATUSLINE)),
-        ("statusLine in settings.json", statusline_wired()),
-        ("workflows in ~/.claude/workflows",
-         all(os.path.islink(os.path.join(WORKFLOW_DIR, w)) for w in WORKFLOWS)),
-        ("consult/codegen/render-table on ~/.claude/bin",
-         all(os.path.islink(os.path.join(SHELL_BIN, b))
-             for b in ("consult", "codegen", "tezgah-render-table"))),
-        ("%s on PATH" % CBM, bool(cbm_bin())),
-        ("%s registered as an MCP server" % CBM, mcp_registered()),
-        ("OpenRouter key (consult/codegen)", have_consult_key()),
-        ("git", bool(shutil.which("git"))),
-        ("plugin.json and marketplace.json agree on the version", versions_agree()),
-    ]
-    print("\nwiring:")
-    for label, good in rows:
-        print("  %s %s" % (OK if good else NO, label))
-    missing = [l for l, good in rows if not good]
-    print("\n%s" % ("everything armed" if not missing
-                    else "%d missing; run --install for the ones it can fix"
-                         % len(missing)))
-    return 0 if not missing else 1
-
-
-def install(new_roots):
-    want = [os.path.expanduser(r) for r in new_roots] if new_roots else \
-        [r for r in roots()] or [DEFAULT_ROOT]
-    cfg = {}
-    if os.path.exists(CONFIG):
-        try:
-            with open(CONFIG) as fh:
-                cfg = json.load(fh)
-        except Exception:
-            pass  # malformed config gets replaced, roots() ignored it anyway
-    cfg["roots"] = want
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    with open(CONFIG, "w") as fh:
-        json.dump(cfg, fh, indent=2)
-        fh.write("\n")
-    print("%s %s  roots=%s" % (OK, CONFIG, want))
-    print(link(os.path.join(HERE, "statusline.py"), STATUSLINE))
-    for w in WORKFLOWS:
-        print(link(os.path.join(HERE, "workflows", w),
-                   os.path.join(WORKFLOW_DIR, w)))
-    for b in ("consult", "codegen"):  # a stable path a shell can call
-        print(link(os.path.join(HERE, "bin", b), os.path.join(SHELL_BIN, b)))
-    print(link(os.path.join(HERE, "skills", "plan-add", "render_table.py"),
-               os.path.join(SHELL_BIN, "tezgah-render-table")))
-    if not statusline_wired():
-        print('\n  add to ~/.claude/settings.json (this script will not edit it):\n'
-              '    "statusLine": {"type": "command", "command": "python3 %s"}'
-              % STATUSLINE)
-    if not cbm_bin():
-        print("\n  %s is not on PATH: install it, or point config.json cbm_bin\n"
-              "  at it, or the code-graph half of tezgah stays dark." % CBM)
-    print()
-    return report()
-
+# ------------------------------------------------------------------- sync ----
 
 def sync():
-    """Copy this checkout over the installed plugin, which is a COPY, not a link."""
+    """Copy this checkout over the installed Claude plugin, which is a COPY."""
     cache = os.path.join(HOME, ".claude", "plugins", "cache")
     targets = []
-    for dirpath, dirnames, _ in os.walk(cache):
+    for dirpath, _dirnames, _ in os.walk(cache):
         manifest = os.path.join(dirpath, ".claude-plugin", "plugin.json")
         try:
             with open(manifest) as fh:
@@ -159,14 +467,18 @@ def sync():
     if not targets:
         print("no installed tezgah found under %s (nothing to sync)" % cache)
         return 1
-    tracked = subprocess.run(["git", "-C", HERE, "ls-files"],
-                             capture_output=True, text=True)
+    tracked = subprocess.run(
+        ["git", "-C", HERE, "ls-files", "--cached", "--others", "--exclude-standard"],
+        capture_output=True, text=True)
     if tracked.returncode != 0:
         print("not a git checkout, nothing to sync from: %s" % HERE)
         return 1
-    files = [f for f in tracked.stdout.splitlines() if f]
+    # --others includes a new source file that is not committed yet; a plain
+    # `ls-files` would drop it from the copy (and delete it from the plugin cache)
+    files = [f for f in tracked.stdout.splitlines()
+             if f and not f.startswith("plans/") and "__pycache__" not in f]
     for t in targets:
-        for name in os.listdir(t):  # stale files from an older version
+        for name in os.listdir(t):
             if name != ".git":
                 path = os.path.join(t, name)
                 shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) \
@@ -180,21 +492,47 @@ def sync():
     return 0
 
 
+# ------------------------------------------------------------------- main ----
+
 def main(argv):
-    args = list(argv[1:])
-    new_roots = []
-    if "--roots" in args:
-        i = args.index("--roots")
-        new_roots = [r for r in args[i + 1].split(os.pathsep) if r.strip()]
-        del args[i:i + 2]
-    if "--sync" in args:
+    ap = argparse.ArgumentParser(description="arm tezgah in every installed host")
+    ap.add_argument("--install", action="store_true")
+    ap.add_argument("--adopt", action="store_true")
+    ap.add_argument("--sync", action="store_true")
+    ap.add_argument("--status", nargs="?", const=os.getcwd())
+    ap.add_argument("--roots")
+    ap.add_argument("--hosts")
+    args = ap.parse_args(argv[1:])
+
+    if args.sync:
         return sync()
-    if "--install" in args:
-        return install(new_roots)
-    if args:
-        print(__doc__)
-        return 2
-    return report()
+    if args.status:
+        print(tezgah_context.health_lines(os.path.realpath(expand(args.status))))
+        return 0
+
+    hosts = [h.strip() for h in args.hosts.split(",")] if args.hosts else \
+        [h for h, present in detected().items() if present]
+    bad = [h for h in hosts if h not in ALL_HOSTS]
+    if bad:
+        sys.exit("unknown host(s): %s (choose from %s)" % (", ".join(bad), ", ".join(ALL_HOSTS)))
+
+    if args.adopt:
+        adopt()
+        if not args.install:
+            return 0
+
+    if args.install:
+        new_roots = [r for r in args.roots.split(os.pathsep) if r.strip()] if args.roots else []
+        print("installing for: %s\n" % (", ".join(hosts) or "none detected"))
+        install_common(new_roots, hosts)
+        for h in hosts:
+            INSTALLERS[h]()
+        print()
+        return report(hosts)
+
+    if args.roots:
+        sys.exit("--roots only means something with --install")
+    return report(hosts)
 
 
 if __name__ == "__main__":

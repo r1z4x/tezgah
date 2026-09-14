@@ -28,7 +28,7 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    Acceptance: checkable criteria, each with the command that proves it when
    possible. State: `not started` plus the findings from step 4. Next: the first
    concrete action. Dates: `date +%F`.
-6. Rewrite the README status table: `~/.claude/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
+6. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). For plan-status pass
    `--pr-info NNN='(STATE | review | checks)'` per enriched plan.
 7. Commit on main - first check you are there: `git symbolic-ref --short HEAD` must print

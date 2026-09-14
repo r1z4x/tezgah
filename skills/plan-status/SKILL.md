@@ -24,7 +24,7 @@ description: >
    `updated: $(date +%F)`. This is the only plan-file write this skill makes.
 5. If any `gh` call fails (exit code non-zero, auth error, network error), record the
    exact error and say so in the report. Never present a failed call as "no PR".
-6. Rewrite the README status table: `~/.claude/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
+6. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). For plan-status pass
    `--pr-info NNN='(STATE | review | checks)'` per enriched plan.
 7. If `git status --porcelain plans` shows changes:
