@@ -18,8 +18,16 @@ function TezgahBar(props: { api: TuiPluginApi }) {
   const update = () => {
     try {
       const dir = props.api.state.path.directory || process.cwd()
+      const cmd = ["python3", STATUS, dir]
+      // Pass the active session id so the used marks (cbm/consult/orch) reflect
+      // this session; without it tezgah-status can only show the armed flags.
+      const route = props.api.route?.current as
+        | { params?: { sessionID?: string } }
+        | undefined
+      const sid = route?.params?.sessionID
+      if (sid) cmd.push(sid)
       const run = Bun.spawnSync({
-        cmd: ["python3", STATUS, dir],
+        cmd,
         stdout: "pipe",
         stderr: "ignore",
       })

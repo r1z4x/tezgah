@@ -217,7 +217,8 @@ export const Tezgah = async ({ directory }) => {
       if (deny) throw new Error(deny)
     },
 
-    // Every shell call (tool or user terminal) sees the same tezgah roots.
+    // Every shell call (tool or user terminal) sees the same tezgah roots, and
+    // the session id so a shell-run `tezgah-status` can light up the used marks.
     "shell.env": async (input, output) => {
       try {
         if (!output || typeof output !== "object") return
@@ -226,6 +227,7 @@ export const Tezgah = async ({ directory }) => {
         if (rs.length) env.TEZGAH_ROOTS = rs.join(":")
         env.TEZGAH_HOME = CONFIG
         env.TEZGAH_STATUS_BIN = STATUS_BIN
+        if (input && input.sessionID) env.TEZGAH_SESSION = String(input.sessionID)
       } catch {}
     },
 

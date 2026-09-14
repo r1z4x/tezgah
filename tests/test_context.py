@@ -1,5 +1,7 @@
 """hooks/tezgah_context.py: context_for scope and health_lines format."""
+import json
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -227,6 +229,53 @@ class KillSwitchEnforcement(TempHome):
                               "cwd": repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("exec-mode.off", out)
+
+
+class StatusCli(TempHome):
+    """bin/tezgah-status must light up the used marks from the session id."""
+
+    def armed(self):
+        self.touch(os.path.join(self.home, ".config", "openrouter", "key"))
+
+    def record(self, sid, kinds):
+        d = os.path.join(self.home, ".cache", "tezgah", "sessions")
+        os.makedirs(d, exist_ok=True)
+        slug = "-".join(re.findall(r"[A-Za-z0-9]+", sid))
+        with open(os.path.join(d, slug + ".jsonl"), "w") as fh:
+            for kind in kinds:
+                fh.write(json.dumps({"kind": kind}) + "\n")
+
+    def status(self, *args, env=None):
+        cli = os.path.join(support.REPO, "bin", "tezgah-status")
+        return subprocess.run([sys.executable, cli] + list(args),
+                              capture_output=True, text=True, env=env or self.env())
+
+    def test_session_arg_lights_up_the_used_marks(self):
+        self.armed()
+        repo = self.make_repo()
+        self.record("ses_test_1", ["cbm", "consult"])
+        env = self.env()
+        env.pop("TEZGAH_SESSION", None)
+        out = self.status(repo, "ses_test_1", env=env).stdout
+        self.assertIn("cbm\u2713", out)
+        self.assertIn("consult\u2713", out)
+
+    def test_without_a_session_id_marks_stay_unused(self):
+        self.armed()
+        repo = self.make_repo()
+        self.record("ses_test_1", ["cbm", "consult"])
+        env = self.env()
+        env.pop("TEZGAH_SESSION", None)
+        out = self.status(repo, env=env).stdout
+        self.assertIn("cbm\u25cb", out)
+
+    def test_env_session_id_is_used_when_no_arg(self):
+        self.armed()
+        repo = self.make_repo()
+        self.record("ses_test_1", ["cbm"])
+        env = self.env()
+        env["TEZGAH_SESSION"] = "ses_test_1"
+        self.assertIn("cbm\u2713", self.status(repo, env=env).stdout)
 
 
 if __name__ == "__main__":
