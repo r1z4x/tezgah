@@ -50,7 +50,7 @@ same text.
 | Host | Wired by | Status line |
 |---|---|---|
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style | native `statusLine` |
-| **opencode** | plugin + instructions + MCP + skills | TUI plugin (no command statusLine) |
+| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied) | TUI plugin (no command statusLine) |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
 | **Cursor** | `hooks.json` + skills + MCP | `statusLine` in `cli-config.json` |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, and OpenRouter/DeepSeek LLM routes) | not yet — a UI plugin is needed and is unpackaged |
@@ -163,7 +163,11 @@ Measured on this machine (macOS, Python 3.10), not estimated:
   On Codex a 435-byte reminder rides each turn; Claude and the other hosts have
   no per-turn hook, so their per-turn cost is zero. The full `tezgah-contract`
   skill (~15.5k characters) is paid only when a task loads it. On opencode the
-  contract ships as a ~3.46 KB instructions file.
+  contract ships as a ~3.46 KB instructions file. opencode would otherwise
+  inject ~53 KB of skill name/description/location text into every session's
+  system prompt; tezgah denies that list (`permission.skill = deny`) and ships
+  a generated ~16 KB skill router instead, so a skill is found by reading its
+  `SKILL.md` path from the router.
 - **Latency.** Hooks are separate Python processes, so the ~19 ms interpreter
   start dominates. On top of it, session start adds ~25 ms, a gated tool call
   (Bash/Grep/Task) adds ~9 ms, and Codex's Stop segment adds ~15 ms per turn.

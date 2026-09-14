@@ -117,7 +117,28 @@ class Install(SetupBase):
         codex = self.read_text(self.path(".codex", "hooks.json"))
         self.assertEqual(codex.count("tezgah-codex-hook"), 7)
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
-        self.assertEqual(len(oc.get("instructions", [])), 1)
+        self.assertEqual(len(oc.get("instructions", [])), 2)
+
+    def test_opencode_skill_router_and_deny(self):
+        # a skill in an external dir must be indexed, categorized and by path
+        sk = self.path(".claude", "skills", "acme-widget", "SKILL.md")
+        os.makedirs(os.path.dirname(sk), exist_ok=True)
+        with open(sk, "w") as fh:
+            fh.write("---\nname: acme-widget\n"
+                     "description: Use when the user needs an acme widget. More.\n"
+                     "---\n\nbody\n")
+        self.setup("--install", "--hosts", "opencode")
+
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertEqual((oc.get("permission") or {}).get("skill"), "deny")
+        router = self.path(".config", "tezgah", "opencode-skills.md")
+        self.assertTrue(os.path.isfile(router))
+        self.assertIn(router, oc.get("instructions", []))
+        body = self.read_text(router)
+        self.assertIn("acme-widget", body)
+        self.assertIn("marketing & growth", body)
+        self.assertIn("tezgah core", body)
+        self.assertIn("harness", body)
 
 
 class Uninstall(SetupBase):
@@ -143,6 +164,15 @@ class Uninstall(SetupBase):
         self.assertTrue(os.path.exists(self.path(".claude", "settings.json.tezgah-bak")))
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
         self.assertFalse(oc.get("instructions"))
+
+    def test_uninstall_drops_skill_router_and_deny(self):
+        self.setup("--install", "--hosts", "opencode")
+        self.setup("--uninstall", "--hosts", "opencode")
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertNotIn("permission", oc)
+        self.assertFalse(oc.get("instructions"))
+        self.assertFalse(os.path.exists(self.path(".config", "tezgah",
+                                                  "opencode-skills.md")))
 
 
 class Adopt(SetupBase):
