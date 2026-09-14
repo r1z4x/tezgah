@@ -6,6 +6,10 @@
     "UserPromptSubmit": [
       { "hooks": [ { "type": "command", "command": "@CODEX_HOOK@", "timeout": 10 } ] }
     ],
+    "PreToolUse": [
+      { "matcher": "Bash|exec_command|apply_patch|Edit|Write|mcp__.*|spawn_agent|Agent|Task|Grep",
+        "hooks": [ { "type": "command", "command": "@CODEX_HOOK@", "timeout": 10 } ] }
+    ],
     "PostToolUse": [
       { "hooks": [ { "type": "command", "command": "@CODEX_HOOK@", "timeout": 10 } ] }
     ],

@@ -3,19 +3,23 @@
 
   tezgah-setup                         report what is armed, per host
   tezgah-setup --install               wire every detected host
-  tezgah-setup --install --hosts claude,codex,opencode,cursor
+  tezgah-setup --install --hosts claude,codex,opencode,cursor,dsh
   tezgah-setup --roots ~/work:~/oss --install
+  tezgah-setup --uninstall             remove only tezgah-managed wiring
+  tezgah-setup --version               print the plugin version
   tezgah-setup --adopt                 move the predecessor wiring aside
   tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
   tezgah-setup --status [PATH]         print the armed/used checklist
 
-Claude Code installs from a plugin; the other three do not have that channel,
+Claude Code installs from a plugin; the other four do not have that channel,
 so they are wired here: Codex hooks.json + skills, Cursor hooks.json + skills,
-opencode plugins + instructions + skills, and the shared MCP registration.
+opencode plugins + instructions + skills, dsh's managed patch block, and the
+shared MCP registration.
 Re-running is idempotent; every write is backed up once as <file>.tezgah-bak.
 """
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -27,6 +31,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_context  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
+import tezgah_policy as policy  # noqa: E402
 from tezgah_policy import (CBM_RULE, CONSULT, EXEC, NO_CONSULT, ORCHESTRATE,
                            PONYTAIL, WORKFLOWS)  # noqa: E402
 
@@ -38,9 +43,13 @@ OPENCODE = os.path.join(
 CURSOR = os.path.join(HOME, ".cursor")
 DSH = os.environ.get("DSH_HOME") or os.path.join(HOME, ".dsh")
 DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
-SKILLS = ["harness", "ponytail", "no-ai-slop", "plan-add", "plan-status", "plan-sync"]
+SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
+          "plan-add", "plan-status", "plan-sync"]
 WORKFLOW_FILES = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh"]
+CONTRACT_SHA = os.path.join(tp.CONFIG_DIR, "contract.sha256")
+CODEX_PRETOOL_MATCHER = ("Bash|exec_command|apply_patch|Edit|Write|mcp__.*|"
+                         "spawn_agent|Agent|Task|Grep")
 OK, NO = "  ok  ", " MISS "
 
 
@@ -50,6 +59,33 @@ def mkdirp(p):
 
 def expand(p):
     return os.path.expanduser(str(p))
+
+
+def plugin_version():
+    try:
+        with open(os.path.join(HERE, ".claude-plugin", "plugin.json")) as fh:
+            return json.load(fh).get("version", "unknown")
+    except Exception:
+        return "unknown"
+
+
+def policy_sha():
+    """sha256 of the shared policy, the source of the opencode contract."""
+    try:
+        with open(os.path.join(HERE, "hooks", "tezgah_policy.py"), "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+    except OSError:
+        return ""
+
+
+def contract_stale():
+    """True when the stored contract hash is missing or out of date."""
+    try:
+        with open(CONTRACT_SHA) as fh:
+            stored = fh.read().strip()
+    except OSError:
+        stored = ""
+    return stored != policy_sha()
 
 
 def link(src, dst):
@@ -156,6 +192,12 @@ def install_common(new_roots, hosts):
     cfg["hosts"] = hosts
     write_json(tp.CONFIG, cfg)
     print("%s %s  roots=%s" % (OK, tp.CONFIG, cfg["roots"]))
+    sha = policy_sha()
+    if sha:
+        mkdirp(tp.CONFIG_DIR)
+        with open(CONTRACT_SHA, "w") as fh:
+            fh.write(sha + "\n")
+        print("%s %s" % (OK, CONTRACT_SHA))
     for name, src in [
             ("consult", os.path.join(HERE, "bin", "consult")),
             ("codegen", os.path.join(HERE, "bin", "codegen")),
@@ -182,6 +224,28 @@ def install_claude():
                else os.path.join(HERE, "skills", "plan-add", "render_table.py"))
         print(link(src, os.path.join(CLAUDE, "bin", b)))
     wire_claude_statusline()
+    wire_claude_attribution()
+
+
+def wire_claude_attribution():
+    """Mechanically disable Claude Code's commit/PR attribution.
+
+    `attribution` is a documented settings key (docs.claude.com settings
+    reference): {"commit": "", "pr": "", "sessionUrl": false} hides all of it.
+    The hooks also enforce this, but the setting removes the default at source.
+    Backed up; skipped when already correct."""
+    sp = os.path.join(CLAUDE, "settings.json")
+    settings = read_json(sp, None)
+    if settings is None:
+        print("%s %s (will not create it - set attribution by hand)" % (NO, sp))
+        return
+    wanted = {"commit": "", "pr": "", "sessionUrl": False}
+    if settings.get("attribution") == wanted:
+        print("%s attribution disabled in Claude settings" % OK)
+        return
+    settings["attribution"] = wanted
+    write_json(sp, settings)
+    print("%s attribution -> none (previous kept as %s.tezgah-bak)" % (OK, sp))
 
 
 def wire_claude_statusline():
@@ -204,15 +268,22 @@ def wire_claude_statusline():
 def install_codex():
     print("\ncodex:")
     cmd = 'python3 "%s"' % os.path.join(tp.BIN_DIR, "tezgah-codex-hook")
-    events = ["SessionStart", "UserPromptSubmit", "PostToolUse",
-              "SubagentStart", "PostCompact", "Stop"]
+    # PreToolUse carries a matcher on the group object, mirroring
+    # hosts/codex/hooks.json, and is what makes the policy gate blocking.
+    events = [("SessionStart", None), ("UserPromptSubmit", None),
+              ("PreToolUse", CODEX_PRETOOL_MATCHER), ("PostToolUse", None),
+              ("SubagentStart", None), ("PostCompact", None), ("Stop", None)]
     path = os.path.join(CODEX, "hooks.json")
     data = read_json(path, {"hooks": {}})
     hooks = data.setdefault("hooks", {})
-    for ev in events:
+    for ev, matcher in events:
         arr = hooks.setdefault(ev, [])
         arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
-        arr.append({"hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
+        group = {}
+        if matcher:
+            group["matcher"] = matcher
+        group["hooks"] = [{"type": "command", "command": cmd, "timeout": 10}]
+        arr.append(group)
     write_json(path, data)
     print("%s %s" % (OK, path))
     for s in SKILLS:
@@ -241,11 +312,18 @@ def ensure_toml_mcp(path):
 
 
 def opencode_contract():
-    """The standing contract for opencode, rendered from the shared policy."""
+    """The standing contract for opencode, rendered from the shared policy.
+
+    When the policy exposes a consolidated CORE block it is the contract;
+    otherwise the individual blocks are concatenated as before."""
     root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
-    blocks = [CBM_RULE % ("each repository", "index it with index_repository if unindexed"),
-              WORKFLOWS, ORCHESTRATE, PONYTAIL, EXEC,
-              CONSULT if tp.have_consult_key() else NO_CONSULT]
+    core = getattr(policy, "CORE", None)
+    if core:
+        blocks = [core]
+    else:
+        blocks = [CBM_RULE % ("each repository", "index it with index_repository if unindexed"),
+                  WORKFLOWS, ORCHESTRATE, PONYTAIL, EXEC,
+                  CONSULT if tp.have_consult_key() else NO_CONSULT]
     text = tezgah_context.render("\n\n".join(b.strip() for b in blocks), root)
     path = os.path.join(tp.CONFIG_DIR, "opencode-contract.md")
     mkdirp(tp.CONFIG_DIR)
@@ -296,14 +374,21 @@ def install_cursor():
     data = read_json(path, {"version": 1, "hooks": {}})
     data.setdefault("version", 1)
     hooks = data.setdefault("hooks", {})
+    # Mirrors hosts/cursor/hooks.json. Existing (Orca) entries are merged,
+    # never overwritten: only tezgah entries are replaced.
     spec = {
         "sessionStart": {"timeout": 10},
         "preToolUse": {"timeout": 5, "matcher": "Shell|Grep|Task"},
         "postToolUse": {"timeout": 10},
         "postToolUseFailure": {"timeout": 10},
         "subagentStart": {"timeout": 5},
+        "subagentStop": {"timeout": 10},
         "beforeSubmitPrompt": {"timeout": 10},
         "stop": {"timeout": 10},
+        "beforeMCPExecution": {"timeout": 5},
+        "afterShellExecution": {"timeout": 10},
+        "afterMCPExecution": {"timeout": 10},
+        "afterFileEdit": {"timeout": 10},
     }
     for ev, extra in spec.items():
         arr = hooks.setdefault(ev, [])
@@ -364,6 +449,195 @@ def install_dsh():
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "opencode": install_opencode, "cursor": install_cursor,
               "dsh": install_dsh}
+
+
+# ---------------------------------------------------------------- uninstall ----
+
+def is_tezgah_link(path):
+    """A symlink is tezgah-managed when it resolves inside this checkout."""
+    if not os.path.islink(path):
+        return False
+    target = os.path.realpath(path)
+    return target == HERE or target.startswith(HERE + os.sep)
+
+
+def unlink_tezgah(path):
+    """Remove a tezgah symlink only; anything else is left untouched."""
+    if not os.path.islink(path):
+        return False
+    if not is_tezgah_link(path):
+        print("%s kept %s (not a tezgah link)" % (NO, path))
+        return False
+    os.unlink(path)
+    print("%s removed %s" % (OK, path))
+    return True
+
+
+def unlink_dir(d):
+    """Remove every tezgah symlink directly inside d (non-recursive)."""
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        return
+    for name in names:
+        unlink_tezgah(os.path.join(d, name))
+
+
+def drop_managed_hook_entries(path):
+    """Remove only tezgah's own entries from a host hooks.json."""
+    data = read_json(path, None)
+    if not data:
+        print("%s no %s" % (OK, path))
+        return
+    changed = False
+    kept_events = {}
+    for ev, arr in (data.get("hooks") or {}).items():
+        kept = [e for e in arr if "tezgah" not in json.dumps(e)]
+        changed = changed or len(kept) != len(arr)
+        if kept:
+            kept_events[ev] = kept
+    if not changed:
+        print("%s no tezgah hook entries in %s" % (OK, path))
+        return
+    if kept_events:
+        data["hooks"] = kept_events
+    else:
+        data.pop("hooks", None)
+    write_json(path, data)
+    print("%s removed tezgah hook entries from %s" % (OK, path))
+
+
+def remove_managed_block(path, start="# tezgah:start", end="# tezgah:end"):
+    """Drop the tezgah-delimited block, leaving every other line intact."""
+    try:
+        with open(path) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        print("%s no %s" % (OK, path))
+        return
+    out, skip, changed = [], False, False
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped.startswith(start):
+            skip, changed = True, True
+            continue
+        if stripped.startswith(end):
+            skip = False
+            continue
+        if not skip:
+            out.append(ln)
+    if not changed:
+        print("%s no tezgah block in %s" % (OK, path))
+        return
+    while out and not out[-1].strip():
+        out.pop()
+    with open(path, "w") as fh:
+        fh.write(("\n".join(out) + "\n") if out else "")
+    print("%s removed tezgah block from %s" % (OK, path))
+
+
+def uninstall_common():
+    print("\ncommon:")
+    unlink_dir(tp.BIN_DIR)
+
+
+def unwire_claude_settings():
+    """Remove tezgah's statusLine and attribution keys, leaving everything else."""
+    sp = os.path.join(CLAUDE, "settings.json")
+    s = read_json(sp, None)
+    if not s:
+        return
+    changed = False
+    if "statusline.py" in json.dumps(s.get("statusLine") or {}):
+        s.pop("statusLine", None)
+        changed = True
+    if s.get("attribution") == {"commit": "", "pr": "", "sessionUrl": False}:
+        s.pop("attribution", None)
+        changed = True
+    if changed:
+        write_json(sp, s)
+        print("%s removed tezgah statusLine/attribution from %s (restore from .tezgah-bak if wanted)" % (OK, sp))
+
+
+def unwire_opencode_config():
+    """Drop tezgah's contract path and TUI plugin spec from the opencode configs."""
+    p = os.path.join(OPENCODE, "opencode.json")
+    c = read_json(p, None)
+    if c and c.get("instructions"):
+        kept = [i for i in c["instructions"] if "tezgah" not in i]
+        if kept != c["instructions"]:
+            if kept:
+                c["instructions"] = kept
+            else:
+                c.pop("instructions", None)
+            write_json(p, c)
+            print("%s removed tezgah instructions from %s" % (OK, p))
+    t = os.path.join(OPENCODE, "tui.json")
+    tj = read_json(t, None)
+    if tj and tj.get("plugin"):
+        kept = [x for x in tj["plugin"]
+                if "tezgah-tui" not in (x if isinstance(x, str) else x[0])]
+        if kept != tj["plugin"]:
+            if kept:
+                tj["plugin"] = kept
+            else:
+                tj.pop("plugin", None)
+            write_json(t, tj)
+            print("%s removed tezgah TUI plugin from %s" % (OK, t))
+
+
+def uninstall_claude():
+    print("\nclaude:")
+    unlink_tezgah(os.path.join(CLAUDE, "statusline.py"))
+    for w in WORKFLOW_FILES:
+        unlink_tezgah(os.path.join(CLAUDE, "workflows", w))
+    for b in ("consult", "codegen", "tezgah-render-table"):
+        unlink_tezgah(os.path.join(CLAUDE, "bin", b))
+    unwire_claude_settings()
+
+
+def uninstall_codex():
+    print("\ncodex:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(CODEX, "skills", s))
+    drop_managed_hook_entries(os.path.join(CODEX, "hooks.json"))
+
+
+def uninstall_opencode():
+    print("\nopencode:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(OPENCODE, "skills", s))
+    for d in ("plugins", "plugin"):
+        unlink_tezgah(os.path.join(OPENCODE, d, "tezgah.js"))
+    unlink_tezgah(os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx"))
+    unwire_opencode_config()
+
+
+def uninstall_cursor():
+    print("\ncursor:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(CURSOR, "skills", s))
+    drop_managed_hook_entries(os.path.join(CURSOR, "hooks.json"))
+
+
+def uninstall_dsh():
+    print("\ndsh:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(DSH, "skills", s))
+    remove_managed_block(DSH_PATCH)
+
+
+UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
+                "opencode": uninstall_opencode, "cursor": uninstall_cursor,
+                "dsh": uninstall_dsh}
+
+
+def uninstall(hosts):
+    print("uninstalling for: %s\n" % (", ".join(hosts) or "none detected"))
+    uninstall_common()
+    for h in hosts:
+        UNINSTALLERS[h]()
+    print("\nnon-tezgah files and .tezgah-bak backups were left untouched.")
 
 
 # ------------------------------------------------------------------ adopt ----
@@ -470,6 +744,8 @@ def report(hosts):
     ]
     for label, good in rows:
         print("  %s %s" % (OK if good else NO, label))
+    if contract_stale():
+        print("  %s %s" % (NO, "opencode contract stale - re-run --install"))
     pred = predecessors()
     if pred:
         print("\npredecessor wiring still present (retire with --adopt):")
@@ -619,9 +895,11 @@ def sync():
 def main(argv):
     ap = argparse.ArgumentParser(description="arm tezgah in every installed host")
     ap.add_argument("--install", action="store_true")
+    ap.add_argument("--uninstall", action="store_true")
     ap.add_argument("--adopt", action="store_true")
     ap.add_argument("--sync", action="store_true")
     ap.add_argument("--status", nargs="?", const=os.getcwd())
+    ap.add_argument("--version", action="version", version=plugin_version())
     ap.add_argument("--roots")
     ap.add_argument("--hosts")
     args = ap.parse_args(argv[1:])
@@ -637,6 +915,10 @@ def main(argv):
     bad = [h for h in hosts if h not in ALL_HOSTS]
     if bad:
         sys.exit("unknown host(s): %s (choose from %s)" % (", ".join(bad), ", ".join(ALL_HOSTS)))
+
+    if args.uninstall:
+        uninstall(hosts)
+        return 0
 
     if args.adopt:
         adopt()

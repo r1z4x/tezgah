@@ -2,11 +2,21 @@
 //
 // opencode has no stdout "inject context" hook, so the standing contract ships
 // as a managed block in ~/.config/opencode/AGENTS.md (written by tezgah-setup
-// from the shared policy). This plugin adds what AGENTS.md cannot: blocking the
-// first blind identifier search toward the code graph, and recording which
-// tezgah tools a session used so `tezgah-status` can show it.
+// from the shared policy). This plugin adds what AGENTS.md cannot:
+//   - tool.execute.before + permission.ask: block the first blind identifier
+//     search toward the code graph, and refuse a grep-only explorer subagent.
+//     permission.ask is the native allow/deny path where a build emits it;
+//     tool.execute.before is the always-available fallback (1.18.30 never
+//     emits permission.ask, so the fallback is what enforces today).
+//   - shell.env: export the tezgah roots and paths into every shell call.
+//   - experimental.session.compacting: restate the contract across compaction.
+//   - tool.execute.after: record which tezgah tools a session used so
+//     `tezgah-status` can show it.
 //
 // Every path fails open: if anything here throws unexpectedly, the tool runs.
+// Hook names a given opencode build does not know are skipped by the runtime
+// (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
+// lacks is safe and must never be a load-time error.
 import { existsSync } from "node:fs"
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
@@ -17,7 +27,20 @@ const HOME = homedir()
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "tezgah")
 const CACHE = join(HOME, ".cache", "tezgah")
 const CBM_DIR = join(HOME, ".cache", "codebase-memory-mcp")
+const STATUS_BIN = join(CONFIG, "bin", "tezgah-status")
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
+const EXPLORE_DENY =
+  "A grep-only explorer subagent is not allowed in this tree. Use a " +
+  "general-purpose agent and name the codebase-memory-mcp graph tools " +
+  "(search_graph, trace_path, search_code) in its prompt."
+// Re-injected around compaction so the contract survives the summary.
+const CONTRACT_REMINDER =
+  "Tezgah contract still in force: reply Turkish, BLUF; code minimal per " +
+  "ponytail (code first, max 3 note lines, `ponytail:` on any cut corner); " +
+  "\"who calls X\" = codebase-memory-mcp trace_path/search_graph, not grep " +
+  "alone; code-discovery subagents name the graph tools and are never " +
+  "grep-only explorers; done/tested claims need observed evidence; no " +
+  "AI/model attribution anywhere persisted or published."
 
 function expand(p) {
   return String(p || "").replace(/^~(?=$|\/)/, HOME)
@@ -77,6 +100,32 @@ function identifierFrom(tool, args) {
   return null
 }
 
+// Best-effort view of a permission request as a {tool, args} pair. The payload
+// shape drifts across opencode versions (the 1.17 plugin types use
+// `type`/`pattern`; newer internal payloads use `permission`/`patterns`/
+// `metadata`), so read every plausible field and bail out rather than guess.
+// Conservative on purpose: a wrong match would deny an unrelated tool.
+function permissionToolArgs(input) {
+  const md =
+    input && typeof input.metadata === "object" && input.metadata ? input.metadata : {}
+  const kind = String(input?.type || input?.permission || md.tool || "").toLowerCase()
+  const tool = String(md.tool || input?.tool || kind || "").toLowerCase()
+  let patterns = input?.pattern ?? input?.patterns
+  if (typeof patterns === "string") patterns = [patterns]
+  if (!Array.isArray(patterns)) patterns = []
+  const first = patterns.length ? String(patterns[0]) : ""
+  const args = {
+    pattern: md.pattern ?? md.patterns ?? first,
+    command: md.command ?? md.cmd ?? "",
+    subagent_type: md.subagent_type ?? md.subagent ?? "",
+    agent: md.agent ?? md.subagent_type ?? "",
+  }
+  if (!args.command && /shell|bash|command/.test(kind)) {
+    args.command = first || String(input?.title || "")
+  }
+  return { tool, args }
+}
+
 async function oncePerSession(sessionID) {
   const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
   const dir = join(CACHE, "nudged")
@@ -116,40 +165,91 @@ export const Tezgah = async ({ directory }) => {
   const dir = directory || process.cwd()
 
   return {
-    "tool.execute.before": async (input, output) => {
-      if (off("pretooluse-off")) return
-      const base = await rootFor(dir)
-      if (!base) return
-      const tool = String(input?.tool || "").toLowerCase()
-      const args = output?.args || input?.args || {}
-      const sessionID = input?.sessionID || input?.sessionId
-
-      const sub = String(args.subagent_type || args.agent || "")
-      if (tool === "task" && /explore/i.test(sub)) {
-        throw new Error(
-          "A grep-only explorer subagent is not allowed in this tree. Use a " +
-          "general-purpose agent and name the codebase-memory-mcp graph tools " +
-          "(search_graph, trace_path, search_code) in its prompt."
-        )
-      }
-      if (identifierFrom(tool, args)) {
-        const js = indexSlug(dir)
-        if (js && (await oncePerSession(sessionID))) {
-          throw new Error(
-            `Code graph index is ready for this repo (${js}). For a definition, ` +
-            "its callers or blast radius use the codebase-memory-mcp search_graph / " +
-            "trace_path tools. If you need literal text, re-run this search unchanged; " +
-            "it will pass - this nudge fires once per session."
-          )
+    // Native allow/deny where the build emits it. Inert (never called) on
+    // builds that do not, which is exactly why the before-hook fallback stays.
+    "permission.ask": async (input, output) => {
+      try {
+        if (!output || typeof output !== "object") return
+        if (off("pretooluse-off")) return
+        if (!(await rootFor(dir))) return
+        const { tool, args } = permissionToolArgs(input)
+        const sessionID = input?.sessionID || input?.sessionId
+        const sub = String(args.subagent_type || args.agent || "")
+        if (/task|agent|subagent/.test(tool) && /explore/i.test(sub)) {
+          output.status = "deny"
+          return
         }
-      }
+        if (identifierFrom(tool, args)) {
+          const js = indexSlug(dir)
+          if (js && (await oncePerSession(sessionID))) output.status = "deny"
+        }
+      } catch {}
+    },
+
+    "tool.execute.before": async (input, output) => {
+      let deny = null
+      try {
+        if (off("pretooluse-off")) return
+        const base = await rootFor(dir)
+        if (!base) return
+        const tool = String(input?.tool || "").toLowerCase()
+        const args = output?.args || input?.args || {}
+        const sessionID = input?.sessionID || input?.sessionId
+
+        const sub = String(args.subagent_type || args.agent || "")
+        if (tool === "task" && /explore/i.test(sub)) {
+          deny = EXPLORE_DENY
+        } else if (identifierFrom(tool, args)) {
+          const js = indexSlug(dir)
+          // oncePerSession is shared with permission.ask so exactly one of the
+          // two hooks consumes the nudge, whichever the build runs first.
+          if (js && (await oncePerSession(sessionID))) {
+            deny =
+              `Code graph index is ready for this repo (${js}). For a definition, ` +
+              "its callers or blast radius use the codebase-memory-mcp search_graph / " +
+              "trace_path tools. If you need literal text, re-run this search unchanged; " +
+              "it will pass - this nudge fires once per session."
+          }
+        }
+      } catch {}
+      if (deny) throw new Error(deny)
+    },
+
+    // Every shell call (tool or user terminal) sees the same tezgah roots.
+    "shell.env": async (input, output) => {
+      try {
+        if (!output || typeof output !== "object") return
+        const env = output.env && typeof output.env === "object" ? output.env : (output.env = {})
+        const rs = await roots()
+        if (rs.length) env.TEZGAH_ROOTS = rs.join(":")
+        env.TEZGAH_HOME = CONFIG
+        env.TEZGAH_STATUS_BIN = STATUS_BIN
+      } catch {}
+    },
+
+    // Keep the contract alive when a long session is compacted.
+    "experimental.session.compacting": async (input, output) => {
+      try {
+        if (!output || typeof output !== "object") return
+        const context = Array.isArray(output.context) ? output.context : (output.context = [])
+        context.push(CONTRACT_REMINDER)
+      } catch {}
     },
 
     "tool.execute.after": async (input, output) => {
-      if (!(await rootFor(dir))) return
-      const tool = String(input?.tool || "").toLowerCase()
-      const kind = classify(tool, output?.args || input?.args || {})
-      if (kind) await record(input?.sessionID || input?.sessionId, kind)
+      try {
+        if (!(await rootFor(dir))) return
+        const tool = String(input?.tool || "").toLowerCase()
+        const kind = classify(tool, output?.args || input?.args || {})
+        if (kind) await record(input?.sessionID || input?.sessionId, kind)
+      } catch {}
     },
+
+    // TODO(custom tool): a `tool()` export (e.g. a direct tezgah-status call)
+    // would need `import { tool } from "@opencode-ai/plugin"`. That package
+    // resolves from a config-local node_modules that may not exist at runtime,
+    // and a failed static import would break the whole plugin at load. Not
+    // shipped until that resolution is confirmed on each host; the CLI
+    // (TEZGAH_STATUS_BIN) is the safe path today.
   }
 }

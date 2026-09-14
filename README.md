@@ -10,7 +10,7 @@ kalkar; hangi asistanı açarsan aç, aynı dilde, aynı disiplinde ve aynı do�
 
 İşin özü iki parçadan oluşur: ortak kurallar tek bir dosyada durur, her asistan
 da bu kuralları kendi anladığı biçime çeviren ince bir adaptöre sahiptir. Yani
-kuralı bir kez değiştirdiğinde dört asistan da aynı şeyi görür; aynı metni dört
+kuralı bir kez değiştirdiğinde beş asistan da aynı şeyi görür; aynı metni beş
 yere ayrı ayrı yazmak zorunda kalmazsın.
 
 Pratikte tezgah asistanlara şunları yaptırır: cevap Türkçe ve önce sonuç olacak
@@ -25,9 +25,13 @@ Bir aracı kullanmak için anmak serbest; onu yazar olarak yazmak yasak.
 
 Bunun karşılığında küçük bir maliyet var ve dürüst olmak gerekirse: her oturum
 başında yaklaşık 12,5 KB (≈3.100 token) kural metni bağlama eklenir, Claude'da
-ayrıca her turda ~1,3 KB hatırlatma gider. Codex'te tezgah henüz engelleme kapısı
-bağlamıyor, o yüzden orada kurallar tavsiye olarak kalır (Codex bunu destekliyor;
-adaptör işi sırada). dsh'te ise Claude hook köprüsü kullanıldığı için sözleşme ve
+ayrıca her turda ~1,3 KB hatırlatma gider. Codex artık tezgah'ın engelleme
+kapısını da bağlar: `PreToolUse` kaydı Bash, `exec_command`, `apply_patch`,
+Edit/Write, MCP araçları ve alt-ajan çağrılarını aynı denetimden geçirir, yani
+orada da kurallar tavsiye olarak değil kapı olarak durur. Atıf yasağı Claude'da
+yalnızca hook denetimine bırakılmaz; `attribution` ayarı `commit`, `pr` ve
+`sessionUrl` boşaltılarak commit/PR atıfı kaynağında kapatılır. dsh'te ise
+Claude hook köprüsü kullanıldığı için sözleşme ve
 kapı aynen çalışır. Kod grafiği için `codebase-memory-mcp`, dış görüş için
 OpenRouter anahtarı ayrıca gerekir; ikisi de yoksa tezgah sessizce yanlış
 davranmaz, "yok" der. Gecikme ölçüldü: oturum başlangıcında Python'un kendi
@@ -59,12 +63,21 @@ claude plugin marketplace add ~/Projects/tezgah
 claude plugin install tezgah@rizacan-local
 ```
 
+Plugin yalnızca hook ve komut getirmez; iki salt-okunur ajan da taşır.
+`agents/tezgah-explorer.md` kod keşfini grafikten yapıp `file:line` kanıtıyla
+döner, `agents/tezgah-reviewer.md` ise bir diff'i önce `detect_changes` ile
+etki alanına çevirip sonra çekişmeli bir incelemeyle gerçek kusurları arar;
+ikisinin de yazma ve komut araçları kapalıdır, çıktıları öneridir.
+
 Kurduktan sonra günlük hayatta yapman gereken bir şey yok; asistan açılınca
 kurallar kendiliğinden yüklenir. Aklında tutman gereken üç komut var:
 `tezgah-setup` ne kurulu ne eksik olduğunu söyler, `tezgah-status` o repoda
 kuralların aktif olup olmadığını gösterir, `/plan-add` ise bir işi plana çevirir.
-Tezgah yalnızca tanımlı kök dizinlerde (varsayılan `~/Projects`) çalışır, başka
-yerde tamamen sessizdir.
+Sürümü `bin/tezgah-setup --version` ile okursun; kurulumu geri almak istersen
+`bin/tezgah-setup --uninstall` yalnızca tezgah'ın bağladığı symlink'leri, host
+hook kayıtlarını ve dsh'teki yönetilen bloğu söker, başka bir dosyaya ya da
+`.tezgah-bak` yedeğine dokunmaz. Tezgah yalnızca tanımlı kök dizinlerde
+(varsayılan `~/Projects`) çalışır, başka yerde tamamen sessizdir.
 
 Durum satırı her host'ta aynı değil ve bunu gizlemiyoruz: Claude Code ile Cursor
 CLI'da (`~/.cursor/cli-config.json`, spec'i Claude'la hizalı) tezgah segmenti

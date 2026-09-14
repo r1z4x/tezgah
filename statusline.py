@@ -52,6 +52,7 @@ try:
 except OSError:
     real = ""
 PROJECTS = root_for(real) if real else None
+seg = ""
 if PROJECTS:
     def off(name):
         return os.path.exists(os.path.join(HOME, ".config", "tezgah", name)) \

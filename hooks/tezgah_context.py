@@ -11,8 +11,7 @@ import os
 import re
 import subprocess
 
-from tezgah_policy import (CBM_RULE, CONSULT, EXEC, NO_CBM, NO_CONSULT,
-                           ORCHESTRATE, PONYTAIL, REMINDER, WORKFLOWS)
+from tezgah_policy import CORE, PROMPT_REMINDER
 from tezgah_paths import (CACHE, cbm_bin, have_consult_key, off, root_for,
                           roots, tool)
 
@@ -147,32 +146,41 @@ def context_for(event, cwd, payload=None):
     root = repo_root(cwd)
     ACTIVE_ROOT[0] = root_for(cwd) or ""
     if event == "user_prompt":
-        # per-turn nudge: openers decay over long sessions, this does not
+        # per-turn nudge: openers decay over long sessions. Kept short because
+        # it is paid every turn, and on Claude the output style already carries
+        # the same rules on every response.
         if off("reminder-off"):
             return None
-        return render(REMINDER.strip())
-    # PostCompact re-arms the full blocks: compaction can summarize them away.
-    # SubagentStart fires once per delegated agent: a fan-out would race
-    # indexers on the same repo, so only the parent session triggers one.
-    status = (autoindex(root) if event != "subagent_start"
-              else "index handled by the parent session")
-    parts = [CBM_RULE % (slug(root), status) if cbm_bin() else NO_CBM]
+        return render(PROMPT_REMINDER.strip())
+    # session_start / post_compact / subagent_start: the compact always-on core
+    # plus live index/consult state. The deep orchestration/exec detail moved
+    # out of the every-session payload into the tezgah-contract skill, which
+    # the last line tells the model to load on demand.
+    parts = [CORE]
+    if cbm_bin():
+        # SubagentStart fires once per delegated agent: a fan-out would race
+        # indexers on the same repo, so only the parent session triggers one.
+        status = (autoindex(root) if event != "subagent_start"
+                  else "index handled by the parent session")
+        parts.append("Graph index: %s (project %s)." % (status, slug(root)))
+    else:
+        parts.append("Graph: codebase-memory-mcp is not installed, so use "
+                     "grep/find and say the answer came from text search; never "
+                     "claim the index answered.")
+    if not off("consult-off") and not have_consult_key():
+        parts.append("Consult: no OpenRouter key, so the second opinion cannot "
+                     "run; on a non-trivial call say it was skipped and why.")
     if event in ("session_start", "post_compact"):
-        # workflow menu + orchestration are main-thread only:
-        # subagents must not nest harnesses or spawn sub-subagents
-        parts.append(WORKFLOWS)
-        if not off("orchestrate-off"):
-            parts.append(ORCHESTRATE)
         plans = open_plans(root)
         if plans:
             parts.append(plans)
-    if not off("ponytail-auto.off") and not os.path.exists(
-            os.path.join(root, ".no-ponytail")):
-        parts.append(PONYTAIL)
-    if not off("exec-mode.off"):
-        parts.append(EXEC)
-    if not off("consult-off"):
-        parts.append(CONSULT if have_consult_key() else NO_CONSULT)
+    if event == "subagent_start":
+        parts.append("You are a subagent: execute the briefing and report "
+                     "evidence back to the router; do not orchestrate or spawn "
+                     "subagents. Full rules: the `tezgah-contract` skill.")
+    else:
+        parts.append("Deep orchestration, codegen, consult detail and the exact "
+                     "kill switches: load the `tezgah-contract` skill.")
     return render("\n\n".join(p.strip() for p in parts))
 
 

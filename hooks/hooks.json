@@ -3,9 +3,6 @@
     "SessionStart": [
       { "hooks": [ { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
     ],
-    "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
-    ],
     "SubagentStart": [
       { "hooks": [ { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
     ],
