@@ -6,10 +6,10 @@
 
 Claude Code's statusLine pipes session JSON on stdin; Cursor's spec is aligned
 with it. This wraps Orca's own status line for Claude, then appends the tezgah
-checklist `pony✓ exec✓ · consult○ cbm○ orch○ · plans N`. For Cursor there is no
-Orca status line, so only the segment is printed. Used-tool marks come from the
-Claude transcript on Claude, and from tezgah's own recorder (written by the
-Codex/Cursor/dsh/opencode adapters) elsewhere.
+checklist from hooks/tezgah_context.health_lines - the single source every host
+renders - so the segment is identical on Claude, Cursor, Codex and opencode.
+Used-tool marks come from the Claude transcript on Claude, and from tezgah's own
+recorder (written by the Codex/Cursor/dsh/opencode adapters) elsewhere.
 """
 import glob
 import json
@@ -21,8 +21,7 @@ import sys
 # real file to find the plugin it ships with before importing the shared core
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "hooks"))
-from tezgah_context import used as used_kinds  # noqa: E402
-from tezgah_paths import have_consult_key, root_for  # noqa: E402
+from tezgah_context import health_lines, used as used_kinds  # noqa: E402
 
 HOME = os.path.expanduser("~")
 ORCA = os.path.join(HOME, ".orca", "agent-hooks", "claude-statusline.sh")
@@ -51,38 +50,16 @@ try:
     real = os.path.realpath(cwd) if cwd else ""
 except OSError:
     real = ""
-PROJECTS = root_for(real) if real else None
 
 
-def off(name):
-    return os.path.exists(os.path.join(HOME, ".config", "tezgah", name)) \
-        or os.path.exists(os.path.join(HOME, ".claude", name))
+def claude_used():
+    """Tool kinds used this session, parsed from the Claude transcript.
 
-
-# Global indicator: tezgah is loaded for the whole session on the hosts that
-# ship it as an instructions file, so the checklist prints for any cwd. Only
-# the per-repo marks and the plans count need an enclosing root.
-repo_flags = set()
-p = real
-while PROJECTS and p.startswith(PROJECTS):
-    for f in (".no-ponytail", ".no-cbm"):
-        if os.path.exists(os.path.join(p, f)):
-            repo_flags.add(f)
-    if p == PROJECTS:
-        break
-    p = os.path.dirname(p)
-
-key_ok = have_consult_key()
-
-# which tezgah tools this session actually used
-used = {"consult": False, "cbm": False, "orch": False}
-if HOST == "cursor":
-    seen = used_kinds(payload.get("session_id"))
-    for k in used:
-        used[k] = k in seen
-else:
-    # Parse tool_use blocks from the transcript — a substring scan would
-    # flag the tool NAME appearing in chat text as a use.
+    A substring scan would flag the tool NAME appearing in chat text, so parse
+    tool_use blocks; subagent transcripts are included so delegated graph/consult
+    use still counts.
+    """
+    used = set()
     tp = payload.get("transcript_path")
     files = [tp] if tp and os.path.exists(tp) else []
     if tp:
@@ -110,46 +87,17 @@ else:
                 continue
             name = b.get("name", "")
             if name.startswith("mcp__codebase-memory-mcp__"):
-                used["cbm"] = True
+                used.add("cbm")
             elif name in ("Task", "Agent"):
-                used["orch"] = True
+                used.add("orch")
             elif name == "Bash" and "consult" in \
                     (b.get("input") or {}).get("command", ""):
-                used["consult"] = True
+                used.add("consult")
+    return used
 
-# Behavioural rules (can't measure from transcript): armed ✓ / off ✗.
-armed = [
-    ("pony", not off("ponytail-auto.off") and ".no-ponytail" not in repo_flags),
-    ("exec", not off("exec-mode.off")),
-]
-# Measurable rules: used ✓ / armed-but-unused ○ / off ✗.
-measurable = [
-    ("consult", not off("consult-off") and key_ok, used["consult"]),
-    ("cbm", ".no-cbm" not in repo_flags, used["cbm"]),
-    ("orch", not off("orchestrate-off"), used["orch"]),
-]
-left = " ".join(n + ("✓" if on else "✗") for n, on in armed)
-right = " ".join(
-    n + ("✗" if not on else ("✓" if u else "○")) for n, on, u in measurable)
-seg = left + "  ·  " + right
-# Plans layer: open plan count for the enclosing repo (plans/open/*.md).
-if PROJECTS:
-    p = real
-    while p.startswith(PROJECTS):
-        plans = glob.glob(os.path.join(p, "plans", "open", "*.md"))
-        if plans:
-            blocked = 0
-            for f in plans:
-                try:
-                    with open(f) as fh:
-                        blocked += "status: blocked" in fh.read(400)
-                except OSError:
-                    pass
-            seg += "  ·  plans %d" % len(plans) + (" (%d blk)" % blocked if blocked else "")
-            break
-        if p == PROJECTS:
-            break
-        p = os.path.dirname(p)
 
+seen = used_kinds(payload.get("session_id")) if HOST == "cursor" else claude_used()
+seg = health_lines(real or os.getcwd(), payload.get("session_id"),
+                   used_override=seen)
 parts = [p for p in (orca_out, seg) if p]
 print("  |  ".join(parts))

@@ -213,15 +213,12 @@ def used(session_id):
     return out
 
 
-def health_lines(cwd, session_id=None):
-    """The armed/used checklist, host-neutral, for `tezgah-status`.
-
-    Global, not root-scoped: tezgah ships as a globally loaded instructions
-    file on opencode (and the CLI is used outside repos), so the indicator must
-    not go silent off-root. Only the per-repo marks need an enclosing root."""
+def repo_marks(cwd):
+    """The per-repo opt-out flags (.no-ponytail/.no-cbm) walking up to the
+    enclosing root, and that root. Outside every root: empty set, root None."""
     marks = set()
-    p = os.path.realpath(cwd)
     base = root_for(cwd)
+    p = os.path.realpath(cwd)
     while base and p.startswith(base):
         for f in (".no-ponytail", ".no-cbm"):
             if os.path.exists(os.path.join(p, f)):
@@ -229,7 +226,76 @@ def health_lines(cwd, session_id=None):
         if p == base:
             break
         p = os.path.dirname(p)
-    seen = used(session_id)
+    return base, marks
+
+
+def index_mark(cwd, base):
+    """Code-graph readiness for the enclosing repo.
+
+    ✓ indexed, ↻ indexed but HEAD moved since the stamp, ✗ not indexed yet,
+    – not applicable (outside a root, codebase-memory-mcp absent, or .no-cbm)."""
+    if not base or not cbm_bin():
+        return "–"
+    p = os.path.realpath(cwd)
+    while p.startswith(base):
+        if os.path.exists(os.path.join(p, ".no-cbm")):
+            return "–"
+        if p == base:
+            break
+        p = os.path.dirname(p)
+    from tezgah_gate import index_slug  # lazy: keep hook import cost minimal
+    slug = index_slug(cwd, base)
+    if not slug:
+        return "✗"
+    try:
+        head = git(repo_root(cwd), "rev-parse", "HEAD")
+        with open(os.path.join(CACHE, slug)) as fh:
+            stamped = fh.read().strip()
+        if head and stamped and stamped != head:
+            return "↻"
+    except OSError:
+        pass
+    return "✓"
+
+
+def plan_mark(cwd, base):
+    """`plans N` (+ `(M blk)`) for the enclosing repo, or None."""
+    if not base:
+        return None
+    p = os.path.realpath(cwd)
+    while p.startswith(base):
+        plans = glob.glob(os.path.join(p, "plans", "open", "*.md"))
+        if plans:
+            blocked = 0
+            for f in plans:
+                try:
+                    with open(f) as fh:
+                        blocked += "status: blocked" in fh.read(400)
+                except OSError:
+                    pass
+            return "plans %d" % len(plans) + (" (%d blk)" % blocked if blocked else "")
+        if p == base:
+            break
+        p = os.path.dirname(p)
+    return None
+
+
+def health_lines(cwd, session_id=None, used_override=None):
+    """The armed/used checklist, host-neutral, for `tezgah-status`.
+
+    The single source every host renders (opencode TUI, Codex systemMessage,
+    Claude/Cursor statusline), so they cannot drift.
+
+    Global, not root-scoped: tezgah ships as a globally loaded instructions
+    file on opencode (and the CLI is used outside repos), so the indicator must
+    not go silent off-root. The per-repo additions - the .no-* marks, `idx` graph
+    readiness and the `plans` count - appear only when cwd is inside a root.
+
+    used_override: the tool kinds a host already resolved from its own record
+    (e.g. Claude parses the transcript because it does not write tezgah's
+    recorder); None falls back to tezgah's recorder for session_id."""
+    base, marks = repo_marks(cwd)
+    seen = set(used_override) if used_override is not None else used(session_id)
     flags = [
         ("pony", not off("ponytail-auto.off") and ".no-ponytail" not in marks, None),
         ("exec", not off("exec-mode.off"), None),
@@ -245,4 +311,13 @@ def health_lines(cwd, session_id=None):
             out.append(name + "✓")
         else:
             out.append(name + "○")
-    return " ".join(out[:2]) + "  ·  " + " ".join(out[2:])
+    line = " ".join(out[:2]) + "  ·  " + " ".join(out[2:])
+    extra = []
+    if base:
+        extra.append("idx" + index_mark(cwd, base))
+        plan = plan_mark(cwd, base)
+        if plan:
+            extra.append(plan)
+    if extra:
+        line += "  ·  " + "  ·  ".join(extra)
+    return line
