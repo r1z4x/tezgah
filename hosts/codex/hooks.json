@@ -14,6 +14,9 @@
     ],
     "PostCompact": [
       { "hooks": [ { "type": "command", "command": "@CODEX_HOOK@", "timeout": 10 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "@CODEX_HOOK@", "timeout": 10 } ] }
     ]
   }
 }

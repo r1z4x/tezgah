@@ -70,9 +70,10 @@ Durum satırı her host'ta aynı değil ve bunu gizlemiyoruz: Claude Code ile Cu
 CLI'da (`~/.cursor/cli-config.json`, spec'i Claude'la hizalı) tezgah segmenti
 otomatik bağlanır; opencode'da komut tabanlı statusLine olmadığı için segment
 ancak bir **TUI plugin'i** ile görünür ve bu plugin kurulur; Codex'in TUI footer'ı
-kapalı bir yerleşik öğe listesi olduğundan orada mümkün değildir (onun yerine
-`tezgah-status`). dsh'te de komut statusline yok; native bir UI plugin'i ile
-sidebar'a eklenebilir ama bu ağır bir iştir ve henüz paketlenmedi.
+kapalı bir yerleşik öğe listesi olduğundan footer'a segment eklenemez, bu yüzden
+orada segment oturum başında ve her tur sonunda hook `systemMessage` ile görünür.
+dsh'te de komut statusline yok; native bir UI plugin'i ile sidebar'a eklenebilir
+ama bu ağır bir iştir ve henüz paketlenmedi.
 
 Geliştirirken `bin/tezgah-setup --sync` kurulu Claude kopyasını bu checkout'la
 tazeler ve `claude plugin validate .claude-plugin/plugin.json` manifest'i

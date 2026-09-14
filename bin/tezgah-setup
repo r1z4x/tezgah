@@ -205,7 +205,7 @@ def install_codex():
     print("\ncodex:")
     cmd = 'python3 "%s"' % os.path.join(tp.BIN_DIR, "tezgah-codex-hook")
     events = ["SessionStart", "UserPromptSubmit", "PostToolUse",
-              "SubagentStart", "PostCompact"]
+              "SubagentStart", "PostCompact", "Stop"]
     path = os.path.join(CODEX, "hooks.json")
     data = read_json(path, {"hooks": {}})
     hooks = data.setdefault("hooks", {})

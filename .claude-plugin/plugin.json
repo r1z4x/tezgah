@@ -2,7 +2,7 @@
   "name": "tezgah",
   "displayName": "Tezgah",
   "description": "The working contract for repositories under ~/Projects: Turkish executive reporting, minimal-code review discipline, a code-graph-first discovery rule, external second opinions, and a two-tier orchestration model with a cheap drafting bridge.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "author": {
     "name": "Rizacan TUFAN"
   },
