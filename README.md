@@ -66,6 +66,14 @@ kuralların aktif olup olmadığını gösterir, `/plan-add` ise bir işi plana 
 Tezgah yalnızca tanımlı kök dizinlerde (varsayılan `~/Projects`) çalışır, başka
 yerde tamamen sessizdir.
 
+Durum satırı her host'ta aynı değil ve bunu gizlemiyoruz: Claude Code ile Cursor
+CLI'da (`~/.cursor/cli-config.json`, spec'i Claude'la hizalı) tezgah segmenti
+otomatik bağlanır; opencode'da komut tabanlı statusLine olmadığı için segment
+ancak bir **TUI plugin'i** ile görünür ve bu plugin kurulur; Codex'in TUI footer'ı
+kapalı bir yerleşik öğe listesi olduğundan orada mümkün değildir (onun yerine
+`tezgah-status`). dsh'te de komut statusline yok; native bir UI plugin'i ile
+sidebar'a eklenebilir ama bu ağır bir iştir ve henüz paketlenmedi.
+
 Geliştirirken `bin/tezgah-setup --sync` kurulu Claude kopyasını bu checkout'la
 tazeler ve `claude plugin validate .claude-plugin/plugin.json` manifest'i
 doğrular; sürüm yükseltirken iki dosyayı (`.claude-plugin/plugin.json` ve
