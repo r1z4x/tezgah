@@ -48,6 +48,21 @@ class Gate(TempHome):
     def test_attribution_without_a_write_passes(self):
         self.assertIsNone(self.decide("Bash", {"command": 'echo "Generated with x"'}))
 
+    def test_naming_claude_code_to_use_it_passes(self):
+        # Naming a tool to use or describe it is allowed; only crediting it as
+        # author is blocked, so a bare "Claude Code" must not deny a commit.
+        self.assertIsNone(self.decide(
+            "Bash", {"command": 'git commit -m "integrate with Claude Code hooks"'}))
+
+    def test_git_grep_identifier_uses_the_same_nudge(self):
+        self.make_index()
+        first = self.decide("Bash", {"command": "git grep some_identifier"},
+                            session_id="gg")
+        self.assertIsNotNone(first)
+        self.assertIn("search_graph", first)
+        self.assertIsNone(self.decide("Bash", {"command": "git grep some_identifier"},
+                                      session_id="gg"))
+
     def test_attribution_outside_roots_passes(self):
         self.assertIsNone(self.decide(
             "Bash", {"command": 'git commit -m "Co-Authored-By: x"'},

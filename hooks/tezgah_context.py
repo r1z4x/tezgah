@@ -18,6 +18,17 @@ from tezgah_paths import (CACHE, cbm_bin, have_consult_key, off, root_for,
 # filled in by context_for() once the cwd is known; {ROOT} reads it
 ACTIVE_ROOT = [""]
 
+# Each always-on rule in CORE starts with this bold label. A kill switch drops
+# exactly its own paragraph from the injected text; the label is the contract,
+# so tests pin every one and a label edit fails loudly instead of silently.
+CORE_RULES = (
+    ("exec", "**Turkish, BLUF.**"),
+    ("ponytail", "**Ponytail (minimal code).**"),
+    ("cbm", "**Code discovery: graph first.**"),
+    ("consult", "**Consult before irreversible.**"),
+    ("attribution", "**No AI attribution, ever, on any host.**"),
+)
+
 
 def render(text, root=""):
     """Fill the path placeholders with stable, existing paths."""
@@ -136,6 +147,34 @@ def open_plans(root):
             "open plan work happens on its `plan/NNN-slug` branch." % "\n".join(lines))
 
 
+def core_for(cwd):
+    """The always-on CORE with kill-switched rules removed, plus the switch list.
+
+    A kill switch that only flips a status mark is not a switch: the rule it
+    names must also leave the text the model reads. Returns (text, disabled)."""
+    _, marks = repo_marks(cwd)
+    drop, disabled = set(), []
+    if off("exec-mode.off"):
+        drop.add("exec")
+        disabled.append("exec-mode.off")
+    if off("ponytail-auto.off") or ".no-ponytail" in marks:
+        drop.add("ponytail")
+        disabled.append("ponytail-auto.off" if off("ponytail-auto.off")
+                        else ".no-ponytail")
+    if off("consult-off"):
+        drop.add("consult")
+        disabled.append("consult-off")
+    if off("orchestrate-off"):
+        disabled.append("orchestrate-off")
+    if ".no-cbm" in marks:
+        drop.add("cbm")
+        disabled.append(".no-cbm")
+    paragraphs = [p for p in CORE.split("\n\n")
+                  if not any(p.startswith(label) for key, label in CORE_RULES
+                             if key in drop)]
+    return "\n\n".join(paragraphs), disabled
+
+
 def context_for(event, cwd, payload=None):
     """The context block for a normalized event, or None when out of scope.
 
@@ -145,19 +184,31 @@ def context_for(event, cwd, payload=None):
         return None
     root = repo_root(cwd)
     ACTIVE_ROOT[0] = root_for(cwd) or ""
+    core, disabled = core_for(cwd)
+    # A disabled rule is also removed from the on-demand skill's reach, because
+    # the skill is loaded separately and would otherwise re-enable it.
+    off_note = ("Kill switches active this session: %s. Those rules are OFF; "
+                "ignore the matching section in the `tezgah-contract` skill."
+                % ", ".join(disabled)) if disabled else ""
     if event == "user_prompt":
         # per-turn nudge: openers decay over long sessions. Kept short because
         # it is paid every turn, and on Claude the output style already carries
         # the same rules on every response.
         if off("reminder-off"):
             return None
-        return render(PROMPT_REMINDER.strip())
+        text = render(PROMPT_REMINDER.strip())
+        return text + ("\n(off this session: %s)" % ", ".join(disabled)
+                       if disabled else "")
     # session_start / post_compact / subagent_start: the compact always-on core
     # plus live index/consult state. The deep orchestration/exec detail moved
     # out of the every-session payload into the tezgah-contract skill, which
     # the last line tells the model to load on demand.
-    parts = [CORE]
-    if cbm_bin():
+    parts = [core]
+    _, marks = repo_marks(cwd)
+    if ".no-cbm" in marks:
+        parts.append("Graph: disabled for this repo (.no-cbm), so use grep/find "
+                     "and say the answer came from text search.")
+    elif cbm_bin():
         # SubagentStart fires once per delegated agent: a fan-out would race
         # indexers on the same repo, so only the parent session triggers one.
         status = (autoindex(root) if event != "subagent_start"
@@ -174,6 +225,11 @@ def context_for(event, cwd, payload=None):
         plans = open_plans(root)
         if plans:
             parts.append(plans)
+    if disabled:
+        parts.append(off_note)
+        if "orchestrate-off" in disabled:
+            parts.append("Orchestration is off (orchestrate-off): do not "
+                         "delegate to subagents; do the work in this thread.")
     if event == "subagent_start":
         parts.append("You are a subagent: execute the briefing and report "
                      "evidence back to the router; do not orchestrate or spawn "

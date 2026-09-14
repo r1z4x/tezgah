@@ -139,5 +139,75 @@ class IndexMark(TempHome):
         self.assertEqual(self.mark(), "\u21bb")
 
 
+class KillSwitchEnforcement(TempHome):
+    """A documented kill switch must remove its rule from the injected text,
+    not just flip a status mark. The labels are pinned here, so editing one in
+    hooks/tezgah_policy.py fails this test instead of silently disabling it."""
+
+    OFF = "**Turkish, BLUF.**"
+    PONY = "**Ponytail (minimal code).**"
+    CBM = "**Code discovery: graph first.**"
+    CONSULT = "**Consult before irreversible.**"
+
+    def session(self, repo):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "session_start",
+                              "cwd": repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def switch(self, name):
+        self.touch(os.path.join(self.home, ".config", "tezgah", name))
+
+    def test_default_keeps_every_rule(self):
+        repo = self.make_repo()
+        out = self.session(repo)
+        for label in (self.OFF, self.PONY, self.CBM, self.CONSULT):
+            self.assertIn(label, out)
+
+    def test_exec_mode_off_drops_the_reporting_rule(self):
+        repo = self.make_repo()
+        self.switch("exec-mode.off")
+        out = self.session(repo)
+        self.assertNotIn(self.OFF, out)
+        self.assertIn("exec-mode.off", out)
+
+    def test_ponytail_auto_off_drops_the_ponytail_rule(self):
+        repo = self.make_repo()
+        self.switch("ponytail-auto.off")
+        self.assertNotIn(self.PONY, self.session(repo))
+
+    def test_repo_no_ponytail_drops_the_ponytail_rule(self):
+        repo = self.make_repo()
+        self.touch(os.path.join(repo, ".no-ponytail"))
+        self.assertNotIn(self.PONY, self.session(repo))
+
+    def test_consult_off_drops_the_consult_rule(self):
+        repo = self.make_repo()
+        self.switch("consult-off")
+        self.assertNotIn(self.CONSULT, self.session(repo))
+
+    def test_orchestrate_off_says_do_not_delegate(self):
+        repo = self.make_repo()
+        self.switch("orchestrate-off")
+        self.assertIn("Orchestration is off", self.session(repo))
+
+    def test_repo_no_cbm_drops_the_graph_rule(self):
+        repo = self.make_repo()
+        self.touch(os.path.join(repo, ".no-cbm"))
+        out = self.session(repo)
+        self.assertNotIn(self.CBM, out)
+        self.assertIn("disabled for this repo", out)
+
+    def test_user_prompt_names_the_disabled_rule(self):
+        repo = self.make_repo()
+        self.switch("exec-mode.off")
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("exec-mode.off", out)
+
+
 if __name__ == "__main__":
     unittest.main()

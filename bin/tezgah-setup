@@ -679,6 +679,8 @@ def adopt():
                       if "projects-harness" not in json.dumps(e)
                       and "Code discovery: prefer" not in json.dumps(e)]
         data["hooks"] = {ev: arr for ev, arr in (data.get("hooks") or {}).items() if arr}
+        if not data["hooks"]:
+            data.pop("hooks", None)
         write_json(path, data)
         print("%s cleaned %s" % (OK, path))
 
@@ -714,6 +716,8 @@ def adopt():
             arr[:] = kept
         if changed:
             settings["hooks"] = {ev: arr for ev, arr in (settings.get("hooks") or {}).items() if arr}
+            if not settings["hooks"]:
+                settings.pop("hooks", None)
             write_json(sp, settings)
             print("%s cleaned cbm hook entries from %s" % (OK, sp))
         else:

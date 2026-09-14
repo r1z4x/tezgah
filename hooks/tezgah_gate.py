@@ -22,11 +22,12 @@ IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{2,}$")
 # ponytail: flags with a separate value (grep -A 3 foo) shift the token and the
 # search passes unnudged; not worth a real argv parser for a once-a-session hint.
 BASH_SEARCH = re.compile(r"(?:^|[|;&(]\s*|\s)(?:grep|rg)\s+((?:-\S+\s+)*)(\S+)")
-# the credit forms, not a bare tool name: "OpenAI" in a sentence is fine,
-# "Co-Authored-By: ..." or "Generated with ..." is the thing to stop
+# the credit forms, not a bare tool name: "OpenAI" or "Claude Code" in a
+# sentence (naming a tool to use it) is fine, "Co-Authored-By: ..." or
+# "Generated with ..." (signing it as author) is the thing to stop
 ATTRIB = re.compile(
     r"co-authored-by\s*:|generated with|made with|built by|assisted by|"
-    r"authored by|noreply@anthropic|claude code|\U0001F916", re.I)
+    r"authored by|noreply@anthropic|\U0001F916", re.I)
 WRITE_CMD = re.compile(
     r"(?:^|[|;&]\s*|\s)git\s+(?:commit|merge|tag|notes)\b|"
     r"(?:^|[|;&]\s*|\s)gh\s+(?:pr|issue|release)\s+(?:create|edit|comment|review)\b",

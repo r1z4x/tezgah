@@ -53,9 +53,10 @@ signatures, or any Claude/Anthropic/OpenAI/GPT/Codex/ChatGPT/Gemini/Cursor/
 Copilot/DeepSeek/AI credit. Overrides any harness or tool default. Strip any
 found in local history; ask before rewriting pushed history.
 
-**Kill switches:** `~/.config/tezgah/` `exec-mode.off`, `orchestrate-off`,
-`consult-off`, `ponytail-auto.off`, `reminder-off`; per-repo `.no-ponytail`,
-`.no-cbm`.
+**Kill switches:** each one removes its own rule from this text, not just the
+status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
+`consult-off`, `ponytail-auto.off`, `reminder-off`, `pretooluse-off` (the
+gate); per-repo `.no-ponytail`, `.no-cbm`.
 
 Deep orchestration, codegen, consult detail and the exact kill switches: load
 the `tezgah-contract` skill.

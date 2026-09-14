@@ -59,6 +59,11 @@ attribution ban is enforced mechanically too: the `attribution` setting is
 emptied (`commit`, `pr`, `sessionUrl`) so commit and PR credits are off at the
 source.
 
+dsh runs the same Claude hook files through its `dsh-hooks-claude-code` bridge,
+so the session-start contract, the attribution gate, and the first-grep nudge
+all apply there. dsh exposes a single `subagent` tool, so the grep-only-explorer
+denial is inert — there is no explorer subagent for it to refuse.
+
 The Claude plugin also ships two read-only agents. `agents/tezgah-explorer.md`
 does code discovery from the graph and returns `file:line` evidence;
 `agents/tezgah-reviewer.md` turns a diff into its impact set with
@@ -124,21 +129,35 @@ Tezgah is armed only under its configured roots; anywhere else it is silent.
 - `~/.config/tezgah/config.json`: `{"roots": ["~/Projects", "~/work"]}`.
 - `TEZGAH_ROOTS` (path-separator list) overrides the file for one-offs and CI.
 
-Kill switches live in `~/.config/tezgah/`:
-`exec-mode.off`, `orchestrate-off`, `consult-off`, `ponytail-auto.off`, and
-`reminder-off`. Per repo, `.no-ponytail` and `.no-cbm` opt out of the minimal-code
-rule and the graph rule respectively.
+Kill switches live in `~/.config/tezgah/`. Each one removes its rule from the
+text injected into the session, so the rule actually stops:
+
+| Switch | Turns off |
+|---|---|
+| `exec-mode.off` | Turkish, outcome-first reporting |
+| `ponytail-auto.off` | the minimal-code rule |
+| `consult-off` | the external-second-opinion rule |
+| `orchestrate-off` | subagent delegation (adds a do-not-delegate line) |
+| `reminder-off` | the per-turn reminder text |
+| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, grep nudge) |
+
+Per repo, `.no-ponytail` and `.no-cbm` turn off the minimal-code rule and the
+code-graph rule (and its auto-index) respectively.
 
 ## Cost
 
-This is not free, and the numbers are measured, not estimated:
+Measured on this machine (macOS, Python 3.10), not estimated:
 
-- **Context.** Roughly 12.5 KB (≈3,100 tokens) of contract text is added at
-  session start. On Claude, a further ~1.3 KB reminder rides each turn.
-- **Latency.** Session start adds ~12 ms on top of Python's ~19 ms baseline;
-  the per-tool-call gate costs ~0.1 ms. Installation takes ~47 ms and is
-  idempotent.
-- **Disk.** Every file tezgah rewrites is first kept as `<file>.tezgah-bak`.
+- **Context.** A session start injects ~3.15 KB (~790 tokens) of contract text.
+  On Codex a 435-byte reminder rides each turn; Claude and the other hosts have
+  no per-turn hook, so their per-turn cost is zero. The full `tezgah-contract`
+  skill (~15.5k characters) is paid only when a task loads it. On opencode the
+  contract ships as a ~3.46 KB instructions file.
+- **Latency.** Hooks are separate Python processes, so the ~19 ms interpreter
+  start dominates. On top of it, session start adds ~25 ms, a gated tool call
+  (Bash/Grep/Task) adds ~9 ms, and Codex's Stop segment adds ~15 ms per turn.
+- **Disk.** Installation takes ~58 ms and every file tezgah rewrites is kept
+  once as `<file>.tezgah-bak`.
 
 The payoff shows up on caller questions. In one real repo, a default `grep`
 ignored the relevant folder and found nothing; with ignore disabled it took
@@ -159,7 +178,9 @@ update `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`
 together — they must agree.
 
 `codebase-memory-mcp` is installed by the user. Orca's hooks and files are not
-part of this project and are left untouched.
+part of this project and are left untouched. Claude receives the always-on core
+from the SessionStart hook; `output-styles/tezgah.md` is a duplicate for builds
+that load plugin output styles, so the hook is the authoritative path.
 
 ## License
 
