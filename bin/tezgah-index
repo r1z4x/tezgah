@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""tezgah-index [PATH] - start the repo's detached graph auto-index.
+
+Every host except opencode triggers the auto-index from its SessionStart hook.
+opencode has no session-lifecycle hook that can run the Python contract, so its
+plugin calls this on the first message of a session. Same single Python source,
+so roots, the .no-cbm opt-out and the HEAD stamp behave identically everywhere.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_context import autoindex, repo_root, under  # noqa: E402
+
+
+def main():
+    cwd = os.path.realpath(sys.argv[1] if len(sys.argv) > 1 else os.getcwd())
+    if not under(cwd):
+        return 0
+    print(autoindex(repo_root(cwd)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

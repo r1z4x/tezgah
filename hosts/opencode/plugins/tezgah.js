@@ -19,6 +19,7 @@
 // lacks is safe and must never be a load-time error.
 import { existsSync } from "node:fs"
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -28,6 +29,7 @@ const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "tezga
 const CACHE = join(HOME, ".cache", "tezgah")
 const CBM_DIR = join(HOME, ".cache", "codebase-memory-mcp")
 const STATUS_BIN = join(CONFIG, "bin", "tezgah-status")
+const INDEX_BIN = join(CONFIG, "bin", "tezgah-index")
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
 const EXPLORE_DENY =
   "A grep-only explorer subagent is not allowed in this tree. Use a " +
@@ -233,6 +235,19 @@ export const Tezgah = async ({ directory }) => {
         if (!output || typeof output !== "object") return
         const context = Array.isArray(output.context) ? output.context : (output.context = [])
         context.push(CONTRACT_REMINDER)
+      } catch {}
+    },
+
+    // Every other host runs the graph auto-index from its SessionStart hook.
+    // opencode has no session-lifecycle hook that can run the Python contract,
+    // so the first user message of a session triggers it once, detached: the
+    // index runs in the background and never blocks the turn.
+    "chat.message": async (input) => {
+      try {
+        if (!(await rootFor(dir))) return
+        const sessionID = String(input?.sessionID || "")
+        if (!(await oncePerSession(sessionID + "|index"))) return
+        spawn("python3", [INDEX_BIN, dir], { detached: true, stdio: "ignore" }).unref()
       } catch {}
     },
 

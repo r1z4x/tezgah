@@ -67,8 +67,8 @@ class Install(SetupBase):
         cfg = self.read_json(self.path(".config", "tezgah", "config.json"))
         self.assertIn(self.path("Projects"), cfg["roots"])
         self.assertEqual(sorted(cfg["hosts"]), sorted(ALL.split(",")))
-        for name in ("consult", "codegen", "tezgah-status", "tezgah-codex-hook",
-                     "tezgah-cursor-hook", "tezgah-statusline"):
+        for name in ("consult", "codegen", "tezgah-status", "tezgah-index",
+                     "tezgah-codex-hook", "tezgah-cursor-hook", "tezgah-statusline"):
             self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin", name)),
                             name)
 

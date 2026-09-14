@@ -1,0 +1,142 @@
+"""hooks/tezgah_index.py (auto-index worker) and bin/tezgah-index.
+
+The worker is spawned detached; its CLI is called by the opencode plugin on the
+first message of a session. Both are exercised here with a fake codebase-memory
+CLI, so no real index is built.
+"""
+import fcntl
+import os
+import subprocess
+import sys
+import time
+import unittest
+
+import support
+from support import TempHome
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WORKER = os.path.join(REPO, "hooks", "tezgah_index.py")
+CLI = os.path.join(REPO, "bin", "tezgah-index")
+
+# a stand-in for codebase-memory-mcp: logs every call, and fails the first
+# FAKE_CBM_FAILS index calls so the worker's retry can be exercised
+FAKE = """#!/usr/bin/env python3
+import os, sys
+with open(os.environ["FAKE_CBM_LOG"], "a") as fh:
+    fh.write(" ".join(sys.argv[1:]) + "\\n")
+if sys.argv[1:2] == ["daemon"]:
+    sys.exit(0)
+path = os.environ["FAKE_CBM_COUNTER"]
+n = int(open(path).read()) if os.path.exists(path) else 0
+with open(path, "w") as fh:
+    fh.write(str(n + 1))
+sys.exit(1 if n < int(os.environ.get("FAKE_CBM_FAILS", "0")) else 0)
+"""
+
+
+class IndexWorker(TempHome):
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.head = "abc123"
+        self.stamp = os.path.join(self.home, "stamp")
+        self.lock = os.path.join(self.home, "locks", "proj.lock")
+        self.counter = os.path.join(self.home, "counter")
+        self.log = os.path.join(self.home, "calls.log")
+        self.cbm = os.path.join(self.home, "fake-cbm")
+        with open(self.cbm, "w") as fh:
+            fh.write(FAKE)
+        os.chmod(self.cbm, 0o755)
+
+    def run_worker(self, fails=0, retries=5):
+        env = self.env(extra={
+            "FAKE_CBM_LOG": self.log,
+            "FAKE_CBM_COUNTER": self.counter,
+            "FAKE_CBM_FAILS": str(fails),
+            "TEZGAH_INDEX_RETRIES": str(retries),
+            "TEZGAH_INDEX_RETRY_DELAY": "0",
+        })
+        return subprocess.run(
+            [sys.executable, WORKER, self.cbm, self.repo, self.head,
+             self.stamp, self.lock],
+            capture_output=True, text=True, env=env, timeout=30)
+
+    def calls(self):
+        try:
+            with open(self.log) as fh:
+                return fh.read().splitlines()
+        except OSError:
+            return []
+
+    def test_success_stamps_head(self):
+        proc = self.run_worker()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(self.stamp) as fh:
+            self.assertEqual(fh.read(), self.head)
+        self.assertTrue(any(c.startswith("daemon start") for c in self.calls()))
+        self.assertTrue(any("index_repository" in c for c in self.calls()))
+
+    def test_retries_transient_failures_then_stamps(self):
+        proc = self.run_worker(fails=2, retries=5)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(os.path.exists(self.stamp))
+        self.assertEqual(len([c for c in self.calls() if "index_repository" in c]), 3)
+
+    def test_gives_up_without_stamp(self):
+        proc = self.run_worker(fails=99, retries=2)
+        self.assertEqual(proc.returncode, 1)
+        self.assertFalse(os.path.exists(self.stamp))
+
+    def test_lock_held_skips_indexing(self):
+        os.makedirs(os.path.dirname(self.lock), exist_ok=True)
+        held = open(self.lock, "w")
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.addCleanup(held.close)
+        proc = self.run_worker()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.exists(self.stamp))
+        self.assertEqual(self.calls(), [])  # the CLI was never invoked
+
+
+class IndexCli(TempHome):
+    def test_outside_roots_is_silent(self):
+        proc = subprocess.run([sys.executable, CLI, self.home],
+                              capture_output=True, text=True, env=self.env(),
+                              timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "")
+
+    def test_inside_roots_spawns_the_index(self):
+        repo = self.make_repo("proj")
+        fake = os.path.join(self.home, "fake-cbm")
+        with open(fake, "w") as fh:
+            fh.write(FAKE)
+        os.chmod(fake, 0o755)
+        stamp = os.path.join(self.home, ".cache", "tezgah",
+                             support.slug(os.path.realpath(repo)))
+        env = self.env(extra={
+            "TEZGAH_CBM_BIN": fake,
+            "FAKE_CBM_LOG": os.path.join(self.home, "calls.log"),
+            "FAKE_CBM_COUNTER": os.path.join(self.home, "counter"),
+            "FAKE_CBM_FAILS": "0",
+            "TEZGAH_INDEX_RETRIES": "3",
+            "TEZGAH_INDEX_RETRY_DELAY": "0",
+        })
+        proc = subprocess.run([sys.executable, CLI, repo], capture_output=True,
+                              text=True, env=env, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        deadline = time.time() + 10
+        while time.time() < deadline and not os.path.exists(stamp):
+            time.sleep(0.1)
+        self.assertTrue(os.path.exists(stamp), "auto-index did not stamp HEAD")
+
+    def test_opencode_plugin_triggers_the_index(self):
+        with open(os.path.join(REPO, "hosts", "opencode", "plugins",
+                               "tezgah.js")) as fh:
+            text = fh.read()
+        self.assertIn('"chat.message"', text)
+        self.assertIn("tezgah-index", text)
+
+
+if __name__ == "__main__":
+    unittest.main()

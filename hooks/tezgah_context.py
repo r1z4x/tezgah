@@ -10,10 +10,15 @@ import json
 import os
 import re
 import subprocess
+import sys
 
 from tezgah_policy import CORE, PROMPT_REMINDER
 from tezgah_paths import (CACHE, cbm_bin, have_consult_key, off, orx_bin,
                           root_for, roots, tool)
+
+# the detached auto-index worker (lock-guarded, retrying); same dir as this file
+INDEX_WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "tezgah_index.py")
 
 # filled in by context_for() once the cwd is known; {ROOT} reads it
 ACTIVE_ROOT = [""]
@@ -98,12 +103,14 @@ def autoindex(root):
         return "index current (HEAD unchanged since last index)"
     try:
         log = open(os.path.join(CACHE, "logs", name + ".log"), "ab")
-        # stamp HEAD only after the index exits 0: a failed run (daemon lock,
-        # concurrent worktree indexing) is retried on the next session start
+        # Spawn the lock-guarded worker rather than indexing inline. Two sessions
+        # in the same repo must not index at once, and a concurrent CBM
+        # generation makes the CLI refuse to start (transient); the worker holds
+        # an exclusive lock for the repo and retries. It stamps HEAD only after
+        # exit 0, so a failed run is retried on the next session start.
         subprocess.Popen(
-            ["sh", "-c", '"$0" daemon start >/dev/null 2>&1;'  # warm daemon: idempotent, cuts MCP connect time
-             ' "$0" cli index_repository --repo-path "$1" --mode fast'
-             ' && printf %s "$2" > "$3"', cbm, root, head, stamp_path],
+            [sys.executable, INDEX_WORKER, cbm, root, head,
+             stamp_path, os.path.join(CACHE, "locks", name + ".lock")],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             start_new_session=True, cwd=root,
         )

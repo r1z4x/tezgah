@@ -56,7 +56,7 @@ same text.
 | Host | Wired by | Status line |
 |---|---|---|
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style | native `statusLine` |
-| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied) | TUI plugin (no command statusLine) |
+| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message | TUI plugin (no command statusLine) |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
 | **Cursor** | `hooks.json` + skills + MCP | `statusLine` in `cli-config.json` |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, and OpenRouter/DeepSeek LLM routes) | not yet — a UI plugin is needed and is unpackaged |

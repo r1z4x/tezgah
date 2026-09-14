@@ -186,7 +186,8 @@ def detected():
         "claude": os.path.isdir(CLAUDE),
         "codex": os.path.isdir(CODEX),
         "opencode": os.path.isdir(OPENCODE) or bool(shutil.which("opencode")),
-        "cursor": os.path.isdir(CURSOR),
+        "cursor": os.path.isdir(CURSOR) or bool(
+            shutil.which("cursor-agent") or shutil.which("cursor")),
         "dsh": os.path.isdir(DSH) or bool(shutil.which("dsh")),
     }
 
@@ -212,6 +213,7 @@ def install_common(new_roots, hosts):
             ("consult", os.path.join(HERE, "bin", "consult")),
             ("codegen", os.path.join(HERE, "bin", "codegen")),
             ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
+            ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
@@ -992,6 +994,8 @@ def host_checks_cursor():
         ("skills linked", all(os.path.islink(os.path.join(CURSOR, "skills", s)) for s in SKILLS)),
         ("MCP in mcp.json", "codebase-memory-mcp" in (mcp.get("mcpServers") or {})),
         ("statusLine in cli-config.json", "tezgah-statusline" in json.dumps(cli.get("statusLine") or {})),
+        ("cursor-agent CLI on PATH",
+         bool(shutil.which("cursor-agent") or shutil.which("cursor"))),
     ]
 
 
