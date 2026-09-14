@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""tezgah-setup - arm the parts Claude Code does not install from a plugin.
+
+  tezgah-setup                      report what is armed and what is missing
+  tezgah-setup --install            write the config, link statusline+workflows
+  tezgah-setup --roots ~/work:~/oss --install    set the roots while installing
+  tezgah-setup --sync               copy this checkout over the installed copy
+
+A plugin gives you hooks, skills and its own files. It does NOT give you the
+bare-name ~/.claude/workflows scripts (the plugin's own copies load under the
+plugin-qualified name), the statusLine command, the stable ~/.claude/bin paths
+the plan skills call, or a machine-specific root list. This wires those up.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_paths import CBM, CONFIG, CONFIG_DIR, DEFAULT_ROOT, cbm_bin, \
+    have_consult_key, roots  # noqa: E402
+
+HOME = os.path.expanduser("~")
+CLAUDE = os.path.join(HOME, ".claude")
+WORKFLOW_DIR = os.path.join(CLAUDE, "workflows")
+STATUSLINE = os.path.join(CLAUDE, "statusline.py")
+SHELL_BIN = os.path.join(CLAUDE, "bin")
+WORKFLOWS = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
+OK, NO = "  ok  ", " MISS "
+
+
+def link(src, dst):
+    """Idempotent symlink; returns a one-line result."""
+    if os.path.islink(dst) and os.path.realpath(dst) == os.path.realpath(src):
+        return "%s %s" % (OK, dst)
+    if os.path.exists(dst) and not os.path.islink(dst):
+        return "%s %s exists and is a real file - move it aside first" % (NO, dst)
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if os.path.islink(dst):
+            os.unlink(dst)
+        os.symlink(src, dst)
+        return "%s %s -> %s" % (OK, dst, src)
+    except OSError as exc:
+        return "%s %s (%s)" % (NO, dst, exc)
+
+
+def statusline_wired():
+    try:
+        with open(os.path.join(CLAUDE, "settings.json")) as fh:
+            sl = json.load(fh).get("statusLine") or {}
+        # the command is usually written with $HOME or ~, so match the basename
+        return "statusline.py" in json.dumps(sl)
+    except Exception:
+        return False
+
+
+def mcp_registered():
+    try:
+        with open(os.path.join(HOME, ".claude.json")) as fh:
+            return CBM in (json.load(fh).get("mcpServers") or {})
+    except Exception:
+        return False
+
+
+def versions_agree():
+    """A bump in only one manifest makes `claude plugin update` a silent no-op."""
+    try:
+        v = []
+        for f, key in ((("plugin.json"), None), ("marketplace.json", "plugins")):
+            with open(os.path.join(HERE, ".claude-plugin", f)) as fh:
+                d = json.load(fh)
+            v.append(d["plugins"][0]["version"] if key else d["version"])
+        return v[0] == v[1]
+    except Exception:
+        return False
+
+
+def report():
+    print("tezgah checkout: %s\n" % HERE)
+    print("roots (%s):" % ("TEZGAH_ROOTS" if os.environ.get("TEZGAH_ROOTS")
+                           else "config" if os.path.exists(CONFIG) else "default"))
+    for r in roots():
+        print("  %s %s" % (OK if os.path.isdir(r) else NO, r))
+    rows = [
+        ("config %s" % CONFIG, os.path.exists(CONFIG)),
+        ("statusline symlink", os.path.islink(STATUSLINE)),
+        ("statusLine in settings.json", statusline_wired()),
+        ("workflows in ~/.claude/workflows",
+         all(os.path.islink(os.path.join(WORKFLOW_DIR, w)) for w in WORKFLOWS)),
+        ("consult/codegen/render-table on ~/.claude/bin",
+         all(os.path.islink(os.path.join(SHELL_BIN, b))
+             for b in ("consult", "codegen", "tezgah-render-table"))),
+        ("%s on PATH" % CBM, bool(cbm_bin())),
+        ("%s registered as an MCP server" % CBM, mcp_registered()),
+        ("OpenRouter key (consult/codegen)", have_consult_key()),
+        ("git", bool(shutil.which("git"))),
+        ("plugin.json and marketplace.json agree on the version", versions_agree()),
+    ]
+    print("\nwiring:")
+    for label, good in rows:
+        print("  %s %s" % (OK if good else NO, label))
+    missing = [l for l, good in rows if not good]
+    print("\n%s" % ("everything armed" if not missing
+                    else "%d missing; run --install for the ones it can fix"
+                         % len(missing)))
+    return 0 if not missing else 1
+
+
+def install(new_roots):
+    want = [os.path.expanduser(r) for r in new_roots] if new_roots else \
+        [r for r in roots()] or [DEFAULT_ROOT]
+    cfg = {}
+    if os.path.exists(CONFIG):
+        try:
+            with open(CONFIG) as fh:
+                cfg = json.load(fh)
+        except Exception:
+            pass  # malformed config gets replaced, roots() ignored it anyway
+    cfg["roots"] = want
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG, "w") as fh:
+        json.dump(cfg, fh, indent=2)
+        fh.write("\n")
+    print("%s %s  roots=%s" % (OK, CONFIG, want))
+    print(link(os.path.join(HERE, "statusline.py"), STATUSLINE))
+    for w in WORKFLOWS:
+        print(link(os.path.join(HERE, "workflows", w),
+                   os.path.join(WORKFLOW_DIR, w)))
+    for b in ("consult", "codegen"):  # a stable path a shell can call
+        print(link(os.path.join(HERE, "bin", b), os.path.join(SHELL_BIN, b)))
+    print(link(os.path.join(HERE, "skills", "plan-add", "render_table.py"),
+               os.path.join(SHELL_BIN, "tezgah-render-table")))
+    if not statusline_wired():
+        print('\n  add to ~/.claude/settings.json (this script will not edit it):\n'
+              '    "statusLine": {"type": "command", "command": "python3 %s"}'
+              % STATUSLINE)
+    if not cbm_bin():
+        print("\n  %s is not on PATH: install it, or point config.json cbm_bin\n"
+              "  at it, or the code-graph half of tezgah stays dark." % CBM)
+    print()
+    return report()
+
+
+def sync():
+    """Copy this checkout over the installed plugin, which is a COPY, not a link."""
+    cache = os.path.join(HOME, ".claude", "plugins", "cache")
+    targets = []
+    for dirpath, dirnames, _ in os.walk(cache):
+        manifest = os.path.join(dirpath, ".claude-plugin", "plugin.json")
+        try:
+            with open(manifest) as fh:
+                if json.load(fh).get("name") == "tezgah":
+                    targets.append(dirpath)
+        except Exception:
+            continue
+    if not targets:
+        print("no installed tezgah found under %s (nothing to sync)" % cache)
+        return 1
+    tracked = subprocess.run(["git", "-C", HERE, "ls-files"],
+                             capture_output=True, text=True)
+    if tracked.returncode != 0:
+        print("not a git checkout, nothing to sync from: %s" % HERE)
+        return 1
+    files = [f for f in tracked.stdout.splitlines() if f]
+    for t in targets:
+        for name in os.listdir(t):  # stale files from an older version
+            if name != ".git":
+                path = os.path.join(t, name)
+                shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) \
+                    else os.remove(path)
+        for f in files:
+            dst = os.path.join(t, f)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(os.path.join(HERE, f), dst)
+        print("%s synced %s (%d files)" % (OK, t, len(files)))
+    print("\nrestart Claude Code: hooks are read once per session.")
+    return 0
+
+
+def main(argv):
+    args = list(argv[1:])
+    new_roots = []
+    if "--roots" in args:
+        i = args.index("--roots")
+        new_roots = [r for r in args[i + 1].split(os.pathsep) if r.strip()]
+        del args[i:i + 2]
+    if "--sync" in args:
+        return sync()
+    if "--install" in args:
+        return install(new_roots)
+    if args:
+        print(__doc__)
+        return 2
+    return report()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

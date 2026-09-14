@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""codegen - hand a bounded coding task to a cheap model, get back a DIFF.
+
+    codegen "task" --files src/a.py src/b.py [--model m] [--timeout s]
+            [--max-tokens N] [--out-dir DIR]   (drafts only; nothing is applied)
+
+The model NEVER writes into the repository. It returns whole file bodies, this
+script writes them to a scratch directory and prints `diff -u` against the
+working tree. The caller reviews that diff, applies it, and runs the gate
+(tests, ruff, ty). That separation is the whole point: a cheap model drafts,
+an expensive one decides, and nothing lands unreviewed.
+
+Key: OPENROUTER_API_KEY env, else ~/.config/openrouter/key.
+
+EXIT CODES, and they are the contract:
+  0  usable drafts, diff printed
+  2  codegen cannot deliver -- WRITE THE CODE YOURSELF with the main model.
+     Raised for: no key, API or network failure, the model answering BLOCKED,
+     an unparseable reply, a TRUNCATED reply (finish_reason=length), a draft
+     that is not valid Python, or drafts identical to what is already there.
+     A half-written file that happens to parse is the failure this guards
+     against: it looks like an answer and is not one.
+  1  the caller misused the tool (bad arguments)
+"""
+import ast
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import urllib.request
+import json
+
+MODEL = os.environ.get("CODEGEN_MODEL", "deepseek/deepseek-v4.1-flash")
+API = "https://openrouter.ai/api/v1/chat/completions"
+
+SYSTEM = """You are writing code inside an existing repository. Rules:
+
+1. Output ONLY complete file bodies, each in this exact form:
+
+=== FILE: <path exactly as given to you> ===
+```
+<the entire new contents of that file>
+```
+
+2. No prose, no explanation, no partial files, no "... rest unchanged".
+   A file you do not change must not appear in your output at all.
+3. Match the surrounding code: its comment density, naming, and idiom. This
+   codebase writes WHY in comments, not WHAT, and marks load-bearing
+   invariants explicitly.
+4. Laziest solution that actually works: reuse what exists, prefer the standard
+   library, add no abstraction that is not needed today. Never simplify away
+   input validation, error handling or security.
+5. If the task cannot be done correctly with what you were given, say so in one
+   line starting with BLOCKED: and output no files."""
+
+# the closing fence must end the block: a nested ``` inside a draft (markdown,
+# docs, anything with a code sample) used to truncate the file silently
+BLOCK = re.compile(r"=== FILE: (?P<path>[^=]+?) ===\s*```[a-zA-Z]*\n"
+                   r"(?P<body>.*?)\n```[ \t]*(?=\s*(?:=== FILE:|\Z))", re.S)
+
+
+def key():
+    k = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not k:
+        try:
+            k = open(os.path.expanduser("~/.config/openrouter/key")).read().strip()
+        except OSError:
+            pass
+    if not k:
+        raise Insufficient("no API key (OPENROUTER_API_KEY or ~/.config/openrouter/key)")
+    return k
+
+
+class Insufficient(Exception):
+    """codegen cannot deliver; the caller must fall back to the main model."""
+
+
+def ask(task, files, model, timeout, max_tokens):
+    parts = [f"TASK:\n{task}\n"]
+    for path in files:
+        try:
+            body = open(path).read()
+        except OSError as e:
+            sys.exit(f"codegen: cannot read {path}: {e}")
+        parts.append(f"=== FILE: {path} ===\n```\n{body}```\n")
+    payload = {
+        "model": model,
+        "messages": [{"role": "system", "content": SYSTEM},
+                     {"role": "user", "content": "\n".join(parts)}],
+        "temperature": 0,
+    }
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    req = urllib.request.Request(
+        API, data=json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {key()}", "Content-Type": "application/json",
+                 "X-Title": "codegen"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            out = json.load(r)
+    except Exception as exc:                      # noqa: BLE001 - any failure is a fallback
+        raise Insufficient(f"the request failed: {exc}") from exc
+    choice = (out.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    if choice.get("finish_reason") == "length":
+        # The last file body is cut off mid-line. It may still parse, which is
+        # exactly why this is checked here and not left to the diff.
+        raise Insufficient("the reply was truncated (finish_reason=length)")
+    return (msg.get("content") or "").strip(), out.get("usage") or {}
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        sys.exit(__doc__.strip())
+    task, files, model, timeout, out_dir, max_tokens = args[0], [], MODEL, 300, None, 0
+    i = 1
+    while i < len(args):
+        if args[i] == "--files":
+            i += 1
+            while i < len(args) and not args[i].startswith("--"):
+                files.append(args[i]); i += 1
+            continue
+        if args[i] == "--model" and i + 1 < len(args):
+            model = args[i + 1]; i += 2; continue
+        if args[i] == "--timeout" and i + 1 < len(args):
+            timeout = int(args[i + 1]); i += 2; continue
+        if args[i] in ("--out-dir", "--apply-to") and i + 1 < len(args):
+            out_dir = args[i + 1]; i += 2; continue
+        if args[i] == "--max-tokens" and i + 1 < len(args):
+            max_tokens = int(args[i + 1]); i += 2; continue
+        sys.exit(f"codegen: unknown argument {args[i]}")
+    if not files:
+        sys.exit("codegen: --files is required; the model may only touch files you name")
+
+    answer, usage = ask(task, files, model, timeout, max_tokens)
+    if answer.startswith("BLOCKED:"):
+        raise Insufficient(answer)
+    if not BLOCK.search(answer):
+        raise Insufficient("no file block in the reply: " + (answer[:200] or "empty"))
+
+    scratch = out_dir or tempfile.mkdtemp(prefix="codegen-")
+    os.makedirs(scratch, exist_ok=True)
+    written = []
+    for m in BLOCK.finditer(answer):
+        path = m.group("path").strip()
+        if path not in files:
+            # The model may only rewrite files the caller named. Anything else
+            # is dropped rather than diffed: a path it invented is a path
+            # nobody reviewed.
+            print(f"codegen: ignoring unrequested file {path}", file=sys.stderr)
+            continue
+        dest = os.path.join(scratch, path.replace("/", "__"))
+        with open(dest, "w") as fh:
+            fh.write(m.group("body"))
+        written.append((path, dest))
+
+    if not written:
+        raise Insufficient("the model returned no file that was in --files")
+
+    # Each draft must parse and must differ. A draft that does not parse is a
+    # half-written file; one that is byte-identical is a model that did nothing.
+    changed = []
+    for path, dest in written:
+        if path.endswith(".py"):
+            try:
+                ast.parse(open(dest).read(), filename=dest)
+            except SyntaxError as exc:
+                raise Insufficient(f"{path}: the draft is not valid Python ({exc})") from exc
+        if open(dest).read() != open(path).read():
+            changed.append((path, dest))
+    if not changed:
+        raise Insufficient("every draft is identical to the file it replaces")
+
+    for path, dest in changed:
+        subprocess.run(["diff", "-u", path, dest], check=False)
+    written = changed
+    print(f"\ncodegen: {model} | {len(written)} file(s) | "
+          f"in={usage.get('prompt_tokens')} out={usage.get('completion_tokens')} | "
+          f"drafts in {scratch}")
+    print("codegen: NOTHING was applied. Review the diff, then copy the drafts in.")
+
+
+try:
+    main()
+except Insufficient as exc:
+    # Exit 2 is the whole point: the caller falls back to the main model rather
+    # than applying something this script could not vouch for.
+    print(f"codegen: INSUFFICIENT -- {exc}\n"
+          f"codegen: fall back to the main model and write this one yourself.",
+          file=sys.stderr)
+    sys.exit(2)
