@@ -16,6 +16,14 @@ ruff check .                                              # lint; config in pypr
   same check via `uvx ruff check .`. There is no other linter or type checker.
 - CI (`.github/workflows/ci.yml`) runs the same three on Python 3.10 and 3.12.
 
+### dsh Web status line, end to end
+
+`python3 tests/e2e_dsh_statusline.py` boots the real `dsh --profile web` UI in
+headless Chromium (Playwright), opens a persisted session, and asserts the
+tezgah status string renders in the session header with a 200 from
+`/api/tezgah.status`. It prints `SKIP: ...` when dsh, Playwright, a Chromium
+build, or a persisted session is missing. Opt-in and local only; not part of CI.
+
 ## Layout
 
 - `hooks/` the shared Python contract and tool gate; `hosts/<name>/` per-host
