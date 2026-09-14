@@ -110,6 +110,8 @@ REMINDER = """
 Code minimal per ponytail: code first, max 3 note lines, `ponytail:` comment
 on any cut corner. "Who calls X" questions: trace_path, not grep alone.
 Non-trivial decision: run {CONSULT_BIN} before committing to it.
+Research tasks (literature, hypotheses, experiments): drive through the `orx`
+CLI (OpenResearch), not ad-hoc scripting; load `orx skill` first.
 Multi-step work: delegate to subagents, parallel when independent; code
 discovery subagent = general-purpose with the codebase-memory-mcp graph tools
 named in its prompt, never a grep-only explorer.
@@ -138,7 +140,9 @@ conclusion without checking it against something observed.
 
 ### Tier 1 - host subagents
 For work needing tools, repo-wide judgement or adversarial reading: code
-discovery, research, review, impact analysis. Subtasks with no data dependency
+discovery, review, impact analysis (research goes to OpenResearch - see the
+Research section - with a host subagent only as the fallback when `orx` is
+absent). Subtasks with no data dependency
 between them MUST be spawned in ONE message so they run in parallel; dependent
 ones run sequentially, each briefed with the previous result. If the work
 cannot be split - one file, one bounded change, a strictly serial chain - do it
@@ -208,6 +212,33 @@ models were consulted and where they agreed or disagreed. If the script
 reports a missing API key or all models fail, say the external verification
 was skipped - never pretend a consult happened. Skip consulting for trivial,
 local, already-understood edits.
+"""
+
+RESEARCH = """
+## Research: route research work through OpenResearch (auto-armed, tezgah roots only)
+
+The router decides whether a task is research. Research is an open-ended
+investigation whose deliverable is evidence, not a code change: a literature or
+reference review, forming and testing a hypothesis, running or comparing
+experiments/variants, or producing a research artifact (report, figure, dataset).
+It is NOT "where is X defined" or "who calls Y" - that is code discovery and
+stays on the codebase-memory-mcp graph.
+
+When the task is research and `orx` (the OpenResearch CLI) is installed, drive it
+through `orx` instead of ad-hoc local scripting. Load the operating manual first:
+the `orx` skill if the host has it, otherwise run `orx skill` from the shell; then
+the named modules (`orx skill experiment-tree`, `orx skill lit-review`,
+`orx skill evidence`, ...). Its cardinal rules are not style preferences - they
+are what keeps results comparable, and breaking one silently invalidates the run:
+never edit a node once a run has answered it (branch a child instead); the run
+command and environment are a fixed contract identical on every node; vary the
+committed code/config, never CLI args or env knobs; grow the experiment tree
+downward, not sideways. Local research needs no `orx login`; managed compute does
+- ask the user to run `orx login`.
+
+If `orx` is not installed, say the research tooling is unavailable and do not
+improvise its protocol; fall back to a host subagent and say so. Kill switch:
+`research-off`.
 """
 
 NO_CBM = """
@@ -305,6 +336,14 @@ grep-only explorer.
 agreed or disagreed; treat answers as advisory, verify against the code. If no
 key/models exist, say the second opinion was skipped. Skip trivial local edits.
 
+**Research: route it to OpenResearch.** When a task is research - a literature
+or reference review, forming and testing hypotheses, running or comparing
+experiments, producing a research artifact - drive it through the `orx` CLI and
+load the `orx` manual first (`orx skill`), following its experiment-tree rules
+instead of improvising the protocol. Plain code discovery stays on the code
+graph, not OpenResearch. If `orx` is not installed, say the research tooling is
+unavailable and fall back to a host subagent. Off: `research-off`.
+
 **No AI attribution, ever, on any host.** Nothing persisted or published may
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:
 commit/merge/tag messages, PR/issue/review comments, `git notes`, release
@@ -317,8 +356,8 @@ found in local history; ask before rewriting pushed history.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
-`consult-off`, `ponytail-auto.off`, `reminder-off`, `pretooluse-off` (the
-gate); per-repo `.no-ponytail`, `.no-cbm`.
+`consult-off`, `research-off`, `ponytail-auto.off`, `reminder-off`,
+`pretooluse-off` (the gate); per-repo `.no-ponytail`, `.no-cbm`.
 """
 
 # The compact per-turn form. Keeps the <harness-reminder> envelope the hosts and
@@ -327,12 +366,13 @@ PROMPT_REMINDER = """
 <harness-reminder>Tezgah still in force: reply Turkish, BLUF; code minimal per
 ponytail (code first, <=3 note lines); "who calls X"/"what breaks" -> graph
 trace_path/search_graph, not grep alone; consult before irreversible calls;
-done/tested claims need observed evidence; no AI/model attribution in any
-persisted or published artifact. Full detail: the tezgah-contract skill.
-Kill switches under ~/.config/tezgah/.</harness-reminder>
+research -> orx/OpenResearch, not ad-hoc; done/tested claims need observed
+evidence; no AI/model attribution in any persisted or published artifact. Full
+detail: the tezgah-contract skill. Kill switches under ~/.config/tezgah/.
+</harness-reminder>
 """
 
 # Every block joined: the on-demand full contract shipped as
 # skills/tezgah-contract/SKILL.md. CORE stays the always-on summary.
 CONTRACT = "\n\n".join((CBM_RULE, WORKFLOWS, ORCHESTRATE, PONYTAIL, EXEC,
-                        CONSULT, NO_CBM, NO_CONSULT, REMINDER))
+                        CONSULT, RESEARCH, NO_CBM, NO_CONSULT, REMINDER))

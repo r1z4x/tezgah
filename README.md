@@ -32,6 +32,12 @@ same text.
   `bin/consult` asks independent models through OpenRouter (or the DeepSeek API
   with `--provider deepseek`) in parallel, and the agent reports where they
   agreed or disagreed.
+- **Research via OpenResearch.** When the router judges a task is research — a
+  literature review, forming and testing hypotheses, running experiments, a
+  research artifact — it drives the work through alphaXiv's OpenResearch (`orx`)
+  and loads the `orx` manual first, instead of improvising the protocol. Plain
+  code discovery stays on the code graph. When `orx` is absent, the router says
+  so and falls back to a host subagent.
 - **Honesty under verification.** Nothing is reported done, tested, or fixed
   unless the output was seen. A failing test is reported as failing with its
   exact error, and a skipped check is stated plainly.
@@ -73,6 +79,12 @@ store; neither key enters the config file. tezgah-setup also puts a `dsh`
 launcher on PATH (`~/.local/bin/dsh`) that finds the installed CLI under
 `$DSH_HOME`, so `dsh --profile web` works from any directory.
 
+`bin/tezgah-setup --install` also triggers `orx install-skills` for Claude,
+Codex, opencode and Cursor when `orx` is on PATH, so the research rule has a
+manual to load. The shim files belong to orx, so tezgah only runs that installer
+and never lists them for uninstall. dsh has no orx harness; the research rule
+there falls back to `orx skill` on the shell.
+
 The Claude plugin also ships two read-only agents. `agents/tezgah-explorer.md`
 does code discovery from the graph and returns `file:line` evidence;
 `agents/tezgah-reviewer.md` turns a diff into its impact set with
@@ -81,12 +93,13 @@ tools disabled; their output is advisory.
 
 ## Install
 
-Requires Python 3.8+. Both optional integrations degrade gracefully:
-`codebase-memory-mcp` on PATH powers the graph, and a model key powers
-`consult` and `codegen` — OpenRouter by default (`OPENROUTER_API_KEY` or
+Requires Python 3.8+. The optional integrations degrade gracefully:
+`codebase-memory-mcp` on PATH powers the graph; a model key powers `consult`
+and `codegen` — OpenRouter by default (`OPENROUTER_API_KEY` or
 `~/.config/openrouter/key`), or the DeepSeek API with `--provider deepseek`
-(`DEEPSEEK_API_KEY` or `~/.config/deepseek/key`). When the chosen provider's
-key is missing, tezgah says so instead of pretending.
+(`DEEPSEEK_API_KEY` or `~/.config/deepseek/key`); and OpenResearch's `orx` on
+PATH gives the research rule something to drive. When the chosen provider's key
+is missing, tezgah says so instead of pretending.
 
 Clone, then arm every detected host in one pass:
 
@@ -148,6 +161,7 @@ text injected into the session, so the rule actually stops:
 | `exec-mode.off` | Turkish, outcome-first reporting |
 | `ponytail-auto.off` | the minimal-code rule |
 | `consult-off` | the external-second-opinion rule |
+| `research-off` | routing research tasks to OpenResearch |
 | `orchestrate-off` | subagent delegation (adds a do-not-delegate line) |
 | `reminder-off` | the per-turn reminder text |
 | `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, grep nudge) |
@@ -159,11 +173,11 @@ code-graph rule (and its auto-index) respectively.
 
 Measured on this machine (macOS, Python 3.10), not estimated:
 
-- **Context.** A session start injects ~3.15 KB (~790 tokens) of contract text.
-  On Codex a 435-byte reminder rides each turn; Claude and the other hosts have
+- **Context.** A session start injects ~3.52 KB (~900 tokens) of contract text.
+  On Codex a 480-byte reminder rides each turn; Claude and the other hosts have
   no per-turn hook, so their per-turn cost is zero. The full `tezgah-contract`
-  skill (~15.5k characters) is paid only when a task loads it. On opencode the
-  contract ships as a ~3.46 KB instructions file. opencode would otherwise
+  skill (~18.2k characters) is paid only when a task loads it. On opencode the
+  contract ships as a ~4.1 KB instructions file. opencode would otherwise
   inject ~53 KB of skill name/description/location text into every session's
   system prompt; tezgah denies that list (`permission.skill = deny`) and ships
   a generated ~16 KB skill router instead, so a skill is found by reading its

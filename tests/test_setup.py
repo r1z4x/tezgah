@@ -28,6 +28,9 @@ class SetupBase(unittest.TestCase):
             "HOME": self.home,
             "LANG": "C.UTF-8",
             "TEZGAH_CBM_BIN": os.path.join(self.home, "no-such-cbm"),
+            # orx off by default so an installed orx on the test machine cannot
+            # run its real installer; a test that wants it points at a fake
+            "TEZGAH_ORX_BIN": os.path.join(self.home, "no-such-orx"),
         }
 
     def path(self, *parts):
@@ -139,6 +142,34 @@ class Install(SetupBase):
         self.assertIn("marketing & growth", body)
         self.assertIn("tezgah core", body)
         self.assertIn("harness", body)
+
+
+class OpenResearch(SetupBase):
+    """--install triggers orx's own skill installer for the hosts it supports."""
+
+    def fake_orx(self):
+        log = self.path("orx-args.log")
+        script = self.path("fake-orx")
+        with open(script, "w") as fh:
+            fh.write('#!/bin/sh\necho "$@" >> "%s"\n' % log)
+        os.chmod(script, 0o755)
+        self.env["TEZGAH_ORX_BIN"] = script
+        return log
+
+    def test_install_runs_orx_for_supported_hosts_only(self):
+        log = self.fake_orx()
+        proc = self.setup("--install", "--hosts", ALL)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        calls = self.read_text(log)
+        for agent in ("claude", "codex", "opencode", "cursor"):
+            self.assertIn("install-skills --agent " + agent, calls)
+        self.assertNotIn("agent dsh", calls)
+        self.assertIn("orx has no harness for this host", proc.stdout)
+
+    def test_install_skips_orx_gracefully_when_absent(self):
+        proc = self.setup("--install", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("orx not on PATH - skipped", proc.stdout)
 
 
 class Uninstall(SetupBase):

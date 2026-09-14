@@ -5,7 +5,8 @@ description: >
   the deep detail behind the always-on core: the code-graph-first rule and its
   deferred tool loading, the dynamic graph harnesses, the two-tier
   orchestration model with the cheap codegen bridge and its automatic
-  fallback, external-model consult, and the exact kill switches. Use when the
+  fallback, external-model consult, OpenResearch routing for research tasks,
+  and the exact kill switches. Use when the
   compact core points here, or when a task needs the code graph, a subagent
   fan-out, codegen, or a second opinion in full detail.
 ---
@@ -65,7 +66,9 @@ conclusion without checking it against something observed.
 
 ### Tier 1 - host subagents
 For work needing tools, repo-wide judgement or adversarial reading: code
-discovery, research, review, impact analysis. Subtasks with no data dependency
+discovery, review, impact analysis (research goes to OpenResearch - see the
+Research section - with a host subagent only as the fallback when `orx` is
+absent). Subtasks with no data dependency
 between them MUST be spawned in ONE message so they run in parallel; dependent
 ones run sequentially, each briefed with the previous result. If the work
 cannot be split - one file, one bounded change, a strictly serial chain - do it
@@ -234,6 +237,33 @@ local, already-understood edits.
 
 
 
+## Research: route research work through OpenResearch (auto-armed, tezgah roots only)
+
+The router decides whether a task is research. Research is an open-ended
+investigation whose deliverable is evidence, not a code change: a literature or
+reference review, forming and testing a hypothesis, running or comparing
+experiments/variants, or producing a research artifact (report, figure, dataset).
+It is NOT "where is X defined" or "who calls Y" - that is code discovery and
+stays on the codebase-memory-mcp graph.
+
+When the task is research and `orx` (the OpenResearch CLI) is installed, drive it
+through `orx` instead of ad-hoc local scripting. Load the operating manual first:
+the `orx` skill if the host has it, otherwise run `orx skill` from the shell; then
+the named modules (`orx skill experiment-tree`, `orx skill lit-review`,
+`orx skill evidence`, ...). Its cardinal rules are not style preferences - they
+are what keeps results comparable, and breaking one silently invalidates the run:
+never edit a node once a run has answered it (branch a child instead); the run
+command and environment are a fixed contract identical on every node; vary the
+committed code/config, never CLI args or env knobs; grow the experiment tree
+downward, not sideways. Local research needs no `orx login`; managed compute does
+- ask the user to run `orx login`.
+
+If `orx` is not installed, say the research tooling is unavailable and do not
+improvise its protocol; fall back to a host subagent and say so. Kill switch:
+`research-off`.
+
+
+
 ## Code discovery: no code graph on this machine
 
 codebase-memory-mcp is not installed here (not on PATH, and neither
@@ -257,6 +287,8 @@ happened; on a non-trivial call, say the second opinion was skipped and why.
 Code minimal per ponytail: code first, max 3 note lines, `ponytail:` comment
 on any cut corner. "Who calls X" questions: trace_path, not grep alone.
 Non-trivial decision: run bin/consult before committing to it.
+Research tasks (literature, hypotheses, experiments): drive through the `orx`
+CLI (OpenResearch), not ad-hoc scripting; load `orx skill` first.
 Multi-step work: delegate to subagents, parallel when independent; code
 discovery subagent = general-purpose with the codebase-memory-mcp graph tools
 named in its prompt, never a grep-only explorer.

@@ -39,6 +39,9 @@ def base_env(home, roots=None, extra=None):
         "PYTHONPATH": HOOKS,
         # a path that does not exist => cbm_bin() is None => no auto-index runs
         "TEZGAH_CBM_BIN": os.path.join(home, "no-such-cbm"),
+        # likewise orx: research routing is off unless a test points it at a real
+        # binary, so the machine's own orx cannot leak into the assertions
+        "TEZGAH_ORX_BIN": os.path.join(home, "no-such-orx"),
     }
     if roots:
         env["TEZGAH_ROOTS"] = os.pathsep.join(roots)

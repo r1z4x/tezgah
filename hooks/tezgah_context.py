@@ -12,8 +12,8 @@ import re
 import subprocess
 
 from tezgah_policy import CORE, PROMPT_REMINDER
-from tezgah_paths import (CACHE, cbm_bin, have_consult_key, off, root_for,
-                          roots, tool)
+from tezgah_paths import (CACHE, cbm_bin, have_consult_key, off, orx_bin,
+                          root_for, roots, tool)
 
 # filled in by context_for() once the cwd is known; {ROOT} reads it
 ACTIVE_ROOT = [""]
@@ -26,6 +26,7 @@ CORE_RULES = (
     ("ponytail", "**Ponytail (minimal code).**"),
     ("cbm", "**Code discovery: graph first.**"),
     ("consult", "**Consult before irreversible.**"),
+    ("research", "**Research: route it to OpenResearch.**"),
     ("attribution", "**No AI attribution, ever, on any host.**"),
 )
 
@@ -164,6 +165,9 @@ def core_for(cwd):
     if off("consult-off"):
         drop.add("consult")
         disabled.append("consult-off")
+    if off("research-off"):
+        drop.add("research")
+        disabled.append("research-off")
     if off("orchestrate-off"):
         disabled.append("orchestrate-off")
     if ".no-cbm" in marks:
@@ -221,6 +225,10 @@ def context_for(event, cwd, payload=None):
     if not off("consult-off") and not have_consult_key():
         parts.append("Consult: no OpenRouter key, so the second opinion cannot "
                      "run; on a non-trivial call say it was skipped and why.")
+    if not off("research-off") and not orx_bin():
+        parts.append("Research: orx (OpenResearch) is not installed, so route "
+                     "research to a host subagent and say the tooling is "
+                     "unavailable; do not improvise its protocol.")
     if event in ("session_start", "post_compact"):
         plans = open_plans(root)
         if plans:
@@ -356,6 +364,7 @@ def health_lines(cwd, session_id=None, used_override=None):
         ("pony", not off("ponytail-auto.off") and ".no-ponytail" not in marks, None),
         ("exec", not off("exec-mode.off"), None),
         ("consult", not off("consult-off") and have_consult_key(), "consult"),
+        ("research", not off("research-off") and bool(orx_bin()), "research"),
         ("cbm", ".no-cbm" not in marks, "cbm"),
         ("orch", not off("orchestrate-off"), "orch"),
     ]

@@ -28,6 +28,7 @@ DEFAULT_ROOT = os.path.join(HOME, "Projects")
 # every path advertised to a model is derived from here rather than hardcoded
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CBM = "codebase-memory-mcp"
+ORX = "orx"
 # canonical kill switches live in CONFIG_DIR; the pre-multi-host setup wrote
 # them to ~/.claude, so that stays a recognized channel
 OFF_DIRS = (CONFIG_DIR, os.path.join(HOME, ".claude"))
@@ -77,6 +78,15 @@ def cbm_bin():
 def have_consult_key():
     return bool(os.environ.get("OPENROUTER_API_KEY")) or os.path.exists(
         os.path.join(HOME, ".config", "openrouter", "key"))
+
+
+def orx_bin():
+    """The OpenResearch `orx` executable, or None when it is not installed.
+
+    TEZGAH_ORX_BIN points at a specific binary (tests, CI); otherwise the first
+    `orx` on PATH wins. Mirrors cbm_bin so a missing tool is a clean None, not a
+    failed lookup at call time."""
+    return shutil.which(os.environ.get("TEZGAH_ORX_BIN") or ORX)
 
 
 def off(name):

@@ -48,6 +48,10 @@ SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
           "plan-add", "plan-status", "plan-sync"]
 WORKFLOW_FILES = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh"]
+# orx ships an installable skill shim for these four; dsh has no orx harness,
+# so research routing there falls back to `orx skill` on the shell.
+ORX_AGENTS = {"claude": "claude", "codex": "codex",
+              "opencode": "opencode", "cursor": "cursor"}
 CONTRACT_SHA = os.path.join(tp.CONFIG_DIR, "contract.sha256")
 SKILL_ROUTER = os.path.join(tp.CONFIG_DIR, "opencode-skills.md")
 # Host-tooling skills that are neither tezgah's core nor research. Everything
@@ -377,7 +381,7 @@ def skill_description(path):
 def skill_category(name):
     if name in SKILLS:
         return "tezgah core"
-    if name.startswith("deepscientist-"):
+    if name.startswith("deepscientist-") or name == "orx" or name.startswith("orx-"):
         return "research & papers"
     if name in TOOLING_SKILLS:
         return "code & host tooling"
@@ -572,6 +576,32 @@ def install_dsh():
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "opencode": install_opencode, "cursor": install_cursor,
               "dsh": install_dsh}
+
+
+def install_openresearch(hosts):
+    """Trigger orx's own installer so the research routing rule has a manual to
+    load.
+
+    The shim files (a real `skills/orx/SKILL.md`, not a tezgah symlink) are owned
+    by orx, so tezgah only runs its installer and never lists them for uninstall.
+    dsh has no orx harness; the rule there falls back to `orx skill` on the
+    shell."""
+    print("\nopenresearch (orx):")
+    orx = tp.orx_bin()
+    if not orx:
+        print("%s orx not on PATH - skipped; install it from "
+              "https://github.com/alphaXiv/OpenResearch and re-run --install" % NO)
+        return
+    for h in hosts:
+        agent = ORX_AGENTS.get(h)
+        if not agent:
+            print("%s %s: orx has no harness for this host" % (NO, h))
+            continue
+        proc = subprocess.run([orx, "install-skills", "--agent", agent],
+                              capture_output=True, text=True)
+        last = (proc.stdout or proc.stderr).strip().splitlines()
+        print("%s %s: %s" % (OK if proc.returncode == 0 else NO, h,
+                             last[-1] if last else "exit %d" % proc.returncode))
 
 
 # ---------------------------------------------------------------- uninstall ----
@@ -882,6 +912,7 @@ def report(hosts):
         ("config %s" % tp.CONFIG, os.path.exists(tp.CONFIG)),
         ("%s on PATH" % tp.CBM, bool(tp.cbm_bin())),
         ("OpenRouter key (consult/codegen)", tp.have_consult_key()),
+        ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
         ("git", bool(shutil.which("git"))),
         ("plugin.json and marketplace.json agree on the version", versions_agree()),
     ]
@@ -1079,6 +1110,9 @@ def main(argv):
         new_roots = [r for r in args.roots.split(os.pathsep) if r.strip()] if args.roots else []
         print("installing for: %s\n" % (", ".join(hosts) or "none detected"))
         install_common(new_roots, hosts)
+        # before the host installers: opencode's generated skill router indexes
+        # the orx skill dir, so the shim must exist when the router is written
+        install_openresearch(hosts)
         for h in hosts:
             INSTALLERS[h]()
         print()

@@ -47,7 +47,7 @@ class HealthLines(TempHome):
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(out, "pony\u2713 exec\u2713  \u00b7  "
-                              "consult\u2717 cbm\u25cb orch\u25cb")
+                              "consult\u2717 research\u2717 cbm\u25cb orch\u25cb")
 
     def test_armed_but_unused_checklist(self):
         repo = self.make_repo()
@@ -56,7 +56,7 @@ class HealthLines(TempHome):
                           {"fn": "health_lines", "cwd": repo, "session_id": "s"},
                           env=self.env())
         self.assertEqual(out, "pony\u2713 exec\u2713  \u00b7  "
-                              "consult\u25cb cbm\u25cb orch\u25cb  \u00b7  idx\u2013")
+                              "consult\u25cb research\u2717 cbm\u25cb orch\u25cb  \u00b7  idx\u2013")
 
     def test_used_kind_flips_a_mark(self):
         repo = self.make_repo()
@@ -148,6 +148,7 @@ class KillSwitchEnforcement(TempHome):
     PONY = "**Ponytail (minimal code).**"
     CBM = "**Code discovery: graph first.**"
     CONSULT = "**Consult before irreversible.**"
+    RESEARCH = "**Research: route it to OpenResearch.**"
 
     def session(self, repo):
         out, proc = run_json([support.PROBE_CONTEXT],
@@ -162,7 +163,7 @@ class KillSwitchEnforcement(TempHome):
     def test_default_keeps_every_rule(self):
         repo = self.make_repo()
         out = self.session(repo)
-        for label in (self.OFF, self.PONY, self.CBM, self.CONSULT):
+        for label in (self.OFF, self.PONY, self.CBM, self.CONSULT, self.RESEARCH):
             self.assertIn(label, out)
 
     def test_exec_mode_off_drops_the_reporting_rule(self):
@@ -186,6 +187,25 @@ class KillSwitchEnforcement(TempHome):
         repo = self.make_repo()
         self.switch("consult-off")
         self.assertNotIn(self.CONSULT, self.session(repo))
+
+    def test_research_off_drops_the_research_rule(self):
+        repo = self.make_repo()
+        self.switch("research-off")
+        self.assertNotIn(self.RESEARCH, self.session(repo))
+
+    def test_missing_orx_is_surfaced_in_the_context(self):
+        repo = self.make_repo()
+        out = self.session(repo)
+        self.assertIn("orx (OpenResearch) is not installed", out)
+
+    def test_orx_installed_suppresses_the_missing_note(self):
+        repo = self.make_repo()
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "session_start",
+                              "cwd": repo},
+                             env=self.env(extra={"TEZGAH_ORX_BIN": sys.executable}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("orx (OpenResearch) is not installed", out)
 
     def test_orchestrate_off_says_do_not_delegate(self):
         repo = self.make_repo()

@@ -3,8 +3,9 @@ name: tezgah
 description: >
   Tezgah working contract for repositories under the configured tezgah roots:
   Turkish BLUF reporting, ponytail minimal-code discipline, code-graph-first
-  discovery, consult before irreversible calls, evidence-backed done/tested
-  claims, and the no-AI-attribution rule. Auto-applied for the tezgah plugin.
+  discovery, consult before irreversible calls, OpenResearch routing for
+  research tasks, evidence-backed done/tested claims, and the
+  no-AI-attribution rule. Auto-applied for the tezgah plugin.
 keep-coding-instructions: true
 force-for-plugin: true
 ---
@@ -43,6 +44,14 @@ grep-only explorer.
 agreed or disagreed; treat answers as advisory, verify against the code. If no
 key/models exist, say the second opinion was skipped. Skip trivial local edits.
 
+**Research: route it to OpenResearch.** When a task is research - a literature
+or reference review, forming and testing hypotheses, running or comparing
+experiments, producing a research artifact - drive it through the `orx` CLI and
+load the `orx` manual first (`orx skill`), following its experiment-tree rules
+instead of improvising the protocol. Plain code discovery stays on the code
+graph, not OpenResearch. If `orx` is not installed, say the research tooling is
+unavailable and fall back to a host subagent. Off: `research-off`.
+
 **No AI attribution, ever, on any host.** Nothing persisted or published may
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:
 commit/merge/tag messages, PR/issue/review comments, `git notes`, release
@@ -55,8 +64,8 @@ found in local history; ask before rewriting pushed history.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
-`consult-off`, `ponytail-auto.off`, `reminder-off`, `pretooluse-off` (the
-gate); per-repo `.no-ponytail`, `.no-cbm`.
+`consult-off`, `research-off`, `ponytail-auto.off`, `reminder-off`,
+`pretooluse-off` (the gate); per-repo `.no-ponytail`, `.no-cbm`.
 
 Deep orchestration, codegen, consult detail and the exact kill switches: load
 the `tezgah-contract` skill.

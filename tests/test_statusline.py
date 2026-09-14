@@ -1,13 +1,14 @@
-"""statusline.py: the pony/exec/consult/cbm/orch segment, Claude and Cursor."""
+"""statusline.py: the pony/exec/consult/research/cbm/orch segment, Claude and Cursor."""
 import os
 import unittest
 
 import support
 from support import TempHome, run
 
-SEGMENT = ("pony\u2713 exec\u2713  \u00b7  consult\u25cb cbm\u25cb orch\u25cb"
-           "  \u00b7  idx\u2013")
-NO_ROOT = "pony\u2713 exec\u2713  \u00b7  consult\u25cb cbm\u25cb orch\u25cb"
+SEGMENT = ("pony\u2713 exec\u2713  \u00b7  consult\u25cb research\u2717 cbm\u25cb"
+           " orch\u25cb  \u00b7  idx\u2013")
+NO_ROOT = ("pony\u2713 exec\u2713  \u00b7  consult\u25cb research\u2717 cbm\u25cb"
+           " orch\u25cb")
 
 
 class Statusline(TempHome):
