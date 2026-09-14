@@ -324,6 +324,16 @@ def opencode_contract():
         blocks = [CBM_RULE % ("each repository", "index it with index_repository if unindexed"),
                   WORKFLOWS, ORCHESTRATE, PONYTAIL, EXEC,
                   CONSULT if tp.have_consult_key() else NO_CONSULT]
+    # opencode has no session-start inject hook, so the always-on file must
+    # carry the same pointer every hook host appends: without it the two-tier
+    # codegen routing and the consult detail are never in front of the session.
+    blocks.append(
+        "**Full contract on demand.** The router (frontier model) decides and "
+        "verifies; bounded, well-specified edits go to `{CODEGEN_BIN}` on a "
+        "cheap model, which returns a diff to a scratch dir and never writes "
+        "the repo (exit 2 = write it yourself with the main model). Consult "
+        "rules and the exact kill switches live in the `tezgah-contract` "
+        "skill - load it on the first non-trivial task.")
     text = tezgah_context.render("\n\n".join(b.strip() for b in blocks), root)
     path = os.path.join(tp.CONFIG_DIR, "opencode-contract.md")
     mkdirp(tp.CONFIG_DIR)
