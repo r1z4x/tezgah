@@ -6,6 +6,5 @@
   "author": {
     "name": "Rizacan TUFAN"
   },
-  "license": "MIT",
-  "hooks": "./hooks/hooks.json"
+  "license": "MIT"
 }
