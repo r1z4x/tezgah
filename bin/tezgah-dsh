@@ -1,0 +1,16 @@
+#!/bin/sh
+# tezgah-dsh - launch the DeepSeek Harness (dsh) CLI installed under $DSH_HOME.
+#
+# dsh ships as node modules under <harness home>/profiles/node_modules, so there
+# is no PATH command unless one is created. tezgah-setup symlinks ~/.local/bin/dsh
+# to this wrapper; the wrapper resolves the CLI so the symlink survives a version
+# change. Arguments are passed through untouched (e.g. --profile web|headless).
+set -eu
+DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
+BIN="$DSH_HOME/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js"
+if [ ! -f "$BIN" ]; then
+    echo "tezgah-dsh: dsh CLI not found at $BIN" >&2
+    echo "tezgah-dsh: install the DeepSeek Harness, or set DSH_HOME, then re-run tezgah-setup --install" >&2
+    exit 127
+fi
+exec node "$BIN" "$@"

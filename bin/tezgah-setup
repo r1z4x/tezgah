@@ -43,6 +43,7 @@ OPENCODE = os.path.join(
 CURSOR = os.path.join(HOME, ".cursor")
 DSH = os.environ.get("DSH_HOME") or os.path.join(HOME, ".dsh")
 DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
+LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
           "plan-add", "plan-status", "plan-sync"]
 WORKFLOW_FILES = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
@@ -430,7 +431,11 @@ def install_cursor():
 def dsh_patch_block():
     """dsh home-patch rows: run tezgah's existing Claude hooks in dsh through its
     claude-code bridge (same contract, same grep/Explore gate, same attribution
-    gate), and register the code graph as an MCP server."""
+    gate), register the code graph as an MCP server, and declare the two
+    OpenAI-compatible LLM routes (OpenRouter and DeepSeek direct) on the pi-ai
+    adapter the base composition already mounts. The routes read their keys from
+    the launch env or the harness credential store; the native deepseek-official
+    route stays the default model provider."""
     return (
         "- insert:\n"
         "    - id: tezgah-hooks\n"
@@ -445,6 +450,13 @@ def dsh_patch_block():
         "        serverName: codebase-memory-mcp\n"
         "        transport: stdio\n"
         "        command: %s\n"
+        "- id: llm-pi-ai\n"
+        "  config:\n"
+        "    providers:\n"
+        "      openrouter:\n"
+        "        apiKeyEnv: OPENROUTER_API_KEY\n"
+        "      deepseek:\n"
+        "        apiKeyEnv: DEEPSEEK_API_KEY\n"
         % (os.path.join(HERE, "hooks", "hooks.json"), HERE, cbm_command()))
 
 
@@ -454,6 +466,8 @@ def install_dsh():
         print(link(os.path.join(HERE, "skills", s), os.path.join(DSH, "skills", s)))
     set_managed_block(DSH_PATCH, dsh_patch_block())
     print("%s %s" % (OK, DSH_PATCH))
+    print(link(os.path.join(HERE, "bin", "tezgah-dsh"),
+               os.path.join(LOCAL_BIN, "dsh")))
 
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
@@ -635,6 +649,7 @@ def uninstall_dsh():
     for s in SKILLS:
         unlink_tezgah(os.path.join(DSH, "skills", s))
     remove_managed_block(DSH_PATCH)
+    unlink_tezgah(os.path.join(LOCAL_BIN, "dsh"))
 
 
 UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
@@ -841,6 +856,10 @@ def host_checks_dsh():
     return [
         ("claude-code hooks bridge in cordis.patch.yml", "dsh-hooks-claude-code" in patched),
         ("MCP bridge in cordis.patch.yml", "dsh-mcp-client" in patched),
+        ("OpenRouter + DeepSeek routes in cordis.patch.yml",
+         "openrouter" in patched and "DEEPSEEK_API_KEY" in patched),
+        ("dsh launcher on PATH (~/.local/bin/dsh)",
+         is_tezgah_link(os.path.join(LOCAL_BIN, "dsh"))),
         ("skills linked", all(os.path.islink(os.path.join(DSH, "skills", s)) for s in SKILLS)),
     ]
 

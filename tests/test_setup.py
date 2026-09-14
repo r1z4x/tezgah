@@ -87,6 +87,14 @@ class Install(SetupBase):
         self.assertIn("# tezgah:start", dsh)
         self.assertIn("dsh-hooks-claude-code", dsh)
         self.assertIn("dsh-mcp-client", dsh)
+        # both OpenRouter and DeepSeek routes are declared on the pi-ai adapter
+        self.assertIn("id: llm-pi-ai", dsh)
+        self.assertIn("openrouter", dsh)
+        self.assertIn("DEEPSEEK_API_KEY", dsh)
+        # a PATH launcher, managed so uninstall removes it
+        launcher = self.path(".local", "bin", "dsh")
+        self.assertTrue(os.path.islink(launcher), launcher)
+        self.assertTrue(os.path.realpath(launcher).startswith(REPO))
 
         # opencode: contract instruction + TUI plugin + MCP
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
@@ -105,6 +113,7 @@ class Install(SetupBase):
         self.setup("--install", "--hosts", ALL)
         dsh = self.read_text(self.path(".dsh", "cordis.patch.yml"))
         self.assertEqual(dsh.count("# tezgah:start"), 1)
+        self.assertEqual(dsh.count("id: llm-pi-ai"), 1)
         codex = self.read_text(self.path(".codex", "hooks.json"))
         self.assertEqual(codex.count("tezgah-codex-hook"), 7)
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
@@ -126,6 +135,7 @@ class Uninstall(SetupBase):
         self.assertNotIn("tezgah-codex-hook", raw)
         self.assertNotIn("# tezgah:start",
                          self.read_text(self.path(".dsh", "cordis.patch.yml")))
+        self.assertFalse(os.path.exists(self.path(".local", "bin", "dsh")))
         s = self.read_json(self.path(".claude", "settings.json"))
         self.assertNotIn("statusLine", s)
         self.assertNotIn("attribution", s)

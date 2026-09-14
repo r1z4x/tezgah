@@ -29,8 +29,9 @@ same text.
   `trace_path`, `search_code`), not to grep. Grep stays right for literal text,
   configs, and non-code files.
 - **External second opinion.** Before a non-trivial or hard-to-reverse call,
-  `bin/consult` asks independent models through OpenRouter in parallel and the
-  agent reports where they agreed or disagreed.
+  `bin/consult` asks independent models through OpenRouter (or the DeepSeek API
+  with `--provider deepseek`) in parallel, and the agent reports where they
+  agreed or disagreed.
 - **Honesty under verification.** Nothing is reported done, tested, or fixed
   unless the output was seen. A failing test is reported as failing with its
   exact error, and a skipped check is stated plainly.
@@ -39,9 +40,10 @@ same text.
   — may credit the assistant, model, vendor, or "AI". Using a tool is fine;
   signing its name to your work is not.
 - **Two-tier orchestration.** The main thread decides and verifies; a cheap
-  OpenRouter model (`bin/codegen`) drafts bounded, well-specified edits to a
-  scratch directory. Nothing reaches the repo except through the router, and a
-  failed draft falls back to the main model automatically.
+  model (`bin/codegen`, OpenRouter by default or `--provider deepseek`) drafts
+  bounded, well-specified edits to a scratch directory. Nothing reaches the repo
+  except through the router, and a failed draft falls back to the main model
+  automatically.
 
 ## Supported hosts
 
@@ -51,7 +53,7 @@ same text.
 | **opencode** | plugin + instructions + MCP + skills | TUI plugin (no command statusLine) |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
 | **Cursor** | `hooks.json` + skills + MCP | `statusLine` in `cli-config.json` |
-| **dsh** | Claude Code hook bridge + managed patch block | not yet — a UI plugin is needed and is unpackaged |
+| **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, and OpenRouter/DeepSeek LLM routes) | not yet — a UI plugin is needed and is unpackaged |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
 and subagent calls through the same check as the other hosts. On Claude, the
@@ -62,7 +64,14 @@ source.
 dsh runs the same Claude hook files through its `dsh-hooks-claude-code` bridge,
 so the session-start contract, the attribution gate, and the first-grep nudge
 all apply there. dsh exposes a single `subagent` tool, so the grep-only-explorer
-denial is inert — there is no explorer subagent for it to refuse.
+denial is inert — there is no explorer subagent for it to refuse. The managed
+patch block also declares two OpenAI-compatible LLM routes on the pi-ai adapter
+the base composition mounts: `openrouter` (`OPENROUTER_API_KEY`) and `deepseek`
+(`DEEPSEEK_API_KEY`), selectable alongside the native `deepseek-official`
+default. Keys resolve from the launch environment or the harness credential
+store; neither key enters the config file. tezgah-setup also puts a `dsh`
+launcher on PATH (`~/.local/bin/dsh`) that finds the installed CLI under
+`$DSH_HOME`, so `dsh --profile web` works from any directory.
 
 The Claude plugin also ships two read-only agents. `agents/tezgah-explorer.md`
 does code discovery from the graph and returns `file:line` evidence;
@@ -73,9 +82,11 @@ tools disabled; their output is advisory.
 ## Install
 
 Requires Python 3.8+. Both optional integrations degrade gracefully:
-`codebase-memory-mcp` on PATH powers the graph, and an OpenRouter key
-(`OPENROUTER_API_KEY` or `~/.config/openrouter/key`) powers `consult` and
-`codegen`. When either is missing, tezgah says so instead of pretending.
+`codebase-memory-mcp` on PATH powers the graph, and a model key powers
+`consult` and `codegen` — OpenRouter by default (`OPENROUTER_API_KEY` or
+`~/.config/openrouter/key`), or the DeepSeek API with `--provider deepseek`
+(`DEEPSEEK_API_KEY` or `~/.config/deepseek/key`). When the chosen provider's
+key is missing, tezgah says so instead of pretending.
 
 Clone, then arm every detected host in one pass:
 
