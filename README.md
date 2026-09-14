@@ -1,98 +1,168 @@
 # Tezgah
 
-Tezgah, aynı repoda kullandığın yapay zekâ kodlama asistanlarını — Claude Code,
-opencode, Codex, Cursor ve DeepSeek'in dsh harness'ı — tek bir çalışma
-sözleşmesine bağlar. Normalde her birinin kendi alışkanlığı var: biri Türkçe
-cevap verir diğeri İngilizce, biri kod ararken `grep`'e abanır diğeri grafiği
-kullanır, biri test etmeden "tamam oldu" der. Tezgah kurulduğunda bu fark
-kalkar; hangi asistanı açarsan aç, aynı dilde, aynı disiplinde ve aynı doğrulukta
-çalışır.
+One working contract for every AI coding assistant you run — Claude Code,
+opencode, Codex, Cursor, and DeepSeek's dsh harness — inside a set of
+configured repository roots.
 
-İşin özü iki parçadan oluşur: ortak kurallar tek bir dosyada durur, her asistan
-da bu kuralları kendi anladığı biçime çeviren ince bir adaptöre sahiptir. Yani
-kuralı bir kez değiştirdiğinde beş asistan da aynı şeyi görür; aynı metni beş
-yere ayrı ayrı yazmak zorunda kalmazsın.
+Left alone, each assistant has its own habits: one answers in Turkish, another
+in English; one greps for everything, another queries a code graph; one says
+"done" without running a test. Tezgah removes the drift. Open any host and you
+get the same language, the same discipline, and the same standard of evidence.
 
-Pratikte tezgah asistanlara şunları yaptırır: cevap Türkçe ve önce sonuç olacak
-(kod ve commit İngilizce kalır), gereksiz soyutlama yapmadan işe yarayan en kısa
-çözüm yazılacak, "kim çağırıyor / neyi bozar" gibi sorular `grep` yerine kod
-grafiğiyle cevaplanacak, kritik bir karardan önce bağımsız modellere danışılacak,
-test edilmeden "yaptım" denmeyecek ve kalıcı ya da yayınlanan hiçbir metne —
-commit/merge/tag mesajına, PR/issue/review yazısına, dosya başlığına, yorum ya da
-dokümana — AI/model atıfı eklenmeyecek: ne `Co-Authored-By`, ne "Generated with",
-ne robot emoji, ne de Claude/Anthropic/OpenAI/Codex/Gemini/Cursor/Copilot adı.
-Bir aracı kullanmak için anmak serbest; onu yazar olarak yazmak yasak.
+The design is two layers. The rules live once in a shared core; each host gets
+a thin adapter that translates that core into the shape the host understands.
+Change a rule in one place and all five hosts see it — no five-way copy of the
+same text.
 
-Bunun karşılığında küçük bir maliyet var ve dürüst olmak gerekirse: her oturum
-başında yaklaşık 12,5 KB (≈3.100 token) kural metni bağlama eklenir, Claude'da
-ayrıca her turda ~1,3 KB hatırlatma gider. Codex artık tezgah'ın engelleme
-kapısını da bağlar: `PreToolUse` kaydı Bash, `exec_command`, `apply_patch`,
-Edit/Write, MCP araçları ve alt-ajan çağrılarını aynı denetimden geçirir, yani
-orada da kurallar tavsiye olarak değil kapı olarak durur. Atıf yasağı Claude'da
-yalnızca hook denetimine bırakılmaz; `attribution` ayarı `commit`, `pr` ve
-`sessionUrl` boşaltılarak commit/PR atıfı kaynağında kapatılır. dsh'te ise
-Claude hook köprüsü kullanıldığı için sözleşme ve
-kapı aynen çalışır. Kod grafiği için `codebase-memory-mcp`, dış görüş için
-OpenRouter anahtarı ayrıca gerekir; ikisi de yoksa tezgah sessizce yanlış
-davranmaz, "yok" der. Gecikme ölçüldü: oturum başlangıcında Python'un kendi
-tabanına (19 ms) ek yaklaşık 12 ms, her araç çağrısındaki kapı ise yaklaşık
-0,1 ms. Kurulum ~47 ms sürer ve istendiği kadar tekrarlanabilir; düzenlediği her
-dosyayı önce `.tezgah-bak` olarak yedekler.
+## What it enforces
 
-Kazanç en çok "bu fonksiyonu kim çağırıyor?" sorusunda görünüyor. Gerçek bir
-repoda ölçtüm: `grep` varsayılan haliyle ilgili klasörü ignore'a takıp hiçbir şey
-bulamadı; ignore'ı kapatıp doğru cevabı aradığında 3,95 saniye sürdü ve yine de
-tanım ile çağrıyı karıştırdı. Kod grafiği aynı soruyu 16 milisaniyede, sadece
-gerçek 8 çağrı yerini göstererek yanıtladı.
+- **Outcome-first Turkish reporting.** Every reply is in Turkish and leads with
+  the result or decision (BLUF), then points ordered by impact. Code, commits,
+  docs, and subagent prompts stay English; names, CLI commands, and error
+  strings are never translated.
+- **Minimal code (ponytail).** The laziest change that actually works: YAGNI,
+  then reuse an existing helper, then stdlib, then a native platform feature,
+  then an installed dependency, then one line. No unrequested abstractions.
+  Validation, error handling, and security are never simplified away.
+- **Code-graph-first discovery.** "Where is X", "who calls Y", "what breaks if
+  Z changes" go to the `codebase-memory-mcp` graph (`search_graph`,
+  `trace_path`, `search_code`), not to grep. Grep stays right for literal text,
+  configs, and non-code files.
+- **External second opinion.** Before a non-trivial or hard-to-reverse call,
+  `bin/consult` asks independent models through OpenRouter in parallel and the
+  agent reports where they agreed or disagreed.
+- **Honesty under verification.** Nothing is reported done, tested, or fixed
+  unless the output was seen. A failing test is reported as failing with its
+  exact error, and a skipped check is stated plainly.
+- **No AI attribution, anywhere.** Nothing persisted or published — commit,
+  merge, and tag messages, PR and issue text, code comments, file headers, docs
+  — may credit the assistant, model, vendor, or "AI". Using a tool is fine;
+  signing its name to your work is not.
+- **Two-tier orchestration.** The main thread decides and verifies; a cheap
+  OpenRouter model (`bin/codegen`) drafts bounded, well-specified edits to a
+  scratch directory. Nothing reaches the repo except through the router, and a
+  failed draft falls back to the main model automatically.
 
-Kurulum basit. Repoyu klonla, `--install` ile algılanan tüm asistanları (Claude,
-opencode, Codex, Cursor, dsh) bağla; eski bir kurulumun varsa `--adopt` ile onu
-devral (siler değil, taşır):
+## Supported hosts
+
+| Host | Wired by | Status line |
+|---|---|---|
+| **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style | native `statusLine` |
+| **opencode** | plugin + instructions + MCP + skills | TUI plugin (no command statusLine) |
+| **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
+| **Cursor** | `hooks.json` + skills + MCP | `statusLine` in `cli-config.json` |
+| **dsh** | Claude Code hook bridge + managed patch block | not yet — a UI plugin is needed and is unpackaged |
+
+The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
+and subagent calls through the same check as the other hosts. On Claude, the
+attribution ban is enforced mechanically too: the `attribution` setting is
+emptied (`commit`, `pr`, `sessionUrl`) so commit and PR credits are off at the
+source.
+
+The Claude plugin also ships two read-only agents. `agents/tezgah-explorer.md`
+does code discovery from the graph and returns `file:line` evidence;
+`agents/tezgah-reviewer.md` turns a diff into its impact set with
+`detect_changes` and then looks for real defects. Both have write and command
+tools disabled; their output is advisory.
+
+## Install
+
+Requires Python 3.8+. Both optional integrations degrade gracefully:
+`codebase-memory-mcp` on PATH powers the graph, and an OpenRouter key
+(`OPENROUTER_API_KEY` or `~/.config/openrouter/key`) powers `consult` and
+`codegen`. When either is missing, tezgah says so instead of pretending.
+
+Clone, then arm every detected host in one pass:
 
 ```bash
 git clone https://github.com/r1z4x/tezgah.git ~/Projects/tezgah
 cd ~/Projects/tezgah
 bin/tezgah-setup --install
+```
+
+If a predecessor setup is already present, import it first — it is moved aside,
+not deleted:
+
+```bash
 bin/tezgah-setup --adopt
 ```
 
-Claude Code kendi eklenti kanalını kullanır:
+Claude Code installs through its own plugin channel:
 
 ```bash
 claude plugin marketplace add ~/Projects/tezgah
 claude plugin install tezgah@rizacan-local
 ```
 
-Plugin yalnızca hook ve komut getirmez; iki salt-okunur ajan da taşır.
-`agents/tezgah-explorer.md` kod keşfini grafikten yapıp `file:line` kanıtıyla
-döner, `agents/tezgah-reviewer.md` ise bir diff'i önce `detect_changes` ile
-etki alanına çevirip sonra çekişmeli bir incelemeyle gerçek kusurları arar;
-ikisinin de yazma ve komut araçları kapalıdır, çıktıları öneridir.
+Limit the install explicitly when needed:
 
-Kurduktan sonra günlük hayatta yapman gereken bir şey yok; asistan açılınca
-kurallar kendiliğinden yüklenir. Aklında tutman gereken üç komut var:
-`tezgah-setup` ne kurulu ne eksik olduğunu söyler, `tezgah-status` o repoda
-kuralların aktif olup olmadığını gösterir, `/plan-add` ise bir işi plana çevirir.
-Sürümü `bin/tezgah-setup --version` ile okursun; kurulumu geri almak istersen
-`bin/tezgah-setup --uninstall` yalnızca tezgah'ın bağladığı symlink'leri, host
-hook kayıtlarını ve dsh'teki yönetilen bloğu söker, başka bir dosyaya ya da
-`.tezgah-bak` yedeğine dokunmaz. Tezgah yalnızca tanımlı kök dizinlerde
-(varsayılan `~/Projects`) çalışır, başka yerde tamamen sessizdir.
+```bash
+bin/tezgah-setup --install --hosts claude,codex,opencode,cursor,dsh
+bin/tezgah-setup --roots ~/work:~/oss --install
+```
 
-Durum satırı her host'ta aynı değil ve bunu gizlemiyoruz: Claude Code ile Cursor
-CLI'da (`~/.cursor/cli-config.json`, spec'i Claude'la hizalı) tezgah segmenti
-otomatik bağlanır; opencode'da komut tabanlı statusLine olmadığı için segment
-ancak bir **TUI plugin'i** ile görünür ve bu plugin kurulur; Codex'in TUI footer'ı
-kapalı bir yerleşik öğe listesi olduğundan footer'a segment eklenemez, bu yüzden
-orada segment oturum başında ve her tur sonunda hook `systemMessage` ile görünür.
-dsh'te de komut statusline yok; native bir UI plugin'i ile sidebar'a eklenebilir
-ama bu ağır bir iştir ve henüz paketlenmedi.
+## Day-to-day
 
-Geliştirirken `bin/tezgah-setup --sync` kurulu Claude kopyasını bu checkout'la
-tazeler ve `claude plugin validate .claude-plugin/plugin.json` manifest'i
-doğrular; sürüm yükseltirken iki dosyayı (`.claude-plugin/plugin.json` ve
-`.claude-plugin/marketplace.json`) birlikte güncellemek gerekir.
-`codebase-memory-mcp` sunucusunu sen kurarsın; Orca'nın hook'ları ve dosyaları bu
-projeye ait değildir ve dokunulmaz. Lisans olarak kök `LICENSE` tezgah'ın kendi
-dosyalarını kapsar, `skills/ponytail` ile `skills/no-ai-slop` ise kendi MIT
-koşullarıyla gelir.
+Nothing to run: the rules load when a host starts. A few commands are worth
+knowing:
+
+| Command | Purpose |
+|---|---|
+| `bin/tezgah-setup` | Report what is armed, per host |
+| `bin/tezgah-status [PATH]` | Show whether the rules are active in that repo |
+| `/plan-add` | Turn a piece of work into a tracked plan |
+| `/plan-status` | Summarize open plans and pick the next one |
+| `/plan-sync` | Close out finished plans |
+| `bin/tezgah-setup --version` | Print the plugin version |
+| `bin/tezgah-setup --uninstall` | Remove only tezgah's symlinks, host hook entries, and the dsh managed block |
+
+## Configuration
+
+Tezgah is armed only under its configured roots; anywhere else it is silent.
+
+- Default root: `~/Projects`.
+- `~/.config/tezgah/config.json`: `{"roots": ["~/Projects", "~/work"]}`.
+- `TEZGAH_ROOTS` (path-separator list) overrides the file for one-offs and CI.
+
+Kill switches live in `~/.config/tezgah/`:
+`exec-mode.off`, `orchestrate-off`, `consult-off`, `ponytail-auto.off`, and
+`reminder-off`. Per repo, `.no-ponytail` and `.no-cbm` opt out of the minimal-code
+rule and the graph rule respectively.
+
+## Cost
+
+This is not free, and the numbers are measured, not estimated:
+
+- **Context.** Roughly 12.5 KB (≈3,100 tokens) of contract text is added at
+  session start. On Claude, a further ~1.3 KB reminder rides each turn.
+- **Latency.** Session start adds ~12 ms on top of Python's ~19 ms baseline;
+  the per-tool-call gate costs ~0.1 ms. Installation takes ~47 ms and is
+  idempotent.
+- **Disk.** Every file tezgah rewrites is first kept as `<file>.tezgah-bak`.
+
+The payoff shows up on caller questions. In one real repo, a default `grep`
+ignored the relevant folder and found nothing; with ignore disabled it took
+3.95 s and still mixed definitions with call sites. The code graph answered the
+same question in 16 ms, listing only the 8 true call sites.
+
+## Development
+
+```bash
+python3 -m unittest discover -s tests -v   # stdlib test suite
+ruff check .                               # lint (config in pyproject.toml)
+```
+
+CI runs both on Python 3.10 and 3.12. To refresh an installed Claude copy from
+this checkout, use `bin/tezgah-setup --sync`, and validate the manifest with
+`claude plugin validate .claude-plugin/plugin.json`. When bumping the version,
+update `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`
+together — they must agree.
+
+`codebase-memory-mcp` is installed by the user. Orca's hooks and files are not
+part of this project and are left untouched.
+
+## License
+
+The root `LICENSE` (MIT) covers tezgah's own files. `skills/ponytail` and
+`skills/no-ai-slop` are vendored under their own MIT terms, recorded in
+`NOTICE`.
