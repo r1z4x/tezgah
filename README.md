@@ -28,6 +28,11 @@ same text.
   Z changes" go to the `codebase-memory-mcp` graph (`search_graph`,
   `trace_path`, `search_code`), not to grep. Grep stays right for literal text,
   configs, and non-code files.
+- **Accessibility-first app analysis.** A running web or mobile app is read
+  through its accessibility / DOM / native view tree, not a screenshot per step.
+  `analyze-app` covers a browser (Playwright MCP), an iOS Simulator or Android
+  emulator (Mobile MCP), and optional web diagnostics (Chrome DevTools MCP); a
+  screenshot is an explicit, on-demand action for what the tree cannot answer.
 - **External second opinion.** Before a non-trivial or hard-to-reverse call,
   `~/.config/tezgah/bin/consult` asks independent models through OpenRouter (or the DeepSeek API
   with `--provider deepseek`) in parallel, and the agent reports where they
@@ -138,6 +143,41 @@ does code discovery from the graph and returns `file:line` evidence;
 `agents/tezgah-reviewer.md` turns a diff into its impact set with
 `detect_changes` and then looks for real defects. Both have write and command
 tools disabled; their output is advisory.
+
+### App analysis
+
+`analyze-app` drives a running application from its accessibility tree. The
+default loop is open, read the tree, act, observe console/network/logs, and
+re-read the tree — a screenshot is an explicit action for what the tree cannot
+answer (canvas, game, animation, pixel-level visual regression). The skill is
+one path for all hosts; the servers under it are one shared spec in
+`hooks/tezgah_apps.py`:
+
+| Server | Target | Wired by |
+|---|---|---|
+| `playwright` (`@playwright/mcp`) | web pages, `browser_*` tools | opencode, Codex, Cursor, Claude (plugin `.mcp.json`) |
+| `mobile-mcp` (`@mobilenext/mobile-mcp`) | iOS Simulator / Android emulator, `mobile_*` tools | same |
+| `chrome-devtools` (opt-in, `--devtools`) | web perf traces, deep network, source-mapped console | same |
+
+The browser runs an **isolated** profile by default, so a run never touches your
+real Chrome state; analyzing a logged-in flow is a deliberate attach
+(`--cdp-endpoint` or the Playwright extension), not a default. Screenshots,
+traces and tree dumps land in `~/.cache/tezgah/apps` (override with
+`TEZGAH_ARTIFACTS`) and the agent gets a path back, never inline image bytes.
+The servers run through `npx`, so they need node but no install of their own;
+`tezgah-setup --install --devtools` adds the optional web diagnostics server.
+dsh has no verified MCP app wiring here, so the skill falls back to running the
+server on the shell there. `mobile-mcp` is the higher-friction half: macOS may
+prompt for Accessibility / Screen-Recording permission and the view tree can
+drop under load, so the skill retries the tree before falling back to a
+screenshot.
+
+Two opt-in smokes exercise the wiring against the real servers:
+`TEZGAH_E2E_APPS=1 python3 tests/e2e_analyze_web.py` starts Playwright MCP,
+navigates and reads the snapshot with no screenshot;
+`TEZGAH_E2E_APPS=1 python3 tests/e2e_analyze_mobile.py` starts Mobile MCP, checks
+the view-tree tools and lists a device. Both print `SKIP: ...` when node, a
+browser build or a device is missing; neither is part of CI.
 
 ## Install
 
