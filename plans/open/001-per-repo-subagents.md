@@ -3,7 +3,7 @@ id: 001
 title: Generate per-repo subagent definitions from detected infrastructure
 status: open
 branch: plan/001-per-repo-subagents
-pr:
+pr: 1
 created: 2026-09-15
 updated: 2026-09-15
 ---
@@ -20,7 +20,7 @@ and delegates to the generated agents.
 - [x] Capability-gated generation into every host with a real custom-agent
       surface: Claude + Cursor `.claude/agents/*.md`, opencode `.opencode/agents/
       *.md` plus a live `config.agent` injection, Codex `.codex/agents/*.toml`.
-      Proof: `tests/test_agents.py` (16 cases) in a throwaway HOME.
+      Proof: `tests/test_agents.py` (18 cases) in a throwaway HOME.
 - [x] Idempotent: a second sync reports `current` and writes nothing (asserted).
 - [x] Non-destructive: generated files carry a managed marker; `--uninstall`
       removes only those and leaves user-authored agent files untouched.
@@ -33,13 +33,12 @@ and delegates to the generated agents.
       only authoring surface is whole-session presets (copy-only `agent.cordis.yml`
       compositions), not per-role subagents; the `subagent` tool takes a prompt.
       Covered by the existing router directive in the injected contract.
-- [x] `python3 -m unittest discover -s tests` (117) and `ruff check .` pass. The
-      opencode plugin `config` hook is exercised in node by a test, so a lost
-      const or a broken spawn fails the suite, not only the Python side.
+- [x] `python3 -m unittest discover -s tests` (118) and `ruff check .` pass. The
+      opencode plugin `config` hook is exercised in node by a test.
 
 ## State
 Implemented on branch `plan/001-per-repo-subagents` (commits `4f8a944`,
-`70ca07a`, `e029221`, `df28788`); PR #1 open, not merged.
+`70ca07a`, `e029221`, `df28788`, `72c9907`); PR #1 open, not merged.
 - New `hooks/tezgah_agents.py`: one source-of-truth role manifest
   (explorer/reviewer gated on the graph, researcher on orx, verifier on the
   consult key) rendered per host format, plus a `tezgah-orchestrator`.
@@ -49,24 +48,41 @@ Implemented on branch `plan/001-per-repo-subagents` (commits `4f8a944`,
   first message (fallback/versionable). `bin/tezgah-agents [--json] [PATH]` is the
   single CLI; `bin/tezgah-setup --agents [PATH]` triggers it; `--uninstall` removes
   generated files via `~/.config/tezgah/agents.state.json`.
-- Corrected host capabilities (verified against docs this round): Codex custom
-  agents are `.codex/agents/*.toml` requiring name/description/
-  developer_instructions; Cursor subagents are `.cursor/agents/*.md` and it also
-  reads `.claude/agents/` and `.codex/agents/` (so the `.claude/agents/` output
-  serves Cursor too, and `readonly: true` is emitted for the read-only roles).
-- Verified in a throwaway HOME: four roles written to `.claude/agents/` (md),
-  `.opencode/agents/` (md), `.codex/agents/` (toml, all four parse with a TOML
-  parser, required fields present, read-only roles get `sandbox_mode =
-  "read-only"`); `.opencode` JSON exposes the four subagents plus the orchestrator
-  with `permission.task {"*": deny, "tezgah-*": allow}`; Cursor writes no separate
-  dir; re-running reports `current`; dropping orx removes the researcher files;
-  uninstall keeps a hand-written `my-own.md`.
-- Resolution of the recorded risk: the leaky-abstraction objection (Gemini and
-  Grok) is answered by rendering one shared role manifest into each host's native
-  format in one module, not a host `if/else` in the setup oracle, and by NOT
-  inventing a surface for dsh.
+- Corrected host capabilities (verified against docs): Codex custom agents are
+  `.codex/agents/*.toml` (name/description/developer_instructions, plus
+  `sandbox_mode`); Cursor subagents are `.cursor/agents/*.md` and it also reads
+  `.claude/agents/` and `.codex/agents/`, so the `.claude/agents/` output serves
+  Cursor too (`readonly: true` emitted for read-only roles). Claude's
+  `Agent(agent_type)` allowlist in `tools` is valid and only takes effect when the
+  agent runs as the main thread via `--agent`, which is exactly what the
+  orchestrator is for.
+
+### End-to-end verification (real CLIs, non-tezgah scratch repo)
+- **opencode**: verified with the real binary, three ways — from
+  `.opencode/agents/` files, from the `.claude/agents/` compatibility dir (opencode
+  reads it), and with both dirs removed, where the plugin `config` hook still
+  injected all five agents in-session. `opencode agent list` / `debug agent`
+  report `tezgah-explorer (subagent)` and `tezgah-orchestrator (primary)` with the
+  `tezgah-*` task allowlist.
+- **Codex**: verified with the real binary — `codex exec` (gpt-5.5) listed the four
+  custom agents `tezgah-{explorer,reviewer,researcher,verifier}` from
+  `.codex/agents/`.
+- **Claude**: `claude plugin validate .claude/agents` reports `Validation passed`
+  (offline; login not required). A live session was not run — the installed Claude
+  is logged out (`claude auth status` -> loggedIn false).
+- **Cursor**: reads `.claude/agents/` per the official docs; a live check was not
+  run because `cursor-agent status` reports not logged in. Not runtime-verified.
+- **dsh**: no per-role surface; nothing to generate.
+
+### Bug found and fixed by this verification
+The first e2e run made opencode reject the whole config: the Claude-format
+orchestrator (`tools: Agent(...)`) was being written into `.opencode/agents/`, and
+opencode validates `tools` as an object. opencode markdown now renders native
+frontmatter (`mode` + `permission`, no `tools` string); commit `72c9907`, guarded by
+a test. An earlier commit also restored a lost `AGENTS_BIN` const in the plugin
+(`df28788`).
 
 ## Next
-Open a PR from `plan/001-per-repo-subagents`, then verify end to end in a real
-session per host (at least Claude, opencode, Codex) in a non-tezgah repo: confirm
-the agents appear and the Cursor `.claude/agents/` compatibility actually loads.
+Merged when PR #1 is green. Remaining: a live Cursor (and for completeness a live
+Claude) session check, both blocked on login only; and decide whether to keep the
+now-redundant `.opencode/agents/` files or drop them in favour of the plugin hook.
