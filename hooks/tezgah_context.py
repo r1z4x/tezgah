@@ -378,20 +378,39 @@ def plan_mark(cwd, base):
     return None
 
 
-def health_lines(cwd, session_id=None, used_override=None):
-    """The armed/used checklist, host-neutral, for `tezgah-status`.
+_FLAG_KEYS = ("pony", "exec", "consult", "research", "cbm", "orch")
+GLYPHS = {"on": "✓", "ready": "○", "off": "✗", "info": ""}
+# ANSI foreground for each state: green in force, yellow on-demand, red off.
+COLORS = {"on": "\033[32m", "ready": "\033[33m", "off": "\033[31m", "info": ""}
+RESET = "\033[0m"
+IDX_STATE = {"✓": "on", "↻": "ready", "✗": "off", "–": "info"}
+LEGEND = """\
+tezgah status marks (state first, glyph after the name):
+  name\u2713  green   armed and in force this session (or always-on)
+  name\u25cb  yellow  armed, on demand - not used yet this session
+  name\u2717  red     turned off by a kill switch or a per-repo .no-* mark
+  idx\u2713 indexed   idx\u21bb stale (HEAD moved)   idx\u2717 not indexed   idx\u2013 n/a
+  plans N (M blk)   open plans under the repo, M of them blocked
+Outside a tezgah root the per-repo extras (idx, plans) are omitted.
+"""
 
-    The single source every host renders (opencode TUI, Codex systemMessage,
-    Claude/Cursor statusline), so they cannot drift.
 
-    Global, not root-scoped: tezgah ships as a globally loaded instructions
-    file on opencode (and the CLI is used outside repos), so the indicator must
-    not go silent off-root. The per-repo additions - the .no-* marks, `idx` graph
-    readiness and the `plans` count - appear only when cwd is inside a root.
+def health_segments(cwd, session_id=None, used_override=None):
+    """The armed/used checklist as structured segments, host-neutral.
+
+    Each segment is {"key", "state", "glyph", "text"} with state in
+    {on, ready, off, info}; `text` is the human name and `glyph` the mark. Hosts
+    that can color (Claude/Cursor ANSI, opencode TUI, dsh Web) map `state` to a
+    color; hosts that cannot (Codex systemMessage) render text+glyph plain.
+    `health_lines()` renders this to the exact plain string for the rest.
+
+    Global, not root-scoped: tezgah ships as a globally loaded instructions file
+    on opencode, so the indicator must not go silent off-root; the per-repo
+    additions (idx, plans) appear only inside a root.
 
     used_override: the tool kinds a host already resolved from its own record
-    (e.g. Claude parses the transcript because it does not write tezgah's
-    recorder); None falls back to tezgah's recorder for session_id."""
+    (Claude parses the transcript because it does not write tezgah's recorder);
+    None falls back to tezgah's recorder for session_id."""
     base, marks = repo_marks(cwd)
     seen = set(used_override) if used_override is not None else used(session_id)
     flags = [
@@ -402,21 +421,45 @@ def health_lines(cwd, session_id=None, used_override=None):
         ("cbm", ".no-cbm" not in marks, "cbm"),
         ("orch", not off("orchestrate-off"), "orch"),
     ]
-    out = []
+    segs = []
     for name, on, meas in flags:
         if not on:
-            out.append(name + "✗")
+            state = "off"
         elif meas is None or meas in seen:
-            out.append(name + "✓")
+            state = "on"
         else:
-            out.append(name + "○")
-    line = " ".join(out[:2]) + "  ·  " + " ".join(out[2:])
-    extra = []
+            state = "ready"
+        segs.append({"key": name, "state": state, "glyph": GLYPHS[state], "text": name})
     if base:
-        extra.append("idx" + index_mark(cwd, base))
+        glyph = index_mark(cwd, base)
+        segs.append({"key": "idx", "state": IDX_STATE.get(glyph, "info"),
+                     "glyph": glyph, "text": "idx"})
         plan = plan_mark(cwd, base)
         if plan:
-            extra.append(plan)
+            segs.append({"key": "plans", "state": "ready" if "blk" in plan else "info",
+                         "glyph": "", "text": plan})
+    return segs
+
+
+def _seg_text(seg, color):
+    glyph = seg["glyph"]
+    if not color or not glyph or seg["state"] == "info":
+        return seg["text"] + glyph
+    return seg["text"] + COLORS[seg["state"]] + glyph + RESET
+
+
+def render_line(segs, color=False):
+    """Render segments to the one-line status string; `color` adds ANSI."""
+    flags = [s for s in segs if s["key"] in _FLAG_KEYS]
+    line = (" ".join(_seg_text(s, color) for s in flags[:2])
+            + "  ·  " + " ".join(_seg_text(s, color) for s in flags[2:]))
+    extra = [_seg_text(s, color) for s in segs if s["key"] in ("idx", "plans")]
     if extra:
         line += "  ·  " + "  ·  ".join(extra)
     return line
+
+
+def health_lines(cwd, session_id=None, used_override=None):
+    """The plain armed/used checklist every host can render (no ANSI)."""
+    return render_line(health_segments(cwd, session_id, used_override))
+

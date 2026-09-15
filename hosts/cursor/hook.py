@@ -58,6 +58,8 @@ def classify(payload, event=""):
     shell = name.lower() in ("shell", "bash") or event == "afterShellExecution"
     if shell and "consult" in low:
         return "consult"
+    if shell and "orx" in low:
+        return "research"
     return None
 
 

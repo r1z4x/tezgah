@@ -121,6 +121,17 @@ class Generation(AgentsBase):
         self.assertIn("current", self.sync())
         self.assertEqual(self.read(CLAUDE, "tezgah-explorer.md"), before)
 
+    def test_agent_bodies_use_absolute_cli_paths(self):
+        # same bug plan 004 fixed in the contract: a subagent shell is
+        # non-interactive, so a bare bin/consult or orx is "not found".
+        self.sync()
+        verifier = self.read(CLAUDE, "tezgah-verifier.md")
+        self.assertNotIn("`bin/consult", verifier)
+        self.assertIn(os.path.join(support.REPO, "bin", "consult"), verifier)
+        researcher = self.read(CLAUDE, "tezgah-researcher.md")
+        self.assertNotIn("`orx`", researcher)
+        self.assertIn(sys.executable, researcher)  # TEZGAH_ORX_BIN here
+
 
 class OpencodeConfig(AgentsBase):
     def test_json_exposes_subagents_and_an_orchestrator(self):
@@ -142,6 +153,47 @@ class OpencodeConfig(AgentsBase):
 
     def pathless(self):
         return os.path.join(self.home, "nope")
+
+
+class Gitignore(AgentsBase):
+    """Generated agent dirs are machine-specific, so they are ignored via one
+    managed block that survives a re-run and is stripped on uninstall."""
+
+    def gi(self):
+        with open(os.path.join(self.repo, ".gitignore")) as fh:
+            return fh.read()
+
+    def test_block_added_and_appended_to_existing_content(self):
+        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
+            fh.write("node_modules/\n")
+        self.sync()
+        text = self.gi()
+        self.assertIn("node_modules/", text)
+        self.assertIn("/.claude/agents/", text)
+        self.assertIn("/.opencode/agents/", text)
+        self.assertIn("/.codex/agents/", text)
+
+    def test_block_is_idempotent(self):
+        self.sync()
+        once = self.gi()
+        self.sync()
+        self.assertEqual(self.gi(), once)
+        self.assertEqual(once.count("# tezgah: generated agents"), 1)
+
+    def test_cleanup_strips_block_but_keeps_user_content(self):
+        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
+            fh.write("node_modules/\n")
+        self.sync()
+        out, proc = run_json([support.PROBE_AGENTS], {"fn": "cleanup"},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertGreater(out, 0)
+        self.assertEqual(self.gi(), "node_modules/\n")
+
+    def test_cleanup_removes_a_gitignore_it_created_alone(self):
+        self.sync()
+        run_json([support.PROBE_AGENTS], {"fn": "cleanup"}, env=self.env())
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".gitignore")))
 
 
 class OpencodePlugin(AgentsBase):

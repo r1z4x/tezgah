@@ -50,6 +50,15 @@ same text.
   bounded, well-specified edits to a scratch directory. Nothing reaches the repo
   except through the router, and a failed draft falls back to the main model
   automatically.
+- **Per-repo subagents.** At session start the enclosing repo gets a small set of
+  capability-gated agents (`tezgah-explorer`, `tezgah-reviewer`,
+  `tezgah-researcher`, `tezgah-verifier`) plus a `tezgah-orchestrator`, rendered
+  into each installed host's native surface (Claude/Cursor `.claude/agents/`,
+  opencode `.opencode/agents/` plus a live config injection, Codex
+  `.codex/agents/`) and ignored with one managed `.gitignore` block. On Claude the
+  orchestrator's `Agent(tezgah-*)` allowlist only takes effect when it runs as the
+  main thread (`claude --agent tezgah-orchestrator`); as a subagent the list is
+  ignored. dsh has no per-role surface, so the contract's router rule covers it.
 
 ## Supported hosts
 
@@ -66,6 +75,20 @@ and subagent calls through the same check as the other hosts. On Claude, the
 attribution ban is enforced mechanically too: the `attribution` setting is
 emptied (`commit`, `pr`, `sessionUrl`) so commit and PR credits are off at the
 source.
+
+### Status line
+
+Every host renders the same one-line checklist from `tezgah-status`, so they
+cannot drift. The state is the point: a mark is **green** when the rule is armed
+and in force this session, **yellow** when it is armed but on demand (not used
+yet), and **red** when a kill switch turned it off. `idx` reports graph readiness
+separately (`✓` indexed, `↻` stale, `✗` not indexed, `–` not applicable) and
+`plans N (M blk)` the open plans. `tezgah-status --legend` prints the key,
+`--json` gives the same segments for a UI, and `--no-color` (or `NO_COLOR`)
+forces plain text. Claude Code and Cursor color the native status line; the
+opencode TUI colors its own component and refreshes on the host event bus; the
+dsh Web UI colors its header component and refreshes only while its tab is
+visible; Codex shows the plain string in `systemMessage`.
 
 dsh runs the same Claude hook files through its `dsh-hooks-claude-code` bridge,
 so the session-start contract, the attribution gate, and the first-grep nudge
@@ -90,8 +113,10 @@ launcher on PATH (`~/.local/bin/dsh`) that finds the installed CLI under
 
 dsh has no command status line, so tezgah ships one as a Web UI plugin:
 `tezgah-dsh-statusline`. Its host half serves the `tezgah-status` string for the
-session's workspace over an authenticated `/api/tezgah.status` route; its
-browser half renders it in the session header, polling every 5s. `tezgah-setup`
+session's workspace over an authenticated `/api/tezgah.status` route (with
+`?format=json` for the colored view); its browser half renders it in the session
+header, colored by state with a hover/click legend, and refreshes only while the
+tab is visible. `tezgah-setup`
 links the plugin into the web profile and enables it with a managed row in
 `profiles/web/cordis.patch.yml` (web-only, because the host half injects the
 web-only `connection` service); a profile that has never booted `web` is skipped
