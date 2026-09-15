@@ -1,4 +1,54 @@
+<p align="center">
+  <a href="README.md">English</a> |
+  <a href="README.zh.md">简体中文</a> |
+  <a href="README.zht.md">繁體中文</a> |
+  <a href="README.ko.md">한국어</a> |
+  <a href="README.de.md">Deutsch</a> |
+  <a href="README.es.md">Español</a> |
+  <a href="README.fr.md">Français</a> |
+  <a href="README.it.md">Italiano</a> |
+  <a href="README.da.md">Dansk</a> |
+  <a href="README.ja.md">日本語</a> |
+  <a href="README.pl.md">Polski</a> |
+  <a href="README.ru.md">Русский</a> |
+  <a href="README.bs.md">Bosanski</a> |
+  <a href="README.no.md">Norsk</a> |
+  <a href="README.br.md">Português (Brasil)</a> |
+  <a href="README.th.md">ไทย</a> |
+  <a href="README.tr.md">Türkçe</a> |
+  <a href="README.uk.md">Українська</a> |
+  <a href="README.bn.md">বাংলা</a>
+</p>
+
 # Tezgah
+
+<p align="center">
+  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="180">
+</p>
+
+<h3 align="center">One working contract for every AI coding assistant you run.</h3>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/r1z4x/tezgah?style=flat-square"></a>
+  <a href="https://github.com/r1z4x/tezgah/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/r1z4x/tezgah/ci.yml?style=flat-square&label=ci"></a>
+</p>
+
+<p align="center">
+  <a href="#what-it-enforces">What it enforces</a> &bull;
+  <a href="#supported-hosts">Supported hosts</a> &bull;
+  <a href="#install">Install</a> &bull;
+  <a href="#day-to-day">Day-to-day</a> &bull;
+  <a href="#configuration">Configuration</a> &bull;
+  <a href="#cost">Cost</a> &bull;
+  <a href="#development">Development</a> &bull;
+  <a href="#contributing">Contributing</a> &bull;
+  <a href="#security">Security</a> &bull;
+  <a href="#license">License</a>
+</p>
+
+<p align="center"><sub>English is the source of truth; translations may lag behind it.</sub></p>
+
+---
 
 One working contract for every AI coding assistant you run — Claude Code,
 opencode, Codex, Cursor, and DeepSeek's dsh harness — inside a set of
@@ -13,6 +63,8 @@ The design is two layers. The rules live once in a shared core; each host gets
 a thin adapter that translates that core into the shape the host understands.
 Change a rule in one place and all five hosts see it — no five-way copy of the
 same text.
+
+<a id="what-it-enforces"></a>
 
 ## What it enforces
 
@@ -64,6 +116,8 @@ same text.
   orchestrator's `Agent(tezgah-*)` allowlist only takes effect when it runs as the
   main thread (`claude --agent tezgah-orchestrator`); as a subagent the list is
   ignored. dsh has no per-role surface, so the contract's router rule covers it.
+
+<a id="supported-hosts"></a>
 
 ## Supported hosts
 
@@ -182,6 +236,8 @@ Playwright MCP, navigates and reads the snapshot with no screenshot;
 the view-tree tools and lists a device. They print `SKIP: ...` when node, a
 browser build or a device is missing.
 
+<a id="install"></a>
+
 ## Install
 
 Requires Python 3.8+. node + npm are needed for the dsh host and, with `pnpm`,
@@ -233,6 +289,8 @@ bin/tezgah-setup --install --hosts claude,codex,opencode,cursor,dsh
 bin/tezgah-setup --roots ~/work:~/oss --install
 ```
 
+<a id="day-to-day"></a>
+
 ## Day-to-day
 
 Nothing to run: the rules load when a host starts. A few commands are worth
@@ -250,6 +308,8 @@ knowing:
 | `/plan-sync` | Close out finished plans |
 | `bin/tezgah-setup --version` | Print the plugin version |
 | `bin/tezgah-setup --uninstall` | Remove only tezgah's symlinks, host hook entries, and the dsh managed block |
+
+<a id="configuration"></a>
 
 ## Configuration
 
@@ -316,6 +376,8 @@ resulting disk footprint; `--prune-sessions DAYS` deletes idle sessions through
 the opencode CLI, which is the only action that actually shrinks the database —
 VACUUM alone cannot, since its pages are all live.
 
+<a id="development"></a>
+
 ## Development
 
 ```bash
@@ -334,6 +396,42 @@ together — they must agree.
 part of this project and are left untouched. Claude receives the always-on core
 from the SessionStart hook; `output-styles/tezgah.md` is a duplicate for builds
 that load plugin output styles, so the hook is the authoritative path.
+
+<a id="contributing"></a>
+
+## Contributing
+
+Small, single-purpose changes are the easiest to accept. A rule belongs in the
+shared core (`hooks/`) unless it is genuinely host-specific; a host difference
+belongs in its adapter under `hosts/<name>/`. Keep the diff as short as it can
+be while still correct — the project's own minimal-code rule applies to the
+project.
+
+Before opening a pull request, run the same three checks CI runs:
+
+```bash
+python3 -m compileall -q hooks hosts bin statusline.py   # byte-compile every script
+python3 -m unittest discover -s tests                     # stdlib test suite
+ruff check .                                              # lint; config in pyproject.toml
+```
+
+`ruff` comes from `requirements-dev.txt` (`pip install -r requirements-dev.txt`),
+which is the only development dependency.
+
+<a id="security"></a>
+
+## Security
+
+Report vulnerabilities privately through GitHub's security advisories
+(**Security** tab → **Report a vulnerability**) rather than a public issue.
+
+tezgah runs shell hooks, writes host configuration, and injects text into every
+session, so anything that makes a hook execute attacker-controlled code, leaks a
+key into a config file, widens a sandbox, or lets repository content escalate
+into instruction text is in scope. Include the host, the tezgah version
+(`bin/tezgah-setup --version`), and a minimal reproduction.
+
+<a id="license"></a>
 
 ## License
 
