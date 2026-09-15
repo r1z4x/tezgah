@@ -156,6 +156,7 @@ function classify(tool, args) {
   if (/search_graph|trace_path|search_code|get_architecture|detect_changes|codebase.memory/.test(blob)) return "cbm"
   if (tool === "task") return "orch"
   if ((tool === "bash" || tool === "shell") && /consult/.test(blob)) return "consult"
+  if ((tool === "bash" || tool === "shell") && /\borx\b/.test(blob)) return "research"
   return null
 }
 

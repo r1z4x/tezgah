@@ -1,10 +1,12 @@
 // tezgah status line for the DeepSeek Harness Web UI, host half.
 //
 // The browser half ships through exports["./client"]; this half only serves the
-// text it renders. The status is whatever `tezgah-status` prints for the
-// session's workspace - the same string every other host renders - behind the
-// Web UI's own authenticated /api fence, so the client fetches it same-origin
-// with no extra token handling.
+// data it renders. Two shapes:
+//   /api/tezgah.status                      -> the plain line (text/plain)
+//   /api/tezgah.status?format=json&sessionId -> {segments, legend} for the colored
+// The status is whatever `tezgah-status` prints for the session's workspace - the
+// same source every other host renders - behind the Web UI's own authenticated
+// /api fence, so the client fetches it same-origin with no extra token handling.
 import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -17,13 +19,10 @@ function statusBin() {
 }
 
 /** Run tezgah-status; resolve "" on any failure so the UI just hides the line. */
-function statusText(dir, sessionId) {
+function statusText(args) {
 	return new Promise((resolve) => {
-		const args = [statusBin(), dir];
-		if (sessionId) args.push(sessionId);
-		execFile(process.env.TEZGAH_PYTHON || "python3", args, { timeout: 5000 }, (error, stdout) => {
-			resolve(error ? "" : String(stdout).trim());
-		});
+		execFile(process.env.TEZGAH_PYTHON || "python3", [statusBin(), ...args],
+			{ timeout: 5000 }, (error, stdout) => resolve(error ? "" : String(stdout).trim()));
 	});
 }
 
@@ -37,15 +36,31 @@ export function apply(ctx) {
 		methods: ["GET"],
 		requestBody: "buffered",
 		fetch: async (request) => {
-			const sessionId = new URL(request.url).searchParams.get("sessionId") ?? undefined;
+			const url = new URL(request.url);
+			const sessionId = url.searchParams.get("sessionId") ?? undefined;
 			const session = sessionId === undefined ? undefined : ctx.sessions.get(sessionId);
 			const dir = session?.header?.cwd ?? process.cwd();
-			return new Response(await statusText(dir, sessionId), {
+			const where = sessionId === undefined ? [dir] : [dir, sessionId];
+			if (url.searchParams.get("format") === "json") {
+				const [raw, legend] = await Promise.all([
+					statusText([...where, "--json"]),
+					statusText(["--legend"]),
+				]);
+				let segments = [];
+				try { segments = JSON.parse(raw || "[]"); } catch { segments = []; }
+				return new Response(JSON.stringify({ segments, legend }), {
+					headers: {
+						"content-type": "application/json; charset=utf-8",
+						"cache-control": "no-store",
+					},
+				});
+			}
+			return new Response(await statusText(where), {
 				headers: {
 					"content-type": "text/plain; charset=utf-8",
-					"cache-control": "no-store"
-				}
+					"cache-control": "no-store",
+				},
 			});
-		}
+		},
 	});
 }
