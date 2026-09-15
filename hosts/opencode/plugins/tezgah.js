@@ -30,6 +30,7 @@ const CACHE = join(HOME, ".cache", "tezgah")
 const CBM_DIR = join(HOME, ".cache", "codebase-memory-mcp")
 const STATUS_BIN = join(CONFIG, "bin", "tezgah-status")
 const INDEX_BIN = join(CONFIG, "bin", "tezgah-index")
+const AGENTS_BIN = join(CONFIG, "bin", "tezgah-agents")
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
 const EXPLORE_DENY =
   "A grep-only explorer subagent is not allowed in this tree. Use a " +
@@ -128,8 +129,7 @@ function permissionToolArgs(input) {
   return { tool, args }
 }
 
-async function oncePerSession(sessionID) {
-  const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
+async function oncePerSession(sessionID) {  const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
   const dir = join(CACHE, "nudged")
   const mark = join(dir, key)
   if (existsSync(mark)) return false
@@ -159,6 +159,27 @@ function classify(tool, args) {
   return null
 }
 
+// The repo's generated subagents as opencode config.agent entries, or null.
+// Runs the same Python source the other hosts use, so the gating and the bodies
+// cannot drift.
+function opencodeAgents(directory) {
+  return new Promise((resolve) => {
+    let out = ""
+    let child
+    try {
+      child = spawn("python3", [AGENTS_BIN, "--json", directory],
+                    { stdio: ["ignore", "pipe", "ignore"] })
+    } catch {
+      return resolve(null)
+    }
+    child.stdout.on("data", (d) => (out += d))
+    child.on("error", () => resolve(null))
+    child.on("close", () => {
+      try { resolve(JSON.parse(out)) } catch { resolve(null) }
+    })
+  })
+}
+
 export const Tezgah = async ({ directory }) => {
   // installed under both plugin/ and plugins/ for opencode version drift; if
   // both are scanned, only the first module instance registers hooks
@@ -167,6 +188,25 @@ export const Tezgah = async ({ directory }) => {
   const dir = directory || process.cwd()
 
   return {
+    // Register the repo's generated subagents at config load so opencode sees
+    // them in the SAME session (a brand-new .opencode/agents/ dir is otherwise
+    // only read at the next launch). A user-defined agent of the same name wins.
+    config: async (cfg) => {
+      try {
+        if (!cfg || typeof cfg !== "object") return
+        if (off("agents-off")) return
+        if (!(await rootFor(dir))) return
+        const extra = await opencodeAgents(dir)
+        const agents = (extra && extra.agent) || {}
+        if (!Object.keys(agents).length) return
+        const target = cfg.agent && typeof cfg.agent === "object"
+          ? cfg.agent : (cfg.agent = {})
+        for (const [name, spec] of Object.entries(agents)) {
+          if (!(name in target)) target[name] = spec
+        }
+      } catch {}
+    },
+
     // Native allow/deny where the build emits it. Inert (never called) on
     // builds that do not, which is exactly why the before-hook fallback stays.
     "permission.ask": async (input, output) => {
@@ -248,6 +288,11 @@ export const Tezgah = async ({ directory }) => {
       try {
         if (!(await rootFor(dir))) return
         const sessionID = String(input?.sessionID || "")
+        // per-repo agent file fallback: same one-shot entry as the index, so a
+        // changed manifest or repo stack is rewritten once per session
+        if (await oncePerSession(sessionID + "|agents")) {
+          spawn("python3", [AGENTS_BIN, dir], { detached: true, stdio: "ignore" }).unref()
+        }
         if (!(await oncePerSession(sessionID + "|index"))) return
         spawn("python3", [INDEX_BIN, dir], { detached: true, stdio: "ignore" }).unref()
       } catch {}

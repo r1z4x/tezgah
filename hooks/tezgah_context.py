@@ -133,6 +133,15 @@ def autoindex(root):
     return "%s in background now" % verb
 
 
+def sync_agents(root):
+    """Generate/refresh this repo's per-host subagent definitions (best effort)."""
+    try:
+        from tezgah_agents import sync_root
+        return sync_root(root)
+    except Exception:
+        return None
+
+
 def open_plans(root):
     """Max 3 open plans (plans/open/*.md, lowest id first) as a context block, or ""."""
     paths = sorted(glob.glob(os.path.join(root, "plans", "open", "*.md")))
@@ -249,6 +258,10 @@ def context_for(event, cwd, payload=None):
         parts.append("Research: orx (OpenResearch) is not installed, so route "
                      "research to a host subagent and say the tooling is "
                      "unavailable; do not improvise its protocol.")
+    if event == "session_start":
+        note = sync_agents(root)
+        if note:
+            parts.append("Subagents (this repo, generated): %s" % note)
     if event in ("session_start", "post_compact"):
         plans = open_plans(root)
         if plans:

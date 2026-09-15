@@ -10,6 +10,7 @@
   tezgah-setup --adopt                 move the predecessor wiring aside
   tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
   tezgah-setup --status [PATH]         print the armed/used checklist
+  tezgah-setup --agents [PATH]         regenerate this repo's subagent set
   tezgah-setup --deps [--dry-run]      install missing optional tools only
   tezgah-setup --install --no-deps     arm hosts without installing tools
 
@@ -34,6 +35,7 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_context  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 import tezgah_policy as policy  # noqa: E402
+import tezgah_agents  # noqa: E402
 from tezgah_policy import (  # noqa: E402
     CBM_RULE, CONSULT, EXEC, NO_CONSULT, ORCHESTRATE, PONYTAIL, WORKFLOWS)
 
@@ -256,6 +258,7 @@ def install_common(new_roots, hosts):
             ("codegen", os.path.join(HERE, "bin", "codegen")),
             ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
+            ("tezgah-agents", os.path.join(HERE, "bin", "tezgah-agents")),
             ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
@@ -873,6 +876,9 @@ def remove_managed_block(path, start="# tezgah:start", end="# tezgah:end"):
 def uninstall_common():
     print("\ncommon:")
     unlink_dir(tp.BIN_DIR)
+    removed = tezgah_agents.cleanup()
+    if removed:
+        print("%s removed %d generated repo agent file(s)" % (OK, removed))
 
 
 def unwire_claude_settings():
@@ -1298,6 +1304,8 @@ def main(argv):
     ap.add_argument("--adopt", action="store_true")
     ap.add_argument("--sync", action="store_true")
     ap.add_argument("--status", nargs="?", const=os.getcwd())
+    ap.add_argument("--agents", nargs="?", const=os.getcwd(),
+                    help="regenerate this repo's subagent set (default: cwd)")
     ap.add_argument("--deps", action="store_true")
     ap.add_argument("--no-deps", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -1313,6 +1321,12 @@ def main(argv):
         return 0
     if args.deps and not args.install:
         install_deps(dry_run=args.dry_run)
+        return 0
+
+    if args.agents:
+        repo = tezgah_context.repo_root(os.path.realpath(expand(args.agents)))
+        note = tezgah_agents.sync_root(repo)
+        print(note or "no agents generated (outside a root, or no capability)")
         return 0
 
     hosts = [h.strip() for h in args.hosts.split(",")] if args.hosts else \
