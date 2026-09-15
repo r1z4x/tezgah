@@ -32,6 +32,9 @@ class SetupBase(unittest.TestCase):
             # orx off by default so an installed orx on the test machine cannot
             # run its real installer; a test that wants it points at a fake
             "TEZGAH_ORX_BIN": os.path.join(self.home, "no-such-orx"),
+            # never let a test hit the network: --install installs missing deps
+            # by default, so the suite opts out and the Deps tests exercise it
+            "TEZGAH_NO_DEPS": "1",
         }
 
     def path(self, *parts):
@@ -183,6 +186,85 @@ class OpenResearch(SetupBase):
         proc = self.setup("--install", "--hosts", "claude")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("orx not on PATH - skipped", proc.stdout)
+
+
+class Deps(SetupBase):
+    """--deps installs missing optional tools; --install does it by default."""
+
+    def setUp(self):
+        super().setUp()
+        self.env.pop("TEZGAH_NO_DEPS", None)  # this class wants deps enabled
+
+    def fakebin(self, *names):
+        """A PATH holding only these stubs, so a real tool on the machine (e.g.
+        an installed cursor-agent) cannot change the outcome."""
+        d = self.path("fakebin")
+        os.makedirs(d, exist_ok=True)
+        for name in names:
+            p = os.path.join(d, name)
+            with open(p, "w") as fh:
+                fh.write('#!/bin/sh\necho "$@" >> "%s"\n' % self.path("deps.log"))
+            os.chmod(p, 0o755)
+        self.env["PATH"] = d
+        return self.path("deps.log")
+
+    def test_dry_run_lists_the_vendors_installers(self):
+        shutil.rmtree(self.path(".dsh"))  # make dsh missing too
+        self.fakebin("sh", "bash", "npx", "curl")
+        proc = self.setup("--deps", "--dry-run")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("openresearch.sh/install.sh", proc.stdout)
+        self.assertIn("cursor.com/install", proc.stdout)
+        self.assertIn("@deepseek-ai/dsh", proc.stdout)
+        self.assertIn("would run", proc.stdout)
+        self.assertFalse(os.path.exists(self.path("deps.log")))
+        self.assertFalse(os.path.isdir(self.path(".dsh")))
+        self.assertFalse(os.path.exists(self.path(".config", "tezgah", "install.log")))
+
+    def test_installs_missing_tools_with_their_own_commands(self):
+        shutil.rmtree(self.path(".dsh"))
+        log = self.fakebin("sh", "bash", "npx", "curl")
+        proc = self.setup("--deps")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        calls = self.read_text(log)
+        self.assertIn("openresearch.sh/install.sh", calls)
+        self.assertIn("cursor.com/install", calls)
+        self.assertIn("@deepseek-ai/dsh", calls)
+        self.assertIn("orx:", self.read_text(self.path(".config", "tezgah", "install.log")))
+
+    def test_reports_already_present(self):
+        self.env["TEZGAH_ORX_BIN"] = sys.executable  # a real file -> present
+        d = self.path("fakebin")
+        os.makedirs(d, exist_ok=True)
+        ca = os.path.join(d, "cursor-agent")
+        with open(ca, "w") as fh:
+            fh.write("#!/bin/sh\n")
+        os.chmod(ca, 0o755)
+        self.env["PATH"] = d
+        proc = self.setup("--deps")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("all optional tools present", proc.stdout)
+
+    def test_missing_helper_is_reported_not_attempted(self):
+        shutil.rmtree(self.path(".dsh"))
+        self.env["PATH"] = self.path("emptybin")  # no curl/sh/bash/npx
+        os.makedirs(self.env["PATH"], exist_ok=True)
+        proc = self.setup("--deps")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("is not on PATH", proc.stdout)
+
+    def test_install_no_deps_reports_the_skip(self):
+        proc = self.setup("--install", "--hosts", "claude", "--no-deps")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("deps skipped", proc.stdout)
+
+    def test_install_runs_deps_by_default(self):
+        log = self.fakebin("sh", "bash", "npx", "curl")
+        proc = self.setup("--install", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        calls = self.read_text(log)
+        self.assertIn("openresearch.sh/install.sh", calls)
+        self.assertIn("cursor.com/install", calls)
 
 
 class Uninstall(SetupBase):
