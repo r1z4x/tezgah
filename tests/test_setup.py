@@ -172,6 +172,10 @@ class Install(SetupBase):
         self.assertIn("[mcp_servers.playwright]", toml)
         self.assertIn("[mcp_servers.mobile-mcp]", toml)
         self.assertNotIn("chrome-devtools", toml)  # opt-in only
+        dsh = self.read_text(self.path(".dsh", "cordis.patch.yml"))
+        self.assertIn("serverName: playwright", dsh)
+        self.assertIn("serverName: mobile-mcp", dsh)
+        self.assertIn("'@playwright/mcp@latest'", dsh)
 
         # re-install is idempotent: no duplicated server tables
         self.setup("--install", "--hosts", ALL)

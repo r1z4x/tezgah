@@ -14,7 +14,18 @@ ruff check .                                              # lint; config in pypr
 
 - `ruff` is installed as a uv tool (`uv tool install ruff`); without it, run the
   same check via `uvx ruff check .`. There is no other linter or type checker.
-- CI (`.github/workflows/ci.yml`) runs the same three on Python 3.10 and 3.12.
+- CI (`.github/workflows/ci.yml`) runs the same three on Python 3.10 and 3.12,
+  plus an `apps-e2e` job that runs the app-MCP handshake below on node 20.
+
+### App-analysis MCP, end to end
+
+`TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py` starts the exact
+`playwright` and `mobile-mcp` commands `tezgah-setup` writes, completes the MCP
+handshake and asserts the tree tools exist - no browser, no device, so it is
+deterministic in CI. `TEZGAH_E2E_APPS=1 python3 tests/e2e_analyze_web.py` and
+`... e2e_analyze_mobile.py` go further (real navigation / a listed device) and
+print `SKIP: ...` when node, a browser build or a device is missing; those two
+are opt-in and local only. The shared spec is `hooks/tezgah_apps.py`.
 
 ### dsh Web status line, end to end
 

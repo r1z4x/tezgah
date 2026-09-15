@@ -685,14 +685,41 @@ def install_cursor():
     print("%s %s (statusLine -> tezgah)" % (OK, cc))
 
 
+def dsh_app_mcp_rows():
+    """One dsh-mcp-client row per app server, in the shared patch block.
+
+    `@deepseek-ai/dsh-mcp-client` takes `command` + `args` + `env` for a stdio
+    server (confirmed against its published config schema), so the same
+    `npx` command tezgah writes for the other hosts works here. A server that
+    fails to start is inert by default (`failOnStartupError: false`), so a
+    machine without the graph or a simulator never blocks a dsh boot."""
+    rows = []
+    for srv in app_servers():
+        rows.append(
+            "    - id: tezgah-mcp-%s\n"
+            "      name: '@deepseek-ai/dsh-mcp-client'\n"
+            "      config:\n"
+            "        serverName: %s\n"
+            "        transport: stdio\n"
+            "        command: %s\n"
+            "        args: [%s]\n" % (
+                srv["name"], srv["name"], srv["command"][0],
+                ", ".join("'%s'" % a for a in srv["command"][1:])))
+        if srv["env"]:
+            rows.append("        env:\n")
+            for key, value in srv["env"].items():
+                rows.append("          %s: '%s'\n" % (key, value))
+    return "".join(rows)
+
+
 def dsh_patch_block():
     """dsh home-patch rows: run tezgah's existing Claude hooks in dsh through its
     claude-code bridge (same contract, same grep/Explore gate, same attribution
-    gate), register the code graph as an MCP server, and declare the two
-    OpenAI-compatible LLM routes (OpenRouter and DeepSeek direct) on the pi-ai
-    adapter the base composition already mounts. The routes read their keys from
-    the launch env or the harness credential store; the native deepseek-official
-    route stays the default model provider."""
+    gate), register the code graph and the app-analysis servers as MCP servers,
+    and declare the two OpenAI-compatible LLM routes (OpenRouter and DeepSeek
+    direct) on the pi-ai adapter the base composition already mounts. The routes
+    read their keys from the launch env or the harness credential store; the
+    native deepseek-official route stays the default model provider."""
     return (
         "- insert:\n"
         "    - id: tezgah-hooks\n"
@@ -707,6 +734,7 @@ def dsh_patch_block():
         "        serverName: codebase-memory-mcp\n"
         "        transport: stdio\n"
         "        command: %s\n"
+        "%s"
         "- id: llm-pi-ai\n"
         "  config:\n"
         "    providers:\n"
@@ -714,7 +742,8 @@ def dsh_patch_block():
         "        apiKeyEnv: OPENROUTER_API_KEY\n"
         "      deepseek:\n"
         "        apiKeyEnv: DEEPSEEK_API_KEY\n"
-        % (os.path.join(HERE, "hooks", "hooks.json"), HERE, cbm_command()))
+        % (os.path.join(HERE, "hooks", "hooks.json"), HERE, cbm_command(),
+           dsh_app_mcp_rows()))
 
 
 def dsh_status_block():
@@ -1356,6 +1385,8 @@ def host_checks_dsh():
     return [
         ("claude-code hooks bridge in cordis.patch.yml", "dsh-hooks-claude-code" in patched),
         ("MCP bridge in cordis.patch.yml", "dsh-mcp-client" in patched),
+        ("app MCP servers in cordis.patch.yml",
+         all("serverName: %s" % n in patched for n in tezgah_apps.names(False))),
         ("OpenRouter + DeepSeek routes in cordis.patch.yml",
          "openrouter" in patched and "DEEPSEEK_API_KEY" in patched),
         ("dsh launcher on PATH (~/.local/bin/dsh)",
