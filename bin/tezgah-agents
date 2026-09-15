@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""tezgah-agents [PATH]      generate/refresh this repo's tezgah subagent set.
+tezgah-agents --json [PATH] print the opencode `config.agent` entries as JSON.
+
+The hook hosts run the plain form from SessionStart via the shared context
+(tezgah_context calls tezgah_agents.sync_root). opencode has no such hook, so
+its plugin calls `--json` at config load (to arm the agents in the same session)
+and spawns the plain form on the first message (to write the files as a
+fallback). Same single Python source everywhere.
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_agents import opencode_agents_json, sync_root  # noqa: E402
+from tezgah_context import repo_root, under  # noqa: E402
+
+
+def main():
+    args = sys.argv[1:]
+    as_json = "--json" in args
+    args = [a for a in args if a != "--json"]
+    cwd = os.path.realpath(args[0] if args else os.getcwd())
+    if not under(cwd):
+        print("{}" if as_json else "", end="")
+        return 0
+    repo = repo_root(cwd)
+    if as_json:
+        print(json.dumps(opencode_agents_json(repo)))
+        return 0
+    note = sync_root(repo)
+    if note:
+        print(note)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
