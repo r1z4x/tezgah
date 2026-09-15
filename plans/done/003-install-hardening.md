@@ -1,7 +1,7 @@
 ---
 id: 003
 title: Harden the installer against the 2026-09-15 field report
-status: open
+status: done
 branch: plan/003-install-hardening
 pr: 3
 created: 2026-09-15
@@ -64,5 +64,5 @@ Manual check on this machine: `tezgah-setup --hosts dsh` reports both route rows
 ok and `--deps --dry-run` reports all tools present.
 
 ## Next
-Open the PR, then re-run the reported scenario on a clean machine (npx-only dsh,
+Merged in PR #3 (`120bbef`). Then re-run the reported scenario on a clean machine (npx-only dsh,
 no pnpm) and confirm the status line links without manual edits.
