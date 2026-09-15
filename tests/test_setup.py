@@ -148,6 +148,7 @@ class Install(SetupBase):
         self.assertIn("marketing & growth", body)
         self.assertIn("tezgah core", body)
         self.assertIn("harness", body)
+        self.assertIn("analyze-app", body)
 
 
     def test_opencode_context_hygiene_respects_user_choice(self):
@@ -158,6 +159,46 @@ class Install(SetupBase):
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
         self.assertIs(oc["compaction"]["prune"], False)
         self.assertIn(".git/**", oc["watcher"]["ignore"])
+
+    def test_apps_mcp_wired_optional_devtools_and_removable(self):
+        self.setup("--install", "--hosts", ALL)
+        self.assertTrue(os.path.isdir(self.path(".cache", "tezgah", "apps")))
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertIn("playwright", oc["mcp"])
+        self.assertIn("mobile-mcp", oc["mcp"])
+        cur = self.read_json(self.path(".cursor", "mcp.json"))
+        self.assertIn("playwright", cur["mcpServers"])
+        toml = self.read_text(self.path(".codex", "config.toml"))
+        self.assertIn("[mcp_servers.playwright]", toml)
+        self.assertIn("[mcp_servers.mobile-mcp]", toml)
+        self.assertNotIn("chrome-devtools", toml)  # opt-in only
+        dsh = self.read_text(self.path(".dsh", "cordis.patch.yml"))
+        self.assertIn("serverName: playwright", dsh)
+        self.assertIn("serverName: mobile-mcp", dsh)
+        self.assertIn("'@playwright/mcp@latest'", dsh)
+
+        # re-install is idempotent: no duplicated server tables
+        self.setup("--install", "--hosts", ALL)
+        toml = self.read_text(self.path(".codex", "config.toml"))
+        self.assertEqual(toml.count("[mcp_servers.playwright]"), 1)
+
+        # --devtools adds the optional browser diagnostics server
+        self.setup("--install", "--hosts", "codex", "--devtools")
+        self.assertIn("[mcp_servers.chrome-devtools]",
+                      self.read_text(self.path(".codex", "config.toml")))
+
+        # uninstall removes tezgah's app servers, keeps the code graph
+        self.setup("--uninstall", "--hosts", ALL)
+        toml = self.read_text(self.path(".codex", "config.toml"))
+        self.assertNotIn("[mcp_servers.playwright]", toml)
+        self.assertNotIn("[mcp_servers.chrome-devtools]", toml)
+        self.assertIn("mcp_servers.codebase-memory-mcp", toml)
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertNotIn("playwright", oc.get("mcp") or {})
+        self.assertIn("codebase-memory-mcp", oc.get("mcp") or {})
+        cur = self.read_json(self.path(".cursor", "mcp.json"))
+        self.assertNotIn("playwright", cur["mcpServers"])
+        self.assertIn("codebase-memory-mcp", cur["mcpServers"])
 
 
 class OpenResearch(SetupBase):

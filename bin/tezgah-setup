@@ -32,6 +32,7 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_apps  # noqa: E402
 import tezgah_context  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 import tezgah_policy as policy  # noqa: E402
@@ -52,7 +53,7 @@ DSH_WEB_PATCH = os.path.join(DSH_WEB, "cordis.patch.yml")
 DSH_STATUSLINE = "tezgah-dsh-statusline"
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
-          "plan-add", "plan-status", "plan-sync"]
+          "analyze-app", "plan-add", "plan-status", "plan-sync"]
 # opencode context hygiene tezgah arms: prune clears old tool results from the
 # prompt (stops a long session re-sending every output each step) and the
 # watcher ignore keeps fs-events out of noisy trees. Both merge; a user's
@@ -73,6 +74,8 @@ TOOLING_SKILLS = frozenset(("codebase-memory", "computer-use", "find-skills",
                             "orca-cli", "orchestration"))
 CODEX_PRETOOL_MATCHER = ("Bash|exec_command|apply_patch|Edit|Write|mcp__.*|"
                          "spawn_agent|Agent|Task|Grep")
+# Set by main() from --devtools: also wire the optional Chrome DevTools MCP.
+APPS_DEVTOOLS = False
 OK, NO = "  ok  ", " MISS "
 
 
@@ -194,6 +197,16 @@ def cbm_command():
     return tp.cbm_bin() or tp.config().get("cbm_bin") or tp.CBM
 
 
+def app_servers():
+    """The app-analysis MCP servers to wire this run (shared spec)."""
+    return tezgah_apps.servers(APPS_DEVTOOLS)
+
+
+def app_mcp_names():
+    """Every app server name tezgah may have written, for cleanup and checks."""
+    return tezgah_apps.names(devtools=True)
+
+
 def dsh_cli_args():
     """How to invoke the dsh CLI, or None when it cannot be found.
 
@@ -293,6 +306,8 @@ def install_common(new_roots, hosts):
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
             ("tezgah-statusline", os.path.join(HERE, "statusline.py"))]:
         print(link(src, os.path.join(tp.BIN_DIR, name)))
+    mkdirp(tezgah_apps.ARTIFACTS)
+    print("%s app artifacts -> %s" % (OK, tezgah_apps.ARTIFACTS))
 
 
 def statusline_wired():
@@ -379,6 +394,10 @@ def install_codex():
     ensure_toml_mcp(os.path.join(CODEX, "config.toml"))
 
 
+def _toml_str(value):
+    return '"%s"' % value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def ensure_toml_mcp(path):
     try:
         with open(path) as fh:
@@ -387,14 +406,52 @@ def ensure_toml_mcp(path):
         if not os.path.isdir(os.path.dirname(path)):
             return
         text = ""  # codex is installed but has no config.toml yet
-    if "mcp_servers.codebase-memory-mcp" in text:
-        print("%s MCP server already in %s" % (OK, path))
+    blocks = []
+    if "mcp_servers.codebase-memory-mcp" not in text:
+        blocks.append('[mcp_servers.codebase-memory-mcp]\ncommand = "%s"'
+                      % cbm_command())
+    for srv in app_servers():
+        marker = "[mcp_servers.%s]" % srv["name"]
+        if marker in text:
+            continue
+        cmd = srv["command"]
+        lines = [marker, "command = %s" % _toml_str(cmd[0]),
+                 "args = [%s]" % ", ".join(_toml_str(a) for a in cmd[1:])]
+        if srv["env"]:
+            lines.append("env = { %s }" % ", ".join(
+                "%s = %s" % (k, _toml_str(v)) for k, v in srv["env"].items()))
+        blocks.append("\n".join(lines))
+    if not blocks:
+        print("%s MCP servers already in %s" % (OK, path))
         return
     backup(path)
     with open(path, "a") as fh:
-        fh.write(('\n' if text and not text.endswith("\n") else '')
-                 + '[mcp_servers.codebase-memory-mcp]\ncommand = "%s"\n' % cbm_command())
-    print("%s added MCP server to %s" % (OK, path))
+        fh.write(("\n" if text and not text.endswith("\n") else "")
+                 + "\n".join(blocks) + "\n")
+    print("%s added MCP server(s) to %s" % (OK, path))
+
+
+def strip_toml_mcp(path, names):
+    """Remove only the named [mcp_servers.*] tables, keeping everything else."""
+    try:
+        with open(path) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return
+    out, skip, changed = [], False, False
+    for line in lines:
+        m = re.match(r"\[mcp_servers\.([^\]]+)\]", line.strip())
+        if m:
+            skip = m.group(1) in names
+            changed = changed or skip
+        if not skip:
+            out.append(line)
+    if not changed:
+        return
+    backup(path)
+    with open(path, "w") as fh:
+        fh.write("\n".join(out).rstrip("\n") + "\n")
+    print("%s removed tezgah app MCP server(s) from %s" % (OK, path))
 
 
 def opencode_contract():
@@ -537,6 +594,12 @@ def install_opencode():
     mcp = cfg.setdefault("mcp", {})
     mcp.setdefault("codebase-memory-mcp", {"enabled": True, "type": "local",
                                            "command": [cbm_command()]})
+    for srv in app_servers():
+        entry = {"enabled": True, "type": "local",
+                 "command": list(srv["command"])}
+        if srv["env"]:
+            entry["environment"] = dict(srv["env"])
+        mcp.setdefault(srv["name"], entry)
     # Deny every skill so opencode stops injecting ~80 name+description blocks
     # into the system prompt; the generated router replaces them.
     cfg.setdefault("permission", {})["skill"] = "deny"
@@ -602,8 +665,13 @@ def install_cursor():
         print(link(os.path.join(HERE, "skills", s), os.path.join(CURSOR, "skills", s)))
     mpath = os.path.join(CURSOR, "mcp.json")
     mcfg = read_json(mpath, {"mcpServers": {}})
-    mcfg.setdefault("mcpServers", {}).setdefault(
-        "codebase-memory-mcp", {"command": cbm_command()})
+    servers = mcfg.setdefault("mcpServers", {})
+    servers.setdefault("codebase-memory-mcp", {"command": cbm_command()})
+    for srv in app_servers():
+        entry = {"command": srv["command"][0], "args": list(srv["command"][1:])}
+        if srv["env"]:
+            entry["env"] = dict(srv["env"])
+        servers.setdefault(srv["name"], entry)
     write_json(mpath, mcfg)
     print("%s %s" % (OK, mpath))
     cc = os.path.join(CURSOR, "cli-config.json")
@@ -617,14 +685,41 @@ def install_cursor():
     print("%s %s (statusLine -> tezgah)" % (OK, cc))
 
 
+def dsh_app_mcp_rows():
+    """One dsh-mcp-client row per app server, in the shared patch block.
+
+    `@deepseek-ai/dsh-mcp-client` takes `command` + `args` + `env` for a stdio
+    server (confirmed against its published config schema), so the same
+    `npx` command tezgah writes for the other hosts works here. A server that
+    fails to start is inert by default (`failOnStartupError: false`), so a
+    machine without the graph or a simulator never blocks a dsh boot."""
+    rows = []
+    for srv in app_servers():
+        rows.append(
+            "    - id: tezgah-mcp-%s\n"
+            "      name: '@deepseek-ai/dsh-mcp-client'\n"
+            "      config:\n"
+            "        serverName: %s\n"
+            "        transport: stdio\n"
+            "        command: %s\n"
+            "        args: [%s]\n" % (
+                srv["name"], srv["name"], srv["command"][0],
+                ", ".join("'%s'" % a for a in srv["command"][1:])))
+        if srv["env"]:
+            rows.append("        env:\n")
+            for key, value in srv["env"].items():
+                rows.append("          %s: '%s'\n" % (key, value))
+    return "".join(rows)
+
+
 def dsh_patch_block():
     """dsh home-patch rows: run tezgah's existing Claude hooks in dsh through its
     claude-code bridge (same contract, same grep/Explore gate, same attribution
-    gate), register the code graph as an MCP server, and declare the two
-    OpenAI-compatible LLM routes (OpenRouter and DeepSeek direct) on the pi-ai
-    adapter the base composition already mounts. The routes read their keys from
-    the launch env or the harness credential store; the native deepseek-official
-    route stays the default model provider."""
+    gate), register the code graph and the app-analysis servers as MCP servers,
+    and declare the two OpenAI-compatible LLM routes (OpenRouter and DeepSeek
+    direct) on the pi-ai adapter the base composition already mounts. The routes
+    read their keys from the launch env or the harness credential store; the
+    native deepseek-official route stays the default model provider."""
     return (
         "- insert:\n"
         "    - id: tezgah-hooks\n"
@@ -639,6 +734,7 @@ def dsh_patch_block():
         "        serverName: codebase-memory-mcp\n"
         "        transport: stdio\n"
         "        command: %s\n"
+        "%s"
         "- id: llm-pi-ai\n"
         "  config:\n"
         "    providers:\n"
@@ -646,7 +742,8 @@ def dsh_patch_block():
         "        apiKeyEnv: OPENROUTER_API_KEY\n"
         "      deepseek:\n"
         "        apiKeyEnv: DEEPSEEK_API_KEY\n"
-        % (os.path.join(HERE, "hooks", "hooks.json"), HERE, cbm_command()))
+        % (os.path.join(HERE, "hooks", "hooks.json"), HERE, cbm_command(),
+           dsh_app_mcp_rows()))
 
 
 def dsh_status_block():
@@ -970,6 +1067,14 @@ def unwire_opencode_config():
                 if not wat:
                     c.pop("watcher", None)
                 changed = True
+        mcp = c.get("mcp")
+        if isinstance(mcp, dict):
+            for name in app_mcp_names():
+                if name in mcp:
+                    mcp.pop(name)
+                    changed = True
+            if not mcp:
+                c.pop("mcp", None)
         if changed:
             write_json(p, c)
             print("%s removed tezgah instructions/skill-deny from %s" % (OK, p))
@@ -1002,6 +1107,7 @@ def uninstall_codex():
     for s in SKILLS:
         unlink_tezgah(os.path.join(CODEX, "skills", s))
     drop_managed_hook_entries(os.path.join(CODEX, "hooks.json"))
+    strip_toml_mcp(os.path.join(CODEX, "config.toml"), app_mcp_names())
 
 
 def uninstall_opencode():
@@ -1024,6 +1130,15 @@ def uninstall_cursor():
     for s in SKILLS:
         unlink_tezgah(os.path.join(CURSOR, "skills", s))
     drop_managed_hook_entries(os.path.join(CURSOR, "hooks.json"))
+    mpath = os.path.join(CURSOR, "mcp.json")
+    mcfg = read_json(mpath, None)
+    if mcfg and isinstance(mcfg.get("mcpServers"), dict):
+        removed = [n for n in app_mcp_names() if n in mcfg["mcpServers"]]
+        for n in removed:
+            mcfg["mcpServers"].pop(n)
+        if removed:
+            write_json(mpath, mcfg)
+            print("%s removed app MCP server(s) from %s" % (OK, mpath))
 
 
 def uninstall_dsh():
@@ -1154,6 +1269,9 @@ def report(hosts):
         ("%s on PATH" % tp.CBM, bool(tp.cbm_bin())),
         ("OpenRouter key (consult/codegen)", tp.have_consult_key()),
         ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
+        ("npx on PATH (app-analysis MCP servers)", bool(shutil.which("npx"))),
+        ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
+         os.path.isdir(tezgah_apps.ARTIFACTS)),
         ("git", bool(shutil.which("git"))),
         ("plugin.json and marketplace.json agree on the version", versions_agree()),
     ]
@@ -1196,12 +1314,17 @@ def _hooks_has(path, marker, events=None):
 
 def host_checks_codex():
     cmd = "tezgah-codex-hook"
+    try:
+        with open(os.path.join(CODEX, "config.toml")) as fh:
+            toml = fh.read()
+    except OSError:
+        toml = ""
     return [
         ("hooks.json wired", _hooks_has(os.path.join(CODEX, "hooks.json"), cmd)),
         ("skills linked", all(os.path.islink(os.path.join(CODEX, "skills", s)) for s in SKILLS)),
-        ("MCP in config.toml", "mcp_servers.codebase-memory-mcp"
-         in (open(os.path.join(CODEX, "config.toml")).read()
-             if os.path.exists(os.path.join(CODEX, "config.toml")) else "")),
+        ("MCP in config.toml", "mcp_servers.codebase-memory-mcp" in toml),
+        ("app MCP servers in config.toml",
+         all("[mcp_servers.%s]" % n in toml for n in tezgah_apps.names(False))),
     ]
 
 
@@ -1219,6 +1342,8 @@ def host_checks_opencode():
          SKILL_ROUTER in instr and os.path.isfile(SKILL_ROUTER)),
         ("permission.skill denied", (cfg.get("permission") or {}).get("skill") == "deny"),
         ("MCP in opencode.json", "codebase-memory-mcp" in (cfg.get("mcp") or {})),
+        ("app MCP servers in opencode.json",
+         all(n in (cfg.get("mcp") or {}) for n in tezgah_apps.names(False))),
         ("context pruning armed (compaction.prune)",
          (cfg.get("compaction") or {}).get("prune") is True),
         ("watcher ignores noisy trees",
@@ -1237,6 +1362,8 @@ def host_checks_cursor():
         ("hooks.json wired", _hooks_has(os.path.join(CURSOR, "hooks.json"), "tezgah-cursor-hook")),
         ("skills linked", all(os.path.islink(os.path.join(CURSOR, "skills", s)) for s in SKILLS)),
         ("MCP in mcp.json", "codebase-memory-mcp" in (mcp.get("mcpServers") or {})),
+        ("app MCP servers in mcp.json",
+         all(n in (mcp.get("mcpServers") or {}) for n in tezgah_apps.names(False))),
         ("statusLine in cli-config.json", "tezgah-statusline" in json.dumps(cli.get("statusLine") or {})),
         ("cursor-agent CLI on PATH",
          bool(tp.which_user("cursor-agent") or tp.which_user("cursor"))),
@@ -1258,6 +1385,8 @@ def host_checks_dsh():
     return [
         ("claude-code hooks bridge in cordis.patch.yml", "dsh-hooks-claude-code" in patched),
         ("MCP bridge in cordis.patch.yml", "dsh-mcp-client" in patched),
+        ("app MCP servers in cordis.patch.yml",
+         all("serverName: %s" % n in patched for n in tezgah_apps.names(False))),
         ("OpenRouter + DeepSeek routes in cordis.patch.yml",
          "openrouter" in patched and "DEEPSEEK_API_KEY" in patched),
         ("dsh launcher on PATH (~/.local/bin/dsh)",
@@ -1346,11 +1475,15 @@ def main(argv):
                     help="regenerate this repo's subagent set (default: cwd)")
     ap.add_argument("--deps", action="store_true")
     ap.add_argument("--no-deps", action="store_true")
+    ap.add_argument("--devtools", action="store_true",
+                    help="also wire the optional Chrome DevTools MCP")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--version", action="version", version=plugin_version())
     ap.add_argument("--roots")
     ap.add_argument("--hosts")
     args = ap.parse_args(argv[1:])
+    global APPS_DEVTOOLS
+    APPS_DEVTOOLS = args.devtools
 
     if args.sync:
         return sync()
