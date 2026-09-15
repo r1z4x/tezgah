@@ -223,24 +223,30 @@ text injected into the session, so the rule actually stops:
 |---|---|
 | `exec-mode.off` | Turkish, outcome-first reporting |
 | `ponytail-auto.off` | the minimal-code rule |
+| `spec-off` | the spec-before-building rule |
 | `consult-off` | the external-second-opinion rule |
 | `research-off` | routing research tasks to OpenResearch |
 | `orchestrate-off` | subagent delegation (adds a do-not-delegate line) |
 | `reminder-off` | the per-turn reminder text |
 | `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, grep nudge) |
 
-Per repo, `.no-ponytail` and `.no-cbm` turn off the minimal-code rule and the
-code-graph rule (and its auto-index) respectively.
+Per repo, `.no-ponytail`, `.no-cbm` and `.no-lessons` turn off the minimal-code
+rule, the code-graph rule (and its auto-index), and the lessons ledger
+respectively.
+
+When the user flags a mistake, the agent appends a one-line lesson to the repo's
+`.tezgah/lessons.md`; the most recent lines are injected at session start so the
+same mistake cannot silently repeat.
 
 ## Cost
 
 Measured on this machine (macOS, Python 3.10), not estimated:
 
-- **Context.** A session start injects ~3.52 KB (~900 tokens) of contract text.
+- **Context.** A session start injects ~4.8 KB (~1.2k tokens) of contract text.
   On Codex a 480-byte reminder rides each turn; Claude and the other hosts have
   no per-turn hook, so their per-turn cost is zero. The full `tezgah-contract`
-  skill (~18.2k characters) is paid only when a task loads it. On opencode the
-  contract ships as a ~4.1 KB instructions file. opencode would otherwise
+  skill (~19.9k characters) is paid only when a task loads it. On opencode the
+  contract ships as a ~5.5 KB instructions file. opencode would otherwise
   inject ~53 KB of skill name/description/location text into every session's
   system prompt; tezgah denies that list (`permission.skill = deny`) and ships
   a generated ~16 KB skill router instead, so a skill is found by reading its

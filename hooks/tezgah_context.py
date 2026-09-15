@@ -29,6 +29,8 @@ ACTIVE_ROOT = [""]
 CORE_RULES = (
     ("exec", "**Turkish, BLUF.**"),
     ("ponytail", "**Ponytail (minimal code).**"),
+    ("spec", "**Spec before building.**"),
+    ("lessons", "**Lessons ledger: stop repeating mistakes.**"),
     ("cbm", "**Code discovery: graph first.**"),
     ("consult", "**Consult before irreversible.**"),
     ("research", "**Research: route it to OpenResearch.**"),
@@ -178,6 +180,36 @@ def open_plans(root):
             "open plan work happens on its `plan/NNN-slug` branch." % "\n".join(lines))
 
 
+def lessons(root):
+    """The most recent lessons from .tezgah/lessons.md as a context block, or "".
+
+    One lesson per line, most recent last. Only the last MAX are injected so the
+    block stays bounded no matter how long the ledger grows; blank lines and
+    `#` headings are skipped so the file can carry a human header."""
+    max_lines = 5
+    try:
+        with open(os.path.join(root, ".tezgah", "lessons.md")) as fh:
+            raw = fh.read().splitlines()
+    except OSError:
+        return ""
+    lines = []
+    for ln in raw:
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        # a ledger written with markdown bullets must not render as "- - ..."
+        lines.append(re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", s))
+    if not lines:
+        return ""
+    recent = lines[-max_lines:]
+    more = ("\n(+%d older, see .tezgah/lessons.md)" % (len(lines) - len(recent))
+            if len(lines) > len(recent) else "")
+    return ("## Lessons from past mistakes in this repo (.tezgah/lessons.md)\n"
+            + "\n".join("- " + ln[:200] for ln in recent) + more + "\n"
+            "These are standing constraints: check the spec and the change "
+            "against each line before you finish.")
+
+
 def core_for(cwd):
     """The always-on CORE with kill-switched rules removed, plus the switch list.
 
@@ -192,6 +224,12 @@ def core_for(cwd):
         drop.add("ponytail")
         disabled.append("ponytail-auto.off" if off("ponytail-auto.off")
                         else ".no-ponytail")
+    if off("spec-off"):
+        drop.add("spec")
+        disabled.append("spec-off")
+    if ".no-lessons" in marks:
+        drop.add("lessons")
+        disabled.append(".no-lessons")
     if off("consult-off"):
         drop.add("consult")
         disabled.append("consult-off")
@@ -267,6 +305,10 @@ def context_for(event, cwd, payload=None):
         plans = open_plans(root)
         if plans:
             parts.append(plans)
+        if ".no-lessons" not in marks:
+            past = lessons(root)
+            if past:
+                parts.append(past)
     if disabled:
         parts.append(off_note)
         if "orchestrate-off" in disabled:
@@ -312,13 +354,13 @@ def used(session_id):
 
 
 def repo_marks(cwd):
-    """The per-repo opt-out flags (.no-ponytail/.no-cbm) walking up to the
-    enclosing root, and that root. Outside every root: empty set, root None."""
+    """The per-repo opt-out flags (.no-ponytail/.no-cbm/.no-lessons) walking up
+    to the enclosing root, and that root. Outside every root: empty set, None."""
     marks = set()
     base = root_for(cwd)
     p = os.path.realpath(cwd)
     while base and p.startswith(base):
-        for f in (".no-ponytail", ".no-cbm"):
+        for f in (".no-ponytail", ".no-cbm", ".no-lessons"):
             if os.path.exists(os.path.join(p, f)):
                 marks.add(f)
         if p == base:
