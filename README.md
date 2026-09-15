@@ -341,19 +341,41 @@ When the user flags a mistake, the agent appends a one-line lesson to the repo's
 `.tezgah/lessons.md`; the most recent lines are injected at session start so the
 same mistake cannot silently repeat.
 
+<a id="cost"></a>
+
 ## Cost
 
 Measured on this machine (macOS, Python 3.10), not estimated:
 
-- **Context.** A session start injects ~4.8 KB (~1.2k tokens) of contract text.
-  On Codex a 480-byte reminder rides each turn; Claude and the other hosts have
-  no per-turn hook, so their per-turn cost is zero. The full `tezgah-contract`
+- **Context.** A session start injects ~2.9 KB (~0.7k tokens) of always-on
+  contract text: the invariants plus a one-line pointer per on-demand rule. The
+  conditional rules (spec-first, consult, OpenResearch, code-graph) are armed by
+  the prompt's task class instead of being paid every session - ~2.2 KB
+  (~0.6k tokens) rides only the turn whose prompt matches, and the full text
+  stays in the on-demand skill. Codex, Claude and Cursor have a per-turn hook
+  (a ~621-byte reminder, plus the armed rule when it matches); opencode and dsh
+  have none, so their per-turn cost is zero. `tezgah-setup` prints this budget.
+  The full `tezgah-contract`
   skill (~19.9k characters) is paid only when a task loads it. On opencode the
-  contract ships as a ~5.5 KB instructions file. opencode would otherwise
+  contract ships as a ~3.8 KB instructions file. opencode would otherwise
   inject ~53 KB of skill name/description/location text into every session's
-  system prompt; tezgah denies that list (`permission.skill = deny`) and ships
-  a generated ~16 KB skill router instead, so a skill is found by reading its
-  `SKILL.md` path from the router.
+  system prompt; tezgah denies that list (`permission.skill = deny`) and ships a
+  generated router instead. The always-on router lists only the buckets a coding
+  session reaches for (`tezgah core`, `code & host tooling`, ~3.2 KB) and
+  collapses the rest to a pointer at `~/.config/tezgah/opencode-skills.full.md`
+  (~16 KB, read on demand), so opencode's always-on budget is ~1.7k tokens
+  instead of ~5.1k.
+- **Arming floor.** The four invariants are always-on, and the safety rule
+  ("irreversible or outward-facing actions need an explicit ask first") is one
+  of them, so it never depends on a classifier. The four advisory rules are
+  expanded per prompt, but each has an actionable one-line pointer always-on, so
+  a missed match costs detail, never the rule. If a host hook fails, the turn
+  falls back to the pointers plus the on-demand skill, never to no contract.
+  False negatives are audited: every user prompt appends one line -
+  `armed=<rules|none> chars=<n>`, no prompt text - to
+  `~/.cache/tezgah/classify.log` (truncated to the last 200 lines past 64 KB).
+  All four hook hosts arm the same rule set for the same prompt, asserted by
+  `tests/test_context.py::ArmingConformance`.
 - **Latency.** Hooks are separate Python processes, so the ~19 ms interpreter
   start dominates. On top of it, session start adds ~25 ms, a gated tool call
   (Bash/Grep/Task) adds ~9 ms, and Codex's Stop segment adds ~15 ms per turn.

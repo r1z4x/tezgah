@@ -11,10 +11,33 @@ import os
 import re
 import subprocess
 import sys
+import time
 
-from tezgah_policy import CORE, PROMPT_REMINDER
+from tezgah_policy import CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER
 from tezgah_paths import (CACHE, cache_dir, cbm_bin, have_consult_key, off,
                           orx_bin, root_for, roots, tool, writable_dir)
+
+# A prompt that matches one of these arms the matching conditional rule for that
+# turn only. Kept as (key, compiled regex) so the arming is one pass and the
+# patterns are reviewable. Word-ish boundaries keep "deploy" from firing inside
+# an identifier; Turkish hints are included because the user writes Turkish.
+PROMPT_HINTS = (
+    ("spec", r"\b(normal (user )?behaviou?r|clean ui|nicer|more intuitive|"
+             r"professional|polish(ed)?|improve the (ui|ux)|make it (better|"
+             r"usable|look)|look(s)? better|düzgün çalış|güzel görün|"
+             r"daha iyi (ol|görün)|kullanıcı dostu)\b"),
+    ("consult", r"\b(architect(ure|ural)|root cause|migrat(e|ion)|deploy|"
+                r"security|trade-?off|which approach|design decision|"
+                r"irreversible|rollback|schema change|mimari|kök neden|"
+                r"geri dönüşü olmayan)\b"),
+    ("research", r"\b(research|literature|hypothes(is|es)|experiment(al)?|"
+                 r"ablation|hyperparameter|benchmark|survey|paper|dataset|"
+                 r"araştır|literatür|hipotez|deney)\b"),
+    ("cbm", r"\b(who calls|callers?|call sites?|who uses|what breaks|"
+            r"blast radius|where is|where's|definition of|who invokes|"
+            r"kim çağır|çağrı yerleri|nerede tanımlı|na(?:sıl|sıl) bağlan|"
+            r"etkilenir|hangi dosyalar etkilen)\b"),
+)
 
 # the detached auto-index worker (lock-guarded, retrying); same dir as this file
 INDEX_WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -210,11 +233,51 @@ def lessons(root):
             "against each line before you finish.")
 
 
-def core_for(cwd):
-    """The always-on CORE with kill-switched rules removed, plus the switch list.
+def classify_prompt(text):
+    """The conditional rule keys a prompt arms, from the shared hint table."""
+    low = (text or "").lower()
+    return {key for key, pattern in PROMPT_HINTS if re.search(pattern, low)}
 
-    A kill switch that only flips a status mark is not a switch: the rule it
-    names must also leave the text the model reads. Returns (text, disabled)."""
+
+def prompt_text(payload):
+    """Best-effort extraction of the user's prompt from a host payload."""
+    if isinstance(payload, str):
+        return payload
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("prompt", "user_prompt", "message", "text", "input", "command"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
+def audit_classification(matched, length):
+    """One line per user prompt: which conditional rules were armed, and the
+    prompt length. No prompt text is stored. A missed keyword is silent by
+    nature, so this log is the only way to audit false negatives later; it is
+    truncated to the last 200 lines once it passes 64 KB."""
+    path = os.path.join(cache_dir(), "classify.log")
+    try:
+        with open(path, "a") as fh:
+            fh.write("%d armed=%s chars=%d\n"
+                     % (int(time.time()), ",".join(sorted(matched)) or "none",
+                        length))
+        if os.path.getsize(path) > 65536:
+            with open(path) as fh:
+                tail = fh.readlines()[-200:]
+            with open(path, "w") as fh:
+                fh.writelines(tail)
+    except OSError:
+        pass
+
+
+def core_split(cwd):
+    """(always-on text, {key: paragraph}, disabled) after kill-switch filtering.
+
+    The conditional paragraphs (tezgah_policy.CONDITIONAL_KEYS) come back
+    separately so a host can arm them for the one prompt whose task class
+    matches, instead of paying their text every session."""
     _, marks = repo_marks(cwd)
     drop, disabled = set(), []
     if off("exec-mode.off"):
@@ -241,10 +304,37 @@ def core_for(cwd):
     if ".no-cbm" in marks:
         drop.add("cbm")
         disabled.append(".no-cbm")
-    paragraphs = [p for p in CORE.split("\n\n")
-                  if not any(p.startswith(label) for key, label in CORE_RULES
-                             if key in drop)]
-    return "\n\n".join(paragraphs), disabled
+    always, conditional = [], {}
+    for paragraph in CORE.split("\n\n"):
+        key = next((k for k, label in CORE_RULES if paragraph.startswith(label)),
+                   None)
+        if key in drop:
+            continue
+        if key in CONDITIONAL_KEYS:
+            conditional[key] = paragraph
+        else:
+            always.append(paragraph)
+    return "\n\n".join(always), conditional, disabled
+
+
+def core_for(cwd):
+    """The always-on CORE (conditional paragraphs removed) plus the pointer line.
+
+    A kill switch that only flips a status mark is not a switch: the rule it
+    names must also leave the text the model reads. Returns (text, disabled)."""
+    always, _conditional, disabled = core_split(cwd)
+    return always.strip() + "\n\n" + POINTERS.strip(), disabled
+
+
+def always_on_core():
+    """CORE minus the conditional paragraphs, plus the pointer line.
+
+    No repo marks are consulted: this is the text a host writes to a static
+    always-on file (opencode's contract), so it must be repo-independent."""
+    always = [p for p in CORE.split("\n\n")
+              if next((k for k, label in CORE_RULES if p.startswith(label)), None)
+              not in CONDITIONAL_KEYS]
+    return "\n\n".join(always).strip() + "\n\n" + POINTERS.strip()
 
 
 def context_for(event, cwd, payload=None):
@@ -265,10 +355,22 @@ def context_for(event, cwd, payload=None):
     if event == "user_prompt":
         # per-turn nudge: openers decay over long sessions. Kept short because
         # it is paid every turn, and on Claude the output style already carries
-        # the same rules on every response.
+        # the same rules on every response. The conditional rules ride along
+        # only on the turn whose prompt matches their task class.
         if off("reminder-off"):
             return None
         text = render(PROMPT_REMINDER.strip())
+        prompt = prompt_text(payload)
+        if prompt:
+            _always, conditional, _dis = core_split(cwd)
+            matched = classify_prompt(prompt)
+            armed = [conditional[k] for k in CONDITIONAL_KEYS
+                     if k in conditional and k in matched]
+            audit_classification(matched, len(prompt))
+            if armed:
+                text += "\n\n" + render("\n\n".join(armed))
+        else:
+            audit_classification(set(), 0)
         return text + ("\n(off this session: %s)" % ", ".join(disabled)
                        if disabled else "")
     # session_start / post_compact / subagent_start: the compact always-on core

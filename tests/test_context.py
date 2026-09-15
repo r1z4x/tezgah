@@ -26,7 +26,10 @@ class ContextFor(TempHome):
                                "cwd": repo})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIsInstance(out, str)
-        self.assertIn("Code discovery", out)
+        self.assertIn("Ponytail", out)
+        self.assertIn("On-demand rules", out)
+        # the conditional rules are armed per prompt, not paid every session
+        self.assertNotIn("**Spec before building.**", out)
 
     def test_user_prompt_reminder_and_kill_switch(self):
         repo = self.make_repo()
@@ -164,12 +167,38 @@ class KillSwitchEnforcement(TempHome):
     def switch(self, name):
         self.touch(os.path.join(self.home, ".config", "tezgah", name))
 
-    def test_default_keeps_every_rule(self):
+    def prompt(self, repo, text):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": repo, "payload": {"prompt": text}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_default_keeps_the_invariants(self):
         repo = self.make_repo()
         out = self.session(repo)
-        for label in (self.OFF, self.PONY, self.SPEC, self.LESSONS, self.CBM,
-                      self.CONSULT, self.RESEARCH):
+        for label in (self.OFF, self.PONY, self.LESSONS):
             self.assertIn(label, out)
+
+    def test_conditional_rules_are_armed_by_task_class(self):
+        repo = self.make_repo()
+        out = self.session(repo)
+        for label in (self.SPEC, self.CBM, self.CONSULT, self.RESEARCH):
+            self.assertNotIn(label, out)
+        self.assertIn(self.SPEC,
+                      self.prompt(repo, "Bu ekranı daha kullanıcı dostu yap"))
+        self.assertIn(self.CONSULT,
+                      self.prompt(repo, "Which approach for the schema change?"))
+        self.assertIn(self.RESEARCH,
+                      self.prompt(repo, "Run a literature review and form a hypothesis"))
+        self.assertIn(self.CBM, self.prompt(repo, "who calls calc_total?"))
+
+    def test_a_plain_prompt_arms_no_conditional_rule(self):
+        out = self.prompt(self.make_repo(), "add a docstring to parse_quantity")
+        self.assertIn("harness-reminder", out)
+        for label in (self.SPEC, self.CBM, self.CONSULT, self.RESEARCH):
+            self.assertNotIn(label, out)
 
     def test_exec_mode_off_drops_the_reporting_rule(self):
         repo = self.make_repo()
@@ -191,7 +220,7 @@ class KillSwitchEnforcement(TempHome):
     def test_spec_off_drops_the_spec_rule(self):
         repo = self.make_repo()
         self.switch("spec-off")
-        out = self.session(repo)
+        out = self.prompt(repo, "Bu ekranı daha kullanıcı dostu yap")
         self.assertNotIn(self.SPEC, out)
         self.assertIn("spec-off", out)
 
@@ -203,12 +232,14 @@ class KillSwitchEnforcement(TempHome):
     def test_consult_off_drops_the_consult_rule(self):
         repo = self.make_repo()
         self.switch("consult-off")
-        self.assertNotIn(self.CONSULT, self.session(repo))
+        self.assertNotIn(
+            self.CONSULT, self.prompt(repo, "Which approach for the migration?"))
 
     def test_research_off_drops_the_research_rule(self):
         repo = self.make_repo()
         self.switch("research-off")
-        self.assertNotIn(self.RESEARCH, self.session(repo))
+        self.assertNotIn(
+            self.RESEARCH, self.prompt(repo, "literature review and hypothesis"))
 
     def test_missing_orx_is_surfaced_in_the_context(self):
         repo = self.make_repo()
@@ -373,6 +404,84 @@ class StatusCli(TempHome):
         repo = self.make_repo()
         self.assertIn("\033[", self.status(repo, "--color").stdout)
         self.assertNotIn("\033[", self.status(repo, "--no-color").stdout)
+
+
+class ArmingConformance(TempHome):
+    """The same prompt must arm the same advisory rules on every host, and the
+    safety rule must never depend on the classifier at all."""
+
+    LABELS = {"spec": "**Spec before building.**",
+              "consult": "**Consult before irreversible.**",
+              "research": "**Research: route it to OpenResearch.**",
+              "cbm": "**Code discovery: graph first.**"}
+    PROMPTS = {
+        "Bu ekranı daha kullanıcı dostu yap": {"spec"},
+        "Which approach for the schema change?": {"consult"},
+        "Run a literature review and form a hypothesis": {"research"},
+        "who calls calc_total?": {"cbm"},
+        "add a docstring to parse_quantity": set(),
+    }
+
+    def armed(self, text):
+        return {k for k, label in self.LABELS.items() if label in text}
+
+    def test_all_hosts_arm_the_same_rules(self):
+        repo = self.make_repo()
+        env = self.env()
+        for prompt, expected in self.PROMPTS.items():
+            payload = {"hook_event_name": "UserPromptSubmit", "cwd": repo,
+                       "prompt": prompt}
+            got = {}
+            out, _ = run_json([support.AUTO_INIT], payload, env=env)
+            got["claude"] = self.armed(out["hookSpecificOutput"]["additionalContext"])
+            out, _ = run_json([support.CODEX_HOOK], payload, env=env)
+            got["codex"] = self.armed(out["hookSpecificOutput"]["additionalContext"])
+            out, _ = run_json([support.CURSOR_HOOK],
+                              {"hook_event_name": "beforeSubmitPrompt",
+                               "cwd": repo, "prompt": prompt}, env=env)
+            got["cursor"] = self.armed(out["additional_context"])
+            for host, keys in got.items():
+                self.assertEqual(keys, expected,
+                                 "%s / %r -> %s" % (host, prompt, keys))
+
+    def test_every_advisory_rule_has_an_always_on_pointer(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, os.path.join(root, "hooks"))
+        import tezgah_context as tc  # noqa: E402
+        core = tc.always_on_core()
+        for needle in ("Spec-first", "second opinion", "OpenResearch",
+                       "code graph"):
+            self.assertIn(needle, core)
+
+    def test_irreversible_actions_stay_on_without_the_classifier(self):
+        repo = self.make_repo()
+        out, _ = run_json([support.PROBE_CONTEXT],
+                          {"fn": "context_for", "event": "session_start",
+                           "cwd": repo}, env=self.env())
+        self.assertIn("Irreversible or outward-facing actions", out)
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, os.path.join(root, "hooks"))
+        import tezgah_context as tc  # noqa: E402
+        self.assertIn("Irreversible or outward-facing actions",
+                      tc.always_on_core())
+
+
+class OutputStyleMirrorsCore(unittest.TestCase):
+    """output-styles/tezgah.md is the hookless duplicate of the always-on core."""
+
+    CONDITIONAL = ("**Spec before building.**", "**Consult before irreversible.**",
+                   "**Research: route it to OpenResearch.**",
+                   "**Code discovery: graph first.**")
+
+    def test_body_is_the_always_on_core(self):
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, os.path.join(repo, "hooks"))
+        import tezgah_context as tc  # noqa: E402
+        with open(os.path.join(repo, "output-styles", "tezgah.md")) as fh:
+            body = fh.read().split("---", 2)[2]
+        self.assertIn(tc.always_on_core().strip(), body)
+        for label in self.CONDITIONAL:
+            self.assertNotIn(label, body)
 
 
 if __name__ == "__main__":
