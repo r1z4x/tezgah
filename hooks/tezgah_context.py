@@ -42,6 +42,7 @@ def render(text, root=""):
         return text
     return (text.replace("{CONSULT_BIN}", tool("consult"))
                 .replace("{CODEGEN_BIN}", tool("codegen"))
+                .replace("{ORX_BIN}", orx_bin() or "orx")
                 .replace("{ROOT}", root or ACTIVE_ROOT[0]
                          or "the configured tezgah roots"))
 
