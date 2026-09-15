@@ -17,52 +17,54 @@ plus an explicit `--agents` trigger. The main thread stays the orchestrator/rout
 and delegates to the generated agents.
 
 ## Acceptance
-- [x] Capability-gated file generation for the two hosts with a real file
-      surface: Claude `.claude/agents/*.md` and opencode `.opencode/agents/*.md`,
-      only when that host is detected and the capability it needs is present.
-      Proof: `tests/test_agents.py` (13 cases) in a throwaway HOME.
+- [x] Capability-gated generation into every host with a real custom-agent
+      surface: Claude + Cursor `.claude/agents/*.md`, opencode `.opencode/agents/
+      *.md` plus a live `config.agent` injection, Codex `.codex/agents/*.toml`.
+      Proof: `tests/test_agents.py` (16 cases) in a throwaway HOME.
 - [x] Idempotent: a second sync reports `current` and writes nothing (asserted).
 - [x] Non-destructive: generated files carry a managed marker; `--uninstall`
       removes only those and leaves user-authored agent files untouched.
 - [x] Auto-refresh: the managed file header carries a manifest hash and the repo
       stack is re-detected each session, so a source or repo change regenerates.
-      Hosts run it from SessionStart; opencode from its plugin's first message
-      (detached). Known limit: opencode may not pick up a brand-new `agents/` dir
-      until the next session.
-- [x] Prompt-only hosts (Codex, Cursor, dsh): deliberately NOT given a generated
-      block. They have no file-based custom-agent surface, so a generated set
-      would be dead weight; the existing router directive in the injected
-      contract covers them (this mirrors the consult objection below).
-- [x] `python3 -m unittest discover -s tests` (114) and `ruff check .` pass.
+- [x] opencode same-session: the plugin `config` hook calls `tezgah-agents --json`
+      and merges `config.agent` (a user agent of the same name wins), so a
+      brand-new `.opencode/agents/` dir is no longer limited to the next session.
+- [x] dsh: no role-level surface exists. Verified from `dsh-agent-presets`: the
+      only authoring surface is whole-session presets (copy-only `agent.cordis.yml`
+      compositions), not per-role subagents; the `subagent` tool takes a prompt.
+      Covered by the existing router directive in the injected contract.
+- [x] `python3 -m unittest discover -s tests` (116) and `ruff check .` pass.
 
 ## State
 Implemented on branch `plan/001-per-repo-subagents` (commits `4f8a944`,
-`70ca07a`); not merged.
-- New `hooks/tezgah_agents.py`: a single-source role manifest
+`70ca07a`, `e029221`); not merged.
+- New `hooks/tezgah_agents.py`: one source-of-truth role manifest
   (explorer/reviewer gated on the graph, researcher on orx, verifier on the
-  consult key) rendered per host, plus a `tezgah-orchestrator` agent. opencode's
-  orchestrator is a primary agent with `permission.task {"*": deny, "tezgah-*":
-  allow}`; Claude's uses `tools: Agent(tezgah-*)`.
+  consult key) rendered per host format, plus a `tezgah-orchestrator`.
 - `hooks/tezgah_context.py` calls `sync_agents(root)` at SessionStart only, so
-  every hook host generates; `bin/tezgah-agents` lets opencode's plugin do the
-  same from its first-message path. `bin/tezgah-setup --agents [PATH]` triggers it
-  on demand and `--uninstall` removes generated files via
-  `~/.config/tezgah/agents.state.json`.
-- Verified files written: `.claude/agents/tezgah-{explorer,reviewer,researcher,
-  verifier,orchestrator}.md` and the same under `.opencode/agents/`. Re-running
-  reports `current`; dropping orx removes the two researcher files; uninstall
-  keeps a hand-written `my-own.md`.
+  every hook host generates. opencode has no such hook, so its plugin injects the
+  agents at `config` load (same session) and also spawns the file writer on the
+  first message (fallback/versionable). `bin/tezgah-agents [--json] [PATH]` is the
+  single CLI; `bin/tezgah-setup --agents [PATH]` triggers it; `--uninstall` removes
+  generated files via `~/.config/tezgah/agents.state.json`.
+- Corrected host capabilities (verified against docs this round): Codex custom
+  agents are `.codex/agents/*.toml` requiring name/description/
+  developer_instructions; Cursor subagents are `.cursor/agents/*.md` and it also
+  reads `.claude/agents/` and `.codex/agents/` (so the `.claude/agents/` output
+  serves Cursor too, and `readonly: true` is emitted for the read-only roles).
+- Verified in a throwaway HOME: four roles written to `.claude/agents/` (md),
+  `.opencode/agents/` (md), `.codex/agents/` (toml, all four parse with a TOML
+  parser, required fields present, read-only roles get `sandbox_mode =
+  "read-only"`); `.opencode` JSON exposes the four subagents plus the orchestrator
+  with `permission.task {"*": deny, "tezgah-*": allow}`; Cursor writes no separate
+  dir; re-running reports `current`; dropping orx removes the researcher files;
+  uninstall keeps a hand-written `my-own.md`.
 - Resolution of the recorded risk: the leaky-abstraction objection (Gemini and
-  Grok) is answered by emitting files only for the two file-surface hosts and
-  keeping the shared action in one Python module with per-host frontmatter, not a
-  host `if/else` in the setup oracle.
-
-Research findings (verified earlier): Claude `.claude/agents/*.md` project
-scope; opencode `.opencode/agents/*.md` + JSON `agent` key with `mode` and
-`permission.task`; Codex and dsh have no observed file-based custom-agent surface.
+  Grok) is answered by rendering one shared role manifest into each host's native
+  format in one module, not a host `if/else` in the setup oracle, and by NOT
+  inventing a surface for dsh.
 
 ## Next
 Open a PR from `plan/001-per-repo-subagents`, then verify end to end in a real
-Claude/opencode session in a non-tezgah repo before merging. Consider syncing the
-generated set into the plugin `agents/` bundle so Claude needs no per-repo files
-at all (that would drop the Claude half of the repo surface).
+session per host (at least Claude, opencode, Codex) in a non-tezgah repo: confirm
+the agents appear and the Cursor `.claude/agents/` compatibility actually loads.
