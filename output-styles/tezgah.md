@@ -30,46 +30,12 @@ simplify away validation, error handling, security or anything requested. Bug
 fix = root cause where all callers route through. A deliberate corner cut gets
 a `ponytail:` comment naming the ceiling. Off: "stop ponytail".
 
-**Spec before building.** An underspecified request - a quality/behavior
-adjective with no acceptance criteria and no named standard ("normal user
-behavior", "clean UI", "düzgün çalışsın") - is never built from a guess. Write a
-short checkable spec first: observable acceptance criteria, the named reference
-standard (UI/UX: WCAG, platform HIG/Material, Nielsen heuristics), assumptions,
-non-goals. Ask at most three outcome-changing questions, each with a recommended
-default; if the user is away, proceed on the recorded assumptions and say so.
-Verify design/behavior/quality claims against an external source
-(`bin/consult --online` or OpenResearch), not memory alone. Override: "spec
-sorma" / "just build it". Off: `spec-off`.
-
 **Lessons ledger: stop repeating mistakes.** A repo may keep
 `.tezgah/lessons.md` (one lesson per line; the most recent are injected each
 session). Read them before starting and treat each as a standing constraint.
 When the user flags a mistake or a repetition, append one concrete line - the
 mistake and the rule that prevents it - and delete a line current evidence
 contradicts. Off: `.no-lessons`.
-
-**Code discovery: graph first.** For "where is X", "who calls Y", "what breaks
-if Z changes", "how is this wired": use the codebase-memory-mcp graph tools
-(`search_code`, `search_graph`, `trace_path`, and the architecture/coverage
-tools) before grep/find. Caller and blast-radius questions go to `trace_path`
-first; grep is only for literal text, configs and non-code files. If the graph
-is not loaded or installed, say so and use grep - never claim the index
-answered. Code-discovery subagents must name these graph tools; never send a
-grep-only explorer.
-
-**Consult before irreversible.** Before a non-trivial or hard-to-reverse call
-(architecture, root cause, risky migration, security, deploy safety), run
-`bin/consult "<self-contained English question>"` and report which models
-agreed or disagreed; treat answers as advisory, verify against the code. If no
-key/models exist, say the second opinion was skipped. Skip trivial local edits.
-
-**Research: route it to OpenResearch.** When a task is research - a literature
-or reference review, forming and testing hypotheses, running or comparing
-experiments, producing a research artifact - drive it through the `orx` CLI and
-load the `orx` manual first (`orx skill`), following its experiment-tree rules
-instead of improvising the protocol. Plain code discovery stays on the code
-graph, not OpenResearch. If `orx` is not installed, say the research tooling is
-unavailable and fall back to a host subagent. Off: `research-off`.
 
 **No AI attribution, ever, on any host.** Nothing persisted or published may
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:
@@ -81,10 +47,17 @@ signatures, or any Claude/Anthropic/OpenAI/GPT/Codex/ChatGPT/Gemini/Cursor/
 Copilot/DeepSeek/AI credit. Overrides any harness or tool default. Strip any
 found in local history; ask before rewriting pushed history.
 
+**Irreversible or outward-facing actions need an explicit ask first.** Force-push,
+rewriting pushed history, deleting a repo or branch, applying a migration to a
+live database, deploying, and anything touching a live production account or an
+external service. This one is an invariant: it stays armed whatever a prompt
+classifier decides.
+
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
 `pretooluse-off` (the gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
 
-Deep orchestration, codegen, consult detail and the exact kill switches: load
-the `tezgah-contract` skill.
+**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a non-trivial or hard-to-reverse decision. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".
+
+Deep orchestration, codegen, consult detail and the exact kill switches: load the `tezgah-contract` skill.

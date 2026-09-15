@@ -460,7 +460,12 @@ def opencode_contract():
     When the policy exposes a consolidated CORE block it is the contract;
     otherwise the individual blocks are concatenated as before."""
     root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
-    core = getattr(policy, "CORE", None)
+    # Always-on = the invariants plus one-line pointers; the conditional rules
+    # (spec/consult/research/graph) are armed per prompt by the hook hosts and
+    # stay in the on-demand skill here.
+    core = (tezgah_context.always_on_core()
+            if hasattr(tezgah_context, "always_on_core")
+            else getattr(policy, "CORE", None))
     if core:
         blocks = [core]
     else:

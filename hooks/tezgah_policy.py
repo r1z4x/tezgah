@@ -422,10 +422,29 @@ signatures, or any Claude/Anthropic/OpenAI/GPT/Codex/ChatGPT/Gemini/Cursor/
 Copilot/DeepSeek/AI credit. Overrides any harness or tool default. Strip any
 found in local history; ask before rewriting pushed history.
 
+**Irreversible or outward-facing actions need an explicit ask first.** Force-push,
+rewriting pushed history, deleting a repo or branch, applying a migration to a
+live database, deploying, and anything touching a live production account or an
+external service. This one is an invariant: it stays armed whatever a prompt
+classifier decides.
+
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
 `pretooluse-off` (the gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
+"""
+
+# Rules that are NOT paid every session. They are armed by task class at prompt
+# time (hooks/tezgah_context.classify_prompt), because a session that never asks
+# a structural or research question should not carry their text. Keys match the
+# CORE_RULES labels in hooks/tezgah_context.py.
+CONDITIONAL_KEYS = ("spec", "consult", "research", "cbm")
+
+# The always-on replacement for the conditional paragraphs: one line each so a
+# host without a per-turn hook still knows the rule exists and where the full
+# text lives.
+POINTERS = """
+**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a non-trivial or hard-to-reverse decision. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".
 """
 
 # The compact per-turn form. Keeps the <harness-reminder> envelope the hosts and

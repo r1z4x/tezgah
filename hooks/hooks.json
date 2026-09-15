@@ -9,6 +9,9 @@
     "PostCompact": [
       { "hooks": [ { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
     ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
+    ],
     "PreToolUse": [
       { "matcher": "Agent|agent|Task|task|Grep|grep|Bash|bash|Shell|shell|subagent",
         "hooks": [ { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-pretooluse.py\"", "timeout": 5 } ] }

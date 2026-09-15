@@ -132,7 +132,12 @@ def main():
         out = ({"permission": "deny", "agent_message": reason}
                if reason else dict(ALLOW))
     elif event == "beforeSubmitPrompt":
+        # per-turn: the reminder plus whichever conditional rule this prompt's
+        # task class arms (context_for classifies the submitted prompt)
+        text = context_for("user_prompt", cwd, payload)
         out = {"continue": True}
+        if text:
+            out["additional_context"] = text
     else:
         out = {}
     print(json.dumps(out))
