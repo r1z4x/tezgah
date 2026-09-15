@@ -5,6 +5,7 @@ Placeholders are filled by tezgah_context.render():
   {ROOT}        - the configured tezgah root the session is in
   {CONSULT_BIN} - the stable path to bin/consult
   {CODEGEN_BIN} - the stable path to bin/codegen
+  {ORX_BIN}     - the stable path to the OpenResearch `orx` CLI, else bare `orx`
 Keeping the text here (not in each hook) is what makes Claude, Codex, Cursor
 and opencode say exactly the same thing.
 """
@@ -110,8 +111,9 @@ REMINDER = """
 Code minimal per ponytail: code first, max 3 note lines, `ponytail:` comment
 on any cut corner. "Who calls X" questions: trace_path, not grep alone.
 Non-trivial decision: run {CONSULT_BIN} before committing to it.
-Research tasks (literature, hypotheses, experiments): drive through the `orx`
-CLI (OpenResearch), not ad-hoc scripting; load `orx skill` first.
+Research tasks (literature, hypotheses, experiments): drive through the
+OpenResearch CLI ({ORX_BIN}), not ad-hoc scripting; load `{ORX_BIN} skill`
+first.
 Multi-step work: delegate to subagents, parallel when independent; code
 discovery subagent = general-purpose with the codebase-memory-mcp graph tools
 named in its prompt, never a grep-only explorer.
@@ -224,19 +226,20 @@ experiments/variants, or producing a research artifact (report, figure, dataset)
 It is NOT "where is X defined" or "who calls Y" - that is code discovery and
 stays on the codebase-memory-mcp graph.
 
-When the task is research and `orx` (the OpenResearch CLI) is installed, drive it
-through `orx` instead of ad-hoc local scripting. Load the operating manual first:
-the `orx` skill if the host has it, otherwise run `orx skill` from the shell; then
-the named modules (`orx skill experiment-tree`, `orx skill lit-review`,
-`orx skill evidence`, ...). Its cardinal rules are not style preferences - they
+When the task is research and the OpenResearch CLI (`{ORX_BIN}`) is installed,
+drive it through that CLI instead of ad-hoc local scripting. Load the operating
+manual first: the `orx` skill if the host has it, otherwise run
+`{ORX_BIN} skill` from the shell; then
+the named modules (`{ORX_BIN} skill experiment-tree`, `{ORX_BIN} skill lit-review`,
+`{ORX_BIN} skill evidence`, ...). Its cardinal rules are not style preferences - they
 are what keeps results comparable, and breaking one silently invalidates the run:
 never edit a node once a run has answered it (branch a child instead); the run
 command and environment are a fixed contract identical on every node; vary the
 committed code/config, never CLI args or env knobs; grow the experiment tree
-downward, not sideways. Local research needs no `orx login`; managed compute does
-- ask the user to run `orx login`.
+downward, not sideways. Local research needs no login; managed compute does
+- ask the user to run `{ORX_BIN} login`.
 
-If `orx` is not installed, say the research tooling is unavailable and do not
+If the CLI is not installed, say the research tooling is unavailable and do not
 improvise its protocol; fall back to a host subagent and say so. Kill switch:
 `research-off`.
 """
@@ -332,17 +335,18 @@ grep-only explorer.
 
 **Consult before irreversible.** Before a non-trivial or hard-to-reverse call
 (architecture, root cause, risky migration, security, deploy safety), run
-`bin/consult "<self-contained English question>"` and report which models
+`{CONSULT_BIN} "<self-contained English question>"` and report which models
 agreed or disagreed; treat answers as advisory, verify against the code. If no
 key/models exist, say the second opinion was skipped. Skip trivial local edits.
 
 **Research: route it to OpenResearch.** When a task is research - a literature
 or reference review, forming and testing hypotheses, running or comparing
-experiments, producing a research artifact - drive it through the `orx` CLI and
-load the `orx` manual first (`orx skill`), following its experiment-tree rules
-instead of improvising the protocol. Plain code discovery stays on the code
-graph, not OpenResearch. If `orx` is not installed, say the research tooling is
-unavailable and fall back to a host subagent. Off: `research-off`.
+experiments, producing a research artifact - drive it through the OpenResearch
+CLI (`{ORX_BIN}`) and load its manual first (`{ORX_BIN} skill`), following its
+experiment-tree rules instead of improvising the protocol. Plain code discovery
+stays on the code graph, not OpenResearch. If the CLI is not installed, say the
+research tooling is unavailable and fall back to a host subagent. Off:
+`research-off`.
 
 **No AI attribution, ever, on any host.** Nothing persisted or published may
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:
