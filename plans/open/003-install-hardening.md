@@ -3,7 +3,7 @@ id: 003
 title: Harden the installer against the 2026-09-15 field report
 status: open
 branch: plan/003-install-hardening
-pr:
+pr: 3
 created: 2026-09-15
 updated: 2026-09-15
 ---
