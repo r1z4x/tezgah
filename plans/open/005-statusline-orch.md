@@ -13,47 +13,54 @@ a legend so `○` is not misread as "off", drive it from host events instead of 
 5s poll where the host exposes an event bus, and fix the orchestration gaps found
 in the same review.
 
-## Findings this acts on
-- `○` means "armed, unused this session", not off (`✗` is off); the report read
-  `research○/cbm○/orch○` as broken. The glyphs need color + a legend.
-- Generated agent bodies carry bare `bin/consult` / `orx`
-  (`hooks/tezgah_agents.py`), the same bug plan 004 fixed in the contract.
-- The five hosts never record `research`; dsh records no used-marks at all.
-- Per-repo `.claude/agents`, `.codex/agents`, `.opencode/agents` are written but
-  not ignored, so every repo shows them as untracked.
-
-## Workstreams
-1. **Core**: `health_segments(cwd, session_id, used_override)` -> structured
-   `[(key, state, meas)]`, `state in {on, ready, off}`; `health_lines()` renders
-   plain text on top of it (tests keep passing). One state->color table.
-2. **CLI**: `bin/tezgah-status --color|--no-color|--json|--legend`.
-3. **Bug**: agent bodies inject `tool("consult")` / `orx_bin() or "orx"`.
-4. **Claude/Cursor**: `statusline.py` emits ANSI color (`NO_COLOR` honoured).
-5. **opencode TUI**: use `api.event` (event bus) instead of the 5s poll, theme
-   colors for state, a keybind that opens a legend/detail dialog.
-6. **dsh web**: `?format=json` on the status route; colored spans + hover legend;
-   visibility-gated refresh instead of an unconditional 5s poll.
-7. **Codex**: try ANSI in `systemMessage`; fall back to plain state words.
-8. **Consistency**: record `research` when a bash command runs `orx`; document
-   that dsh has no used-mark recorder.
-9. **Hygiene**: add a tezgah-managed `.gitignore` block for the generated agent
-   dirs; `--uninstall` removes it.
-10. **Docs/tests**: README legend + color table; new unit tests; `ruff`.
-
 ## Acceptance
-- [ ] Generated `.claude/.opencode/.codex` agent bodies contain no bare
-      `bin/consult` or `orx`.
-- [ ] `tezgah-status --json` returns the segments; `--legend` explains the
-      glyphs; `--no-color`/`NO_COLOR` strips ANSI.
-- [ ] opencode TUI no longer polls: it refreshes on events and opens a legend
-      dialog from a keybind.
-- [ ] dsh web refresh stops while the tab is hidden.
-- [ ] `.gitignore` gets one idempotent managed block and `--uninstall` removes it.
-- [ ] `python3 -m unittest discover -s tests` and `ruff check .` pass.
+- [x] Generated `.claude/.opencode/.codex` agent bodies contain no bare
+      `bin/consult` / `orx`; the verifier carries the absolute `consult` path and
+      the researcher the resolved orx. `tests/test_agents.py`.
+- [x] `tezgah-status --json` returns the segments; `--legend` explains the
+      glyphs; `--color` forces ANSI and `--no-color`/`NO_COLOR` strips it.
+      `tests/test_context.py`, `tests/test_statusline.py`.
+- [x] Core is one structured source: `health_segments()`, with `health_lines()`
+      kept as the plain renderer so every host and the old tests are unchanged.
+- [x] opencode TUI refreshes on the host event bus (message parts, session
+      state, permissions) with a slow safety timer, colors segments from the
+      theme, and opens a legend dialog from a command.
+- [x] dsh Web UI serves `?format=json`, renders colored spans with a hover/click
+      legend, and stops refreshing while the tab is hidden.
+- [x] `.gitignore` gets one idempotent managed block for the generated agent
+      dirs; `--uninstall` strips the block and keeps user content.
+- [x] `research` is recorded when a Bash command runs `orx` (Codex, Cursor,
+      opencode classifiers).
+- [x] `python3 -m unittest discover -s tests` (139) and `ruff check .` pass.
 
 ## State
-Not started.
+Implemented on branch `plan/005-statusline-orch` (commit `8a98fee`); not merged.
+
+What changed and where:
+- `hooks/tezgah_context.py`: `health_segments()` (state in on/ready/off/info),
+  `render_line()`, `COLORS`/`GLYPHS`, `LEGEND`; `health_lines()` now renders the
+  segmented source, so its plain string is byte-identical to before.
+- `bin/tezgah-status`: `--color|--no-color|--json|--legend`.
+- `statusline.py` (Claude/Cursor): colored output with `NO_COLOR` /
+  `TEZGAH_STATUS_COLOR=0` opt-out and an optional `TEZGAH_STATUS_LEGEND=1` second
+  line.
+- `hosts/opencode/tui/tezgah-tui.tsx`: event-driven (no 5s poll), theme colors,
+  legend dialog behind a command.
+- `hosts/dsh/statusline/lib/{index,client}.js`: `?format=json`, colored spans,
+  popover legend, visibility-gated refresh.
+- `hosts/{codex,cursor}/hook.py`, `hosts/opencode/plugins/tezgah.js`: record
+  `research` for `orx`.
+- `hooks/tezgah_agents.py`: absolute CLI paths in the bodies; managed
+  `.gitignore` block, stripped on cleanup.
+- README: status-line section (marks, colors, per-host surface) and a per-repo
+  subagents bullet with the Claude `Agent(...)` main-thread caveat.
+
+Known limits (documented, not fixed):
+- Codex `systemMessage` ANSI rendering is unverified, so it stays plain text.
+- The opencode TUI and dsh Web renderers are not run in CI; their Python/JS
+  syntax is checked, the runtime needs a live session.
+- dsh has no used-mark recorder, so its `cbm/consult/orch` stay on-demand (`○`).
 
 ## Next
-Write the plan doc and create `plan/005-statusline-orch`, then start with the
-core `health_segments()` change.
+Open the PR and merge, then verify in a live opencode session that the TUI colors
+and the legend command work, and confirm Cursor picks up `.claude/agents/`.
