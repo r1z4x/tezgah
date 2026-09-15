@@ -1,7 +1,7 @@
 ---
 id: 001
 title: Generate per-repo subagent definitions from detected infrastructure
-status: open
+status: done
 branch: plan/001-per-repo-subagents
 pr: 1
 created: 2026-09-15
@@ -83,6 +83,6 @@ a test. An earlier commit also restored a lost `AGENTS_BIN` const in the plugin
 (`df28788`).
 
 ## Next
-Merged when PR #1 is green. Remaining: a live Cursor (and for completeness a live
+Merged in PR #1 (`aec413b`). Remaining: a live Cursor (and for completeness a live
 Claude) session check, both blocked on login only; and decide whether to keep the
 now-redundant `.opencode/agents/` files or drop them in favour of the plugin hook.
