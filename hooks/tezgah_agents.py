@@ -24,7 +24,7 @@ import os
 import re
 
 from tezgah_paths import (CONFIG_DIR, cbm_bin, have_consult_key, off, orx_bin,
-                          root_for)
+                          root_for, tool)
 
 MARKER = "# tezgah: managed by tezgah-agents; do not edit"
 STATE = os.path.join(CONFIG_DIR, "agents.state.json")
@@ -125,26 +125,30 @@ def _reviewer_body(host):
 
 
 def _researcher_body(_host):
+    orx = orx_bin() or "orx"
     return (
         "You are tezgah-researcher, a research agent. Drive research through the\n"
-        "OpenResearch `orx` CLI: load its manual first (`orx skill`) and follow its\n"
+        "OpenResearch CLI (`%s`): load its manual first (`%s skill`) and follow its\n"
         "experiment-tree rules instead of improvising the protocol. Use it for a\n"
         "literature/reference review, forming and testing hypotheses, or producing a\n"
         "research artifact. Do not use it for plain code discovery (that is the\n"
-        "graph-first explorer). If `orx` is missing, say the research tooling is\n"
+        "graph-first explorer). If `%s` is missing, say the research tooling is\n"
         "unavailable and fall back to a bounded host subagent. Report commands run\n"
-        "and observed output; never claim a result you did not see.")
+        "and observed output; never claim a result you did not see."
+        % (orx, orx, orx))
 
 
 def _verifier_body(_host):
+    consult = tool("consult")
     return (
         "You are tezgah-verifier. On a non-trivial or hard-to-reverse call, get an\n"
         "independent second opinion before the decision is committed. Run\n"
-        "`bin/consult \"<self-contained English question incl. options, constraints\n"
+        "`%s \"<self-contained English question incl. options, constraints\n"
         "and what would falsify each>\"` and report which models agreed or disagreed.\n"
         "Treat the answers as advisory and verify each against the code; never adopt\n"
         "an unverified claim. If no key or models exist, say the second opinion was\n"
-        "skipped and why. Skip trivial local edits.")
+        "skipped and why. Skip trivial local edits."
+        % consult)
 
 
 # name, description, capability gate, body(host), read-only?
@@ -160,12 +164,12 @@ ROLES = (
      "classifies every finding confirmed/refuted/unverified.",
      lambda infra: infra["caps"]["cbm"], _reviewer_body, True),
     ("tezgah-researcher",
-     "Research and hypothesis work driven through the OpenResearch `orx` CLI; "
+     "Research and hypothesis work driven through the OpenResearch CLI; "
      "literature review, experiments, research artifacts.",
      lambda infra: infra["caps"]["orx"], _researcher_body, False),
     ("tezgah-verifier",
-     "Independent second opinion via `bin/consult` before a hard-to-reverse "
-     "decision; reports which models agreed or disagreed.",
+     "Independent second opinion via the tezgah `consult` CLI before a "
+     "hard-to-reverse decision; reports which models agreed or disagreed.",
      lambda infra: infra["caps"]["consult"], _verifier_body, False),
 )
 
@@ -306,6 +310,52 @@ def _remove_stale(directory, wanted):
                 pass
 
 
+GITIGNORE_BEGIN = ("# tezgah: generated agents (managed; removed by "
+                   "tezgah-setup --uninstall)")
+GITIGNORE_END = "# tezgah: end generated agents"
+
+
+def _strip_gitignore(text):
+    out, skip = [], False
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped == GITIGNORE_BEGIN:
+            skip = True
+            continue
+        if stripped == GITIGNORE_END:
+            skip = False
+            continue
+        if not skip:
+            out.append(line)
+    return "".join(out)
+
+
+def ensure_gitignore(root, dirs):
+    """Ignore the generated agent dirs with one idempotent managed block.
+
+    The bodies carry machine-specific absolute paths, so committing them is
+    wrong. Returns the .gitignore path, or None when opted out with
+    TEZGAH_NO_GITIGNORE=1 or when there is nothing to ignore."""
+    if os.environ.get("TEZGAH_NO_GITIGNORE") == "1":
+        return None
+    dirs = sorted(d for d in dirs if d)
+    if not dirs:
+        return None
+    path = os.path.join(root, ".gitignore")
+    old = _read(path) or ""
+    body = _strip_gitignore(old).strip("\n")
+    block = "\n".join([GITIGNORE_BEGIN] + ["/" + d + "/" for d in dirs]
+                      + [GITIGNORE_END]) + "\n"
+    new = (body + "\n\n" if body else "") + block
+    if new != old:
+        os.makedirs(root, exist_ok=True)
+        tmp = path + ".tezgah-tmp"
+        with open(tmp, "w") as fh:
+            fh.write(new)
+        os.replace(tmp, path)
+    return path
+
+
 def sync_root(root):
     """Generate/refresh this repo's agents. Returns a one-line status, or None."""
     if off("agents-off"):
@@ -367,6 +417,16 @@ def sync_root(root):
         sweep(codex_dir, wanted)
 
     if paths:
+        dirs = set()
+        if md_dir:
+            dirs.add(HOST_DIRS["claude"])
+        if oc_dir:
+            dirs.add(HOST_DIRS["opencode"])
+        if codex_dir:
+            dirs.add(HOST_DIRS["codex"])
+        gi = ensure_gitignore(root, dirs)
+        if gi:
+            paths.append(gi)
         _record(root, paths)
     return ("%d agent(s) %s%s" % (len(names), "written" if written else "current",
                                   ", %d removed" % removed if removed else ""))
@@ -421,6 +481,20 @@ def cleanup():
     removed = 0
     for paths in (data.values() if isinstance(data, dict) else []):
         for path in paths:
+            if os.path.basename(path) == ".gitignore":
+                text = _read(path)
+                if text and GITIGNORE_BEGIN in text:
+                    rest = _strip_gitignore(text).strip("\n")
+                    try:
+                        if rest:
+                            with open(path, "w") as fh:
+                                fh.write(rest + "\n")
+                        else:
+                            os.remove(path)
+                        removed += 1
+                    except OSError:
+                        pass
+                continue
             if _is_managed(_read(path)):
                 try:
                     os.remove(path)
