@@ -11,6 +11,8 @@
   tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
   tezgah-setup --status [PATH]         print the armed/used checklist
   tezgah-setup --agents [PATH]         regenerate this repo's subagent set
+  tezgah-setup --deps [--dry-run]      install missing optional tools only
+  tezgah-setup --install --no-deps     arm hosts without installing tools
 
 Claude Code installs from a plugin; the other four do not have that channel,
 so they are wired here: Codex hooks.json + skills, Cursor hooks.json + skills,
@@ -679,8 +681,8 @@ def install_openresearch(hosts):
     print("\nopenresearch (orx):")
     orx = tp.orx_bin()
     if not orx:
-        print("%s orx not on PATH - skipped; install it from "
-              "https://github.com/alphaXiv/OpenResearch and re-run --install" % NO)
+        print("%s orx not on PATH - skipped; run `tezgah-setup --deps` to install "
+              "it, or see https://github.com/alphaXiv/OpenResearch" % NO)
         return
     for h in hosts:
         agent = ORX_AGENTS.get(h)
@@ -692,6 +694,94 @@ def install_openresearch(hosts):
         last = (proc.stdout or proc.stderr).strip().splitlines()
         print("%s %s: %s" % (OK if proc.returncode == 0 else NO, h,
                              last[-1] if last else "exit %d" % proc.returncode))
+
+
+# ------------------------------------------------------------ dependencies ----
+# Optional tools tezgah can use but does not own. `--install` installs any that
+# are missing by default (`--no-deps` skips); each command is the vendor's own
+# documented installer and none needs sudo. dsh has no single installer, so the
+# documented first step - initializing its home profile through npx - stands in;
+# the first `dsh web` boot completes it.
+DEPS = (
+    {"name": "orx", "probe": tp.orx_bin, "needs": ("curl", "sh"),
+     "cmd": ["sh", "-c", "curl -LsSf https://openresearch.sh/install.sh | sh"],
+     "why": "research routing (OpenResearch)"},
+    {"name": "cursor-agent",
+     "probe": lambda: shutil.which("cursor-agent") or shutil.which("cursor"),
+     "needs": ("curl", "bash"),
+     "cmd": ["bash", "-c", "curl https://cursor.com/install -fsS | bash"],
+     "why": "the cursor host"},
+    {"name": "dsh", "probe": lambda: os.path.isdir(DSH), "needs": ("npx",),
+     "cmd": ["npx", "-y", "@deepseek-ai/dsh", "plugin", "--profile", "web",
+             "--version"],
+     "why": "the dsh host; the first `dsh web` boot finishes it"},
+)
+
+
+def _dep_pretty(dep):
+    cmd = dep["cmd"]
+    return " ".join(cmd[2:]) if cmd[0] in ("sh", "bash") else " ".join(cmd)
+
+
+def _augment_path():
+    """Let a just-installed tool be found without a new shell."""
+    for d in (LOCAL_BIN, os.path.join(HOME, ".cargo", "bin")):
+        parts = os.environ.get("PATH", "").split(os.pathsep)
+        if os.path.isdir(d) and d not in parts:
+            os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+
+
+def _dep_log(name, cmd):
+    try:
+        os.makedirs(tp.CONFIG_DIR, exist_ok=True)
+        with open(os.path.join(tp.CONFIG_DIR, "install.log"), "a") as fh:
+            fh.write("%s %s: %s\n"
+                     % (datetime.datetime.now().isoformat(timespec="seconds"), name, cmd))
+    except OSError:
+        pass
+
+
+def install_deps(dry_run=False):
+    """Install the missing optional tools with their own installers.
+
+    Auto (no prompt), no sudo, idempotent. Returns the names still missing."""
+    print("\ndependencies:")
+    if os.name == "nt":
+        print("%s Windows: install orx, cursor-agent and dsh by hand (see README)" % NO)
+        return []
+    _augment_path()
+    missing = [d for d in DEPS if not d["probe"]()]
+    if not missing:
+        print("%s all optional tools present" % OK)
+        return []
+    still = []
+    for dep in missing:
+        name, pretty = dep["name"], _dep_pretty(dep)
+        helper = next((h for h in dep["needs"] if not shutil.which(h)), None)
+        if helper:
+            print("%s %s missing (%s) but `%s` is not on PATH - install that first"
+                  % (NO, name, dep["why"], helper))
+            still.append(name)
+            continue
+        if dry_run:
+            print("%s %s missing (%s); would run: %s" % ("  --  ", name, dep["why"], pretty))
+            continue
+        print("%s %s missing (%s); running: %s" % ("  --  ", name, dep["why"], pretty))
+        _dep_log(name, pretty)
+        try:
+            subprocess.run(dep["cmd"])
+        except OSError as exc:
+            print("%s %s: %s" % (NO, name, exc))
+            still.append(name)
+            continue
+        _augment_path()
+        if dep["probe"]():
+            print("%s %s installed" % (OK, name))
+        else:
+            print("%s %s: installer ran but `%s` is still not found; open a new "
+                  "shell (PATH) and re-run" % (NO, name, name))
+            still.append(name)
+    return still
 
 
 # ---------------------------------------------------------------- uninstall ----
@@ -1216,6 +1306,9 @@ def main(argv):
     ap.add_argument("--status", nargs="?", const=os.getcwd())
     ap.add_argument("--agents", nargs="?", const=os.getcwd(),
                     help="regenerate this repo's subagent set (default: cwd)")
+    ap.add_argument("--deps", action="store_true")
+    ap.add_argument("--no-deps", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--version", action="version", version=plugin_version())
     ap.add_argument("--roots")
     ap.add_argument("--hosts")
@@ -1225,6 +1318,9 @@ def main(argv):
         return sync()
     if args.status:
         print(tezgah_context.health_lines(os.path.realpath(expand(args.status))))
+        return 0
+    if args.deps and not args.install:
+        install_deps(dry_run=args.dry_run)
         return 0
 
     if args.agents:
@@ -1250,6 +1346,13 @@ def main(argv):
 
     if args.install:
         new_roots = [r for r in args.roots.split(os.pathsep) if r.strip()] if args.roots else []
+        # TEZGAH_NO_DEPS is the CI/test escape hatch, mirroring --no-deps
+        deps_off = args.no_deps or os.environ.get("TEZGAH_NO_DEPS", "").strip() not in ("", "0")
+        if not deps_off:
+            install_deps(dry_run=args.dry_run)
+            # a just-installed tool can enable a host we did not detect at start
+            if not args.hosts:
+                hosts = [h for h, present in detected().items() if present]
         print("installing for: %s\n" % (", ".join(hosts) or "none detected"))
         install_common(new_roots, hosts)
         # before the host installers: opencode's generated skill router indexes
@@ -1258,6 +1361,9 @@ def main(argv):
         for h in hosts:
             INSTALLERS[h]()
         print()
+        if deps_off:
+            print("(deps skipped; run `tezgah-setup --deps` to install orx, "
+                  "cursor-agent and dsh)")
         return report(hosts)
 
     if args.roots:
