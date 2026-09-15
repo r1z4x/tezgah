@@ -3,7 +3,7 @@ id: 002
 title: Install missing optional tools automatically during --install
 status: open
 branch: plan/002-auto-install-deps
-pr:
+pr: 2
 created: 2026-09-15
 updated: 2026-09-15
 ---
