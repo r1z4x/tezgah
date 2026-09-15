@@ -33,6 +33,15 @@ enforces the tree-first discipline, and an artifact policy.
       `TEZGAH_ARTIFACTS`) and the tool returns a path, not inline bytes.
 - [x] `python3 -m compileall -q hooks hosts bin statusline.py`,
       `python3 -m unittest discover -s tests` (145), `ruff check .` all pass.
+- [x] Claude plugin MCP servers load: `claude mcp list` shows
+      `plugin:tezgah:playwright` and `plugin:tezgah:mobile-mcp` connected;
+      `claude plugin details tezgah` reports MCP servers (2) + Skills (8).
+- [x] dsh app MCP rows: `dsh-mcp-client` config schema
+      (`serverName`/`command`/`args`/`env`) confirmed from the published package;
+      the generated managed block parses as YAML with the two servers.
+- [x] CI runs a deterministic handshake for both servers (no browser/device):
+      `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py` -> `OK` locally
+      (playwright 26 tools, mobile-mcp 32 tools); added as the `apps-e2e` job.
 
 ## State
 Decisions fixed with the user and a second opinion (`bin/consult`,
@@ -50,30 +59,39 @@ the accessibility tree, "bypassing the need for screenshots"; Mobile MCP is
 accessibility-first ("no image tokens, falling back to screenshots only when
 needed") across iOS Simulator / Android emulator / real devices.
 
-Implemented on `main` this session (not yet branched/committed at acceptance
-time). What changed:
+Implemented on `plan/006-browser-mobile-app-analysis` (commit `756c0cf`).
+What changed:
 - `hooks/tezgah_apps.py` (new): one shared spec for the app MCP servers
   (`playwright`, `mobile-mcp`, optional `chrome-devtools`) plus the artifact dir.
-- `bin/tezgah-setup`: renders that spec into opencode.json, Codex config.toml
-  and Cursor mcp.json; `--devtools` adds the optional server; uninstall strips
-  only tezgah's app tables (the code graph stays); host checks and the report
-  gained app rows; `analyze-app` added to `SKILLS`; artifact dir created.
+- `bin/tezgah-setup`: renders that spec into opencode.json, Codex config.toml,
+  Cursor mcp.json and dsh's `dsh-mcp-client` patch rows; `--devtools` adds the
+  optional server; uninstall strips only tezgah's app tables (the code graph
+  stays); host checks and the report gained app rows; `analyze-app` added to
+  `SKILLS`; artifact dir created.
 - `.mcp.json` at the plugin root (Claude plugin-provided MCP).
 - `skills/analyze-app/SKILL.md`: the tree-first loop, isolated-profile default,
   on-demand screenshot, artifact + mobile caveats.
-- `tests/_mcp_stdio.py`, `tests/e2e_analyze_web.py`,
-  `tests/e2e_analyze_mobile.py`: opt-in real-server smokes (both ran `OK` here).
-- `tests/test_setup.py`: wiring/idempotency/`--devtools`/uninstall + router test.
+- `tests/_mcp_stdio.py`, `tests/e2e_analyze_wiring.py` (CI),
+  `tests/e2e_analyze_web.py`, `tests/e2e_analyze_mobile.py`.
+- `tests/test_setup.py`: wiring/idempotency/`--devtools`/uninstall, dsh rows and
+  router test.
+- `.github/workflows/ci.yml`: `apps-e2e` handshake job.
 - README: accessibility-first bullet and an "App analysis" section.
 
-Unverified / deferred:
-- The Claude plugin `.mcp.json` is the idiomatic plugin path but was not loaded
-  in a live Claude session here, so Claude MCP wiring is unverified.
-- dsh app MCP wiring is intentionally absent (its MCP client config format for
-  `npx` + args is unverified); the skill falls back to the server CLI there.
-- No CI e2e: the smokes are opt-in and local only, matching the dsh one.
-
 ## Next
-Commit this work on `plan/006-browser-mobile-app-analysis` (plan already on
-`main`), then verify the Claude `.mcp.json` loads in a live Claude session and
-decide whether to add dsh app-MCP wiring once its config format is confirmed.
+
+All deferred items are closed:
+- Claude plugin MCP verified live: `claude mcp list` -> both
+  `plugin:tezgah:*` servers `✔ Connected`; `claude plugin details tezgah`
+  lists MCP servers (2) and the `analyze-app` skill.
+- dsh app-MCP wired: `dsh-mcp-client` `command`/`args`/`env` confirmed from the
+  package schema (`@deepseek-ai/dsh-mcp-client` 0.0.1-rc.1); the patch block was
+  rendered in a temp HOME and parsed with a YAML loader - both servers present.
+- CI gained the deterministic `apps-e2e` handshake job; the interactive web and
+  mobile smokes stay opt-in local, matching the dsh one.
+
+Remaining follow-up (not blocking): run the CI job on a real push to confirm the
+GitHub runner downloads both npm packages in time, and exercise a full
+logged-in web flow via the CDP attach path end to end.
+
+

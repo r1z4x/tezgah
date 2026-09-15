@@ -23,3 +23,18 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .
+
+  apps-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Handshake only: no browser or device, so it stays deterministic.
+      # TEZGAH_E2E_STRICT makes a server that cannot start a failure, not a skip.
+      - name: App MCP handshake (playwright + mobile-mcp)
+        run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py

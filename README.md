@@ -166,18 +166,21 @@ traces and tree dumps land in `~/.cache/tezgah/apps` (override with
 `TEZGAH_ARTIFACTS`) and the agent gets a path back, never inline image bytes.
 The servers run through `npx`, so they need node but no install of their own;
 `tezgah-setup --install --devtools` adds the optional web diagnostics server.
-dsh has no verified MCP app wiring here, so the skill falls back to running the
-server on the shell there. `mobile-mcp` is the higher-friction half: macOS may
-prompt for Accessibility / Screen-Recording permission and the view tree can
-drop under load, so the skill retries the tree before falling back to a
-screenshot.
+dsh wires the same two servers through its `dsh-mcp-client` bridge
+(`serverName` / `command` / `args` / `env`, confirmed against the published
+config schema), and Claude gets them from the plugin's `.mcp.json`
+(`claude plugin details tezgah` lists MCP servers 2 and both connect).
+`mobile-mcp` is the higher-friction half: macOS may prompt for Accessibility /
+Screen-Recording permission and the view tree can drop under load, so the skill
+retries the tree before falling back to a screenshot.
 
-Two opt-in smokes exercise the wiring against the real servers:
-`TEZGAH_E2E_APPS=1 python3 tests/e2e_analyze_web.py` starts Playwright MCP,
-navigates and reads the snapshot with no screenshot;
+CI runs a deterministic handshake for both servers (no browser, no device):
+`TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py`. Two opt-in local
+smokes go further: `TEZGAH_E2E_APPS=1 python3 tests/e2e_analyze_web.py` starts
+Playwright MCP, navigates and reads the snapshot with no screenshot;
 `TEZGAH_E2E_APPS=1 python3 tests/e2e_analyze_mobile.py` starts Mobile MCP, checks
-the view-tree tools and lists a device. Both print `SKIP: ...` when node, a
-browser build or a device is missing; neither is part of CI.
+the view-tree tools and lists a device. They print `SKIP: ...` when node, a
+browser build or a device is missing.
 
 ## Install
 
