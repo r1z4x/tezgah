@@ -1,7 +1,7 @@
 ---
 id: 002
 title: Install missing optional tools automatically during --install
-status: open
+status: done
 branch: plan/002-auto-install-deps
 pr: 2
 created: 2026-09-15
@@ -53,5 +53,5 @@ above and an explicit `--no-deps`/`TEZGAH_NO_DEPS` escape; the consult's concern
 are recorded here rather than ignored.
 
 ## Next
-Open the PR, then verify on a clean machine (no orx/cursor-agent/~/.dsh) that a
+Merged in PR #2 (`2cddca5`). Then verify on a clean machine (no orx/cursor-agent/~/.dsh) that a
 single `--install` installs all three and arms orx, cursor and dsh in one run.
