@@ -1,9 +1,9 @@
 ---
 id: 005
 title: Colored, self-explaining status line and event-driven refresh
-status: open
+status: done
 branch: plan/005-statusline-orch
-pr:
+pr: 5
 created: 2026-09-15
 updated: 2026-09-15
 ---
@@ -62,5 +62,5 @@ Known limits (documented, not fixed):
 - dsh has no used-mark recorder, so its `cbm/consult/orch` stay on-demand (`○`).
 
 ## Next
-Open the PR and merge, then verify in a live opencode session that the TUI colors
+Merged in PR #5 (`ba9cd34`). Verify in a live opencode session that the TUI colors
 and the legend command work, and confirm Cursor picks up `.claude/agents/`.
