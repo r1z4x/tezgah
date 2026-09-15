@@ -15,6 +15,8 @@ p = json.load(sys.stdin)
 fn = p.get("fn")
 if fn == "sync_root":
     out = ta.sync_root(p["root"])
+elif fn == "opencode_json":
+    out = ta.opencode_agents_json(p["root"])
 elif fn == "cleanup":
     out = ta.cleanup()
 elif fn == "detect":
