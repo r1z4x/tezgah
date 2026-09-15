@@ -1,9 +1,9 @@
 ---
 id: 006
 title: Browser and mobile app analysis, accessibility-first with screenshots on demand
-status: open
+status: done
 branch: plan/006-browser-mobile-app-analysis
-pr:
+pr: 6
 created: 2026-09-15
 updated: 2026-09-15
 ---
@@ -78,20 +78,14 @@ What changed:
 - `.github/workflows/ci.yml`: `apps-e2e` handshake job.
 - README: accessibility-first bullet and an "App analysis" section.
 
+merged PR #6 on 2026-09-15T11:47:23Z. CI went green on the merge head:
+`test (3.10)`, `test (3.12)` and `apps-e2e` all `pass` (the `apps-e2e` job
+downloaded both npm packages and handshook them in ~24s on the runner).
+
 ## Next
 
-All deferred items are closed:
-- Claude plugin MCP verified live: `claude mcp list` -> both
-  `plugin:tezgah:*` servers `✔ Connected`; `claude plugin details tezgah`
-  lists MCP servers (2) and the `analyze-app` skill.
-- dsh app-MCP wired: `dsh-mcp-client` `command`/`args`/`env` confirmed from the
-  package schema (`@deepseek-ai/dsh-mcp-client` 0.0.1-rc.1); the patch block was
-  rendered in a temp HOME and parsed with a YAML loader - both servers present.
-- CI gained the deterministic `apps-e2e` handshake job; the interactive web and
-  mobile smokes stay opt-in local, matching the dsh one.
-
-Remaining follow-up (not blocking): run the CI job on a real push to confirm the
-GitHub runner downloads both npm packages in time, and exercise a full
-logged-in web flow via the CDP attach path end to end.
+Only the CDP attach path remains unexercised end to end: a full logged-in web
+flow against the real Chrome profile. Not blocking - the isolated default path is
+verified.
 
 
