@@ -88,8 +88,23 @@ class Generation(AgentsBase):
         self.assertIn("search_graph", explorer)
         # the verifier may run a shell, so it is not marked read-only
         self.assertNotIn("readonly: true", self.read(CLAUDE, "tezgah-verifier.md"))
-        # opencode body must not carry the Claude-only ToolSearch step
-        self.assertNotIn("ToolSearch(", self.read(OPENCODE, "tezgah-explorer.md"))
+
+    def test_opencode_markdown_uses_native_frontmatter(self):
+        self.sync()
+        ex = self.read(OPENCODE, "tezgah-explorer.md")
+        self.assertIn("mode: subagent", ex)
+        self.assertIn("edit: deny", ex)
+        # opencode validates `tools` as an object; a Claude `Agent(...)` string
+        # makes the whole config invalid, so it must never appear here.
+        self.assertNotIn("tools:", ex)
+        self.assertNotIn("Agent(", ex)
+        self.assertNotIn("disallowedTools", ex)
+        self.assertNotIn("readonly: true", ex)
+        self.assertNotIn("ToolSearch(", ex)
+        orch = self.read(OPENCODE, "tezgah-orchestrator.md")
+        self.assertIn("mode: primary", orch)
+        self.assertIn('"tezgah-*": allow', orch)
+        self.assertNotIn("tools:", orch)
 
     def test_codex_toml_has_required_fields_and_readonly_sandbox(self):
         self.sync()

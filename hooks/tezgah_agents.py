@@ -213,6 +213,20 @@ def render_md(name, description, readonly, body):
     return "\n".join(lines) + "\n\n" + body.strip() + "\n"
 
 
+def render_md_opencode(name, description, readonly, body):
+    """opencode `.opencode/agents/*.md`. opencode validates `tools` as an object
+    (the Claude `Agent(...)` string is rejected), so this uses opencode's own
+    `mode` + `permission` keys and never emits a `tools` string."""
+    lines = ["---", MARKER + " (manifest %s)" % manifest_sha(),
+             "name: %s" % name, "description: >"]
+    lines += _fold(description)
+    lines.append("mode: subagent")
+    if readonly:
+        lines += ["permission:", "  edit: deny", "  bash: deny", "  task: deny"]
+    lines.append("---")
+    return "\n".join(lines) + "\n\n" + body.strip() + "\n"
+
+
 def _toml_str(s):
     """A literal multi-line TOML string, safe for our controlled bodies."""
     return "'''" + s.replace("'''", "''\\'") + "'''"
@@ -234,6 +248,14 @@ def render_orch_md(names):
     fm = ("---\n%s (manifest %s)\nname: tezgah-orchestrator\n"
           "description: %s\nmodel: inherit\ntools: Agent(%s), Read, Grep, Glob\n---\n"
           % (MARKER, manifest_sha(), ORCH_DESC, tools))
+    return fm + "\n" + _orch_body(names) + "\n"
+
+
+def render_orch_md_opencode(names):
+    fm = ("---\n%s (manifest %s)\nname: tezgah-orchestrator\n"
+          "description: %s\nmode: primary\n"
+          "permission:\n  task:\n    \"*\": deny\n    \"tezgah-*\": allow\n---\n"
+          % (MARKER, manifest_sha(), ORCH_DESC))
     return fm + "\n" + _orch_body(names) + "\n"
 
 
@@ -315,24 +337,34 @@ def sync_root(root):
             written += 1
         paths.append(path)
 
-    for directory, renderer, suffix in ((md_dir, render_md, ".md"),
-                                        (oc_dir, render_md, ".md"),
-                                        (codex_dir, render_toml, ".toml")):
-        if not directory:
-            continue
-        wanted = set()
-        for name, desc, _cap, body, readonly in active:
-            if renderer is render_md:
-                text = render_md(name, desc, readonly, body("claude" if directory == md_dir else "opencode"))
-            else:
-                text = render_toml(name, desc, readonly, body("codex"))
-            emit(directory, wanted, name + suffix, text)
-        if renderer is render_md:
-            emit(directory, wanted, "tezgah-orchestrator.md", render_orch_md(names))
+    def sweep(directory, wanted):
+        nonlocal removed
         before = set(os.path.basename(p) for p in glob.glob(os.path.join(directory, "tezgah-*.*")))
         _remove_stale(directory, wanted)
         after = set(os.path.basename(p) for p in glob.glob(os.path.join(directory, "tezgah-*.*")))
         removed += len(before - after)
+
+    if md_dir:  # Claude Code + Cursor
+        wanted = set()
+        for name, desc, _cap, body, readonly in active:
+            emit(md_dir, wanted, name + ".md", render_md(name, desc, readonly, body("claude")))
+        emit(md_dir, wanted, "tezgah-orchestrator.md", render_orch_md(names))
+        sweep(md_dir, wanted)
+
+    if oc_dir:  # opencode
+        wanted = set()
+        for name, desc, _cap, body, readonly in active:
+            emit(oc_dir, wanted, name + ".md",
+                 render_md_opencode(name, desc, readonly, body("opencode")))
+        emit(oc_dir, wanted, "tezgah-orchestrator.md", render_orch_md_opencode(names))
+        sweep(oc_dir, wanted)
+
+    if codex_dir:  # Codex (no orchestrator agent; the main thread orchestrates)
+        wanted = set()
+        for name, desc, _cap, body, readonly in active:
+            emit(codex_dir, wanted, name + ".toml",
+                 render_toml(name, desc, readonly, body("codex")))
+        sweep(codex_dir, wanted)
 
     if paths:
         _record(root, paths)
