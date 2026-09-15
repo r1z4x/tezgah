@@ -1,24 +1,45 @@
 #!/usr/bin/env python3
 """tezgah-status [PATH] [SESSION_ID] - the armed/used checklist for any host.
 
-Reads the same core the hooks do. Claude Code also shows this in its status
-line; this CLI is how Codex, Cursor and opencode sessions get it. The session
-id may be passed as the second argument or via TEZGAH_SESSION; without it the
-"used" marks cannot light up, so a host that knows the id should pass it.
+Reads the same core the hooks do. Claude Code and Cursor show the color form in
+their status line; this CLI is how every host (and a human) gets it:
+
+  tezgah-status            plain one line (or ANSI when stdout is a terminal)
+  tezgah-status --color    force ANSI (green in force, yellow on-demand, red off)
+  tezgah-status --no-color force plain, or set NO_COLOR
+  tezgah-status --json     the structured segments (key/state/glyph/text)
+  tezgah-status --legend   explain the marks
+
+The session id may be passed as the second argument or via TEZGAH_SESSION;
+without it the "used" marks cannot light up, so a host that knows the id should
+pass it.
 """
+import json
 import os
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_context import health_lines  # noqa: E402
+from tezgah_context import LEGEND, health_segments, render_line  # noqa: E402
 
 
 def main():
     args = sys.argv[1:]
-    cwd = os.path.realpath(args[0] if args else os.getcwd())
-    session = args[1] if len(args) > 1 else os.environ.get("TEZGAH_SESSION")
-    line = health_lines(cwd, session)
+    flags = {a for a in args if a.startswith("--")}
+    pos = [a for a in args if not a.startswith("--")]
+    if "--legend" in flags:
+        sys.stdout.write(LEGEND)
+        return 0
+    cwd = os.path.realpath(pos[0] if pos else os.getcwd())
+    session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
+    segs = health_segments(cwd, session)
+    if "--json" in flags:
+        print(json.dumps(segs))
+        return 0
+    color = "--color" in flags or (
+        "--no-color" not in flags and sys.stdout.isatty()
+        and not os.environ.get("NO_COLOR"))
+    line = render_line(segs, color=color)
     if line:
         print(line)
     return 0

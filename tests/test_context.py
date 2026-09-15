@@ -231,6 +231,25 @@ class KillSwitchEnforcement(TempHome):
         self.assertIn("exec-mode.off", out)
 
 
+class HealthSegments(TempHome):
+    """health_segments() is the structured source the colored renderers use."""
+
+    def test_segments_carry_state_glyph_and_text(self):
+        self.touch(os.path.join(self.home, ".config", "openrouter", "key"))
+        repo = self.make_repo()
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "health_segments", "cwd": repo,
+                              "session_id": "s"}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        states = {s["key"]: s["state"] for s in out}
+        self.assertEqual(states["pony"], "on")        # always-on
+        self.assertEqual(states["consult"], "ready")  # armed, unused
+        self.assertEqual(states["cbm"], "ready")
+        self.assertEqual(states["orch"], "ready")
+        self.assertEqual(states["idx"], "info")       # no cbm_bin in tests
+        self.assertEqual([s for s in out if s["key"] == "pony"][0]["glyph"], "\u2713")
+
+
 class StatusCli(TempHome):
     """bin/tezgah-status must light up the used marks from the session id."""
 
@@ -276,6 +295,25 @@ class StatusCli(TempHome):
         env = self.env()
         env["TEZGAH_SESSION"] = "ses_test_1"
         self.assertIn("cbm\u2713", self.status(repo, env=env).stdout)
+
+    def test_json_flag_emits_segments(self):
+        self.armed()
+        repo = self.make_repo()
+        segs = json.loads(self.status(repo, "--json").stdout)
+        keys = {s["key"] for s in segs}
+        self.assertIn("cbm", keys)
+        self.assertIn("idx", keys)
+        self.assertTrue(all("state" in s and "glyph" in s for s in segs))
+
+    def test_legend_explains_the_marks(self):
+        out = self.status("--legend").stdout
+        self.assertIn("yellow", out)
+        self.assertIn("on demand", out)
+
+    def test_color_and_no_color(self):
+        repo = self.make_repo()
+        self.assertIn("\033[", self.status(repo, "--color").stdout)
+        self.assertNotIn("\033[", self.status(repo, "--no-color").stdout)
 
 
 if __name__ == "__main__":

@@ -54,6 +54,8 @@ def classify(payload):
         cmd = json.dumps(payload.get("tool_input") or {})
         if "consult" in cmd:
             return "consult"
+        if "orx" in cmd:
+            return "research"
     return None
 
 

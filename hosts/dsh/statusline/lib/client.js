@@ -1,8 +1,9 @@
 // tezgah status line for the DeepSeek Harness Web UI, browser half.
 //
-// Registers one compact line in the session header that shows the same string
-// `tezgah-status` prints on the other hosts. The host half serves it at
-// /api/tezgah.status behind the UI's auth fence; this half polls it every 5s.
+// Renders the same marks `tezgah-status` prints on the other hosts, but colored
+// by state (green in force, yellow on-demand, red off). Hover shows the legend;
+// a click pins it open. Refresh is visibility-gated: it stops while the tab is
+// hidden and fires once on return, so an idle Web UI is not polling.
 window.__ModuleLoader__.load({
 	id: "tezgah-dsh-statusline",
 	factory: (require) => {
@@ -12,51 +13,101 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 		let react_jsx_runtime = require("react/jsx-runtime");
 
-		const REFRESH_MS = 5000;
+		const REFRESH_MS = 10000;
+		// Fixed, theme-agnostic colors: the marks must read on light and dark.
+		const STATE_COLOR = { on: "#3fb950", ready: "#d29922", off: "#f85149" };
 
 		/**
-		 * One status line for a session, polled from the host route. The text is
-		 * already the full human string, so the component owns no formatting.
+		 * One status line for a session, polled from the host route only while the
+		 * tab is visible. The text and glyphs come from the host, so the component
+		 * owns layout and color, not the wording.
 		 * @param props - the slot's session id plus any injected services.
 		 */
 		function TezgahStatusLine({ sessionId }) {
-			const [line, setLine] = react.useState("");
+			const [data, setData] = react.useState({ segments: [], legend: "" });
+			const [open, setOpen] = react.useState(false);
 			react.useEffect(() => {
 				let alive = true;
 				let timer;
 				const load = async () => {
 					try {
-						const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
-						const res = await fetch(`/api/tezgah.status${query}`, {
-							headers: { accept: "text/plain" }
+						if (typeof document !== "undefined" && document.hidden) return;
+						const query = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : "";
+						const res = await fetch(`/api/tezgah.status?format=json${query}`, {
+							headers: { accept: "application/json" }
 						});
-						const text = res.ok ? (await res.text()).trim() : "";
-						if (alive) setLine(text);
+						const body = res.ok ? await res.json() : null;
+						if (alive && body) {
+							setData({ segments: body.segments || [], legend: body.legend || "" });
+						}
 					} catch {
-						if (alive) setLine("");
+						if (alive) setData({ segments: [], legend: "" });
 					} finally {
 						if (alive) timer = setTimeout(load, REFRESH_MS);
 					}
 				};
 				load();
+				const onVisibility = () => { if (!document.hidden) load(); };
+				document.addEventListener("visibilitychange", onVisibility);
 				return () => {
 					alive = false;
 					clearTimeout(timer);
+					document.removeEventListener("visibilitychange", onVisibility);
 				};
 			}, [sessionId]);
-			if (!line) return null;
-			return react_jsx_runtime.jsx("span", {
-				title: line,
+
+			if (!data.segments.length) return null;
+			const legend = data.legend || "tezgah status";
+			return react_jsx_runtime.jsxs("span", {
+				title: legend,
+				onClick: () => setOpen((v) => !v),
 				style: {
-					color: "var(--dsw-alias-label-tertiary)",
+					position: "relative",
+					cursor: "pointer",
 					fontFamily: "var(--dsw-font-mono)",
 					fontSize: "12px",
 					whiteSpace: "nowrap",
 					overflow: "hidden",
 					textOverflow: "ellipsis",
-					maxWidth: "28ch"
+					maxWidth: "32ch"
 				},
-				children: line
+				children: [
+					data.segments.map((seg, i) =>
+						react_jsx_runtime.jsxs("span", {
+							key: `${seg.key}-${i}`,
+							children: [
+								react_jsx_runtime.jsx("span", {
+									style: { color: "var(--dsw-alias-label-tertiary)" },
+									children: seg.text
+								}),
+								react_jsx_runtime.jsx("span", {
+									style: { color: STATE_COLOR[seg.state] || "inherit" },
+									children: seg.glyph || ""
+								}),
+								i < data.segments.length - 1 ? "  " : ""
+							]
+						})
+					),
+					open
+						? react_jsx_runtime.jsx("span", {
+							style: {
+								position: "absolute",
+								top: "1.4em",
+								right: 0,
+								zIndex: 50,
+								whiteSpace: "pre",
+								background: "var(--dsw-alias-bg-layer-1, #222)",
+								color: "var(--dsw-alias-label-secondary, #ddd)",
+								border: "1px solid var(--dsw-alias-border, #444)",
+								borderRadius: "6px",
+								padding: "6px 8px",
+								fontSize: "11px",
+								maxWidth: "46ch"
+							},
+							children: legend
+						})
+						: null
+				]
 			});
 		}
 

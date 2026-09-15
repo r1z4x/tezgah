@@ -21,7 +21,8 @@ import sys
 # real file to find the plugin it ships with before importing the shared core
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "hooks"))
-from tezgah_context import health_lines, used as used_kinds  # noqa: E402
+from tezgah_context import (LEGEND, health_segments, render_line,
+                            used as used_kinds)  # noqa: E402
 
 HOME = os.path.expanduser("~")
 ORCA = os.path.join(HOME, ".orca", "agent-hooks", "claude-statusline.sh")
@@ -97,7 +98,14 @@ def claude_used():
 
 
 seen = used_kinds(payload.get("session_id")) if HOST == "cursor" else claude_used()
-seg = health_lines(real or os.getcwd(), payload.get("session_id"),
-                   used_override=seen)
+segs = health_segments(real or os.getcwd(), payload.get("session_id"),
+                       used_override=seen)
+# Claude Code and Cursor render ANSI; let a user or a plain terminal opt out.
+color = (os.environ.get("NO_COLOR") is None
+         and os.environ.get("TEZGAH_STATUS_COLOR") != "0")
+seg = render_line(segs, color=color)
 parts = [p for p in (orca_out, seg) if p]
-print("  |  ".join(parts))
+out = "  |  ".join(parts)
+if os.environ.get("TEZGAH_STATUS_LEGEND") == "1":
+    out += "\n" + LEGEND.rstrip()
+print(out)
