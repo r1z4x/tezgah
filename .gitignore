@@ -3,3 +3,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
+
+# tezgah: generated agents (managed; removed by tezgah-setup --uninstall)
+/.claude/agents/
+/.codex/agents/
+/.opencode/agents/
+# tezgah: end generated agents

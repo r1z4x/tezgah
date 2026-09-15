@@ -4,7 +4,8 @@ description: >
   Tezgah working contract for repositories under the configured tezgah roots:
   Turkish BLUF reporting, ponytail minimal-code discipline, code-graph-first
   discovery, consult before irreversible calls, OpenResearch routing for
-  research tasks, evidence-backed done/tested claims, and the
+  research tasks, spec-before-building on underspecified asks, a per-repo
+  lessons ledger, evidence-backed done/tested claims, and the
   no-AI-attribution rule. Auto-applied for the tezgah plugin.
 keep-coding-instructions: true
 force-for-plugin: true
@@ -28,6 +29,24 @@ later", shortest working diff. Trace the problem fully before climbing; never
 simplify away validation, error handling, security or anything requested. Bug
 fix = root cause where all callers route through. A deliberate corner cut gets
 a `ponytail:` comment naming the ceiling. Off: "stop ponytail".
+
+**Spec before building.** An underspecified request - a quality/behavior
+adjective with no acceptance criteria and no named standard ("normal user
+behavior", "clean UI", "düzgün çalışsın") - is never built from a guess. Write a
+short checkable spec first: observable acceptance criteria, the named reference
+standard (UI/UX: WCAG, platform HIG/Material, Nielsen heuristics), assumptions,
+non-goals. Ask at most three outcome-changing questions, each with a recommended
+default; if the user is away, proceed on the recorded assumptions and say so.
+Verify design/behavior/quality claims against an external source
+(`bin/consult --online` or OpenResearch), not memory alone. Override: "spec
+sorma" / "just build it". Off: `spec-off`.
+
+**Lessons ledger: stop repeating mistakes.** A repo may keep
+`.tezgah/lessons.md` (one lesson per line; the most recent are injected each
+session). Read them before starting and treat each as a standing constraint.
+When the user flags a mistake or a repetition, append one concrete line - the
+mistake and the rule that prevents it - and delete a line current evidence
+contradicts. Off: `.no-lessons`.
 
 **Code discovery: graph first.** For "where is X", "who calls Y", "what breaks
 if Z changes", "how is this wired": use the codebase-memory-mcp graph tools
@@ -64,8 +83,8 @@ found in local history; ask before rewriting pushed history.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
-`consult-off`, `research-off`, `ponytail-auto.off`, `reminder-off`,
-`pretooluse-off` (the gate); per-repo `.no-ponytail`, `.no-cbm`.
+`consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
+`pretooluse-off` (the gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
 
 Deep orchestration, codegen, consult detail and the exact kill switches: load
 the `tezgah-contract` skill.

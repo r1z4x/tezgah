@@ -148,6 +148,8 @@ class KillSwitchEnforcement(TempHome):
 
     OFF = "**Turkish, BLUF.**"
     PONY = "**Ponytail (minimal code).**"
+    SPEC = "**Spec before building.**"
+    LESSONS = "**Lessons ledger: stop repeating mistakes.**"
     CBM = "**Code discovery: graph first.**"
     CONSULT = "**Consult before irreversible.**"
     RESEARCH = "**Research: route it to OpenResearch.**"
@@ -165,7 +167,8 @@ class KillSwitchEnforcement(TempHome):
     def test_default_keeps_every_rule(self):
         repo = self.make_repo()
         out = self.session(repo)
-        for label in (self.OFF, self.PONY, self.CBM, self.CONSULT, self.RESEARCH):
+        for label in (self.OFF, self.PONY, self.SPEC, self.LESSONS, self.CBM,
+                      self.CONSULT, self.RESEARCH):
             self.assertIn(label, out)
 
     def test_exec_mode_off_drops_the_reporting_rule(self):
@@ -184,6 +187,18 @@ class KillSwitchEnforcement(TempHome):
         repo = self.make_repo()
         self.touch(os.path.join(repo, ".no-ponytail"))
         self.assertNotIn(self.PONY, self.session(repo))
+
+    def test_spec_off_drops_the_spec_rule(self):
+        repo = self.make_repo()
+        self.switch("spec-off")
+        out = self.session(repo)
+        self.assertNotIn(self.SPEC, out)
+        self.assertIn("spec-off", out)
+
+    def test_repo_no_lessons_drops_the_lessons_rule(self):
+        repo = self.make_repo()
+        self.touch(os.path.join(repo, ".no-lessons"))
+        self.assertNotIn(self.LESSONS, self.session(repo))
 
     def test_consult_off_drops_the_consult_rule(self):
         repo = self.make_repo()
@@ -229,6 +244,50 @@ class KillSwitchEnforcement(TempHome):
                               "cwd": repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("exec-mode.off", out)
+
+
+class LessonsLedger(TempHome):
+    """`.tezgah/lessons.md` is injected (recent lines only) at session start and
+    can be opted out per repo with `.no-lessons`."""
+
+    def session(self, repo):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "session_start",
+                              "cwd": repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def write_lessons(self, repo, lines):
+        path = os.path.join(repo, ".tezgah", "lessons.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("\n".join(lines) + "\n")
+
+    def test_recent_lessons_are_injected(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, ["# header", "",
+                                  "- always clamp the padding",
+                                  "- never center a long form"])
+        out = self.session(repo)
+        self.assertIn("- always clamp the padding", out)
+        self.assertIn("- never center a long form", out)
+        self.assertNotIn("- - always", out)
+        self.assertNotIn("# header", out)
+
+    def test_only_the_last_five_are_injected(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, ["lesson %d" % i for i in range(8)])
+        out = self.session(repo)
+        self.assertIn("lesson 7", out)
+        self.assertIn("lesson 3", out)
+        self.assertNotIn("lesson 2", out)
+        self.assertIn("(+3 older", out)
+
+    def test_no_lessons_mark_suppresses_the_block(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, ["a lesson that must not leak"])
+        self.touch(os.path.join(repo, ".no-lessons"))
+        self.assertNotIn("a lesson that must not leak", self.session(repo))
 
 
 class HealthSegments(TempHome):

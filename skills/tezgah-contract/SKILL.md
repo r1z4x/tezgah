@@ -145,6 +145,50 @@ Off: user says "stop ponytail".
 
 
 
+## Spec before building: never guess an underspecified request (auto-armed, tezgah roots only)
+
+An underspecified request is one whose whole requirement is a quality or
+behavior adjective with no acceptance criteria and no named standard: "normal
+user behavior", "clean UI", "make it professional", "düzgün çalışsın", "more
+intuitive". Such a request is NEVER built from a guess. Before any code:
+
+1. Write a short, checkable spec in the reply. Observable acceptance criteria
+   (what the user will see and do, pass/fail), the named reference standard for
+   the domain, the assumptions, and the non-goals. For UI/UX the standard is
+   named, not implied: WCAG for accessibility, the platform guidelines (Apple
+   HIG / Material) for native feel, Nielsen's heuristics for interaction.
+2. Ask at most three questions that change the outcome, each with a recommended
+   default. If the user is unavailable, proceed on the recorded assumptions and
+   say so in one line instead of stalling.
+3. Verify design, behavior and quality claims against an external source, never
+   from memory alone: `~/.config/tezgah/bin/consult --online "<question>"` for a
+   fast second opinion, or the OpenResearch CLI (`orx` on PATH, else
+   `~/.cargo/bin/orx`) when it is a real investigation. A claim you could not
+   verify is marked "doğrulanmadı".
+
+The spec is a few lines, not a document: it exists so the user can see what
+"done" means before the work, not to add ceremony. The user overrides the whole
+rule with "spec sorma" / "just build it". Off: `spec-off`.
+
+
+
+## Lessons ledger: stop repeating mistakes (auto-armed, tezgah roots only)
+
+A repo may keep `.tezgah/lessons.md`: one durable lesson per line, most recent
+last, each written as the mistake and the rule that prevents it. The most recent
+lines are injected into the session context automatically. Read them before
+starting and treat every line as a standing constraint on the spec and the
+change - they exist precisely because that mistake already happened.
+
+When the user flags a mistake or a repetition ("this is wrong", "yine aynı
+hatayı yaptın"), append ONE concrete line to `.tezgah/lessons.md` - no essay,
+no restating the code or an open plan. When a line is stale or current evidence
+contradicts it, fix or delete it in the same edit rather than letting the file
+drift. Keep it short enough that the injected slice stays useful. Off:
+`.no-lessons` in the repo.
+
+
+
 ## Reporting contract: Turkish executive mode (auto-armed, tezgah roots only)
 
 These rules fix the language, framing, and truthfulness of what is said.
