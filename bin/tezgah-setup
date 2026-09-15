@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_context  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 import tezgah_policy as policy  # noqa: E402
+import tezgah_agents  # noqa: E402
 from tezgah_policy import (  # noqa: E402
     CBM_RULE, CONSULT, EXEC, NO_CONSULT, ORCHESTRATE, PONYTAIL, WORKFLOWS)
 
@@ -254,6 +255,7 @@ def install_common(new_roots, hosts):
             ("codegen", os.path.join(HERE, "bin", "codegen")),
             ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
+            ("tezgah-agents", os.path.join(HERE, "bin", "tezgah-agents")),
             ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
@@ -783,6 +785,9 @@ def remove_managed_block(path, start="# tezgah:start", end="# tezgah:end"):
 def uninstall_common():
     print("\ncommon:")
     unlink_dir(tp.BIN_DIR)
+    removed = tezgah_agents.cleanup()
+    if removed:
+        print("%s removed %d generated repo agent file(s)" % (OK, removed))
 
 
 def unwire_claude_settings():
