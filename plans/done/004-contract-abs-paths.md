@@ -1,9 +1,9 @@
 ---
 id: 004
 title: Inject stable absolute CLI paths into the contract text
-status: open
+status: done
 branch: plan/004-contract-abs-paths
-pr:
+pr: 4
 created: 2026-09-15
 updated: 2026-09-15
 ---
@@ -42,5 +42,5 @@ Implemented on branch `plan/004-contract-abs-paths` (commit `a47b649`); not merg
   the precise check is a bare occurrence (`(?<!tezgah/)bin/consult`), which is 0.
 
 ## Next
-Open the PR and merge, then re-run `tezgah-setup --install` on the reported
+Merged in PR #4 (`0694eaa`). Re-run `tezgah-setup --install` on the reported
 machine to regenerate `opencode-contract.md` with the absolute paths.
