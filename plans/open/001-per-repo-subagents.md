@@ -33,11 +33,13 @@ and delegates to the generated agents.
       only authoring surface is whole-session presets (copy-only `agent.cordis.yml`
       compositions), not per-role subagents; the `subagent` tool takes a prompt.
       Covered by the existing router directive in the injected contract.
-- [x] `python3 -m unittest discover -s tests` (116) and `ruff check .` pass.
+- [x] `python3 -m unittest discover -s tests` (117) and `ruff check .` pass. The
+      opencode plugin `config` hook is exercised in node by a test, so a lost
+      const or a broken spawn fails the suite, not only the Python side.
 
 ## State
 Implemented on branch `plan/001-per-repo-subagents` (commits `4f8a944`,
-`70ca07a`, `e029221`); not merged.
+`70ca07a`, `e029221`, `df28788`); PR #1 open, not merged.
 - New `hooks/tezgah_agents.py`: one source-of-truth role manifest
   (explorer/reviewer gated on the graph, researcher on orx, verifier on the
   consult key) rendered per host format, plus a `tezgah-orchestrator`.
