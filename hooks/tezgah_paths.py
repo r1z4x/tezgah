@@ -36,6 +36,10 @@ DEFAULT_ROOT = os.path.join(HOME, "Projects")
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CBM = "codebase-memory-mcp"
 ORX = "orx"
+# Tools installed by their own installers land here without the user's shell PATH
+# being updated (non-interactive hook/CI shells), so a lookup falls back to these
+# per-user bin dirs before declaring a tool missing.
+USER_BINS = (os.path.join(HOME, ".local", "bin"), os.path.join(HOME, ".cargo", "bin"))
 # canonical kill switches live in CONFIG_DIR; the pre-multi-host setup wrote
 # them to ~/.claude, so that stays a recognized channel
 OFF_DIRS = (CONFIG_DIR, os.path.join(HOME, ".claude"))
@@ -105,9 +109,25 @@ def root_for(path):
     return None
 
 
+def which_user(name):
+    """`name` on PATH, else in a known per-user bin dir, else None.
+
+    Accepts an absolute path (TEZGAH_*_BIN overrides) unchanged. Keeps detection
+    stable across shells: a tool installed to ~/.cargo/bin reads as present even
+    when a non-interactive shell never sourced the rc that adds it to PATH."""
+    found = shutil.which(name)
+    if found or os.path.isabs(name):
+        return found
+    for d in USER_BINS:
+        candidate = os.path.join(d, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
 def cbm_bin():
     """The codebase-memory-mcp executable, or None when it is not installed."""
-    return shutil.which(os.environ.get("TEZGAH_CBM_BIN") or config().get("cbm_bin") or CBM)
+    return which_user(os.environ.get("TEZGAH_CBM_BIN") or config().get("cbm_bin") or CBM)
 
 
 def have_consult_key():
@@ -119,9 +139,9 @@ def orx_bin():
     """The OpenResearch `orx` executable, or None when it is not installed.
 
     TEZGAH_ORX_BIN points at a specific binary (tests, CI); otherwise the first
-    `orx` on PATH wins. Mirrors cbm_bin so a missing tool is a clean None, not a
-    failed lookup at call time."""
-    return shutil.which(os.environ.get("TEZGAH_ORX_BIN") or ORX)
+    `orx` on PATH wins, then a known per-user bin dir. Mirrors cbm_bin so a
+    missing tool is a clean None, not a failed lookup at call time."""
+    return which_user(os.environ.get("TEZGAH_ORX_BIN") or ORX)
 
 
 def off(name):

@@ -210,12 +210,13 @@ class Deps(SetupBase):
 
     def test_dry_run_lists_the_vendors_installers(self):
         shutil.rmtree(self.path(".dsh"))  # make dsh missing too
-        self.fakebin("sh", "bash", "npx", "curl")
+        self.fakebin("sh", "bash", "npx", "curl", "npm")
         proc = self.setup("--deps", "--dry-run")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("openresearch.sh/install.sh", proc.stdout)
         self.assertIn("cursor.com/install", proc.stdout)
         self.assertIn("@deepseek-ai/dsh", proc.stdout)
+        self.assertIn("install -g pnpm", proc.stdout)
         self.assertIn("would run", proc.stdout)
         self.assertFalse(os.path.exists(self.path("deps.log")))
         self.assertFalse(os.path.isdir(self.path(".dsh")))
@@ -223,23 +224,25 @@ class Deps(SetupBase):
 
     def test_installs_missing_tools_with_their_own_commands(self):
         shutil.rmtree(self.path(".dsh"))
-        log = self.fakebin("sh", "bash", "npx", "curl")
+        log = self.fakebin("sh", "bash", "npx", "curl", "npm")
         proc = self.setup("--deps")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         calls = self.read_text(log)
         self.assertIn("openresearch.sh/install.sh", calls)
         self.assertIn("cursor.com/install", calls)
         self.assertIn("@deepseek-ai/dsh", calls)
+        self.assertIn("install -g pnpm", calls)
         self.assertIn("orx:", self.read_text(self.path(".config", "tezgah", "install.log")))
 
     def test_reports_already_present(self):
         self.env["TEZGAH_ORX_BIN"] = sys.executable  # a real file -> present
         d = self.path("fakebin")
         os.makedirs(d, exist_ok=True)
-        ca = os.path.join(d, "cursor-agent")
-        with open(ca, "w") as fh:
-            fh.write("#!/bin/sh\n")
-        os.chmod(ca, 0o755)
+        for name in ("cursor-agent", "pnpm"):
+            p = os.path.join(d, name)
+            with open(p, "w") as fh:
+                fh.write("#!/bin/sh\n")
+            os.chmod(p, 0o755)
         self.env["PATH"] = d
         proc = self.setup("--deps")
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -265,6 +268,26 @@ class Deps(SetupBase):
         calls = self.read_text(log)
         self.assertIn("openresearch.sh/install.sh", calls)
         self.assertIn("cursor.com/install", calls)
+
+
+class DshChecks(SetupBase):
+    """The two dsh LLM routes are reported separately and read the provider key
+    files tezgah already uses, so a single-provider setup is not shown broken."""
+
+    def row(self, text, label):
+        return next((line for line in text.splitlines() if label in line), "")
+
+    def test_routes_are_per_provider_and_read_config_key_files(self):
+        os.makedirs(self.path(".config", "openrouter"), exist_ok=True)
+        open(self.path(".config", "openrouter", "key"), "w").close()
+        proc = self.setup("--hosts", "dsh")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        openrouter = self.row(proc.stdout, "OpenRouter route key resolvable")
+        deepseek = self.row(proc.stdout, "DeepSeek route key resolvable")
+        self.assertTrue(openrouter, "OpenRouter row missing")
+        self.assertTrue(deepseek, "DeepSeek row missing")
+        self.assertTrue(openrouter.strip().startswith("ok"))
+        self.assertTrue(deepseek.strip().startswith("MISS"))
 
 
 class Uninstall(SetupBase):
