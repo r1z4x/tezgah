@@ -20,6 +20,6 @@ jobs:
       - name: Run the stdlib test suite
         run: python3 -m unittest discover -s tests -v
       - name: Install ruff
-        run: pip install ruff
+        run: pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .

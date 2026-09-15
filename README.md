@@ -116,7 +116,8 @@ tools disabled; their output is advisory.
 
 ## Install
 
-Requires Python 3.8+. The optional integrations degrade gracefully:
+Requires Python 3.8+. node + npm are needed for the dsh host and, with `pnpm`,
+for its web status line. The optional integrations degrade gracefully:
 `codebase-memory-mcp` on PATH powers the graph; a model key powers `consult`
 and `codegen` — OpenRouter by default (`OPENROUTER_API_KEY` or
 `~/.config/openrouter/key`), or the DeepSeek API with `--provider deepseek`
@@ -133,12 +134,15 @@ bin/tezgah-setup --install
 ```
 
 `--install` also installs the optional tools that are missing by running each
-vendor's own installer: `orx` (`openresearch.sh/install.sh`), `cursor-agent`
-(`cursor.com/install`), and `dsh` (its home profile through `npx`). None needs
-sudo; the run is recorded in `~/.config/tezgah/install.log`. Preview with
-`--dry-run`, skip with `--no-deps`, or install the tools alone with
-`--deps`. Tools land in `~/.local/bin` or `~/.cargo/bin`, so a fresh shell may
-be needed before they are on PATH.
+vendor's own installer **over the network**: `orx`
+(`openresearch.sh/install.sh`), `cursor-agent` (`cursor.com/install`), `dsh`
+(its home profile through `npx`), and `pnpm` when dsh needs it (via `npm`) —
+`curl ... | sh` included. None needs sudo; the run is recorded in
+`~/.config/tezgah/install.log`. Preview with `--dry-run`, skip it with
+`--no-deps` (useful in CI), or install the tools alone with `--deps`. Tools land
+in `~/.local/bin` or `~/.cargo/bin`, so a fresh shell may be needed before they
+are on PATH; tezgah's own checks look in those dirs regardless, so a non-interactive
+shell still reports them as present.
 
 If a predecessor setup is already present, import it first — it is moved aside,
 not deleted:
@@ -242,6 +246,7 @@ VACUUM alone cannot, since its pages are all live.
 
 ```bash
 python3 -m unittest discover -s tests -v   # stdlib test suite
+pip install -r requirements-dev.txt        # pinned ruff, the only dev dep
 ruff check .                               # lint (config in pyproject.toml)
 ```
 

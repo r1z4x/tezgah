@@ -194,28 +194,56 @@ def cbm_command():
     return tp.cbm_bin() or tp.config().get("cbm_bin") or tp.CBM
 
 
-def dsh_run(args):
-    """Run the dsh CLI (its node entry, not the launcher) with args.
+def dsh_cli_args():
+    """How to invoke the dsh CLI, or None when it cannot be found.
 
-    Returns False when node or the CLI is absent, so a host without dsh never
-    fails the install."""
-    cli = os.path.join(DSH, "profiles", "node_modules", "@deepseek-ai",
-                       "dsh", "lib", "bin.js")
+    dsh has no single install layout: a profile-local node entry appears only
+    after a real `dsh web` boot, while an npx bootstrap leaves the CLI in the npm
+    cache. So try, in order, an explicit override, the profile-local entry,
+    tezgah's own launcher (which itself falls back to npx) and finally npx."""
+    override = os.environ.get("TEZGAH_DSH_BIN")
+    if override:
+        return [override]
+    local = os.path.join(DSH, "profiles", "node_modules", "@deepseek-ai",
+                         "dsh", "lib", "bin.js")
     node = shutil.which("node")
-    if not node or not os.path.isfile(cli):
+    if node and os.path.isfile(local):
+        return [node, local]
+    launcher = os.path.join(HERE, "bin", "tezgah-dsh")
+    if os.path.isfile(launcher):
+        return [launcher]
+    found = shutil.which("dsh")
+    if found:
+        return [found]
+    if shutil.which("npx"):
+        return ["npx", "-y", "@deepseek-ai/dsh"]
+    return None
+
+
+def dsh_run(args):
+    """Run the dsh CLI with args. False when it cannot run, so a host without dsh
+    never fails the install."""
+    base = dsh_cli_args()
+    if not base:
         return False
     try:
-        return subprocess.run([node, cli] + args, capture_output=True,
+        return subprocess.run(base + args, capture_output=True,
                               text=True).returncode == 0
     except OSError:
         return False
 
 
+# Provider key files tezgah already uses for consult/codegen, so the dsh route
+# check and the rest of tezgah agree on what "a key is available" means.
+DSH_KEY_FILES = {"OPENROUTER_API_KEY": os.path.join(HOME, ".config", "openrouter", "key"),
+                 "DEEPSEEK_API_KEY": os.path.join(HOME, ".config", "deepseek", "key")}
+
+
 def dsh_key_resolvable(name):
-    """True when the launch env or the harness credential store can resolve one
-    of the LLM-route key references. Values are never read, only the reference
-    name, so no secret enters tezgah's own config."""
-    if os.environ.get(name):
+    """True when the launch env, a tezgah provider key file, or the harness
+    credential store can resolve the route key. Values are never read, only the
+    reference name, so no secret enters tezgah's own config."""
+    if os.environ.get(name) or os.path.exists(DSH_KEY_FILES.get(name, "")):
         return True
     try:
         with open(os.path.join(DSH, ".credentials.yaml")) as fh:
@@ -231,7 +259,7 @@ def detected():
         "codex": os.path.isdir(CODEX),
         "opencode": os.path.isdir(OPENCODE) or bool(shutil.which("opencode")),
         "cursor": os.path.isdir(CURSOR) or bool(
-            shutil.which("cursor-agent") or shutil.which("cursor")),
+            tp.which_user("cursor-agent") or tp.which_user("cursor")),
         "dsh": os.path.isdir(DSH) or bool(shutil.which("dsh")),
     }
 
@@ -646,7 +674,10 @@ def install_dsh_statusline():
         return
     pkg = os.path.join(HERE, "hosts", "dsh", "statusline")
     if not dsh_run(["plugin", "--profile", "web", "add", "link:" + pkg]):
-        print("%s could not link the dsh status line (dsh or pnpm missing)" % NO)
+        if dsh_cli_args() is None:
+            print("%s dsh CLI not found (need node + npx or a local dsh)" % NO)
+        else:
+            print("%s could not link the dsh status line (is pnpm on PATH?)" % NO)
         return
     print("%s status line linked into the web profile" % OK)
     set_managed_block(DSH_WEB_PATCH, dsh_status_block())
@@ -711,6 +742,11 @@ DEPS = (
      "needs": ("curl", "bash"),
      "cmd": ["bash", "-c", "curl https://cursor.com/install -fsS | bash"],
      "why": "the cursor host"},
+    # Before dsh: its profile plugins are managed with pnpm, so `dsh plugin`
+    # cannot initialize a profile without it.
+    {"name": "pnpm", "probe": lambda: bool(shutil.which("pnpm")),
+     "needs": ("npm",), "cmd": ["npm", "install", "-g", "pnpm"],
+     "why": "the dsh host and its web status line"},
     {"name": "dsh", "probe": lambda: os.path.isdir(DSH), "needs": ("npx",),
      "cmd": ["npx", "-y", "@deepseek-ai/dsh", "plugin", "--profile", "web",
              "--version"],
@@ -1203,7 +1239,7 @@ def host_checks_cursor():
         ("MCP in mcp.json", "codebase-memory-mcp" in (mcp.get("mcpServers") or {})),
         ("statusLine in cli-config.json", "tezgah-statusline" in json.dumps(cli.get("statusLine") or {})),
         ("cursor-agent CLI on PATH",
-         bool(shutil.which("cursor-agent") or shutil.which("cursor"))),
+         bool(tp.which_user("cursor-agent") or tp.which_user("cursor"))),
     ]
 
 
@@ -1227,8 +1263,10 @@ def host_checks_dsh():
         ("dsh launcher on PATH (~/.local/bin/dsh)",
          is_tezgah_link(os.path.join(LOCAL_BIN, "dsh"))),
         ("skills linked", all(os.path.islink(os.path.join(DSH, "skills", s)) for s in SKILLS)),
-        ("LLM route keys resolvable (env or credential store)",
-         dsh_key_resolvable("OPENROUTER_API_KEY") and dsh_key_resolvable("DEEPSEEK_API_KEY")),
+        ("OpenRouter route key resolvable (env, ~/.config/openrouter/key or store)",
+         dsh_key_resolvable("OPENROUTER_API_KEY")),
+        ("DeepSeek route key resolvable (env, ~/.config/deepseek/key or store)",
+         dsh_key_resolvable("DEEPSEEK_API_KEY")),
         ("status-line plugin linked into the web profile",
          os.path.exists(linked)),
         ("status-line row in the web cordis.patch.yml", DSH_STATUSLINE in web_patch),
