@@ -12,9 +12,11 @@ description: >
 ---
 
 The always-on core is injected into every tezgah session; this skill is the
-deep detail, loaded on demand. `bin/consult` and `bin/codegen` are the
-tezgah-installed CLIs. The "unavailable" sections below apply only when the
-machine lacks the code graph or the OpenRouter key.
+deep detail, loaded on demand. `~/.config/tezgah/bin/consult` and
+`~/.config/tezgah/bin/codegen` are the tezgah-installed CLIs - use that stable
+path, not a repo-local `bin/`, because the session shell is non-interactive and
+does not have the tezgah bin dir on PATH. The "unavailable" sections below apply
+only when the machine lacks the code graph or the OpenRouter key.
 
 ## Code discovery: prefer the indexed graph over blind search
 
@@ -83,7 +85,7 @@ cbm-map/review/impact for depth (Claude only; user opt-in rules apply).
 Subagents never orchestrate: no nested harnesses, no sub-subagents.
 
 ### Tier 2 - codegen (cheap model via OpenRouter)
-`bin/codegen "task" --files a.py b.py` drafts a bounded edit on a cheap model
+`~/.config/tezgah/bin/codegen "task" --files a.py b.py` drafts a bounded edit on a cheap model
 (override with --model or CODEGEN_MODEL) for a fraction of the cost. On Claude
 the Agent tool cannot run a non-Claude model, so this CLI is the only route to
 one; on every host it is deliberately weaker than a subagent: it sees only the
@@ -116,7 +118,7 @@ evidence.
 
 ### Decision quality, which is the router's actual job
 State the decision and the evidence behind it in one line each. Run
-`bin/consult` before a non-trivial or hard-to-reverse call and report
+`~/.config/tezgah/bin/consult` before a non-trivial or hard-to-reverse call and report
 where the models disagreed. When a check was skipped, say which one. Report
 which subtasks ran in parallel and which serial, and what each cost.
 
@@ -222,7 +224,7 @@ rule.
 
 Before committing to a non-trivial decision - architecture choice, root-cause
 verdict, risky migration, security judgment, "is this safe to deploy" - get a
-second opinion: run `bin/consult "<question in English, self-
+second opinion: run `~/.config/tezgah/bin/consult "<question in English, self-
 contained, with the minimal code/context needed>"` via the shell. It queries
 independent models through OpenRouter in parallel (default Gemini + Grok;
 override with --models or CONSULT_MODELS env) and prints one
@@ -246,8 +248,10 @@ experiments/variants, or producing a research artifact (report, figure, dataset)
 It is NOT "where is X defined" or "who calls Y" - that is code discovery and
 stays on the codebase-memory-mcp graph.
 
-When the task is research and `orx` (the OpenResearch CLI) is installed, drive it
-through `orx` instead of ad-hoc local scripting. Load the operating manual first:
+When the task is research and the OpenResearch CLI is installed, drive it
+through that CLI instead of ad-hoc local scripting. Resolve it as `orx` on PATH,
+else `~/.cargo/bin/orx` (the installer's location, which a non-interactive shell
+does not put on PATH). Load the operating manual first:
 the `orx` skill if the host has it, otherwise run `orx skill` from the shell; then
 the named modules (`orx skill experiment-tree`, `orx skill lit-review`,
 `orx skill evidence`, ...). Its cardinal rules are not style preferences - they
@@ -255,10 +259,10 @@ are what keeps results comparable, and breaking one silently invalidates the run
 never edit a node once a run has answered it (branch a child instead); the run
 command and environment are a fixed contract identical on every node; vary the
 committed code/config, never CLI args or env knobs; grow the experiment tree
-downward, not sideways. Local research needs no `orx login`; managed compute does
+downward, not sideways. Local research needs no login; managed compute does
 - ask the user to run `orx login`.
 
-If `orx` is not installed, say the research tooling is unavailable and do not
+If the CLI is not installed, say the research tooling is unavailable and do not
 improvise its protocol; fall back to a host subagent and say so. Kill switch:
 `research-off`.
 
@@ -286,9 +290,10 @@ happened; on a non-trivial call, say the second opinion was skipped and why.
 <harness-reminder>Tezgah rules, still in force: reply Turkish, BLUF.
 Code minimal per ponytail: code first, max 3 note lines, `ponytail:` comment
 on any cut corner. "Who calls X" questions: trace_path, not grep alone.
-Non-trivial decision: run bin/consult before committing to it.
-Research tasks (literature, hypotheses, experiments): drive through the `orx`
-CLI (OpenResearch), not ad-hoc scripting; load `orx skill` first.
+Non-trivial decision: run ~/.config/tezgah/bin/consult before committing to it.
+Research tasks (literature, hypotheses, experiments): drive through the
+OpenResearch CLI (`orx` on PATH, else `~/.cargo/bin/orx`), not ad-hoc scripting;
+load `orx skill` first.
 Multi-step work: delegate to subagents, parallel when independent; code
 discovery subagent = general-purpose with the codebase-memory-mcp graph tools
 named in its prompt, never a grep-only explorer.

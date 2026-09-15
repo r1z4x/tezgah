@@ -29,7 +29,7 @@ same text.
   `trace_path`, `search_code`), not to grep. Grep stays right for literal text,
   configs, and non-code files.
 - **External second opinion.** Before a non-trivial or hard-to-reverse call,
-  `bin/consult` asks independent models through OpenRouter (or the DeepSeek API
+  `~/.config/tezgah/bin/consult` asks independent models through OpenRouter (or the DeepSeek API
   with `--provider deepseek`) in parallel, and the agent reports where they
   agreed or disagreed.
 - **Research via OpenResearch.** When the router judges a task is research — a
@@ -46,7 +46,7 @@ same text.
   — may credit the assistant, model, vendor, or "AI". Using a tool is fine;
   signing its name to your work is not.
 - **Two-tier orchestration.** The main thread decides and verifies; a cheap
-  model (`bin/codegen`, OpenRouter by default or `--provider deepseek`) drafts
+  model (`~/.config/tezgah/bin/codegen`, OpenRouter by default or `--provider deepseek`) drafts
   bounded, well-specified edits to a scratch directory. Nothing reaches the repo
   except through the router, and a failed draft falls back to the main model
   automatically.
