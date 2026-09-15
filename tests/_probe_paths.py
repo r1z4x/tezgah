@@ -23,6 +23,10 @@ elif op == "off_dirs":
     out = list(tp.OFF_DIRS)
 elif op == "cache_dir":
     out = tp.cache_dir()
+elif op == "which_user":
+    out = tp.which_user(sys.argv[2])
+elif op == "orx_bin":
+    out = tp.orx_bin()
 else:
     raise SystemExit("unknown op: %s" % op)
 print(json.dumps(out))

@@ -102,5 +102,43 @@ class CacheDirFallback(TempHome):
         self.assertEqual(out, fallback)
 
 
+class UserBinFallback(TempHome):
+    """A tool installed to a per-user bin dir must read as present even when the
+    calling shell's PATH never picked it up (the non-interactive case)."""
+
+    def install(self, rel, name):
+        p = os.path.join(self.home, *rel, name)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as fh:
+            fh.write("#!/bin/sh\n")
+        os.chmod(p, 0o755)
+        return p
+
+    def empty_path(self):
+        d = os.path.join(self.home, "emptybin")
+        os.makedirs(d, exist_ok=True)
+        return {"PATH": d}
+
+    def test_which_user_finds_cargo_bin_off_path(self):
+        want = self.install((".cargo", "bin"), "orx")
+        out, proc = run_json([support.PROBE_PATHS, "which_user", "orx"],
+                             env=self.env(extra=self.empty_path()))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out, want)
+
+    def test_orx_bin_uses_the_fallback(self):
+        want = self.install((".local", "bin"), "orx")
+        env = self.env(extra=self.empty_path())
+        env.pop("TEZGAH_ORX_BIN", None)  # let orx_bin() do the lookup itself
+        out, proc = run_json([support.PROBE_PATHS, "orx_bin"], env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out, want)
+
+    def test_missing_tool_is_none(self):
+        out, _ = run_json([support.PROBE_PATHS, "which_user", "nope"],
+                          env=self.env(extra=self.empty_path()))
+        self.assertIsNone(out)
+
+
 if __name__ == "__main__":
     unittest.main()
