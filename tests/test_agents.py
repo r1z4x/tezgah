@@ -1,5 +1,6 @@
 """hooks/tezgah_agents.py: per-repo subagent generation, gating and cleanup."""
 import os
+import subprocess
 import sys
 import unittest
 
@@ -174,6 +175,14 @@ class ContextWiring(AgentsBase):
                  {"fn": "context_for", "event": "user_prompt", "cwd": self.repo},
                  env=self.env())
         self.assertEqual(self.names(".claude"), [])
+
+    def test_setup_agents_flag_regenerates(self):
+        setup = os.path.join(support.REPO, "bin", "tezgah-setup")
+        proc = subprocess.run([sys.executable, setup, "--agents", self.repo],
+                              capture_output=True, text=True, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("agent(s)", proc.stdout)
+        self.assertTrue(self.exists(".claude", "tezgah-explorer"))
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@
   tezgah-setup --adopt                 move the predecessor wiring aside
   tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
   tezgah-setup --status [PATH]         print the armed/used checklist
+  tezgah-setup --agents [PATH]         regenerate this repo's subagent set
 
 Claude Code installs from a plugin; the other four do not have that channel,
 so they are wired here: Codex hooks.json + skills, Cursor hooks.json + skills,
@@ -1213,6 +1214,8 @@ def main(argv):
     ap.add_argument("--adopt", action="store_true")
     ap.add_argument("--sync", action="store_true")
     ap.add_argument("--status", nargs="?", const=os.getcwd())
+    ap.add_argument("--agents", nargs="?", const=os.getcwd(),
+                    help="regenerate this repo's subagent set (default: cwd)")
     ap.add_argument("--version", action="version", version=plugin_version())
     ap.add_argument("--roots")
     ap.add_argument("--hosts")
@@ -1222,6 +1225,12 @@ def main(argv):
         return sync()
     if args.status:
         print(tezgah_context.health_lines(os.path.realpath(expand(args.status))))
+        return 0
+
+    if args.agents:
+        repo = tezgah_context.repo_root(os.path.realpath(expand(args.agents)))
+        note = tezgah_agents.sync_root(repo)
+        print(note or "no agents generated (outside a root, or no capability)")
         return 0
 
     hosts = [h.strip() for h in args.hosts.split(",")] if args.hosts else \
