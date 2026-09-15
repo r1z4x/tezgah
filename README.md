@@ -132,6 +132,14 @@ cd ~/Projects/tezgah
 bin/tezgah-setup --install
 ```
 
+`--install` also installs the optional tools that are missing by running each
+vendor's own installer: `orx` (`openresearch.sh/install.sh`), `cursor-agent`
+(`cursor.com/install`), and `dsh` (its home profile through `npx`). None needs
+sudo; the run is recorded in `~/.config/tezgah/install.log`. Preview with
+`--dry-run`, skip with `--no-deps`, or install the tools alone with
+`--deps`. Tools land in `~/.local/bin` or `~/.cargo/bin`, so a fresh shell may
+be needed before they are on PATH.
+
 If a predecessor setup is already present, import it first — it is moved aside,
 not deleted:
 
@@ -162,6 +170,8 @@ knowing:
 |---|---|
 | `bin/tezgah-setup` | Report what is armed, per host |
 | `bin/tezgah-status [PATH]` | Show whether the rules are active in that repo |
+| `bin/tezgah-setup --status [PATH]` | Print the armed/used checklist |
+| `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
 | `/plan-add` | Turn a piece of work into a tracked plan |
 | `/plan-status` | Summarize open plans and pick the next one |
