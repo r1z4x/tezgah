@@ -1,5 +1,7 @@
 """hooks/tezgah_agents.py: per-repo subagent generation, gating and cleanup."""
+import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -125,6 +127,41 @@ class OpencodeConfig(AgentsBase):
 
     def pathless(self):
         return os.path.join(self.home, "nope")
+
+
+class OpencodePlugin(AgentsBase):
+    """The plugin config hook must arm the agents in the same opencode session.
+
+    Runs the real plugin module in node, so a lost const (e.g. AGENTS_BIN) or a
+    broken spawn is caught, not only the Python side.
+    """
+
+    def test_config_hook_injects_the_agents(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not installed")
+        self.sync()  # the --json path is what the hook calls; same source
+        link = os.path.join(self.home, ".config", "tezgah", "bin", "tezgah-agents")
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        os.symlink(os.path.join(support.REPO, "bin", "tezgah-agents"), link)
+        harness = os.path.join(self.home, "h.mjs")
+        with open(harness, "w") as fh:
+            fh.write(
+                'import { Tezgah } from "file://%s"\n'
+                'const hooks = await Tezgah({ directory: "%s" })\n'
+                'const cfg = {}\n'
+                'await hooks.config(cfg)\n'
+                'console.log(JSON.stringify(cfg.agent || {}))\n'
+                % (os.path.join(support.REPO, "hosts", "opencode", "plugins",
+                                "tezgah.js"), self.repo))
+        proc = subprocess.run([node, harness], capture_output=True, text=True,
+                              env=self.env(), timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        agent = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(agent["tezgah-explorer"]["mode"], "subagent")
+        self.assertEqual(agent["tezgah-explorer"]["permission"]["edit"], "deny")
+        self.assertEqual(agent["tezgah-orchestrator"]["mode"], "primary")
+        self.assertEqual(agent["tezgah-orchestrator"]["permission"]["task"]["*"], "deny")
 
 
 class Gating(AgentsBase):

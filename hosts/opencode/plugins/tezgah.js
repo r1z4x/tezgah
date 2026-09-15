@@ -30,6 +30,7 @@ const CACHE = join(HOME, ".cache", "tezgah")
 const CBM_DIR = join(HOME, ".cache", "codebase-memory-mcp")
 const STATUS_BIN = join(CONFIG, "bin", "tezgah-status")
 const INDEX_BIN = join(CONFIG, "bin", "tezgah-index")
+const AGENTS_BIN = join(CONFIG, "bin", "tezgah-agents")
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
 const EXPLORE_DENY =
   "A grep-only explorer subagent is not allowed in this tree. Use a " +
@@ -287,6 +288,11 @@ export const Tezgah = async ({ directory }) => {
       try {
         if (!(await rootFor(dir))) return
         const sessionID = String(input?.sessionID || "")
+        // per-repo agent file fallback: same one-shot entry as the index, so a
+        // changed manifest or repo stack is rewritten once per session
+        if (await oncePerSession(sessionID + "|agents")) {
+          spawn("python3", [AGENTS_BIN, dir], { detached: true, stdio: "ignore" }).unref()
+        }
         if (!(await oncePerSession(sessionID + "|index"))) return
         spawn("python3", [INDEX_BIN, dir], { detached: true, stdio: "ignore" }).unref()
       } catch {}
