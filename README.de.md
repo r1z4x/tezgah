@@ -298,7 +298,8 @@ Nichts auszuführen: Die Regeln werden geladen, wenn ein Host startet. Ein paar 
 
 | Befehl | Zweck |
 |---|---|
-| `bin/tezgah-setup` | Meldet, was pro Host scharfgeschaltet ist |
+| `bin/tezgah-setup` | Im Terminal: der Installationsassistent; in einer Pipe oder in CI: meldet, was pro Host scharfgeschaltet ist |
+| `bin/tezgah-setup --wizard` | Erzwingt den Installationsassistenten überall; `--report` erzwingt den Bericht |
 | `bin/tezgah-status [PATH]` | Zeigt an, ob die Regeln in diesem Repo aktiv sind |
 | `bin/tezgah-setup --status [PATH]` | Druckt die Checkliste der scharfgeschalteten/verwendeten Regeln |
 | `bin/tezgah-setup --deps [--dry-run]` | Installiert fehlende optionale Tools (orx, cursor-agent, dsh) |

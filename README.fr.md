@@ -276,7 +276,8 @@ d'être connues :
 
 | Commande | Objectif |
 |---|---|
-| `bin/tezgah-setup` | Signaler ce qui est armé, par hôte |
+| `bin/tezgah-setup` | Dans un terminal : l'assistant d'installation ; dans un pipe ou en CI : signaler ce qui est armé, par hôte |
+| `bin/tezgah-setup --wizard` | Force l'assistant d'installation partout ; `--report` force le rapport |
 | `bin/tezgah-status [PATH]` | Afficher si les règles sont actives dans ce dépôt |
 | `bin/tezgah-setup --status [PATH]` | Afficher la liste de contrôle armée/utilisée |
 | `bin/tezgah-setup --deps [--dry-run]` | Installer les outils optionnels manquants (orx, cursor-agent, dsh) |

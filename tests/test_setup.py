@@ -905,6 +905,17 @@ class Wizard(SetupBase):
         self.assertFalse(os.path.exists(pred))
         self.assertTrue(os.path.isdir(self.path(".config", "tezgah", "adopted")))
 
+    def test_a_root_that_is_a_file_is_re_asked_and_a_missing_one_is_noted(self):
+        afile = self.path("not-a-dir")
+        with open(afile, "w") as fh:
+            fh.write("x")
+        missing = self.path("later")
+        proc = self.wiz("claude", afile, missing, "", "", "")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("use absolute paths to directories", proc.stdout)
+        self.assertIn("does not exist yet", proc.stdout)
+        self.assertEqual(self.config()["roots"], [missing])
+
     def test_a_piped_bare_run_still_reports_and_asks_nothing(self):
         proc = self.setup()
         self.assertEqual(proc.returncode, 0, proc.stderr)

@@ -298,7 +298,8 @@ kjenne til:
 
 | Kommando | Formål |
 |---|---|
-| `bin/tezgah-setup` | Rapporter hva som er aktivert, per vert |
+| `bin/tezgah-setup` | I en terminal: installasjonsveiviseren; i et rør eller i CI: rapporter hva som er aktivert, per vert |
+| `bin/tezgah-setup --wizard` | Tvinger installasjonsveiviseren overalt; `--report` tvinger rapporten |
 | `bin/tezgah-status [PATH]` | Vis om reglene er aktive i det kodelageret |
 | `bin/tezgah-setup --status [PATH]` | Skriv ut sjekklisten for aktivert/brukt |
 | `bin/tezgah-setup --deps [--dry-run]` | Installer manglende valgfrie verktøy (orx, cursor-agent, dsh) |
