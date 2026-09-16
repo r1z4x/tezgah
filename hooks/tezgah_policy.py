@@ -487,8 +487,9 @@ classifier decides.
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
-`verify-off` (the integrity rule and the Stop gate), `pretooluse-off` (the
-gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
+`verify-off` (the integrity rule: its prompt text, the shortcut denials and the
+Stop gate), `pretooluse-off` (the whole gate); per-repo `.no-ponytail`,
+`.no-cbm`, `.no-lessons`.
 """
 
 # Rules that are NOT paid every session. They are armed by task class at prompt
