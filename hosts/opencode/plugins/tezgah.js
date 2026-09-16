@@ -60,9 +60,11 @@ const SKIP_ENV = /\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b/
 const NO_VERIFY = /--no-verify\b/
 const GITISH = /\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b/i
 const SKIP_TEST = new RegExp(
-  "@pytest\\.mark\\.(?:skip|skipif|xfail)|@pytest\\.mark\\.only|" +
-  "@unittest\\.(?:skip|skipIf|expectedFailure)|@Ignore\\b|@Disabled\\b|" +
-  "\\bpytest\\.skip\\(|\\bunittest\\.skip\\w*\\(|\\bt\\.Skip\\w*\\(|" +
+  "@pytest\\.mark\\.(?:skip|skipif|xfail|only)\\b|" +
+  "@unittest\\.(?:skip|skipIf|skipTest|expectedFailure)\\b|" +
+  "@Ignore\\b|@Disabled\\b|" +
+  "\\bpytest\\.skip\\(|\\bunittest\\.(?:skip|skipIf|skipTest)\\(|" +
+  "\\bt\\.Skip\\w*\\(|" +
   "\\b(?:it|test|describe)\\.(?:skip|only)\\(|\\bxit\\(|\\bxdescribe\\(|" +
   "\\bpytestmark\\s*=\\s*pytest\\.mark\\.skip", "gi")
 const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
