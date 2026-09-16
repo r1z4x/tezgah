@@ -20,3 +20,6 @@ __pycache__/
 /benchmarks/arm-bench/arms/orx-*/*
 !/benchmarks/arm-bench/arms/orx-*/RULES.md
 !/benchmarks/arm-bench/arms/orx-*/PROVENANCE.md
+
+# arm-bench: run directories are throwaway fixtures
+/benchmarks/arm-bench/.runs/
