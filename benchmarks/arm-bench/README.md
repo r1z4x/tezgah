@@ -145,7 +145,25 @@ Five tasks x four arms x k=3: 60 runs, $0.39, one model. The file set is
 
 The two-host block on the old corpus read 0.93-0.96 with every interval
 overlapping; this one spreads, and the interval for `opencode-bare` now sits
-below the one for `omp-bare`. Eleven of sixty runs failed and seven of those
+below the one for `omp-bare`. Per cell, so it is clear where the spread comes
+from:
+
+| task | omp+tezgah | omp-bare | opencode+tezgah | opencode-bare |
+|---|---|---|---|---|
+| h01 exhaustive call-site audit | 3/3 | 3/3 | 3/3 | 2/3 |
+| h02 half-up money contract | 3/3 | 3/3 | 3/3 | **0/3** |
+| h03 ledger instance contract | 3/3 | 3/3 | 3/3 | 3/3 |
+| h04 normalized lookup | 3/3 | 3/3 | 3/3 | 3/3 |
+| h05 review sweep | **0/3** | 2/3 | 1/3 | 2/3 |
+
+**Two tasks carry the separation and two are still saturated.** `h02` is failed
+by one arm alone, and `h05` is failed by the harness arms more than by the bare
+ones. `h03` and `h04` pass everywhere at this model and k=3, so they belong to
+the same class as the old corpus: useful as regression load, not as separation.
+Growing the family means adding tasks of the `h02` and `h05` shape, not more of
+the `h03` shape.
+
+Eleven of sixty runs failed and seven of those
 failures are a single check, `discount` - the money rule stated tersely rather
 than spelled out, which is what `h05` does on purpose.
 
