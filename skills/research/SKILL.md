@@ -55,19 +55,23 @@ One directory per research line, `<repo>/.tezgah/research/<slug>/`:
 | `literature/` | one note per source, saved when you read it, not later |
 | `to_human/` | reports for the person paying for the research |
 
-Scaffold and check it with the CLI (`tezgah-research`, installed on PATH by
-`tezgah-setup`, or `bin/tezgah-research` in the checkout):
+Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
+`bin/tezgah-research` in the checkout):
 
 ```sh
-tezgah-research init my-line --question "does X hold under Y?"
-tezgah-research check          # exit 1 on any broken rule
-tezgah-research status
+~/.config/tezgah/bin/tezgah-research init my-line --question "does X hold under Y?"
+~/.config/tezgah/bin/tezgah-research check    # 0 clean, 1 broken rule, 2 misuse
+~/.config/tezgah/bin/tezgah-research status
 ```
 
-`check` enforces the rules a session tends to skip: protocol committed before
-results, a falsification criterion and proof on every claim, a provenance tag on
-every claim, an analysis for every experiment, and a findings file that answers
-all four questions. Run it before reporting a result, and fix what it names.
+`check` enforces the rules a session tends to skip: `protocol.md` committed
+before `results.jsonl` - decided on the commit graph, so two commits inside the
+same second or a rebase do not trip it, while a protocol *edited* after the
+results is refused - a falsification criterion and evidence on every claim, a
+provenance tag on every claim, an analysis for every experiment, and a findings
+file that answers all four questions. It warns rather than fails while the
+results are still uncommitted, because there is no order to check yet. Run it
+before reporting a result, and fix what it names.
 
 ## The loop
 
@@ -80,8 +84,9 @@ seeing results is not a criterion.
 **Inner loop.** One hypothesis at a time:
 
 1. Write `protocol.md`: what changes, what it predicts, why, and what result would
-   falsify it. **Commit it before the run.** The commit is the temporal proof that
-   the prediction came first, and `check` verifies it.
+   falsify it. **Commit it before the run.** That commit is the temporal proof that
+   the prediction came first, and `check` verifies it against the commit graph -
+   editing the protocol after the results are in is refused, not silently allowed.
 2. Run it through the engine.
 3. Sanity-check the run before trusting it (converged, no NaN, baseline
    reproduces, the input is what you think it is).

@@ -12,7 +12,7 @@ configuration and the per-run logs - is not part of this repository.
 |---|---|
 | `tezgah+opencode` | opencode 1.18.31 with the tezgah contract, skills, subagents and gate, plus the codebase-memory-mcp graph. Browser/device MCPs disabled for speed and parity. |
 | `omp+graph` | bare omp control: same model, same graph MCP, no tezgah layer. |
-| `omp+tezgah-port` | omp with the tezgah CORE as `AGENTS.md`, the 8 tezgah skills, the 5 tezgah subagents rewritten to omp's agent schema, the gate as an omp hook, and the graph MCP. |
+| `omp+tezgah-port` | omp with the tezgah CORE as `AGENTS.md`, the 9 tezgah skills, the 5 tezgah subagents rewritten to omp's agent schema, the gate as an omp hook, and the graph MCP. |
 
 Model held constant on every arm: `openrouter/deepseek/deepseek-v4-flash`.
 

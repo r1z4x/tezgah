@@ -52,16 +52,45 @@ def line_dir(repo, slug):
     return os.path.join(root(repo), slug)
 
 
-def first_commit_time(repo, path):
-    """When the file was first committed, or None when it was never committed."""
-    rel = os.path.relpath(path, repo)
+def _git(repo, *args):
+    """(stdout words, error). Never raises: a missing git is an error string."""
     try:
-        out = subprocess.run(
-            ["git", "-C", repo, "log", "--diff-filter=A", "--format=%ct", "--", rel],
-            capture_output=True, text=True).stdout.split()
+        proc = subprocess.run(["git", "-C", repo] + list(args),
+                              capture_output=True, text=True)
+    except OSError as exc:
+        return [], str(exc)
+    if proc.returncode != 0:
+        return [], (proc.stderr.strip() or "git exited %d" % proc.returncode)
+    return proc.stdout.split(), None
+
+
+def added_commits(repo, path):
+    """The commits that added (or renamed into) `path`, newest first."""
+    rel = os.path.relpath(path, repo)
+    return _git(repo, "log", "--diff-filter=AR", "--format=%H", "--", rel)
+
+
+def last_touch(repo, path):
+    """The newest commit that touched `path`, or None."""
+    rel = os.path.relpath(path, repo)
+    out, err = _git(repo, "log", "-1", "--format=%H", "--", rel)
+    return (out[0] if out else None), err
+
+
+def is_ancestor(repo, older, newer):
+    """True/False, or None when git cannot answer.
+
+    The order rule is decided by the commit graph, not by timestamps: two commits
+    in the same second are still two commits, a rebase rewrites dates but not
+    ancestry, and a backdated GIT_COMMITTER_DATE changes nothing."""
+    try:
+        proc = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor",
+                               older, newer], capture_output=True, text=True)
     except OSError:
         return None
-    return min(int(t) for t in out) if out else None
+    if proc.returncode == 0:
+        return True
+    return False if proc.returncode == 1 else None
 
 
 def _read_json(path):
@@ -90,12 +119,16 @@ def _check_state(base, errors):
                       % (state.get("direction"), ", ".join(DIRECTIONS)))
 
 
-def _check_findings(base, errors):
+def _check_findings(base, errors, warnings):
     path = os.path.join(base, "findings.md")
     if not os.path.isfile(path):
         return
-    with open(path) as fh:
-        text = fh.read()
+    try:
+        with open(path) as fh:
+            text = fh.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        errors.append("findings.md cannot be read (%s)" % exc)
+        return
     missing = [s for s in FINDINGS_SECTIONS if ("## " + s) not in text]
     if missing:
         errors.append("findings.md does not answer: %s" % ", ".join(missing))
@@ -105,42 +138,49 @@ def _check_claims(base, errors, warnings):
     path = os.path.join(base, "claims.jsonl")
     if not os.path.isfile(path):
         return 0
+    try:
+        with open(path) as fh:
+            rows = fh.readlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        errors.append("claims.jsonl cannot be read (%s)" % exc)
+        return 0
     count = 0
-    with open(path) as fh:
-        for n, raw in enumerate(fh, 1):
-            raw = raw.strip()
-            if not raw:
-                continue
-            count += 1
-            try:
-                claim = json.loads(raw)
-            except ValueError as exc:
-                errors.append("claims.jsonl:%d does not parse (%s)" % (n, exc))
-                continue
-            cid = claim.get("id") or "line %d" % n
-            if not str(claim.get("statement", "")).strip():
-                errors.append("claim %s states nothing" % cid)
-            if not str(claim.get("falsification", "")).strip():
-                errors.append("claim %s carries no falsification criterion" % cid)
-            if not claim.get("proof"):
-                errors.append("claim %s cites no evidence" % cid)
-            if claim.get("provenance") not in PROVENANCE:
-                errors.append("claim %s provenance %r is not one of %s"
-                              % (cid, claim.get("provenance"), ", ".join(PROVENANCE)))
-            if claim.get("status") not in STATUSES:
-                errors.append("claim %s status %r is not one of %s"
-                              % (cid, claim.get("status"), ", ".join(STATUSES)))
+    for n, raw in enumerate(rows, 1):
+        raw = raw.strip()
+        if not raw:
+            continue
+        count += 1
+        try:
+            claim = json.loads(raw)
+        except ValueError as exc:
+            errors.append("claims.jsonl:%d does not parse (%s)" % (n, exc))
+            continue
+        cid = claim.get("id") or "line %d" % n
+        if not str(claim.get("statement", "")).strip():
+            errors.append("claim %s states nothing" % cid)
+        if not str(claim.get("falsification", "")).strip():
+            errors.append("claim %s carries no falsification criterion" % cid)
+        if not claim.get("proof"):
+            errors.append("claim %s cites no evidence" % cid)
+        if claim.get("provenance") not in PROVENANCE:
+            errors.append("claim %s provenance %r is not one of %s"
+                          % (cid, claim.get("provenance"), ", ".join(PROVENANCE)))
+        if claim.get("status") not in STATUSES:
+            errors.append("claim %s status %r is not one of %s"
+                          % (cid, claim.get("status"), ", ".join(STATUSES)))
     if not count:
         warnings.append("no claims recorded yet")
     return count
 
 
-def _check_experiments(repo, base, errors, git):
+def _check_experiments(repo, base, errors, warnings, git):
     exps = os.path.join(base, "experiments")
-    if not os.path.isdir(exps):
+    try:
+        names = sorted(os.listdir(exps))
+    except OSError:
         return []
     out = []
-    for h in sorted(os.listdir(exps)):
+    for h in names:
         d = os.path.join(exps, h)
         if not os.path.isdir(d) or h.startswith("."):
             continue
@@ -154,18 +194,50 @@ def _check_experiments(repo, base, errors, git):
             continue
         if not os.path.isfile(os.path.join(d, "analysis.md")):
             errors.append("experiment %s has results but no analysis.md" % h)
-        if not git:
-            continue
-        proto_at = first_commit_time(repo, proto)
-        results_at = first_commit_time(repo, results)
-        if proto_at is None:
-            errors.append("experiment %s: protocol.md is not committed, so it "
-                          "cannot show the plan came before the run" % h)
-        elif results_at is not None and proto_at >= results_at:
-            errors.append("experiment %s: protocol.md was committed at or after "
-                          "results.jsonl - a protocol written after the run is "
-                          "not a prediction" % h)
+        if git:
+            _check_protocol_order(repo, h, proto, results, errors, warnings)
     return out
+
+
+def _check_protocol_order(repo, h, proto, results, errors, warnings):
+    """protocol.md must have entered the history before results.jsonl, and must
+    not have changed after it."""
+    proto_add, proto_err = added_commits(repo, proto)
+    res_add, res_err = added_commits(repo, results)
+    if proto_err or res_err:
+        warnings.append("experiment %s: git could not be asked about the order (%s)"
+                        % (h, proto_err or res_err))
+        return
+    if not res_add:
+        warnings.append("experiment %s: results.jsonl is not committed yet, so the "
+                        "protocol order cannot be checked" % h)
+        return
+    if not proto_add:
+        errors.append("experiment %s: protocol.md is not committed, so it cannot "
+                      "show the plan came before the run" % h)
+        return
+    p_add, r_add = proto_add[-1], res_add[-1]
+    if p_add == r_add:
+        errors.append("experiment %s: one commit added both protocol.md and "
+                      "results.jsonl, so the plan cannot be shown to precede the "
+                      "run" % h)
+        return
+    before = is_ancestor(repo, p_add, r_add)
+    if before is None:
+        warnings.append("experiment %s: git could not order the protocol against the "
+                        "results" % h)
+        return
+    if not before:
+        errors.append("experiment %s: protocol.md entered the history after "
+                      "results.jsonl - a protocol written after the run is not a "
+                      "prediction" % h)
+        return
+    last, last_err = last_touch(repo, proto)
+    if last_err or last is None or last == p_add:
+        return
+    if last == r_add or is_ancestor(repo, last, r_add) is False:
+        errors.append("experiment %s: protocol.md changed after the run - a protocol "
+                      "edited after the results is not a prediction" % h)
 
 
 def check_line(repo, slug, git=True):
@@ -179,9 +251,9 @@ def check_line(repo, slug, git=True):
         if not os.path.isfile(os.path.join(base, name)):
             errors.append("%s is missing" % name)
     _check_state(base, errors)
-    _check_findings(base, errors)
+    _check_findings(base, errors, warnings)
     _check_claims(base, errors, warnings)
-    _check_experiments(repo, base, errors, git)
+    _check_experiments(repo, base, errors, warnings, git)
     return errors, warnings
 
 

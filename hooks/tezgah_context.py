@@ -74,6 +74,7 @@ def render(text, root=""):
     return (text.replace("{CONSULT_BIN}", tool("consult"))
                 .replace("{CODEGEN_BIN}", tool("codegen"))
                 .replace("{ORX_BIN}", orx_bin() or "orx")
+                .replace("{RESEARCH_BIN}", tool("tezgah-research"))
                 .replace("{ROOT}", root or ACTIVE_ROOT[0]
                          or "the configured tezgah roots"))
 
@@ -470,7 +471,7 @@ def context_for(event, cwd, payload=None, with_core=True):
             past = lessons(root)
             if past:
                 parts.append(past)
-        broken = tezgah_research.failing(root)
+        broken = tezgah_research.failing(root) if not off("research-off") else []
         if broken:
             line_slug, err = broken[0]
             parts.append("Research: %s has %d problem(s), first: %s - run "

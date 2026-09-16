@@ -35,14 +35,20 @@ def repo_root(path):
     return os.path.realpath(path)
 
 
+def misuse(message):
+    """Misuse exits 2, so a caller can tell it from a line that fails the checks."""
+    print("tezgah-research: %s" % message, file=sys.stderr)
+    return 2
+
+
 def cmd_init(args):
     if not args:
-        sys.exit("tezgah-research init needs a slug")
+        return misuse("init needs a slug")
     slug = args[0].strip().lower().replace(" ", "-")
     question = ""
     if len(args) > 1:
         if args[1] != "--question" or len(args) < 3:
-            sys.exit("tezgah-research init <slug> [--question \"...\"]")
+            return misuse('init <slug> [--question "..."]')
         question = args[2]
     repo = repo_root(os.getcwd())
     made = tr.init(repo, slug, question=question, created=time.strftime("%Y-%m-%d"))
@@ -61,7 +67,12 @@ def cmd_check(args):
     as_json = "--json" in args
     rest = [a for a in args if a != "--json"]
     repo = repo_root(os.getcwd())
-    if not tr.slugs(repo):
+    known = tr.slugs(repo)
+    if rest and rest[0] not in known:
+        print("FAIL %s: no such research line (have: %s)"
+              % (rest[0], ", ".join(known) or "none"))
+        return 1
+    if not known:
         print("no research line under %s" % tr.root(repo))
         return 0
     report = tr.check(repo, rest[0] if rest else None)
@@ -92,7 +103,8 @@ def cmd_status(args):
 
 def main(argv):
     if len(argv) < 2:
-        sys.exit(__doc__)
+        print(__doc__, file=sys.stderr)
+        return 2
     cmd, rest = argv[1], argv[2:]
     if cmd == "init":
         return cmd_init(rest)
@@ -100,7 +112,7 @@ def main(argv):
         return cmd_check(rest)
     if cmd == "status":
         return cmd_status(rest)
-    sys.exit("tezgah-research: unknown command %r (init, check, status)" % cmd)
+    return misuse("unknown command %r (init, check, status)" % cmd)
 
 
 if __name__ == "__main__":

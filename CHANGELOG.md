@@ -17,7 +17,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   committed after the run (a protocol written after the results is not a
   prediction), a claim with no falsification criterion or evidence, results with
   no analysis, a findings file that answers none of its four questions - and the
-  session context names the first failure at session start. The skill carries the
+  session context names the first structural one at session start (the order rule
+  needs git history, so it stays a `check`-time rule). The skill carries the
   two-loop rhythm, the ideation step, the six-dimension claim review and the
   provenance tags; execution stays on the OpenResearch CLI.
 - `tezgah-setup --mcp-schemas` measures the one context band the installer
