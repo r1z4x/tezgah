@@ -43,7 +43,9 @@ VERIFY = re.compile(
 # forms that make a failing check exit 0, the classic "I ran it and it was fine"
 NEUTER = re.compile(
     r"\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])")
-# a pre-commit / husky escape hatch that skips the hooks entirely
+# a pre-commit / husky escape hatch that skips the hooks entirely. SKIP/HUSKY
+# only mean anything to a hook runner, so the check requires the same git/hook
+# context as --no-verify: a read that merely mentions SKIP= must still pass.
 SKIP_ENV = re.compile(r"\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b")
 NO_VERIFY = re.compile(r"--no-verify\b")
 GITISH = re.compile(r"\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b", re.I)
@@ -135,7 +137,7 @@ def shortcut_command(cmd):
         return ("Verification bypass denied: `--no-verify` skips the commit/push "
                 "hooks that run the checks. Run the checks, fix what they report, "
                 "and commit without it. A skipped hook is not a passing check.")
-    if SKIP_ENV.search(c):
+    if SKIP_ENV.search(c) and GITISH.search(c):
         return ("Verification bypass denied: an env var that skips the hooks "
                 "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them "
                 "instead of disabling them.")

@@ -82,8 +82,9 @@ classifier decides.
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
-`verify-off` (the integrity rule and the Stop gate), `pretooluse-off` (the
-gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
+`verify-off` (the integrity rule: its prompt text, the shortcut denials and the
+Stop gate), `pretooluse-off` (the whole gate); per-repo `.no-ponytail`,
+`.no-cbm`, `.no-lessons`.
 
 **On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a non-trivial or hard-to-reverse decision. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".
 

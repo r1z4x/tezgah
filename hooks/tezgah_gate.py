@@ -129,15 +129,19 @@ def decision(tool, inp, cwd, session_id=None):
         return EXPLORE_DENY
     # anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
     # failure disappears. This is the mechanical half of the integrity rule; the
-    # reply-level half is the Stop hook (hosts/claude).
-    if t in BASH_TOOLS:
-        reason = shortcut_command(inp.get("command"))
-        if reason:
-            return reason
-    if t in WRITE_TOOLS:
-        reason = shortcut_edit(inp)
-        if reason:
-            return reason
+    # reply-level half is the Stop hook (hosts/claude, hosts/codex). `verify-off`
+    # removes that rule, so it drops this half too; `pretooluse-off` above still
+    # drops the whole gate, and attribution/explore are other rules and stay
+    # armed.
+    if not off("verify-off"):
+        if t in BASH_TOOLS:
+            reason = shortcut_command(inp.get("command"))
+            if reason:
+                return reason
+        if t in WRITE_TOOLS:
+            reason = shortcut_edit(inp)
+            if reason:
+                return reason
     if t in BASH_TOOLS and attribution(inp.get("command")):
         return ATTRIB_DENY
     if searched_identifier(tool, inp):

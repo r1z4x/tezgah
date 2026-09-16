@@ -137,6 +137,22 @@ class Gate(TempHome):
         self.assertIsNone(
             self.decide("Bash", {"command": "git commit -m x --no-verify"}))
 
+    def test_verify_off_drops_the_shortcut_denials_only(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.assertIsNone(
+            self.decide("Bash", {"command": "git commit -m x --no-verify"}))
+        self.assertIsNone(self.decide("Bash", {"command": "pytest -q || true"}))
+        self.assertIsNone(self.decide("Edit", {
+            "file_path": "t.py",
+            "new_string": "@pytest.mark." + "skip\ndef t(): pass"}))
+        # attribution and the explorer refusal are different rules: still armed
+        self.assertIsNotNone(self.decide("Bash", {
+            "command": 'git commit -m "x Co-Authored-By: Claude"'}))
+        self.assertIsNotNone(self.decide("Agent", {"subagent_type": "Explore"}))
+
+    def test_skip_env_mention_in_a_read_passes(self):
+        self.assertIsNone(self.decide("Bash", {"command": 'grep -rn "SKIP=" .'}))
+
     # ---- kill switch -------------------------------------------------------
     def test_pretooluse_off_kills_denials(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "pretooluse-off"))

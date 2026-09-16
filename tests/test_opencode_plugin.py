@@ -85,6 +85,24 @@ class OpenCodePlugin(TempHome):
                         "make test", "ls || true"):
             self.allowed(self.before("bash", {"command": command}))
 
+    def test_skip_env_mention_in_a_read_passes(self):
+        # SKIP= only turns checks off inside a hook runner; a search that merely
+        # mentions it must not be denied
+        for command in ('grep -rn "SKIP=" .', "rg 'HUSKY_SKIP_HOOKS=' src/"):
+            self.allowed(self.before("bash", {"command": command}))
+
+    def test_verify_off_drops_the_shortcut_denials_only(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.allowed(self.before("bash",
+                                 {"command": "git commit -m x --no-verify"}))
+        self.allowed(self.before("edit", {
+            "old_string": "def test_x():\n    assert 1",
+            "new_string": "%s\ndef test_x():\n    assert 1" % SKIP_MARK}))
+        # attribution and the explorer refusal are different rules: still armed
+        self.denied(self.before("bash", {
+            "command": 'git commit -m "x Co-Authored-By: Claude"'}))
+        self.denied(self.before("task", {"subagent_type": "explore"}))
+
     def test_pretooluse_off_kills_denials(self):
         self.touch(os.path.join(self.home, ".config", "tezgah",
                                 "pretooluse-off"))

@@ -82,7 +82,7 @@ function shortcutCommand(cmd) {
     return "Verification bypass denied: `--no-verify` skips the commit/push " +
       "hooks that run the checks. Run the checks, fix what they report, and " +
       "commit without it."
-  if (SKIP_ENV.test(c))
+  if (SKIP_ENV.test(c) && GITISH.test(c))
     return "Verification bypass denied: an env var that skips the hooks " +
       "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them instead."
   if (verifyCommand(c) && NEUTER.test(c))
@@ -362,13 +362,16 @@ export const Tezgah = async ({ directory }) => {
         const sessionID = input?.sessionID || input?.sessionId
 
         const sub = String(args.subagent_type || args.agent || "")
+        // the shortcut denials are the gate half of the integrity rule, which
+        // `verify-off` removes; attribution and explore are other rules and stay
+        const shortcuts = !off("verify-off")
         if (attribution(tool, args)) {
           deny = ATTRIB_DENY
         } else if (tool === "task" && /explore/i.test(sub)) {
           deny = EXPLORE_DENY
-        } else if (BASH_TOOLS.has(tool)) {
+        } else if (shortcuts && BASH_TOOLS.has(tool)) {
           deny = shortcutCommand(args.command || args.cmd || "")
-        } else if (WRITE_TOOLS.has(tool)) {
+        } else if (shortcuts && WRITE_TOOLS.has(tool)) {
           deny = await shortcutEdit(args)
         } else if (identifierFrom(tool, args)) {
           const js = indexSlug(dir)

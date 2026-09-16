@@ -31,6 +31,13 @@ class ShortcutCommand(unittest.TestCase):
                   "HUSKY=0 git commit -m x"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
+    def test_skip_env_needs_a_hook_runner(self):
+        # SKIP=/HUSKY= only turn checks off inside a hook runner; a read that
+        # merely mentions them must pass (the gate denied this before the guard)
+        for c in ('grep -rn "SKIP=" .', "rg 'HUSKY_SKIP_HOOKS=' src/",
+                  "python3 -c 'print(\"SKIP=\")'"):
+            self.assertIsNone(ti.shortcut_command(c), c)
+
     def test_plain_commands_pass(self):
         for c in ("pytest -q", "npm test", "git commit -m 'fix: typo'",
                   "git status", "ruff check .", "make test"):
