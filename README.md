@@ -280,9 +280,9 @@ knowing:
 | `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status` | Runs and checks a research line: state, findings, claims, and the protocol-before-results rule |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
-| `/plan-add` | Turn a piece of work into a tracked plan |
-| `/plan-status` | Summarize open plans and pick the next one |
-| `/plan-sync` | Close out finished plans |
+| `/tezgah:plan-add` | Turn a piece of work into a tracked plan |
+| `/tezgah:plan-status` | Summarize open plans and pick the next one |
+| `/tezgah:plan-sync` | Close out finished plans |
 | `bin/tezgah-setup --version` | Print the plugin version |
 | `bin/tezgah-setup --uninstall` | Remove only tezgah's symlinks, host hook entries, and the dsh managed block |
 

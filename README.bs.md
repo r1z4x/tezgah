@@ -252,9 +252,9 @@ znati:
 | `bin/tezgah-setup --deps [--dry-run]` | Instalira opcione alate koji nedostaju (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status` | Pravi i provjerava istraživačku liniju: stanje, nalazi, tvrdnje i pravilo protokol-prije-rezultata |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Izvještava o upotrebi diska alata; `--clean` briše stare logove indeksa i usisava (vacuum) opencode bazu podataka; `--prune-sessions` briše neaktivne sesije (jedina akcija koja zapravo smanjuje bazu podataka) |
-| `/plan-add` | Pretvara dio posla u praćeni plan |
-| `/plan-status` | Sumira otvorene planove i bira sljedeći |
-| `/plan-sync` | Zatvara završene planove |
+| `/tezgah:plan-add` | Pretvara dio posla u praćeni plan |
+| `/tezgah:plan-status` | Sumira otvorene planove i bira sljedeći |
+| `/tezgah:plan-sync` | Zatvara završene planove |
 | `bin/tezgah-setup --version` | Ispisuje verziju dodatka |
 | `bin/tezgah-setup --uninstall` | Uklanja samo tezgah-ove simboličke linkove, unose hookova hosta i dsh upravljani blok |
 

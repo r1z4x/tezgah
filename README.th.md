@@ -176,9 +176,9 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 | `bin/tezgah-setup --deps [--dry-run]` | ติดตั้งเครื่องมือทางเลือกที่ขาดหายไป (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status` | สร้างและตรวจสอบสายงานวิจัย: สถานะ, findings, ข้ออ้าง และกฎโปรโตคอลก่อนผลลัพธ์ |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | รายงานการใช้ดิสก์ของ harness; `--clean` ลบบันทึกดัชนีเก่าและทำ vacuum ฐานข้อมูล opencode; `--prune-sessions` ลบเซสชันที่ไม่ได้ใช้งาน (การกระทำเดียวที่ลดขนาดฐานข้อมูลได้จริง) |
-| `/plan-add` | เปลี่ยนชิ้นงานให้เป็นแผนที่ถูกติดตาม |
-| `/plan-status` | สรุปแผนที่เปิดอยู่และเลือกแผนถัดไป |
-| `/plan-sync` | ปิดแผนที่เสร็จสิ้นแล้ว |
+| `/tezgah:plan-add` | เปลี่ยนชิ้นงานให้เป็นแผนที่ถูกติดตาม |
+| `/tezgah:plan-status` | สรุปแผนที่เปิดอยู่และเลือกแผนถัดไป |
+| `/tezgah:plan-sync` | ปิดแผนที่เสร็จสิ้นแล้ว |
 | `bin/tezgah-setup --version` | พิมพ์เวอร์ชันของปลั๊กอิน |
 | `bin/tezgah-setup --uninstall` | ลบเฉพาะ symlink ของ tezgah, รายการ hook ของโฮสต์ และบล็อกที่จัดการของ dsh |
 

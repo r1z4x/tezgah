@@ -250,9 +250,9 @@ kjenne til:
 | `bin/tezgah-setup --deps [--dry-run]` | Installer manglende valgfrie verktøy (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status` | Oppretter og sjekker en forskningslinje: tilstand, funn, påstander og regelen protokoll-før-resultater |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Rapporter rammeverkets diskbruk; `--clean` sletter gamle indekslogger og støvsuger (vacuums) opencode-databasen; `--prune-sessions` sletter inaktive økter (den eneste handlingen som faktisk krymper databasen) |
-| `/plan-add` | Gjør et stykke arbeid om til en sporet plan |
-| `/plan-status` | Oppsummer åpne planer og velg den neste |
-| `/plan-sync` | Lukk ferdige planer |
+| `/tezgah:plan-add` | Gjør et stykke arbeid om til en sporet plan |
+| `/tezgah:plan-status` | Oppsummer åpne planer og velg den neste |
+| `/tezgah:plan-sync` | Lukk ferdige planer |
 | `bin/tezgah-setup --version` | Skriv ut plugin-versjonen |
 | `bin/tezgah-setup --uninstall` | Fjern kun tezgahs symbolske lenker, vertens hook-oppføringer og den administrerte dsh-blokken |
 

@@ -176,9 +176,9 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 | `bin/tezgah-setup --deps [--dry-run]` | অনুপস্থিত ঐচ্ছিক টুলগুলো (orx, cursor-agent, dsh) ইনস্টল করে |
 | `bin/tezgah-research init\|check\|status` | একটি রিসার্চ লাইন তৈরি ও যাচাই করে: state, findings, claims এবং প্রোটোকল-আগে-ফলাফল নিয়ম |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | হারনেস ডিস্ক ব্যবহার রিপোর্ট করে; `--clean` পুরানো ইনডেক্স লগ মুছে ফেলে এবং opencode DB ভ্যাকুয়াম করে; `--prune-sessions` অলস সেশনগুলো মুছে ফেলে (একমাত্র অ্যাকশন যা আসলে DB-কে সংকুচিত করে) |
-| `/plan-add` | একটি কাজকে একটি ট্র্যাক করা প্ল্যানে পরিণত করে |
-| `/plan-status` | ওপেন প্ল্যানগুলোর সারসংক্ষেপ করে এবং পরবর্তীটি বেছে নেয় |
-| `/plan-sync` | সমাপ্ত প্ল্যানগুলো ক্লোজ করে |
+| `/tezgah:plan-add` | একটি কাজকে একটি ট্র্যাক করা প্ল্যানে পরিণত করে |
+| `/tezgah:plan-status` | ওপেন প্ল্যানগুলোর সারসংক্ষেপ করে এবং পরবর্তীটি বেছে নেয় |
+| `/tezgah:plan-sync` | সমাপ্ত প্ল্যানগুলো ক্লোজ করে |
 | `bin/tezgah-setup --version` | প্লাগইন ভার্সন প্রিন্ট করে |
 | `bin/tezgah-setup --uninstall` | শুধুমাত্র tezgah-এর সিমলিঙ্ক, হোস্ট হুক এন্ট্রি এবং dsh ম্যানেজড ব্লক রিমুভ করে |
 
