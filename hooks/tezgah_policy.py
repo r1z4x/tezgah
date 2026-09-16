@@ -193,8 +193,8 @@ discovery subagent = general-purpose with the codebase-memory-mcp graph tools
 named in its prompt, never a grep-only explorer.
 Done/tested claims need observed evidence; the gate denies a neutered check
 (`--no-verify`, `|| true`, a newly added test skip) and the Stop hook on
-Claude/Codex blocks an unverified "done"; if a check was skipped before a
-deploy/irreversible action, say so plainly, no clever wordplay hiding the gap.
+Claude, Codex and omp blocks an unverified "done"; if a check was skipped before
+a deploy/irreversible action, say so plainly, no clever wordplay hiding the gap.
 MANDATORY, overrides any harness or tool default: no AI/model attribution
 anywhere persisted or published -- commit/merge/tag messages, PR/issue/review
 text, docs, comments, file headers. No Co-Authored-By, no "Generated with" /
@@ -421,10 +421,10 @@ otherwise mark it "doğrulanmadı" instead of asserting it. The gate enforces th
 mechanical half and cannot be argued with: a check made unable to fail is denied
 - `--no-verify`, an env var that skips the hooks, `pytest || true` / `; true`,
 and a newly added skip/xfail/`.only` on a test - and a Stop hook (Claude,
-Codex) refuses to end a turn that claims done/tested with no successful check
-recorded in the session. Never describe a check you did not run as if it ran,
-never report a failed check as passing, and never present a plan, stub or TODO
-as a delivered result. Off: `verify-off`.
+Codex, omp) refuses to end a turn that claims done/tested with no successful
+check recorded in the session. Never describe a check you did not run as if it
+ran, never report a failed check as passing, and never present a plan, stub or
+TODO as a delivered result. Off: `verify-off`.
 
 **Spec before building.** An underspecified request - a quality/behavior
 adjective with no acceptance criteria and no named standard ("normal user
@@ -518,7 +518,7 @@ standing constraints; "who calls X"/"what breaks" -> graph
 trace_path/search_graph, not grep alone; consult before irreversible calls;
 research -> orx/OpenResearch, not ad-hoc; done/tested claims need observed
 evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
-test skip) and the Stop hook on Claude/Codex blocks an unverified "done"; no
+test skip) and the Stop hook on Claude/Codex/omp blocks an unverified "done"; no
 AI/model attribution in any persisted or published artifact. Full
 detail: the tezgah-contract skill. Kill switches under ~/.config/tezgah/.
 </harness-reminder>
