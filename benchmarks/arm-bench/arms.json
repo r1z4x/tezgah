@@ -135,9 +135,9 @@
       "{prompt}"
     ],
     "env": {},
-    "toggle": "default install: the managed RULES.md and the omp hook are active",
-    "flag_verified": false,
-    "verification": "not verified: do not score this arm yet"
+    "toggle": "default install: ~/.omp/agent/RULES.md carries the tezgah core, plus the 5 tezgah subagents and the pre-tool hook",
+    "flag_verified": true,
+    "verification": "read ~/.omp/agent/{RULES.md,agents/tezgah-*.md,hooks/pre/tezgah-hook.ts}; an omp run then loaded the contract itself (the stream shows a skill://tezgah-contract call)"
   },
   {
     "name": "omp-bare",
@@ -146,19 +146,20 @@
     "cmd": [
       "omp",
       "-p",
+      "--no-session",
       "--mode",
       "json",
-      "--profile",
-      "arm-bench-bare",
       "--cwd",
       "{cwd}",
       "--model",
       "{model}",
       "{prompt}"
     ],
-    "env": {},
-    "toggle": "--profile uses an isolated profile for auth, sessions and settings (verified from `omp --help`); create the empty profile once before scoring",
-    "flag_verified": false,
-    "verification": "not verified: do not score this arm yet"
+    "env": {
+      "PI_CODING_AGENT_DIR": "{root}/arms/omp-bare"
+    },
+    "toggle": "an empty agent dir via PI_CODING_AGENT_DIR, so there is no RULES.md, no tezgah subagents and no pre-tool hook",
+    "flag_verified": true,
+    "verification": "ran omp with PI_CODING_AGENT_DIR pointing at an empty directory: the dir is populated with agent.db/sessions, and no RULES.md appears in it ; runs are ephemeral (--no-session) so parallel runs do not write session records into a shared agent DB"
   }
 ]

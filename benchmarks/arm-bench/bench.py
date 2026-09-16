@@ -30,9 +30,6 @@ CORPUS = ROOT / "corpus"
 ARMS_FILE = ROOT / "arms.json"
 # Fields summed across every usage record in a host's event stream. `cache` is
 # handled separately (see extract_usage) because read/write are too generic.
-ADDITIVE = ("cost", "total_cost_usd", "cost_usd", "total", "input", "output",
-            "input_tokens", "output_tokens", "total_tokens", "reasoning",
-            "tokens_input", "tokens_output")
 
 
 # ---------------------------------------------------------------- utilities
@@ -161,49 +158,92 @@ def _num(value) -> bool:
 
 
 def extract_usage(text: str) -> dict | None:
-    """Sum the usage/cost records out of a host's captured output.
+    """Sum the usage records out of a host's captured output.
 
-    Hosts differ in shape and stream format, and a multi-step run emits one
-    record per step, so this walks every JSON value in the stream and ADDS the
-    additive fields rather than keeping the last one. `cache` is read as its own
-    nested object because `read`/`write` are too generic to add from anywhere.
+    Shape-driven on purpose: hosts name their fields differently and a blind
+    key scan picks up unrelated numbers that happen to be called `input` or
+    `total` (omp's stream carries a pricing object shaped exactly like a usage
+    object). Only a dict under a `usage` or `tokens` key is read, so the pricing
+    object cannot be counted as tokens.
+
+    opencode: {"part": {"tokens": {input, output, total, reasoning, cache:{read,write}},
+                        "cost": <number>}}
+    omp:      {"usage": {input, output, cacheRead, cacheWrite, totalTokens,
+                         cost: {total: <number>}}}
 
     Returns None when nothing is found: a missing usage block is never
     zero-filled (see PREREGISTRATION.md, accounting rules).
     """
-    total: dict = {}
+    total = {"input": 0, "output": 0, "total": 0, "cost": 0.0,
+             "cache_read": 0, "cache_write": 0, "reasoning": 0}
+    seen = False
 
-    def absorb(obj):
-        if isinstance(obj, list):
-            for item in obj:
-                absorb(item)
+    def take(record: dict) -> None:
+        nonlocal seen
+        for src, dst in (("input", "input"), ("output", "output"),
+                         ("reasoning", "reasoning"), ("total", "total"),
+                         ("totalTokens", "total"), ("total_tokens", "total"),
+                         ("cacheRead", "cache_read"), ("cache_read", "cache_read"),
+                         ("cacheWrite", "cache_write"), ("cache_write", "cache_write")):
+            if _num(record.get(src)):
+                total[dst] += record[src]
+                seen = True
+        cache = record.get("cache")
+        if isinstance(cache, dict):
+            for src, dst in (("read", "cache_read"), ("write", "cache_write")):
+                if _num(cache.get(src)):
+                    total[dst] += cache[src]
+        cost = record.get("cost")
+        if _num(cost):
+            total["cost"] += cost
+        elif isinstance(cost, dict) and _num(cost.get("total")):
+            total["cost"] += cost["total"]
+
+    def walk(node) -> None:
+        nonlocal seen
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
             return
-        if not isinstance(obj, dict):
+        if not isinstance(node, dict):
             return
-        for key, value in obj.items():
-            k = str(key).lower()
-            if k in ADDITIVE and _num(value):
-                total[k] = total.get(k, 0) + value
-            elif k == "cache" and isinstance(value, dict):
-                for ck, cv in value.items():
-                    if str(ck).lower() in ("read", "write") and _num(cv):
-                        name = "cache_" + str(ck).lower()
-                        total[name] = total.get(name, 0) + cv
+        for key, value in node.items():
+            if key in ("usage", "tokens") and isinstance(value, dict):
+                take(value)
+                if _num(node.get("cost")):      # opencode puts cost beside tokens
+                    total["cost"] += node["cost"]
+                    seen = True
             elif isinstance(value, (dict, list)):
-                absorb(value)
+                walk(value)
 
+    parsed = []
     for line in text.splitlines():
         line = line.strip()
         if not line.startswith(("{", "[")):
             continue
         try:
-            absorb(json.loads(line))
+            parsed.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-    if not total:
+
+    # A host that publishes a terminal aggregate hands us the whole run in one
+    # record; omp does, and it also repeats each message's usage in the
+    # message_start / message_end events for the same message, so walking the
+    # stream would count every token three times (observed: 3 x 71,784 = 215,352
+    # for a two-step run). When the aggregate exists, it is the only source.
+    terminal = None
+    for event in parsed:
+        if (isinstance(event, dict) and event.get("type") == "agent_end"
+                and isinstance(event.get("messages"), list)):
+            terminal = event["messages"]
+    if terminal is not None:
+        walk(terminal)
+    else:
+        for event in parsed:
+            walk(event)
+    if not seen:
         return None
-    if "total_cost_usd" in total and "cost" not in total:
-        total["cost"] = total["total_cost_usd"]
+    total["cost"] = round(total["cost"], 10)
     return total
 
 

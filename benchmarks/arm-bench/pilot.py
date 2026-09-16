@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one slice of the pilot block.
+"""Run one slice of a benchmark block.
 
     python3 pilot.py --group 0 --groups 10
 
@@ -16,6 +16,7 @@ report says which it is.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -25,25 +26,35 @@ sys.path.insert(0, str(ROOT))
 
 import bench  # noqa: E402
 
-ARMS = ("opencode+tezgah", "opencode-bare")
+ARMS = ("opencode+tezgah", "opencode-bare", "omp+tezgah", "omp-bare")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--group", type=int, default=0)
     ap.add_argument("--groups", type=int, default=1)
+    ap.add_argument("--arms", default=",".join(ARMS),
+                    help="comma-separated arm names from arms.json")
     ap.add_argument("--model", default="openrouter/deepseek/deepseek-v4-flash")
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--out", default="results/pilot")
     args = ap.parse_args()
 
+    arms = [a.strip() for a in args.arms.split(",") if a.strip()]
+    known = {a["name"]: a for a in json.loads(bench.ARMS_FILE.read_text())}
+    for name in arms:
+        if name not in known:
+            sys.exit("unknown arm: %s" % name)
+        if not known[name].get("flag_verified"):
+            sys.exit("arm %s has flag_verified: false - prove its toggle before "
+                     "scoring it" % name)
     tasks = bench.task_ids()[args.group::args.groups]
     out = ROOT / args.out
     out.mkdir(parents=True, exist_ok=True)
     results = str(out / ("g%d.jsonl" % args.group))
     for task in tasks:
-        for arm in ARMS:
+        for arm in arms:
             subprocess.run(
                 [sys.executable, str(ROOT / "bench.py"), "run", "--arm", arm,
                  "--task", task, "--repeat", str(args.repeats),
