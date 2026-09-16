@@ -1,3 +1,3 @@
-Kısaca açıkla: inventory/core.py ne işe yarıyor, hangi fonksiyonlar var ve ne yapıyorlar?
+Briefly explain: what does inventory/core.py do, which functions does it define, and what does each one do?
 
-Hiçbir dosyayı değiştirme; bu salt-okunur bir inceleme. Cevabını doğrudan yaz.
+Do not change any file; this is a read-only inspection. Write the answer directly.

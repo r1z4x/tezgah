@@ -12,3 +12,6 @@ __pycache__/
 /.codex/agents/
 /.opencode/agents/
 # tezgah: end generated agents
+
+# arm-bench: per-arm agent state (SQLite, model caches) is runtime, not evidence
+/benchmarks/arm-bench/arms/*/

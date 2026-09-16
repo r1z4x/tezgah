@@ -37,15 +37,23 @@ for line in raw.splitlines():
     part = event.get("part") or {}
     if part.get("type") == "text" and part.get("text"):
         text.append(part["text"])
+    for message in (event.get("messages") or []):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        for chunk in (message.get("content") or []):
+            if isinstance(chunk, dict) and chunk.get("type") == "text":
+                text.append(chunk.get("text") or "")
 blob = re.sub(r"\s+", " ", " ".join(text)).lower()
-if not blob:
+if not blob.strip():
     print("the transcript carries no assistant text")
     sys.exit(1)
 
-low = re.sub(r"\W+", " ", blob)
-words = set(low.split())
-tr_hits = sorted(w for w in TR if w in words)
-en_hits = sorted(w for w in EN if w in words)
+words = re.sub(r"\W+", " ", blob).split()
+# Turkish is agglutinative: "fonksiyon" has to match "fonksiyonları", so the
+# marker is a stem and the test is a prefix match. English markers are not
+# inflected the same way, so they stay whole-word.
+tr_hits = sorted(m for m in TR if any(w.startswith(m) for w in words))
+en_hits = sorted(m for m in EN if m in set(words))
 print("turkish markers %d, english markers %d" % (len(tr_hits), len(en_hits)))
 if len(tr_hits) < THRESHOLD:
     print("below the threshold of %d: %s" % (THRESHOLD, tr_hits))
