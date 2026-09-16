@@ -303,6 +303,13 @@ cd ~/Projects/tezgah
 bin/tezgah-setup --install
 ```
 
+In a terminal that command with no arguments is the wizard instead: it asks
+which hosts to arm, the root directories, whether to install the missing
+optional tools, and whether to wire the optional DevTools MCP, prints the plan,
+and writes only after a yes. The flags are the wizard's defaults, so
+`--wizard --hosts omp` asks only the rest. A piped, agent or CI run is never
+prompted — it prints the report, exactly as before.
+
 `--install` also installs the optional tools that are missing by running each
 vendor's own installer **over the network**: `orx`
 (`openresearch.sh/install.sh`), `cursor-agent` (`cursor.com/install`), `dsh`
@@ -346,7 +353,8 @@ knowing:
 
 | Command | Purpose |
 |---|---|
-| `bin/tezgah-setup` | Report what is armed, per host |
+| `bin/tezgah-setup` | On a terminal: the install wizard; on a pipe or in CI: report what is armed, per host |
+| `bin/tezgah-setup --wizard` | Force the install wizard anywhere; `--report` forces the report |
 | `bin/tezgah-status [PATH]` | Show whether the rules are active in that repo |
 | `bin/tezgah-setup --status [PATH]` | Print the armed/used checklist |
 | `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
