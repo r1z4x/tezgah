@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""tezgah-research - the research workspace CLI.
+
+  tezgah-research init <slug> [--question "..."]   scaffold a research line
+  tezgah-research check [<slug>] [--json]          the discipline checks
+  tezgah-research status                           one line per research line
+
+A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
+auditable investigation needs: the question, the decision log, the findings, the
+claims with their falsification criteria and evidence, and one directory per
+experiment whose protocol is committed before its results. `check` exits 1 when
+a line breaks those rules, so a hook or a person can act on it.
+
+Exit codes: 0 clean, 1 problems found, 2 misuse.
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_research as tr  # noqa: E402
+
+
+def repo_root(path):
+    try:
+        out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except OSError:
+        pass
+    return os.path.realpath(path)
+
+
+def misuse(message):
+    """Misuse exits 2, so a caller can tell it from a line that fails the checks."""
+    print("tezgah-research: %s" % message, file=sys.stderr)
+    return 2
+
+
+def cmd_init(args):
+    if not args:
+        return misuse("init needs a slug")
+    slug = args[0].strip().lower().replace(" ", "-")
+    question = ""
+    if len(args) > 1:
+        if args[1] != "--question" or len(args) < 3:
+            return misuse('init <slug> [--question "..."]')
+        question = args[2]
+    repo = repo_root(os.getcwd())
+    made = tr.init(repo, slug, question=question, created=time.strftime("%Y-%m-%d"))
+    print("research line: %s" % tr.line_dir(repo, slug))
+    for path in made:
+        print("  wrote %s" % path)
+    print("\nnext: write experiments/<hypothesis>/protocol.md - what the change is, "
+          "what it predicts, why - and COMMIT it before the run. Then record the "
+          "run in results.jsonl, analyse it in analysis.md, and put the claim in "
+          "claims.jsonl with its falsification criterion and evidence.")
+    print("kill switch: research-off")
+    return 0
+
+
+def cmd_check(args):
+    as_json = "--json" in args
+    rest = [a for a in args if a != "--json"]
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if rest and rest[0] not in known:
+        print("FAIL %s: no such research line (have: %s)"
+              % (rest[0], ", ".join(known) or "none"))
+        return 1
+    if not known:
+        print("no research line under %s" % tr.root(repo))
+        return 0
+    report = tr.check(repo, rest[0] if rest else None)
+    problems = 0
+    for slug, row in report.items():
+        for err in row["errors"]:
+            problems += 1
+            print("FAIL %s: %s" % (slug, err))
+        for warn in row["warnings"]:
+            print("warn %s: %s" % (slug, warn))
+    if as_json:
+        print(json.dumps(report, indent=2))
+    elif not problems:
+        print("research: %d line(s) ok" % len(report))
+    return 1 if problems else 0
+
+
+def cmd_status(args):
+    repo = repo_root(os.getcwd())
+    rows = tr.summary(repo)
+    if not rows:
+        print("no research line under %s" % tr.root(repo))
+        return 0
+    for row in rows:
+        print(row)
+    return 0
+
+
+def main(argv):
+    if len(argv) < 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    cmd, rest = argv[1], argv[2:]
+    if cmd == "init":
+        return cmd_init(rest)
+    if cmd == "check":
+        return cmd_check(rest)
+    if cmd == "status":
+        return cmd_status(rest)
+    return misuse("unknown command %r (init, check, status)" % cmd)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

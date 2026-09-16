@@ -67,7 +67,7 @@ OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
                "treat every line as a standing constraint on the work.")
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
-          "analyze-app", "plan-add", "plan-status", "plan-sync"]
+          "analyze-app", "plan-add", "plan-status", "plan-sync", "research"]
 # opencode context hygiene tezgah arms: prune clears old tool results from the
 # prompt (stops a long session re-sending every output each step) and the
 # watcher ignore keeps fs-events out of noisy trees. Both merge; a user's
@@ -332,6 +332,7 @@ def install_common(new_roots, hosts):
             ("tezgah-agents", os.path.join(HERE, "bin", "tezgah-agents")),
             ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
             ("tezgah-setup", os.path.join(HERE, "bin", "tezgah-setup")),
+            ("tezgah-research", os.path.join(HERE, "bin", "tezgah-research")),
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),

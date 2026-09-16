@@ -248,6 +248,7 @@ kjenne til:
 | `bin/tezgah-status [PATH]` | Vis om reglene er aktive i det kodelageret |
 | `bin/tezgah-setup --status [PATH]` | Skriv ut sjekklisten for aktivert/brukt |
 | `bin/tezgah-setup --deps [--dry-run]` | Installer manglende valgfrie verktøy (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Oppretter og sjekker en forskningslinje: tilstand, funn, påstander og regelen protokoll-før-resultater |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Rapporter rammeverkets diskbruk; `--clean` sletter gamle indekslogger og støvsuger (vacuums) opencode-databasen; `--prune-sessions` sletter inaktive økter (den eneste handlingen som faktisk krymper databasen) |
 | `/plan-add` | Gjør et stykke arbeid om til en sporet plan |
 | `/plan-status` | Oppsummer åpne planer og velg den neste |
@@ -339,9 +340,9 @@ en tidligere revisjon kom til å oppgi en kjernebånd som er mindre enn den den 
 
 | Bånd | Hva det koster |
 |---|---|
-| Øktoppstart | den alltid-på-kontrakten (invariantene pluss en én-linjes peker per on-demand-regel): på denne maskinen og med dette ferdighetssettet, ~1.3k tokens kontraktstekst og ~1.1k ferdighetsmetadata, med de betingede reglene (spec, consult, research, graph) som legger til ~0.6k bare på turen hvis prompt matcher |
+| Øktoppstart | den alltid-på-kontrakten (invariantene pluss en én-linjes peker per on-demand-regel): på denne maskinen og med dette ferdighetssettet, ~1.3k tokens kontraktstekst og ~1.3k ferdighetsmetadata, med de betingede reglene (spec, consult, research, graph) som legger til ~0.6k bare på turen hvis prompt matcher |
 | Per tur | en kort påminnelse (~0.2k tokens) pluss den armerte regelen når den matcher; hooks er separate Python-prosesser, så oppstarten av tolken på ~19 ms dominerer - øktoppstart legger til ~25 ms, et portstyrt verktøykall (Bash/Grep/Task) ~9 ms. opencode har ingen hook ved prompt-tid, så den betaler null |
-| On demand | den fulle `tezgah-contract`-ferdigheten (~5.8k tokens), betalt bare når en oppgave laster den |
+| On demand | den fulle `tezgah-contract`-ferdigheten (~5.9k tokens), betalt bare når en oppgave laster den |
 | MCP-skjemaer | det største båndet, og det ingen statisk rapport ser: grafserveren alene erklærer 15 verktøy / 24,508 byte (~6.1k tokens), som rir på hver forespørsel med mindre verten henter skjemaer on demand. `tezgah-setup --mcp-schemas` måler det |
 | Disk | installasjonen tar ~58 ms, og hver fil tezgah skriver om beholdes én gang som `<file>.tezgah-bak` |
 

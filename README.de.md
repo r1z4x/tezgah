@@ -249,6 +249,7 @@ Nichts auszuführen: Die Regeln werden geladen, wenn ein Host startet. Ein paar 
 | `bin/tezgah-status [PATH]` | Zeigt an, ob die Regeln in diesem Repo aktiv sind |
 | `bin/tezgah-setup --status [PATH]` | Druckt die Checkliste der scharfgeschalteten/verwendeten Regeln |
 | `bin/tezgah-setup --deps [--dry-run]` | Installiert fehlende optionale Tools (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Legt eine Research-Linie an und prüft sie: Zustand, Findings, Claims und die Protokoll-vor-Ergebnis-Regel |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Meldet die Festplattennutzung des Harness; `--clean` löscht alte Index-Logs und bereinigt (vacuum) die opencode-DB; `--prune-sessions` löscht inaktive Sitzungen (die einzige Aktion, die die DB tatsächlich verkleinert) |
 | `/plan-add` | Verwandelt ein Stück Arbeit in einen verfolgten Plan |
 | `/plan-status` | Fasst offene Pläne zusammen und wählt den nächsten aus |
@@ -344,9 +345,9 @@ installiert.
 
 | Band | Was es kostet |
 |---|---|
-| Sitzungsstart | der Always-on-Vertrag (die Invarianten plus ein einzeiliger Zeiger pro On-Demand-Regel): auf dieser Maschine und Skill-Menge ~1.3k Token Vertragstext und ~1.1k an Skill-Metadaten, wobei die bedingten Regeln (spec, consult, research, graph) nur in dem Zug, dessen Prompt passt, ~0.6k hinzufügen |
+| Sitzungsstart | der Always-on-Vertrag (die Invarianten plus ein einzeiliger Zeiger pro On-Demand-Regel): auf dieser Maschine und Skill-Menge ~1.3k Token Vertragstext und ~1.3k an Skill-Metadaten, wobei die bedingten Regeln (spec, consult, research, graph) nur in dem Zug, dessen Prompt passt, ~0.6k hinzufügen |
 | Pro Zug | eine kurze Erinnerung (~0.2k Token) plus die scharf geschaltete Regel, wenn sie passt; Hooks sind separate Python-Prozesse, daher dominiert der ~19 ms Interpreter-Start - Sitzungsstart fügt ~25 ms hinzu, ein durch ein Gate geschützter Tool-Aufruf (Bash/Grep/Task) ~9 ms. opencode hat keinen Prompt-Zeit-Hook, zahlt also null |
-| On Demand | der vollständige `tezgah-contract`-Skill (~5.8k Token), nur bezahlt, wenn eine Aufgabe ihn lädt |
+| On Demand | der vollständige `tezgah-contract`-Skill (~5.9k Token), nur bezahlt, wenn eine Aufgabe ihn lädt |
 | MCP-Schemas | das größte Band und das, das kein statischer Bericht sieht: allein der Graph-Server deklariert 15 Tools / 24,508 Bytes (~6.1k Token) und reitet auf jeder Anfrage mit, es sei denn, der Host holt Schemas auf Anfrage. `tezgah-setup --mcp-schemas` misst es |
 | Festplatte | die Installation dauert ~58 ms, und jede Datei, die tezgah neu schreibt, wird einmal als `<file>.tezgah-bak` aufbewahrt |
 

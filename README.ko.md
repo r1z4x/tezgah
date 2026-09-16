@@ -221,6 +221,7 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 | `bin/tezgah-status [PATH]` | 해당 리포지토리에서 규칙이 활성화되어 있는지 표시 |
 | `bin/tezgah-setup --status [PATH]` | 준비/사용된 체크리스트 출력 |
 | `bin/tezgah-setup --deps [--dry-run]` | 누락된 선택적 도구(orx, cursor-agent, dsh) 설치 |
+| `bin/tezgah-research init\|check\|status` | 연구 라인을 만들고 검사한다: 상태, findings, 클레임, 프로토콜 우선 규칙 |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | 하네스 디스크 사용량 보고; `--clean`은 오래된 인덱스 로그를 삭제하고 opencode DB를 정리(vacuum)합니다; `--prune-sessions`는 유휴 세션을 삭제합니다(실제로 DB 크기를 줄이는 유일한 작업) |
 | `/plan-add` | 작업을 추적되는 계획으로 변환 |
 | `/plan-status` | 열려 있는 계획을 요약하고 다음 계획 선택 |
@@ -298,9 +299,9 @@ tezgah는 설정된 루트 아래에서만 준비되며, 그 외의 곳에서는
 
 | 밴드 | 드는 비용 |
 |---|---|
-| 세션 시작 | 상시 켜짐 계약(불변식에 더해 온디맨드 규칙마다 한 줄 포인터): 이 머신과 스킬 세트에서 계약 텍스트 약 1.3k 토큰과 스킬 메타데이터 약 1.1k 토큰이며, 조건부 규칙(spec, consult, research, graph)은 프롬프트가 일치하는 턴에만 약 0.6k를 더합니다 |
+| 세션 시작 | 상시 켜짐 계약(불변식에 더해 온디맨드 규칙마다 한 줄 포인터): 이 머신과 스킬 세트에서 계약 텍스트 약 1.3k 토큰과 스킬 메타데이터 약 1.3k 토큰이며, 조건부 규칙(spec, consult, research, graph)은 프롬프트가 일치하는 턴에만 약 0.6k를 더합니다 |
 | 턴당 | 짧은 알림(약 0.2k 토큰)에 더해 일치할 때의 무장된 규칙; 훅은 별도의 Python 프로세스이므로 약 19 ms의 인터프리터 시작이 지배적입니다 - 세션 시작이 약 25 ms, 게이트된 도구 호출(Bash/Grep/Task)이 약 9 ms를 더합니다. opencode에는 프롬프트 시점 훅이 없어 비용이 0입니다 |
-| 온디맨드 | 전체 `tezgah-contract` 스킬(약 5.8k 토큰)로, 작업이 로드할 때만 비용이 발생합니다 |
+| 온디맨드 | 전체 `tezgah-contract` 스킬(약 5.9k 토큰)로, 작업이 로드할 때만 비용이 발생합니다 |
 | MCP 스키마 | 가장 큰 밴드이며 어떤 정적 보고서도 보지 못하는 것입니다: 그래프 서버만 15개 도구 / 24,508 바이트(약 6.1k 토큰)를 선언하고, 호스트가 온디맨드로 스키마를 가져오지 않는 한 모든 요청에 동승합니다. `tezgah-setup --mcp-schemas`가 이를 측정합니다 |
 | 디스크 | 설치에 약 58 ms가 걸리며, tezgah가 다시 쓰는 모든 파일은 `<file>.tezgah-bak`으로 한 번 보관됩니다 |
 

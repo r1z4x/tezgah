@@ -161,6 +161,7 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 | `bin/tezgah-status [PATH]` | 顯示規則在該儲存庫中是否處於作用中 |
 | `bin/tezgah-setup --status [PATH]` | 印出已武裝/已使用的檢查清單 |
 | `bin/tezgah-setup --deps [--dry-run]` | 安裝缺少的選用工具 (orx、cursor-agent、dsh) |
+| `bin/tezgah-research init\|check\|status` | 建立並檢查研究線：狀態、findings、聲明以及協定先於結果的規則 |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | 報告測試框架的磁碟使用量；`--clean` 刪除舊的索引日誌並清理 (vacuum) opencode 資料庫；`--prune-sessions` 刪除閒置的工作階段（這是唯一能實際縮小資料庫的動作） |
 | `/plan-add` | 將一項工作轉換為受追蹤的計畫 |
 | `/plan-status` | 總結開啟的計畫並挑選下一個 |
@@ -234,9 +235,9 @@ $0.0087。契約臂解決了更多任務，因此每個已解決任務成本更�
 
 | 區間 | 它的成本 |
 |---|---|
-| 工作階段啟動 | 常開的契約（不變式加上每條按需規則的一行指標）：在本機和這套技能下，約 1.3k tokens 的契約文字和約 1.1k 的技能中繼資料，條件規則（spec、consult、research、graph）只在提示詞相符的那一輪增加約 0.6k |
+| 工作階段啟動 | 常開的契約（不變式加上每條按需規則的一行指標）：在本機和這套技能下，約 1.3k tokens 的契約文字和約 1.3k 的技能中繼資料，條件規則（spec、consult、research、graph）只在提示詞相符的那一輪增加約 0.6k |
 | 每輪次 | 一條簡短提醒（約 0.2k tokens）加上相符時武裝的規則；掛鉤是獨立的 Python 處理程序，因此約 19 毫秒的直譯器啟動佔主導——工作階段啟動增加約 25 毫秒，一次受閘道控制的工具呼叫（Bash/Grep/Task）約 9 毫秒。opencode 沒有提示詞時掛鉤，因此付出零成本 |
-| 按需 | 完整的 `tezgah-contract` 技能（約 5.8k tokens），只在任務載入它時才付出 |
+| 按需 | 完整的 `tezgah-contract` 技能（約 5.9k tokens），只在任務載入它時才付出 |
 | MCP 結構描述 | 最大的區間，也是沒有任何靜態報告能看到的區間：僅圖譜伺服器就宣告 15 個工具 / 24,508 位元組（約 6.1k tokens），除非主機按需取得結構描述，否則它搭乘每個請求。`tezgah-setup --mcp-schemas` 測量它 |
 | 磁碟 | 安裝耗時約 58 毫秒，tezgah 覆寫的每個檔案都會保留一次為 `<file>.tezgah-bak` |
 

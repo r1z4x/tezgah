@@ -247,6 +247,7 @@ bilmekte fayda var:
 | `bin/tezgah-status [PATH]` | Kuralların o depoda aktif olup olmadığını gösterir |
 | `bin/tezgah-setup --status [PATH]` | Devrede olan/kullanılan kontrol listesini yazdırır |
 | `bin/tezgah-setup --deps [--dry-run]` | Eksik isteğe bağlı araçları kurar (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Bir araştırma hattını kurar ve denetler: state, findings, claims ve protokol-sonuç kuralı |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Donanım disk kullanımını raporlar; `--clean` eski indeks günlüklerini siler ve opencode veritabanını vakumlar; `--prune-sessions` boşta kalan oturumları siler (veritabanını gerçekten küçülten tek eylem) |
 | `/plan-add` | Bir iş parçasını izlenen bir plana dönüştürür |
 | `/plan-status` | Açık planları özetler ve bir sonrakini seçer |
@@ -340,9 +341,9 @@ bütçeyi yazdırır — buraya kopyalanmış bir rakama güvenmek yerine onu or
 
 | Bant | Maliyeti |
 |---|---|
-| Oturum başlangıcı | her zaman açık sözleşme (invariantlar artı isteğe bağlı kural başına tek satırlık bir işaretçi): bu makinede ve yetenek setinde ~1.3k token sözleşme metni ve ~1.1k yetenek üst verisi; koşullu kurallar (spec, consult, research, graph) yalnızca istemi eşleşen turda ~0.6k ekler |
+| Oturum başlangıcı | her zaman açık sözleşme (invariantlar artı isteğe bağlı kural başına tek satırlık bir işaretçi): bu makinede ve yetenek setinde ~1.3k token sözleşme metni ve ~1.3k yetenek üst verisi; koşullu kurallar (spec, consult, research, graph) yalnızca istemi eşleşen turda ~0.6k ekler |
 | Tur başına | kısa bir hatırlatıcı (~0.2k token) artı eşleştiğinde devreye alınan kural; kancalar ayrı Python süreçleridir, bu nedenle ~19 ms yorumlayıcı başlangıcı baskındır — oturum başlangıcı ~25 ms, geçitli bir araç çağrısı (Bash/Grep/Task) ~9 ms ekler. opencode'un istem zamanı kancası yoktur, bu nedenle sıfır öder |
-| İsteğe bağlı | tam `tezgah-contract` yeteneği (~5.8k token), yalnızca bir görev onu yüklediğinde ödenir |
+| İsteğe bağlı | tam `tezgah-contract` yeteneği (~5.9k token), yalnızca bir görev onu yüklediğinde ödenir |
 | MCP şemaları | en büyük bant ve hiçbir statik raporun görmediği bant: tek başına graph sunucusu 15 araç / 24,508 bayt (~6.1k token) bildirir ve barındırıcı şemaları isteğe bağlı getirmediği sürece her isteğe biner. `tezgah-setup --mcp-schemas` bunu ölçer |
 | Disk | kurulum ~58 ms sürer ve tezgah'ın yeniden yazdığı her dosya bir kez `<file>.tezgah-bak` olarak saklanır |
 

@@ -8,6 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The research workspace: `bin/tezgah-research` (`init`, `check`, `status`) and
+  the `research` skill. A research line lives in `<repo>/.tezgah/research/<slug>/`
+  and holds the question and locked evaluation, the decision log, the findings,
+  the claims with their falsification criteria, provenance and evidence, and one
+  directory per experiment whose `protocol.md` is committed before its
+  `results.jsonl`. `check` fails on the rules a session skips - a protocol
+  committed after the run (a protocol written after the results is not a
+  prediction), a claim with no falsification criterion or evidence, results with
+  no analysis, a findings file that answers none of its four questions - and the
+  session context names the first structural one at session start (the order rule
+  needs git history, so it stays a `check`-time rule). The skill carries the
+  two-loop rhythm, the ideation step, the six-dimension claim review and the
+  provenance tags; execution stays on the OpenResearch CLI.
 - `tezgah-setup --mcp-schemas` measures the one context band the installer
   could not see: it performs an `initialize` + `tools/list` handshake with each
   MCP server it registers over stdio and prints the tool count and schema bytes.

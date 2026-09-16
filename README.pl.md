@@ -247,6 +247,7 @@ Nie ma nic do uruchamiania: reguły ładują się podczas startu hosta. Warto zn
 | `bin/tezgah-status [PATH]` | Pokazuje, czy reguły są aktywne w danym repozytorium |
 | `bin/tezgah-setup --status [PATH]` | Wypisuje listę kontrolną uzbrojonych/używanych reguł |
 | `bin/tezgah-setup --deps [--dry-run]` | Instaluje brakujące opcjonalne narzędzia (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Tworzy i sprawdza linię badawczą: stan, ustalenia, twierdzenia i reguła protokół-przed-wynikami |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Raportuje zużycie dysku przez środowisko; `--clean` usuwa stare logi indeksu i czyści (vacuum) bazę danych opencode; `--prune-sessions` usuwa bezczynne sesje (jedyna akcja, która faktycznie zmniejsza bazę danych) |
 | `/plan-add` | Zmienia fragment pracy w śledzony plan |
 | `/plan-status` | Podsumowuje otwarte plany i wybiera następny |
@@ -339,9 +340,9 @@ wcześniejsza wersja podawała pasmo rdzenia mniejsze od tego, które faktycznie
 
 | Pasmo | Ile kosztuje |
 |---|---|
-| Start sesji | kontrakt zawsze włączony (niezmienniki plus jednolinijkowy wskaźnik na każdą regułę na żądanie): na tej maszynie i w tym zestawie umiejętności ~1.3k tokenów tekstu kontraktu i ~1.1k metadanych umiejętności, przy czym reguły warunkowe (spec, consult, research, graph) dodają ~0.6k tylko w turze, której prompt pasuje |
+| Start sesji | kontrakt zawsze włączony (niezmienniki plus jednolinijkowy wskaźnik na każdą regułę na żądanie): na tej maszynie i w tym zestawie umiejętności ~1.3k tokenów tekstu kontraktu i ~1.3k metadanych umiejętności, przy czym reguły warunkowe (spec, consult, research, graph) dodają ~0.6k tylko w turze, której prompt pasuje |
 | Na turę | krótkie przypomnienie (~0.2k tokenów) plus uzbrojona reguła, gdy pasuje; hooki to osobne procesy Pythona, więc dominuje start interpretera ~19 ms - start sesji dodaje ~25 ms, wywołanie narzędzia z bramką (Bash/Grep/Task) ~9 ms. opencode nie ma hooka w momencie promptu, więc płaci zero |
-| Na żądanie | pełna umiejętność `tezgah-contract` (~5.8k tokenów), opłacana tylko wtedy, gdy zadanie ją załaduje |
+| Na żądanie | pełna umiejętność `tezgah-contract` (~5.9k tokenów), opłacana tylko wtedy, gdy zadanie ją załaduje |
 | Schematy MCP | największe pasmo i to, którego nie widzi żaden statyczny raport: sam serwer grafu deklaruje 15 narzędzi / 24,508 bajtów (~6.1k tokenów), jadąc przy każdym żądaniu, chyba że host pobiera schematy na żądanie. `tezgah-setup --mcp-schemas` to mierzy |
 | Dysk | instalacja zajmuje ~58 ms, a każdy plik, który tezgah nadpisuje, jest zachowywany jednorazowo jako `<file>.tezgah-bak` |
 

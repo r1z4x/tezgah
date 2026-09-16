@@ -716,7 +716,7 @@ class ContextBudget(SetupBase):
         out = proc.stdout
         self.assertIn("context budget (always-on text", out)
         for band in ("core contract (always-on, per session)", "per-turn reminder",
-                     "skill metadata (8)", "subagent metadata (5)",
+                     "skill metadata (9)", "subagent metadata (5)",
                      "conditional rules (armed by task class)",
                      "full contract (on demand)", "MCP tool schemas"):
             self.assertIn(band, out)
@@ -725,7 +725,7 @@ class ContextBudget(SetupBase):
         proc = self.setup()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         core = re.search(r"core contract \(always-on, per session\)\s+~\s*([\d.]+)k tok", proc.stdout)
-        skill = re.search(r"skill metadata \(8\)\s+~\s*([\d.]+)k tok", proc.stdout)
+        skill = re.search(r"skill metadata \(9\)\s+~\s*([\d.]+)k tok", proc.stdout)
         ondemand = re.search(r"full contract \(on demand\)\s+~\s*([\d.]+)k tok", proc.stdout)
         self.assertIsNotNone(core)
         self.assertIsNotNone(skill)

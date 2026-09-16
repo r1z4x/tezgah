@@ -330,6 +330,16 @@ downward, not sideways. Local research needs no login; managed compute does
 If the CLI is not installed, say the research tooling is unavailable and do not
 improvise its protocol; fall back to a host subagent and say so. Kill switch:
 `research-off`.
+
+Keep the line auditable in the repository, not in your head:
+`<repo>/.tezgah/research/<slug>/` holds the question, the decision log, the
+findings, the claims with their falsification criteria and evidence, and one
+directory per experiment whose `protocol.md` is committed BEFORE its results -
+a protocol written after the run is not a prediction. `{RESEARCH_BIN} check`
+enforces that, and `{RESEARCH_BIN} init <slug>` scaffolds it. Load the
+`research` skill for the two-loop rhythm, the ideation step, the six-dimension
+review a claim passes before it is reported, and the provenance tags the session
+records at the end.
 """
 
 NO_CBM = """
