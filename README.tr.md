@@ -300,7 +300,8 @@ bilmekte fayda var:
 
 | Komut | Amaç |
 |---|---|
-| `bin/tezgah-setup` | Barındırıcı başına nelerin devrede olduğunu raporlar |
+| `bin/tezgah-setup` | Terminalde: kurulum sihirbazı; boru hattında veya CI'da: barındırıcı başına nelerin devrede olduğunu raporlar |
+| `bin/tezgah-setup --wizard` | Kurulum sihirbazını her yerde zorlar; `--report` raporu zorlar |
 | `bin/tezgah-status [PATH]` | Kuralların o depoda aktif olup olmadığını gösterir |
 | `bin/tezgah-setup --status [PATH]` | Devrede olan/kullanılan kontrol listesini yazdırır |
 | `bin/tezgah-setup --deps [--dry-run]` | Eksik isteğe bağlı araçları kurar (orx, cursor-agent, dsh) |

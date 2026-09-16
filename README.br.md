@@ -297,7 +297,8 @@ Nada para executar: as regras são carregadas quando um host é iniciado. Vale a
 
 | Comando | Propósito |
 |---|---|
-| `bin/tezgah-setup` | Relatar o que está armado, por host |
+| `bin/tezgah-setup` | No terminal: o assistente de instalação; em um pipe ou na CI: relatar o que está armado, por host |
+| `bin/tezgah-setup --wizard` | Forçar o assistente de instalação em qualquer lugar; `--report` força o relatório |
 | `bin/tezgah-status [PATH]` | Mostrar se as regras estão ativas naquele repositório |
 | `bin/tezgah-setup --status [PATH]` | Imprimir a checklist armada/usada |
 | `bin/tezgah-setup --deps [--dry-run]` | Instalar ferramentas opcionais ausentes (orx, cursor-agent, dsh) |
