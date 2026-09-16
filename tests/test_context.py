@@ -151,6 +151,7 @@ class KillSwitchEnforcement(TempHome):
 
     OFF = "**Turkish, BLUF.**"
     PONY = "**Ponytail (minimal code).**"
+    FIDELITY = "**Deliver the whole ask; never the shortcut.**"
     SPEC = "**Spec before building.**"
     LESSONS = "**Lessons ledger: stop repeating mistakes.**"
     CBM = "**Code discovery: graph first.**"
@@ -178,8 +179,19 @@ class KillSwitchEnforcement(TempHome):
     def test_default_keeps_the_invariants(self):
         repo = self.make_repo()
         out = self.session(repo)
-        for label in (self.OFF, self.PONY, self.LESSONS):
+        for label in (self.OFF, self.PONY, self.FIDELITY, self.LESSONS):
             self.assertIn(label, out)
+
+    def test_fidelity_and_the_sycophancy_ban_are_invariants(self):
+        # no kill switch removes these: they are not opt-out rules
+        repo = self.make_repo()
+        for name in ("exec-mode.off", "ponytail-auto.off", "spec-off",
+                     "consult-off", "research-off", "orchestrate-off"):
+            self.switch(name)
+        out = self.session(repo)
+        self.assertIn(self.FIDELITY, out)
+        self.assertIn("haklısın", out)
+        self.assertNotIn(self.OFF, out)  # exec-mode.off still removed its own rule
 
     def test_conditional_rules_are_armed_by_task_class(self):
         repo = self.make_repo()
