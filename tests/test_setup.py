@@ -141,12 +141,19 @@ class Install(SetupBase):
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
         self.assertEqual((oc.get("permission") or {}).get("skill"), "deny")
         router = self.path(".config", "tezgah", "opencode-skills.md")
+        full = self.path(".config", "tezgah", "opencode-skills.full.md")
         self.assertTrue(os.path.isfile(router))
         self.assertIn(router, oc.get("instructions", []))
+        self.assertNotIn(full, oc.get("instructions", []))
         body = self.read_text(router)
-        self.assertIn("acme-widget", body)
-        self.assertIn("marketing & growth", body)
+        # the always-on router carries the coding buckets and points at the full
+        # list; a marketing skill lives only in the full file
         self.assertIn("tezgah core", body)
+        self.assertIn("marketing & growth:", body)
+        self.assertIn(full, body)
+        self.assertNotIn("acme-widget", body)
+        self.assertTrue(os.path.isfile(full))
+        self.assertIn("acme-widget", self.read_text(full))
         self.assertIn("harness", body)
         self.assertIn("analyze-app", body)
 
@@ -363,8 +370,8 @@ class Uninstall(SetupBase):
         self.assertNotIn("compaction", oc)
         self.assertNotIn("watcher", oc)
         self.assertFalse(oc.get("instructions"))
-        self.assertFalse(os.path.exists(self.path(".config", "tezgah",
-                                                  "opencode-skills.md")))
+        for name in ("opencode-skills.md", "opencode-skills.full.md"):
+            self.assertFalse(os.path.exists(self.path(".config", "tezgah", name)), name)
 
 
 class Adopt(SetupBase):
