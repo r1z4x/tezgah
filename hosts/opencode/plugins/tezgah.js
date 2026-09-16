@@ -67,9 +67,44 @@ const SKIP_TEST = new RegExp(
   "\\bt\\.Skip\\w*\\(|" +
   "\\b(?:it|test|describe)\\.(?:skip|only)\\(|\\bxit\\(|\\bxdescribe\\(|" +
   "\\bpytestmark\\s*=\\s*pytest\\.mark\\.skip", "gi")
+// Only a test file can be disabled by a skip marker; a probe script, a note or
+// a fixture that quotes one is not this rule's business. Ported from
+// hooks/tezgah_integrity.TEST_PATH.
+const TEST_PATH =
+  /(?:^|\/)(?:tests?|__tests__|spec|specs)\/|(?:^|\/)(?:test_[^/]*|conftest|[^/]*_test)\.[A-Za-z0-9]+$|\.(?:test|spec)\.[A-Za-z0-9]+$/i
+// Strings, comments and heredoc bodies are neither commands nor test code: the
+// repo's own tests quote a skip marker, and a commit message that *describes*
+// `--no-verify` disables nothing. Both scans run on a copy where those regions
+// are blanked - length preserved, so a match keeps its offset.
+const LITERALS =
+  /'''[\s\S]*?'''|"""[\s\S]*?"""|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|\/\*[\s\S]*?\*\/|\/\/[^\n]*|#[^\n]*/g
+const HEREDOC = /<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?/
 const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
   "edit_file", "write_file", "search_replace"])
 const BASH_TOOLS = new Set(["bash", "shell", "command"])
+
+function blankHeredocs(text) {
+  const lines = String(text || "").split("\n")
+  const out = []
+  let i = 0
+  while (i < lines.length) {
+    const m = lines[i].match(HEREDOC)
+    if (!m) { out.push(lines[i]); i += 1; continue }
+    const tag = m[1]
+    let j = i + 1
+    while (j < lines.length && lines[j].trim() !== tag) j += 1
+    if (j === lines.length) { out.push(lines[i]); i += 1; continue }
+    out.push(lines[i])
+    for (let k = i + 1; k < j; k += 1) out.push(" ".repeat(lines[k].length))
+    out.push(lines[j])
+    i = j + 1
+  }
+  return out.join("\n")
+}
+
+function maskText(text) {
+  return blankHeredocs(text).replace(LITERALS, (m) => " ".repeat(m.length))
+}
 
 function verifyCommand(cmd) {
   const m = String(cmd || "").match(VERIFY)
@@ -77,7 +112,8 @@ function verifyCommand(cmd) {
 }
 
 function shortcutCommand(cmd) {
-  const c = String(cmd || "")
+  // the masked text, so a message that names the flag is not the flag
+  const c = maskText(cmd)
   if (NO_VERIFY.test(c) && GITISH.test(c))
     return "Verification bypass denied: `--no-verify` skips the commit/push " +
       "hooks that run the checks. Run the checks, fix what they report, and " +
@@ -93,11 +129,17 @@ function shortcutCommand(cmd) {
 }
 
 function addedSkips(newText, oldText) {
-  const before = new Set((String(oldText || "").match(SKIP_TEST) || [])
-    .map((s) => s.toLowerCase()))
+  const before = {}
+  for (const m of String(oldText || "").matchAll(SKIP_TEST)) {
+    const low = m[0].toLowerCase()
+    before[low] = (before[low] || 0) + 1
+  }
   const out = []
-  for (const m of String(newText || "").matchAll(SKIP_TEST))
-    if (!before.has(m[0].toLowerCase())) out.push(m[0])
+  for (const m of String(newText || "").matchAll(SKIP_TEST)) {
+    const low = m[0].toLowerCase()
+    if (before[low] > 0) before[low] -= 1
+    else if (!out.includes(m[0])) out.push(m[0])
+  }
   return out
 }
 
@@ -106,12 +148,13 @@ async function shortcutEdit(args) {
   const newText = String(
     args?.newString ?? args?.new_string ?? args?.content ?? "")
   if (!newText) return null
+  const p = String(args?.filePath ?? args?.file_path ?? args?.path ?? "")
+  if (!TEST_PATH.test(p)) return null
   let base = oldText
-  if (!base) {
-    const p = String(args?.filePath ?? args?.file_path ?? args?.path ?? "")
-    if (p) { try { base = await readFile(expand(p), "utf8") } catch { base = "" } }
+  if (!base && p) {
+    try { base = await readFile(expand(p), "utf8") } catch { base = "" }
   }
-  const added = addedSkips(newText, base)
+  const added = addedSkips(maskText(newText), maskText(base))
   if (!added.length) return null
   return "Test disable denied: this change adds " +
     [...new Set(added)].join(", ") + ". Making a failing test disappear is not " +

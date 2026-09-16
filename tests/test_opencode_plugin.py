@@ -96,6 +96,7 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("bash",
                                  {"command": "git commit -m x --no-verify"}))
         self.allowed(self.before("edit", {
+            "filePath": "tests/test_x.py",
             "old_string": "def test_x():\n    assert 1",
             "new_string": "%s\ndef test_x():\n    assert 1" % SKIP_MARK}))
         # attribution and the explorer refusal are different rules: still armed
@@ -109,30 +110,55 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("bash",
                                  {"command": "git commit -m x --no-verify"}))
 
+    def test_naming_no_verify_in_a_message_or_a_read_passes(self):
+        # describing the rule is not a bypass; the flag has to be in command
+        # position (the plugin denied the description before the masking)
+        self.allowed(self.before("bash", {
+            "command": 'git commit -m "gate: deny --no-verify bypasses"'}))
+        self.allowed(self.before("bash", {
+            "command": "git commit -F - <<'MSG'\ngate denies --no-verify\nMSG"}))
+        self.denied(self.before("bash",
+                                {"command": "git commit --no-verify -m x"}))
+
     # ---- newly added test disable -----------------------------------------
     def test_adding_a_disable_marker_denied(self):
         self.denied(self.before("edit", {
+            "filePath": "tests/test_x.py",
             "old_string": "def test_x():\n    assert 1",
             "new_string": "%s\ndef test_x():\n    assert 1" % SKIP_MARK}))
+
+    def test_a_marker_outside_a_test_file_passes(self):
+        self.allowed(self.before("edit", {
+            "filePath": "probe.py",
+            "new_string": "%s\ndef test_x(): pass" % SKIP_MARK}))
+
+    def test_a_marker_inside_a_string_is_not_a_disable(self):
+        self.allowed(self.before("edit", {
+            "filePath": "tests/test_x.py",
+            "new_string": 'CASES = ["%s"]' % SKIP_MARK}))
 
     def test_rewriting_an_existing_marker_passes(self):
         old = "%s\ndef test_x(): pass" % SKIP_MARK
         self.allowed(self.before("edit",
-                                 {"old_string": old, "new_string": old}))
+                                 {"filePath": "tests/test_x.py",
+                                  "old_string": old, "new_string": old}))
 
     def test_plain_edit_passes(self):
         self.allowed(self.before("edit",
-                                 {"old_string": "a = 1", "new_string": "a = 2"}))
+                                 {"filePath": "tests/test_x.py",
+                                  "old_string": "a = 1", "new_string": "a = 2"}))
 
     def test_optional_dependency_guard_allowed(self):
         guard = "@unittest." + "skipUnless(HAVE_NODE, 'node missing')"
         self.allowed(self.before("edit", {
+            "filePath": "tests/test_x.py",
             "old_string": "def t():\n    pass",
             "new_string": guard + "\ndef t():\n    pass"}))
 
     def test_conditional_skip_denied_with_own_name(self):
         name = "@unittest." + "skipIf(x, 'y')"
         error = self.denied(self.before("edit", {
+            "filePath": "tests/test_x.py",
             "old_string": "def t():\n    pass",
             "new_string": name + "\ndef t():\n    pass"}))
         self.assertIn(name.split("(")[0], error)
