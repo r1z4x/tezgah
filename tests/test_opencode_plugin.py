@@ -65,6 +65,15 @@ class OpenCodePlugin(TempHome):
     def kinds(self, session="s1"):
         return [entry["kind"] for entry in self.ledger(session)]
 
+    def used(self, session="s1"):
+        """The used-tool kinds recorded for the status line (session ledger)."""
+        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
+                            support.slug(session) + ".jsonl")
+        if not os.path.exists(path):
+            return []
+        with open(path) as fh:
+            return [json.loads(line)["kind"] for line in fh if line.strip()]
+
     # ---- shortcut gate -----------------------------------------------------
     def test_no_verify_commit_denied(self):
         for command in ("git commit -m x --no-verify", "git push --no-verify"):
@@ -239,6 +248,16 @@ class OpenCodePlugin(TempHome):
     def test_outside_root_records_nothing(self):
         self.after("bash", {"command": "ls"}, directory=self.home)
         self.assertEqual(self.kinds(), [])
+
+    def test_a_mention_of_a_tool_is_not_a_use_of_it(self):
+        # the plugin's cheap substring only decides whether to ask; the answer
+        # comes from the shared tokenizer, so `grep -n consult hooks/` records
+        # nothing while a real run still does
+        self.context_bin()
+        self.after("bash", {"command": "grep -n consult hooks/"})
+        self.assertNotIn("consult", self.used())
+        self.after("bash", {"command": "timeout 30 consult --online q"})
+        self.assertIn("consult", self.used())
 
     # ---- first-grep nudge --------------------------------------------------
     def make_index(self):

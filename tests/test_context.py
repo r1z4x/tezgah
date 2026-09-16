@@ -302,6 +302,44 @@ class IndexRedraw(unittest.TestCase):
                          ["--show-toplevel", "HEAD"], self.probes)
 
 
+class UsedToolKind(unittest.TestCase):
+    """A mark may only turn green when the tool really ran, so the kind has to
+    come from a command position: not from a word carried as an argument, and
+    not from the body of a heredoc."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc
+        cls.tc = tc
+
+    def kind(self, command):
+        return self.tc.shell_kind(command)
+
+    def test_a_real_run_is_seen_through_wrappers_and_keywords(self):
+        for command, want in (
+                ("consult q", "consult"),
+                ("cd /tmp && sudo env X=1 consult --online q", "consult"),
+                ("timeout 30 consult q", "consult"),
+                ("sudo -u root consult q", "consult"),
+                ("env -i consult q", "consult"),
+                ("bash -c 'consult q'", "consult"),
+                ("sh -c 'orx run'", "research"),
+                ("if consult q; then echo ok; fi", "consult"),
+                ("! orx skill", "research"),
+                ("echo hi\nconsult q", "consult")):
+            self.assertEqual(self.kind(command), want, command)
+
+    def test_a_mention_is_not_a_use(self):
+        for command in ("grep -n consult hooks/",
+                        "git log --grep=consult",
+                        "echo 'run consult later'",
+                        "cat <<'EOF'\nconsult q\nEOF",
+                        "python3 - <<EOF\norx skill\nEOF",
+                        "echo $((1<<2)); grep orx hooks/"):
+            self.assertIsNone(self.kind(command), command)
+
+
 class KillSwitchEnforcement(TempHome):
     """A documented kill switch must remove its rule from the injected text,
     not just flip a status mark. The labels are pinned here, so editing one in

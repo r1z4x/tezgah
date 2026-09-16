@@ -1668,6 +1668,7 @@ def report(hosts):
 
 
 def host_checks_claude():
+    copies = plugin_copies()
     return [
         ("statusline symlink", os.path.islink(os.path.join(CLAUDE, "statusline.py"))),
         ("statusLine in settings.json", statusline_wired()),
@@ -1677,9 +1678,11 @@ def host_checks_claude():
          all(os.path.islink(os.path.join(CLAUDE, "bin", b))
              for b in ("consult", "codegen", "tezgah-render-table"))),
         # Claude runs the plugin COPY, not this checkout, so a copy that lags it
-        # is the one gap the other four rows cannot see
+        # is the one gap the other four rows cannot see. An absent copy is not
+        # current either: all([]) is True, and a row that stays green on a
+        # machine with no tezgah plugin at all is not a check.
         ("plugin copy current (hooks/tezgah_policy.py matches)",
-         all(plugin_copy_current(t) for t in plugin_copies())),
+         bool(copies) and all(plugin_copy_current(t) for t in copies)),
     ]
 
 
@@ -1927,6 +1930,13 @@ def sync():
     files = [f for f in tracked.stdout.splitlines()
              if f and not f.startswith("plans/") and "__pycache__" not in f]
     for t in targets:
+        # A copy that contains this checkout IS this checkout, so emptying it
+        # would delete the tree being copied from (someone running the copy's own
+        # bin/tezgah-setup). The documented path never does; this says no.
+        real = os.path.realpath(t)
+        if real == HERE or HERE.startswith(real + os.sep):
+            print("%s skip %s (it holds this checkout)" % (NO, t))
+            continue
         for name in os.listdir(t):
             if name != ".git":
                 path = os.path.join(t, name)

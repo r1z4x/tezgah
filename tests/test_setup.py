@@ -458,8 +458,19 @@ class PluginCopy(SetupBase):
             self.assertEqual(fh.read(), checkout)
         self.assertTrue(self.reported().strip().startswith("ok"))
 
-    def test_a_machine_without_the_plugin_channel_is_not_flagged(self):
-        self.assertTrue(self.reported().strip().startswith("ok"))
+    def test_a_machine_without_a_plugin_copy_is_not_current(self):
+        # all([]) is True, so the row used to be green on the one machine where
+        # Claude has no tezgah at all - a check that cannot fail. An absent copy
+        # is reported, like every sibling claude row.
+        self.assertTrue(self.reported().strip().startswith("MISS"),
+                        "no plugin copy at all was reported as current")
+
+    def test_install_does_not_invent_a_plugin_copy(self):
+        # refreshing is for a copy that exists and lags; there is nothing here
+        # to refresh, and guessing a cache path would be a lie
+        proc = self.setup("--install", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(self.reported().strip().startswith("MISS"))
 
 
 class CodexHome(SetupBase):

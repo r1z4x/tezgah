@@ -511,37 +511,89 @@ def context_for(event, cwd, payload=None, with_core=True):
 
 # A tool name that only appears as an ARGUMENT is not a use of that tool: the
 # status line used to turn `consult✓` green for `grep -n consult hooks/`. So a
-# shell line is tokenized and only its command positions are read. The tokenizer
-# keeps the command position open through wrappers (`sudo env X=1 consult q`) and
-# a line it cannot parse contributes nothing - under-reporting beats claiming a
-# tool ran.
-_SHELL_WRAPPERS = frozenset(("sudo", "env", "nohup", "time", "command", "exec",
-                             "xargs", "then", "do"))
+# shell line is tokenized and only its command positions are read - which means
+# the words that stand between the shell and the program have to be understood:
+# a wrapper (`sudo env X=1 consult q`), a keyword (`if consult q`), a wrapper's
+# own argument (`timeout 30 consult q`), a shell running a command string
+# (`bash -c 'consult q'`) and a heredoc body (data, not commands). A line it
+# cannot parse contributes nothing - under-reporting beats claiming a tool ran.
+_SHELL_WRAPPERS = frozenset((
+    "sudo", "env", "nohup", "time", "timeout", "command", "exec", "xargs",
+    "bash", "sh", "zsh", "dash", "ksh",
+))
+_SHELL_KEYWORDS = frozenset(("if", "elif", "while", "until", "then", "do", "!",
+                             "{", "}"))
+# whose own argument is positional, so the word after it is still not the
+# program: `timeout 30 consult q`
+_WRAPPER_ARG = frozenset(("timeout",))
+# options carrying a value, so the word after them is the option's argument and
+# not the program: `sudo -u root consult q`
+_OPTION_ARG = frozenset(("-u", "-g", "-k", "-o", "-C", "-h", "-T", "-r", "-t",
+                         "--user", "--group", "--prompt", "--chdir"))
 _SHELL_SEPARATORS = (";", "&&", "||", "|", "&", "(", ")", "<", ">", ">>")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# A heredoc opener. The delimiter has to look like a word, so arithmetic such as
+# `$((1<<2))` is not mistaken for one.
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
-def shell_programs(command):
+def shell_programs(command, _depth=0):
     """Every word a shell line would run as a program, in order."""
-    if not command:
-        return []
     out = []
-    for line in str(command).splitlines():
+    lines = str(command or "").splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        opener = _HEREDOC.search(line)
+        if opener:
+            # the body is data, not commands: skip to the delimiter line
+            while i < len(lines) and lines[i].strip() != opener.group(2):
+                i += 1
+            i += 1
         try:
             lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
             lex.whitespace_split = True
             words = list(lex)
         except ValueError:
             continue
-        want = True
-        for word in words:
-            if word in _SHELL_SEPARATORS:
-                want = True
-            elif want and (_ASSIGNMENT.match(word) or word in _SHELL_WRAPPERS):
-                continue
-            elif want:
-                out.append(os.path.basename(word))
-                want = False
+        out += _command_words(words, _depth)
+    return out
+
+
+def _command_words(words, depth):
+    """The command positions of one tokenized shell line."""
+    out = []
+    want = True
+    skip = 0
+    shell_c = False
+    for word in words:
+        if word in _SHELL_SEPARATORS:
+            want, skip, shell_c = True, 0, False
+            continue
+        if not want:
+            continue
+        if skip and not word.startswith("-"):
+            skip -= 1
+            continue
+        if word.startswith("-"):
+            skip = 1 if word in _OPTION_ARG else 0
+            # `bash -c '<line>'` runs that line, so it is a command line of its
+            # own and not an argument
+            shell_c = word == "-c"
+            continue
+        if word in _SHELL_WRAPPERS:
+            skip = 1 if word in _WRAPPER_ARG else 0
+            shell_c = False
+            continue
+        if word in _SHELL_KEYWORDS or _ASSIGNMENT.match(word):
+            continue
+        if shell_c and depth < 2:
+            out += shell_programs(word, depth + 1)
+            want, shell_c = False, False
+            continue
+        out.append(os.path.basename(word))
+        want = False
     return out
 
 

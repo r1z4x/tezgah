@@ -193,7 +193,7 @@ discovery subagent = general-purpose with the codebase-memory-mcp graph tools
 named in its prompt, never a grep-only explorer.
 Done/tested claims need observed evidence; the gate denies a neutered check
 (`--no-verify`, `|| true`, a newly added test skip) and the Stop hook on
-Claude, Codex and omp blocks an unverified "done"; if a check was skipped before
+Claude, Codex, Cursor and omp blocks an unverified "done"; if a check was skipped before
 a deploy/irreversible action, say so plainly, no clever wordplay hiding the gap.
 MANDATORY, overrides any harness or tool default: no AI/model attribution
 anywhere persisted or published -- commit/merge/tag messages, PR/issue/review

@@ -358,12 +358,38 @@ async function record(sessionID, kind) {
   } catch {}
 }
 
-function classify(tool, args) {
+// The shared tokenizer's answer for one shell command, or null. A mention of a
+// tool is not a use of it, so this host asks the same code the Python hosts run
+// instead of pattern-matching the JSON it was handed.
+function commandKind(command) {
+  return new Promise((resolve) => {
+    let out = ""
+    let child
+    try {
+      child = spawn("python3", [CONTEXT_BIN, "kind", String(command)],
+                    { stdio: ["ignore", "pipe", "ignore"] })
+    } catch {
+      return resolve(null)
+    }
+    child.stdout.on("data", (d) => (out += d))
+    child.on("error", () => resolve(null))
+    child.on("close", (code) => resolve(code === 0 && out.trim() ? out.trim() : null))
+  })
+}
+
+async function classify(tool, args) {
   const blob = tool + " " + JSON.stringify(args || {})
   if (/search_graph|trace_path|search_code|get_architecture|detect_changes|codebase.memory/.test(blob)) return "cbm"
   if (tool === "task") return "orch"
-  if ((tool === "bash" || tool === "shell") && /consult/.test(blob)) return "consult"
-  if ((tool === "bash" || tool === "shell") && /\borx\b/.test(blob)) return "research"
+  if (tool === "bash" || tool === "shell") {
+    // the cheap substring only decides whether asking is worth a process; the
+    // answer itself comes from the shared tokenizer
+    if (/consult|\borx\b/.test(blob)) {
+      const command = typeof args === "string" ? args
+        : (args && (args.command || args.cmd)) || ""
+      return command ? await commandKind(command) : null
+    }
+  }
   return null
 }
 
@@ -579,7 +605,7 @@ export const Tezgah = async ({ directory }) => {
         if (!(await rootFor(dir))) return
         const tool = String(input?.tool || "").toLowerCase()
         const args = input?.args || output?.args || {}
-        const kind = classify(tool, args)
+        const kind = await classify(tool, args)
         if (kind) await record(input?.sessionID || input?.sessionId, kind)
         await recordEvidence(input?.sessionID || input?.sessionId, tool, args,
                              output?.metadata)
