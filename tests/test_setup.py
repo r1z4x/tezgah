@@ -61,10 +61,17 @@ class SetupBase(unittest.TestCase):
     def setup(self, *args, stdin=""):
         # stdin is always a pipe: a bare run with a terminal on stdin would take
         # the wizard path and then block on the real terminal instead of
-        # printing the report this suite asserts on
+        # printing the report this suite asserts on. The timeout turns a hang
+        # into a failure, which is what the no-hang tests are about.
         return subprocess.run([sys.executable, SETUP] + list(args),
                               capture_output=True, text=True, env=self.env,
-                              input=stdin)
+                              input=stdin, timeout=120)
+
+    def tree(self):
+        """Every path under the fake HOME, for before/after comparisons."""
+        return sorted(os.path.relpath(os.path.join(d, n), self.home)
+                      for d, dirs, files in os.walk(self.home)
+                      for n in dirs + files)
 
 
 class Install(SetupBase):
@@ -865,16 +872,38 @@ class Wizard(SetupBase):
         self.assertEqual(self.config()["hosts"], ["claude"])
 
     def test_declining_the_plan_writes_nothing(self):
+        before = self.tree()
         proc = self.wiz("", "", "", "", "n")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("nothing was installed", proc.stdout)
-        self.assertFalse(os.path.exists(self.path(".config", "tezgah", "config.json")))
+        self.assertEqual(self.tree(), before)
 
     def test_a_closed_stdin_aborts_instead_of_hanging(self):
+        before = self.tree()
         proc = self.setup("--wizard", stdin="")
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("wizard: stdin closed", proc.stdout)
-        self.assertFalse(os.path.exists(self.path(".config", "tezgah", "config.json")))
+        self.assertIn("wizard: stdin unusable", proc.stdout)
+        self.assertEqual(self.tree(), before)
+
+    def test_adoption_waits_for_the_confirmation(self):
+        # --adopt must not retire the predecessor wiring before the plan is
+        # confirmed: declining has to leave it exactly where it was
+        pred = self.path(".codex", "projects-harness")
+        os.makedirs(pred)
+        before = self.tree()
+        proc = self.wiz("", "", "", "", "", "n", flags=("--adopt",))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("predecessor wiring still present", proc.stdout)
+        self.assertIn("nothing was installed", proc.stdout)
+        self.assertEqual(self.tree(), before)
+
+    def test_adoption_runs_after_the_confirmation(self):
+        pred = self.path(".codex", "projects-harness")
+        os.makedirs(pred)
+        proc = self.wiz("", "", "", "", "", "", flags=("--adopt",))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.exists(pred))
+        self.assertTrue(os.path.isdir(self.path(".config", "tezgah", "adopted")))
 
     def test_a_piped_bare_run_still_reports_and_asks_nothing(self):
         proc = self.setup()
@@ -882,6 +911,47 @@ class Wizard(SetupBase):
         self.assertIn("tezgah checkout:", proc.stdout)
         self.assertNotIn("the plan:", proc.stdout)
         self.assertNotIn("arm which hosts?", proc.stdout)
+
+
+class WizardUnits(unittest.TestCase):
+    """The wizard's decision logic, loaded in-process: no HOME, no subprocess."""
+
+    PROBE = (
+        "import importlib.machinery, importlib.util, json, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "print(json.dumps({\n"
+        "    'numbers': m.parse_hosts('2,1,2'),\n"
+        "    'unknown': m.parse_hosts('claude,bogus'),\n"
+        "    'all': m.parse_hosts('all') == m.ALL_HOSTS,\n"
+        "    'late': m.unarmed_new_hosts(['claude'], ['claude'], ['claude', 'dsh']),\n"
+        "    'chosen_out': m.unarmed_new_hosts(['claude'], ['claude', 'codex'],\n"
+        "                                      ['claude', 'codex']),\n"
+        "    'none_detected': m._ask_hosts([], lambda _prompt: ''),\n"
+        "}))\n"
+    )
+
+    def probe(self):
+        out = subprocess.run([sys.executable, "-c", self.PROBE, SETUP],
+                             capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout.strip().splitlines()[-1])
+
+    def test_host_answers_are_names_numbers_or_all(self):
+        got = self.probe()
+        self.assertEqual(got["numbers"], ["codex", "claude"])
+        self.assertIsNone(got["unknown"])
+        self.assertTrue(got["all"])
+
+    def test_late_hosts_are_reported_and_an_empty_machine_can_arm_none(self):
+        got = self.probe()
+        self.assertEqual(got["late"], ["dsh"])
+        # a host the user left out on purpose is not reported back at them
+        self.assertEqual(got["chosen_out"], [])
+        self.assertEqual(got["none_detected"], [])
 
 
 if __name__ == "__main__":
