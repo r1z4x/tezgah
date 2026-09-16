@@ -260,6 +260,16 @@ cell again instead of inheriting a row that model did not produce, and rows are
 only ever skipped, never replaced. `analyze.py` merges file sets with later files
 winning, so a block can be paused, extended and continued without a row lost.
 
+**Two processes must not target the same results file.** Resume reads the file
+when a cell starts, so a process that is already running does not see a row
+another process writes while it runs, and both append: this happened once, to
+`t08-spec-feature.omp-bare.jsonl` in `results/old-corpus-glm/`, which holds two
+agreeing rows (both passes) for one k=1 cell. The numbers are unaffected and
+`analyze.py` dedupes by the cell key, but a reader counting lines rather than
+keys would weight that cell twice. Give each writer its own file - which is what
+`--split cell` does - and do not re-run a cell by hand while its cell job is
+still in flight.
+
 Two rules keep the data intact. A task whose rows exist is never edited - a
 defect found later is fixed by adding a task id, which is why `c04` and its
 re-run are separate files rather than one rewritten one. And `results/` is
