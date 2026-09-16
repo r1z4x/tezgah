@@ -754,6 +754,7 @@ def install_cursor():
         "afterShellExecution": {"timeout": 10},
         "afterMCPExecution": {"timeout": 10},
         "afterFileEdit": {"timeout": 10},
+        "afterAgentResponse": {"timeout": 5},
     }
     for ev, extra in spec.items():
         arr = hooks.setdefault(ev, [])
