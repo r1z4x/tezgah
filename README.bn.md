@@ -23,7 +23,7 @@
 # Tezgah
 
 <p align="center">
-  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="180">
+  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="220">
 </p>
 
 <h3 align="center">আপনার চালানো প্রতিটি AI কোডিং অ্যাসিস্ট্যান্টের জন্য একটি কার্যকরী চুক্তি।</h3>
