@@ -1,9 +1,9 @@
 ---
 id: 007
 title: Interactive install wizard for tezgah-setup
-status: in-progress
+status: done
 branch: plan/007-setup-wizard
-pr:
+pr: 10
 created: 2026-09-16
 updated: 2026-09-16
 ---
@@ -53,5 +53,24 @@ Implemented on `plan/007-setup-wizard` (commit `00b60a7`): the wizard, the
 run on this machine: five empty answers in a throwaway HOME printed the plan and
 installed every detected host; exit 0.
 
+An independent review (`tezgah-reviewer`, static only - that session had no
+shell device) found two medium gaps in the interactive path, both fixed in
+`be27cb2`: `--adopt --wizard` retired the predecessor wiring before the first
+question, and the wizard never re-detected hosts after installing the optional
+tools, so a host those tools made available stayed unarmed and unmentioned. Four
+of the new tests fail on `00b60a7` and pass on `be27cb2`. Its low findings that
+were acted on: `_ask` now survives a closed or non-UTF-8 stdin, an empty machine
+can answer "arm none" instead of aborting, the suite runs the installer under a
+subprocess timeout, and the no-write claims compare the whole fake HOME before
+and after. Left as-is, with the reason in the plan: translated READMEs still
+describe the bare command as the report (the repo's own policy is that English
+is the source of truth and translations may lag), and a root that does not exist
+is accepted but marked ` MISS ` in the plan, exactly as `--install --roots`
+accepts it.
+
+Full suite 324 tests and `ruff check .` pass on `be27cb2`; CI (3.10, 3.12,
+apps-e2e) green on the PR.
+
 ## Next
-Review, then merge, then `plan-sync` moves this file to `plans/done/`.
+Nothing outstanding; merged PR #10 on 2026-09-16T19:47:01Z. The wizard is on
+`main`.
