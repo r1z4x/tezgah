@@ -1964,12 +1964,17 @@ def _ask_roots(default, input_fn):
     for _ in range(WIZ_TRIES):
         raw = _ask("roots (%s-separated)" % os.pathsep, os.pathsep.join(default), input_fn)
         picked = [expand(p) for p in raw.split(os.pathsep) if p.strip()]
-        # a relative root would be resolved against whatever cwd a later session
-        # happens to have, so it is rejected here instead of silently arming the
-        # wrong tree
-        if picked and all(os.path.isabs(p) for p in picked):
+        # a relative path would be resolved against whatever cwd a later session
+        # happens to have, and a file can hold no repos, so both are re-asked
+        if picked and all(os.path.isabs(p) and not os.path.isfile(p) for p in picked):
+            for p in picked:
+                # a root that does not exist yet is legitimate: the repos may not
+                # be cloned yet. tezgah never creates it, so say so once.
+                if not os.path.isdir(p):
+                    print("  note: %s does not exist yet; tezgah will not create it, "
+                          "and generates nothing under it until it does" % p)
             return picked
-        print("  use absolute paths, e.g. %s/work" % HOME)
+        print("  use absolute paths to directories, e.g. %s/work" % HOME)
     raise WizardAbort("no valid root directory")
 
 
