@@ -128,6 +128,7 @@ same text.
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
 | **Cursor** | `hooks.json` + skills + MCP | `statusLine` in `cli-config.json` |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) | Web UI plugin: `tezgah-dsh-statusline` in the session header |
+| **omp** (oh-my-pi) | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and a `hooks/pre` gate; the contract is checked by `tezgah-setup` | none (omp has no tezgah status line) |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
 and subagent calls through the same check as the other hosts. On Claude, the

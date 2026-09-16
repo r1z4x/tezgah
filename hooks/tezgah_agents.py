@@ -236,6 +236,36 @@ def _toml_str(s):
     return "'''" + s.replace("'''", "''\\'") + "'''"
 
 
+def render_md_omp(name, description, readonly, body, tools=None):
+    """omp subagent markdown: name/description frontmatter plus a tool list.
+
+    omp has no `readonly` key, so a read-only role gets a read-only tool set."""
+    if tools is None:
+        tools = (["read", "grep", "glob"] if readonly
+                 else ["read", "grep", "glob", "bash"])
+    lines = ["---", "name: %s" % name, "description: >"]
+    lines += _fold(description)
+    lines.append("tools:")
+    lines += ["  - %s" % t for t in tools]
+    lines.append("---")
+    return "\n".join(lines) + "\n\n" + body.strip() + "\n"
+
+
+def omp_user_agents(root="~"):
+    """{filename: text} for omp's user agent dir (~/.omp/agent/agents)."""
+    infra = detect_infra(os.path.expanduser(root))
+    active = [r for r in ROLES if r[2](infra)]
+    names = [r[0] for r in active]
+    if not names:
+        return {}
+    out = {name + ".md": render_md_omp(name, desc, readonly, body("omp"))
+           for name, desc, _cap, body, readonly in active}
+    out["tezgah-orchestrator.md"] = render_md_omp(
+        "tezgah-orchestrator", ORCH_DESC, False, _orch_body(names),
+        tools=["read", "grep", "glob", "bash", "task"])
+    return out
+
+
 def render_toml(name, description, readonly, body):
     """Codex `.codex/agents/*.toml` (name/description/developer_instructions)."""
     lines = [MARKER + " (manifest %s)" % manifest_sha(),
