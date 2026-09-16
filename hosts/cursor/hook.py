@@ -18,7 +18,7 @@ import json
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import context_for, record, slug, under  # noqa: E402
 from tezgah_gate import decision, explored  # noqa: E402

@@ -46,5 +46,24 @@ class CodexHook(TempHome):
         self.assertEqual(proc.stdout.strip(), "")
 
 
+class CodexHookThroughTheInstalledLink(TempHome):
+    """tezgah-setup wires codex to ~/.config/tezgah/bin/tezgah-codex-hook, a
+    symlink. The hook derived ROOT from the unresolved link path, so every event
+    died with an ImportError and the gate silently never ran."""
+
+    def test_events_run_through_the_symlink(self):
+        repo = self.make_repo()
+        env = self.env()
+        env.pop("PYTHONPATH", None)  # the host's own environment carries none
+        link = support.linked(support.CODEX_HOOK, self.home)
+        out, proc = run_json([link], {
+            "hook_event_name": "PreToolUse", "cwd": repo, "session_id": "s",
+            "tool_name": "exec_command",
+            "tool_input": {"command": "git commit --no-verify -m x"}}, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+
 if __name__ == "__main__":
     unittest.main()
