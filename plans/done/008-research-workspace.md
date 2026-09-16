@@ -1,9 +1,9 @@
 ---
 id: 008
 title: Strengthen research with a workspace, a check and a skill
-status: in-progress
+status: done
 branch: plan/008-research-workspace
-pr:
+pr: 17
 created: 2026-09-17
 updated: 2026-09-17
 ---
@@ -56,5 +56,7 @@ written and then updated by a separate author, with each rule proved by breaking
 the implementation.
 
 ## Next
-Merge, then `tezgah-setup --install` so every host links the skill and the CLI,
-then move this file to `plans/done/`.
+Nothing outstanding; merged PR #17. `tezgah-setup --install` links the skill and
+the CLI into every host.
+
+merged PR #17 on 2026-09-16T21:26:06Z.
