@@ -10,8 +10,10 @@ roots.
 Codex cannot put a custom item in its TUI footer (`tui.status_line` is a closed
 built-in enum), so the status segment rides `systemMessage`, which Codex
 surfaces in the UI: once at SessionStart and once per turn at Stop. PostToolUse
-only records what was used. PreToolUse translates Codex's tool names into the
+only records evidence. PreToolUse translates Codex's tool names into the
 shared gate's vocabulary (hooks/tezgah_gate.py) and emits the deny envelope.
+Stop blocks a done/tested claim with no successful check behind it, the same
+rule Claude's Stop hook enforces (hooks/tezgah_integrity.py).
 """
 import json
 import os
@@ -21,7 +23,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import context_for, health_lines, record  # noqa: E402
 from tezgah_gate import decision  # noqa: E402
-from tezgah_integrity import note_tool  # noqa: E402
+from tezgah_integrity import note_tool, stop_reason  # noqa: E402
+from tezgah_paths import off, root_for  # noqa: E402
 
 EVENTS = {
     "SessionStart": "session_start",
@@ -115,9 +118,23 @@ def main():
     if event == "SubagentStart":
         record(session_id, "orch")
     if event == "Stop":
+        out = {}
+        # Codex's stop.input carries the same fields Claude's does
+        # (last_assistant_message, stop_hook_active) and its stop.output accepts
+        # {"decision": "block", "reason": ...}, so the integrity rule's second
+        # half runs here too: a done/tested claim with nothing observed behind it
+        # cannot end the turn. `verify-off` drops it; outside a root it is inert.
+        if (not payload.get("stop_hook_active") and not off("verify-off")
+                and root_for(cwd)):
+            reason = stop_reason(payload.get("last_assistant_message"), session_id)
+            if reason:
+                out["decision"] = "block"
+                out["reason"] = reason
         seg = health_lines(cwd, session_id)
         if seg:
-            print(json.dumps({"systemMessage": "tezgah  " + seg}))
+            out["systemMessage"] = "tezgah  " + seg
+        if out:
+            print(json.dumps(out))
         return
     normalized = EVENTS.get(event)
     if not normalized:

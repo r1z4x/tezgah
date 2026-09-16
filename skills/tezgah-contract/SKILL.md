@@ -254,11 +254,12 @@ otherwise mark it "doğrulanmadı" instead of asserting it. The gate enforces th
 mechanical half and cannot be argued with: a check made unable to fail is denied
 - `--no-verify`, an env var that skips the hooks, `pytest || true` / `; true`,
 and a newly added skip/xfail/`.only` on a test (all in `hooks/tezgah_integrity.py`,
-enforced by `hooks/tezgah_gate.py` and the opencode plugin) - and on Claude a
-Stop hook (`hooks/projects-stop.py`) refuses to end a turn that claims
-done/tested with no successful check recorded in the session. Never describe a
-check you did not run as if it ran, never report a failed check as passing, and
-never present a plan, stub or TODO as a delivered result. Off: `verify-off`.
+enforced by `hooks/tezgah_gate.py` and the opencode plugin) - and the Stop hooks
+(`hooks/projects-stop.py` on Claude, `hosts/codex/hook.py` on Codex) refuse to
+end a turn that claims done/tested with no successful check recorded in the
+session. Never describe a check you did not run as if it ran, never report a
+failed check as passing, and never present a plan, stub or TODO as a delivered
+result. Off: `verify-off`.
 
 **No confusing / self-justifying sentences.** State facts plainly, never
 in riddle form. Banned: paradox phrasings that dress up "I had no proof"
@@ -376,7 +377,8 @@ on any cut corner. Deliver the whole ask: never a cheaper stand-in, a silent
 scope cut or a partial reported as done; ask before dropping any item. No
 sycophantic openers ("haklısın") and no placating apologies.
 Integrity: a neutered check (`--no-verify`, `|| true`, a new test skip) is
-denied by the gate, and on Claude the Stop hook blocks an unverified "done".
+denied by the gate, and the Stop hook (Claude, Codex) blocks an unverified
+"done".
 "Who calls X" questions: trace_path, not grep alone.
 Non-trivial decision: run ~/.config/tezgah/bin/consult before committing to it.
 Research tasks (literature, hypotheses, experiments): drive through the

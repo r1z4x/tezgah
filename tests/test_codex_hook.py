@@ -1,4 +1,5 @@
-"""hosts/codex/hook.py: SessionStart context and Stop status segment."""
+"""hosts/codex/hook.py: SessionStart context, the gate, evidence and Stop."""
+import os
 import unittest
 
 import support
@@ -107,6 +108,70 @@ class CodexHookThroughTheInstalledLink(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(
             out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+
+class CodexStopGate(TempHome):
+    """Codex's stop.output accepts {"decision": "block", "reason": ...} and its
+    stop.input carries the assistant's last message, so the unverified-done rule
+    runs here exactly as it does under Claude."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.session = "s-stop"
+
+    def post(self, tool, inp, response=None):
+        payload = {"hook_event_name": "PostToolUse", "cwd": self.repo,
+                   "session_id": self.session, "tool_name": tool,
+                   "tool_input": inp}
+        if response is not None:
+            payload["tool_response"] = response
+        proc = run([support.CODEX_HOOK], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def worked(self):
+        self.post("exec_command", {"command": "ls -la"}, {"exit_code": 0})
+
+    def stop(self, text, cwd=None, **extra):
+        payload = {"hook_event_name": "Stop", "cwd": cwd or self.repo,
+                   "session_id": self.session, "last_assistant_message": text}
+        payload.update(extra)
+        out, proc = run_json([support.CODEX_HOOK], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out or {}
+
+    def test_unverified_done_claim_blocks(self):
+        self.worked()
+        out = self.stop("Done. Implemented the parser and all tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertTrue(out.get("reason"))
+
+    def test_verified_done_claim_passes(self):
+        self.post("apply_patch", {"file_path": self.repo + "/x.py"})
+        self.post("exec_command", {"command": "pytest -q"}, {"exit_code": 0})
+        self.assertNotIn("decision", self.stop("Done. All tests pass."))
+
+    def test_failed_check_blocks(self):
+        self.post("exec_command", {"command": "pytest -q"}, {"exit_code": 1})
+        self.assertEqual(self.stop("Done. Tests pass.").get("decision"), "block")
+
+    def test_explicit_unverified_admission_passes(self):
+        self.worked()
+        self.assertNotIn("decision", self.stop("Yaptım ama doğrulanmadı."))
+
+    def test_stop_hook_active_passes(self):
+        self.worked()
+        self.assertNotIn("decision", self.stop("Done.", stop_hook_active=True))
+
+    def test_verify_off_kill_switch(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.worked()
+        self.assertNotIn("decision", self.stop("Done. All tests pass."))
+
+    def test_outside_root_passes(self):
+        self.worked()
+        self.assertNotIn("decision", self.stop("Done.", cwd=self.home))
 
 
 if __name__ == "__main__":
