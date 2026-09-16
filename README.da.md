@@ -296,7 +296,8 @@ kende:
 
 | Kommando | Formål |
 |---|---|
-| `bin/tezgah-setup` | Rapporter, hvad der er aktiveret, pr. vært |
+| `bin/tezgah-setup` | I en terminal: installationsguiden; i et pipe eller i CI: rapporter, hvad der er aktiveret, pr. vært |
+| `bin/tezgah-setup --wizard` | Tvinger installationsguiden frem overalt; `--report` tvinger rapporten |
 | `bin/tezgah-status [PATH]` | Vis, om reglerne er aktive i det repo |
 | `bin/tezgah-setup --status [PATH]` | Udskriv den aktiverede/brugte tjekliste |
 | `bin/tezgah-setup --deps [--dry-run]` | Installer manglende valgfrie værktøjer (orx, cursor-agent, dsh) |

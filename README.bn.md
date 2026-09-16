@@ -164,7 +164,8 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 
 | কমান্ড | উদ্দেশ্য |
 |---|---|
-| `bin/tezgah-setup` | প্রতি হোস্টে কী সশস্ত্র আছে তা রিপোর্ট করে |
+| `bin/tezgah-setup` | টার্মিনালে: ইনস্টল উইজার্ড; পাইপ বা CI-তে: প্রতি হোস্টে কী সশস্ত্র আছে তা রিপোর্ট করে |
+| `bin/tezgah-setup --wizard` | যেকোনো জায়গায় ইনস্টল উইজার্ড চালু করে; `--report` রিপোর্ট বাধ্যতামূলক করে |
 | `bin/tezgah-status [PATH]` | সেই রিপোতে নিয়মগুলো সক্রিয় আছে কিনা তা দেখায় |
 | `bin/tezgah-setup --status [PATH]` | সশস্ত্র/ব্যবহৃত চেকলিস্ট প্রিন্ট করে |
 | `bin/tezgah-setup --deps [--dry-run]` | অনুপস্থিত ঐচ্ছিক টুলগুলো (orx, cursor-agent, dsh) ইনস্টল করে |

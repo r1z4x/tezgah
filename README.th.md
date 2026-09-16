@@ -170,7 +170,8 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 
 | คำสั่ง | วัตถุประสงค์ |
 |---|---|
-| `bin/tezgah-setup` | รายงานสิ่งที่เปิดใช้งาน ในแต่ละโฮสต์ |
+| `bin/tezgah-setup` | ในเทอร์มินัล: ตัวช่วยติดตั้ง; ในไปป์หรือ CI: รายงานสิ่งที่เปิดใช้งาน ในแต่ละโฮสต์ |
+| `bin/tezgah-setup --wizard` | บังคับเปิดตัวช่วยติดตั้งได้ทุกที่; `--report` บังคับให้ออกรายงาน |
 | `bin/tezgah-status [PATH]` | แสดงว่ากฎทำงานอยู่ใน repo นั้นหรือไม่ |
 | `bin/tezgah-setup --status [PATH]` | พิมพ์รายการตรวจสอบที่เปิดใช้งาน/ใช้งานอยู่ |
 | `bin/tezgah-setup --deps [--dry-run]` | ติดตั้งเครื่องมือทางเลือกที่ขาดหายไป (orx, cursor-agent, dsh) |
