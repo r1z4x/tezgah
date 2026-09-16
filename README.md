@@ -140,6 +140,19 @@ Elsewhere the ban is enforced only by the tool gate (a git/gh write whose comman
 carries a credit is refused) and by the contract; Cursor exposes no attribution
 lever tezgah can set.
 
+Both halves of the integrity rule keep their aim narrow, because a gate that
+fires on description stops the work it polices. The anti-shortcut deny reads the
+command with quoted text and heredoc bodies blanked, so a commit message that
+names `--no-verify` passes while the flag itself is refused; the test-disable
+deny needs a *test* path, a marker outside strings and comments, and a marker the
+file does not already carry. The reply-level half - the Stop rule - runs where
+the host hands over the final message: Claude, Codex, omp (`session_stop`) and
+Cursor, which reports the reply on `afterAgentResponse` and takes the decision at
+`stop`. Its ledger is shared, so the newest check wins: a later failure blocks a
+"tests pass" claim even if an earlier run was green. opencode has no
+end-of-turn surface to block, so it records the evidence and the reply claim
+stays unenforced there.
+
 ### Status line
 
 Every host renders the same one-line checklist from `tezgah-status`, so they
