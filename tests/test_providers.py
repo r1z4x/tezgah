@@ -38,15 +38,26 @@ class Providers(unittest.TestCase):
         self.assertIn("unknown provider", p.stderr)
 
     def test_consult_deepseek_wants_its_own_key(self):
+        # exit 2 is "no key", distinct from misuse (1) and all-failed (3)
         p = self.invoke(CONSULT, "q", "--provider", "deepseek")
-        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertEqual(p.returncode, 2, p.stderr)
         self.assertIn("no API key for deepseek", p.stderr)
         self.assertIn("DEEPSEEK_API_KEY", p.stderr)
+
+    def test_consult_online_is_openrouter_only(self):
+        p = self.invoke(CONSULT, "q", "--provider", "deepseek", "--online")
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("--online is OpenRouter-only", p.stderr)
 
     def test_codegen_deepseek_wants_its_own_key(self):
         p = self.invoke(CODEGEN, "t", "--files", __file__, "--provider", "deepseek")
         self.assertEqual(p.returncode, 2, p.stderr)
         self.assertIn("no API key for deepseek", p.stderr)
+
+    def test_codegen_rejects_the_misleading_apply_to_alias(self):
+        p = self.invoke(CODEGEN, "t", "--files", __file__, "--apply-to", "/tmp/x")
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("unknown argument --apply-to", p.stderr)
 
 
 if __name__ == "__main__":

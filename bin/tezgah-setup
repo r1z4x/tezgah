@@ -55,7 +55,8 @@ OMP = os.path.join(HOME, ".omp")
 OMP_AGENT = os.path.join(OMP, "agent")
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
-# omp exposes no prompt-time injection point, so the always-on markdown carries
+# omp does expose a prompt-time hook (before_agent_start) and a status line, but
+# tezgah does not wire them yet; until it does, the always-on markdown carries
 # one extra line that pulls the per-repo lessons ledger in by hand.
 OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
                "treat every line as a standing constraint on the work.")
@@ -80,9 +81,12 @@ SKILL_ROUTER = os.path.join(tp.CONFIG_DIR, "opencode-skills.md")
 # router and listed in full here, read only when the task class matches.
 SKILL_ROUTER_FULL = os.path.join(tp.CONFIG_DIR, "opencode-skills.full.md")
 # Host-tooling skills that are neither tezgah's core nor research. Everything
-# else falls under marketing & growth; the router groups by these four buckets.
+# else falls under marketing & growth; the router groups by these buckets.
 TOOLING_SKILLS = frozenset(("codebase-memory", "computer-use", "find-skills",
                             "orca-cli", "orchestration"))
+# Skill dirs symlinked in from a third-party library whose frontmatter carries no
+# marker, so it is bucketed by its clone path instead of defaulting to marketing.
+AI_RESEARCH_SKILL_SOURCES = ("AI-Research-SKILLs",)
 CODEX_PRETOOL_MATCHER = ("Bash|exec_command|apply_patch|Edit|Write|mcp__.*|"
                          "spawn_agent|Agent|Task|Grep")
 # Set by main() from --devtools: also wire the optional Chrome DevTools MCP.
@@ -106,13 +110,33 @@ def plugin_version():
         return "unknown"
 
 
-def policy_sha():
-    """sha256 of the shared policy, the source of the opencode contract."""
-    try:
-        with open(os.path.join(HERE, "hooks", "tezgah_policy.py"), "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()
-    except OSError:
-        return ""
+CONTRACT_SOURCES = ("hooks/tezgah_policy.py",
+                    "skills/tezgah-contract/SKILL.md")
+
+
+def contract_sha():
+    """sha256 over every source of the generated opencode contract: the shared
+    policy and the hand-maintained full-contract skill. The skill is included so
+    a skill-only edit still marks the rendered contract stale."""
+    h = hashlib.sha256()
+    for rel in CONTRACT_SOURCES:
+        try:
+            with open(os.path.join(HERE, rel), "rb") as fh:
+                h.update(fh.read())
+        except OSError:
+            return ""
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def write_contract_sha():
+    """Persist the current source hash. Returns it, or "" when unreadable."""
+    sha = contract_sha()
+    if sha:
+        mkdirp(tp.CONFIG_DIR)
+        with open(CONTRACT_SHA, "w") as fh:
+            fh.write(sha + "\n")
+    return sha
 
 
 def contract_stale():
@@ -122,7 +146,7 @@ def contract_stale():
             stored = fh.read().strip()
     except OSError:
         stored = ""
-    return stored != policy_sha()
+    return stored != contract_sha()
 
 
 def link(src, dst):
@@ -300,11 +324,7 @@ def install_common(new_roots, hosts):
     cfg["hosts"] = hosts
     write_json(tp.CONFIG, cfg)
     print("%s %s  roots=%s" % (OK, tp.CONFIG, cfg["roots"]))
-    sha = policy_sha()
-    if sha:
-        mkdirp(tp.CONFIG_DIR)
-        with open(CONTRACT_SHA, "w") as fh:
-            fh.write(sha + "\n")
+    if write_contract_sha():
         print("%s %s" % (OK, CONTRACT_SHA))
     for name, src in [
             ("consult", os.path.join(HERE, "bin", "consult")),
@@ -313,6 +333,7 @@ def install_common(new_roots, hosts):
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
             ("tezgah-agents", os.path.join(HERE, "bin", "tezgah-agents")),
             ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
+            ("tezgah-setup", os.path.join(HERE, "bin", "tezgah-setup")),
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
@@ -504,6 +525,24 @@ def opencode_contract():
     return path
 
 
+def refresh_contract():
+    """Re-render the generated opencode contract and skill router when the
+    policy or the full-contract skill changed.
+
+    opencode has no session-start hook that can run the Python contract, so a
+    policy edit otherwise lands only at the next --install; a running session
+    calls this instead. Idempotent and cheap. Returns the contract path when it
+    refreshed, else None."""
+    if not os.path.isfile(CONTRACT_SHA) or not contract_stale():
+        return None
+    path = opencode_contract()
+    always, full = skill_router_texts()
+    write_if_changed(SKILL_ROUTER, always)
+    write_if_changed(SKILL_ROUTER_FULL, full)
+    write_contract_sha()
+    return path
+
+
 def skill_description(path):
     """One compact trigger line from a SKILL.md frontmatter `description`.
 
@@ -528,18 +567,21 @@ def skill_description(path):
     return first[:137].rstrip() + "..." if len(first) > 140 else first
 
 
-def skill_category(name):
+def skill_category(name, path=""):
     if name in SKILLS:
         return "tezgah core"
     if name.startswith("deepscientist-") or name == "orx" or name.startswith("orx-"):
         return "research & papers"
     if name in TOOLING_SKILLS:
         return "code & host tooling"
+    real = os.path.realpath(path) if path else ""
+    if any(src in real for src in AI_RESEARCH_SKILL_SOURCES):
+        return "AI research & engineering"
     return "marketing & growth"
 
 
 ROUTER_ORDER = ["tezgah core", "code & host tooling", "research & papers",
-                "marketing & growth"]
+                "AI research & engineering", "marketing & growth"]
 # The buckets a coding session actually reaches for; the rest are collapsed.
 ROUTER_ALWAYS = ("tezgah core", "code & host tooling")
 
@@ -563,7 +605,7 @@ def skill_groups():
                 found[name] = path
     groups = {c: [] for c in ROUTER_ORDER}
     for name, path in sorted(found.items()):
-        groups[skill_category(name)].append((name, path))
+        groups[skill_category(name, path)].append((name, path))
     return groups
 
 
@@ -1516,7 +1558,7 @@ def report(hosts):
     rows = [
         ("config %s" % tp.CONFIG, os.path.exists(tp.CONFIG)),
         ("%s on PATH" % tp.CBM, bool(tp.cbm_bin())),
-        ("OpenRouter key (consult/codegen)", tp.have_consult_key()),
+        ("consult/codegen provider key (OpenRouter or DeepSeek)", tp.have_consult_key()),
         ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
         ("npx on PATH (app-analysis MCP servers)", bool(shutil.which("npx"))),
         ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
@@ -1749,6 +1791,8 @@ def sync():
 def main(argv):
     ap = argparse.ArgumentParser(description="arm tezgah in every installed host")
     ap.add_argument("--install", action="store_true")
+    ap.add_argument("--refresh", action="store_true",
+                    help="re-render generated contract artifacts when the policy changed")
     ap.add_argument("--uninstall", action="store_true")
     ap.add_argument("--adopt", action="store_true")
     ap.add_argument("--sync", action="store_true")
@@ -1769,6 +1813,10 @@ def main(argv):
 
     if args.sync:
         return sync()
+    if args.refresh:
+        path = refresh_contract()
+        print("%s refreshed %s" % (OK, path) if path else "contract is current")
+        return 0
     if args.status:
         print(tezgah_context.health_lines(os.path.realpath(expand(args.status))))
         return 0

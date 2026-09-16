@@ -360,19 +360,36 @@ def _strip_gitignore(text):
     return "".join(out)
 
 
+def _gitignore_dirs(text):
+    """The dir names already inside the managed block of `text`."""
+    out, inside = set(), False
+    for line in text.splitlines():
+        s = line.strip()
+        if s == GITIGNORE_BEGIN:
+            inside = True
+        elif s == GITIGNORE_END:
+            inside = False
+        elif inside and s.startswith("/") and s.endswith("/"):
+            out.add(s.strip("/"))
+    return out
+
+
 def ensure_gitignore(root, dirs):
     """Ignore the generated agent dirs with one idempotent managed block.
 
-    The bodies carry machine-specific absolute paths, so committing them is
-    wrong. Returns the .gitignore path, or None when opted out with
-    TEZGAH_NO_GITIGNORE=1 or when there is nothing to ignore."""
+    The block is a UNION with what is already there: a dir ignored by an earlier
+    install keeps its line even when its host is not in the current set, so a
+    config change can never un-ignore a generated-agent dir and leak
+    machine-specific bodies into the repo. Returns the .gitignore path, or None
+    when opted out with TEZGAH_NO_GITIGNORE=1 or when there is nothing to
+    ignore."""
     if os.environ.get("TEZGAH_NO_GITIGNORE") == "1":
-        return None
-    dirs = sorted(d for d in dirs if d)
-    if not dirs:
         return None
     path = os.path.join(root, ".gitignore")
     old = _read(path) or ""
+    dirs = sorted(set(d for d in dirs if d) | _gitignore_dirs(old))
+    if not dirs:
+        return None
     body = _strip_gitignore(old).strip("\n")
     block = "\n".join([GITIGNORE_BEGIN] + ["/" + d + "/" for d in dirs]
                       + [GITIGNORE_END]) + "\n"

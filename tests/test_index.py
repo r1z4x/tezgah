@@ -83,10 +83,20 @@ class IndexWorker(TempHome):
         self.assertTrue(os.path.exists(self.stamp))
         self.assertEqual(len([c for c in self.calls() if "index_repository" in c]), 3)
 
-    def test_gives_up_without_stamp(self):
+    def test_gives_up_without_stamp_and_leaves_a_failure_marker(self):
         proc = self.run_worker(fails=99, retries=2)
         self.assertEqual(proc.returncode, 1)
         self.assertFalse(os.path.exists(self.stamp))
+        self.assertTrue(os.path.exists(self.stamp + ".failed"))
+        with open(self.stamp + ".failed") as fh:
+            self.assertIn("failed after 2 attempt", fh.read())
+
+    def test_success_clears_a_stale_failure_marker(self):
+        with open(self.stamp + ".failed", "w") as fh:
+            fh.write("old\n")
+        proc = self.run_worker()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.exists(self.stamp + ".failed"))
 
     def test_lock_held_skips_indexing(self):
         os.makedirs(os.path.dirname(self.lock), exist_ok=True)
@@ -153,6 +163,30 @@ class IndexCli(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("sandboxed", proc.stdout)
         self.assertFalse(os.path.exists(log), "a worker was spawned anyway")
+
+    def test_reports_a_previous_failure_then_retries(self):
+        repo = self.make_repo("proj")
+        fake = os.path.join(self.home, "fake-cbm")
+        with open(fake, "w") as fh:
+            fh.write(FAKE)
+        os.chmod(fake, 0o755)
+        stamp = os.path.join(self.home, ".cache", "tezgah",
+                             support.slug(os.path.realpath(repo)))
+        os.makedirs(os.path.dirname(stamp), exist_ok=True)
+        with open(stamp + ".failed", "w") as fh:
+            fh.write("boom\n")
+        env = self.env(extra={
+            "TEZGAH_CBM_BIN": fake,
+            "FAKE_CBM_LOG": os.path.join(self.home, "calls.log"),
+            "FAKE_CBM_COUNTER": os.path.join(self.home, "counter"),
+            "FAKE_CBM_FAILS": "0",
+            "TEZGAH_INDEX_RETRIES": "1",
+            "TEZGAH_INDEX_RETRY_DELAY": "0",
+        })
+        proc = subprocess.run([sys.executable, CLI, repo], capture_output=True,
+                              text=True, env=env, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("last auto-index failed", proc.stdout)
 
     def test_opencode_plugin_triggers_the_index(self):
         with open(os.path.join(REPO, "hosts", "opencode", "plugins",

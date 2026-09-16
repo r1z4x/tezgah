@@ -27,6 +27,15 @@ def main():
     args = sys.argv[1:]
     flags = {a for a in args if a.startswith("--")}
     pos = [a for a in args if not a.startswith("--")]
+    known = {"--legend", "--json", "--color", "--no-color", "--help"}
+    unknown = sorted(f for f in flags if f not in known)
+    if unknown:
+        sys.stderr.write("tezgah-status: unknown option(s): %s (try --help)\n"
+                         % ", ".join(unknown))
+        return 2
+    if "--help" in flags:
+        sys.stdout.write(__doc__.strip() + "\n")
+        return 0
     if "--legend" in flags:
         sys.stdout.write(LEGEND)
         return 0

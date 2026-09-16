@@ -4,7 +4,7 @@
 Emits the shared tezgah context (hooks/tezgah_context.py) for the session's
 cwd when it resolves inside a configured root, and prints nothing outside them.
 This file is only the Claude envelope; the contract itself lives in the core so
-Codex, Cursor and opencode inject the exact same text.
+Codex, Cursor, opencode, dsh and omp inject the exact same text.
 """
 import json
 import os

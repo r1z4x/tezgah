@@ -20,14 +20,13 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import CACHE, context_for, record, slug, under  # noqa: E402
+from tezgah_context import context_for, record, slug, under  # noqa: E402
 from tezgah_gate import decision, explored  # noqa: E402
-from tezgah_paths import off  # noqa: E402
+from tezgah_paths import cache_dir, off  # noqa: E402
 
 ALLOW = {"permission": "allow"}
 GRAPH = ("search_graph", "trace_path", "search_code", "get_architecture",
          "detect_changes", "codebase-memory", "codebase_memory")
-REINFORCED = os.path.join(CACHE, "reinforced")
 
 REINFORCE = ("tezgah contract active: keep using the code graph "
              "(search_graph/trace_path) for structure and consult for a "
@@ -67,7 +66,7 @@ def first_time(session_id, tag):
     """True the first time a tag is seen for a session; fail-open when unwritable."""
     if not session_id:
         return True
-    mark = os.path.join(REINFORCED, slug(str(session_id)), tag)
+    mark = os.path.join(cache_dir(), "reinforced", slug(str(session_id)), tag)
     if os.path.exists(mark):
         return False
     try:

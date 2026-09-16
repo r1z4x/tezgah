@@ -9,8 +9,10 @@ generation makes the CLI refuse to start ("pre-coordination or unverified CBM
 generation is active"), which is transient. So this holds an exclusive flock for
 the whole run and retries the CLI a few times. HEAD is stamped only after a
 successful index, so a failed run is retried on the next session start rather
-than being mistaken for current. The flock dies with the process, so a crash
-never leaves a stale lock behind. Stdlib only.
+than being mistaken for current. A final failure leaves a `<stamp>.failed`
+marker that autoindex surfaces to the next session, instead of looping
+invisibly. The flock dies with the process, so a crash never leaves a stale lock
+behind. Stdlib only.
 """
 import fcntl
 import os
@@ -35,6 +37,7 @@ def main():
                        stderr=subprocess.DEVNULL)
     except OSError:
         pass
+    failed = stamp + ".failed"
     for _ in range(RETRIES):
         done = subprocess.run(
             [cbm, "cli", "index_repository", "--repo-path", root, "--mode", "fast"],
@@ -42,8 +45,19 @@ def main():
         if done.returncode == 0:
             with open(stamp, "w") as fh:
                 fh.write(head)
+            try:
+                os.remove(failed)
+            except OSError:
+                pass
             return 0
         time.sleep(DELAY)
+    # leave a marker so the next session reports the failure instead of only
+    # re-spawning the worker silently
+    try:
+        with open(failed, "w") as fh:
+            fh.write("index_repository failed after %d attempt(s)\n" % RETRIES)
+    except OSError:
+        pass
     return 1
 
 

@@ -4,6 +4,9 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 
+# local research notes: kept out of the public repo, never published
+/docs/research/
+
 # tezgah: generated agents (managed; removed by tezgah-setup --uninstall)
 /.claude/agents/
 /.codex/agents/

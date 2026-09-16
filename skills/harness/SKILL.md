@@ -10,12 +10,12 @@ description: >
 ---
 
 Repo tree is indexed by codebase-memory-mcp. Graph beats grep for structure. On Claude, load the graph tools with
-ToolSearch("select:mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage") before searching by hand. On Codex, Cursor and opencode the same tools are exposed directly as MCP tools; use them as-is.
+ToolSearch("select:mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage") before searching by hand. On Codex, Cursor, opencode, dsh and omp the same tools are exposed directly as MCP tools; use them as-is.
 
 ## Route
 
 The table below is the Claude path. `Workflow(...)` is a Claude Code runtime; on
-Codex, Cursor and opencode run the SAME phases with the host's subagents - one
+Codex, Cursor, opencode, dsh and omp run the SAME phases with the host's subagents - one
 graph-backed reader per module in parallel, a synthesizer, then a critic that
 names what was dropped - and report the same caps.
 
@@ -52,7 +52,7 @@ buys nothing when one context window already holds the whole problem.
 
 Workflow name not found on Claude -> the script's `meta` block failed to parse, or the file is not under a loaded
 workflows directory. `~/.claude/workflows/` is user-global (installed by `bin/tezgah-setup --install`).
-On Codex, Cursor and opencode there is no `Workflow` runtime: run the phases by hand as above.
+On Codex, Cursor, opencode, dsh and omp there is no `Workflow` runtime: run the phases by hand as above (dsh exposes a single subagent at a time, so run its readers sequentially).
 Survey/trace returns nothing -> repo not indexed yet; run `index_repository(repo_path=<repo root>)`, or
 `codebase-memory-mcp cli index_repository --repo-path <root>` in a shell, then retry.
 Editing a harness: scripts live in the plugin's `workflows/` directory, symlinked from `~/.claude/workflows/*.js`; re-run with

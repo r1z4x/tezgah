@@ -102,6 +102,25 @@ class CacheDirFallback(TempHome):
         self.assertEqual(out, fallback)
 
 
+class ConsultKey(TempHome):
+    """A DeepSeek-only setup counts as having a consult key, since both consult
+    and codegen accept --provider deepseek."""
+
+    def test_deepseek_key_file_counts(self):
+        p = os.path.join(self.home, ".config", "deepseek", "key")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "w").close()
+        out, proc = run_json([support.PROBE_PATHS, "have_consult_key"],
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out)
+
+    def test_no_key_is_false(self):
+        out, _ = run_json([support.PROBE_PATHS, "have_consult_key"],
+                          env=self.env())
+        self.assertFalse(out)
+
+
 class UserBinFallback(TempHome):
     """A tool installed to a per-user bin dir must read as present even when the
     calling shell's PATH never picked it up (the non-interactive case)."""

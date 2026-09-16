@@ -180,6 +180,16 @@ class Gitignore(AgentsBase):
         self.assertEqual(self.gi(), once)
         self.assertEqual(once.count("# tezgah: generated agents"), 1)
 
+    def test_block_unions_and_never_drops_a_dir(self):
+        # a prior install ignored all three; a config that now lists only
+        # opencode must not un-ignore the claude/codex dirs
+        self.sync()
+        self.config({"hosts": ["opencode"]})
+        self.sync()
+        text = self.gi()
+        for d in ("/.claude/agents/", "/.opencode/agents/", "/.codex/agents/"):
+            self.assertIn(d, text)
+
     def test_cleanup_strips_block_but_keeps_user_content(self):
         with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
             fh.write("node_modules/\n")
@@ -229,6 +239,38 @@ class OpencodePlugin(AgentsBase):
         self.assertEqual(agent["tezgah-explorer"]["permission"]["edit"], "deny")
         self.assertEqual(agent["tezgah-orchestrator"]["mode"], "primary")
         self.assertEqual(agent["tezgah-orchestrator"]["permission"]["task"]["*"], "deny")
+
+    def test_before_hook_denies_attribution_writes(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not installed")
+        harness = os.path.join(self.home, "attrib.mjs")
+        plugin = os.path.join(support.REPO, "hosts", "opencode", "plugins",
+                              "tezgah.js")
+        with open(harness, "w") as fh:
+            fh.write(
+                'import { Tezgah } from "file://%s"\n'
+                'const hooks = await Tezgah({ directory: "%s" })\n'
+                'const run = async (cmd) => {\n'
+                '  try {\n'
+                '    await hooks["tool.execute.before"](\n'
+                '      { tool: "bash", sessionID: "s", args: { command: cmd } },\n'
+                '      { args: { command: cmd } })\n'
+                '    return "pass"\n'
+                '  } catch (e) { return "deny:" + e.message }\n'
+                '}\n'
+                'console.log(JSON.stringify({\n'
+                '  write: await run(\'git commit -m "Co-Authored-By: Claude"\'),\n'
+                '  clean: await run(\'git commit -m "fix: typo"\'),\n'
+                '}))\n'
+                % (plugin, self.repo))
+        proc = subprocess.run([node, harness], capture_output=True, text=True,
+                              env=self.env(), timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertTrue(out["write"].startswith("deny:"), out)
+        self.assertIn("Attribution", out["write"])
+        self.assertEqual(out["clean"], "pass")
 
 
 class Gating(AgentsBase):

@@ -131,8 +131,12 @@ def cbm_bin():
 
 
 def have_consult_key():
-    return bool(os.environ.get("OPENROUTER_API_KEY")) or os.path.exists(
-        os.path.join(HOME, ".config", "openrouter", "key"))
+    """True when a consult/codegen provider key is present: OpenRouter or
+    DeepSeek, since both `consult` and `codegen` accept `--provider deepseek`."""
+    return bool(os.environ.get("OPENROUTER_API_KEY")
+                or os.environ.get("DEEPSEEK_API_KEY")
+                or os.path.exists(os.path.join(HOME, ".config", "openrouter", "key"))
+                or os.path.exists(os.path.join(HOME, ".config", "deepseek", "key")))
 
 
 def orx_bin():

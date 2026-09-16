@@ -1,13 +1,15 @@
 // tezgah opencode plugin: the opencode half of the tezgah contract.
 //
 // opencode has no stdout "inject context" hook, so the standing contract ships
-// as a managed block in ~/.config/opencode/AGENTS.md (written by tezgah-setup
-// from the shared policy). This plugin adds what AGENTS.md cannot:
-//   - tool.execute.before + permission.ask: block the first blind identifier
-//     search toward the code graph, and refuse a grep-only explorer subagent.
-//     permission.ask is the native allow/deny path where a build emits it;
-//     tool.execute.before is the always-available fallback (1.18.30 never
-//     emits permission.ask, so the fallback is what enforces today).
+// as `instructions` files that tezgah-setup generates from the shared policy
+// (opencode-contract.md + opencode-skills.md). This plugin adds what those
+// static files cannot:
+//   - tool.execute.before + permission.ask: refuse a git/gh write that credits
+//     an AI/model, block the first blind identifier search toward the code
+//     graph, and refuse a grep-only explorer subagent. permission.ask is the
+//     native allow/deny path where a build emits it; tool.execute.before is the
+//     always-available fallback (1.18.30 never emits permission.ask, so the
+//     fallback is what enforces today).
 //   - shell.env: export the tezgah roots and paths into every shell call.
 //   - experimental.session.compacting: restate the contract across compaction.
 //   - tool.execute.after: record which tezgah tools a session used so
@@ -31,11 +33,29 @@ const CBM_DIR = join(HOME, ".cache", "codebase-memory-mcp")
 const STATUS_BIN = join(CONFIG, "bin", "tezgah-status")
 const INDEX_BIN = join(CONFIG, "bin", "tezgah-index")
 const AGENTS_BIN = join(CONFIG, "bin", "tezgah-agents")
+const SETUP_BIN = join(CONFIG, "bin", "tezgah-setup")
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
 const EXPLORE_DENY =
   "A grep-only explorer subagent is not allowed in this tree. Use a " +
   "general-purpose agent and name the codebase-memory-mcp graph tools " +
   "(search_graph, trace_path, search_code) in its prompt."
+// The credit forms on a git/gh write, ported from hooks/tezgah_gate.py
+// (WRITE_CMD/ATTRIB) so opencode enforces the same ban from the same shapes.
+const ATTRIB =
+  /co-authored-by\s*:|generated with|made with|built by|assisted by|authored by|noreply@anthropic|\u{1F916}/iu
+const WRITE_CMD =
+  /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*(?:commit|merge|tag|notes)\b|(?:^|[|;&]\s*|\s)gh\s+api\b|(?:^|[|;&]\s*|\s)gh\s+(?:pr|issue|release)\s+(?:create|edit|comment|review|merge|close)\b/i
+const ATTRIB_DENY =
+  "Attribution is banned in every artifact tezgah touches. Remove the " +
+  "Co-Authored-By / \"Generated with\" / robot-emoji / model-name credit from " +
+  "the commit, PR, issue or review text and re-run. Naming a tool in order to " +
+  "use it or describe real behavior is fine; crediting it as author is not."
+function attribution(tool, args) {
+  const t = String(tool || "").toLowerCase()
+  if (t !== "bash" && t !== "shell" && t !== "command") return false
+  const cmd = String(args?.command || args?.cmd || "")
+  return WRITE_CMD.test(cmd) && ATTRIB.test(cmd)
+}
 // Re-injected around compaction so the contract survives the summary.
 const CONTRACT_REMINDER =
   "Tezgah contract still in force: reply Turkish, BLUF; code minimal per " +
@@ -218,6 +238,10 @@ export const Tezgah = async ({ directory }) => {
         const { tool, args } = permissionToolArgs(input)
         const sessionID = input?.sessionID || input?.sessionId
         const sub = String(args.subagent_type || args.agent || "")
+        if (attribution(tool, args)) {
+          output.status = "deny"
+          return
+        }
         if (/task|agent|subagent/.test(tool) && /explore/i.test(sub)) {
           output.status = "deny"
           return
@@ -240,7 +264,9 @@ export const Tezgah = async ({ directory }) => {
         const sessionID = input?.sessionID || input?.sessionId
 
         const sub = String(args.subagent_type || args.agent || "")
-        if (tool === "task" && /explore/i.test(sub)) {
+        if (attribution(tool, args)) {
+          deny = ATTRIB_DENY
+        } else if (tool === "task" && /explore/i.test(sub)) {
           deny = EXPLORE_DENY
         } else if (identifierFrom(tool, args)) {
           const js = indexSlug(dir)
@@ -293,6 +319,11 @@ export const Tezgah = async ({ directory }) => {
         // changed manifest or repo stack is rewritten once per session
         if (await oncePerSession(sessionID + "|agents")) {
           spawn("python3", [AGENTS_BIN, dir], { detached: true, stdio: "ignore" }).unref()
+        }
+        // re-render the contract if the policy or the full-contract skill changed
+        // since the last --install; opencode has no session-start hook to do it
+        if (await oncePerSession(sessionID + "|contract")) {
+          spawn("python3", [SETUP_BIN, "--refresh"], { detached: true, stdio: "ignore" }).unref()
         }
         if (!(await oncePerSession(sessionID + "|index"))) return
         spawn("python3", [INDEX_BIN, dir], { detached: true, stdio: "ignore" }).unref()

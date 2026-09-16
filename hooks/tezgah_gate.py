@@ -27,9 +27,15 @@ BASH_SEARCH = re.compile(r"(?:^|[|;&(]\s*|\s)(?:grep|rg)\s+((?:-\S+\s+)*)(\S+)")
 ATTRIB = re.compile(
     r"co-authored-by\s*:|generated with|made with|built by|assisted by|"
     r"authored by|noreply@anthropic|\U0001F916", re.I)
+# the write subcommand may sit behind git's global options: `git -c k=v commit`,
+# `git -C dir commit`, `git --no-pager commit`. `gh api` writes comments/reviews,
+# and `gh pr merge` lands a commit, so both count as writes.
 WRITE_CMD = re.compile(
-    r"(?:^|[|;&]\s*|\s)git\s+(?:commit|merge|tag|notes)\b|"
-    r"(?:^|[|;&]\s*|\s)gh\s+(?:pr|issue|release)\s+(?:create|edit|comment|review)\b",
+    r"(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*"
+    r"(?:commit|merge|tag|notes)\b|"
+    r"(?:^|[|;&]\s*|\s)gh\s+api\b|"
+    r"(?:^|[|;&]\s*|\s)gh\s+(?:pr|issue|release)\s+"
+    r"(?:create|edit|comment|review|merge|close)\b",
     re.I)
 
 EXPLORE_DENY = (

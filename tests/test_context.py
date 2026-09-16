@@ -378,6 +378,11 @@ class StatusCli(TempHome):
         out = self.status(repo, env=env).stdout
         self.assertIn("cbm\u25cb", out)
 
+    def test_unknown_option_is_rejected(self):
+        proc = self.status("--bogus")
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("unknown option", proc.stderr)
+
     def test_env_session_id_is_used_when_no_arg(self):
         self.armed()
         repo = self.make_repo()

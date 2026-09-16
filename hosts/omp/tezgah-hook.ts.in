@@ -26,7 +26,9 @@ function gate(tool: string, input: unknown, cwd: string): string | undefined {
 export default function tezgahOmp(pi: any): void {
   pi.on("tool_call", async (event: any) => {
     const tool = String(event?.toolName ?? event?.name ?? "");
-    if (!["grep", "bash", "shell"].includes(tool)) return;
+    // task/agent so the grep-only-explorer refusal reaches the gate too; bash
+    // carries the attribution check (git/gh write commands).
+    if (!["grep", "bash", "shell", "task", "agent"].includes(tool)) return;
     const reason = gate(tool, event?.input ?? event?.args, process.cwd());
     if (reason) return { block: true, reason };
     return undefined;
