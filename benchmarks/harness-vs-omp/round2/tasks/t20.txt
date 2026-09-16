@@ -1,0 +1,1 @@
+Sadece inceleme; hiçbir dosyayı değiştirme. `parse_quantity` fonksiyonunun tanımını ve tüm çağrı yerlerini bul. Yanıtının sonunda etkilenen her dosyayı ayrı satırlarda tam olarak şu biçimde yaz: FILE: <repo-göreli-yol> (başka açıklama ekleme).
