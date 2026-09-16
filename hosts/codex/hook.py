@@ -71,6 +71,21 @@ def gate_reason(payload, cwd, session_id):
     return decision(GATE_TOOLS.get(name, name), inp, cwd, session_id)
 
 
+def verify_outcome(payload):
+    """True/False from the tool response's exit code, else None.
+
+    Codex fires PostToolUse for a failed command too (there is no separate
+    failure event) and the payload's `tool_response` carries the command's exit
+    code, so an unread code must never be written as verify_ok - that is the
+    false "the check passed" record the ledger exists to prevent."""
+    resp = payload.get("tool_response")
+    if isinstance(resp, dict):
+        code = resp.get("exit_code")
+        if isinstance(code, int) and not isinstance(code, bool):
+            return code != 0
+    return None
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -94,7 +109,8 @@ def main():
     if event == "PostToolUse":
         record(session_id, classify(payload))
         note_tool(session_id, payload.get("tool_name", ""),
-                  payload.get("tool_input") or {})
+                  payload.get("tool_input") or {},
+                  failed=verify_outcome(payload))
         return
     if event == "SubagentStart":
         record(session_id, "orch")

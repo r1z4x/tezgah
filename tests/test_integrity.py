@@ -202,6 +202,14 @@ class PostToolUse(TempHome):
         self.run_hook("PostToolUse", "Edit", {"file_path": "/tmp/x.py"})
         self.assertIn("edit", self.kinds())
 
+    def test_unknown_outcome_records_a_run_not_a_pass(self):
+        # a host that reports no exit status must never write verify_ok
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": self.session, "tool": "Bash",
+                  "input": {"command": "pytest -q"}, "failed": None},
+                 env=self.envv)
+        self.assertEqual(self.kinds(), ["verify"])
+
     def test_outside_root_records_nothing(self):
         run_json([support.POSTTOOLUSE],
                  {"hook_event_name": "PostToolUse", "cwd": self.home,

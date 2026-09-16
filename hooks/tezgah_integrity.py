@@ -201,11 +201,18 @@ def classify(tool, inp):
 
 
 def note_tool(session_id, tool, inp, failed=False):
-    """Record the evidence kind for one tool call (host PostToolUse hooks)."""
+    """Record the evidence kind for one tool call (host PostToolUse hooks).
+
+    `failed=None` means the host reported no outcome: the call is recorded as a
+    check that RAN (`verify`), never as one that passed - a ledger that says
+    verify_ok for a check nobody saw succeed is the lie it exists to catch."""
     inp = inp or {}
     kind = classify(tool, inp)
     if kind == "verify":
-        kind = "verify_fail" if failed else "verify_ok"
+        if failed is None:
+            kind = "verify"
+        else:
+            kind = "verify_fail" if failed else "verify_ok"
     if kind:
         note(session_id, kind,
              inp.get("command") or inp.get("file_path")

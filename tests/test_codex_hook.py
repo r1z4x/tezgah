@@ -46,6 +46,50 @@ class CodexHook(TempHome):
         self.assertEqual(proc.stdout.strip(), "")
 
 
+class CodexEvidence(TempHome):
+    """The ledger the Stop gate reads: Codex fires PostToolUse for a failed
+    command too, so the exit code in tool_response decides pass from fail."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.session = "s-codex"
+
+    def post(self, tool, inp, response=None):
+        payload = {"hook_event_name": "PostToolUse", "cwd": self.repo,
+                   "session_id": self.session, "tool_name": tool,
+                   "tool_input": inp}
+        if response is not None:
+            payload["tool_response"] = response
+        proc = run([support.CODEX_HOOK], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def kinds(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "kinds", "session": self.session},
+                          env=self.envv)
+        return out
+
+    def test_passing_check_records_verify_ok(self):
+        self.post("exec_command", {"command": "pytest -q"},
+                  {"exit_code": 0, "output": "5 passed"})
+        self.assertEqual(self.kinds(), ["verify_ok"])
+
+    def test_failing_check_records_verify_fail(self):
+        self.post("exec_command", {"command": "pytest -q"},
+                  {"exit_code": 1, "output": "1 failed"})
+        self.assertEqual(self.kinds(), ["verify_fail"])
+
+    def test_check_without_an_exit_code_is_not_a_pass(self):
+        self.post("exec_command", {"command": "pytest -q"})
+        self.assertEqual(self.kinds(), ["verify"])
+
+    def test_non_check_command_records_run(self):
+        self.post("exec_command", {"command": "ls -la"}, {"exit_code": 0})
+        self.assertEqual(self.kinds(), ["run"])
+
+
 class CodexHookThroughTheInstalledLink(TempHome):
     """tezgah-setup wires codex to ~/.config/tezgah/bin/tezgah-codex-hook, a
     symlink. The hook derived ROOT from the unresolved link path, so every event
