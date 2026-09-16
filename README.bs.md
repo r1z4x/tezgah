@@ -40,6 +40,7 @@
   <a href="#install">Instalacija</a> &bull;
   <a href="#day-to-day">Svakodnevna upotreba</a> &bull;
   <a href="#configuration">Konfiguracija</a> &bull;
+  <a href="#benchmark">Benchmark</a> &bull;
   <a href="#cost">Trošak</a> &bull;
   <a href="#development">Razvoj</a> &bull;
   <a href="#contributing">Doprinos</a> &bull;
@@ -121,82 +122,20 @@ istog teksta.
 
 ## Podržani hostovi
 
-| Host | Povezan putem | Statusna linija |
-|---|---|---|
-| **Claude Code** | lokalno tržište dodataka: hookovi, komande, dva agenta samo za čitanje, stil izlaza | nativni `statusLine` |
-| **opencode** | dodatak + instrukcije + MCP + generisani ruter vještina (nativna lista vještina odbijena), auto-indeksiranje repozitorija pri prvoj poruci | TUI dodatak (bez komandnog statusLine-a) |
-| **Codex** | `hooks.json` + vještine + MCP, uključujući `PreToolUse` kapiju | hook `systemMessage` (lista stavki u podnožju je zatvorena) |
-| **Cursor** | `hooks.json` + vještine + MCP | `statusLine` u `cli-config.json` |
-| **dsh** | Claude Code hook most + upravljani patch blok (hookovi, MCP, LLM rute, Web statusna linija van stabla) | Web UI dodatak: `tezgah-dsh-statusline` u zaglavlju sesije |
+| Host | Povezan putem |
+|---|---|
+| **omp** (oh-my-pi) — primarni | `~/.omp/agent`: upravljani `RULES.md` always-on blok, vještine, generisani podagenti, `mcp.json`, i ekstenzija (`hooks/pre/tezgah-hook.ts`) koja naoružava pravila po promptu, propušta alate kroz kapiju, bilježi dokaze i pokreće Stop pravilo; povezivanje provjerava `tezgah-setup` |
+| **Claude Code** | lokalno tržište dodataka: hookovi, komande, dva agenta samo za čitanje, stil izlaza |
+| **opencode** | dodatak + instrukcije + MCP + generisani ruter vještina (nativna lista vještina odbijena), auto-indeksiranje repozitorija pri prvoj poruci |
+| **Codex** | `hooks.json` + vještine + MCP, uključujući `PreToolUse` kapiju |
+| **Cursor** | `hooks.json` + vještine + MCP |
+| **dsh** | Claude Code hook most + upravljani patch blok (hookovi, MCP, LLM rute, Web statusna linija van stabla) |
 
 Codex kapija pokreće Bash, `exec_command`, `apply_patch`, Edit/Write, MCP alate,
 i pozive podagenata kroz istu provjeru kao i ostali hostovi. Na Claude-u,
 zabrana pripisivanja se također mehanički sprovodi: postavka `attribution` se
 prazni (`commit`, `pr`, `sessionUrl`) tako da su zasluge za commit i PR isključene na
 izvoru.
-
-### Statusna linija
-
-Svaki host renderuje istu kontrolnu listu u jednoj liniji iz `tezgah-status`, tako da
-ne mogu odstupati. Stanje je poenta: oznaka je **zelena** kada je pravilo aktivirano
-i na snazi u ovoj sesiji, **žuta** kada je aktivirano ali na zahtjev (još nije korišteno),
-i **crvena** kada ga je sigurnosni prekidač (kill switch) isključio. `idx` odvojeno izvještava o spremnosti grafa
-(`✓` indeksirano, `↻` zastarjelo, `✗` nije indeksirano, `–` nije primjenjivo) a
-`plans N (M blk)` o otvorenim planovima. `tezgah-status --legend` ispisuje legendu,
-`--json` daje iste segmente za UI, a `--no-color` (ili `NO_COLOR`)
-forsira običan tekst. Claude Code i Cursor boje nativnu statusnu liniju;
-opencode TUI boji vlastitu komponentu i osvježava se na sabirnici događaja hosta;
-dsh Web UI boji svoju komponentu zaglavlja i osvježava se samo dok je njena kartica
-vidljiva; Codex prikazuje običan string u `systemMessage`.
-
-dsh pokreće iste Claude hook datoteke kroz svoj `dsh-hooks-claude-code` most,
-tako da se ugovor o početku sesije, kapija za pripisivanje i podsjetnik za prvi grep
-primjenjuju i tamo. dsh izlaže jedan `subagent` alat, tako da je odbijanje explorer-a samo za grep
-inertno — ne postoji explorer podagent kojeg bi odbio. Podrazumijevani
-`workspace-write` sandbox dsh-a ograničava podprocese hook-a na radni prostor i
-privremeni direktorij platforme, tako da tezgah zapisuje svoje stanje hook-a (oznake podsjetnika, pečat indeksa) u
-upisivu rezervnu lokaciju tamo, umjesto da padne zbog odbijenog upisivanja. Radnik za indeksiranje grafa
-ne može upisati `codebase-memory-mcp` keš iz unutrašnjosti tog sandbox-a, tako da
-`dsh` pokretač zagrijava indeks u korisnikovoj neograničenoj ljusci prije pokretanja
-dsh-a — novi repozitorij se indeksira tačno kao i na ostalim hostovima, sa HEAD pečatom.
-Sesija pokrenuta bez pokretača i dalje dobija jasan izvještaj da
-MCP server van sandbox-a opslužuje graf i da mu je potreban `index_repository` za repozitorij
-koji nije indeksirao, umjesto sirovog `EPERM`. Upravljani
-patch blok također deklariše dvije OpenAI-kompatibilne LLM rute na pi-ai adapteru
-koji osnovna kompozicija montira: `openrouter` (`OPENROUTER_API_KEY`) i `deepseek`
-(`DEEPSEEK_API_KEY`), koje se mogu odabrati uz nativnu `deepseek-official`
-podrazumijevanu opciju. Ključevi se rješavaju iz okruženja pokretanja ili iz spremišta akreditiva alata;
-nijedan ključ ne ulazi u konfiguracijsku datoteku. tezgah-setup također postavlja `dsh`
-pokretač na PATH (`~/.local/bin/dsh`) koji pronalazi instalirani CLI pod
-`$DSH_HOME`, tako da `dsh --profile web` radi iz bilo kojeg direktorija.
-
-dsh nema komandnu statusnu liniju, pa tezgah isporučuje jednu kao Web UI dodatak:
-`tezgah-dsh-statusline`. Njegova host polovina opslužuje `tezgah-status` string za
-radni prostor sesije preko autentificirane `/api/tezgah.status` rute (sa
-`?format=json` za obojeni prikaz); njegova polovina u pretraživaču ga renderuje u zaglavlju sesije,
-obojenog prema stanju sa legendom na prelazak mišem/klik, i osvježava se samo dok je
-kartica vidljiva. `tezgah-setup`
-povezuje dodatak u web profil i omogućava ga upravljanim redom u
-`profiles/web/cordis.patch.yml` (samo za web, jer host polovina ubacuje
-`connection` servis koji je samo za web); profil koji nikada nije pokrenuo `web` se preskače
-uz napomenu umjesto da bude napola zapisan. U `headless` režimu, most za hookove
-ubacuje SessionStart ugovor kao svoj vlastiti prateći potez (njegov `agent/session-start`
-poziva `agent.inject()` odvojeno, nakon što je jednokratni zadatak već prva poruka),
-tako da `dsh --profile headless "<task>"` troši jedan dodatni potez i, za
-prompt sa doslovnim odgovorom, ispisuje reakciju modela na ugovor umjesto
-odgovora na zadatak; interaktivne web sesije nisu pogođene.
-
-`bin/tezgah-setup --install` također pokreće `orx install-skills` za Claude,
-Codex, opencode i Cursor kada je `orx` na PATH-u, tako da pravilo za istraživanje ima
-priručnik za učitavanje. Shim datoteke pripadaju orx-u, tako da tezgah samo pokreće taj instalater
-i nikada ih ne navodi za deinstalaciju. dsh nema orx alat; pravilo za istraživanje se
-tamo prebacuje na `orx skill` u ljusci.
-
-Claude dodatak također isporučuje dva agenta samo za čitanje. `agents/tezgah-explorer.md`
-vrši otkrivanje koda iz grafa i vraća `file:line` dokaze;
-`agents/tezgah-reviewer.md` pretvara diff u njegov skup uticaja pomoću
-`detect_changes` i zatim traži stvarne defekte. Obojici su alati za pisanje i komande
-onemogućeni; njihov izlaz je savjetodavan.
 
 ### Analiza aplikacija
 
@@ -257,10 +196,18 @@ cd ~/Projects/tezgah
 bin/tezgah-setup --install
 ```
 
-`--install` također instalira opcione alate koji nedostaju pokretanjem vlastitog instalatera svakog dobavljača **preko mreže**: `orx`
-(`openresearch.sh/install.sh`), `cursor-agent` (`cursor.com/install`), `dsh`
-(njegov početni profil kroz `npx`) i `pnpm` kada je dsh-u potreban (preko `npm`) —
-`curl ... | sh` uključujući. Nijednom nije potreban sudo; pokretanje se bilježi u
+U terminalu je ta komanda bez argumenata umjesto toga čarobnjak za instalaciju: pita koje
+hostove naoružati, korijenske direktorije, da li da instalira nedostajuće opcionalne alate,
+i da li da poveže opcionalni DevTools MCP, ispisuje plan i piše tek nakon potvrdnog
+odgovora. Zastavice su čarobnjakove zadane vrijednosti, pa `--wizard --hosts omp` pita samo
+ostatak. Pipe, agentsko ili CI pokretanje nikad se ne pita — ispisuje izvještaj, tačno kao
+prije.
+
+`--install` također instalira opcione alate koji nedostaju pokretanjem vlastitog instalatera
+svakog dobavljača **preko mreže**: `orx` (`openresearch.sh/install.sh`), `cursor-agent`
+(`cursor.com/install`), `dsh` (njegov početni profil kroz `npx`) i `pnpm` kada je dsh-u
+potreban (preko `npm`) — `curl ... | sh` uključujući. Nijednom nije potreban sudo;
+pokretanje se bilježi u
 `~/.config/tezgah/install.log`. Pregledajte sa `--dry-run`, preskočite sa
 `--no-deps` (korisno u CI), ili instalirajte samo alate sa `--deps`. Alati završavaju
 u `~/.local/bin` ili `~/.cargo/bin`, tako da može biti potrebna nova ljuska prije nego što
@@ -340,42 +287,92 @@ pravilo grafa koda (i njegov auto-indeks), odnosno knjigu lekcija.
 Kada korisnik označi grešku, agent dodaje lekciju u jednoj liniji u `.tezgah/lessons.md` repozitorija;
 najnovije linije se ubacuju na početku sesije tako da se ista greška ne može tiho ponoviti.
 
+<a id="benchmark"></a>
+
+## Benchmark
+
+Da li ovaj ugovor poboljšava rad, ili samo izgleda kao da bi trebao? To se mjeri u
+`benchmarks/arm-bench/`, ne tvrdi: skrivene provjere koje agent nikad ne vidi, trošak iz
+vlastitog zapisa o upotrebi hosta, i kolateralne izmjene ocijenjene kao neuspjesi.
+`PREREGISTRATION.md` fiksira krajnje tačke prije pokretanja i `python3 bench.py report` ih
+ispisuje; cijela studija, sa id-ovima pokretanja, je
+`docs/research/2026-09-16-tezgah-quality.md`. Svaka cifra ispod je zapis pokretanja.
+
+| Blok | Pokretanja | Šta je razriješio |
+|---|---|---|
+| dva hosta, 28 zadataka, k=3 | 336 | `omp+tezgah` 0.95 i `opencode+tezgah` 0.96 imaju preklapajuće intervale i isti trošak po riješenom zadatku; na golim rukama omp je jeftiniji ($0.0047 protiv $0.0074 CPS), pa je dnevni pokretač omp bez troška u kvaliteti |
+| teška familija, 5 zadataka, k=5, dvije familije modela | 200 | objedinjeno, tri od četiri ruke slijeću na 40/50: nema efekta alata te veličine, a jedini signal koji je prvi model proizveo obrnuo se na drugom |
+| familija kapije, kapija naoružana | 36 | nijedna ruka nije uzela putanju prečice; mehanizam kapije je direktno verifikovan (izmjena preskakanja se odbija), njen efekat na rad još nije izmjeren |
+| ablacija klauzula, dva pravila koja razdvajaju, k=8 | 160 | ruke sa ugovorom prolaze 23/32 (0.72) protiv 12/32 (0.38) gole sidre |
+
+
+**Pomaže tačno tamo gdje je zadana vrijednost modela pogrešna.** `c04` (engleski prompt gdje
+samo ugovor čini odgovor turskim) čita 9/16 sa ugovorom i 0/16 bez njega; `h02` (novčani
+ugovor čiji je vidljivi paket zelen u oba slučaja) čita 14/16 protiv 12/16. Tamo gdje nema
+praznine za zatvoriti - 22 od 25 pilot zadataka prošlo je pod svakom rukom pri svakom
+ponavljanju - benchmark može samo prijaviti nulu.
+
+**Dvije klauzule ga nose.** Uklanjanje klauzule 1 vodi `c04` na 0/8, vlastiti rezultat gole
+sidre, dok jedva pomjera `h02`. Uklanjanje klauzule 3 vodi `h02` na 2/8 - ispod 6/8 gole
+sidre - jer klauzula 3 zabranjuje zaustavljanje na najkraćoj gotovo-gotovoj putanji, a na
+tom zadatku najkraća putanja je one-liner koji prolazi vidljivi paket i krši dokumentovano
+pravilo. Klauzule 2 i 4 ne pomjeraju ništa mjerljivo.
+
+**Trošak slijedi kvalitet.** Po riješenom zadatku: $0.0078 protiv $0.0097 na čvoru punog
+ugovora, $0.0043 protiv $0.0087 na čvoru bez-ponytail. Ruke sa ugovorom rješavaju više
+zadataka, pa svaki riješeni zadatak košta manje; ukupna potrošnja je veća, a benchmark je
+bilježi po redu umjesto da je netira.
+
+Šta ovo ne pokazuje: kvalitet koda, trud recenzije ili održivost, ništa od toga se ovdje ne
+mjeri; efekat kapije na izbore ruke, jer nijedna ruka nije posegnula za prečicom u 36
+naoružanih pokretanja; niti *redoslijed* klauzula - `k=8` fiksira smjer, pri 8 pokretanja po
+ćeliji. Jedan provajder i jedan fixture paket sve vrijeme, a runde ablacije rade na jednoj
+familiji modela. Druga familija modela reprodukuje nulu od 28 zadataka tačno (51/56 protiv
+51/56), što pokazuje da prvo čitanje nije bilo artefakt modela.
+
 <a id="cost"></a>
 
 ## Trošak
 
-Izmjereno na ovoj mašini (macOS, Python 3.10), nije procijenjeno:
+Izmjereno na ovoj mašini (macOS, Python 3.10), nije procijenjeno. `tezgah-setup` ispisuje
+trenutni budžet - čitajte ga tamo umjesto da vjerujete broju kopiranom ovdje, što je način na
+koji je ranija revizija citirala manji core band od onoga koji instalira.
 
-- **Kontekst.** Početak sesije ubacuje ~5.4 KB (~1.3k tokena) teksta ugovora.
-  Na Codex-u podsjetnik od 480 bajtova prati svaki potez; Claude i ostali hostovi
-  nemaju hook po potezu, tako da je njihov trošak po potezu nula. Puna `tezgah-contract`
-  vještina (~25k karaktera) se plaća samo kada je zadatak učita. Na opencode-u
-  ugovor se isporučuje kao datoteka sa instrukcijama od ~5.8 KB. opencode bi inače
-  ubacio teksta sa imenom/opisom/lokacijom vještine u sistemski prompt svake sesije;
-  tezgah odbija tu listu (`permission.skill = deny`) i umjesto toga isporučuje
-  generisani ruter vještina , tako da se vještina pronalazi čitanjem njene
-  `SKILL.md` putanje iz rutera.
-- **Latencija.** Hookovi su zasebni Python procesi, tako da dominira pokretanje interpretera od ~19 ms.
-  Povrh toga, početak sesije dodaje ~25 ms, poziv alata sa kapijom
-  (Bash/Grep/Task) dodaje ~9 ms, a Codex-ov Stop segment dodaje ~15 ms po potezu.
-- **Disk.** Instalacija traje ~58 ms i svaka datoteka koju tezgah prepisuje se čuva
-  jednom kao `<file>.tezgah-bak`.
+| Opseg | Šta košta |
+|---|---|
+| Početak sesije | always-on ugovor (invarijante plus pokazivač od jedne linije po pravilu na zahtjev): na ovoj mašini i skupu vještina, ~1.3k tokena teksta ugovora i ~1.1k metapodataka vještina, pri čemu uslovna pravila (spec, consult, research, graph) dodaju ~0.6k samo na potezu čiji se prompt poklopi |
+| Po potezu | kratki podsjetnik (~0.2k tokena) plus naoružano pravilo kada se poklopi; hookovi su odvojeni Python procesi, pa ~19 ms pokretanja interpretera dominira - početak sesije dodaje ~25 ms, poziv alata kroz kapiju (Bash/Grep/Task) ~9 ms. opencode nema hook u vrijeme prompta, pa plaća nulu |
+| Na zahtjev | puna `tezgah-contract` vještina (~5.8k tokena), plaća se samo kada je zadatak učita |
+| MCP šeme | najveći opseg, i onaj koji nijedan statički izvještaj ne vidi: samo graf server deklariše 15 alata / 24,508 bajtova (~6.1k tokena), jaše na svakom zahtjevu osim ako host dohvati šeme na zahtjev. `tezgah-setup --mcp-schemas` to mjeri |
+| Disk | instalacija traje ~58 ms, i svaka datoteka koju tezgah prepisuje čuva se jednom kao `<file>.tezgah-bak` |
 
-Isplativost se pokazuje na pitanjima pozivaoca. U jednom stvarnom repozitoriju, podrazumijevani `grep`
-je ignorisao relevantni folder i nije pronašao ništa; sa onemogućenim ignorisanjem trebalo mu je
-3.95 s i dalje je miješao definicije sa mjestima poziva. Graf koda je odgovorio na
-isto pitanje za 16 ms, navodeći samo 8 pravih mjesta poziva.
+**Pod naoružavanja.** Invarijante su always-on - režim izvršavanja, ponytail,
+deliver-the-whole-ask, integritet, disciplina petlje, evidencija lekcija i zabrana
+pripisivanja - a sigurnosno pravilo ("nepovratne ili prema van okrenute akcije zahtijevaju
+prvo eksplicitan upit") je jedno od njih, pa nikad ne zavisi od klasifikatora. Svako
+savjetodavno pravilo drži pokazivač od jedne linije koji se može izvršiti uvijek aktivnim,
+pa propušteni poklopac košta detalj, nikad pravilo, a hook hosta koji ne uspije pada natrag
+na pokazivače plus vještinu na zahtjev umjesto na nikakav ugovor. Lažni negativi su
+revizijski: svaki prompt dodaje `armed=<rules|none> chars=<n>` - bez teksta prompta - u
+`~/.cache/tezgah/classify.log` (skraćen na zadnjih 200 linija nakon 64 KB), i svih pet hook
+hostova naoružava isti skup za isti prompt (`tests/test_context.py::ArmingConformance`).
 
-opencode je također opremljen za higijenu konteksta dugih sesija: `tezgah-setup --install`
-postavlja `compaction.prune` tako da se stari rezultati alata brišu iz prompta
-umjesto da se ponovo šalju na svakom koraku, a `watcher.ignore` lista drži posmatrača datoteka
-dalje od `.git`, `node_modules` i build direktorija. Oba se spajaju — eksplicitna korisnička
-vrijednost pobjeđuje. Ovo je važno jer opencode vrši automatsko sažimanje samo blizu ograničenja konteksta modela
-(za model od 1M tokena, oko 980k), tako da bez čišćenja radni skup
-raste na stotine hiljada tokena. `bin/tezgah-doctor` izvještava o
-rezultujućem zauzeću diska; `--prune-sessions DAYS` briše neaktivne sesije kroz
-opencode CLI, što je jedina akcija koja zapravo smanjuje bazu podataka — sam VACUUM
-to ne može, jer su sve njegove stranice žive.
+**opencode se naoružava drugačije.** Nema tačku ubacivanja u vrijeme prompta, pa se ugovor
+isporučuje kao generisana datoteka instrukcija, a njegov always-on ruter navodi samo grupe
+koje kod-sesija poseže, sažimajući ostatak na pokazivač na
+`~/.config/tezgah/opencode-skills.full.md` koji se čita na zahtjev; `permission.skill =
+deny` zaustavlja opencode da umjesto toga ubaci metapodatke svake vještine. `--install`
+također postavlja `compaction.prune` i `watcher.ignore`, čisteći stare rezultate alata iz
+prompta umjesto da ih ponovo šalje na svakom koraku - bez toga radni skup raste na stotine
+hiljada tokena prije nego opencode automatski kompaktira blizu granice modela (oko 980k za
+model od 1M tokena). `bin/tezgah-doctor` izvještava o zauzeću diska, a `--prune-sessions
+DAYS` briše neaktivne sesije kroz opencode CLI, jedina akcija koja zapravo smanjuje bazu
+podataka, jer VACUUM sam ne može.
+
+**Zašto se isplati.** U jednom stvarnom repozitoriju zadani `grep` je ignorisao relevantni
+folder i ništa nije našao; sa isključenim ignore-om trebalo je 3.95 s i još uvijek je
+miješao definicije sa mjestima poziva, dok je graf koda odgovorio na isto pitanje za 16 ms
+sa 8 pravih mjesta poziva.
 
 <a id="development"></a>
 

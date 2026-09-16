@@ -40,6 +40,7 @@
   <a href="#install">安裝</a> &bull;
   <a href="#day-to-day">日常使用</a> &bull;
   <a href="#configuration">設定</a> &bull;
+  <a href="#benchmark">Benchmark</a> &bull;
   <a href="#cost">成本</a> &bull;
   <a href="#development">開發</a> &bull;
   <a href="#contributing">貢獻</a> &bull;
@@ -76,27 +77,16 @@
 
 ## 支援的主機
 
-| 主機 | 串接方式 | 狀態列 |
-|---|---|---|
-| **Claude Code** | 本機外掛程式市集：掛鉤 (hooks)、指令、兩個唯讀代理、輸出樣式 | 原生 `statusLine` |
-| **opencode** | 外掛程式 + 指示 + MCP + 產生的技能路由器（拒絕原生技能清單），在第一則訊息時自動索引儲存庫 | TUI 外掛程式（無指令 statusLine） |
-| **Codex** | `hooks.json` + 技能 + MCP，包含一個 `PreToolUse` 閘道 | 掛鉤 `systemMessage`（頁尾項目清單已關閉） |
-| **Cursor** | `hooks.json` + 技能 + MCP | `cli-config.json` 中的 `statusLine` |
-| **dsh** | Claude Code 掛鉤橋接器 + 受管理的修補區塊（掛鉤、MCP、LLM 路由、樹外的 Web 狀態列） | Web UI 外掛程式：工作階段標頭中的 `tezgah-dsh-statusline` |
+| 主機 | 串接方式 |
+|---|---|
+| **omp** (oh-my-pi) — 主要 | `~/.omp/agent`：受管理的 `RULES.md` 常開區塊、技能、產生的子代理、`mcp.json`，以及一個擴充功能（`hooks/pre/tezgah-hook.ts`），它武裝每個提示詞的規則、對工具進行閘道控制、記錄證據並執行 Stop 規則；此串接由 `tezgah-setup` 檢查 |
+| **Claude Code** | 本機外掛程式市集：掛鉤 (hooks)、指令、兩個唯讀代理、輸出樣式 |
+| **opencode** | 外掛程式 + 指示 + MCP + 產生的技能路由器（拒絕原生技能清單），在第一則訊息時自動索引儲存庫 |
+| **Codex** | `hooks.json` + 技能 + MCP，包含一個 `PreToolUse` 閘道 |
+| **Cursor** | `hooks.json` + 技能 + MCP |
+| **dsh** | Claude Code 掛鉤橋接器 + 受管理的修補區塊（掛鉤、MCP、LLM 路由、樹外的 Web 狀態列） |
 
 Codex 閘道會將 Bash、`exec_command`、`apply_patch`、編輯/寫入、MCP 工具和子代理呼叫，透過與其他主機相同的檢查來執行。在 Claude 上，歸屬禁止也是機械性強制執行的：`attribution` 設定會被清空（`commit`、`pr`、`sessionUrl`），因此提交和 PR 的歸屬標註在來源處就被關閉了。
-
-### 狀態列
-
-每個主機都會從 `tezgah-status` 渲染相同的單行檢查清單，因此它們不會產生分歧。狀態是關鍵：當規則已武裝並在本次工作階段生效時，標記為**綠色**；當規則已武裝但按需使用（尚未被使用）時，標記為**黃色**；當被終止開關 (kill switch) 關閉時，標記為**紅色**。`idx` 會獨立報告圖的就緒狀態（`✓` 已索引，`↻` 過期，`✗` 未索引，`–` 不適用），而 `plans N (M blk)` 報告開啟的計畫。`tezgah-status --legend` 會印出圖例，`--json` 為 UI 提供相同的區段，而 `--no-color`（或 `NO_COLOR`）會強制使用純文字。Claude Code 和 Cursor 會為原生狀態列上色；opencode TUI 會為其自身元件上色並在主機事件匯流排上重新整理；dsh Web UI 會為其標頭元件上色，且僅在其分頁可見時重新整理；Codex 在 `systemMessage` 中顯示純文字字串。
-
-dsh 透過其 `dsh-hooks-claude-code` 橋接器執行相同的 Claude 掛鉤檔案，因此工作階段啟動契約、歸屬閘道和首次 grep 提示都適用於該處。dsh 僅暴露單一的 `subagent` 工具，因此拒絕僅限 grep 的探索器 (grep-only-explorer) 是無效的——因為沒有探索器子代理可供它拒絕。dsh 預設的 `workspace-write` 沙盒將掛鉤子處理程序限制在工作區和平台暫存目錄中，因此 tezgah 會將其掛鉤狀態（提示標記、索引戳記）寫入該處的可寫入備用位置，而不是在寫入被拒絕時失敗。圖索引工作程式無法從該沙盒內部寫入 `codebase-memory-mcp` 快取，因此 `dsh` 啟動器在啟動 dsh 之前，會在使用者未受限的 shell 中預熱索引——新儲存庫的索引方式與其他主機完全相同，並帶有 HEAD 戳記。未使用啟動器啟動的工作階段仍會收到清晰的報告，指出未沙盒化的 MCP 伺服器提供圖服務，且需要對尚未索引的儲存庫執行 `index_repository`，而不是直接回傳原始的 `EPERM`。受管理的修補區塊還在基礎組合掛載的 pi-ai 轉接器上宣告了兩個相容於 OpenAI 的 LLM 路由：`openrouter` (`OPENROUTER_API_KEY`) 和 `deepseek` (`DEEPSEEK_API_KEY`)，可與原生的 `deepseek-official` 預設值一起選擇。金鑰從啟動環境或測試框架憑證儲存區解析；這兩個金鑰都不會進入設定檔。tezgah-setup 還會在 PATH (`~/.local/bin/dsh`) 上放置一個 `dsh` 啟動器，它會在 `$DSH_HOME` 下尋找已安裝的 CLI，因此 `dsh --profile web` 可以在任何目錄中運作。
-
-dsh 沒有指令狀態列，因此 tezgah 以 Web UI 外掛程式的形式提供了一個：`tezgah-dsh-statusline`。它的主機端透過經過驗證的 `/api/tezgah.status` 路由（使用 `?format=json` 取得彩色視圖）為工作階段的工作區提供 `tezgah-status` 字串；它的瀏覽器端將其渲染在工作階段標頭中，根據狀態上色並帶有懸停/點擊圖例，且僅在分頁可見時重新整理。`tezgah-setup` 將外掛程式連結到 web 設定檔中，並透過 `profiles/web/cordis.patch.yml` 中受管理的資料列來啟用它（僅限 web，因為主機端會注入僅限 web 的 `connection` 服務）；從未啟動過 `web` 的設定檔會被跳過並給予提示，而不是寫入一半。在 `headless` 模式下，掛鉤橋接器會將 SessionStart 契約作為其自身的尾隨輪次注入（其 `agent/session-start` 會在單次任務已經是第一則訊息之後，分離地呼叫 `agent.inject()`），因此 `dsh --profile headless "<task>"` 會多花費一個輪次，並且對於字面回答的提示詞，會印出模型對契約的反應，而不是任務的答案；互動式 web 工作階段則不受影響。
-
-`bin/tezgah-setup --install` 也會在 `orx` 位於 PATH 上時，為 Claude、Codex、opencode 和 Cursor 觸發 `orx install-skills`，以便研究規則有手冊可以載入。shim 檔案屬於 orx，因此 tezgah 僅執行該安裝程式，絕不會將它們列入解除安裝清單。dsh 沒有 orx 測試框架；那裡的研究規則會退回使用 shell 上的 `orx skill`。
-
-Claude 外掛程式還附帶兩個唯讀代理。`agents/tezgah-explorer.md` 從圖中進行程式碼探索並回傳 `file:line` 證據；`agents/tezgah-reviewer.md` 使用 `detect_changes` 將差異 (diff) 轉換為其影響集，然後尋找真正的缺陷。兩者都停用了寫入和指令工具；它們的輸出僅供參考。
 
 ### 應用程式分析
 
@@ -126,7 +116,16 @@ cd ~/Projects/tezgah
 bin/tezgah-setup --install
 ```
 
-`--install` 也會透過**網路**執行各個供應商自己的安裝程式來安裝缺少的選用工具：`orx` (`openresearch.sh/install.sh`)、`cursor-agent` (`cursor.com/install`)、`dsh`（透過 `npx` 安裝其 home 設定檔），以及當 dsh 需要時安裝 `pnpm`（透過 `npm`）——包含 `curl ... | sh`。這些都不需要 sudo；執行過程會記錄在 `~/.config/tezgah/install.log` 中。使用 `--dry-run` 進行預覽，使用 `--no-deps` 跳過它（在 CI 中很有用），或使用 `--deps` 僅安裝工具。工具會存放在 `~/.local/bin` 或 `~/.cargo/bin` 中，因此在它們進入 PATH 之前可能需要開啟新的 shell；無論如何，tezgah 自己的檢查都會在這些目錄中尋找，因此非互動式 shell 仍會報告它們存在。
+在終端機中，不帶參數執行該命令就是精靈：它會詢問要武裝哪些主機、根目錄、是否安裝缺少的選用工具，以及是否串接選用的 DevTools
+MCP，列印計畫，並且只有在得到肯定答覆後才寫入。這些旗標就是精靈的預設值，因此 `--wizard --hosts omp` 只詢問其餘部分。管線、代理或 CI
+執行永遠不會被提示——它會列印報告，與之前完全一樣。
+
+`--install` 也會透過**網路**執行各個供應商自己的安裝程式來安裝缺少的選用工具：`orx`
+(`openresearch.sh/install.sh`)、`cursor-agent` (`cursor.com/install`)、`dsh`（透過 `npx` 安裝其 home
+設定檔），以及當 dsh 需要時安裝 `pnpm`（透過 `npm`）——包含 `curl ... | sh`。這些都不需要 sudo；執行過程會記錄在
+`~/.config/tezgah/install.log` 中。使用 `--dry-run` 進行預覽，使用 `--no-deps` 跳過它（在 CI 中很有用），或使用
+`--deps` 僅安裝工具。工具會存放在 `~/.local/bin` 或 `~/.cargo/bin` 中，因此在它們進入 PATH 之前可能需要開啟新的
+shell；無論如何，tezgah 自己的檢查都會在這些目錄中尋找，因此非互動式 shell 仍會報告它們存在。
 
 如果已經存在先前的設定，請先匯入它——它會被移到一旁，而不是被刪除：
 
@@ -196,19 +195,65 @@ tezgah 僅在其設定的根目錄下武裝；在其他任何地方它都會保�
 
 當使用者標記錯誤時，代理會將單行教訓附加到儲存庫的 `.tezgah/lessons.md` 中；最近的幾行會在工作階段開始時注入，因此相同的錯誤不會默默地重複發生。
 
+<a id="benchmark"></a>
+
+## Benchmark
+
+這份契約真的改善了工作，還是只是看起來應該改善？這要在 `benchmarks/arm-bench/`
+中測量，而不是斷言：代理從不知道其存在的隱藏檢查、來自主機自身使用記錄的成本，以及被計為失敗的附帶編輯。`PREREGISTRATION.md` 在執行前固定端點，`python3
+bench.py report` 列印它們；完整研究（含執行 id）見
+`docs/research/2026-09-16-tezgah-quality.md`。下面的每個數字都是執行日誌。
+
+| 區塊 | 執行 | 它確定了什麼 |
+|---|---|---|
+| 雙主機，28 個任務，k=3 | 336 | `omp+tezgah` 0.95 與 `opencode+tezgah` 0.96 的區間重疊，且每個已解決任務的成本相同；在裸臂上 omp 更便宜（$0.0047 對 $0.0074 CPS），因此日常驅動是 omp，且不以品質為代價 |
+| 難組，5 個任務，k=5，兩個模型族 | 200 | 合併後，四個臂中有三個落在 40/50：在該規模下沒有 harness 效應，而第一個模型產生的唯一訊號在第二個模型上反轉了 |
+| 閘道組，閘道已武裝 | 36 | 沒有任何臂走捷徑路線；閘道機制被直接驗證（跳過編輯被拒絕），它對工作的影響尚未測量 |
+| 條款消融，區分兩者的兩條規則，k=8 | 160 | 契約臂通過 23/32（0.72），裸錨點為 12/32（0.38） |
+
+**它恰好在模型預設錯誤的地方起作用。** `c04`（一個只有契約才使回覆為中文的英文提示詞）在有契約時讀出 9/16，無契約時
+0/16；`h02`（一個可見測試套件兩種情況都為綠的金錢契約）讀出 14/16 對 12/16。在沒有差距要彌補的地方——25 個試點任務中有 22
+個在每個臂的每次重複下都通過——基準只能報告一個 null。
+
+**兩條條款支撐它。** 移除條款 1 使 `c04` 降到 0/8，即裸錨點自己的分數，而幾乎不動 `h02`。移除條款 3 使 `h02` 降到 2/8——低於裸錨點的
+6/8——因為條款 3 禁止停在看起來最短的已完成路徑上，而在那個任務上，最短路徑就是一行程式碼，它通過了可見套件卻違反成文規則。條款 2 和 4 沒有移動任何可測量的東西。
+
+**成本跟隨品質。** 每個已解決任務：在完整契約節點上 $0.0078 對 $0.0097，在減去 ponytail 的節點上 $0.0043 對
+$0.0087。契約臂解決了更多任務，因此每個已解決任務成本更低；總支出更高，基準按列記錄它而不是把它淨掉。
+
+這裡沒有展示的：程式碼品質、審查工作量或可維護性，這些都沒有在此測量；閘道對臂選擇的影響，因為在 36 次已武裝執行中沒有任何臂去夠捷徑；或條款的順序——`k=8` 在每個單元 8
+次執行下固定一個方向。全程一個供應商和一個夾具包，消融輪次在單一模型族上執行。第二個模型族精確複現了 28 任務的 null（51/56 對
+51/56），這正是表明第一次讀數不是模型假象的證據。
+
 <a id="cost"></a>
 
 ## 成本
 
-在本機 (macOS, Python 3.10) 上實際測量，而非估算：
+在本機 (macOS, Python 3.10) 上實際測量，而非估算。`tezgah-setup`
+列印即時預算——請在那裡讀取，而不要相信複製到這裡的數字；早先的一個修訂版正是這樣引用了比它所安裝的更小的核心區間。
 
-- **上下文 (Context)。** 工作階段啟動時會注入約 5.4 KB（約 1.3k 個 token）的契約文字。在 Codex 上，每個輪次會附帶 954 位元組的提醒；Claude 和其他主機沒有每輪次的掛鉤，因此它們的每輪次成本為零。完整的 `tezgah-contract` 技能（約 25k 個字元）僅在任務載入它時才需要付出成本。在 opencode 上，契約作為約 5.8 KB 的指示檔案提供。否則，opencode 會將技能名稱/描述/位置文字注入到每個工作階段的系統提示詞中；tezgah 拒絕該清單 (`permission.skill = deny`)，並改為提供一個產生的技能路由器，因此可以透過從路由器讀取其 `SKILL.md` 路徑來找到技能。
-- **延遲 (Latency)。** 掛鉤是獨立的 Python 處理程序，因此約 19 毫秒的直譯器啟動時間佔了主導地位。除此之外，工作階段啟動增加約 25 毫秒，受閘道控制的工具呼叫 (Bash/Grep/Task) 增加約 9 毫秒，而 Codex 的 Stop 區段每輪次增加約 15 毫秒。
-- **磁碟 (Disk)。** 安裝大約需要 58 毫秒，且 tezgah 覆寫的每個檔案都會保留一次為 `<file>.tezgah-bak`。
+| 區間 | 它的成本 |
+|---|---|
+| 工作階段啟動 | 常開的契約（不變式加上每條按需規則的一行指標）：在本機和這套技能下，約 1.3k tokens 的契約文字和約 1.1k 的技能中繼資料，條件規則（spec、consult、research、graph）只在提示詞相符的那一輪增加約 0.6k |
+| 每輪次 | 一條簡短提醒（約 0.2k tokens）加上相符時武裝的規則；掛鉤是獨立的 Python 處理程序，因此約 19 毫秒的直譯器啟動佔主導——工作階段啟動增加約 25 毫秒，一次受閘道控制的工具呼叫（Bash/Grep/Task）約 9 毫秒。opencode 沒有提示詞時掛鉤，因此付出零成本 |
+| 按需 | 完整的 `tezgah-contract` 技能（約 5.8k tokens），只在任務載入它時才付出 |
+| MCP 結構描述 | 最大的區間，也是沒有任何靜態報告能看到的區間：僅圖譜伺服器就宣告 15 個工具 / 24,508 位元組（約 6.1k tokens），除非主機按需取得結構描述，否則它搭乘每個請求。`tezgah-setup --mcp-schemas` 測量它 |
+| 磁碟 | 安裝耗時約 58 毫秒，tezgah 覆寫的每個檔案都會保留一次為 `<file>.tezgah-bak` |
 
-回報體現在呼叫者的問題上。在一個真實的儲存庫中，預設的 `grep` 忽略了相關資料夾且什麼也沒找到；在停用忽略的情況下，它花費了 3.95 秒，而且仍然將定義與呼叫位置混在一起。程式碼圖在 16 毫秒內回答了相同的問題，僅列出了 8 個真正的呼叫位置。
+**武裝底線。**
+不變式是常開的——執行模式、ponytail、交付完整請求、完整性、迴圈紀律、教訓帳本和署名禁令——而安全規則（"不可逆或外向的動作需要先明確提出"）就是其中之一，因此它從不依賴分類器。每條建議性規則都保留一個可操作的常開一行指標，因此一次漏配只損失細節，絕不損失規則本身，而失敗的主機掛鉤會退回指標加上按需技能，而不是退回沒有契約。假陰性可稽核：每個提示詞都向
+`~/.cache/tezgah/classify.log` 附加 `armed=<rules|none> chars=<n>`——沒有提示詞文字——（超過 64 KB 後截斷為最後
+200 行），並且所有五個有掛鉤的主機對同一個提示詞武裝同一套規則（`tests/test_context.py::ArmingConformance`）。
 
-opencode 也為長工作階段的上下文衛生進行了武裝：`tezgah-setup --install` 設定了 `compaction.prune`，因此舊的工具結果會從提示詞中清除，而不是在每個步驟中重新傳送，並且 `watcher.ignore` 清單會讓檔案監控器避開 `.git`、`node_modules` 和建置目錄。兩者都會合併——明確的使用者設定值優先。這很重要，因為 opencode 僅在接近模型的上下文限制時（對於 1M token 的模型，大約是 980k）才會自動壓縮，因此如果不進行修剪，工作集會增長到數十萬個 token。`bin/tezgah-doctor` 會報告產生的磁碟佔用空間；`--prune-sessions DAYS` 透過 opencode CLI 刪除閒置的工作階段，這是唯一能實際縮小資料庫的動作——單靠 VACUUM 是無法做到的，因為它的分頁都是活躍的。
+**opencode 的武裝方式不同。** 它沒有提示詞時的注入點，因此契約作為產生的指示檔案提供，其常開路由器只列出編碼工作階段會用到的那幾個桶，將其餘的摺疊為按需讀取的
+`~/.config/tezgah/opencode-skills.full.md` 指標；`permission.skill = deny` 阻止 opencode
+注入每個技能的中繼資料。`--install` 還設定 `compaction.prune` 和
+`watcher.ignore`，從提示詞中清除舊的工具結果而不是在每一步重新傳送它們——沒有這一點，工作集會增長到數十萬個 token，然後 opencode
+才會在接近模型限制（1M-token 模型約 980k）時自動壓縮。`bin/tezgah-doctor` 報告磁碟佔用，而 `--prune-sessions DAYS` 透過
+opencode CLI 刪除閒置的工作階段，這是唯一真正縮小資料庫的操作，因為單靠 VACUUM 做不到。
+
+**為什麼值得。** 在一個真實儲存庫中，預設的 `grep` 忽略了相關資料夾且什麼也沒找到；停用忽略後它花了 3.95 秒，而且仍然把定義與呼叫位置混在一起，而程式碼圖在 16
+毫秒內用 8 個真正的呼叫位置回答了相同的問題。
 
 <a id="development"></a>
 
