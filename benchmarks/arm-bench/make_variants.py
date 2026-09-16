@@ -13,7 +13,6 @@ and `c04-turkish-explain-readonly` grades it, so if that ablation does not break
 c04 the variant mechanism itself is broken and no other reading is admissible.
 """
 import pathlib
-import re
 import shutil
 
 ROOT = pathlib.Path(__file__).resolve().parent
