@@ -298,7 +298,8 @@ znati:
 
 | Komanda | Svrha |
 |---|---|
-| `bin/tezgah-setup` | Izvještava šta je aktivirano, po hostu |
+| `bin/tezgah-setup` | U terminalu: čarobnjak za instalaciju; u pipe-u ili CI-ju: izvještava šta je aktivirano, po hostu |
+| `bin/tezgah-setup --wizard` | Prisiljava čarobnjak za instalaciju bilo gdje; `--report` prisiljava izvještaj |
 | `bin/tezgah-status [PATH]` | Prikazuje da li su pravila aktivna u tom repozitoriju |
 | `bin/tezgah-setup --status [PATH]` | Ispisuje kontrolnu listu aktiviranog/korištenog |
 | `bin/tezgah-setup --deps [--dry-run]` | Instalira opcione alate koji nedostaju (orx, cursor-agent, dsh) |

@@ -299,7 +299,8 @@ Niente da eseguire: le regole si caricano all'avvio di un host. Vale la pena con
 
 | Comando | Scopo |
 |---|---|
-| `bin/tezgah-setup` | Riporta cosa è armato, per host |
+| `bin/tezgah-setup` | In un terminale: la procedura guidata di installazione; in una pipe o in CI: riporta cosa è armato, per host |
+| `bin/tezgah-setup --wizard` | Forza la procedura guidata di installazione ovunque; `--report` forza il report |
 | `bin/tezgah-status [PATH]` | Mostra se le regole sono attive in quella repo |
 | `bin/tezgah-setup --status [PATH]` | Stampa la checklist armata/usata |
 | `bin/tezgah-setup --deps [--dry-run]` | Installa gli strumenti opzionali mancanti (orx, cursor-agent, dsh) |

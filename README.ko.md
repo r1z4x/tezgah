@@ -262,7 +262,8 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 
 | 명령어 | 목적 |
 |---|---|
-| `bin/tezgah-setup` | 호스트별로 준비된 항목 보고 |
+| `bin/tezgah-setup` | 터미널에서는 설치 마법사, 파이프나 CI에서는 호스트별로 준비된 항목 보고 |
+| `bin/tezgah-setup --wizard` | 어디서나 설치 마법사를 강제 실행, `--report`는 보고를 강제 |
 | `bin/tezgah-status [PATH]` | 해당 리포지토리에서 규칙이 활성화되어 있는지 표시 |
 | `bin/tezgah-setup --status [PATH]` | 준비/사용된 체크리스트 출력 |
 | `bin/tezgah-setup --deps [--dry-run]` | 누락된 선택적 도구(orx, cursor-agent, dsh) 설치 |
