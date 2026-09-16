@@ -53,6 +53,20 @@ class ShortcutEdit(unittest.TestCase):
                     "test.only('a', () => {})"):
             self.assertIsNotNone(ti.shortcut_edit({"new_string": new}), new)
 
+    def test_optional_dependency_guard_allowed(self):
+        # skipUnless guards a missing optional dep; it is not a disable and
+        # must not be caught (the gate denied it before the boundary fix).
+        new = "@unittest." + "skipUnless(HAVE_NODE, 'node missing')\ndef t(): pass"
+        self.assertIsNone(ti.shortcut_edit({"new_string": new}))
+
+    def test_conditional_skip_reports_its_own_name(self):
+        # a skipIf marker must be named as itself, not truncated to skip
+        for name in ("@unittest." + "skipIf(x, 'y')",
+                     "@pytest.mark." + "skipif(x, 'y')"):
+            reason = ti.shortcut_edit({"new_string": name + "\ndef t(): pass"})
+            self.assertIsNotNone(reason, name)
+            self.assertIn(name.split("(")[0], reason)
+
     def test_rewriting_an_existing_skip_passes(self):
         old = "@pytest.mark.skip(reason='flaky')\ndef test_x(): pass"
         self.assertIsNone(ti.shortcut_edit(

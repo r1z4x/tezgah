@@ -49,9 +49,11 @@ NO_VERIFY = re.compile(r"--no-verify\b")
 GITISH = re.compile(r"\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b", re.I)
 # tests disabled so a failure disappears; checked only when newly introduced
 SKIP_TEST = re.compile(
-    r"@pytest\.mark\.(?:skip|skipif|xfail)|@pytest\.mark\.only|"
-    r"@unittest\.(?:skip|skipIf|expectedFailure)|@Ignore\b|@Disabled\b|"
-    r"\bpytest\.skip\(|\bunittest\.skip\w*\(|\bt\.Skip\w*\(|"
+    r"@pytest\.mark\.(?:skip|skipif|xfail|only)\b|"
+    r"@unittest\.(?:skip|skipIf|skipTest|expectedFailure)\b|"
+    r"@Ignore\b|@Disabled\b|"
+    r"\bpytest\.skip\(|\bunittest\.(?:skip|skipIf|skipTest)\(|"
+    r"\bt\.Skip\w*\(|"
     r"\b(?:it|test|describe)\.(?:skip|only)\(|\bxit\(|\bxdescribe\(|"
     r"\bpytestmark\s*=\s*pytest\.mark\.skip", re.I)
 # a completion / verification claim, English and Turkish
