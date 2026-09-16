@@ -1,1 +1,2 @@
 Uncommitted edits in this shared checkout were wiped by another agent's branch switch mid-task. Rule: open your own branch and commit each edit as soon as it lands, before running anything else.
+Feature work went on a `feat/*` branch with no plan file, so the repo's own plan tracking never saw it. Rule: a feature goes on `plan/NNN-slug` with a matching `plans/open/NNN-slug.md`, committed before the PR opens.
