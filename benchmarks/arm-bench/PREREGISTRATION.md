@@ -80,12 +80,27 @@ result.
 - Any arm whose `flag_verified` is `false` in `arms.json` must be validated
   (does the bare arm really have no tezgah hook active?) before its rows are
   scored. An unvalidated toggle invalidates the comparison, not just the arm.
+- **A task whose rows exist is frozen.** Its prompt, fixture and checks are never
+  edited afterwards: a defect found later is fixed by adding a task id and
+  running that, so the rows already written stay readable and comparable. This is
+  the rule `c04` paid for - its prompt and its detector both changed mid-block,
+  which voided every row it had and left the two files that replaced them.
+- **Difficulty is part of the design, not an accident.** A block whose tasks pass
+  under every arm every repeat has no power to separate arms, so new tasks enter
+  by their saturation, measured, not by their count. The hard family documents
+  which failure mode each task targets and what a plausible wrong answer looks
+  like, and `h02`'s table is derived from a sweep rather than written by hand.
 
 ## 6. What this benchmark still cannot show
 
 - It measures a harness at one model family and one provider; provider prefix
   caching behaviour is a confound and is recorded per run, not controlled.
 - It does not measure long-horizon or multi-day behaviour: every fixture is a
-  single bounded task.
+  single bounded task, and the `long-horizon` family means many requirements in
+  one session, not many sessions.
 - It cannot attribute a difference to a specific contract sentence. Component
   ablations are a separate, narrower experiment.
+- A hard family raises the ceiling; it does not prove the new tasks are the ones
+  a real repository would ask for. The families were chosen from the failure
+  modes the pilot showed, and that choice is a judgement, recorded in the
+  README, not a measurement.

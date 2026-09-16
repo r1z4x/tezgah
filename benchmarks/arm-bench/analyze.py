@@ -138,6 +138,29 @@ def by_family(rows):
         print("| %s | %s |" % (family, " | ".join(cells)))
 
 
+def per_check(rows):
+    """Pass counts per check, per arm: how far an arm got on a sweep task whose
+    findings are scored one by one, rather than only whether it finished."""
+    by = defaultdict(lambda: defaultdict(lambda: [0, 0]))
+    for row in rows:
+        for check in row.get("checks") or []:
+            cell = by[check["name"]][row["arm"]]
+            cell[0] += 1
+            cell[1] += 1 if check["passed"] else 0
+    if not by:
+        return
+    arms = sorted({row["arm"] for row in rows})
+    print("\nper check (passed / run):")
+    print("| check | " + " | ".join(arms) + " |")
+    print("|---" * (len(arms) + 1) + "|")
+    for name in sorted(by):
+        cells = []
+        for arm in arms:
+            total, passed = by[name].get(arm, [0, 0])
+            cells.append("%d/%d" % (passed, total) if total else "-")
+        print("| %s | %s |" % (name, " | ".join(cells)))
+
+
 def main():
     paths = sys.argv[1:] or ["results/pilot-block.jsonl"]
     rows = load(paths)
@@ -152,6 +175,7 @@ def main():
     print("k = %d (repeats %s), tasks = %d\n" % (
         len(reps), reps, len({r["task"] for r in rows})))
     arms_table(rows)
+    per_check(rows)
     paired(rows)
     by_family(rows)
     flagged = [r for r in rows if r.get("usage_note")]
