@@ -1,1 +1,0 @@
-Raporlama bazı girdilerde ValueError ile patlıyor; kopyala-yapıştır ile gelen sayıların içinde görünmez karakterler (ör. zero-width space, BOM) oluyor. Sorunun kaynağını bul ve kökten düzelt; tek bir çağrı yerini yamamakla kalma. Var olan testleri bozma.

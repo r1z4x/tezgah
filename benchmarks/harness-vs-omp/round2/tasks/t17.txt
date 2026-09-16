@@ -1,1 +1,0 @@
-inventory/search.py içindeki find_by_prefix büyük/küçük harf duyarsız olmalı: hem ürün adı hem de prefix normalize edilsin. Örnek: "ap" -> ["Apple", "apricot"]. Sonuç sırası girdi sırasıyla aynı kalsın.

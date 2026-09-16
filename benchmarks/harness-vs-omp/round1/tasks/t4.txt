@@ -1,1 +1,0 @@
-Kısaca açıkla: inventory/core.py ne işe yarıyor, hangi fonksiyonlar var ve ne yapıyorlar?
