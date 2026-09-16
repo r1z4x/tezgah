@@ -266,10 +266,23 @@ class IndexRedraw(unittest.TestCase):
         self.tc = tc
         self.probes = []
         tc._IDX.clear()
+        # The idx mark short-circuits to "-" when no code-graph binary resolves,
+        # so pin one: whether this machine happens to have codebase-memory-mcp
+        # installed (it is absent in CI) must not decide whether the mark probes.
+        prev_cbm = os.environ.get("TEZGAH_CBM_BIN")
+        os.environ["TEZGAH_CBM_BIN"] = sys.executable
+        self.addCleanup(self._restore_cbm_bin, prev_cbm)
         self.addCleanup(setattr, tc, "git", tc.git)
         self.addCleanup(setattr, tc, "repo_marks", tc.repo_marks)
         tc.git = lambda *a: self.probes.append(a) or "deadbeef" * 5
         tc.repo_marks = lambda cwd: ("/base", set())
+
+    @staticmethod
+    def _restore_cbm_bin(prev):
+        if prev is None:
+            os.environ.pop("TEZGAH_CBM_BIN", None)
+        else:
+            os.environ["TEZGAH_CBM_BIN"] = prev
 
     def test_a_resolved_glyph_is_used_and_probes_nothing(self):
         segs = self.tc.health_segments("/base/proj", "s", used_override=[],
