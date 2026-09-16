@@ -21,7 +21,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import context_for, health_lines, record  # noqa: E402
+from tezgah_context import (  # noqa: E402
+    command_text, context_for, health_lines, record, shell_kind)
 from tezgah_gate import decision  # noqa: E402
 from tezgah_integrity import note_tool, stop_reason  # noqa: E402
 from tezgah_paths import off, root_for  # noqa: E402
@@ -55,11 +56,9 @@ def classify(payload):
     if name in ("Task", "Agent", "task", "spawn_agent"):
         return "orch"
     if name in ("Bash", "shell", "Shell", "exec_command"):
-        cmd = json.dumps(payload.get("tool_input") or {})
-        if "consult" in cmd:
-            return "consult"
-        if "orx" in cmd:
-            return "research"
+        kind = shell_kind(command_text(payload.get("tool_input")))
+        if kind:
+            return kind
     return None
 
 

@@ -1,5 +1,7 @@
 """hosts/cursor/hook.py: event translation and the shared gate."""
+import json
 import os
+import re
 import unittest
 
 import support
@@ -45,6 +47,119 @@ class CursorHook(TempHome):
         out = self.call({"hook_event_name": "preToolUse", "tool_name": "Shell",
                          "tool_input": {"command": 'git commit -m "plain"'},
                          "cwd": self.repo, "conversation_id": "s"})
+        self.assertEqual(out, {"permission": "allow"})
+
+    # ---- the write tools: the matcher has to reach the gate, and the payload
+    # Cursor sends has to fit the gate's vocabulary ---------------------------
+    def test_pre_tool_use_matcher_covers_the_write_tools(self):
+        # Cursor runs a hook only for a tool type its matcher matches, and
+        # Cursor's edit path is the `Write` tool. Without the write names in the
+        # matcher the platform never calls this hook for an edit, so no hook code
+        # can reach the gate's write branches.
+        path = os.path.join(os.path.dirname(support.CURSOR_HOOK), "hooks.json")
+        with open(path) as fh:
+            groups = json.load(fh)["hooks"]["preToolUse"]
+        pattern = re.compile("|".join(g["matcher"] for g in groups
+                                      if isinstance(g.get("matcher"), str)))
+        for tool in ("Shell", "Grep", "Task", "Write", "Edit"):
+            self.assertTrue(pattern.search(tool), tool)
+
+    def test_pre_tool_use_denies_a_credit_landed_by_the_write_tool(self):
+        # Cursor's Write payload describes the change the way afterFileEdit does
+        # (`edits: [{old_string, new_string}]`); this is the field the shared gate
+        # reads, so a credit inside file content is denied here too.
+        credit = "Co-Authored-By" + ": Someone <x@y>"
+        out = self.call({"hook_event_name": "preToolUse", "tool_name": "Write",
+                         "cwd": self.repo, "conversation_id": "s",
+                         "tool_input": {"file_path": "src/a.py", "edits": [
+                             {"old_string": "x = 1",
+                              "new_string": "x = 1\n" + credit}]}})
+        self.assertEqual(out["permission"], "deny")
+        self.assertIn("Attribution", out["agent_message"])
+
+    def test_pre_tool_use_denies_a_skip_added_by_the_write_tool(self):
+        marker = "@pytest.mark." + "skip"
+        out = self.call({"hook_event_name": "preToolUse", "tool_name": "Write",
+                         "cwd": self.repo, "conversation_id": "s",
+                         "tool_input": {"file_path": "tests/test_x.py",
+                                        "content": marker + "\ndef test_x():\n    pass\n"}})
+        self.assertEqual(out["permission"], "deny")
+        self.assertIn(marker, out["agent_message"])
+
+    def test_pre_tool_use_allows_a_plain_file_write(self):
+        out = self.call({"hook_event_name": "preToolUse", "tool_name": "Write",
+                         "cwd": self.repo, "conversation_id": "s",
+                         "tool_input": {"file_path": "src/a.py",
+                                        "content": "x = 2\n"}})
+        self.assertEqual(out, {"permission": "allow"})
+
+    # ---- used marks (what the status line turns green on) -------------------
+    def kinds(self, session="s"):
+        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
+                            support.slug(session) + ".jsonl")
+        if not os.path.exists(path):
+            return []
+        with open(path) as fh:
+            return [json.loads(line)["kind"] for line in fh if line.strip()]
+
+    def test_a_mention_of_consult_is_not_a_use_of_it(self):
+        # The mark means the tool ran. A grep whose argument names it, or a path
+        # that carries the name, is not a call.
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": 'grep -rn "consult" docs/'}})
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "orx-notes.txt işle"}})
+        self.assertEqual(self.kinds(), [])
+
+    def test_a_real_consult_call_records_the_use(self):
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "bin/consult --online 'x mi y mi?'"}})
+        self.assertIn("consult", self.kinds())
+
+    def test_a_real_research_call_records_the_use(self):
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "orx experiment list"}})
+        self.assertIn("research", self.kinds())
+
+    def test_after_shell_execution_reads_the_command_on_the_event(self):
+        self.call({"hook_event_name": "afterShellExecution", "cwd": self.repo,
+                   "conversation_id": "s", "command": "bin/consult --online q"})
+        self.assertIn("consult", self.kinds())
+
+    # ---- the brief a delegated subagent gets --------------------------------
+    def builder(self, event):
+        """What the shared builder renders for an event inside this test's HOME."""
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": event,
+                              "cwd": self.repo}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_subagent_start_briefs_the_delegate(self):
+        # A Cursor subagent is a fresh context: it gets the same short contract
+        # brief the other hosts hand a delegate, built once by the shared builder.
+        out = self.call({"hook_event_name": "subagentStart", "cwd": self.repo,
+                         "parent_conversation_id": "s",
+                         "subagent_type": "generalPurpose",
+                         "task": "index the docs"})
+        self.assertEqual(out["permission"], "allow")
+        self.assertEqual(out["additional_context"], self.builder("subagent_start"))
+
+    def test_subagent_start_still_denies_a_grep_only_explorer(self):
+        out = self.call({"hook_event_name": "subagentStart", "cwd": self.repo,
+                         "parent_conversation_id": "s",
+                         "subagent_type": "explore", "task": "find it"})
+        self.assertEqual(out["permission"], "deny")
+        self.assertNotIn("additional_context", out)
+
+    def test_subagent_start_is_inert_outside_the_roots(self):
+        out = self.call({"hook_event_name": "subagentStart", "cwd": self.home,
+                         "parent_conversation_id": "s",
+                         "subagent_type": "generalPurpose", "task": "t"})
         self.assertEqual(out, {"permission": "allow"})
 
     def test_before_submit_prompt_injects_the_reminder(self):

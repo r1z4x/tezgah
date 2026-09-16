@@ -1,9 +1,11 @@
 // tezgah opencode plugin: the opencode half of the tezgah contract.
 //
-// opencode has no stdout "inject context" hook, so the standing contract ships
-// as `instructions` files that tezgah-setup generates from the shared policy
-// (opencode-contract.md + opencode-skills.md). This plugin adds what those
-// static files cannot:
+// opencode has no stdout "inject context" hook, so the always-on core ships as
+// `instructions` files that tezgah-setup generates from the shared policy
+// (opencode-contract.md + opencode-skills.md); the per-turn and post-compact
+// text is paid by chat.message and experimental.session.compacting, which call
+// the shared builder (hooks/tezgah_context.py) through bin/tezgah-context rather
+// than keeping a copy of it here. This plugin adds what those files cannot:
 //   - tool.execute.before + permission.ask: refuse a git/gh write that credits
 //     an AI/model, block the first blind identifier search toward the code
 //     graph, and refuse a grep-only explorer subagent. permission.ask is the
@@ -11,7 +13,10 @@
 //     always-available fallback (1.18.30 never emits permission.ask, so the
 //     fallback is what enforces today).
 //   - shell.env: export the tezgah roots and paths into every shell call.
-//   - experimental.session.compacting: restate the contract across compaction.
+//   - chat.message: pay the shared builder's text for the submitted prompt -
+//     the per-turn reminder plus the conditional rule that prompt arms.
+//   - experimental.session.compacting: the builder's post-compact block, so the
+//     contract survives the summary.
 //   - tool.execute.after: record which tezgah tools a session used so
 //     `tezgah-status` can show it.
 //
@@ -61,6 +66,7 @@ const STATUS_BIN = join(CONFIG, "bin", "tezgah-status")
 const INDEX_BIN = join(CONFIG, "bin", "tezgah-index")
 const AGENTS_BIN = join(CONFIG, "bin", "tezgah-agents")
 const SETUP_BIN = join(CONFIG, "bin", "tezgah-setup")
+const CONTEXT_BIN = join(CONFIG, "bin", "tezgah-context")
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
 const EXPLORE_DENY =
   "A grep-only explorer subagent is not allowed in this tree. Use a " +
@@ -245,14 +251,6 @@ function attribution(tool, args) {
   }
   return false
 }
-// Re-injected around compaction so the contract survives the summary.
-const CONTRACT_REMINDER =
-  "Tezgah contract still in force: reply Turkish, BLUF; code minimal per " +
-  "ponytail (code first, max 3 note lines, `ponytail:` on any cut corner); " +
-  "\"who calls X\" = codebase-memory-mcp trace_path/search_graph, not grep " +
-  "alone; code-discovery subagents name the graph tools and are never " +
-  "grep-only explorers; done/tested claims need observed evidence; no " +
-  "AI/model attribution anywhere persisted or published."
 
 function expand(p) {
   return String(p || "").replace(/^~(?=$|\/)/, HOME)
@@ -360,12 +358,38 @@ async function record(sessionID, kind) {
   } catch {}
 }
 
-function classify(tool, args) {
+// The shared tokenizer's answer for one shell command, or null. A mention of a
+// tool is not a use of it, so this host asks the same code the Python hosts run
+// instead of pattern-matching the JSON it was handed.
+function commandKind(command) {
+  return new Promise((resolve) => {
+    let out = ""
+    let child
+    try {
+      child = spawn("python3", [CONTEXT_BIN, "kind", String(command)],
+                    { stdio: ["ignore", "pipe", "ignore"] })
+    } catch {
+      return resolve(null)
+    }
+    child.stdout.on("data", (d) => (out += d))
+    child.on("error", () => resolve(null))
+    child.on("close", (code) => resolve(code === 0 && out.trim() ? out.trim() : null))
+  })
+}
+
+async function classify(tool, args) {
   const blob = tool + " " + JSON.stringify(args || {})
   if (/search_graph|trace_path|search_code|get_architecture|detect_changes|codebase.memory/.test(blob)) return "cbm"
   if (tool === "task") return "orch"
-  if ((tool === "bash" || tool === "shell") && /consult/.test(blob)) return "consult"
-  if ((tool === "bash" || tool === "shell") && /\borx\b/.test(blob)) return "research"
+  if (tool === "bash" || tool === "shell") {
+    // the cheap substring only decides whether asking is worth a process; the
+    // answer itself comes from the shared tokenizer
+    if (/consult|\borx\b/.test(blob)) {
+      const command = typeof args === "string" ? args
+        : (args && (args.command || args.cmd)) || ""
+      return command ? await commandKind(command) : null
+    }
+  }
   return null
 }
 
@@ -387,6 +411,27 @@ function opencodeAgents(directory) {
     child.on("close", () => {
       try { resolve(JSON.parse(out)) } catch { resolve(null) }
     })
+  })
+}
+
+// The shared builder (hooks/tezgah_context.py) through bin/tezgah-context: the
+// same text Claude, Codex, Cursor, dsh and omp get, so opencode cannot drift
+// into a hand-kept paraphrase of it again. Fails open: a missing CLI, a
+// non-zero exit or a broken pipe all yield "", and the caller injects nothing.
+function builderText(event, directory, payload) {
+  return new Promise((resolve) => {
+    let out = ""
+    let child
+    try {
+      child = spawn("python3", [CONTEXT_BIN, event, directory],
+                    { stdio: ["pipe", "pipe", "ignore"] })
+    } catch {
+      return resolve("")
+    }
+    child.stdout.on("data", (d) => (out += d))
+    child.on("error", () => resolve(""))
+    child.on("close", (code) => resolve(code === 0 ? out.trim() : ""))
+    try { child.stdin.end(JSON.stringify(payload || {})) } catch {}
   })
 }
 
@@ -494,23 +539,52 @@ export const Tezgah = async ({ directory }) => {
       } catch {}
     },
 
-    // Keep the contract alive when a long session is compacted.
+    // Keep the contract alive when a long session is compacted: the shared
+    // builder's post-compact block, the same text Claude and Codex re-inject
+    // there, so the summarizer is steered by the live rules rather than by a
+    // copy kept in this file.
     "experimental.session.compacting": async (input, output) => {
       try {
         if (!output || typeof output !== "object") return
         const context = Array.isArray(output.context) ? output.context : (output.context = [])
-        context.push(CONTRACT_REMINDER)
+        const text = await builderText("post_compact", dir, {})
+        if (text) context.push(text)
       } catch {}
     },
 
     // Every other host runs the graph auto-index from its SessionStart hook.
     // opencode has no session-lifecycle hook that can run the Python contract,
     // so the first user message of a session triggers it once, detached: the
-    // index runs in the background and never blocks the turn.
-    "chat.message": async (input) => {
+    // index runs in the background and never blocks the turn. The per-turn text
+    // IS awaited - it has to be in the message it applies to.
+    "chat.message": async (input, output) => {
       try {
         if (!(await rootFor(dir))) return
         const sessionID = String(input?.sessionID || "")
+        // The builder classifies the submitted prompt and returns the per-turn
+        // reminder plus whichever conditional rule it arms (spec/consult/
+        // research/cbm). Pushed as a synthetic part - the shape opencode's own
+        // plan-mode injection uses - so the model reads it in this message.
+        const parts = output && Array.isArray(output.parts) ? output.parts : null
+        if (parts) {
+          const prompt = parts
+            .filter((p) => p && p.type === "text" && typeof p.text === "string")
+            .map((p) => p.text).join("\n")
+          const text = await builderText("user_prompt", dir, { prompt })
+          if (text) {
+            const anchor = output.message && typeof output.message === "object"
+              ? output.message : {}
+            parts.push({
+              id: "prt_" + Date.now().toString(36)
+                + Math.random().toString(36).slice(2, 10),
+              messageID: anchor.id || input?.messageID || "",
+              sessionID: input?.sessionID || anchor.sessionID || "",
+              type: "text",
+              text,
+              synthetic: true,
+            })
+          }
+        }
         // per-repo agent file fallback: same one-shot entry as the index, so a
         // changed manifest or repo stack is rewritten once per session
         if (await oncePerSession(sessionID + "|agents")) {
@@ -531,7 +605,7 @@ export const Tezgah = async ({ directory }) => {
         if (!(await rootFor(dir))) return
         const tool = String(input?.tool || "").toLowerCase()
         const args = input?.args || output?.args || {}
-        const kind = classify(tool, args)
+        const kind = await classify(tool, args)
         if (kind) await record(input?.sessionID || input?.sessionId, kind)
         await recordEvidence(input?.sessionID || input?.sessionId, tool, args,
                              output?.metadata)

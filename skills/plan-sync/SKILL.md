@@ -5,7 +5,7 @@ description: >
   merged or closed PR (or a branch merged into main), marks it done or discarded,
   moves it to plans/done/, rewrites the README status table, and commits one
   `plan: done NNN slug` (or `plan: discard`) per moved plan. Use when the user says
-  "/plan-sync", "sync plans", "close finished plans", or after PRs were merged.
+  "/tezgah:plan-sync", "sync plans", "close finished plans", or after PRs were merged.
   Never deletes branches and never touches files outside plans/.
 ---
 
@@ -30,8 +30,9 @@ description: >
    it but append the line `acceptance boxes unchecked at sync` to `## State`.
 6. Move each done or discarded plan: `git mv plans/open/NNN-slug.md plans/done/NNN-slug.md`.
 7. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
-   (one row per open plan, sorted by id; it prints the rows). For plan-status pass
-   `--pr-info NNN='(STATE | review | checks)'` per enriched plan.
+   (one row per open plan, sorted by id; it prints the rows). No `--pr-info` here:
+   the row's `pr` cell comes from the plan files, and review/check enrichment
+   belongs to plan-status.
 8. If anything moved, one commit per moved plan:
    `git add plans/README.md plans/open/NNN-slug.md plans/done/NNN-slug.md && git commit -m "plan: done NNN slug"`
    (explicit paths only, never `git add -A plans`) (verb `discard` for

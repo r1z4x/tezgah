@@ -25,10 +25,12 @@ pixel-level visual regression) - never a per-step default.
 | Web perf / deep network / source-mapped console | Chrome DevTools MCP (opt-in) | `*` |
 
 If the `browser_*` / `mobile_*` tools are not in this session, the server is not
-wired for this host: say so and fall back to the CLI on the shell -
-`npx -y @playwright/mcp@latest --isolated` or
-`npx -y @mobilenext/mobile-mcp@latest`. dsh and Claude are the hosts whose MCP
-wiring may be absent.
+wired for this host, or it failed to start: say so and fall back to the CLI on
+the shell, with the same pins tezgah wires (`hooks/tezgah_apps.py`) -
+`npx -y @playwright/mcp@0.0.81 --isolated` or
+`npx -y @mobilenext/mobile-mcp@1.0.4`. Never `@latest`: a floating tag fetches
+whatever the registry serves at session start and runs it with the agent's
+privileges.
 
 ## The loop (tree first)
 

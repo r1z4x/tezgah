@@ -5,7 +5,7 @@
       { "command": "python3 \"@CURSOR_HOOK@\"", "timeout": 10 }
     ],
     "preToolUse": [
-      { "command": "python3 \"@CURSOR_HOOK@\"", "timeout": 5, "matcher": "Shell|Grep|Task" }
+      { "command": "python3 \"@CURSOR_HOOK@\"", "timeout": 5, "matcher": "Shell|Grep|Task|Write|Edit|MultiEdit|NotebookEdit" }
     ],
     "postToolUse": [
       { "command": "python3 \"@CURSOR_HOOK@\"", "timeout": 10 }

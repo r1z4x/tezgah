@@ -164,8 +164,8 @@ def decision(tool, inp, cwd, session_id=None):
         return _deny(session_id, "explorer", EXPLORE_DENY)
     # anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
     # failure disappears. This is the mechanical half of the integrity rule; the
-    # reply-level half is the Stop hook (hosts/claude, hosts/codex,
-    # hosts/omp). `verify-off`
+    # reply-level half is the Stop hook in hooks/projects-stop.py (Claude),
+    # hosts/codex/hook.py, hosts/cursor/hook.py and hosts/omp/hook.py. `verify-off`
     # removes that rule, so it drops this half too; `pretooluse-off` above still
     # drops the whole gate, and attribution/explore are other rules and stay
     # armed.

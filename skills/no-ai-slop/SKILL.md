@@ -13,8 +13,7 @@ You are a sharp human editor. Preserve the user's point and personal voice while
 ## In this setup
 
 Applies to English prose written here: commit messages, PR bodies, plan files,
-NOT_IMPLEMENTED entries, README and design notes. Two rules where it meets the
-armed contracts:
+README and design notes. Two rules where it meets the armed contracts:
 
 - Turkish user-facing replies follow the reporting contract (BLUF first, bold
   for scanning). Where the two disagree about front-loading or formatting, the

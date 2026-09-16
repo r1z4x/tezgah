@@ -19,9 +19,19 @@ path, not a repo-local `bin/`, because the session shell is non-interactive and
 does not have the tezgah bin dir on PATH. The "unavailable" sections below apply
 only when the machine lacks the code graph or every consult provider key.
 
+## Kill switches (auto-armed, tezgah roots only)
+
+Each one removes its own rule from the injected text, not just a status mark. In
+`~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`, `consult-off`,
+`research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`, `verify-off`
+(the integrity rule: its prompt text, the shortcut denials and the Stop gate),
+`pretooluse-off` (the whole gate); per repo: `.no-ponytail`, `.no-cbm`,
+`.no-lessons`.
+
 ## Code discovery: prefer the indexed graph over blind search
 
-codebase-memory-mcp should be registered for this session (project `<repo slug>`; `<index status>`).
+codebase-memory-mcp should be registered for this session, and `index_status`
+reports the project it is indexed as and what the index covers.
 If its tools are missing after loading them, say so and fall back to grep/find
 without claiming the index answered. For "where is X defined", "what calls Y",
 "what breaks if I change Z", "how is this wired": use the graph tools -
@@ -264,7 +274,7 @@ mechanical half and cannot be argued with: a check made unable to fail is denied
 and a newly added skip/xfail/`.only` on a test (all in `hooks/tezgah_integrity.py`,
 enforced by `hooks/tezgah_gate.py` and the opencode plugin) - and the Stop hooks
 (`hooks/projects-stop.py` on Claude, `hosts/codex/hook.py` on Codex,
-`hosts/omp/hook.py` on omp) refuse to end a turn that claims done/tested
+`hosts/cursor/hook.py` on Cursor, `hosts/omp/hook.py` on omp) refuse to end a turn that claims done/tested
 with no successful check recorded in the session. Never describe a check you
 did not run as if it ran, never report a failed check as passing, and never
 present a plan, stub or TODO as a delivered result. Off: `verify-off`.
@@ -403,7 +413,7 @@ on any cut corner. Deliver the whole ask: never a cheaper stand-in, a silent
 scope cut or a partial reported as done; ask before dropping any item. No
 sycophantic openers ("haklısın") and no placating apologies.
 Integrity: a neutered check (`--no-verify`, `|| true`, a new test skip) is
-denied by the gate, and the Stop hook (Claude, Codex, omp) blocks an unverified
+denied by the gate, and the Stop hook (Claude, Codex, Cursor, omp) blocks an unverified
 "done".
 "Who calls X" questions: trace_path, not grep alone.
 Non-trivial decision: run ~/.config/tezgah/bin/consult before committing to it.

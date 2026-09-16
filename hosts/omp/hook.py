@@ -8,17 +8,23 @@ the gate and the evidence ledger underneath are the shared core in `hooks/`,
 the same code every other host runs.
 
     {"event": "session_start", "cwd": ..., "session_id": ...}
-        -> {"context": <this repo's live state>, "status": "pony✓ ..."}
+        -> {"context": <this repo's live state>, "status": "pony✓ ...", "idx": glyph}
     {"event": "status", "cwd": ..., "session_id": ...}
-        -> {"status": "pony✓ ..."}  (ANSI-colored; see status_line below)
+        -> {"status": "pony✓ ...", "idx": glyph}  (ANSI-colored; see status_line)
     {"event": "user_prompt", "cwd": ..., "prompt": ...}
         -> {"context": <reminder + the rules this prompt arms>}
     {"event": "pre_tool_use", "cwd": ..., "tool": ..., "input": {...}}
         -> {"deny": reason}
-    {"event": "post_tool_use", "cwd": ..., "tool": ..., "input": {...}, "failed": bool}
-        -> {} (records the evidence the Stop rule reads)
+    {"event": "post_tool_use", "cwd": ..., "tool": ..., "input": {...},
+     "failed": bool, "idx": glyph}
+        -> {"status": "pony✓ ...", "idx": glyph}  (records the evidence the Stop
+           rule reads; `idx` echoed from the payload skips the git probe)
     {"event": "stop", "last_assistant_message": ..., "stop_hook_active": bool}
         -> {"decision": "block", "reason": reason}
+
+Every answer that carries the line carries `idx` with it - the glyph of the
+line's idx mark - so the caller can hand it back on the redraws that must not
+pay for a git probe (see status_line).
 
 The status line is the one signal that is not root-scoped - tezgah ships as a
 globally loaded rules file, so the indicator must not go silent off-root - and
@@ -36,7 +42,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import (  # noqa: E402
-    color_default, context_for, health_lines, record)
+    color_default, command_text, context_for, health_segments, record,
+    render_line, shell_kind)
 from tezgah_gate import decision  # noqa: E402
 from tezgah_integrity import note_tool, stop_reason  # noqa: E402
 from tezgah_paths import off, root_for  # noqa: E402
@@ -48,6 +55,9 @@ def classify(tool, inp):
     omp names MCP tools `mcp__<server>_<tool>` (it also accepts Claude Code's
     doubled separator), so the server is matched by substring rather than by an
     exact prefix. Same kinds as the other hosts: cbm, orch, consult, research.
+    The kind is claimed only when the command really ran the tool - a mention in
+    an argument used to be enough, which made the line report a consult that
+    never happened.
     """
     name = str(tool or "")
     if name.startswith("mcp__") and "codebase" in name:
@@ -56,18 +66,37 @@ def classify(tool, inp):
     if low in ("task", "agent", "spawn_agent"):
         return "orch"
     if low in ("bash", "shell", "command"):
-        cmd = json.dumps(inp if isinstance(inp, dict) else {})
-        if "consult" in cmd:
-            return "consult"
-        if "orx" in cmd:
-            return "research"
+        kind = shell_kind(command_text(inp))
+        if kind:
+            return kind
     return None
 
 
-def status_line(cwd, session_id):
-    """The checklist as omp should draw it: colored per mark, plain when the
-    environment opts out (NO_COLOR / TEZGAH_STATUS_COLOR=0)."""
-    return health_lines(cwd, session_id, color=color_default())
+IDX_GLYPHS = ("\u2713", "\u21bb", "\u2717", "\u2013")
+
+
+def status_line(cwd, session_id, idx=None):
+    """The checklist as omp should draw it, plus the idx glyph it carries.
+
+    The line is colored per mark, plain when the environment opts out (NO_COLOR
+    / TEZGAH_STATUS_COLOR=0). `idx` is the glyph the session already shows: the
+    stamp probe behind it is the line's only subprocess, so the redraw that
+    follows every watched tool sends it back and forks nothing, while the used
+    marks, the plans and the kill-switch state stay live. Anything that is not a
+    mark is ignored rather than drawn as one that states nothing."""
+    segs = health_segments(cwd, session_id,
+                           idx_override=idx if idx in IDX_GLYPHS else None)
+    glyph = next((s["glyph"] for s in segs if s["key"] == "idx"), None)
+    return render_line(segs, color=color_default()), glyph
+
+
+def answered(line, glyph):
+    """The status fields one answer carries: the line, and the glyph the next
+    cheap redraw should reuse."""
+    out = {"status": line} if line else {}
+    if glyph:
+        out["idx"] = glyph
+    return out
 
 
 def handle(payload):
@@ -75,8 +104,9 @@ def handle(payload):
     cwd = payload.get("cwd") or os.getcwd()
     session_id = payload.get("session_id")
     if event == "status":
-        line = status_line(cwd, session_id)
-        return {"status": line} if line else {}
+        # turn end and the session switch: the probe runs, so the idx mark is
+        # answered at every turn boundary
+        return answered(*status_line(cwd, session_id))
     if event == "pre_tool_use":
         reason = decision(payload.get("tool", ""), payload.get("input") or {},
                           cwd, session_id)
@@ -91,9 +121,7 @@ def handle(payload):
         context = context_for("session_start", cwd, payload, with_core=False)
         if context:
             out["context"] = context
-        line = status_line(cwd, session_id)
-        if line:
-            out["status"] = line
+        out.update(answered(*status_line(cwd, session_id)))
         return out
     if event == "user_prompt":
         context = context_for("user_prompt", cwd, payload)
@@ -108,9 +136,9 @@ def handle(payload):
         note_tool(session_id, tool, inp,
                   failed=failed if isinstance(failed, bool) else None)
         # the call is already paid for, so the status line's used marks are
-        # refreshed from the same answer instead of a second subprocess
-        line = status_line(cwd, session_id)
-        return {"status": line} if line else {}
+        # refreshed from the same answer instead of a second subprocess, and
+        # from the idx glyph the session already carries instead of a git fork
+        return answered(*status_line(cwd, session_id, payload.get("idx")))
     if event == "stop":
         if payload.get("stop_hook_active") or off("verify-off"):
             return {}

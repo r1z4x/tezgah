@@ -4,7 +4,7 @@ description: >
   Creates a new plan file under <git root>/plans/open/ from free text, bootstraps
   the plans/ layer (README + open/ + done/) if missing, refreshes the README status
   table, and commits it on main as `plan: add NNN slug`. Use when a piece of work
-  spans sessions or waits on something and the user says "/plan-add <text>",
+  spans sessions or waits on something and the user says "/tezgah:plan-add <text>",
   "add a plan", "track this as a plan", or "make a plan for ...". Do NOT use for
   small self-contained edits that fit in one session.
 argument-hint: "<one-line description of the work>"
@@ -16,8 +16,10 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
 
 1. Resolve the root: `ROOT=$(git rev-parse --show-toplevel)`. If it fails, stop and
    say plans need a git repo.
-2. Bootstrap if `$ROOT/plans` is missing: `mkdir -p plans/open plans/done` and write
-   `plans/README.md` with the template below, verbatim.
+2. Bootstrap what is missing under `$ROOT/plans` - a partial tree counts: run
+   `mkdir -p plans/open plans/done`, and write `plans/README.md` from the template
+   below ONLY when that file is absent. Never overwrite an existing README: it is
+   the plans layer's own doc, and other plans' rows live in its table.
 3. Next id: `ls plans/open plans/done | grep -oE '^[0-9]{3}' | sort -n | tail -1`,
    plus 1, zero-padded to 3 digits (`001` if empty). Slug = kebab-case, at most 5
    words, derived from the title you distill from `$ARGUMENTS`.
@@ -29,8 +31,8 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    possible. State: `not started` plus the findings from step 4. Next: the first
    concrete action. Dates: `date +%F`.
 6. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
-   (one row per open plan, sorted by id; it prints the rows). For plan-status pass
-   `--pr-info NNN='(STATE | review | checks)'` per enriched plan.
+   (one row per open plan, sorted by id; it prints the rows). A new plan has no PR
+   state to enrich, so no `--pr-info` here; that enrichment belongs to plan-status.
 7. Commit on main - first check you are there: `git symbolic-ref --short HEAD` must print
    `main`, otherwise stop and tell the user (a plan committed on a feature branch is
    invisible to plan-sync). Then `git add plans/README.md plans/open/NNN-slug.md &&
@@ -77,7 +79,7 @@ Small self-contained edits do not get a plan.
 - File: `NNN-slug.md`, frontmatter id/title/status/branch/pr/created/updated,
   sections Goal, Acceptance (checkboxes), State (evidence), Next (one action or BLOCKED).
 - Work for a plan happens on branch `plan/NNN-slug`; a merged PR (or a branch merged
-  into main) is the done signal read by `/plan-sync`.
+  into main) is the done signal read by `/tezgah:plan-sync`.
 - Plan edits are committed on main as `plan: <verb> NNN <slug>` and pushed.
 - Skills: `/tezgah:plan-add <text>`, `/tezgah:plan-status`, `/tezgah:plan-sync`.
 
