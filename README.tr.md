@@ -23,7 +23,7 @@
 # Tezgah
 
 <p align="center">
-  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="180">
+  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="220">
 </p>
 
 <h3 align="center">Çalıştırdığınız her yapay zeka kodlama asistanı için tek bir çalışma sözleşmesi.</h3>

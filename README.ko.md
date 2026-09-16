@@ -23,7 +23,7 @@
 # Tezgah
 
 <p align="center">
-  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="180">
+  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="220">
 </p>
 
 <h3 align="center">실행 중인 모든 AI 코딩 어시스턴트를 위한 단 하나의 작업 계약.</h3>

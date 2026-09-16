@@ -23,7 +23,7 @@
 # Tezgah
 
 <p align="center">
-  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="180">
+  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="220">
 </p>
 
 <h3 align="center">为你运行的每一个 AI 编程助手提供统一的工作契约。</h3>

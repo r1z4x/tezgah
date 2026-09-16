@@ -23,7 +23,7 @@
 # Tezgah
 
 <p align="center">
-  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="180">
+  <img src="assets/logo/tezgah-logo.svg" alt="tezgah logo" width="220">
 </p>
 
 <h3 align="center">Um único contrato de trabalho para cada assistente de código de IA que você executa.</h3>
