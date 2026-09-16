@@ -18,7 +18,9 @@ class AgentsBase(TempHome):
     def setUp(self):
         super().setUp()
         self.repo = self.make_repo("acme")
-        for d in (".claude", ".opencode", ".codex", ".cursor"):
+        # the real config roots: opencode keeps its config under ~/.config, and
+        # creating it here keeps detection off the machine's own PATH
+        for d in (".claude", ".codex", ".cursor", os.path.join(".config", "opencode")):
             os.makedirs(os.path.join(self.home, d), exist_ok=True)
         with open(os.path.join(self.repo, "pyproject.toml"), "w") as fh:
             fh.write("")
@@ -318,13 +320,34 @@ class Cleanup(AgentsBase):
 
 
 class Detection(AgentsBase):
-    def test_detects_caps_stack_and_file_hosts(self):
+    def detect(self, env=None, root=None):
         out, proc = run_json([support.PROBE_AGENTS],
-                             {"fn": "detect", "root": self.repo}, env=self.env())
+                             {"fn": "detect", "root": root or self.repo},
+                             env=env or self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_detects_caps_stack_and_file_hosts(self):
+        out = self.detect()
         self.assertEqual(out["caps"], {"cbm": True, "orx": True, "consult": True})
         self.assertEqual(out["stack"], ["python"])
         self.assertEqual(sorted(out["hosts"]), ["claude", "codex", "cursor", "opencode"])
+
+    def test_an_explicit_host_list_without_a_file_host_generates_nothing(self):
+        # omp keeps its subagents user-level, so a config naming it must not
+        # sprout .claude/.cursor agent files in every repo
+        self.config({"hosts": ["omp"]})
+        self.assertEqual(self.detect()["hosts"], [])
+
+    def test_detection_does_not_read_another_hosts_dir(self):
+        # cursor was probed through ~/.claude, so it was "installed" wherever
+        # Claude was; only the hosts that are actually here may be selected
+        shutil.rmtree(os.path.join(self.home, ".cursor"))
+        shutil.rmtree(os.path.join(self.home, ".codex"))
+        shutil.rmtree(os.path.join(self.home, ".config", "opencode"))
+        # a PATH with nothing on it, so no CLI can stand in for a config dir
+        out = self.detect(env=self.env(extra={"PATH": "/nonexistent"}))
+        self.assertEqual(out["hosts"], ["claude"])
 
     def test_no_cbm_marker_disables_the_graph_capability(self):
         self.touch(os.path.join(self.repo, ".no-cbm"))

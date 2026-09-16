@@ -23,14 +23,15 @@ import json
 import os
 import re
 
-from tezgah_paths import (CONFIG_DIR, cbm_bin, have_consult_key, off, orx_bin,
-                          root_for, tool)
+from tezgah_paths import (CONFIG_DIR, cbm_bin, have_consult_key, host_installed,
+                          off, orx_bin, root_for, tool)
 
 MARKER = "# tezgah: managed by tezgah-agents; do not edit"
 STATE = os.path.join(CONFIG_DIR, "agents.state.json")
 # hosts with a file-based custom-agent surface, and where it lives, relative to
-# the repo. Cursor's own dir takes precedence over .claude/, but it also reads
-# .claude/agents/, so one markdown dir serves both when either is installed.
+# the repo. Cursor reads .claude/agents/ natively, so one markdown dir serves
+# both when either is installed; the *detection* of whether a host is installed
+# lives in tezgah_paths.host_installed, not here.
 FILE_HOSTS = ("claude", "opencode", "codex", "cursor")
 HOST_DIRS = {"claude": os.path.join(".claude", "agents"),
              "cursor": os.path.join(".claude", "agents"),
@@ -77,13 +78,16 @@ def detect_infra(root):
     }
     try:
         cfg = json.load(open(os.path.join(CONFIG_DIR, "config.json")))
-        hosts = [h for h in (cfg.get("hosts") or []) if h in FILE_HOSTS]
+        configured = cfg.get("hosts")
     except Exception:
-        hosts = []
-    if not hosts:
-        home = os.path.expanduser("~")
-        hosts = [h for h in FILE_HOSTS
-                 if os.path.isdir(os.path.join(home, HOST_DIRS[h].split(os.sep)[0]))]
+        configured = None
+    if configured:
+        # An explicit list is the answer, even when it names no file host: omp
+        # keeps its subagents user-level, and rendering .claude/.cursor files
+        # for a host the user did not list is not what that list asked for.
+        hosts = [h for h in configured if h in FILE_HOSTS]
+    else:
+        hosts = [h for h in FILE_HOSTS if host_installed(h)]
     return {"caps": caps, "stack": _stack(root), "hosts": hosts}
 
 
