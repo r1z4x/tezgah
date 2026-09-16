@@ -9,6 +9,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -22,22 +23,28 @@ from tezgah_paths import (cache_dir, cbm_bin, have_consult_key, off,
 # turn only. Kept as (key, compiled regex) so the arming is one pass and the
 # patterns are reviewable. Word-ish boundaries keep "deploy" from firing inside
 # an identifier; Turkish hints are included because the user writes Turkish.
+#
+# Turkish is agglutinative and the hints are verb/noun stems, so an English-style
+# trailing \b would kill the most natural phrasing (düzgün çalışsın, hipotezi
+# test et): a Turkish alternation therefore carries \w* where a suffix can land,
+# which \b then closes. \w is Unicode-aware, so it eats Türkçe letters. A whole
+# word keeps its plain boundary, so "deney" still does not fire on "deneyim".
 PROMPT_HINTS = (
     ("spec", r"\b(normal (user )?behaviou?r|clean ui|nicer|more intuitive|"
              r"professional|polish(ed)?|improve the (ui|ux)|make it (better|"
-             r"usable|look)|look(s)? better|düzgün çalış|güzel görün|"
-             r"daha iyi (ol|görün)|kullanıcı dostu)\b"),
+             r"usable|look)|look(s)? better|düzgün çalış\w*|güzel görün\w*|"
+             r"daha iyi (ol|görün)\w*|kullanıcı dostu)\b"),
     ("consult", r"\b(architect(ure|ural)|root cause|migrat(e|ion)|deploy|"
                 r"security|trade-?off|which approach|design decision|"
-                r"irreversible|rollback|schema change|mimari|kök neden|"
+                r"irreversible|rollback|schema change|mimari\w*|kök neden\w*|"
                 r"geri dönüşü olmayan)\b"),
     ("research", r"\b(research|literature|hypothes(is|es)|experiment(al)?|"
                  r"ablation|hyperparameter|benchmark|survey|paper|dataset|"
-                 r"araştır|literatür|hipotez|deney)\b"),
+                 r"araştır\w*|literatür\w*|hipotez\w*|deney)\b"),
     ("cbm", r"\b(who calls|callers?|call sites?|who uses|what breaks|"
             r"blast radius|where is|where's|definition of|who invokes|"
-            r"kim çağır|çağrı yerleri|nerede tanımlı|na(?:sıl|sıl) bağlan|"
-            r"etkilenir|hangi dosyalar etkilen)\b"),
+            r"kim çağır\w*|çağrı yerleri|nerede tanımlı|nasıl bağlan\w*|"
+            r"etkilenir\w*|hangi dosyalar etkilen\w*)\b"),
 )
 
 # the detached auto-index worker (lock-guarded, retrying); same dir as this file
@@ -83,13 +90,23 @@ def under(path):
     return root_for(path) is not None
 
 
+# one spawn per (root, args) per process: the session-start path asks for HEAD
+# and the top-level twice over (repo_root, autoindex, then the status line's
+# index_mark), and every hook process is short-lived, so a remembered answer
+# cannot go stale within a run.
+_GIT = {}
+
+
 def git(root, *args):
-    try:
-        out = subprocess.run(("git", "-C", root) + args, capture_output=True,
-                             text=True, timeout=5)
-        return out.stdout.strip() if out.returncode == 0 else ""
-    except Exception:
-        return ""
+    key = (root,) + args
+    if key not in _GIT:
+        try:
+            out = subprocess.run(("git", "-C", root) + args, capture_output=True,
+                                 text=True, timeout=5)
+            _GIT[key] = out.stdout.strip() if out.returncode == 0 else ""
+        except Exception:
+            _GIT[key] = ""
+    return _GIT[key]
 
 
 def repo_root(cwd):
@@ -492,6 +509,63 @@ def context_for(event, cwd, payload=None, with_core=True):
     return render("\n\n".join(p.strip() for p in parts))
 
 
+# A tool name that only appears as an ARGUMENT is not a use of that tool: the
+# status line used to turn `consult✓` green for `grep -n consult hooks/`. So a
+# shell line is tokenized and only its command positions are read. The tokenizer
+# keeps the command position open through wrappers (`sudo env X=1 consult q`) and
+# a line it cannot parse contributes nothing - under-reporting beats claiming a
+# tool ran.
+_SHELL_WRAPPERS = frozenset(("sudo", "env", "nohup", "time", "command", "exec",
+                             "xargs", "then", "do"))
+_SHELL_SEPARATORS = (";", "&&", "||", "|", "&", "(", ")", "<", ">", ">>")
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def shell_programs(command):
+    """Every word a shell line would run as a program, in order."""
+    if not command:
+        return []
+    out = []
+    for line in str(command).splitlines():
+        try:
+            lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
+            lex.whitespace_split = True
+            words = list(lex)
+        except ValueError:
+            continue
+        want = True
+        for word in words:
+            if word in _SHELL_SEPARATORS:
+                want = True
+            elif want and (_ASSIGNMENT.match(word) or word in _SHELL_WRAPPERS):
+                continue
+            elif want:
+                out.append(os.path.basename(word))
+                want = False
+    return out
+
+
+def shell_kind(command):
+    """The used-tool kind a shell command really ran: consult, research or None."""
+    ran = shell_programs(command)
+    if "consult" in ran:
+        return "consult"
+    if "orx" in ran:
+        return "research"
+    return None
+
+
+def command_text(raw):
+    """The shell command a tool input carries, or "" when it carries none."""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, dict):
+        for key in ("command", "cmd"):
+            if isinstance(raw.get(key), str):
+                return raw[key]
+    return ""
+
+
 def record(session_id, kind):
     """Append a used-tool kind for the status line (any host, best effort)."""
     if not session_id:
@@ -538,11 +612,25 @@ def repo_marks(cwd):
     return base, marks
 
 
+# the idx mark is a cosmetic line: remember its answer per process
+_IDX = {}
+
+
 def index_mark(cwd, base):
     """Code-graph readiness for the enclosing repo.
 
     ✓ indexed, ↻ indexed but HEAD moved since the stamp, ✗ not indexed yet,
-    – not applicable (outside a root, codebase-memory-mcp absent, or .no-cbm)."""
+    – not applicable (outside a root, codebase-memory-mcp absent, or .no-cbm).
+    Remembered per (cwd, base) for the life of the process: the comparison costs
+    two git forks, and a long hook process that renders the line twice would pay
+    them twice for the same answer."""
+    key = (cwd, base)
+    if key not in _IDX:
+        _IDX[key] = _index_mark(cwd, base)
+    return _IDX[key]
+
+
+def _index_mark(cwd, base):
     if not base or not cbm_bin():
         return "–"
     p = os.path.realpath(cwd)
@@ -610,7 +698,7 @@ Outside a tezgah root the per-repo extras (idx, plans) are omitted.
 """
 
 
-def health_segments(cwd, session_id=None, used_override=None):
+def health_segments(cwd, session_id=None, used_override=None, idx_override=None):
     """The armed/used checklist as structured segments, host-neutral.
 
     Each segment is {"key", "state", "glyph", "text"} with state in
@@ -626,7 +714,11 @@ def health_segments(cwd, session_id=None, used_override=None):
 
     used_override: the tool kinds a host already resolved from its own record
     (Claude parses the transcript because it does not write tezgah's recorder);
-    None falls back to tezgah's recorder for session_id."""
+    None falls back to tezgah's recorder for session_id.
+
+    idx_override: an idx glyph the host already resolved (one of "✓↻✗–"), for a
+    redraw that must not fork git for a cosmetic line - omp re-renders on every
+    turn_end and tool_result. None probes as before; the other marks stay live."""
     base, marks = repo_marks(cwd)
     seen = set(used_override) if used_override is not None else used(session_id)
     flags = [
@@ -647,7 +739,8 @@ def health_segments(cwd, session_id=None, used_override=None):
             state = "ready"
         segs.append({"key": name, "state": state, "glyph": GLYPHS[state], "text": name})
     if base:
-        glyph = index_mark(cwd, base)
+        glyph = (idx_override if idx_override is not None
+                 else index_mark(cwd, base))
         segs.append({"key": "idx", "state": IDX_STATE.get(glyph, "info"),
                      "glyph": glyph, "text": "idx"})
         plan = plan_mark(cwd, base)
@@ -688,13 +781,16 @@ def render_line(segs, color=False):
     return line
 
 
-def health_lines(cwd, session_id=None, used_override=None, color=False):
+def health_lines(cwd, session_id=None, used_override=None, color=False,
+                 idx_override=None):
     """The armed/used checklist, one line, plain text unless `color` is asked
     for.
 
     A host whose surface renders ANSI (Claude/Cursor status line, omp's widget
     path) passes color=True; a host that sanitizes it (omp's setStatus, Codex's
     systemMessage) or a pipe stays plain - the marks are then uncolored, never
-    wrong."""
-    return render_line(health_segments(cwd, session_id, used_override), color=color)
+    wrong. `idx_override` is health_segments': a host redrawing a cosmetic line
+    passes the glyph it already resolved and forks no git."""
+    return render_line(health_segments(cwd, session_id, used_override,
+                                       idx_override=idx_override), color=color)
 

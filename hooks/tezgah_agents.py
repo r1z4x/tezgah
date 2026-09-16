@@ -393,6 +393,31 @@ def _gitignore_dirs(text):
     return out
 
 
+def _put_gitignore_block(old, block):
+    """Put the managed block where it already is, or append it at the end.
+
+    Rebuilding the file around the block used to move it to the end of any
+    .gitignore whose block sat mid-file, so the first session start in a fresh
+    checkout dirtied the tree with a pure move. Replacing it in place keeps the
+    user's ordering, and the caller's `new != old` check then writes nothing."""
+    out, inside, replaced = [], False, False
+    for line in old.splitlines():
+        s = line.strip()
+        if s == GITIGNORE_BEGIN:
+            inside, replaced = True, True
+            out.extend(block.splitlines())
+            continue
+        if s == GITIGNORE_END:
+            inside = False
+            continue
+        if not inside:
+            out.append(line)
+    if not replaced:
+        body = "\n".join(out).strip("\n")
+        return (body + "\n\n" if body else "") + block
+    return "\n".join(out).strip("\n") + "\n"
+
+
 def ensure_gitignore(root, dirs):
     """Ignore the generated agent dirs with one idempotent managed block.
 
@@ -409,10 +434,9 @@ def ensure_gitignore(root, dirs):
     dirs = sorted(set(d for d in dirs if d) | _gitignore_dirs(old))
     if not dirs:
         return None
-    body = _strip_gitignore(old).strip("\n")
     block = "\n".join([GITIGNORE_BEGIN] + ["/" + d + "/" for d in dirs]
                       + [GITIGNORE_END]) + "\n"
-    new = (body + "\n\n" if body else "") + block
+    new = _put_gitignore_block(old, block)
     if new != old:
         os.makedirs(root, exist_ok=True)
         tmp = path + ".tezgah-tmp"

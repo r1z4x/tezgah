@@ -73,6 +73,10 @@ class SetupBase(unittest.TestCase):
                       for d, dirs, files in os.walk(self.home)
                       for n in dirs + files)
 
+    def row(self, text, label):
+        """The report line carrying this label, "" when the row is absent."""
+        return next((line for line in text.splitlines() if label in line), "")
+
 
 class Install(SetupBase):
     def test_installs_every_host_and_backs_up(self):
@@ -114,6 +118,11 @@ class Install(SetupBase):
         self.assertIn("id: llm-pi-ai", dsh)
         self.assertIn("openrouter", dsh)
         self.assertIn("DEEPSEEK_API_KEY", dsh)
+        # the bridge skips any event it does not know, so the manifest the patch
+        # names has to exist and be the dsh-shaped one, not the Claude manifest
+        manifest = re.search(r"configPath: (\S+)", dsh).group(1)
+        self.assertTrue(os.path.isfile(manifest), manifest)
+        self.assertIn("hosts/dsh/", manifest)
         # a PATH launcher, managed so uninstall removes it
         launcher = self.path(".local", "bin", "dsh")
         self.assertTrue(os.path.islink(launcher), launcher)
@@ -339,9 +348,6 @@ class DshChecks(SetupBase):
     """The two dsh LLM routes are reported separately and read the provider key
     files tezgah already uses, so a single-provider setup is not shown broken."""
 
-    def row(self, text, label):
-        return next((line for line in text.splitlines() if label in line), "")
-
     def test_routes_are_per_provider_and_read_config_key_files(self):
         os.makedirs(self.path(".config", "openrouter"), exist_ok=True)
         open(self.path(".config", "openrouter", "key"), "w").close()
@@ -353,6 +359,156 @@ class DshChecks(SetupBase):
         self.assertTrue(deepseek, "DeepSeek row missing")
         self.assertTrue(openrouter.strip().startswith("ok"))
         self.assertTrue(deepseek.strip().startswith("MISS"))
+
+
+class SkillTriggerLine(unittest.TestCase):
+    """skill_description() feeds the opencode router, which is the only skill
+    list that host has. A line built from the description's first sentence is
+    what left tezgah-contract and ponytail unroutable, so the rule is pinned
+    here on a synthetic SKILL.md, not only on the two shipped ones."""
+
+    PROBE = (
+        "import importlib.machinery, importlib.util, json, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "print(json.dumps(m.skill_description(sys.argv[2])))\n"
+    )
+
+    def line(self, description):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "SKILL.md")
+            with open(path, "w") as fh:
+                fh.write("---\nname: probe\ndescription: >\n  %s\n---\n\nbody\n"
+                         % description)
+            out = subprocess.run([sys.executable, "-c", self.PROBE, SETUP, path],
+                                 capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout.strip().splitlines()[-1])
+
+    def test_the_trigger_sentence_wins_over_the_opening_one(self):
+        self.assertEqual(
+            self.line("The full working contract. Load on demand when a session\n"
+                      "  needs the deep detail. Use when the compact core points here."),
+            "Use when the compact core points here.")
+
+    def test_a_description_without_a_trigger_keeps_its_first_sentence(self):
+        self.assertEqual(self.line("Does one small thing. Nothing else."),
+                         "Does one small thing.")
+
+    def test_a_long_trigger_sentence_is_still_one_bounded_line(self):
+        got = self.line("A preface. Use when " + "x" * 200 + ".")
+        self.assertEqual(len(got), 140)
+        self.assertTrue(got.endswith("..."))
+
+
+class SkillRouterTriggers(SetupBase):
+    """A router line that drops the skill's trigger words names a skill no
+    session will ever match, which is the whole job of the file."""
+
+    def line(self, body, name):
+        return next(row for row in body.splitlines() if "`%s`" % name in row)
+
+    def test_core_skill_lines_carry_their_trigger(self):
+        self.setup("--install", "--hosts", "opencode")
+        body = self.read_text(self.path(".config", "tezgah", "opencode-skills.md"))
+        contract = self.line(body, "tezgah-contract")
+        pony = self.line(body, "ponytail")
+        self.assertIn("Use when", contract)
+        self.assertIn("code graph", contract)
+        self.assertIn("Use on ANY coding task", pony)
+        self.assertIn("refactoring", pony)
+
+
+class PluginCopy(SetupBase):
+    """Claude Code runs tezgah from a COPY under ~/.claude/plugins/cache, never
+    from this checkout, so a copy that lags HEAD is the one gap the other claude
+    rows cannot see: the report must name it, and --install must refresh it the
+    way --sync does."""
+
+    def copy(self):
+        root = self.path(".claude", "plugins", "cache", "rizacan-local",
+                         "tezgah", "0.9.0")
+        self.write_json(os.path.join(root, ".claude-plugin", "plugin.json"),
+                        {"name": "tezgah", "version": "0.9.0"})
+        fingerprint = os.path.join(root, "hooks", "tezgah_policy.py")
+        os.makedirs(os.path.dirname(fingerprint), exist_ok=True)
+        with open(fingerprint, "w") as fh:
+            fh.write("# the copy froze before HEAD\n")
+        return root, fingerprint
+
+    def reported(self):
+        proc = self.setup("--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return self.row(proc.stdout, "plugin copy current")
+
+    def test_a_stale_copy_is_reported_and_install_refreshes_it(self):
+        _root, fingerprint = self.copy()
+        self.assertTrue(self.reported().strip().startswith("MISS"),
+                        "a copy that lags the checkout was reported as current")
+
+        proc = self.setup("--install", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(os.path.join(REPO, "hooks", "tezgah_policy.py")) as fh:
+            checkout = fh.read()
+        with open(fingerprint) as fh:
+            self.assertEqual(fh.read(), checkout)
+        self.assertTrue(self.reported().strip().startswith("ok"))
+
+    def test_a_machine_without_the_plugin_channel_is_not_flagged(self):
+        self.assertTrue(self.reported().strip().startswith("ok"))
+
+
+class CodexHome(SetupBase):
+    """codex reads a relocated home from CODEX_HOME (Orca gives each account its
+    own); arming ~/.codex while codex reads elsewhere leaves it unarmed."""
+
+    def setUp(self):
+        super().setUp()
+        self.alt = self.path("orca", "codex")
+        self.env["CODEX_HOME"] = self.alt
+
+    def test_install_and_checks_use_the_relocated_home(self):
+        proc = self.setup("--install", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        hooks = os.path.join(self.alt, "hooks.json")
+        self.assertIn("tezgah-codex-hook", self.read_text(hooks))
+        self.assertTrue(os.path.islink(os.path.join(self.alt, "skills", "ponytail")))
+        self.assertIn("mcp_servers.codebase-memory-mcp",
+                      self.read_text(os.path.join(self.alt, "config.toml")))
+        self.assertFalse(os.path.exists(self.path(".codex", "hooks.json")))
+
+        # the checks answer about the tree the install wrote, not about ~/.codex,
+        # and the row says which home it read
+        stdout = self.setup("--hosts", "codex").stdout
+        self.assertTrue(self.row(stdout, "hooks.json wired in %s" % self.alt)
+                        .strip().startswith("ok"))
+        os.remove(hooks)
+        self.assertTrue(self.row(self.setup("--hosts", "codex").stdout,
+                                 "hooks.json wired").strip().startswith("MISS"))
+
+
+class CursorMatcher(SetupBase):
+    """Cursor runs a preToolUse hook only for the tool types its matcher names,
+    so a matcher that omits the write tools leaves the gate's edit branches
+    (attribution, integrity) unreachable there. The installed entry and the
+    manifest the repo ships have to say the same thing."""
+
+    def test_the_installed_matcher_covers_the_write_tools_and_mirrors_the_manifest(self):
+        self.setup("--install", "--hosts", "cursor")
+        hooks = self.read_json(self.path(".cursor", "hooks.json"))["hooks"]
+        entry = next(e for e in hooks["preToolUse"] if "tezgah" in json.dumps(e))
+        matcher = re.compile(entry["matcher"])
+        for tool in ("Shell", "Write", "Edit", "MultiEdit", "NotebookEdit"):
+            self.assertTrue(matcher.search(tool), "%s not matched" % tool)
+
+        with open(os.path.join(REPO, "hosts", "cursor", "hooks.json")) as fh:
+            shipped = json.load(fh)["hooks"]["preToolUse"]
+        self.assertEqual(entry["matcher"],
+                         next(e for e in shipped if "matcher" in e)["matcher"])
 
 
 class Uninstall(SetupBase):

@@ -2,14 +2,14 @@
   "mcpServers": {
     "playwright": {
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest", "--isolated"],
+      "args": ["-y", "@playwright/mcp@0.0.81", "--isolated"],
       "env": {
         "PLAYWRIGHT_MCP_OUTPUT_DIR": "${HOME}/.cache/tezgah/apps"
       }
     },
     "mobile-mcp": {
       "command": "npx",
-      "args": ["-y", "@mobilenext/mobile-mcp@latest"],
+      "args": ["-y", "@mobilenext/mobile-mcp@1.0.4"],
       "env": {
         "MOBILEMCP_DISABLE_TELEMETRY": "1"
       }

@@ -267,6 +267,74 @@ class OpenCodePlugin(TempHome):
         self.denied(self.before("grep", {"pattern": "FooBar"}))
         self.allowed(self.before("grep", {"pattern": "FooBar"}))
 
+    # ---- the shared builder (per-prompt arming + post-compact) -------------
+    def builder(self, event, payload=None):
+        """What bin/tezgah-context prints for an event in this test's HOME."""
+        proc = subprocess.run(
+            ["python3", os.path.join(support.REPO, "bin", "tezgah-context"),
+             event, self.repo],
+            input=json.dumps(payload or {}), capture_output=True, text=True,
+            env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    def context_bin(self):
+        return support.linked(
+            os.path.join(support.REPO, "bin", "tezgah-context"), self.home)
+
+    def message(self, prompt, session="s1"):
+        parts = [{"type": "text", "text": prompt, "id": "p1",
+                  "sessionID": session, "messageID": "m1"}]
+        output = {"message": {"id": "m1", "sessionID": session}, "parts": parts}
+        res = self.drive([{"hook": "chat.message",
+                           "input": {"sessionID": session, "messageID": "m1"},
+                           "output": output}])[0]
+        self.assertTrue(res["ok"], res)
+        return res["output"]["parts"]
+
+    def test_chat_message_pays_the_per_prompt_text(self):
+        # opencode keeps no reminder of its own: the text comes from the shared
+        # builder, and a prompt that arms a conditional rule gets that rule's
+        # paragraph here too.
+        self.context_bin()
+        prompt = "Bu ekranı daha kullanıcı dostu yap"
+        parts = self.message(prompt)
+        injected = parts[-1]
+        self.assertEqual(len(parts), 2, parts)
+        self.assertTrue(injected.get("synthetic"), injected)
+        self.assertEqual(injected["text"],
+                         self.builder("user_prompt", {"prompt": prompt}))
+        self.assertIn("**Spec before building.**", injected["text"])
+
+    def test_chat_message_says_nothing_for_a_plain_prompt(self):
+        self.context_bin()
+        prompt = "add a docstring to parse_quantity"
+        injected = self.message(prompt)[-1]["text"]
+        self.assertEqual(injected, self.builder("user_prompt", {"prompt": prompt}))
+        self.assertNotIn("**Spec before building.**", injected)
+
+    def test_a_missing_builder_injects_nothing(self):
+        # Every path fails open: a host without ~/.config/tezgah/bin still sends
+        # the message, it just has no tezgah text in it.
+        parts = self.message("selam")
+        self.assertEqual(len(parts), 1, parts)
+
+    def test_compacting_context_comes_from_the_builder(self):
+        self.context_bin()
+        res = self.drive([{"hook": "experimental.session.compacting",
+                           "input": {"sessionID": "s1"},
+                           "output": {"context": []}}])[0]
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["output"]["context"], [self.builder("post_compact")])
+
+    def test_compacting_is_inert_outside_the_roots(self):
+        self.context_bin()
+        res = self.drive([{"hook": "experimental.session.compacting",
+                           "input": {"sessionID": "s1"},
+                           "output": {"context": []}}], directory=self.home)[0]
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["output"]["context"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

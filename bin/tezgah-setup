@@ -48,6 +48,8 @@ HOME = os.path.expanduser("~")
 # whether a host is installed: the installer's report and the per-repo agent
 # generation must not answer that question differently.
 CLAUDE = tp.HOST_DIRS["claude"]
+# One definition, shared with the hooks and the agent generator, so a relocated
+# codex home (CODEX_HOME) cannot be armed by one and sought by another.
 CODEX = tp.HOST_DIRS["codex"]
 OPENCODE = tp.HOST_DIRS["opencode"]
 CURSOR = tp.HOST_DIRS["cursor"]
@@ -94,6 +96,9 @@ TOOLING_SKILLS = frozenset(("codebase-memory", "computer-use", "find-skills",
 AI_RESEARCH_SKILL_SOURCES = ("AI-Research-SKILLs",)
 CODEX_PRETOOL_MATCHER = ("Bash|exec_command|apply_patch|Edit|Write|mcp__.*|"
                          "spawn_agent|Agent|Task|Grep")
+# Cursor's preToolUse matcher is a regex over tool TYPES, so it has to name the
+# write tools or the gate never sees an edit. Mirrors hosts/cursor/hooks.json.
+CURSOR_PRETOOL_MATCHER = "Shell|Grep|Task|Write|Edit|MultiEdit|NotebookEdit"
 # Set by main() from --devtools: also wire the optional Chrome DevTools MCP.
 APPS_DEVTOOLS = False
 OK, NO = "  ok  ", " MISS "
@@ -330,6 +335,7 @@ def install_common(new_roots, hosts):
             ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
             ("tezgah-agents", os.path.join(HERE, "bin", "tezgah-agents")),
+            ("tezgah-context", os.path.join(HERE, "bin", "tezgah-context")),
             ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
             ("tezgah-setup", os.path.join(HERE, "bin", "tezgah-setup")),
             ("tezgah-research", os.path.join(HERE, "bin", "tezgah-research")),
@@ -546,7 +552,10 @@ def skill_description(path):
     """One compact trigger line from a SKILL.md frontmatter `description`.
 
     Best effort: a missing, unreadable or undescribed skill yields "" rather
-    than an error, because the router must never fail an install."""
+    than an error, because the router must never fail an install. The sentence
+    carrying the `Use when ...` trigger wins over the opening one: a description
+    whose first sentence is a preface ("The full tezgah working contract.")
+    otherwise reaches the router stripped of every word a session matches on."""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read(6000)
@@ -562,8 +571,10 @@ def skill_description(path):
         inline = re.search(r"description:\s*(.+)", block.group(1))
         desc = inline.group(1).strip().strip("\"'") if inline else ""
     desc = re.sub(r"\s+", " ", desc).strip()
-    first = re.split(r"(?<=[.!?])\s", desc, maxsplit=1)[0].strip()
-    return first[:137].rstrip() + "..." if len(first) > 140 else first
+    sentences = re.split(r"(?<=[.!?])\s+", desc)
+    line = next((s for s in sentences if re.match(r"(?:Also )?[Uu]se\b", s)),
+                sentences[0] if sentences else "")
+    return line[:137].rstrip() + "..." if len(line) > 140 else line
 
 
 def skill_category(name, path=""):
@@ -742,7 +753,10 @@ def install_cursor():
     # never overwritten: only tezgah entries are replaced.
     spec = {
         "sessionStart": {"timeout": 10},
-        "preToolUse": {"timeout": 5, "matcher": "Shell|Grep|Task"},
+        # Cursor runs a preToolUse hook only for the tool types its matcher
+        # names, so a matcher without the write tools leaves the gate's edit
+        # branches unreachable there.
+        "preToolUse": {"timeout": 5, "matcher": CURSOR_PRETOOL_MATCHER},
         "postToolUse": {"timeout": 10},
         "postToolUseFailure": {"timeout": 10},
         "subagentStart": {"timeout": 5},
@@ -821,7 +835,10 @@ def dsh_patch_block():
     and declare the two OpenAI-compatible LLM routes (OpenRouter and DeepSeek
     direct) on the pi-ai adapter the base composition already mounts. The routes
     read their keys from the launch env or the harness credential store; the
-    native deepseek-official route stays the default model provider."""
+    native deepseek-official route stays the default model provider. The bridge
+    knows only SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/SubagentStart/
+    SubagentStop/Stop and silently drops any other event, so `configPath` names
+    hosts/dsh/hooks.json (those seven) rather than the Claude manifest."""
     return (
         "- insert:\n"
         "    - id: tezgah-hooks\n"
@@ -844,7 +861,7 @@ def dsh_patch_block():
         "        apiKeyEnv: OPENROUTER_API_KEY\n"
         "      deepseek:\n"
         "        apiKeyEnv: DEEPSEEK_API_KEY\n"
-        % (os.path.join(HERE, "hooks", "hooks.json"), HERE, cbm_command(),
+        % (os.path.join(HERE, "hosts", "dsh", "hooks.json"), HERE, cbm_command(),
            dsh_app_mcp_rows()))
 
 
@@ -1659,6 +1676,10 @@ def host_checks_claude():
         ("bin on ~/.claude/bin",
          all(os.path.islink(os.path.join(CLAUDE, "bin", b))
              for b in ("consult", "codegen", "tezgah-render-table"))),
+        # Claude runs the plugin COPY, not this checkout, so a copy that lags it
+        # is the one gap the other four rows cannot see
+        ("plugin copy current (hooks/tezgah_policy.py matches)",
+         all(plugin_copy_current(t) for t in plugin_copies())),
     ]
 
 
@@ -1674,14 +1695,20 @@ def _hooks_has(path, marker, events=None):
 
 def host_checks_codex():
     cmd = "tezgah-codex-hook"
+    # a relocated home is named, so a report can never show ~/.codex while these
+    # rows read the tree codex actually loads
+    where = (" in %s" % CODEX
+             if CODEX != os.path.join(tp.HOME, ".codex") else "")
     try:
         with open(os.path.join(CODEX, "config.toml")) as fh:
             toml = fh.read()
     except OSError:
         toml = ""
     return [
-        ("hooks.json wired", _hooks_has(os.path.join(CODEX, "hooks.json"), cmd)),
-        ("skills linked", all(os.path.islink(os.path.join(CODEX, "skills", s)) for s in SKILLS)),
+        ("hooks.json wired%s" % where,
+         _hooks_has(os.path.join(CODEX, "hooks.json"), cmd)),
+        ("skills linked%s" % where,
+         all(os.path.islink(os.path.join(CODEX, "skills", s)) for s in SKILLS)),
         ("MCP in config.toml", "mcp_servers.codebase-memory-mcp" in toml),
         ("app MCP servers in config.toml",
          all("[mcp_servers.%s]" % n in toml for n in tezgah_apps.names(False))),
@@ -1845,18 +1872,47 @@ def versions_agree():
 
 # ------------------------------------------------------------------- sync ----
 
+# One file any revision of the checkout carries and Claude's runtime loads, so a
+# COPY that lags HEAD shows up as a hash mismatch instead of as the version
+# number both trees happen to report.
+PLUGIN_FINGERPRINT = os.path.join("hooks", "tezgah_policy.py")
+
+
+def file_sha(path):
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+    except OSError:
+        return ""
+
+
+def plugin_copies():
+    """Every installed tezgah plugin copy under ~/.claude/plugins/cache.
+
+    Claude Code runs the plugin from a COPY, never from this checkout, so this
+    is the tree its hooks and skills actually come from."""
+    cache = os.path.join(HOME, ".claude", "plugins", "cache")
+    out = []
+    for dirpath, _dirnames, _files in os.walk(cache):
+        try:
+            with open(os.path.join(dirpath, ".claude-plugin", "plugin.json")) as fh:
+                if json.load(fh).get("name") == "tezgah":
+                    out.append(dirpath)
+        except Exception:
+            continue
+    return out
+
+
+def plugin_copy_current(target):
+    """True when the copy carries this checkout's PLUGIN_FINGERPRINT."""
+    want = file_sha(os.path.join(HERE, PLUGIN_FINGERPRINT))
+    return bool(want) and file_sha(os.path.join(target, PLUGIN_FINGERPRINT)) == want
+
+
 def sync():
     """Copy this checkout over the installed Claude plugin, which is a COPY."""
     cache = os.path.join(HOME, ".claude", "plugins", "cache")
-    targets = []
-    for dirpath, _dirnames, _ in os.walk(cache):
-        manifest = os.path.join(dirpath, ".claude-plugin", "plugin.json")
-        try:
-            with open(manifest) as fh:
-                if json.load(fh).get("name") == "tezgah":
-                    targets.append(dirpath)
-        except Exception:
-            continue
+    targets = plugin_copies()
     if not targets:
         print("no installed tezgah found under %s (nothing to sync)" % cache)
         return 1
@@ -1883,6 +1939,15 @@ def sync():
         print("%s synced %s (%d files)" % (OK, t, len(files)))
     print("\nrestart Claude Code: hooks are read once per session.")
     return 0
+
+
+def refresh_plugin_copy(hosts):
+    """A stale plugin copy is the one gap --install would otherwise leave behind,
+    because Claude runs that copy and not this checkout: refresh it exactly as
+    `--sync` does rather than duplicating the copy logic."""
+    if "claude" in hosts and any(not plugin_copy_current(t) for t in plugin_copies()):
+        print()
+        sync()
 
 
 # ----------------------------------------------------------------- wizard ----
@@ -2059,6 +2124,7 @@ def install_all(hosts, new_roots, deps_off, dry_run, redetect):
     install_openresearch(hosts)
     for h in hosts:
         INSTALLERS[h]()
+    refresh_plugin_copy(hosts)
     print()
     if deps_off:
         print("(deps skipped; run `tezgah-setup --deps` to install orx, "

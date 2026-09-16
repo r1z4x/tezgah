@@ -36,6 +36,21 @@ const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
   "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
   "search_replace"];
 
+// The hook's failure is the one state the bridge can see and the hook cannot
+// report: python3 missing, the checkout moved, the hook crashed or ran past the
+// timeout. It is remembered here so the next event can say so.
+let hookError = "";
+// the session already told about the failure in flight, so a broken hook costs
+// one message per episode rather than one per event
+let toldSession: string | undefined;
+
+const FAIL = "\u001b[31mhook\u2717\u001b[0m tezgah hook failed";
+
+function why(err: any): string {
+  const text = String(err?.message ?? err ?? "");
+  return text.split("\n")[0].slice(0, 160) || "no answer";
+}
+
 function ask(payload: Record<string, unknown>): any {
   try {
     const out = execFileSync("python3", [HOOK], {
@@ -43,12 +58,36 @@ function ask(payload: Record<string, unknown>): any {
       encoding: "utf8",
       timeout: 10000,
     });
+    hookError = "";
+    toldSession = undefined;
     return out.trim() ? JSON.parse(out) : {};
-  } catch {
+  } catch (err) {
     // A missing python or a crash in the hook leaves the host exactly as it
-    // was: tezgah never turns its own failure into a blocked tool call.
+    // was: tezgah never turns its own failure into a blocked tool call. The
+    // failure is kept instead of thrown, and surfaces on the widget below.
+    hookError = why(err);
     return {};
   }
+}
+
+// The widget is drawn by the host, not by the hook, so it is the one surface a
+// broken hook cannot take away. Nothing here may throw.
+function markBroken(ctx: any): void {
+  try {
+    draw(ctx, FAIL);
+  } catch { /* a host that refuses the widget still gets the message */ }
+}
+
+// The one line that says what happened and how to check it, delivered once per
+// failing session on the events that can carry a message.
+function failureNotice(ctx: any, session: string | undefined): string | undefined {
+  if (!hookError) return undefined;
+  markBroken(ctx);
+  if (toldSession === String(session)) return undefined;
+  toldSession = String(session);
+  return "tezgah: its omp hook failed, so the gate, the evidence ledger and the " +
+    "status line are off this session. Reason: " + hookError + ". Check it with " +
+    "`python3 " + HOOK + "` (or `tezgah-setup --report`).";
 }
 
 function cwdOf(ctx: any): string {
@@ -64,15 +103,41 @@ function sessionOf(ctx: any): string | undefined {
 }
 
 export default function tezgahOmp(pi: any): void {
+  // The idx glyph the last probed answer carried. omp redraws the line after
+  // every watched tool and the stamp probe behind that mark is the line's only
+  // subprocess, so the per-tool redraw sends the glyph back rather than forking
+  // git for a mark that cannot have moved within one turn. turn_end and the
+  // session switch still ask for the probe, so the mark is fresh at every turn
+  // boundary - where it is read.
+  let idxGlyph: string | undefined;
+  const show = (ctx: any, res: any): void => {
+    if (res.idx) idxGlyph = res.idx;
+    if (res.status) draw(ctx, res.status);
+  };
+  // A failed hook answers nothing, so the last good line would keep claiming a
+  // gate that is not running: the widget is repainted with the failure instead.
   const refresh = (ctx: any): void => {
     const res = ask({ event: "status", cwd: cwdOf(ctx), session_id: sessionOf(ctx) });
-    if (res.status) draw(ctx, res.status);
+    if (hookError) return markBroken(ctx);
+    show(ctx, res);
   };
 
   pi.on("session_start", async (_event: any, ctx: any) => {
+    const session = sessionOf(ctx);
     const res = ask({ event: "session_start", cwd: cwdOf(ctx),
-                      session_id: sessionOf(ctx) });
-    if (res.status) draw(ctx, res.status);
+                      session_id: session });
+    if (hookError) {
+      const notice = failureNotice(ctx, session);
+      if (notice) {
+        try {
+          pi.sendMessage({ customType: "tezgah-hook-error", content: notice,
+                           display: true, attribution: "agent" },
+                         { deliverAs: "nextTurn" });
+        } catch { /* the notice is best effort, the mark is already drawn */ }
+      }
+      return;
+    }
+    if (res.status) show(ctx, res);
     if (res.context) {
       // omp's always-on RULES.md carries the contract itself; what rides here
       // is this repo's state, so the model knows the index, the open plans and
@@ -83,10 +148,20 @@ export default function tezgahOmp(pi: any): void {
     }
   });
 
+  // The notice as the message-capable events hand it back: before_agent_start
+  // returns it, session_start sends it.
+  const noticeMessage = (ctx: any, session: string | undefined): any => {
+    const notice = failureNotice(ctx, session);
+    return notice ? { message: { customType: "tezgah-hook-error", content: notice,
+                                 display: true, attribution: "agent" } } : undefined;
+  };
+
   pi.on("session_switch", async (_event: any, ctx: any) => refresh(ctx));
   pi.on("turn_end", async (_event: any, ctx: any) => refresh(ctx));
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
+    const session = sessionOf(ctx);
+    if (hookError) return noticeMessage(ctx, session);
     // omp also fires this for a queued batch that carries no user text (the
     // continuation it starts after the Stop rule blocks a turn, for one). The
     // reminder is armed by a prompt, so a text-less batch must not pay for it
@@ -94,7 +169,8 @@ export default function tezgahOmp(pi: any): void {
     const prompt = String(event?.prompt ?? "").trim();
     if (!prompt) return undefined;
     const res = ask({ event: "user_prompt", cwd: cwdOf(ctx), prompt,
-                      session_id: sessionOf(ctx) });
+                      session_id: session });
+    if (hookError) return noticeMessage(ctx, session);
     if (!res.context) return undefined;
     // A hidden message, not a system-prompt rewrite: omp keeps per-request
     // bytes out of the system prompt so an open-weight provider keeps its
@@ -109,6 +185,10 @@ export default function tezgahOmp(pi: any): void {
     const res = ask({ event: "pre_tool_use", cwd: cwdOf(ctx), tool,
                       input: event?.input ?? event?.args ?? {},
                       session_id: sessionOf(ctx) });
+    if (hookError) {
+      markBroken(ctx);
+      return undefined;  // a hook that cannot answer cannot refuse either
+    }
     if (res.deny) return { block: true, reason: res.deny };
     return undefined;
   });
@@ -122,15 +202,20 @@ export default function tezgahOmp(pi: any): void {
     // because the Stop rule below reads this ledger as evidence.
     const failed = typeof event?.isError === "boolean" ? event.isError : null;
     const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
-                      input: event?.input ?? {}, failed,
+                      input: event?.input ?? {}, failed, idx: idxGlyph,
                       session_id: sessionOf(ctx) });
-    if (res.status) draw(ctx, res.status);
+    if (hookError) return markBroken(ctx);
+    show(ctx, res);
   });
 
   pi.on("session_stop", async (event: any, ctx: any) => {
     const res = ask({ event: "stop", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
                       last_assistant_message: event?.last_assistant_message,
                       stop_hook_active: event?.stop_hook_active === true });
+    if (hookError) {
+      markBroken(ctx);
+      return undefined;  // an unanswerable Stop rule must not block the turn
+    }
     if (res.decision === "block" && res.reason) {
       return { decision: "block", reason: res.reason };
     }

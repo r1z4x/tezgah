@@ -192,6 +192,25 @@ class Gitignore(AgentsBase):
         for d in ("/.claude/agents/", "/.opencode/agents/", "/.codex/agents/"):
             self.assertIn(d, text)
 
+    def test_a_block_that_sits_mid_file_stays_where_it_is(self):
+        # this repo's committed .gitignore has the block before other entries;
+        # rebuilding the file around it moved it to the end and dirtied the tree
+        # on the first session start of a fresh checkout
+        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
+            fh.write("node_modules/\n\n"
+                     "# tezgah: generated agents (managed; removed by "
+                     "tezgah-setup --uninstall)\n"
+                     "/.claude/agents/\n"
+                     "# tezgah: end generated agents\n\n"
+                     "dist/\n")
+        self.sync()
+        text = self.gi()
+        self.assertLess(text.index("# tezgah: end generated agents"),
+                        text.index("dist/"))
+        once = self.gi()
+        self.sync()
+        self.assertEqual(self.gi(), once)
+
     def test_cleanup_strips_block_but_keeps_user_content(self):
         with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
             fh.write("node_modules/\n")

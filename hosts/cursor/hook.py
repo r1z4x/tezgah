@@ -4,9 +4,11 @@ so this adapter translates them onto the shared tezgah core:
 
   sessionStart        -> {"additional_context": <shared context>}
   preToolUse          -> {"permission": "allow"|"deny", "agent_message": ...}
-                         (grep-only explorer + first identifier grep nudge)
+                         (the shared gate: grep-only explorer, first identifier
+                         grep nudge, attribution and test-skip on the write tools)
   beforeMCPExecution  -> {"permission": "allow"} for the code graph, else {}
-  subagentStart       -> deny a grep-only explorer
+  subagentStart       -> {"additional_context": <short contract brief>} for the
+                         delegate, or deny for a grep-only explorer
   subagentStop        -> record orch, no followup
   postToolUse         -> record usage; reinforce once per session on graph/consult
   postToolUseFailure  -> record usage; one-line recovery hint
@@ -18,6 +20,17 @@ so this adapter translates them onto the shared tezgah core:
                          spelling is {"followup_message": ...})
   beforeSubmitPrompt  -> {"continue": true}
 Everything else answers "{}" and never blocks.
+
+Cursor names its own tools, so `hooks.json` has to name them too: the matcher on
+`preToolUse` is a regex over the tool type, and Cursor's edit path is the `Write`
+tool (its docs map Claude's `Edit` onto `Write`). The matcher therefore lists
+`Write` plus the other spellings an edit tool is known by (`Edit`, `MultiEdit`,
+`NotebookEdit`); without them the platform never runs this hook for a file write
+and the gate's write branches - a test-skip marker added to a test file, a credit
+line inside file content - cannot fire at all. Exactly which name a given Cursor
+build sends is not verifiable from this repo, which is why the list is explicit
+rather than a wildcard: a miss costs only that half of the gate, and an extra
+alternative costs nothing because an unknown name passes the gate untouched.
 """
 import json
 import os
@@ -25,7 +38,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import context_for, record, slug, under  # noqa: E402
+from tezgah_context import (  # noqa: E402
+    command_text, context_for, record, shell_kind, slug, under)
 from tezgah_gate import decision, explored  # noqa: E402
 from tezgah_integrity import note, note_tool, stop_reason  # noqa: E402
 from tezgah_paths import cache_dir, off  # noqa: E402
@@ -49,7 +63,11 @@ def cwd_of(payload):
 def classify(payload, event=""):
     """The used-tool kind for a tool/observer payload, or None when
     undetectable. Reads every field shape Cursor sends: tool_input, command,
-    mcp_server_name."""
+    mcp_server_name.
+
+    A shell call is the kind whose program actually ran (shell_kind), never a
+    substring of the payload: naming `consult` in an argument is not using it,
+    and the status mark turns green only on a real call."""
     name = payload.get("tool_name", "") or ""
     server = payload.get("mcp_server_name", "") or ""
     blob = " ".join((str(name), str(server),
@@ -61,11 +79,30 @@ def classify(payload, event=""):
     if name in ("Task", "task"):
         return "orch"
     shell = name.lower() in ("shell", "bash") or event == "afterShellExecution"
-    if shell and "consult" in low:
-        return "consult"
-    if shell and "orx" in low:
-        return "research"
+    if shell:
+        # `afterShellExecution` carries the command on the event itself, a
+        # postToolUse payload inside tool_input.
+        return shell_kind(command_text(payload.get("command"))
+                          or command_text(payload.get("tool_input")))
     return None
+
+
+def gate_input(inp):
+    """The tool input in the shared gate's vocabulary.
+
+    Cursor's `Write` tool describes its change the way its `afterFileEdit`
+    payload does - `edits: [{old_string, new_string}]` - while the gate reads the
+    old_string/new_string pair, so fold the list into that shape. Every other
+    field is passed through untouched."""
+    edits = inp.get("edits")
+    if not isinstance(edits, list):
+        return inp
+    out = dict(inp)
+    for key in ("old_string", "new_string"):
+        if not out.get(key):
+            out[key] = "\n".join(str(e.get(key, "")) for e in edits
+                                 if isinstance(e, dict))
+    return out
 
 
 def first_time(session_id, tag):
@@ -124,7 +161,8 @@ def main():
         payload = {}
     event = payload.get("hook_event_name", "")
     cwd = cwd_of(payload)
-    session_id = payload.get("conversation_id")
+    session_id = (payload.get("conversation_id") or payload.get("session_id")
+                  or payload.get("parent_conversation_id"))
     kind = classify(payload, event)
     quiet = off("reminder-off")
 
@@ -169,6 +207,18 @@ def main():
         else:
             record(session_id, "orch")
             out = {"permission": "allow"}
+            # The delegate is a fresh context that must know the rules exist, so
+            # it gets the same short brief every other host hands a subagent.
+            # Cursor documents no context field on subagentStart (its output is
+            # permission + user_message, which is user-facing and deny-only), so
+            # the brief rides `additional_context` - the key Cursor uses for
+            # "context to add to the conversation" on sessionStart and
+            # postToolUse. Unverified for this event: a build that drops the
+            # unknown key leaves the delegate with the session context it already
+            # inherits, and the deny path above stays untouched either way.
+            brief = context_for("subagent_start", cwd, payload)
+            if brief:
+                out["additional_context"] = brief
     elif event == "subagentStop":
         record(session_id, "orch")
         out = {}
@@ -176,7 +226,7 @@ def main():
         tool = payload.get("tool_name", "")
         gate_tool = {"Shell": "Bash", "Read": "Read", "Grep": "Grep"}.get(tool, tool)
         inp = payload.get("tool_input") or {}
-        reason = decision(gate_tool, inp, cwd, session_id)
+        reason = decision(gate_tool, gate_input(inp), cwd, session_id)
         out = ({"permission": "deny", "agent_message": reason}
                if reason else dict(ALLOW))
     elif event == "afterAgentResponse":

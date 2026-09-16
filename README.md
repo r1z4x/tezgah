@@ -371,7 +371,7 @@ revision came to quote a core band smaller than the one it installs.
 | Band | What it costs |
 |---|---|
 | Session start | the always-on contract (the invariants plus a one-line pointer per on-demand rule): on this machine and skill set, ~1.3k tokens of contract text and ~1.3k of skill metadata, with the conditional rules (spec, consult, research, graph) adding ~0.6k only on the turn whose prompt matches |
-| Per turn | a short reminder (~0.2k tokens) plus the armed rule when it matches; hooks are separate Python processes, so the ~19 ms interpreter start dominates - session start adds ~25 ms, a gated tool call (Bash/Grep/Task) ~9 ms. opencode has no prompt-time hook, so it pays zero |
+| Per turn | a short reminder (~0.2k tokens) plus the armed rule when it matches; hooks are separate Python processes, so the ~19 ms interpreter start is the base - a turn adds ~31 ms, session start adds ~50-81 ms, a gated tool call (Bash/Grep/Task) ~24-25 ms. opencode has no prompt-time hook, so it pays zero |
 | On demand | the full `tezgah-contract` skill (~6.0k tokens), paid only when a task loads it |
 | MCP schemas | the largest band, and the one no static report sees: the graph server alone declares 15 tools / 24,508 bytes (~6.1k tokens), riding every request unless the host fetches schemas on demand. `tezgah-setup --mcp-schemas` measures it |
 | Disk | installation takes ~58 ms, and every file tezgah rewrites is kept once as `<file>.tezgah-bak` |

@@ -1,6 +1,11 @@
-Third-party material vendored into this repository. The MIT LICENSE at the root
-covers tezgah's own files; the copies below keep their original terms.
+Third-party material vendored into or adapted by this repository. The MIT LICENSE
+at the root covers tezgah's own files; the copies below keep their original terms.
 
 skills/no-ai-slop  - MIT, Peter Yang, https://github.com/petergyang/no-ai-slop
 skills/ponytail    - MIT. Origin not recorded at vendoring time; if you are the
                      author, open an issue and the attribution will be corrected.
+skills/research    - MIT, Orchestra Research. Adapts the orchestration layer of
+                     its AI-research-SKILLs library (the autoresearch,
+                     ara-rigor-reviewer and ara-research-manager skills):
+                     https://github.com/orchestra-research/AI-research-SKILLs
+                     Nothing is copied verbatim.

@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import unittest
@@ -160,6 +161,134 @@ class IndexMark(TempHome):
         self.assertEqual(self.mark(), "\u21bb")
 
 
+class InflectedTurkishArming(unittest.TestCase):
+    """Turkish is agglutinative: the hints are stems, so a suffix must still arm
+    them. The trailing \\b the English hints need silently dropped the most
+    natural Turkish phrasing - including `düzgün çalışsın`, the underspecified
+    request the contract itself names."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks"))
+        import tezgah_context as tc  # noqa: E402
+        self.armed = tc.classify_prompt
+
+    def test_suffixed_stems_arm_their_rule(self):
+        cases = {
+            "bu ekran düzgün çalışsın": {"spec"},
+            "arayüz güzel görünsün": {"spec"},
+            "metin biraz daha iyi olsun": {"spec"},
+            "kök nedenini bulalım": {"consult"},
+            "mimarisini yeniden kuralım": {"consult"},
+            "araştırma yap": {"research"},
+            "hipotezi test et": {"research"},
+            "bu fonksiyonu kim çağırıyor?": {"cbm"},
+            "bu modül nasıl bağlanmış?": {"cbm"},
+            "bu değişiklikten hangi dosyalar etkilenir": {"cbm"},
+        }
+        for prompt, want in cases.items():
+            self.assertEqual(self.armed(prompt), want, prompt)
+
+    def test_suffix_tolerance_does_not_widen_the_hints(self):
+        # a whole-word hint keeps its plain boundary, and the Turkish hints are
+        # spelled with their own letters: neither a missing suffix nor a
+        # diacritic-free spelling may arm anything
+        for prompt in ("add a docstring to parse_quantity",
+                       "nasılsın, bugün bir sorun var mı?",
+                       "arastirmaci ekibi kurduk",
+                       "kullanıcı deneyimi raporu"):
+            self.assertEqual(self.armed(prompt), set(), prompt)
+
+
+class GitSpawnBudget(TempHome):
+    """One git spawn per question per process. A session start asks the same two
+    questions twice over (context_for, then the status line's idx mark), and that
+    second pair of forks was pure waste - two spawns where four ran."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self.touch(os.path.join(self.repo, "f"))
+        subprocess.run(["git", "-C", self.repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", self.repo, "-c", "user.email=a@b",
+                        "-c", "user.name=t", "commit", "-qm", "x"], check=True)
+        head = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+        slug = support.slug(os.path.realpath(self.repo))
+        # stamp == HEAD: autoindex reports "index current" and forks no worker
+        stamp = os.path.join(self.home, ".cache", "tezgah", slug)
+        self.touch(stamp)
+        with open(stamp, "w") as fh:
+            fh.write(head)
+        # an index db, so the idx mark really has a reason to compare HEAD
+        db_dir = os.path.join(self.home, ".cache", "codebase-memory-mcp")
+        os.makedirs(db_dir, exist_ok=True)
+        open(os.path.join(db_dir, slug + ".db"), "w").close()
+
+    def test_a_session_start_forks_git_twice(self):
+        shim = os.path.join(self.home, "shim")
+        os.makedirs(shim, exist_ok=True)
+        log = os.path.join(self.home, "git.log")
+        script = os.path.join(shim, "git")
+        with open(script, "w") as fh:
+            fh.write('#!/bin/sh\nprintf "%%s\\n" "$*" >> "$TEZGAH_GIT_LOG"\n'
+                     'exec %s "$@"\n' % shutil.which("git"))
+        os.chmod(script, 0o755)
+        env = self.env(extra={"TEZGAH_CBM_BIN": sys.executable,
+                              "TEZGAH_GIT_LOG": log,
+                              "PATH": shim + os.pathsep + os.environ["PATH"]})
+        body = ("import sys\n"
+                "sys.path.insert(0, %r)\n"
+                "import tezgah_context as tc\n"
+                "tc.context_for('session_start', %r)\n"
+                "tc.health_lines(%r)\n"
+                "tc.health_lines(%r)\n" % (support.HOOKS, self.repo,
+                                           self.repo, self.repo))
+        proc = subprocess.run([sys.executable, "-c", body],
+                              capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(log) as fh:
+            asked = [line.split(" rev-parse ", 1)[1] for line in fh.read().splitlines()
+                     if line]
+        # one top-level and one HEAD, however often the line is rendered
+        self.assertEqual(sorted(asked), ["--show-toplevel", "HEAD"], asked)
+
+
+class IndexRedraw(unittest.TestCase):
+    """A host that redraws its status line per event passes the glyph it already
+    resolved, so the cosmetic redraw forks no git for the idx mark."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks"))
+        import tezgah_context as tc  # noqa: E402
+        self.tc = tc
+        self.probes = []
+        tc._IDX.clear()
+        self.addCleanup(setattr, tc, "git", tc.git)
+        self.addCleanup(setattr, tc, "repo_marks", tc.repo_marks)
+        tc.git = lambda *a: self.probes.append(a) or "deadbeef" * 5
+        tc.repo_marks = lambda cwd: ("/base", set())
+
+    def test_a_resolved_glyph_is_used_and_probes_nothing(self):
+        segs = self.tc.health_segments("/base/proj", "s", used_override=[],
+                                       idx_override="\u2713")
+        idx = [s for s in segs if s["key"] == "idx"][0]
+        self.assertEqual(idx["glyph"], "\u2713")
+        self.assertEqual(idx["state"], "on")
+        self.assertEqual(self.probes, [])
+
+    def test_without_a_glyph_the_mark_still_probes(self):
+        import tezgah_gate
+        self.addCleanup(setattr, tezgah_gate, "index_slug", tezgah_gate.index_slug)
+        tezgah_gate.index_slug = lambda cwd, base: "slug"
+        self.tc.health_segments("/base/proj", "s", used_override=[])
+        # the probe asks both questions: repo_root's top-level, then HEAD
+        self.assertEqual([p[-1] for p in self.probes],
+                         ["--show-toplevel", "HEAD"], self.probes)
+
+
 class KillSwitchEnforcement(TempHome):
     """A documented kill switch must remove its rule from the injected text,
     not just flip a status mark. The labels are pinned here, so editing one in
@@ -168,11 +297,14 @@ class KillSwitchEnforcement(TempHome):
     OFF = "**Turkish, BLUF.**"
     PONY = "**Ponytail (minimal code).**"
     FIDELITY = "**Deliver the whole ask; never the shortcut.**"
+    INTEGRITY = '**Integrity: evidence, or "doğrulanmadı".**'
+    LOOP = "**Loop discipline.**"
     SPEC = "**Spec before building.**"
     LESSONS = "**Lessons ledger: stop repeating mistakes.**"
     CBM = "**Code discovery: graph first.**"
     CONSULT = "**Consult before irreversible.**"
     RESEARCH = "**Research: route it to OpenResearch.**"
+    ATTRIBUTION = "**No AI attribution, ever, on any host.**"
 
     def session(self, repo):
         out, proc = run_json([support.PROBE_CONTEXT],
@@ -195,7 +327,8 @@ class KillSwitchEnforcement(TempHome):
     def test_default_keeps_the_invariants(self):
         repo = self.make_repo()
         out = self.session(repo)
-        for label in (self.OFF, self.PONY, self.FIDELITY, self.LESSONS):
+        for label in (self.OFF, self.PONY, self.FIDELITY, self.INTEGRITY,
+                      self.LOOP, self.ATTRIBUTION, self.LESSONS):
             self.assertIn(label, out)
 
     def test_fidelity_and_the_sycophancy_ban_are_invariants(self):
@@ -453,6 +586,10 @@ class ArmingConformance(TempHome):
         "Run a literature review and form a hypothesis": {"research"},
         "who calls calc_total?": {"cbm"},
         "add a docstring to parse_quantity": set(),
+        # Turkish hints are stems, so their inflected forms must arm too
+        "bu ekran düzgün çalışsın": {"spec"},
+        "hipotezi test et": {"research"},
+        "bu fonksiyonu kim çağırıyor?": {"cbm"},
     }
 
     def armed(self, text):

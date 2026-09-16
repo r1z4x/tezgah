@@ -50,7 +50,11 @@ OFF_DIRS = (CONFIG_DIR, os.path.join(HOME, ".claude"))
 XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
 HOST_DIRS = {
     "claude": os.path.join(HOME, ".claude"),
-    "codex": os.path.join(HOME, ".codex"),
+    # codex reads a relocated home from CODEX_HOME (an embedding app such as Orca
+    # hands each account its own), and that home is the one a codex session
+    # actually loads - so it is the one to install into and to check. dsh below
+    # follows the same pattern for DSH_HOME.
+    "codex": os.environ.get("CODEX_HOME") or os.path.join(HOME, ".codex"),
     "cursor": os.path.join(HOME, ".cursor"),
     "opencode": os.path.join(XDG_CONFIG, "opencode"),
     "dsh": os.environ.get("DSH_HOME") or os.path.join(HOME, ".dsh"),

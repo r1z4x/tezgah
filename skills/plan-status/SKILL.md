@@ -4,7 +4,7 @@ description: >
   Reads every open plan under <git root>/plans/open/, enriches rows with live PR
   state from `gh`, rewrites the README status table, commits it as
   `plan: update status`, and ends with a single recommendation for which plan to
-  work on next. Use when the user says "/plan-status", "what plans are open",
+  work on next. Use when the user says "/tezgah:plan-status", "what plans are open",
   "plan status", "where are we on the plans", or at the start of a session to pick
   work. Read-only except the README table and filling an empty `pr:` field.
 ---

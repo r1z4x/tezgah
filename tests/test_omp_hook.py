@@ -5,7 +5,9 @@ answers with one JSON object (hosts/omp/hook.py's docstring is the protocol).
 These tests drive that protocol directly: they are the only host-level check
 that omp's session context, gate, evidence ledger and Stop rule behave.
 """
+import json
 import os
+import shutil
 import unittest
 
 import support
@@ -13,8 +15,113 @@ from support import TempHome, run, run_json
 
 
 class OmpHook(TempHome):
-    def event(self, payload):
-        return run_json([support.OMP_HOOK], payload, env=self.env())
+    def event(self, payload, env=None):
+        return run_json([support.OMP_HOOK], payload, env=env or self.env())
+
+    def kinds(self, session):
+        """The used kinds this session's ledger recorded, in order."""
+        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
+                            support.slug(session) + ".jsonl")
+        try:
+            with open(path) as fh:
+                return [json.loads(line)["kind"] for line in fh if line.strip()]
+        except OSError:
+            return []
+
+    def indexed(self, repo):
+        """Make the fixture repo's idx mark resolvable: an index db, and a code
+        graph binary, so the probe is not short-circuited and really forks git."""
+        d = os.path.join(self.home, ".cache", "codebase-memory-mcp")
+        os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, support.slug(repo) + ".db"), "w").close()
+        cbm = os.path.join(self.home, "cbm-shim")
+        with open(cbm, "w") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(cbm, 0o755)
+        return cbm
+
+    def counting_env(self, cbm):
+        """An env whose PATH has a `git` in front of the real one that logs every
+        fork, so "the redraw forked nothing" is measured rather than assumed."""
+        d = os.path.join(self.home, "bin")
+        os.makedirs(d, exist_ok=True)
+        log = os.path.join(self.home, "git.log")
+        with open(os.path.join(d, "git"), "w") as fh:
+            fh.write("#!/bin/sh\necho \"$@\" >> %s\nexec %s \"$@\"\n"
+                     % (log, shutil.which("git") or "/usr/bin/git"))
+        os.chmod(os.path.join(d, "git"), 0o755)
+        return log, self.env(extra={
+            "PATH": os.pathsep.join([d, os.environ.get("PATH", "")]),
+            "TEZGAH_CBM_BIN": cbm})
+
+    def forks(self, log):
+        try:
+            with open(log) as fh:
+                return len([line for line in fh if line.strip()])
+        except OSError:
+            return 0
+
+    def test_a_mention_of_a_tool_is_not_a_use_of_it(self):
+        # the audit found the line claiming a consult the session never ran:
+        # `consult` in the argument was enough to flip the mark
+        repo = self.make_repo()
+        cases = [
+            ("grep -n consult hooks/ | head", None),
+            ("ls -la /Users/x/.cargo/bin/orx", None),
+            ('git commit -m "consult ran, and orx too"', None),
+            ("~/.config/tezgah/bin/consult \"is this safe?\"", "consult"),
+            ("orx run --project p", "research"),
+            ("cd /tmp && sudo env X=1 consult --online q", "consult"),
+        ]
+        for cmd, kind in cases:
+            session = support.slug(cmd)
+            _out, proc = self.event(
+                {"event": "post_tool_use", "cwd": repo, "session_id": session,
+                 "tool": "bash", "input": {"command": cmd}})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            # the ledger also carries a null kind per call; the marks read the
+            # four names, so only those are the claim under test
+            kinds = [k for k in self.kinds(session) if k]
+            self.assertEqual(kinds, [] if kind is None else [kind], cmd)
+
+    def test_a_watched_tool_result_forks_no_git(self):
+        # the idx mark is the only thing on the line that costs a subprocess, and
+        # the session hands back the glyph the probed answer carried, so a busy
+        # turn stops paying two git forks per watched tool
+        repo = self.make_repo()
+        log, env = self.counting_env(self.indexed(repo))
+        payload = {"event": "post_tool_use", "cwd": repo, "session_id": "s",
+                   "tool": "bash", "input": {"command": "pytest -q"},
+                   "idx": "\u2713"}
+        before = self.forks(log)
+        for _ in range(3):
+            out, proc = self.event(payload, env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.forks(log) - before, 0)
+        # the line still carries the mark, and the glyph the next redraw uses
+        self.assertIn("idx\u2713", out["status"])
+        self.assertEqual(out["idx"], "\u2713")
+        # without a glyph the same event has to ask - which is what makes the
+        # zero above a saving and not a probe that never happens
+        before = self.forks(log)
+        probed, _ = self.event({k: v for k, v in payload.items() if k != "idx"},
+                               env=env)
+        self.assertGreater(self.forks(log) - before, 0)
+        self.assertIn("idx\u2713", probed["status"])
+
+    def test_the_turn_boundary_still_probes_the_mark(self):
+        # turn_end is where the line is read, so the glyph never stands in for
+        # the probe there, and the answer hands the fresh glyph back for the
+        # redraws in between
+        repo = self.make_repo()
+        log, env = self.counting_env(self.indexed(repo))
+        before = self.forks(log)
+        out, proc = self.event({"event": "status", "cwd": repo,
+                                "session_id": "s", "idx": "\u2013"}, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertGreater(self.forks(log) - before, 0)
+        self.assertIn("idx\u2713", out["status"])   # the probe's answer, not "–"
+        self.assertEqual(out["idx"], "\u2713")
 
     def test_session_start_carries_repo_state_without_the_core(self):
         repo = self.make_repo()

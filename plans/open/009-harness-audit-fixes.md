@@ -35,21 +35,24 @@ marks stop over-reporting, and the published numbers match the machine.
   a router generator that drops every trigger word from two skills.
 
 ## Acceptance
-- [ ] A broken hook path produces a visible signal on omp, and a test drives it.
-- [ ] Every Turkish phrase the audit listed arms its rule, pinned in
+- [x] A broken hook path produces a visible signal on omp, and a test drives it.
+- [x] Every Turkish phrase the audit listed arms its rule, pinned in
       `tests/test_context.py`.
-- [ ] The installer detects a stale Claude plugin copy and refreshes it.
-- [ ] opencode arms the conditional rules per prompt through the shared builder.
-- [ ] Cursor routes edit/write tools through the gate and briefs subagents.
-- [ ] The codex install and checks honour a relocated `CODEX_HOME`.
-- [ ] A mark only turns `✓` when the tool actually ran.
-- [ ] README and the benchmark README carry re-measured latencies.
-- [ ] The 9 skill-standard violations are fixed.
-- [ ] `python3 -m unittest discover -s tests` and `ruff check .` pass.
+- [x] The installer detects a stale Claude plugin copy and refreshes it.
+- [x] opencode arms the conditional rules per prompt through the shared builder.
+- [x] Cursor routes edit/write tools through the gate and briefs subagents.
+- [x] The codex install and checks honour a relocated `CODEX_HOME`.
+- [x] A mark only turns `✓` when the tool actually ran.
+- [x] README and the benchmark README carry re-measured latencies.
+- [x] The 9 skill-standard violations are fixed.
+- [x] `python3 -m unittest discover -s tests` and `ruff check .` pass.
 
 ## State
-Audit done (five parallel slices, each finding carrying its command and output).
-Fixes in progress.
+All five slices landed on the branch: 414 tests and `ruff check .` green.
+Every finding carries a test that fails on the pre-fix code. The live surfaces
+(Claude plugin copy, relocated codex home, omp extension snapshot) go current
+when the machine runs `tezgah-setup --install`.
 
 ## Next
-Land the slices, verify each finding against a test, then merge.
+Open the PR, let CI confirm on 3.10/3.12, merge, then run `--install` on this
+machine.

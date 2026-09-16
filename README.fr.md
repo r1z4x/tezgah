@@ -345,7 +345,7 @@ en direct - lisez-le là plutôt que de faire confiance à un chiffre copié ici
 | Bande | Ce qu'elle coûte |
 |---|---|
 | Démarrage de session | le contrat toujours actif (les invariants plus un pointeur d'une ligne par règle à la demande) : sur cette machine et ce jeu de compétences, ~1.3k tokens de texte de contrat et ~1.3k de métadonnées de compétences, les règles conditionnelles (spec, consult, research, graph) n'ajoutant ~0.6k que sur le tour dont le prompt correspond |
-| Par tour | un court rappel (~0.2k tokens) plus la règle armée quand elle correspond ; les hooks sont des processus Python distincts, donc le démarrage de l'interpréteur de ~19 ms domine - le démarrage de session ajoute ~25 ms, un appel d'outil contrôlé (Bash/Grep/Task) ~9 ms. opencode n'a pas de hook au moment du prompt, il ne paie donc rien |
+| Par tour | un court rappel (~0.2k tokens) plus la règle armée quand elle correspond ; les hooks sont des processus Python distincts, donc le démarrage de l'interpréteur de ~19 ms est la base - un tour ajoute ~31 ms, le démarrage de session ajoute ~50-81 ms, un appel d'outil contrôlé (Bash/Grep/Task) ~24-25 ms. opencode n'a pas de hook au moment du prompt, il ne paie donc rien |
 | À la demande | la compétence complète `tezgah-contract` (~6.0k tokens), payée seulement quand une tâche la charge |
 | Schémas MCP | la plus grande bande, et celle qu'aucun rapport statique ne voit : le serveur de graphe à lui seul déclare 15 outils / 24,508 octets (~6.1k tokens), embarqués dans chaque requête sauf si l'hôte récupère les schémas à la demande. `tezgah-setup --mcp-schemas` le mesure |
 | Disque | l'installation prend ~58 ms, et chaque fichier que tezgah réécrit est conservé une fois sous `<file>.tezgah-bak` |
