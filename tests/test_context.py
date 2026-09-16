@@ -552,6 +552,36 @@ class HealthSegments(TempHome):
         self.assertEqual([s for s in out if s["key"] == "pony"][0]["glyph"], "\u2713")
 
 
+class RecordKinds(TempHome):
+    """record() is the ledger's only writer, and every host classifies every
+    tool it sees, so the no-ops must not reach the file: a real 425-line session
+    ledger held 395 `{"kind": null}` lines against 30 kinds."""
+
+    def record(self, session_id, kind):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "record", "session_id": session_id,
+                              "kind": kind}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out)
+        return self.ledger(session_id)
+
+    def ledger(self, session_id):
+        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
+                            support.slug(session_id) + ".jsonl")
+        if not os.path.exists(path):
+            return []
+        with open(path) as fh:
+            return [json.loads(line)["kind"] for line in fh if line.strip()]
+
+    def test_a_tool_that_is_not_one_of_ours_is_not_an_event(self):
+        self.assertEqual(self.record("s1", None), [])
+        self.assertEqual(self.record("s1", ""), [])
+
+    def test_a_real_kind_is_written_once_and_read_back(self):
+        self.assertEqual(self.record("s1", "consult"), ["consult"])
+        self.assertEqual(self.record("s1", "cbm"), ["consult", "cbm"])
+
+
 class StatusCli(TempHome):
     """bin/tezgah-status must light up the used marks from the session id."""
 

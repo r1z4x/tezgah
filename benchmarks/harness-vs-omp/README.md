@@ -176,6 +176,31 @@ the host's size to report and are the one band this instrument cannot see.
 opencode's own always-on is higher: its generated skill router is a second
 instructions file (see the main README's Cost section).
 
+## Hook latency (re-measured)
+
+The main README's Cost row quotes deltas over the interpreter start. Measured
+again on the same machine, independently of the slice that published the row:
+median of 11 runs per entry point, wall time of the whole process, real checkout
+and real HOME, warm caches.
+
+| Entry point | Median | Min | Max |
+|---|---|---|---|
+| interpreter start (`python3 -c pass`) | 20.0 ms | 19.1 | 20.8 |
+| turn (`projects-auto-init.py`, UserPromptSubmit) | 51.2 ms | 50.0 | 58.3 |
+| session start (`projects-auto-init.py`, SessionStart) | 68.4 ms | 66.6 | 73.4 |
+| gated call (`projects-pretooluse.py`, Bash) | 37.3 ms | 36.1 | 39.8 |
+| session start, codex hook | 76.4 ms | 72.6 | 77.6 |
+| session start, omp hook | 76.4 ms | 74.1 | 87.3 |
+| session start, cursor hook | 75.6 ms | 74.0 | 82.7 |
+
+Against the published row: the ~19 ms base reproduces at 20.0, the turn's
+"+31 ms" at +31.2. Session start's "50-81 ms" reproduces at +48 (Claude entry)
+to +56 (codex, omp, cursor) warm; the range's top end is the colder omp run the
+publishing slice recorded at 100.1 ms, so the row spans a warm and a cold cache.
+The gated call's "24-25 ms" is host-dependent rather than a single figure: +17.3
+through the Claude entry measured here, +23.9 and +25.0 through codex and cursor,
+which is the pair the published number came from.
+
 ## Limitations
 
 - One sample per (task, arm); a single model. Per-task variance is large enough

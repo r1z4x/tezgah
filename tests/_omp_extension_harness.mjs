@@ -40,6 +40,12 @@ try {
   if (!spec.noWidget) {
     ui.setWidget = (key, content, options) => widgets.push([key, content, options])
   }
+  // spec.widgetThrows is a build whose UI surface refuses the call: the
+  // extension must not lose the rest of the event to a cosmetic failure.
+  if (spec.widgetThrows) {
+    ui.setWidget = () => { throw new Error("widget refused") }
+    ui.setStatus = () => { throw new Error("status refused") }
+  }
   const ctx = {
     cwd: spec.dir,
     sessionManager: { getSessionId: () => spec.session },

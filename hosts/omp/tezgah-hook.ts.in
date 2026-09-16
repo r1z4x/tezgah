@@ -14,12 +14,18 @@ const HOOK = "@HOOK@";
 // renders the string as it is. The status key stays as the fallback for a build
 // without setWidget: the text is then uncolored, never wrong.
 function draw(ctx: any, line: string): void {
-  if (!line || !ctx?.ui) return;
-  if (typeof ctx.ui.setWidget === "function") {
-    ctx.ui.setWidget("tezgah", [line], { placement: "belowEditor" });
-  } else {
-    ctx.ui.setStatus("tezgah", line);
-  }
+  // The widget is drawn by the host, not by the hook, so it is the one surface
+  // a broken hook cannot take away - and talking to a host UI is where a build
+  // can refuse. Nothing here may throw: the line is cosmetic, and the caller's
+  // message (the session brief, the failure notice) still has to go out.
+  try {
+    if (!line || !ctx?.ui) return;
+    if (typeof ctx.ui.setWidget === "function") {
+      ctx.ui.setWidget("tezgah", [line], { placement: "belowEditor" });
+    } else {
+      ctx.ui.setStatus("tezgah", line);
+    }
+  } catch { /* a host that refuses the widget keeps the message instead */ }
 }
 
 // Tools whose result can move the status line's used marks or the evidence the
@@ -70,12 +76,10 @@ function ask(payload: Record<string, unknown>): any {
   }
 }
 
-// The widget is drawn by the host, not by the hook, so it is the one surface a
-// broken hook cannot take away. Nothing here may throw.
+// The failure mark: draw() already cannot throw, so a broken hook costs the
+// marks and nothing else.
 function markBroken(ctx: any): void {
-  try {
-    draw(ctx, FAIL);
-  } catch { /* a host that refuses the widget still gets the message */ }
+  draw(ctx, FAIL);
 }
 
 // The one line that says what happened and how to check it, delivered once per
