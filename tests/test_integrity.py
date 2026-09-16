@@ -50,38 +50,83 @@ class ShortcutCommand(unittest.TestCase):
     def test_no_verify_without_a_git_write_passes(self):
         self.assertIsNone(ti.shortcut_command("echo --no-verify"))
 
+    def test_naming_no_verify_in_a_message_or_a_read_passes(self):
+        # a commit message that describes the rule, and a read of the rule's
+        # own code, are not bypasses; only the flag in command position is
+        for c in ('git commit -m "gate: deny --no-verify bypasses"',
+                  "grep -rn --no-verify hooks/",
+                  "git commit -F - <<'MSG'\ngate denies --no-verify\nMSG",
+                  'git commit -m "x" -m \'y --no-verify\'',
+                  'gh pr create --body "ban --no-verify"'):
+            self.assertIsNone(ti.shortcut_command(c), c)
+        for c in ("git commit --no-verify -m x", "git push --no-verify"):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+
+    def test_an_unterminated_heredoc_stays_visible(self):
+        # a bypass must not hide behind a missing terminator
+        self.assertIsNotNone(
+            ti.shortcut_command("git commit -F - <<'MSG'\n--no-verify\n"))
+
 
 class ShortcutEdit(unittest.TestCase):
+    TEST = {"file_path": "tests/test_x.py"}
+
+    def edit(self, **payload):
+        payload.setdefault("file_path", self.TEST["file_path"])
+        return ti.shortcut_edit(payload)
+
     def test_adding_a_skip_denied(self):
         for new in ("@pytest.mark.skip(reason='flaky')\ndef test_x(): pass",
                     "it.skip('later', () => {})",
                     "t.Skip('flaky')",
                     "@unittest.skip('x')\nclass T: pass",
                     "test.only('a', () => {})"):
-            self.assertIsNotNone(ti.shortcut_edit({"new_string": new}), new)
+            self.assertIsNotNone(self.edit(new_string=new), new)
 
     def test_optional_dependency_guard_allowed(self):
         # skipUnless guards a missing optional dep; it is not a disable and
         # must not be caught (the gate denied it before the boundary fix).
         new = "@unittest." + "skipUnless(HAVE_NODE, 'node missing')\ndef t(): pass"
-        self.assertIsNone(ti.shortcut_edit({"new_string": new}))
+        self.assertIsNone(self.edit(new_string=new))
 
     def test_conditional_skip_reports_its_own_name(self):
         # a skipIf marker must be named as itself, not truncated to skip
         for name in ("@unittest." + "skipIf(x, 'y')",
                      "@pytest.mark." + "skipif(x, 'y')"):
-            reason = ti.shortcut_edit({"new_string": name + "\ndef t(): pass"})
+            reason = self.edit(new_string=name + "\ndef t(): pass")
             self.assertIsNotNone(reason, name)
             self.assertIn(name.split("(")[0], reason)
 
     def test_rewriting_an_existing_skip_passes(self):
         old = "@pytest.mark.skip(reason='flaky')\ndef test_x(): pass"
-        self.assertIsNone(ti.shortcut_edit(
-            {"old_string": old, "new_string": old}))
+        self.assertIsNone(self.edit(old_string=old, new_string=old))
+
+    def test_one_more_skip_in_the_same_file_is_still_denied(self):
+        # counting per marker, not per kind: a second skip is a second disable
+        old = "@pytest.mark.skip(reason='a')\ndef t(): pass"
+        new = old + "\n\n@pytest.mark.skip(reason='b')\ndef u(): pass"
+        self.assertIsNotNone(self.edit(old_string=old, new_string=new))
+
+    def test_a_skip_marker_outside_a_test_file_passes(self):
+        # the rule's target is a disabled test; a probe script, a fixture or a
+        # note that carries the marker disables nothing (the gate denied every
+        # file before the path gate)
+        for path in ("probe.py", "notes.md", "hooks/tezgah_integrity.py",
+                     "web/app.js"):
+            self.assertIsNone(self.edit(
+                file_path=path,
+                new_string="@pytest.mark.skip\ndef test_x(): pass"), path)
+
+    def test_a_marker_inside_a_string_is_not_a_disable(self):
+        # this repo's own tests are *about* the rule: the marker reaches the
+        # gate as a string literal and as a comment, and neither runs a test
+        self.assertIsNone(self.edit(
+            new_string='CASES = ["@pytest.mark.skip", "it.skip"]'))
+        self.assertIsNone(self.edit(
+            new_string="# a test.skip here would hide the failure"))
 
     def test_plain_edit_passes(self):
-        self.assertIsNone(ti.shortcut_edit(
-            {"old_string": "a = 1", "new_string": "a = 2"}))
+        self.assertIsNone(self.edit(old_string="a = 1", new_string="a = 2"))
 
     def test_empty_edit_passes(self):
         self.assertIsNone(ti.shortcut_edit({}))
@@ -89,9 +134,9 @@ class ShortcutEdit(unittest.TestCase):
     def test_removing_an_assertion_is_not_caught(self):
         # documented ceiling: only an ADDED skip marker is mechanical; a
         # weakened assertion is not, so it is left to review by design.
-        self.assertIsNone(ti.shortcut_edit(
-            {"old_string": "def t():\n    assert x == 1",
-             "new_string": "def t():\n    pass"}))
+        self.assertIsNone(self.edit(
+            old_string="def t():\n    assert x == 1",
+            new_string="def t():\n    pass"))
 
 
 class StopHook(TempHome):
@@ -135,6 +180,22 @@ class StopHook(TempHome):
         out = self.stop("Done. Tests pass.")
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("failed", out["reason"])
+
+    def test_a_failure_after_a_passing_check_still_blocks(self):
+        # the newest check decides: a green run does not license "the tests
+        # pass" once a later run failed
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "pytest -q"}, failed=True)
+        out = self.stop("Done. All tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("failed", out["reason"])
+
+    def test_a_passing_check_after_a_failure_passes(self):
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"}, failed=True)
+        self.seed("Bash", {"command": "pytest -q"})
+        self.assertIsNone(self.stop("Done. All tests pass."))
 
     def test_explicit_unverified_admission_passes(self):
         self.seed("Edit", {"file_path": "x.py"})

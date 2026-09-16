@@ -122,11 +122,30 @@ class Gate(TempHome):
 
     def test_adding_a_test_skip_denied(self):
         reason = self.decide("Edit", {
-            "file_path": "t.py",
+            "file_path": "tests/test_t.py",
             "old_string": "def test_x():\n    assert 1",
             "new_string": "@pytest.mark.skip\ndef test_x():\n    assert 1"})
         self.assertIsNotNone(reason)
         self.assertIn("Test disable", reason)
+
+    def test_a_skip_marker_outside_a_test_file_passes(self):
+        # the rule is a disabled *test*; a probe script or a note that carries
+        # the marker disables nothing (the gate denied these before the gate)
+        self.assertIsNone(self.decide("Write", {
+            "file_path": "probe.py",
+            "content": "CASES = ['@pytest.mark.skip']\ndef run(): pass"}))
+        self.assertIsNone(self.decide("Write", {
+            "file_path": "NOTES.md", "content": "we added @unittest.skip to x"}))
+
+    def test_a_commit_message_that_names_no_verify_passes(self):
+        # describing the rule is not a bypass; the flag has to be in command
+        # position (the gate denied the description before the masking)
+        self.assertIsNone(self.decide("Bash", {
+            "command": 'git commit -m "gate: deny --no-verify bypasses"'}))
+        self.assertIsNone(self.decide("Bash", {
+            "command": "git commit -F - <<'MSG'\ngate denies --no-verify\nMSG"}))
+        self.assertIsNotNone(self.decide("Bash", {
+            "command": "git commit --no-verify -m x"}))
 
     def test_plain_edit_passes(self):
         self.assertIsNone(self.decide("Edit", {
@@ -143,7 +162,7 @@ class Gate(TempHome):
             self.decide("Bash", {"command": "git commit -m x --no-verify"}))
         self.assertIsNone(self.decide("Bash", {"command": "pytest -q || true"}))
         self.assertIsNone(self.decide("Edit", {
-            "file_path": "t.py",
+            "file_path": "tests/test_t.py",
             "new_string": "@pytest.mark." + "skip\ndef t(): pass"}))
         # attribution and the explorer refusal are different rules: still armed
         self.assertIsNotNone(self.decide("Bash", {

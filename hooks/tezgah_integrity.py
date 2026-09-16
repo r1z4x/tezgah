@@ -58,6 +58,21 @@ SKIP_TEST = re.compile(
     r"\bt\.Skip\w*\(|"
     r"\b(?:it|test|describe)\.(?:skip|only)\(|\bxit\(|\bxdescribe\(|"
     r"\bpytestmark\s*=\s*pytest\.mark\.skip", re.I)
+# only a test file can be disabled by a skip marker; a probe script, a note or
+# a fixture that quotes one is not this rule's business
+TEST_PATH = re.compile(
+    r"(?:^|/)(?:tests?|__tests__|spec|specs)/|"
+    r"(?:^|/)(?:test_[^/]*|conftest|[^/]*_test)\.[A-Za-z0-9]+$|"
+    r"\.(?:test|spec)\.[A-Za-z0-9]+$", re.I)
+# Strings, comments and heredoc bodies are neither commands nor test code: the
+# repo's own tests quote a skip marker, and a commit message that *describes*
+# `--no-verify` disables nothing. Both scans run on a copy where those regions
+# are blanked - length preserved, so offsets stay usable.
+LITERALS = re.compile(
+    r"'''(?:.|\n)*?'''|\"\"\"(?:.|\n)*?\"\"\"|"
+    r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|"
+    r"/\*(?:.|\n)*?\*/|//[^\n]*|#[^\n]*")
+HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
 # a completion / verification claim, English and Turkish
 DONE = re.compile(
     r"\b(done|complete[d]?|finished|implemented|fixed|shipped|wired up|"
@@ -130,9 +145,49 @@ def verify_command(cmd):
     return m.group(0).strip() if m else None
 
 
+def _blank_heredocs(text):
+    """`text` with every heredoc body blanked.
+
+    An unterminated heredoc is left visible, so a bypass cannot hide behind a
+    missing terminator. ponytail: a payload handed to a shell through a heredoc
+    reads as data here, so a bypass written that way is not caught - telling
+    those apart needs a real shell parser."""
+    lines = text.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        m = HEREDOC.search(lines[i])
+        if not m:
+            out.append(lines[i])
+            i += 1
+            continue
+        tag = m.group(1)
+        j = i + 1
+        while j < len(lines) and lines[j].strip() != tag:
+            j += 1
+        if j == len(lines):  # unterminated: keep it visible
+            out.append(lines[i])
+            i += 1
+            continue
+        out.append(lines[i])
+        out.extend(" " * len(line) for line in lines[i + 1:j])
+        out.append(lines[j])
+        i = j + 1
+    return "\n".join(out)
+
+
+def mask(text):
+    """The text with quoted strings, comments and heredoc bodies blanked."""
+    return LITERALS.sub(lambda m: " " * len(m.group(0)),
+                        _blank_heredocs(str(text or "")))
+
+
 def shortcut_command(cmd):
-    """A deny reason when the command neuters verification, else None."""
-    c = str(cmd or "")
+    """A deny reason when the command neuters verification, else None.
+
+    The scan runs on the masked text, so a commit message that names
+    `--no-verify` (quoted, or a heredoc body) is not a bypass - the flag has to
+    survive in command position, next to a git/hook command."""
+    c = mask(cmd)
     if NO_VERIFY.search(c) and GITISH.search(c):
         return ("Verification bypass denied: `--no-verify` skips the commit/push "
                 "hooks that run the checks. Run the checks, fix what they report, "
@@ -149,20 +204,35 @@ def shortcut_command(cmd):
 
 
 def _added(new, old):
-    """The skip markers `new` introduces that `old` did not already carry."""
+    """The skip markers `new` introduces that `old` did not already carry.
+
+    Counted per marker kind on the masked text, so rewriting a skip in place
+    stays legal, one more skip does not, and a marker inside a string (a test
+    that is *about* the rule) is not a disable."""
     if not new:
         return []
-    before = set(m.group(0).lower() for m in SKIP_TEST.finditer(old or ""))
-    return [m.group(0) for m in SKIP_TEST.finditer(new)
-            if m.group(0).lower() not in before]
+    before = {}
+    for m in SKIP_TEST.finditer(old or ""):
+        before[m.group(0).lower()] = before.get(m.group(0).lower(), 0) + 1
+    out = []
+    for m in SKIP_TEST.finditer(new):
+        name = m.group(0)
+        low = name.lower()
+        if before.get(low, 0) > 0:
+            before[low] -= 1
+        elif name not in out:
+            out.append(name)
+    return out
 
 
 def shortcut_edit(inp):
     """A deny reason when an edit/Write adds a test-skip marker, else None.
 
-    Only a marker that is newly introduced counts; a skip already in the file is
-    not this call's doing. Reads the file from disk for a Write so the existing
-    content is the baseline."""
+    Three gates keep it on the contract's target - a test disabled so a failure
+    disappears: the write has to be a test file, the marker has to be outside
+    strings and comments, and it has to be newly introduced (a skip already in
+    the file is not this call's doing). Reads the file from disk for a Write so
+    the existing content is the baseline."""
     old = str(inp.get("old_string") or inp.get("oldString") or "")
     new = str(inp.get("new_string") or inp.get("newString")
               or inp.get("content") or "")
@@ -173,14 +243,17 @@ def shortcut_edit(inp):
                            if isinstance(e, dict))
             new = " ".join(str(e.get("new_string", "")) for e in edits
                            if isinstance(e, dict))
-    path = inp.get("file_path") or inp.get("filePath") or inp.get("path") or ""
+    path = str(inp.get("file_path") or inp.get("filePath")
+               or inp.get("path") or "")
+    if not TEST_PATH.search(path):
+        return None
     if old == "" and path and not inp.get("old_string"):
         try:
             with open(path) as fh:
                 old = fh.read()
         except OSError:
             old = ""
-    added = _added(new, old)
+    added = _added(mask(new), mask(old))
     if added:
         return ("Test disable denied: this change adds %s. Making a failing test "
                 "disappear is not a fix - fix the code or say the test is failing. "
@@ -225,14 +298,38 @@ def claims(text):
     return (bool(DONE.search(t)), bool(VERIFIED.search(t)))
 
 
+def last_verify(session_id):
+    """The newest verification state the ledger holds: "ok", "fail", "ran" (the
+    host reported no exit status) or None when no check ran.
+
+    `kinds()` is a set, so it cannot tell a failure that came *after* a success
+    from one that came before it; the Stop rule needs the order."""
+    state = None
+    try:
+        with open(_path(session_id)) as fh:
+            for line in fh:
+                try:
+                    kind = json.loads(line)["kind"]
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if kind == "verify_ok":
+                    state = "ok"
+                elif kind == "verify_fail":
+                    state = "fail"
+                elif kind == "verify":
+                    state = "ran"
+    except OSError:
+        pass
+    return state
+
+
 def stop_reason(text, session_id, edited_hint=None):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
-    Codex and omp, which share the payload fields and the block envelope).
+    Codex, omp and Cursor, which share the payload fields and the block envelope).
 
     Blocks only on evidence that is checkable: a placating opener, or a
-    completion/verification claim in a session that changed code (or ran
-    commands) but never produced a successful check. An explicit 'doğrulanmadı'
-    clears it, so honest uncertainty is always allowed."""
+    completion/verification claim whose newest check did not pass. An explicit
+    'doğrulanmadı' clears it, so honest uncertainty is always allowed."""
     t = str(text or "")
     if SYCOPHANT.search(t):
         return ("Reply opens with placation, which the tezgah contract bans. "
@@ -246,15 +343,17 @@ def stop_reason(text, session_id, edited_hint=None):
     ev = kinds(session_id)
     if edited_hint:
         ev = ev | set(edited_hint)
+    # the newest check decides: "the tests pass" is false when a later run
+    # failed, even though an earlier one succeeded
+    if last_verify(session_id) == "fail":
+        return ("A check failed in this session and the reply claims success. "
+                "Report the failure with its exact error line, or fix it and "
+                "re-run; do not describe a failed check as passing.")
     if "verify_ok" in ev:
         return None
     worked = ev & {"edit", "verify", "verify_fail", "run"}
     if not worked:
         return None
-    if "verify_fail" in ev:
-        return ("A check failed in this session and the reply claims success. "
-                "Report the failure with its exact error line, or fix it and "
-                "re-run; do not describe a failed check as passing.")
     return ("This turn claims done/tested/passing but no check ran successfully "
             "in this session (nothing recorded as verify_ok). Run the real check "
             "and report its output, or mark the claim \"doğrulanmadı\". Do not "
