@@ -51,6 +51,14 @@ DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
 DSH_WEB = os.path.join(DSH, "profiles", "web")
 DSH_WEB_PATCH = os.path.join(DSH_WEB, "cordis.patch.yml")
 DSH_STATUSLINE = "tezgah-dsh-statusline"
+OMP = os.path.join(HOME, ".omp")
+OMP_AGENT = os.path.join(OMP, "agent")
+OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
+                  "packages/coding-agent/src/config/mcp-schema.json")
+# omp exposes no prompt-time injection point, so the always-on markdown carries
+# one extra line that pulls the per-repo lessons ledger in by hand.
+OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
+               "treat every line as a standing constraint on the work.")
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
           "analyze-app", "plan-add", "plan-status", "plan-sync"]
@@ -61,13 +69,16 @@ SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
 OPENCODE_IGNORE = [".git/**", "node_modules/**", "dist/**", "build/**",
                    ".venv/**", "__pycache__/**", ".ruff_cache/**"]
 WORKFLOW_FILES = ["cbm-map.js", "cbm-review.js", "cbm-impact.js"]
-ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh"]
+ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp"]
 # orx ships an installable skill shim for these four; dsh has no orx harness,
 # so research routing there falls back to `orx skill` on the shell.
 ORX_AGENTS = {"claude": "claude", "codex": "codex",
               "opencode": "opencode", "cursor": "cursor"}
 CONTRACT_SHA = os.path.join(tp.CONFIG_DIR, "contract.sha256")
 SKILL_ROUTER = os.path.join(tp.CONFIG_DIR, "opencode-skills.md")
+# The research/marketing buckets are collapsed to a pointer in the always-on
+# router and listed in full here, read only when the task class matches.
+SKILL_ROUTER_FULL = os.path.join(tp.CONFIG_DIR, "opencode-skills.full.md")
 # Host-tooling skills that are neither tezgah's core nor research. Everything
 # else falls under marketing & growth; the router groups by these four buckets.
 TOOLING_SKILLS = frozenset(("codebase-memory", "computer-use", "find-skills",
@@ -274,6 +285,7 @@ def detected():
         "cursor": os.path.isdir(CURSOR) or bool(
             tp.which_user("cursor-agent") or tp.which_user("cursor")),
         "dsh": os.path.isdir(DSH) or bool(shutil.which("dsh")),
+        "omp": os.path.isdir(OMP) or bool(shutil.which("omp")),
     }
 
 
@@ -798,9 +810,94 @@ def install_dsh():
 
 
 
+def write_if_changed(path, text):
+    """Write text only when it differs. Returns True when it was written."""
+    mkdirp(os.path.dirname(path))
+    try:
+        with open(path) as fh:
+            if fh.read() == text:
+                return False
+    except OSError:
+        pass
+    backup(path)
+    with open(path, "w") as fh:
+        fh.write(text)
+    return True
+
+
+def set_managed_md(path, block, start="<!-- tezgah:start -->",
+                   end="<!-- tezgah:end -->"):
+    """Replace the marked block in a markdown file, or append it, keeping any
+    user text around it. Markdown gets HTML-comment markers, not `#`."""
+    try:
+        with open(path) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        lines = []
+    out, skip = [], False
+    for ln in lines:
+        if ln.strip().startswith(start):
+            skip = True
+            continue
+        if ln.strip().startswith(end):
+            skip = False
+            continue
+        if not skip:
+            out.append(ln)
+    while out and not out[-1].strip():
+        out.pop()
+    mkdirp(os.path.dirname(path))
+    backup(path)
+    text = "\n".join(out + [start + " (managed by tezgah-setup; do not edit)",
+                            block.strip(), end]) + "\n"
+    with open(path, "w") as fh:
+        fh.write(text)
+
+
+def install_omp():
+    print("\nomp:")
+    mkdirp(OMP_AGENT)
+    root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
+    rules = os.path.join(OMP_AGENT, "RULES.md")
+    set_managed_md(rules, tezgah_context.render(
+        tezgah_context.always_on_core() + "\n\n" + OMP_LESSONS, root))
+    print("%s %s (always-on contract)" % (OK, rules))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s),
+                   os.path.join(OMP_AGENT, "skills", s)))
+    for name, text in tezgah_agents.omp_user_agents().items():
+        path = os.path.join(OMP_AGENT, "agents", name)
+        if write_if_changed(path, text):
+            print("%s %s" % (OK, path))
+    mcp_path = os.path.join(OMP_AGENT, "mcp.json")
+    cfg = read_json(mcp_path, {})
+    cfg["$schema"] = OMP_MCP_SCHEMA
+    servers = cfg.setdefault("mcpServers", {})
+    servers.setdefault("codebase-memory-mcp",
+                       {"type": "stdio", "command": cbm_command()})
+    for srv in app_servers():
+        entry = {"type": "stdio", "command": list(srv["command"])}
+        if srv["env"]:
+            entry["env"] = dict(srv["env"])
+        servers.setdefault(srv["name"], entry)
+    write_json(mcp_path, cfg)
+    print("%s %s (mcpServers)" % (OK, mcp_path))
+    try:
+        with open(os.path.join(HERE, "hosts", "omp", "tezgah-hook.ts.in")) as fh:
+            hook = fh.read().replace(
+                "@PRETOOLUSE@",
+                os.path.join(HERE, "hooks", "projects-pretooluse.py"))
+    except OSError:
+        hook = ""
+    if hook:
+        hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
+        if write_if_changed(hook_dst, hook):
+            print("%s %s (gate hook)" % (OK, hook_dst))
+
+
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "opencode": install_opencode, "cursor": install_cursor,
-              "dsh": install_dsh}
+              "dsh": install_dsh, "omp": install_omp}
 
 
 def install_openresearch(hosts):
@@ -1157,9 +1254,51 @@ def uninstall_dsh():
     unlink_tezgah(os.path.join(LOCAL_BIN, "dsh"))
 
 
+def uninstall_omp():
+    print("\nomp:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(OMP_AGENT, "skills", s))
+    agents_dir = os.path.join(OMP_AGENT, "agents")
+    if os.path.isdir(agents_dir):
+        for name in os.listdir(agents_dir):
+            if name.startswith("tezgah-") and name.endswith(".md"):
+                os.remove(os.path.join(agents_dir, name))
+                print("%s removed %s" % (OK, os.path.join(agents_dir, name)))
+    hook = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
+    if os.path.exists(hook) and not os.path.islink(hook):
+        os.remove(hook)
+        print("%s removed %s" % (OK, hook))
+    else:
+        unlink_tezgah(hook)
+    mcp_path = os.path.join(OMP_AGENT, "mcp.json")
+    cfg = read_json(mcp_path, None)
+    if isinstance(cfg, dict):
+        servers = cfg.get("mcpServers") or {}
+        for name in ["codebase-memory-mcp"] + app_mcp_names():
+            servers.pop(name, None)
+        write_json(mcp_path, cfg)
+        print("%s dropped tezgah servers from %s" % (OK, mcp_path))
+    rules = os.path.join(OMP_AGENT, "RULES.md")
+    try:
+        with open(rules) as fh:
+            text = fh.read()
+    except OSError:
+        text = ""
+    if text:
+        kept = re.sub(r"<!-- tezgah:start -->.*?<!-- tezgah:end -->\n?",
+                      "", text, flags=re.S).strip()
+        if kept:
+            with open(rules, "w") as fh:
+                fh.write(kept + "\n")
+            print("%s stripped the tezgah block from %s" % (OK, rules))
+        else:
+            os.remove(rules)
+            print("%s removed %s" % (OK, rules))
+
+
 UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
                 "opencode": uninstall_opencode, "cursor": uninstall_cursor,
-                "dsh": uninstall_dsh}
+                "dsh": uninstall_dsh, "omp": uninstall_omp}
 
 
 def uninstall(hosts):
@@ -1408,9 +1547,39 @@ def host_checks_dsh():
 
 
 
+def host_checks_omp():
+    rules = os.path.join(OMP_AGENT, "RULES.md")
+    try:
+        with open(rules) as fh:
+            rules_text = fh.read()
+    except OSError:
+        rules_text = ""
+    mcp = read_json(os.path.join(OMP_AGENT, "mcp.json"), {})
+    servers = mcp.get("mcpServers") or {}
+    agents_dir = os.path.join(OMP_AGENT, "agents")
+    agents = ([n for n in os.listdir(agents_dir)
+               if n.startswith("tezgah-") and n.endswith(".md")]
+              if os.path.isdir(agents_dir) else [])
+    return [
+        ("RULES.md carries the contract",
+         "tezgah:start" in rules_text and "Ponytail" in rules_text),
+        ("skill metadata band present", "Ponytail" in rules_text),
+        ("skills linked",
+         all(os.path.islink(os.path.join(OMP_AGENT, "skills", s))
+             for s in SKILLS)),
+        ("subagents generated", len(agents) >= 4),
+        ("MCP in mcp.json", "codebase-memory-mcp" in servers),
+        ("app MCP servers in mcp.json",
+         all(n in servers for n in tezgah_apps.names(False))),
+        ("gate hook present",
+         os.path.exists(os.path.join(OMP_AGENT, "hooks", "pre",
+                                     "tezgah-hook.ts"))),
+    ]
+
+
 HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
                "opencode": host_checks_opencode, "cursor": host_checks_cursor,
-               "dsh": host_checks_dsh}
+               "dsh": host_checks_dsh, "omp": host_checks_omp}
 
 
 def versions_agree():

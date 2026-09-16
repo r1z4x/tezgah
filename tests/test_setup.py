@@ -13,7 +13,7 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP = os.path.join(REPO, "bin", "tezgah-setup")
-ALL = "claude,codex,opencode,cursor,dsh"
+ALL = "claude,codex,opencode,cursor,dsh,omp"
 
 
 class SetupBase(unittest.TestCase):
@@ -481,6 +481,56 @@ class DshStatusline(SetupBase):
             proc = subprocess.run([node, "--check", p],
                                   capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, "%s: %s" % (f, proc.stderr))
+
+
+class OmpHost(SetupBase):
+    """omp is a first-class host: always-on RULES.md, skills, agents, MCP, gate."""
+
+    def install(self):
+        # a real cbm binary makes the graph-backed roles active, so the agent
+        # set is generated
+        self.env["TEZGAH_CBM_BIN"] = sys.executable
+        proc = self.setup("--install", "--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc
+
+    def test_install_wires_the_omp_agent_dir(self):
+        self.install()
+        rules = self.read_text(self.path(".omp", "agent", "RULES.md"))
+        self.assertIn("tezgah:start", rules)
+        self.assertIn("Ponytail", rules)
+        # the conditional rules are armed elsewhere, not written always-on
+        self.assertNotIn("**Spec before building.**", rules)
+        self.assertIn("lessons.md", rules)
+        for s in ("harness", "ponytail", "tezgah-contract"):
+            self.assertTrue(
+                os.path.islink(self.path(".omp", "agent", "skills", s)), s)
+        mcp = self.read_json(self.path(".omp", "agent", "mcp.json"))
+        self.assertIn("codebase-memory-mcp", mcp["mcpServers"])
+        agents = os.listdir(self.path(".omp", "agent", "agents"))
+        self.assertTrue(any(a.startswith("tezgah-") for a in agents))
+        hook = self.read_text(
+            self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts"))
+        self.assertIn("projects-pretooluse.py", hook)
+        self.assertNotIn("@PRETOOLUSE@", hook)
+
+    def test_status_reports_the_omp_wiring(self):
+        self.install()
+        proc = self.setup("--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("RULES.md carries the contract", proc.stdout)
+        self.assertIn("gate hook present", proc.stdout)
+
+    def test_uninstall_removes_the_omp_wiring(self):
+        self.install()
+        proc = self.setup("--uninstall", "--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(
+            os.path.islink(self.path(".omp", "agent", "skills", "harness")))
+        mcp = self.read_json(self.path(".omp", "agent", "mcp.json"))
+        self.assertNotIn("codebase-memory-mcp", mcp.get("mcpServers") or {})
+        self.assertFalse(os.path.exists(
+            self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts")))
 
 
 if __name__ == "__main__":
