@@ -1,7 +1,7 @@
 ---
 id: 009
 title: Fix what the harness audit found
-status: in-progress
+status: done
 branch: plan/009-harness-audit-fixes
 pr: 18
 created: 2026-09-17
