@@ -6,6 +6,7 @@ touched. TEZGAH_CBM_BIN points at nothing so no graph is registered.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -538,6 +539,35 @@ class OmpHost(SetupBase):
         self.assertNotIn("codebase-memory-mcp", mcp.get("mcpServers") or {})
         self.assertFalse(os.path.exists(
             self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts")))
+
+
+class ContextBudget(SetupBase):
+    """The status report must show what tezgah injects before the first turn."""
+
+    def test_report_lists_each_always_on_band(self):
+        proc = self.setup()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = proc.stdout
+        self.assertIn("context budget (always-on text", out)
+        for band in ("core contract (always-on, per session)", "per-turn reminder",
+                     "skill metadata (8)", "subagent metadata (5)",
+                     "conditional rules (armed by task class)",
+                     "full contract (on demand)", "MCP tool schemas"):
+            self.assertIn(band, out)
+
+    def test_budget_numbers_are_ordered_and_nonzero(self):
+        proc = self.setup()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        core = re.search(r"core contract \(always-on, per session\)\s+~\s*([\d.]+)k tok", proc.stdout)
+        skill = re.search(r"skill metadata \(8\)\s+~\s*([\d.]+)k tok", proc.stdout)
+        ondemand = re.search(r"full contract \(on demand\)\s+~\s*([\d.]+)k tok", proc.stdout)
+        self.assertIsNotNone(core)
+        self.assertIsNotNone(skill)
+        self.assertIsNotNone(ondemand)
+        self.assertGreater(float(core.group(1)), 0)
+        self.assertGreater(float(skill.group(1)), 0)
+        # the on-demand whole contract is bigger than the always-on summary
+        self.assertGreater(float(ondemand.group(1)), float(core.group(1)))
 
 
 if __name__ == "__main__":

@@ -1445,6 +1445,67 @@ def predecessors():
     return out
 
 
+def _frontmatter_description(path):
+    """Return the joined `description:` block from a SKILL.md frontmatter."""
+    try:
+        with open(path) as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+    if not text.startswith("---"):
+        return ""
+    body = text.split("---", 2)[1]
+    out, collecting = [], False
+    for line in body.splitlines():
+        if re.match(r"^description:\s*", line):
+            collecting = True
+            out.append(re.sub(r"^description:\s*[>|]?\s*", "", line))
+            continue
+        if collecting:
+            if re.match(r"^\S", line):
+                break
+            out.append(line.strip())
+    return " ".join(part for part in out if part).strip()
+
+
+def context_budget():
+    """Always-on context tezgah injects, as (label, chars) rows + on-demand size.
+
+    Approximate and host-side only: it counts the rendered contract, the
+    per-turn reminder and the skill/subagent metadata. MCP tool schemas are the
+    host's to measure and are deliberately not counted here.
+    """
+    core = tezgah_context.render(tezgah_context.always_on_core())
+    conditional = sum(
+        len(p) for p in policy.CORE.split("\n\n")
+        if next((k for k, label in tezgah_context.CORE_RULES
+                 if p.startswith(label)), None) in policy.CONDITIONAL_KEYS)
+    reminder = tezgah_context.render(policy.PROMPT_REMINDER)
+    skills = sum(len(name) + len(_frontmatter_description(
+        os.path.join(HERE, "skills", name, "SKILL.md"))) + 8 for name in SKILLS)
+    agents = sum(len(name) + len(desc) for name, desc, *_ in tezgah_agents.ROLES)
+    agents += len("tezgah-orchestrator") + len(tezgah_agents.ORCH_DESC)
+    rows = [
+        ("core contract (always-on, per session)", len(core)),
+        ("per-turn reminder", len(reminder)),
+        ("skill metadata (%d)" % len(SKILLS), skills),
+        ("subagent metadata (%d)" % (len(tezgah_agents.ROLES) + 1), agents),
+        ("conditional rules (armed by task class)", conditional),
+    ]
+    return rows, len(tezgah_context.render(policy.CONTRACT))
+
+
+def context_budget_report():
+    rows, on_demand = context_budget()
+    print("\ncontext budget (always-on text; ~tokens = chars/4):")
+    for label, chars in rows:
+        print("     %-34s ~%4.1fk tok  %6d chars"
+              % (label, (chars + 3) // 4 / 1000.0, chars))
+    print("     %-34s ~%4.1fk tok  (only when the skill is read)"
+          % ("full contract (on demand)", (on_demand + 3) // 4 / 1000.0))
+    print("     %-34s host-side, not counted" % "MCP tool schemas")
+
+
 def report(hosts):
     print("tezgah checkout: %s\n" % HERE)
     print("roots (%s):" % ("TEZGAH_ROOTS" if os.environ.get("TEZGAH_ROOTS")
@@ -1476,6 +1537,7 @@ def report(hosts):
         print("\n%s:" % h)
         for label, good in HOST_CHECKS[h]():
             print("  %s %s" % (OK if good else NO, label))
+    context_budget_report()
 
 
 def host_checks_claude():
