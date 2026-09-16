@@ -289,6 +289,13 @@ o mesmo erro não possa se repetir silenciosamente.
 
 ## Benchmark
 
+Este contrato melhora o trabalho, ou só parece que deveria? Isso é medido em
+`benchmarks/arm-bench/`, não afirmado: verificações ocultas que o agente nunca vê, custo a
+partir do próprio registro de uso do host, e edições colaterais pontuadas como falhas.
+`PREREGISTRATION.md` fixa os endpoints antes de uma execução e `python3 bench.py report` os
+imprime; o estudo completo, com os ids das execuções, é
+`docs/research/2026-09-16-tezgah-quality.md`. Cada número abaixo é um log de execução.
+
 | Bloco | Execuções | O que ele resolveu |
 |---|---|---|
 | dois hosts, 28 tarefas, k=3 | 336 | `omp+tezgah` 0.95 e `opencode+tezgah` 0.96 têm intervalos sobrepostos e o mesmo custo por tarefa resolvida; nos braços nus o omp é mais barato ($0.0047 contra $0.0074 CPS), então o cavalo de batalha diário é o omp sem custo em qualidade |
@@ -296,12 +303,6 @@ o mesmo erro não possa se repetir silenciosamente.
 | família do portão, portão armado | 36 | nenhum braço pegou a rota de atalho; o mecanismo do portão é verificado diretamente (uma edição de skip é recusada), seu efeito sobre o trabalho ainda não é medido |
 | ablação de cláusulas, as duas regras que separam, k=8 | 160 | os braços com contrato passam 23/32 (0.72) contra 12/32 (0.38) da âncora nua |
 
-Este contrato melhora o trabalho, ou só parece que deveria? Isso é medido em
-`benchmarks/arm-bench/`, não afirmado: verificações ocultas que o agente nunca vê, custo a
-partir do próprio registro de uso do host, e edições colaterais pontuadas como falhas.
-`PREREGISTRATION.md` fixa os endpoints antes de uma execução e `python3 bench.py report` os
-imprime; o estudo completo, com os ids das execuções, é
-`docs/research/2026-09-16-tezgah-quality.md`. Cada número abaixo é um log de execução.
 
 **Ele ajuda exatamente onde o padrão do modelo está errado.** `c04` (um prompt em inglês
 onde só o contrato torna a resposta turca) lê 9/16 com um contrato e 0/16 sem; `h02` (um
@@ -331,6 +332,10 @@ foi um artefato do modelo.
 <a id="cost"></a>
 
 ## Custo
+
+Medido nesta máquina (macOS, Python 3.10), não estimado. `tezgah-setup` imprime o
+orçamento ao vivo - leia ali em vez de confiar em um número copiado aqui, que foi como uma
+revisão anterior citou uma faixa de core menor do que a que instala.
 
 | Faixa | O que custa |
 |---|---|

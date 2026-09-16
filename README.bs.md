@@ -291,6 +291,13 @@ najnovije linije se ubacuju na početku sesije tako da se ista greška ne može 
 
 ## Benchmark
 
+Da li ovaj ugovor poboljšava rad, ili samo izgleda kao da bi trebao? To se mjeri u
+`benchmarks/arm-bench/`, ne tvrdi: skrivene provjere koje agent nikad ne vidi, trošak iz
+vlastitog zapisa o upotrebi hosta, i kolateralne izmjene ocijenjene kao neuspjesi.
+`PREREGISTRATION.md` fiksira krajnje tačke prije pokretanja i `python3 bench.py report` ih
+ispisuje; cijela studija, sa id-ovima pokretanja, je
+`docs/research/2026-09-16-tezgah-quality.md`. Svaka cifra ispod je zapis pokretanja.
+
 | Blok | Pokretanja | Šta je razriješio |
 |---|---|---|
 | dva hosta, 28 zadataka, k=3 | 336 | `omp+tezgah` 0.95 i `opencode+tezgah` 0.96 imaju preklapajuće intervale i isti trošak po riješenom zadatku; na golim rukama omp je jeftiniji ($0.0047 protiv $0.0074 CPS), pa je dnevni pokretač omp bez troška u kvaliteti |
@@ -298,12 +305,6 @@ najnovije linije se ubacuju na početku sesije tako da se ista greška ne može 
 | familija kapije, kapija naoružana | 36 | nijedna ruka nije uzela putanju prečice; mehanizam kapije je direktno verifikovan (izmjena preskakanja se odbija), njen efekat na rad još nije izmjeren |
 | ablacija klauzula, dva pravila koja razdvajaju, k=8 | 160 | ruke sa ugovorom prolaze 23/32 (0.72) protiv 12/32 (0.38) gole sidre |
 
-Da li ovaj ugovor poboljšava rad, ili samo izgleda kao da bi trebao? To se mjeri u
-`benchmarks/arm-bench/`, ne tvrdi: skrivene provjere koje agent nikad ne vidi, trošak iz
-vlastitog zapisa o upotrebi hosta, i kolateralne izmjene ocijenjene kao neuspjesi.
-`PREREGISTRATION.md` fiksira krajnje tačke prije pokretanja i `python3 bench.py report` ih
-ispisuje; cijela studija, sa id-ovima pokretanja, je
-`docs/research/2026-09-16-tezgah-quality.md`. Svaka cifra ispod je zapis pokretanja.
 
 **Pomaže tačno tamo gdje je zadana vrijednost modela pogrešna.** `c04` (engleski prompt gdje
 samo ugovor čini odgovor turskim) čita 9/16 sa ugovorom i 0/16 bez njega; `h02` (novčani
@@ -332,6 +333,10 @@ familiji modela. Druga familija modela reprodukuje nulu od 28 zadataka tačno (5
 <a id="cost"></a>
 
 ## Trošak
+
+Izmjereno na ovoj mašini (macOS, Python 3.10), nije procijenjeno. `tezgah-setup` ispisuje
+trenutni budžet - čitajte ga tamo umjesto da vjerujete broju kopiranom ovdje, što je način na
+koji je ranija revizija citirala manji core band od onoga koji instalira.
 
 | Opseg | Šta košta |
 |---|---|

@@ -291,6 +291,13 @@ samme fejl ikke kan gentage sig i stilhed.
 
 ## Benchmark
 
+Forbedrer denne kontrakt arbejdet, eller ser det bare sådan ud, som om det burde? Det måles
+i `benchmarks/arm-bench/`, ikke påstås: skjulte checks, som agenten aldrig ser checken for,
+omkostning fra værtens egen brugsregistrering, og kollaterale redigeringer scoret som fejl.
+`PREREGISTRATION.md` fastlægger endepunkterne før en kørsel, og `python3 bench.py report`
+udskriver dem; det fulde studie med kørsels-id'erne er
+`docs/research/2026-09-16-tezgah-quality.md`. Hvert tal nedenfor er en kørselslog.
+
 | Blok | Kørsler | Hvad den afgjorde |
 |---|---|---|
 | to-vært, 28 opgaver, k=3 | 336 | `omp+tezgah` 0.95 og `opencode+tezgah` 0.96 har overlappende intervaller og samme omkostning pr. løst opgave; på de bare arme er omp billigere ($0.0047 mod $0.0074 CPS), så den daglige driver er omp uden omkostning i kvalitet |
@@ -298,12 +305,6 @@ samme fejl ikke kan gentage sig i stilhed.
 | port-familie, port aktiveret | 36 | ingen arm tog genvejsruten; port-mekanismen er verificeret direkte (en skip-redigering afvises), dens effekt på arbejdet er endnu ikke målt |
 | klausul-ablation, de to regler der skiller, k=8 | 160 | kontraktarmene består 23/32 (0.72) mod den bare ankers 12/32 (0.38) |
 
-Forbedrer denne kontrakt arbejdet, eller ser det bare sådan ud, som om det burde? Det måles
-i `benchmarks/arm-bench/`, ikke påstås: skjulte checks, som agenten aldrig ser checken for,
-omkostning fra værtens egen brugsregistrering, og kollaterale redigeringer scoret som fejl.
-`PREREGISTRATION.md` fastlægger endepunkterne før en kørsel, og `python3 bench.py report`
-udskriver dem; det fulde studie med kørsels-id'erne er
-`docs/research/2026-09-16-tezgah-quality.md`. Hvert tal nedenfor er en kørselslog.
 
 **Det hjælper præcis hvor modellens standard er forkert.** `c04` (en engelsk prompt, hvor
 kun kontrakten gør svaret tyrkisk) læses 9/16 med en kontrakt og 0/16 uden; `h02` (en
@@ -332,6 +333,10 @@ enkelt modelfamilie. En anden modelfamilie reproducerer 28-opgave-nullen præcis
 <a id="cost"></a>
 
 ## Omkostninger
+
+Målt på denne maskine (macOS, Python 3.10), ikke estimeret. `tezgah-setup` udskriver det
+aktuelle budget - læs det der i stedet for at stole på et tal kopieret hertil, hvilket er
+hvordan en tidligere revision kom til at citere et kernebånd mindre end det, den installerer.
 
 | Bånd | Hvad det koster |
 |---|---|

@@ -292,13 +292,6 @@ el mismo error no pueda repetirse silenciosamente.
 
 ## Benchmark
 
-| Bloque | Ejecuciones | Qué resolvió |
-|---|---|---|
-| dos hosts, 28 tareas, k=3 | 336 | `omp+tezgah` 0.95 y `opencode+tezgah` 0.96 tienen intervalos superpuestos y el mismo costo por tarea resuelta; en los brazos desnudos omp es más barato ($0.0047 contra $0.0074 CPS), así que el caballo de batalla diario es omp sin costo en calidad |
-| familia difícil, 5 tareas, k=5, dos familias de modelos | 200 | agrupados, tres de los cuatro brazos llegan a 40/50: ningún efecto de harness a ese tamaño, y la única señal que produjo el primer modelo se invirtió en el segundo |
-| familia de la puerta, puerta armada | 36 | ningún brazo tomó la ruta del atajo; el mecanismo de la puerta se verifica directamente (una edición de skip se rechaza), su efecto sobre el trabajo aún no se mide |
-| ablación de cláusulas, las dos reglas que separan, k=8 | 160 | los brazos con contrato pasan 23/32 (0.72) contra 12/32 (0.38) del ancla desnuda |
-
 ¿Mejora este contrato el trabajo, o solo parece que debería? Eso se mide en
 `benchmarks/arm-bench/`, no se afirma: verificaciones ocultas que el agente nunca ve, costo
 a partir del propio registro de uso del host, y ediciones colaterales puntuadas como fallos.
@@ -306,6 +299,14 @@ a partir del propio registro de uso del host, y ediciones colaterales puntuadas 
 los imprime; el estudio completo, con los ids de ejecución, es
 `docs/research/2026-09-16-tezgah-quality.md`. Cada cifra de abajo es un registro de
 ejecución.
+
+| Bloque | Ejecuciones | Qué resolvió |
+|---|---|---|
+| dos hosts, 28 tareas, k=3 | 336 | `omp+tezgah` 0.95 y `opencode+tezgah` 0.96 tienen intervalos superpuestos y el mismo costo por tarea resuelta; en los brazos desnudos omp es más barato ($0.0047 contra $0.0074 CPS), así que el caballo de batalla diario es omp sin costo en calidad |
+| familia difícil, 5 tareas, k=5, dos familias de modelos | 200 | agrupados, tres de los cuatro brazos llegan a 40/50: ningún efecto de harness a ese tamaño, y la única señal que produjo el primer modelo se invirtió en el segundo |
+| familia de la puerta, puerta armada | 36 | ningún brazo tomó la ruta del atajo; el mecanismo de la puerta se verifica directamente (una edición de skip se rechaza), su efecto sobre el trabajo aún no se mide |
+| ablación de cláusulas, las dos reglas que separan, k=8 | 160 | los brazos con contrato pasan 23/32 (0.72) contra 12/32 (0.38) del ancla desnuda |
+
 
 **Ayuda exactamente donde el valor por defecto del modelo está equivocado.** `c04` (un
 prompt en inglés donde solo el contrato hace que la respuesta sea turca) lee 9/16 con un
@@ -337,6 +338,10 @@ lo que muestra que la primera lectura no fue un artefacto del modelo.
 <a id="cost"></a>
 
 ## Costo
+
+Medido en esta máquina (macOS, Python 3.10), no estimado. `tezgah-setup` imprime el
+presupuesto en vivo - léalo allí en lugar de confiar en una cifra copiada aquí, que es
+como una revisión anterior llegó a citar una banda de núcleo menor que la que instala.
 
 | Banda | Qué cuesta |
 |---|---|
