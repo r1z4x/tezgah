@@ -162,7 +162,7 @@ context budget (always-on text; ~tokens = chars/4):
      skill metadata (9)                 ~ 1.3k tok    5186 chars
      subagent metadata (5)              ~ 0.2k tok     891 chars
      conditional rules (armed by task class) ~ 0.6k tok    2231 chars
-     full contract (on demand)          ~ 5.9k tok  (only when the skill is read)
+     full contract (on demand)          ~ 6.0k tok  (only when the skill is read)
      MCP tool schemas                   run --mcp-schemas to measure
 ```
 

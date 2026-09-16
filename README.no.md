@@ -342,7 +342,7 @@ en tidligere revisjon kom til å oppgi en kjernebånd som er mindre enn den den 
 |---|---|
 | Øktoppstart | den alltid-på-kontrakten (invariantene pluss en én-linjes peker per on-demand-regel): på denne maskinen og med dette ferdighetssettet, ~1.3k tokens kontraktstekst og ~1.3k ferdighetsmetadata, med de betingede reglene (spec, consult, research, graph) som legger til ~0.6k bare på turen hvis prompt matcher |
 | Per tur | en kort påminnelse (~0.2k tokens) pluss den armerte regelen når den matcher; hooks er separate Python-prosesser, så oppstarten av tolken på ~19 ms dominerer - øktoppstart legger til ~25 ms, et portstyrt verktøykall (Bash/Grep/Task) ~9 ms. opencode har ingen hook ved prompt-tid, så den betaler null |
-| On demand | den fulle `tezgah-contract`-ferdigheten (~5.9k tokens), betalt bare når en oppgave laster den |
+| On demand | den fulle `tezgah-contract`-ferdigheten (~6.0k tokens), betalt bare når en oppgave laster den |
 | MCP-skjemaer | det største båndet, og det ingen statisk rapport ser: grafserveren alene erklærer 15 verktøy / 24,508 byte (~6.1k tokens), som rir på hver forespørsel med mindre verten henter skjemaer on demand. `tezgah-setup --mcp-schemas` måler det |
 | Disk | installasjonen tar ~58 ms, og hver fil tezgah skriver om beholdes én gang som `<file>.tezgah-bak` |
 

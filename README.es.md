@@ -348,7 +348,7 @@ como una revisión anterior llegó a citar una banda de núcleo menor que la que
 |---|---|
 | Inicio de sesión | el contrato always-on (las invariantes más un puntero de una línea por regla bajo demanda): en esta máquina y conjunto de habilidades, ~1.3k tokens de texto de contrato y ~1.3k de metadatos de habilidad, con las reglas condicionales (spec, consult, research, graph) añadiendo ~0.6k solo en el turno cuyo prompt coincide |
 | Por turno | un recordatorio corto (~0.2k tokens) más la regla armada cuando coincide; los hooks son procesos Python separados, así que el arranque del intérprete de ~19 ms domina - el inicio de sesión añade ~25 ms, una llamada de herramienta con puerta (Bash/Grep/Task) ~9 ms. opencode no tiene hook en tiempo de prompt, así que paga cero |
-| Bajo demanda | la habilidad completa `tezgah-contract` (~5.9k tokens), pagada solo cuando una tarea la carga |
+| Bajo demanda | la habilidad completa `tezgah-contract` (~6.0k tokens), pagada solo cuando una tarea la carga |
 | Esquemas MCP | la banda más grande, y la que ningún informe estático ve: solo el servidor de grafo declara 15 herramientas / 24,508 bytes (~6.1k tokens), viajando en cada petición salvo que el host obtenga los esquemas bajo demanda. `tezgah-setup --mcp-schemas` lo mide |
 | Disco | la instalación tarda ~58 ms, y cada archivo que tezgah reescribe se conserva una vez como `<file>.tezgah-bak` |
 
