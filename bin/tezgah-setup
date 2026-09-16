@@ -970,14 +970,13 @@ def install_omp():
     try:
         with open(os.path.join(HERE, "hosts", "omp", "tezgah-hook.ts.in")) as fh:
             hook = fh.read().replace(
-                "@PRETOOLUSE@",
-                os.path.join(HERE, "hooks", "projects-pretooluse.py"))
+                "@HOOK@", os.path.join(HERE, "hosts", "omp", "hook.py"))
     except OSError:
         hook = ""
     if hook:
         hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
         if write_if_changed(hook_dst, hook):
-            print("%s %s (gate hook)" % (OK, hook_dst))
+            print("%s %s (contract + gate + status line)" % (OK, hook_dst))
 
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
@@ -1697,6 +1696,27 @@ def host_checks_dsh():
 
 
 
+def omp_hook_answers():
+    """Run the omp hook once: it must answer the status event with the marks.
+
+    The installed extension is a bridge, so the only honest check is that the
+    python half starts and answers; a hook that cannot start is the difference
+    between a status line and an empty line.
+    """
+    path = os.path.join(HERE, "hosts", "omp", "hook.py")
+    try:
+        proc = subprocess.run([sys.executable, path],
+                              input=json.dumps({"event": "status",
+                                                "cwd": os.getcwd()}),
+                              capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    try:
+        return bool(json.loads(proc.stdout or "{}").get("status"))
+    except ValueError:
+        return False
+
+
 def host_checks_omp():
     rules = os.path.join(OMP_AGENT, "RULES.md")
     try:
@@ -1704,6 +1724,11 @@ def host_checks_omp():
             rules_text = fh.read()
     except OSError:
         rules_text = ""
+    try:
+        with open(os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")) as fh:
+            hook_text = fh.read()
+    except OSError:
+        hook_text = ""
     mcp = read_json(os.path.join(OMP_AGENT, "mcp.json"), {})
     servers = mcp.get("mcpServers") or {}
     agents_dir = os.path.join(OMP_AGENT, "agents")
@@ -1721,9 +1746,11 @@ def host_checks_omp():
         ("MCP in mcp.json", "codebase-memory-mcp" in servers),
         ("app MCP servers in mcp.json",
          all(n in servers for n in tezgah_apps.names(False))),
-        ("gate hook present",
-         os.path.exists(os.path.join(OMP_AGENT, "hooks", "pre",
-                                     "tezgah-hook.ts"))),
+        ("session, prompt, tool and stop hooks wired",
+         all(k in hook_text for k in ("session_start", "before_agent_start",
+                                      "tool_call", "session_stop",
+                                      "setStatus"))),
+        ("status line answers", omp_hook_answers()),
     ]
 
 

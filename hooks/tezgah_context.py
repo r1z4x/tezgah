@@ -354,10 +354,16 @@ def always_on_core():
     return "\n\n".join(always).strip() + "\n\n" + POINTERS.strip()
 
 
-def context_for(event, cwd, payload=None):
+def context_for(event, cwd, payload=None, with_core=True):
     """The context block for a normalized event, or None when out of scope.
 
     event: session_start | user_prompt | subagent_start | post_compact
+
+    with_core=False drops the always-on core and leaves only the live state.
+    It is for a host whose always-on file already carries `always_on_core()` -
+    omp's managed RULES.md - so its session hook does not pay for the contract
+    twice; the rest of the text (index, plans, lessons, kill switches) is the
+    part no static file can know.
     """
     if not under(cwd):
         return None
@@ -394,7 +400,7 @@ def context_for(event, cwd, payload=None):
     # plus live index/consult state. The deep orchestration/exec detail moved
     # out of the every-session payload into the tezgah-contract skill, which
     # the last line tells the model to load on demand.
-    parts = [core]
+    parts = [core] if with_core else []
     _, marks = repo_marks(cwd)
     if ".no-cbm" in marks:
         parts.append("Graph: disabled for this repo (.no-cbm), so use grep/find "

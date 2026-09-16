@@ -130,7 +130,7 @@ same text.
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
 | **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them | `statusLine` in `cli-config.json` |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) | Web UI plugin: `tezgah-dsh-statusline` in the session header |
-| **omp** (oh-my-pi) | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and a `hooks/pre` gate; the contract is checked by `tezgah-setup` | none (omp has no tezgah status line) |
+| **omp** (oh-my-pi) | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and an extension (`hooks/pre/tezgah-hook.ts`) that arms the per-prompt rules, gates tools, records evidence and runs the Stop rule; the wiring is checked by `tezgah-setup` | extension status: `tezgah pony✓ exec✓ · …` in the footer, refreshed on turn end |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
 and subagent calls through the same check as the other hosts. On Claude the
@@ -152,7 +152,10 @@ separately (`✓` indexed, `↻` stale, `✗` not indexed, `–` not applicable)
 forces plain text. Claude Code and Cursor color the native status line; the
 opencode TUI colors its own component and refreshes on the host event bus; the
 dsh Web UI colors its header component and refreshes only while its tab is
-visible; Codex shows the plain string in `systemMessage`.
+visible; Codex shows the plain string in `systemMessage`; omp's extension
+registers the plain string with `ctx.ui.setStatus`, so it rides omp's own footer
+(the theme colors it) and refreshes on session start, session switch, turn end
+and every tool result that can move a mark.
 
 dsh runs the same Claude hook files through its `dsh-hooks-claude-code` bridge,
 so the session-start contract, the attribution gate, and the first-grep nudge
@@ -190,6 +193,17 @@ calls `agent.inject()` detached, after the one-shot task is already the first
 message), so `dsh --profile headless "<task>"` spends one extra turn and, for a
 literal-answer prompt, prints the model's reaction to the contract rather than
 the task's answer; interactive web sessions are unaffected.
+
+omp loads the same extension as a hook factory, so it covers both the rules and
+the footer. `session_start` sets the status line and injects the repo's live
+state (index, open plans, lessons, active kill switches) as a hidden message;
+the contract itself stays in the managed `RULES.md`, so omp does not pay for it
+twice. `before_agent_start` adds the turn's reminder plus whichever rule the
+prompt arms, as another hidden message - never as a system-prompt rewrite, which
+would invalidate an open-weight provider's prefix cache every turn. `tool_call`
+runs the gate, `tool_result` records the evidence the Stop rule reads, and
+`session_stop` blocks a done/tested claim no check backs. Outside the roots only
+the status line answers, so the marks stay visible everywhere.
 
 `bin/tezgah-setup --install` also triggers `orx install-skills` for Claude,
 Codex, opencode and Cursor when `orx` is on PATH, so the research rule has a
@@ -357,9 +371,10 @@ Measured on this machine (macOS, Python 3.10), not estimated:
   conditional rules (spec-first, consult, OpenResearch, code-graph) are armed by
   the prompt's task class instead of being paid every session - ~2.2 KB
   (~0.6k tokens) rides only the turn whose prompt matches, and the full text
-  stays in the on-demand skill. Claude, Codex, Cursor and dsh have a per-turn
-  hook (a ~621-byte reminder, plus the armed rule when it matches); opencode has
-  none, so its per-turn cost is zero. `tezgah-setup` prints this budget.
+  stays in the on-demand skill. Claude, Codex, Cursor, dsh and omp have a
+  per-turn hook (a ~621-byte reminder, plus the armed rule when it matches);
+  opencode has none, so its per-turn cost is zero. `tezgah-setup` prints this
+  budget.
   The full `tezgah-contract`
   skill (~19.9k characters) is paid only when a task loads it. On opencode the
   contract ships as a ~3.8 KB instructions file. opencode would otherwise
@@ -379,7 +394,7 @@ Measured on this machine (macOS, Python 3.10), not estimated:
   False negatives are audited: every user prompt appends one line -
   `armed=<rules|none> chars=<n>`, no prompt text - to
   `~/.cache/tezgah/classify.log` (truncated to the last 200 lines past 64 KB).
-  All four hook hosts arm the same rule set for the same prompt, asserted by
+  All five hook hosts arm the same rule set for the same prompt, asserted by
   `tests/test_context.py::ArmingConformance`.
 - **Latency.** Hooks are separate Python processes, so the ~19 ms interpreter
   start dominates. On top of it, session start adds ~25 ms, a gated tool call
