@@ -457,6 +457,10 @@ class ArmingConformance(TempHome):
                               {"hook_event_name": "beforeSubmitPrompt",
                                "cwd": repo, "prompt": prompt}, env=env)
             got["cursor"] = self.armed(out["additional_context"])
+            out, _ = run_json([support.OMP_HOOK],
+                              {"event": "user_prompt", "cwd": repo,
+                               "prompt": prompt}, env=env)
+            got["omp"] = self.armed(out["context"])
             for host, keys in got.items():
                 self.assertEqual(keys, expected,
                                  "%s / %r -> %s" % (host, prompt, keys))

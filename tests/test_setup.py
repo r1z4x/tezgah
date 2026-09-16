@@ -562,15 +562,18 @@ class OmpHost(SetupBase):
         self.assertTrue(any(a.startswith("tezgah-") for a in agents))
         hook = self.read_text(
             self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts"))
-        self.assertIn("projects-pretooluse.py", hook)
-        self.assertNotIn("@PRETOOLUSE@", hook)
+        self.assertIn(os.path.join("hosts", "omp", "hook.py"), hook)
+        self.assertNotIn("@HOOK@", hook)
+        for handler in ("session_start", "before_agent_start", "tool_call",
+                        "tool_result", "session_stop", "setStatus"):
+            self.assertIn(handler, hook)
 
     def test_status_reports_the_omp_wiring(self):
         self.install()
         proc = self.setup("--hosts", "omp")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("RULES.md carries the contract", proc.stdout)
-        self.assertIn("gate hook present", proc.stdout)
+        self.assertIn("status line answers", proc.stdout)
 
     def test_uninstall_removes_the_omp_wiring(self):
         self.install()

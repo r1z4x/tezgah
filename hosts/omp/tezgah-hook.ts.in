@@ -1,39 +1,126 @@
 import { execFileSync } from "node:child_process";
 
-const PRETOOLUSE = "@PRETOOLUSE@";
+// tezgah-setup substitutes the absolute path of hosts/omp/hook.py, the python
+// half that owns the contract, the gate and the evidence ledger. This file is
+// only the bridge: omp's extension events in, the host's own envelopes back.
+const HOOK = "@HOOK@";
 
-function gate(tool: string, input: unknown, cwd: string): string | undefined {
+// The status line refreshes on the events omp already emits - session start,
+// session switch, turn end, and the tool results that move a used mark - so the
+// extension polls nothing and holds no timer that a session switch could stale.
+
+// Tools whose result can move the status line's used marks or the evidence the
+// Stop rule reads. read/grep/glob are absent on purpose: a read-heavy turn
+// would otherwise spawn python per call for nothing.
+const WATCHED = ["bash", "shell", "command", "edit", "write", "multiedit",
+  "notebookedit", "apply_patch", "edit_file", "write_file", "search_replace",
+  "task", "agent", "spawn_agent"];
+
+// The gate is only consulted for the tools the shared rule knows: the refusal
+// of the grep-only explorer (task/agent), the anti-shortcut and attribution
+// checks (bash), and the test-skip check (the edit/write names).
+const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
+  "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
+  "search_replace"];
+
+function ask(payload: Record<string, unknown>): any {
   try {
-    const out = execFileSync("python3", [PRETOOLUSE], {
-      input: JSON.stringify({
-        hook_event_name: "PreToolUse",
-        cwd,
-        tool_name: tool,
-        tool_input: input ?? {},
-      }),
-      cwd,
+    const out = execFileSync("python3", [HOOK], {
+      input: JSON.stringify(payload),
       encoding: "utf8",
       timeout: 10000,
     });
-    if (!out.trim()) return undefined;
-    const data = JSON.parse(out);
-    return data?.hookSpecificOutput?.permissionDecisionReason;
+    return out.trim() ? JSON.parse(out) : {};
+  } catch {
+    // A missing python or a crash in the hook leaves the host exactly as it
+    // was: tezgah never turns its own failure into a blocked tool call.
+    return {};
+  }
+}
+
+function cwdOf(ctx: any): string {
+  return String(ctx?.cwd ?? process.cwd());
+}
+
+function sessionOf(ctx: any): string | undefined {
+  try {
+    return ctx?.sessionManager?.getSessionId?.() ?? undefined;
   } catch {
     return undefined;
   }
 }
 
 export default function tezgahOmp(pi: any): void {
-  pi.on("tool_call", async (event: any) => {
+  const refresh = (ctx: any): void => {
+    const res = ask({ event: "status", cwd: cwdOf(ctx), session_id: sessionOf(ctx) });
+    if (res.status && ctx?.ui) ctx.ui.setStatus("tezgah", res.status);
+  };
+
+  pi.on("session_start", async (_event: any, ctx: any) => {
+    const res = ask({ event: "session_start", cwd: cwdOf(ctx),
+                      session_id: sessionOf(ctx) });
+    if (res.status && ctx?.ui) ctx.ui.setStatus("tezgah", res.status);
+    if (res.context) {
+      // omp's always-on RULES.md carries the contract itself; what rides here
+      // is this repo's state, so the model knows the index, the open plans and
+      // the lessons without the contract being paid twice.
+      pi.sendMessage({ customType: "tezgah-session", content: res.context,
+                       display: false, attribution: "agent" },
+                     { deliverAs: "nextTurn" });
+    }
+  });
+
+  pi.on("session_switch", async (_event: any, ctx: any) => refresh(ctx));
+  pi.on("turn_end", async (_event: any, ctx: any) => refresh(ctx));
+
+  pi.on("before_agent_start", async (event: any, ctx: any) => {
+    // omp also fires this for a queued batch that carries no user text (the
+    // continuation it starts after the Stop rule blocks a turn, for one). The
+    // reminder is armed by a prompt, so a text-less batch must not pay for it
+    // again.
+    const prompt = String(event?.prompt ?? "").trim();
+    if (!prompt) return undefined;
+    const res = ask({ event: "user_prompt", cwd: cwdOf(ctx), prompt,
+                      session_id: sessionOf(ctx) });
+    if (!res.context) return undefined;
+    // A hidden message, not a system-prompt rewrite: omp keeps per-request
+    // bytes out of the system prompt so an open-weight provider keeps its
+    // prefix cache, and the turn's reminder is exactly such a byte.
+    return { message: { customType: "tezgah-reminder", content: res.context,
+                        display: false, attribution: "agent" } };
+  });
+
+  pi.on("tool_call", async (event: any, ctx: any) => {
     const tool = String(event?.toolName ?? event?.name ?? "");
-    // task/agent so the grep-only-explorer refusal reaches the gate too; bash
-    // carries the anti-shortcut and attribution checks; the edit/write names
-    // carry the test-skip check.
-    if (!["grep", "bash", "shell", "task", "agent", "edit", "write",
-          "multiedit", "notebookedit", "edit_file", "write_file",
-          "search_replace"].includes(tool)) return;
-    const reason = gate(tool, event?.input ?? event?.args, process.cwd());
-    if (reason) return { block: true, reason };
+    if (!GATED.includes(tool.toLowerCase())) return undefined;
+    const res = ask({ event: "pre_tool_use", cwd: cwdOf(ctx), tool,
+                      input: event?.input ?? event?.args ?? {},
+                      session_id: sessionOf(ctx) });
+    if (res.deny) return { block: true, reason: res.deny };
+    return undefined;
+  });
+
+  pi.on("tool_result", async (event: any, ctx: any) => {
+    const tool = String(event?.toolName ?? "");
+    if (!WATCHED.includes(tool.toLowerCase()) && !tool.startsWith("mcp__")) {
+      return;
+    }
+    // Tri-state: an unread outcome must never be written as a passed check,
+    // because the Stop rule below reads this ledger as evidence.
+    const failed = typeof event?.isError === "boolean" ? event.isError : null;
+    const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
+                      input: event?.input ?? {}, failed,
+                      session_id: sessionOf(ctx) });
+    if (res.status && ctx?.ui) ctx.ui.setStatus("tezgah", res.status);
+  });
+
+  pi.on("session_stop", async (event: any, ctx: any) => {
+    const res = ask({ event: "stop", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
+                      last_assistant_message: event?.last_assistant_message,
+                      stop_hook_active: event?.stop_hook_active === true });
+    if (res.decision === "block" && res.reason) {
+      return { decision: "block", reason: res.reason };
+    }
     return undefined;
   });
 }

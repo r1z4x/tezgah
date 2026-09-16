@@ -35,6 +35,14 @@ tezgah status string renders in the session header with a 200 from
 `/api/tezgah.status`. It prints `SKIP: ...` when dsh, Playwright, a Chromium
 build, or a persisted session is missing. Opt-in and local only; not part of CI.
 
+### omp status line, end to end
+
+`python3 tests/e2e_omp_statusline.py` starts the real `omp` TUI in a pty with no
+prompt (so the run costs no model call), reads its output and asserts the tezgah
+marks appear in the footer the extension writes them to. It prints `SKIP: ...`
+when the omp binary or the installed extension is missing. Opt-in and local only;
+not part of CI.
+
 ## Layout
 
 - `hooks/` the shared Python contract and tool gate; `hosts/<name>/` per-host
