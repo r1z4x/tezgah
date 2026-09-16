@@ -40,6 +40,7 @@
   <a href="#install">Installasjon</a> &bull;
   <a href="#day-to-day">Daglig bruk</a> &bull;
   <a href="#configuration">Konfigurasjon</a> &bull;
+  <a href="#benchmark">Benchmark</a> &bull;
   <a href="#cost">Kostnad</a> &bull;
   <a href="#development">Utvikling</a> &bull;
   <a href="#contributing">Bidra</a> &bull;
@@ -121,81 +122,19 @@ den samme teksten.
 
 ## Støttede verter
 
-| Vert | Koblet via | Statuslinje |
-|---|---|---|
-| **Claude Code** | lokal plugin-markedsplass: hooks, kommandoer, to skrivebeskyttede agenter, utdatastil | innebygd `statusLine` |
-| **opencode** | plugin + instruksjoner + MCP + generert ferdighetsruter (innebygd ferdighetsliste nektet), repo auto-indeksering på første melding | TUI-plugin (ingen kommando-statusLine) |
-| **Codex** | `hooks.json` + ferdigheter + MCP, inkludert en `PreToolUse`-port | hook `systemMessage` (bunntekstens elementliste er lukket) |
-| **Cursor** | `hooks.json` + ferdigheter + MCP | `statusLine` i `cli-config.json` |
-| **dsh** | Claude Code hook-bro + administrert patch-blokk (hooks, MCP, LLM-ruter, en out-of-tree Web-statuslinje) | Web UI-plugin: `tezgah-dsh-statusline` i økthodet |
+| Vert | Koblet via |
+|---|---|
+| **omp** (oh-my-pi) — primær | `~/.omp/agent`: administrert alltid-på-blokk `RULES.md`, ferdigheter, genererte underagenter, `mcp.json`, og en utvidelse (`hooks/pre/tezgah-hook.ts`) som armerer reglene per prompt, porter verktøy, registrerer bevis og kjører Stop-regelen; koblingen sjekkes av `tezgah-setup` |
+| **Claude Code** | lokal plugin-markedsplass: hooks, kommandoer, to skrivebeskyttede agenter, utdatastil |
+| **opencode** | plugin + instruksjoner + MCP + generert ferdighetsruter (innebygd ferdighetsliste nektet), repo auto-indeksering på første melding |
+| **Codex** | `hooks.json` + ferdigheter + MCP, inkludert en `PreToolUse`-port |
+| **Cursor** | `hooks.json` + ferdigheter + MCP |
+| **dsh** | Claude Code hook-bro + administrert patch-blokk (hooks, MCP, LLM-ruter, en out-of-tree Web-statuslinje) |
 
 Codex-porten kjører Bash, `exec_command`, `apply_patch`, Edit/Write, MCP-verktøy,
 og underagent-kall gjennom den samme sjekken som de andre vertene. På Claude håndheves også
 krediteringsforbudet mekanisk: `attribution`-innstillingen tømmes (`commit`, `pr`, `sessionUrl`)
 slik at commit- og PR-krediteringer er slått av ved kilden.
-
-### Statuslinje
-
-Hver vert gjengir den samme én-linjes sjekklisten fra `tezgah-status`, slik at de
-ikke kan avvike. Tilstanden er poenget: et merke er **grønt** når regelen er aktivert
-og gjeldende i denne økten, **gult** når den er aktivert men på forespørsel (ikke brukt
-ennå), og **rødt** når en nødstopp-bryter (kill switch) har slått den av. `idx` rapporterer graf-beredskap
-separat (`✓` indeksert, `↻` utdatert, `✗` ikke indeksert, `–` ikke aktuelt)
-og `plans N (M blk)` de åpne planene. `tezgah-status --legend` skriver ut nøkkelen,
-`--json` gir de samme segmentene for et brukergrensesnitt, og `--no-color` (eller `NO_COLOR`)
-tvinger frem ren tekst. Claude Code og Cursor fargelegger den innebygde statuslinjen;
-opencode TUI fargelegger sin egen komponent og oppdateres på vertens hendelsesbuss;
-dsh Web UI fargelegger sin overskriftskomponent og oppdateres bare mens fanen er
-synlig; Codex viser den rene strengen i `systemMessage`.
-
-dsh kjører de samme Claude hook-filene gjennom sin `dsh-hooks-claude-code`-bro,
-så øktoppstart-kontrakten, krediteringsporten og første-grep-påminnelsen (nudge)
-gjelder alle der. dsh eksponerer et enkelt `subagent`-verktøy, så avslaget for grep-only-explorer
-er inaktivt — det er ingen explorer-underagent for den å avvise. dshs standard
-`workspace-write`-sandkasse begrenser hook-underprosesser til arbeidsområdet og
-plattformens midlertidige mappe, så tezgah skriver sin hook-tilstand (påminnelsesmerker, indeksstempel) til
-en skrivbar reserve der i stedet for å feile på en nektet skriving. Graf-indeksarbeideren
-kan ikke skrive til `codebase-memory-mcp`-hurtigbufferen fra innsiden av den sandkassen, så
-`dsh`-oppstarteren varmer opp indeksen i brukerens ubegrensede skall før dsh startes
-— et nytt kodelager indekseres nøyaktig som på de andre vertene, HEAD-stemplet. En
-økt startet uten oppstarteren får fortsatt en tydelig rapport om at den
-usandkassede MCP-serveren betjener grafen og trenger `index_repository` for et kodelager
-den ikke har indeksert, i stedet for en rå `EPERM`. Den administrerte
-patch-blokken deklarerer også to OpenAI-kompatible LLM-ruter på pi-ai-adapteren
-som basiskomposisjonen monterer: `openrouter` (`OPENROUTER_API_KEY`) og `deepseek`
-(`DEEPSEEK_API_KEY`), valgbare ved siden av den innebygde `deepseek-official`-standarden.
-Nøkler løses fra oppstartsmiljøet eller rammeverkets legitimasjonslager;
-ingen av nøklene legges inn i konfigurasjonsfilen. tezgah-setup legger også en `dsh`-oppstarter
-på PATH (`~/.local/bin/dsh`) som finner det installerte CLI-et under
-`$DSH_HOME`, slik at `dsh --profile web` fungerer fra hvilken som helst mappe.
-
-dsh har ingen kommando-statuslinje, så tezgah leverer en som en Web UI-plugin:
-`tezgah-dsh-statusline`. Dens vertshalvdel serverer `tezgah-status`-strengen for
-øktens arbeidsområde over en autentisert `/api/tezgah.status`-rute (med
-`?format=json` for den fargelagte visningen); dens nettleserhalvdel gjengir den i
-økthodet, fargelagt etter tilstand med en hover/klikk-forklaring, og oppdateres bare mens
-fanen er synlig. `tezgah-setup`
-lenker pluginen inn i web-profilen og aktiverer den med en administrert rad i
-`profiles/web/cordis.patch.yml` (kun for web, fordi vertshalvdelen injiserer den
-web-eksklusive `connection`-tjenesten); en profil som aldri har startet `web` hoppes over
-med et hint i stedet for å bli halvskrevet. I `headless`-modus injiserer hooks-broen
-SessionStart-kontrakten som sin egen avsluttende tur (dens `agent/session-start`
-kaller `agent.inject()` frakoblet, etter at engangsoppgaven allerede er den første
-meldingen), så `dsh --profile headless "<task>"` bruker én ekstra tur og, for en
-bokstavelig-svar-prompt, skriver ut modellens reaksjon på kontrakten i stedet for
-oppgavens svar; interaktive web-økter påvirkes ikke.
-
-`bin/tezgah-setup --install` utløser også `orx install-skills` for Claude,
-Codex, opencode og Cursor når `orx` er på PATH, slik at forskningsregelen har en
-manual å laste. Shim-filene tilhører orx, så tezgah kjører bare det installasjonsprogrammet
-og lister dem aldri for avinstallasjon. dsh har ikke noe orx-rammeverk; forskningsregelen
-der faller tilbake til `orx skill` i skallet.
-
-Claude-pluginen leverer også to skrivebeskyttede agenter. `agents/tezgah-explorer.md`
-utfører kodeoppdagelse fra grafen og returnerer `file:line`-bevis;
-`agents/tezgah-reviewer.md` gjør en diff om til sitt påvirkningssett med
-`detect_changes` og ser deretter etter reelle feil. Begge har skrive- og kommandoverktøy
-deaktivert; deres utdata er rådgivende.
 
 ### App-analyse
 
@@ -256,15 +195,21 @@ cd ~/Projects/tezgah
 bin/tezgah-setup --install
 ```
 
-`--install` installerer også de valgfrie verktøyene som mangler ved å kjøre hver
-leverandørs eget installasjonsprogram **over nettverket**: `orx`
-(`openresearch.sh/install.sh`), `cursor-agent` (`cursor.com/install`), `dsh`
-(dens hjemmeprofil gjennom `npx`), og `pnpm` når dsh trenger det (via `npm`) —
-`curl ... | sh` inkludert. Ingen trenger sudo; kjøringen registreres i
-`~/.config/tezgah/install.log`. Forhåndsvis med `--dry-run`, hopp over det med
-`--no-deps` (nyttig i CI), eller installer verktøyene alene med `--deps`. Verktøy lander
-i `~/.local/bin` eller `~/.cargo/bin`, så et nytt skall kan være nødvendig før
-de er på PATH; tezgahs egne sjekker leter i disse mappene uansett, så et ikke-interaktivt
+I en terminal er den kommandoen uten argumenter installasjonsveiviseren i stedet: den spør
+hvilke verter som skal armeres, rotkatalogene, om de manglende valgfrie verktøyene skal
+installeres, og om den valgfrie DevTools MCP skal kobles til, skriver ut planen, og skriver
+først etter et ja. Flaggene er veiviserens standardverdier, så `--wizard --hosts omp` spør
+bare om resten. En kjøring i rør, fra en agent eller i CI blir aldri spurt — den skriver ut
+rapporten, nøyaktig som før.
+
+`--install` installerer også de valgfrie verktøyene som mangler ved å kjøre hver leverandørs
+eget installasjonsprogram **over nettverket**: `orx` (`openresearch.sh/install.sh`),
+`cursor-agent` (`cursor.com/install`), `dsh` (dens hjemmeprofil gjennom `npx`), og `pnpm`
+når dsh trenger det (via `npm`) — `curl ... | sh` inkludert. Ingen trenger sudo; kjøringen
+registreres i `~/.config/tezgah/install.log`. Forhåndsvis med `--dry-run`, hopp over det med
+`--no-deps` (nyttig i CI), eller installer verktøyene alene med `--deps`. Verktøy lander i
+`~/.local/bin` eller `~/.cargo/bin`, så et nytt skall kan være nødvendig før de er på PATH;
+tezgahs egne sjekker leter i disse mappene uansett, så et ikke-interaktivt
 skall rapporterer dem fortsatt som til stede.
 
 Hvis et tidligere oppsett allerede er til stede, importer det først — det flyttes til side,
@@ -341,42 +286,93 @@ Når brukeren flagger en feil, legger agenten til en én-linjes lærdom i kodela
 `.tezgah/lessons.md`; de nyeste linjene injiseres ved øktoppstart slik at den
 samme feilen ikke kan gjentas i stillhet.
 
+<a id="benchmark"></a>
+
+## Benchmark
+
+Forbedrer denne kontrakten arbeidet, eller ser den bare ut som om den burde det? Det måles i
+`benchmarks/arm-bench/`, ikke påstås: skjulte kontroller som agenten aldri ser testen for,
+kostnad fra vertens egen brukslogg, og sideordnede redigeringer som scores som feil.
+`PREREGISTRATION.md` fastsetter endepunktene før en kjøring og `python3 bench.py report`
+skriver dem ut; hele studien, med kjørings-id-ene, er
+`docs/research/2026-09-16-tezgah-quality.md`. Hvert tall nedenfor er en kjøringslogg.
+
+| Blokk | Kjøringer | Hva den fastslo |
+|---|---|---|
+| to verter, 28 oppgaver, k=3 | 336 | `omp+tezgah` 0.95 og `opencode+tezgah` 0.96 har overlappende intervaller og samme kostnad per løste oppgave; på de bare armene er omp billigere ($0.0047 mot $0.0074 CPS), så dagligdriveren er omp uten kostnad i kvalitet |
+| hard familie, 5 oppgaver, k=5, to modellfamilier | 200 | samlet lander tre av de fire armene på 40/50: ingen harness-effekt ved den størrelsen, og det ene signalet den første modellen produserte, reverserte på den andre |
+| port-familie, port armert | 36 | ingen arm tok snarveien; port-mekanismen er verifisert direkte (en skip-redigering avvises), effekten på arbeidet er ennå ikke målt |
+| klausul-ablasjon, de to reglene som skiller, k=8 | 160 | kontraktarmene passerer 23/32 (0.72) mot den bare ankerens 12/32 (0.38) |
+
+**Den hjelper nøyaktig der modellens standard er feil.** `c04` (en engelsk prompt der bare
+kontrakten gjør svaret tyrkisk) leser 9/16 med en kontrakt og 0/16 uten; `h02` (en
+pengekontrakt hvis synlige suite er grønn uansett) leser 14/16 mot 12/16. Der det ikke er
+noe gap å lukke - 22 av de 25 pilotoppgavene passerte under hver arm på hver repetisjon -
+kan en benchmark bare rapportere en null.
+
+**To klausuler bærer den.** Å fjerne klausul 1 tar `c04` til 0/8, den bare ankerens egen
+score, mens `h02` knapt beveges. Å fjerne klausul 3 tar `h02` til 2/8 - under den bare
+ankerens 6/8 - fordi klausul 3 forbyr å stoppe ved den korteste ferdig-utseende stien, og på
+den oppgaven er den korteste stien én-lineren som passerer den synlige suiten mens den
+bryter den dokumenterte regelen. Klausul 2 og 4 beveger ingenting målbart.
+
+**Kostnad følger kvalitet.** Per løste oppgave: $0.0078 mot $0.0097 på full-kontrakt-noden,
+$0.0043 mot $0.0087 på minus-ponytail-noden. Kontraktarmene løser flere oppgaver, så hver
+løste oppgave koster mindre; det totale forbruket er høyere, og benchmarken registrerer det
+rad for rad i stedet for å nette det ut.
+
+Hva dette ikke viser: kodekvalitet, gjennomgangsinnsats eller vedlikeholdbarhet, som ingen
+av dem måles her; portens effekt på en arms valg, siden ingen arm grep etter snarveien i 36
+armerte kjøringer; eller en klausul-*rekkefølge* - `k=8` fastsetter en retning, ved 8
+kjøringer per celle. Én leverandør og én fixture-pakke gjennom alt, og ablasjonsrundene
+kjører på én modellfamilie. En andre modellfamilie reproduserer 28-oppgave-nullen nøyaktig
+(51/56 mot 51/56), og det er hva som viser at den første lesningen ikke var et
+modellartefakt.
+
 <a id="cost"></a>
 
 ## Kostnad
 
-Målt på denne maskinen (macOS, Python 3.10), ikke estimert:
+Målt på denne maskinen (macOS, Python 3.10), ikke estimert. `tezgah-setup` skriver ut det
+levende budsjettet - les det der i stedet for å stole på et tall kopiert hit, som er hvordan
+en tidligere revisjon kom til å oppgi en kjernebånd som er mindre enn den den installerer.
 
-- **Kontekst.** En øktoppstart injiserer ~5,4 KB (~1,3k tokens) med kontrakttekst.
-  På Codex følger en 480-byte påminnelse med hver tur; Claude og de andre vertene har
-  ingen hook per tur, så deres kostnad per tur er null. Den fulle `tezgah-contract`-ferdigheten
-  (~19,9k tegn) betales bare når en oppgave laster den. På opencode leveres
-  kontrakten som en ~5,8 KB instruksjonsfil. opencode ville ellers
-  injisert tekst for ferdighetsnavn/-beskrivelse/-plassering i hver økts
-  system-prompt; tezgah nekter den listen (`permission.skill = deny`) og leverer
-  en generert ferdighetsruter i stedet, slik at en ferdighet finnes ved å lese dens
-  `SKILL.md`-sti fra ruteren.
-- **Forsinkelse (Latency).** Hooks er separate Python-prosesser, så oppstarten av tolken på ~19 ms
-  dominerer. På toppen av dette legger øktoppstart til ~25 ms, et portstyrt verktøykall
-  (Bash/Grep/Task) legger til ~9 ms, og Codex sitt Stop-segment legger til ~15 ms per tur.
-- **Disk.** Installasjon tar ~58 ms og hver fil tezgah skriver om beholdes
-  én gang som `<file>.tezgah-bak`.
+| Bånd | Hva det koster |
+|---|---|
+| Øktoppstart | den alltid-på-kontrakten (invariantene pluss en én-linjes peker per on-demand-regel): på denne maskinen og med dette ferdighetssettet, ~1.3k tokens kontraktstekst og ~1.1k ferdighetsmetadata, med de betingede reglene (spec, consult, research, graph) som legger til ~0.6k bare på turen hvis prompt matcher |
+| Per tur | en kort påminnelse (~0.2k tokens) pluss den armerte regelen når den matcher; hooks er separate Python-prosesser, så oppstarten av tolken på ~19 ms dominerer - øktoppstart legger til ~25 ms, et portstyrt verktøykall (Bash/Grep/Task) ~9 ms. opencode har ingen hook ved prompt-tid, så den betaler null |
+| On demand | den fulle `tezgah-contract`-ferdigheten (~5.8k tokens), betalt bare når en oppgave laster den |
+| MCP-skjemaer | det største båndet, og det ingen statisk rapport ser: grafserveren alene erklærer 15 verktøy / 24,508 byte (~6.1k tokens), som rir på hver forespørsel med mindre verten henter skjemaer on demand. `tezgah-setup --mcp-schemas` måler det |
+| Disk | installasjonen tar ~58 ms, og hver fil tezgah skriver om beholdes én gang som `<file>.tezgah-bak` |
 
-Gevinsten viser seg på oppkallerspørsmål. I ett ekte kodelager ignorerte en standard `grep`
-den relevante mappen og fant ingenting; med ignorering deaktivert tok det
-3,95 s og blandet fortsatt definisjoner med kallsteder. Kodegrafen svarte på det
-samme spørsmålet på 16 ms, og listet bare opp de 8 sanne kallstedene.
+**Armeringsgulvet.** Invariantene er alltid på - kjøringsmodus, ponytail,
+deliver-the-whole-ask, integritet, løkkedisiplin, leksjonsloggen og krediteringsforbudet -
+og sikkerhetsregelen («irreversible eller utadrettede handlinger krever et eksplisitt
+spørsmål først») er en av dem, så den avhenger aldri av en klassifiserer. Hver rådgivende
+regel holder en handlingsrettet én-linjes peker alltid på, så en tapt match koster detaljer,
+aldri regelen, og en vertshook som feiler faller tilbake til pekerne pluss
+on-demand-ferdigheten i stedet for til ingen kontrakt. Falske negativer er reviderbare: hver
+prompt legger til `armed=<rules|none> chars=<n>` - ingen prompttekst - i
+`~/.cache/tezgah/classify.log` (kuttet til de siste 200 linjene etter 64 KB), og alle fem
+hook-verter armerer det samme settet for samme prompt
+(`tests/test_context.py::ArmingConformance`).
 
-opencode er også utstyrt for konteksthygiene i lange økter: `tezgah-setup --install`
-setter `compaction.prune` slik at gamle verktøyresultater fjernes fra prompten i stedet for
-å bli sendt på nytt ved hvert trinn, og en `watcher.ignore`-liste holder filovervåkeren
-ute av `.git`, `node_modules` og byggemapper. Begge flettes — en eksplisitt brukerverdi
-vinner. Dette er viktig fordi opencode bare auto-komprimerer nær modellens kontekstgrense
-(for en 1M-token modell, omtrent 980k), så uten beskjæring vokser arbeidssettet
-til hundretusenvis av tokens. `bin/tezgah-doctor` rapporterer det
-resulterende diskavtrykket; `--prune-sessions DAYS` sletter inaktive økter gjennom
-opencode CLI, som er den eneste handlingen som faktisk krymper databasen —
-VACUUM alene kan ikke det, siden sidene dens alle er levende.
+**opencode armeres annerledes.** Den har ikke noe injeksjonspunkt ved prompt-tid, så
+kontrakten leveres som en generert instruksjonsfil, og dens alltid-på-ruter lister bare
+bøttene en kodingsøkt griper etter, og kollapser resten til en peker på
+`~/.config/tezgah/opencode-skills.full.md` lest on demand; `permission.skill = deny` stopper
+opencode fra å injisere hver ferdighets metadata i stedet. `--install` setter også
+`compaction.prune` og `watcher.ignore`, som fjerner gamle verktøyresultater fra prompten i
+stedet for å sende dem på nytt ved hvert trinn - uten det vokser arbeidssettet til
+hundretusenvis av tokens før opencode auto-komprimerer nær modellens grense (omtrent 980k
+for en 1M-token-modell). `bin/tezgah-doctor` rapporterer diskavtrykket og `--prune-sessions
+DAYS` sletter inaktive økter gjennom opencode-CLI-en, den eneste handlingen som faktisk
+krymper databasen, siden VACUUM alene ikke kan.
+
+**Hvorfor det lønner seg.** I ett ekte kodelager ignorerte en standard `grep` den relevante
+mappen og fant ingenting; med ignorering deaktivert tok det 3.95 s og blandet fortsatt
+definisjoner med kallsteder, mens kodegrafen svarte på det samme spørsmålet på 16 ms med de
+8 sanne kallstedene.
 
 <a id="development"></a>
 

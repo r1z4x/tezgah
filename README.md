@@ -136,14 +136,14 @@ for what it mechanically enforces: the adapter docstrings and the gate tests
 record what a host actually refuses, and `benchmarks/harness-vs-omp/` keeps the
 cost evidence, which is a separate question from enforcement.
 
-| Host | Wired by | Status line |
-|---|---|---|
-| **omp** (oh-my-pi) — primary | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and an extension (`hooks/pre/tezgah-hook.ts`) that arms the per-prompt rules, gates tools, records evidence and runs the Stop rule; the wiring is checked by `tezgah-setup` | widget footer line: colored `pony✓ exec✓ · …`, refreshed on turn end |
-| **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style | native `statusLine` |
-| **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
-| **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them | `statusLine` in `cli-config.json` |
-| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message | TUI plugin (no command statusLine) |
-| **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) | Web UI plugin: `tezgah-dsh-statusline` in the session header |
+| Host | Wired by |
+|---|---|
+| **omp** (oh-my-pi) — primary | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and an extension (`hooks/pre/tezgah-hook.ts`) that arms the per-prompt rules, gates tools, records evidence and runs the Stop rule; the wiring is checked by `tezgah-setup` |
+| **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style |
+| **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate |
+| **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them |
+| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message |
+| **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
 and subagent calls through the same check as the other hosts. On Claude the
@@ -165,85 +165,6 @@ Cursor, which reports the reply on `afterAgentResponse` and takes the decision a
 "tests pass" claim even if an earlier run was green. opencode has no
 end-of-turn surface to block, so it records the evidence and the reply claim
 stays unenforced there.
-
-### Status line
-
-Every host renders the same one-line checklist from `tezgah-status`, so they
-cannot drift. The state is the point: the whole `name✓` chip is colored —
-**green** when the rule is armed and in force this session, **yellow** when it is
-armed but on demand (not used yet), **red** when a kill switch turned it off, and
-**dim** for a mark that carries no state. The glyph stays either way, so the
-color is a second channel and never the only one. `idx` reports graph readiness
-separately (`✓` indexed, `↻` stale, `✗` not indexed, `–` not applicable) and
-`plans N (M blk)` the open plans. `tezgah-status --legend` prints the key,
-`--json` gives the same segments for a UI, and `--no-color` (or `NO_COLOR`)
-forces plain text. Claude Code and Cursor color the native status line; the
-opencode TUI colors its own component and refreshes on the host event bus; the
-dsh Web UI colors its header component and refreshes only while its tab is
-visible; Codex shows the plain string in `systemMessage`; omp's extension draws
-the colored line through `ctx.ui.setWidget`, since `setStatus` — its other
-surface — strips the escapes, and it refreshes on session start, session switch,
-turn end and every tool result that can move a mark.
-
-dsh runs the same Claude hook files through its `dsh-hooks-claude-code` bridge,
-so the session-start contract, the attribution gate, and the first-grep nudge
-all apply there. dsh exposes a single `subagent` tool, so the grep-only-explorer
-denial is inert — there is no explorer subagent for it to refuse. dsh's default
-`workspace-write` sandbox confines hook subprocesses to the workspace and the
-platform temp dir, so tezgah writes its hook state (nudge marks, index stamp) to
-a writable fallback there rather than failing on a denied write. The graph index
-worker cannot write the `codebase-memory-mcp` cache from inside that sandbox, so
-the `dsh` launcher warms the index in the user's unconfined shell before booting
-dsh — a new repo is indexed exactly as on the other hosts, HEAD-stamped. A
-session booted without the launcher still gets a clear report that the
-unsandboxed MCP server serves the graph and needs `index_repository` for a repo
-it has not indexed, instead of a raw `EPERM`. The managed
-patch block also declares two OpenAI-compatible LLM routes on the pi-ai adapter
-the base composition mounts: `openrouter` (`OPENROUTER_API_KEY`) and `deepseek`
-(`DEEPSEEK_API_KEY`), selectable alongside the native `deepseek-official`
-default. Keys resolve from the launch environment or the harness credential
-store; neither key enters the config file. tezgah-setup also puts a `dsh`
-launcher on PATH (`~/.local/bin/dsh`) that finds the installed CLI under
-`$DSH_HOME`, so `dsh --profile web` works from any directory.
-
-dsh has no command status line, so tezgah ships one as a Web UI plugin:
-`tezgah-dsh-statusline`. Its host half serves the `tezgah-status` string for the
-session's workspace over an authenticated `/api/tezgah.status` route (with
-`?format=json` for the colored view); its browser half renders it in the session
-header, colored by state with a hover/click legend, and refreshes only while the
-tab is visible. `tezgah-setup`
-links the plugin into the web profile and enables it with a managed row in
-`profiles/web/cordis.patch.yml` (web-only, because the host half injects the
-web-only `connection` service); a profile that has never booted `web` is skipped
-with a hint instead of half-written. In `headless` mode, the hooks bridge injects
-the SessionStart contract as its own trailing turn (its `agent/session-start`
-calls `agent.inject()` detached, after the one-shot task is already the first
-message), so `dsh --profile headless "<task>"` spends one extra turn and, for a
-literal-answer prompt, prints the model's reaction to the contract rather than
-the task's answer; interactive web sessions are unaffected.
-
-omp loads the same extension as a hook factory, so it covers both the rules and
-the footer. `session_start` sets the status line and injects the repo's live
-state (index, open plans, lessons, active kill switches) as a hidden message;
-the contract itself stays in the managed `RULES.md`, so omp does not pay for it
-twice. `before_agent_start` adds the turn's reminder plus whichever rule the
-prompt arms, as another hidden message - never as a system-prompt rewrite, which
-would invalidate an open-weight provider's prefix cache every turn. `tool_call`
-runs the gate, `tool_result` records the evidence the Stop rule reads, and
-`session_stop` blocks a done/tested claim no check backs. Outside the roots only
-the status line answers, so the marks stay visible everywhere.
-
-`bin/tezgah-setup --install` also triggers `orx install-skills` for Claude,
-Codex, opencode and Cursor when `orx` is on PATH, so the research rule has a
-manual to load. The shim files belong to orx, so tezgah only runs that installer
-and never lists them for uninstall. dsh and omp have no orx harness; the research
-rule there falls back to `orx skill` on the shell.
-
-The Claude plugin also ships two read-only agents. `agents/tezgah-explorer.md`
-does code discovery from the graph and returns `file:line` evidence;
-`agents/tezgah-reviewer.md` turns a diff into its impact set with
-`detect_changes` and then looks for real defects. Both have write and command
-tools disabled; their output is advisory.
 
 ### App analysis
 
@@ -304,18 +225,16 @@ cd ~/Projects/tezgah
 bin/tezgah-setup --install
 ```
 
-In a terminal that command with no arguments is the wizard instead: it asks
-which hosts to arm, the root directories, whether to install the missing
-optional tools, and whether to wire the optional DevTools MCP, prints the plan,
-and writes only after a yes. The flags are the wizard's defaults, so
-`--wizard --hosts omp` asks only the rest. A piped, agent or CI run is never
-prompted — it prints the report, exactly as before.
+In a terminal that command with no arguments is the wizard instead: it asks which hosts to
+arm, the root directories, whether to install the missing optional tools, and whether to
+wire the optional DevTools MCP, prints the plan, and writes only after a yes. The flags are
+the wizard's defaults, so `--wizard --hosts omp` asks only the rest. A piped, agent or CI
+run is never prompted — it prints the report, exactly as before.
 
-`--install` also installs the optional tools that are missing by running each
-vendor's own installer **over the network**: `orx`
-(`openresearch.sh/install.sh`), `cursor-agent` (`cursor.com/install`), `dsh`
-(its home profile through `npx`), and `pnpm` when dsh needs it (via `npm`) —
-`curl ... | sh` included. None needs sudo; the run is recorded in
+`--install` also installs the optional tools that are missing by running each vendor's own
+installer **over the network**: `orx` (`openresearch.sh/install.sh`), `cursor-agent`
+(`cursor.com/install`), `dsh` (its home profile through `npx`), and `pnpm` when dsh needs it
+(via `npm`) — `curl ... | sh` included. None needs sudo; the run is recorded in
 `~/.config/tezgah/install.log`. Preview with `--dry-run`, skip it with
 `--no-deps` (useful in CI), or install the tools alone with `--deps`. Tools land
 in `~/.local/bin` or `~/.cargo/bin`, so a fresh shell may be needed before they
@@ -402,12 +321,12 @@ same mistake cannot silently repeat.
 
 ## Benchmark
 
-Does this contract improve the work, or does it only look like it should? That
-is measured in `benchmarks/arm-bench/`, not asserted: hidden checks the agent
-never sees the check for, cost from the host's own usage record, and collateral
-edits scored as failures. `PREREGISTRATION.md` fixes the endpoints before a run
-and `python3 bench.py report` prints them; the full study, with the run ids, is
-`docs/research/2026-09-16-tezgah-quality.md`. Every figure below is a run log.
+Does this contract improve the work, or does it only look like it should? That is measured
+in `benchmarks/arm-bench/`, not asserted: hidden checks the agent never sees the check for,
+cost from the host's own usage record, and collateral edits scored as failures.
+`PREREGISTRATION.md` fixes the endpoints before a run and `python3 bench.py report` prints
+them; the full study, with the run ids, is `docs/research/2026-09-16-tezgah-quality.md`.
+Every figure below is a run log.
 
 | Block | Runs | What it settled |
 |---|---|---|
@@ -416,41 +335,37 @@ and `python3 bench.py report` prints them; the full study, with the run ids, is
 | gate family, gate armed | 36 | no arm took the shortcut route; the gate mechanism is verified directly (a skip edit is refused), its effect on the work is not measured yet |
 | clause ablation, the two rules that separate, k=8 | 160 | the contract arms pass 23/32 (0.72) against the bare anchor's 12/32 (0.38) |
 
-**It helps exactly where the model's default is wrong.** `c04` (an English
-prompt where only the contract makes the reply Turkish) reads 9/16 with a
-contract and 0/16 without one; `h02` (a money contract whose visible suite is
-green either way) reads 14/16 against 12/16. Where there is no gap to close - 22
-of the 25 pilot tasks passed under every arm on every repeat - a benchmark can
-only report a null.
+**It helps exactly where the model's default is wrong.** `c04` (an English prompt where only
+the contract makes the reply Turkish) reads 9/16 with a contract and 0/16 without one; `h02`
+(a money contract whose visible suite is green either way) reads 14/16 against 12/16. Where
+there is no gap to close - 22 of the 25 pilot tasks passed under every arm on every repeat -
+a benchmark can only report a null.
 
-**Two clauses carry it.** Removing clause 1 takes `c04` to 0/8, the bare anchor's
-own score, while barely moving `h02`. Removing clause 3 takes `h02` to 2/8 -
-below the bare anchor's 6/8 - because clause 3 forbids stopping at the shortest
-done-looking path, and on that task the shortest path is the one-liner that
-passes the visible suite while breaking the documented rule. Clauses 2 and 4 move
-nothing measurable.
+**Two clauses carry it.** Removing clause 1 takes `c04` to 0/8, the bare anchor's own score,
+while barely moving `h02`. Removing clause 3 takes `h02` to 2/8 - below the bare anchor's
+6/8 - because clause 3 forbids stopping at the shortest done-looking path, and on that task
+the shortest path is the one-liner that passes the visible suite while breaking the
+documented rule. Clauses 2 and 4 move nothing measurable.
 
-**Cost follows quality.** Per solved task: $0.0078 against $0.0097 on the
-full-contract node, $0.0043 against $0.0087 on the minus-ponytail node. The
-contract arms solve more tasks, so each solved task costs less; total spend is
-higher, and the benchmark records it per row rather than netting it out.
+**Cost follows quality.** Per solved task: $0.0078 against $0.0097 on the full-contract
+node, $0.0043 against $0.0087 on the minus-ponytail node. The contract arms solve more
+tasks, so each solved task costs less; total spend is higher, and the benchmark records it
+per row rather than netting it out.
 
-What this does not show: code quality, review effort or maintainability, none of
-which is measured here; the gate's effect on an arm's choices, since no arm
-reached for the shortcut in 36 armed runs; or a clause *order* - `k=8` fixes a
-direction, at 8 runs per cell. One provider and one fixture package throughout,
-and the ablation rounds run on a single model family. A second model family
-reproduces the 28-task null exactly (51/56 against 51/56), which is what shows
-the first reading was not a model artefact.
+What this does not show: code quality, review effort or maintainability, none of which is
+measured here; the gate's effect on an arm's choices, since no arm reached for the shortcut
+in 36 armed runs; or a clause *order* - `k=8` fixes a direction, at 8 runs per cell. One
+provider and one fixture package throughout, and the ablation rounds run on a single model
+family. A second model family reproduces the 28-task null exactly (51/56 against 51/56),
+which is what shows the first reading was not a model artefact.
 
 <a id="cost"></a>
 
 ## Cost
 
-Measured on this machine (macOS, Python 3.10), not estimated. `tezgah-setup`
-prints the live budget - read it there rather than trusting a figure copied here,
-which is how an earlier revision came to quote a core band smaller than the one
-it installs.
+Measured on this machine (macOS, Python 3.10), not estimated. `tezgah-setup` prints the live
+budget - read it there rather than trusting a figure copied here, which is how an earlier
+revision came to quote a core band smaller than the one it installs.
 
 | Band | What it costs |
 |---|---|
@@ -461,34 +376,31 @@ it installs.
 | Disk | installation takes ~58 ms, and every file tezgah rewrites is kept once as `<file>.tezgah-bak` |
 
 **The arming floor.** The invariants are always-on - execution mode, ponytail,
-deliver-the-whole-ask, integrity, loop discipline, the lessons ledger and the
-attribution ban - and the safety rule ("irreversible or outward-facing actions
-need an explicit ask first") is one of them, so it never depends on a classifier.
-Each advisory rule keeps an actionable one-line pointer always-on, so a missed
-match costs detail, never the rule, and a host hook that fails falls back to the
-pointers plus the on-demand skill rather than to no contract. False negatives are
-auditable: every prompt appends `armed=<rules|none> chars=<n>` - no prompt text -
-to `~/.cache/tezgah/classify.log` (truncated to the last 200 lines past 64 KB),
-and all five hook hosts arm the same set for the same prompt
+deliver-the-whole-ask, integrity, loop discipline, the lessons ledger and the attribution
+ban - and the safety rule ("irreversible or outward-facing actions need an explicit ask
+first") is one of them, so it never depends on a classifier. Each advisory rule keeps an
+actionable one-line pointer always-on, so a missed match costs detail, never the rule, and a
+host hook that fails falls back to the pointers plus the on-demand skill rather than to no
+contract. False negatives are auditable: every prompt appends `armed=<rules|none> chars=<n>`
+- no prompt text - to `~/.cache/tezgah/classify.log` (truncated to the last 200 lines past
+64 KB), and all five hook hosts arm the same set for the same prompt
 (`tests/test_context.py::ArmingConformance`).
 
-**opencode is armed differently.** It has no prompt-time injection point, so the
-contract ships as a generated instructions file, and its always-on router lists
-only the buckets a coding session reaches for, collapsing the rest to a pointer
-at `~/.config/tezgah/opencode-skills.full.md` read on demand; `permission.skill =
-deny` stops opencode injecting every skill's metadata instead. `--install` also
-sets `compaction.prune` and `watcher.ignore`, clearing old tool results from the
-prompt rather than re-sending them every step - without that the working set
-grows to hundreds of thousands of tokens before opencode auto-compacts near the
-model's limit (about 980k for a 1M-token model). `bin/tezgah-doctor` reports the
-disk footprint and `--prune-sessions DAYS` deletes idle sessions through the
-opencode CLI, the only action that actually shrinks the database, since VACUUM
-alone cannot.
+**opencode is armed differently.** It has no prompt-time injection point, so the contract
+ships as a generated instructions file, and its always-on router lists only the buckets a
+coding session reaches for, collapsing the rest to a pointer at
+`~/.config/tezgah/opencode-skills.full.md` read on demand; `permission.skill = deny` stops
+opencode injecting every skill's metadata instead. `--install` also sets `compaction.prune`
+and `watcher.ignore`, clearing old tool results from the prompt rather than re-sending them
+every step - without that the working set grows to hundreds of thousands of tokens before
+opencode auto-compacts near the model's limit (about 980k for a 1M-token model).
+`bin/tezgah-doctor` reports the disk footprint and `--prune-sessions DAYS` deletes idle
+sessions through the opencode CLI, the only action that actually shrinks the database, since
+VACUUM alone cannot.
 
-**Why it pays.** In one real repo a default `grep` ignored the relevant folder
-and found nothing; with ignore disabled it took 3.95 s and still mixed
-definitions with call sites, while the code graph answered the same question in
-16 ms with the 8 true call sites.
+**Why it pays.** In one real repo a default `grep` ignored the relevant folder and found
+nothing; with ignore disabled it took 3.95 s and still mixed definitions with call sites,
+while the code graph answered the same question in 16 ms with the 8 true call sites.
 
 <a id="development"></a>
 

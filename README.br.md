@@ -40,6 +40,7 @@
   <a href="#install">Instalação</a> &bull;
   <a href="#day-to-day">Dia a dia</a> &bull;
   <a href="#configuration">Configuração</a> &bull;
+  <a href="#benchmark">Benchmark</a> &bull;
   <a href="#cost">Custo</a> &bull;
   <a href="#development">Desenvolvimento</a> &bull;
   <a href="#contributing">Contribuição</a> &bull;
@@ -121,81 +122,19 @@ mesmo texto.
 
 ## Hosts suportados
 
-| Host | Conectado por | Linha de status |
-|---|---|---|
-| **Claude Code** | marketplace de plugins local: hooks, comandos, dois agentes somente leitura, estilo de saída | `statusLine` nativa |
-| **opencode** | plugin + instruções + MCP + roteador de skills gerado (lista de skills nativa negada), auto-indexação do repositório na primeira mensagem | plugin TUI (sem statusLine de comando) |
-| **Codex** | `hooks.json` + skills + MCP, incluindo um portão `PreToolUse` | hook `systemMessage` (lista de itens do rodapé é fechada) |
-| **Cursor** | `hooks.json` + skills + MCP | `statusLine` em `cli-config.json` |
-| **dsh** | ponte de hooks do Claude Code + bloco de patch gerenciado (hooks, MCP, rotas de LLM, uma linha de status Web fora da árvore) | Plugin de UI Web: `tezgah-dsh-statusline` no cabeçalho da sessão |
+| Host | Conectado por |
+|---|---|
+| **omp** (oh-my-pi) — primário | `~/.omp/agent`: bloco always-on gerenciado `RULES.md`, skills, subagentes gerados, `mcp.json`, e uma extensão (`hooks/pre/tezgah-hook.ts`) que arma as regras por prompt, passa ferramentas pelo portão, registra evidências e executa a regra Stop; a fiação é verificada por `tezgah-setup` |
+| **Claude Code** | marketplace de plugins local: hooks, comandos, dois agentes somente leitura, estilo de saída |
+| **opencode** | plugin + instruções + MCP + roteador de skills gerado (lista de skills nativa negada), auto-indexação do repositório na primeira mensagem |
+| **Codex** | `hooks.json` + skills + MCP, incluindo um portão `PreToolUse` |
+| **Cursor** | `hooks.json` + skills + MCP |
+| **dsh** | ponte de hooks do Claude Code + bloco de patch gerenciado (hooks, MCP, rotas de LLM, uma linha de status Web fora da árvore) |
 
 O portão do Codex executa Bash, `exec_command`, `apply_patch`, Edit/Write, ferramentas MCP,
 e chamadas de subagentes através da mesma verificação que os outros hosts. No Claude, a
 proibição de atribuição também é imposta mecanicamente: a configuração `attribution` é
 esvaziada (`commit`, `pr`, `sessionUrl`) para que os créditos de commit e PR sejam desativados na origem.
-
-### Linha de status
-
-Todo host renderiza a mesma checklist de uma linha do `tezgah-status`, para que não possam divergir.
-O estado é o ponto principal: uma marca é **verde** quando a regra está armada
-e em vigor nesta sessão, **amarela** quando está armada, mas sob demanda (ainda não usada),
-e **vermelha** quando um kill switch a desativou. `idx` relata a prontidão do grafo
-separadamente (`✓` indexado, `↻` obsoleto, `✗` não indexado, `–` não aplicável) e
-`plans N (M blk)` os planos abertos. `tezgah-status --legend` imprime a legenda,
-`--json` fornece os mesmos segmentos para uma UI, e `--no-color` (ou `NO_COLOR`)
-força texto simples. Claude Code e Cursor colorem a linha de status nativa; a
-TUI do opencode colore seu próprio componente e atualiza no barramento de eventos do host; a
-UI Web do dsh colore seu componente de cabeçalho e atualiza apenas enquanto sua aba está
-visível; o Codex mostra a string simples em `systemMessage`.
-
-O dsh executa os mesmos arquivos de hook do Claude através de sua ponte `dsh-hooks-claude-code`,
-então o contrato de início de sessão, o portão de atribuição e o lembrete de primeiro-grep
-se aplicam lá. O dsh expõe uma única ferramenta `subagent`, então a negação do grep-only-explorer
-é inerte — não há subagente explorador para ele recusar. A sandbox padrão
-`workspace-write` do dsh confina os subprocessos de hook ao workspace e ao
-diretório temporário da plataforma, então o tezgah escreve seu estado de hook (marcas de lembrete, carimbo de índice) em
-um fallback gravável lá, em vez de falhar em uma gravação negada. O worker de índice do grafo
-não pode gravar o cache do `codebase-memory-mcp` de dentro dessa sandbox, então
-o launcher do `dsh` aquece o índice no shell não confinado do usuário antes de iniciar
-o dsh — um novo repositório é indexado exatamente como nos outros hosts, com carimbo do HEAD. Uma
-sessão iniciada sem o launcher ainda recebe um relatório claro de que o
-servidor MCP sem sandbox serve o grafo e precisa de `index_repository` para um repositório
-que ele não indexou, em vez de um `EPERM` bruto. O bloco de patch
-gerenciado também declara duas rotas de LLM compatíveis com OpenAI no adaptador pi-ai
-que a composição base monta: `openrouter` (`OPENROUTER_API_KEY`) e `deepseek`
-(`DEEPSEEK_API_KEY`), selecionáveis ao lado do padrão nativo `deepseek-official`.
-As chaves são resolvidas a partir do ambiente de inicialização ou do armazenamento de credenciais do harness;
-nenhuma das chaves entra no arquivo de configuração. O tezgah-setup também coloca um launcher do `dsh`
-no PATH (`~/.local/bin/dsh`) que encontra a CLI instalada em
-`$DSH_HOME`, para que `dsh --profile web` funcione a partir de qualquer diretório.
-
-O dsh não tem linha de status de comando, então o tezgah envia uma como um plugin de UI Web:
-`tezgah-dsh-statusline`. Sua metade host serve a string `tezgah-status` para o
-workspace da sessão através de uma rota autenticada `/api/tezgah.status` (com
-`?format=json` para a visualização colorida); sua metade navegador a renderiza no
-cabeçalho da sessão, colorida por estado com uma legenda ao passar o mouse/clicar, e atualiza apenas enquanto a
-aba está visível. O `tezgah-setup`
-vincula o plugin ao perfil web e o habilita com uma linha gerenciada em
-`profiles/web/cordis.patch.yml` (apenas web, porque a metade host injeta o
-serviço `connection` que é apenas web); um perfil que nunca iniciou `web` é ignorado
-com uma dica em vez de ser escrito pela metade. No modo `headless`, a ponte de hooks
-injeta o contrato SessionStart como seu próprio turno final (seu `agent/session-start`
-chama `agent.inject()` de forma desanexada, depois que a tarefa de disparo único já é a primeira mensagem),
-então `dsh --profile headless "<task>"` gasta um turno extra e, para um
-prompt de resposta literal, imprime a reação do modelo ao contrato em vez da
-resposta da tarefa; sessões web interativas não são afetadas.
-
-`bin/tezgah-setup --install` também aciona `orx install-skills` para Claude,
-Codex, opencode e Cursor quando o `orx` está no PATH, para que a regra de pesquisa tenha um
-manual para carregar. Os arquivos shim pertencem ao orx, então o tezgah apenas executa esse instalador
-e nunca os lista para desinstalação. O dsh não tem harness orx; a regra de pesquisa
-lá recorre a `orx skill` no shell.
-
-O plugin do Claude também envia dois agentes somente leitura. `agents/tezgah-explorer.md`
-faz a descoberta de código a partir do grafo e retorna evidências `arquivo:linha`;
-`agents/tezgah-reviewer.md` transforma um diff em seu conjunto de impacto com
-`detect_changes` e então procura por defeitos reais. Ambos têm ferramentas de gravação e comando
-desativadas; a saída deles é consultiva.
 
 ### Análise de aplicativo
 
@@ -256,11 +195,17 @@ cd ~/Projects/tezgah
 bin/tezgah-setup --install
 ```
 
-`--install` também instala as ferramentas opcionais que estão ausentes executando o próprio instalador
-de cada fornecedor **pela rede**: `orx`
-(`openresearch.sh/install.sh`), `cursor-agent` (`cursor.com/install`), `dsh`
-(seu perfil home através do `npx`), e `pnpm` quando o dsh precisa dele (via `npm`) —
-`curl ... | sh` incluído. Nenhum precisa de sudo; a execução é registrada em
+Em um terminal, esse comando sem argumentos é o assistente de instalação: ele pergunta quais
+hosts armar, os diretórios-raiz, se deve instalar as ferramentas opcionais ausentes, e se
+deve fiar o DevTools MCP opcional, imprime o plano, e só escreve depois de um sim. As flags
+são os padrões do assistente, então `--wizard --hosts omp` pergunta só o resto. Uma execução
+em pipe, agente ou CI nunca é solicitada — ela imprime o relatório, exatamente como antes.
+
+`--install` também instala as ferramentas opcionais que estão ausentes executando o próprio
+instalador de cada fornecedor **pela rede**: `orx` (`openresearch.sh/install.sh`),
+`cursor-agent` (`cursor.com/install`), `dsh` (seu perfil home através do `npx`), e `pnpm`
+quando o dsh precisa dele (via `npm`) — `curl ... | sh` incluído. Nenhum precisa de sudo; a
+execução é registrada em
 `~/.config/tezgah/install.log`. Visualize com `--dry-run`, ignore com
 `--no-deps` (útil em CI), ou instale apenas as ferramentas com `--deps`. As ferramentas vão
 para `~/.local/bin` ou `~/.cargo/bin`, então um novo shell pode ser necessário antes que
@@ -340,42 +285,89 @@ Quando o usuário sinaliza um erro, o agente anexa uma lição de uma linha ao
 `.tezgah/lessons.md` do repositório; as linhas mais recentes são injetadas no início da sessão para que
 o mesmo erro não possa se repetir silenciosamente.
 
+<a id="benchmark"></a>
+
+## Benchmark
+
+| Bloco | Execuções | O que ele resolveu |
+|---|---|---|
+| dois hosts, 28 tarefas, k=3 | 336 | `omp+tezgah` 0.95 e `opencode+tezgah` 0.96 têm intervalos sobrepostos e o mesmo custo por tarefa resolvida; nos braços nus o omp é mais barato ($0.0047 contra $0.0074 CPS), então o cavalo de batalha diário é o omp sem custo em qualidade |
+| família difícil, 5 tarefas, k=5, duas famílias de modelos | 200 | agrupados, três dos quatro braços chegam a 40/50: nenhum efeito de harness nesse tamanho, e o único sinal que o primeiro modelo produziu se inverteu no segundo |
+| família do portão, portão armado | 36 | nenhum braço pegou a rota de atalho; o mecanismo do portão é verificado diretamente (uma edição de skip é recusada), seu efeito sobre o trabalho ainda não é medido |
+| ablação de cláusulas, as duas regras que separam, k=8 | 160 | os braços com contrato passam 23/32 (0.72) contra 12/32 (0.38) da âncora nua |
+
+Este contrato melhora o trabalho, ou só parece que deveria? Isso é medido em
+`benchmarks/arm-bench/`, não afirmado: verificações ocultas que o agente nunca vê, custo a
+partir do próprio registro de uso do host, e edições colaterais pontuadas como falhas.
+`PREREGISTRATION.md` fixa os endpoints antes de uma execução e `python3 bench.py report` os
+imprime; o estudo completo, com os ids das execuções, é
+`docs/research/2026-09-16-tezgah-quality.md`. Cada número abaixo é um log de execução.
+
+**Ele ajuda exatamente onde o padrão do modelo está errado.** `c04` (um prompt em inglês
+onde só o contrato torna a resposta turca) lê 9/16 com um contrato e 0/16 sem; `h02` (um
+contrato de dinheiro cuja suíte visível fica verde de qualquer jeito) lê 14/16 contra 12/16.
+Onde não há lacuna a fechar - 22 das 25 tarefas piloto passaram sob cada braço em cada
+repetição - um benchmark só pode relatar um nulo.
+
+**Duas cláusulas o sustentam.** Remover a cláusula 1 leva `c04` a 0/8, a própria pontuação
+da âncora nua, enquanto mal move `h02`. Remover a cláusula 3 leva `h02` a 2/8 - abaixo dos
+6/8 da âncora nua - porque a cláusula 3 proíbe parar no caminho mais curto com cara de
+pronto, e naquela tarefa o caminho mais curto é o one-liner que passa a suíte visível e
+quebra a regra documentada. As cláusulas 2 e 4 não movem nada mensurável.
+
+**O custo segue a qualidade.** Por tarefa resolvida: $0.0078 contra $0.0097 no nó de
+contrato completo, $0.0043 contra $0.0087 no nó menos-ponytail. Os braços com contrato
+resolvem mais tarefas, então cada tarefa resolvida custa menos; o gasto total é maior, e o
+benchmark o registra linha a linha em vez de compensá-lo.
+
+O que isto não mostra: qualidade de código, esforço de revisão ou manutenibilidade, nada
+disso é medido aqui; o efeito do portão nas escolhas de um braço, já que nenhum braço pegou
+o atalho em 36 execuções armadas; ou uma *ordem* de cláusulas - `k=8` fixa uma direção, com
+8 execuções por célula. Um provedor e um pacote de fixture do início ao fim, e as rodadas de
+ablação rodam em uma única família de modelos. Uma segunda família de modelos reproduz o
+nulo de 28 tarefas exatamente (51/56 contra 51/56), o que mostra que a primeira leitura não
+foi um artefato do modelo.
+
 <a id="cost"></a>
 
 ## Custo
 
-Medido nesta máquina (macOS, Python 3.10), não estimado:
+| Faixa | O que custa |
+|---|---|
+| Início de sessão | o contrato always-on (as invariantes mais um ponteiro de uma linha por regra sob demanda): nesta máquina e conjunto de skills, ~1.3k tokens de texto de contrato e ~1.1k de metadados de skill, com as regras condicionais (spec, consult, research, graph) acrescentando ~0.6k apenas no turno cujo prompt casa |
+| Por turno | um lembrete curto (~0.2k tokens) mais a regra armada quando ela casa; hooks são processos Python separados, então o início do interpretador de ~19 ms domina - o início de sessão acrescenta ~25 ms, uma chamada de ferramenta com portão (Bash/Grep/Task) ~9 ms. O opencode não tem hook em tempo de prompt, então paga zero |
+| Sob demanda | a skill completa `tezgah-contract` (~5.8k tokens), paga só quando uma tarefa a carrega |
+| Esquemas MCP | a maior faixa, e a que nenhum relatório estático vê: só o servidor de grafo declara 15 ferramentas / 24,508 bytes (~6.1k tokens), pegando carona em cada requisição a menos que o host busque esquemas sob demanda. `tezgah-setup --mcp-schemas` mede isso |
+| Disco | a instalação leva ~58 ms, e cada arquivo que o tezgah reescreve é mantido uma vez como `<file>.tezgah-bak` |
 
-- **Contexto.** O início de uma sessão injeta ~5,4 KB (~1,3k tokens) de texto de contrato.
-  No Codex, um lembrete de 480 bytes acompanha cada turno; Claude e os outros hosts
-  não têm hook por turno, então o custo por turno deles é zero. A skill completa `tezgah-contract`
-  (~19,9k caracteres) é paga apenas quando uma tarefa a carrega. No opencode,
-  o contrato é enviado como um arquivo de instruções de ~5,8 KB. Caso contrário, o opencode
-  injetaria texto de nome/descrição/localização de skill no
-  prompt de sistema de cada sessão; o tezgah nega essa lista (`permission.skill = deny`) e
-  envia um roteador de skills gerado em seu lugar, para que uma skill seja
-  encontrada lendo seu caminho `SKILL.md` a partir do roteador.
-- **Latência.** Hooks são processos Python separados, então o início do interpretador de ~19 ms
-  domina. Além disso, o início da sessão adiciona ~25 ms, uma chamada de ferramenta com portão
-  (Bash/Grep/Task) adiciona ~9 ms, e o segmento Stop do Codex adiciona ~15 ms por turno.
-- **Disco.** A instalação leva ~58 ms e cada arquivo que o tezgah reescreve é mantido
-  uma vez como `<file>.tezgah-bak`.
+**O piso do armamento.** As invariantes são always-on - modo de execução, ponytail,
+deliver-the-whole-ask, integridade, disciplina de loop, o registro de lições e a proibição
+de atribuição - e a regra de segurança ("ações irreversíveis ou voltadas para fora precisam
+de um pedido explícito primeiro") é uma delas, então ela nunca depende de um classificador.
+Cada regra consultiva mantém um ponteiro acionável de uma linha sempre ativo, então um match
+perdido custa detalhe, nunca a regra, e um hook de host que falha cai de volta nos ponteiros
+mais a skill sob demanda em vez de em nenhum contrato. Falsos negativos são auditáveis: cada
+prompt anexa `armed=<rules|none> chars=<n>` - nenhum texto de prompt - a
+`~/.cache/tezgah/classify.log` (truncado nas últimas 200 linhas após 64 KB), e todos os
+cinco hosts com hook armam o mesmo conjunto para o mesmo prompt
+(`tests/test_context.py::ArmingConformance`).
 
-A recompensa aparece nas perguntas de quem chama. Em um repositório real, um `grep` padrão
-ignorou a pasta relevante e não encontrou nada; com a opção de ignorar desativada, levou
-3,95 s e ainda misturou definições com locais de chamada. O grafo de código respondeu à
-mesma pergunta em 16 ms, listando apenas os 8 verdadeiros locais de chamada.
+**O opencode é armado de forma diferente.** Ele não tem ponto de injeção em tempo de prompt,
+então o contrato é enviado como um arquivo de instruções gerado, e seu roteador always-on
+lista apenas os baldes que uma sessão de codificação busca, colapsando o resto num ponteiro
+em `~/.config/tezgah/opencode-skills.full.md` lido sob demanda; `permission.skill = deny`
+impede o opencode de injetar os metadados de cada skill em vez disso. `--install` também
+define `compaction.prune` e `watcher.ignore`, limpando resultados antigos de ferramentas do
+prompt em vez de reenviá-los a cada passo - sem isso o conjunto de trabalho cresce para
+centenas de milhares de tokens antes de o opencode compactar automaticamente perto do limite
+do modelo (cerca de 980k para um modelo de 1M de tokens). `bin/tezgah-doctor` relata o uso
+de disco, e `--prune-sessions DAYS` exclui sessões ociosas através da CLI do opencode, a
+única ação que de fato encolhe o banco de dados, já que o VACUUM sozinho não consegue.
 
-O opencode também está armado para a higiene de contexto de sessões longas: `tezgah-setup --install`
-define `compaction.prune` para que resultados antigos de ferramentas sejam limpos do prompt
-em vez de serem reenviados a cada passo, e uma lista `watcher.ignore` mantém o observador de arquivos
-fora de `.git`, `node_modules` e diretórios de build. Ambos se mesclam — um valor explícito do usuário
-vence. Isso é importante porque o opencode só compacta automaticamente perto do limite de contexto do modelo
-(para um modelo de 1M de tokens, cerca de 980k), então sem a poda, o conjunto de trabalho
-cresce para centenas de milhares de tokens. `bin/tezgah-doctor` relata o
-uso de disco resultante; `--prune-sessions DAYS` exclui sessões ociosas através da
-CLI do opencode, que é a única ação que realmente reduz o banco de dados — o
-VACUUM sozinho não consegue, já que suas páginas estão todas ativas.
+**Por que compensa.** Em um repositório real, um `grep` padrão ignorou a pasta relevante e
+não encontrou nada; com o ignore desativado levou 3.95 s e ainda misturou definições com
+locais de chamada, enquanto o grafo de código respondeu à mesma pergunta em 16 ms com os 8
+verdadeiros locais de chamada.
 
 <a id="development"></a>
 
