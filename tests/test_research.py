@@ -380,8 +380,8 @@ class Experiments(Workspace):
         self.assertEqual(self.errors(repo), [])
 
     def test_a_renamed_results_file_still_faces_the_order_rule(self):
-        # the rename is how the path enters the history, so a line that renames
-        # the results in after the protocol is the same line as any other
+        # the rename is how the path enters the history, so renaming the results
+        # into place before the protocol does not hide them from the rule
         repo = self.repo()
         self.line(repo)
         d = self.exp_dir(repo)
@@ -399,8 +399,8 @@ class Experiments(Workspace):
         self.assertFalse(hit("not committed yet", warnings), warnings)
 
     def test_a_rename_after_the_protocol_keeps_the_line_clean(self):
-        # --diff-filter=AR: a rename into the path counts as the results being
-        # committed, so it is ordered, not skipped as "not committed yet"
+        # a rename into the path counts as the results being committed, so it is
+        # ordered, not skipped as "not committed yet"
         repo = self.repo()
         self.line(repo)
         self.protocol(repo)
