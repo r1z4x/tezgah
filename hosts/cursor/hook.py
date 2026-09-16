@@ -11,6 +11,11 @@ so this adapter translates them onto the shared tezgah core:
   postToolUse         -> record usage; reinforce once per session on graph/consult
   postToolUseFailure  -> record usage; one-line recovery hint
   after*Execution/Edit-> record usage, no output (observers)
+  afterAgentResponse  -> remember the reply for the stop decision, no output
+  stop                -> block a done/tested claim no check backs
+                         ({"decision": "block", "reason": ...}, which Cursor
+                         documents as an automatic follow-up - the native
+                         spelling is {"followup_message": ...})
   beforeSubmitPrompt  -> {"continue": true}
 Everything else answers "{}" and never blocks.
 """
@@ -22,7 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import context_for, record, slug, under  # noqa: E402
 from tezgah_gate import decision, explored  # noqa: E402
-from tezgah_integrity import note, note_tool  # noqa: E402
+from tezgah_integrity import note, note_tool, stop_reason  # noqa: E402
 from tezgah_paths import cache_dir, off  # noqa: E402
 
 ALLOW = {"permission": "allow"}
@@ -76,6 +81,38 @@ def first_time(session_id, tag):
     except OSError:
         pass
     return True
+
+
+def answer_path(session_id):
+    """Where the last assistant text of a conversation is kept.
+
+    Cursor's `stop` payload carries only `status`/`loop_count`, so the reply the
+    Stop rule has to read arrives on the earlier `afterAgentResponse`, which
+    documents `{"text": "<assistant final text>"}`. One file per conversation,
+    overwritten."""
+    return os.path.join(cache_dir(), "answer", slug(str(session_id or "nosession")))
+
+
+def remember_answer(session_id, text):
+    """Keep the reply `afterAgentResponse` handed over, best effort."""
+    if not session_id or not text:
+        return
+    path = answer_path(session_id)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(str(text)[-4000:])
+    except OSError:
+        pass
+
+
+def last_answer(session_id):
+    """The reply remembered for this conversation, or ""."""
+    try:
+        with open(answer_path(session_id)) as fh:
+            return fh.read()
+    except OSError:
+        return ""
 
 
 def main():
@@ -142,6 +179,22 @@ def main():
         reason = decision(gate_tool, inp, cwd, session_id)
         out = ({"permission": "deny", "agent_message": reason}
                if reason else dict(ALLOW))
+    elif event == "afterAgentResponse":
+        # the reply is only available here; `stop` reads it back
+        remember_answer(session_id, payload.get("text") or "")
+        out = {}
+    elif event == "stop":
+        # Cursor's Stop surface: the platform treats a "block" decision as an
+        # automatic follow-up, and the native spelling is `followup_message`.
+        # Only a finished turn is nudged - an aborted or errored one has no claim
+        # to check - and `loop_count` is the platform's own cap on follow-ups.
+        out = {}
+        if (payload.get("status") in (None, "completed")
+                and not payload.get("stop_hook_active") and not off("verify-off")
+                and under(cwd)):
+            reason = stop_reason(last_answer(session_id), session_id)
+            if reason:
+                out = {"decision": "block", "reason": reason}
     elif event == "beforeSubmitPrompt":
         # per-turn: the reminder plus whichever conditional rule this prompt's
         # task class arms (context_for classifies the submitted prompt)

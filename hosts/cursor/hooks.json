@@ -25,6 +25,9 @@
     "afterFileEdit": [
       { "command": "python3 \"@CURSOR_HOOK@\"", "timeout": 10 }
     ],
+    "afterAgentResponse": [
+      { "command": "python3 \"@CURSOR_HOOK@\"", "timeout": 5 }
+    ],
     "subagentStart": [
       { "command": "python3 \"@CURSOR_HOOK@\"", "timeout": 5 }
     ],

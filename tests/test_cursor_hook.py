@@ -57,6 +57,46 @@ class CursorHook(TempHome):
         out = self.call({"hook_event_name": "beforeSubmitPrompt", "cwd": self.repo})
         self.assertEqual(out, {"continue": True})
 
+    # ---- the Stop rule (reply from afterAgentResponse, decision at stop) ---
+    def response(self, text):
+        return self.call({"hook_event_name": "afterAgentResponse", "cwd": self.repo,
+                          "conversation_id": "s", "text": text})
+
+    def stop(self, **extra):
+        payload = {"hook_event_name": "stop", "cwd": self.repo,
+                   "conversation_id": "s", "status": "completed"}
+        payload.update(extra)
+        return self.call(payload)
+
+    def test_stop_blocks_a_done_claim_no_check_backs(self):
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "ls"}})
+        self.response("Done. All tests pass.")
+        out = self.stop()
+        self.assertEqual(out.get("decision"), "block")
+        self.assertTrue(out["reason"])
+
+    def test_stop_passes_a_verified_done_claim(self):
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "pytest -q"}})
+        self.response("Done. All tests pass.")
+        self.assertEqual(self.stop(), {})
+
+    def test_stop_passes_a_claim_free_answer(self):
+        self.response("Toplam 5 dosya incelendi.")
+        self.assertEqual(self.stop(), {})
+
+    def test_stop_ignores_an_aborted_turn(self):
+        self.response("Done. All tests pass.")
+        self.assertEqual(self.stop(status="aborted"), {})
+
+    def test_stop_is_inert_outside_the_roots(self):
+        self.call({"hook_event_name": "afterAgentResponse", "cwd": self.home,
+                   "conversation_id": "s2", "text": "Done. All tests pass."})
+        self.assertEqual(self.stop(cwd=self.home, conversation_id="s2"), {})
+
 
 class CursorHookThroughTheInstalledLink(TempHome):
     """tezgah-setup wires cursor to ~/.config/tezgah/bin/tezgah-cursor-hook, a
