@@ -324,7 +324,7 @@ la même erreur ne puisse pas se répéter silencieusement.
 
 Mesuré sur cette machine (macOS, Python 3.10), et non estimé :
 
-- **Contexte.** Un démarrage de session injecte ~4,8 Ko (~1,2k tokens) de texte de contrat.
+- **Contexte.** Un démarrage de session injecte ~4,8 Ko (~1,3k tokens) de texte de contrat.
   Sur Codex, un rappel de 480 octets accompagne chaque tour ; Claude et les autres hôtes n'ont
   pas de hook par tour, leur coût par tour est donc nul. La compétence complète `tezgah-contract`
   (~19,9k caractères) n'est payée que lorsqu'une tâche la charge. Sur opencode le contrat est fourni

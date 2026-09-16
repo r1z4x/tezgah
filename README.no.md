@@ -346,14 +346,14 @@ samme feilen ikke kan gjentas i stillhet.
 
 Målt på denne maskinen (macOS, Python 3.10), ikke estimert:
 
-- **Kontekst.** En øktoppstart injiserer ~4,8 KB (~1,2k tokens) med kontrakttekst.
+- **Kontekst.** En øktoppstart injiserer ~5,4 KB (~1,3k tokens) med kontrakttekst.
   På Codex følger en 480-byte påminnelse med hver tur; Claude og de andre vertene har
   ingen hook per tur, så deres kostnad per tur er null. Den fulle `tezgah-contract`-ferdigheten
   (~19,9k tegn) betales bare når en oppgave laster den. På opencode leveres
-  kontrakten som en ~5,5 KB instruksjonsfil. opencode ville ellers
-  injisert ~53 KB med tekst for ferdighetsnavn/-beskrivelse/-plassering i hver økts
+  kontrakten som en ~5,8 KB instruksjonsfil. opencode ville ellers
+  injisert tekst for ferdighetsnavn/-beskrivelse/-plassering i hver økts
   system-prompt; tezgah nekter den listen (`permission.skill = deny`) og leverer
-  en generert ~16 KB ferdighetsruter i stedet, slik at en ferdighet finnes ved å lese dens
+  en generert ferdighetsruter i stedet, slik at en ferdighet finnes ved å lese dens
   `SKILL.md`-sti fra ruteren.
 - **Forsinkelse (Latency).** Hooks er separate Python-prosesser, så oppstarten av tolken på ~19 ms
   dominerer. På toppen av dette legger øktoppstart til ~25 ms, et portstyrt verktøykall

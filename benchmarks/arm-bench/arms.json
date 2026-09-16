@@ -3,72 +3,162 @@
     "name": "opencode+tezgah",
     "host": "opencode",
     "harness": "tezgah",
-    "cmd": ["opencode", "run", "--format", "json", "--dir", "{cwd}", "--model", "{model}", "{prompt}"],
+    "cmd": [
+      "opencode",
+      "run",
+      "--format",
+      "json",
+      "--dir",
+      "{cwd}",
+      "--model",
+      "{model}",
+      "{prompt}"
+    ],
     "env": {},
-    "toggle": "default install: tezgah plugin + instructions files are active",
-    "flag_verified": false
+    "toggle": "default install: the tezgah plugin, its instructions files and permission.skill=deny are all active",
+    "flag_verified": true,
+    "verification": "`opencode run --print-logs` loads ~/.config/opencode/opencode.json, which carries the tezgah instructions and the plugin symlink"
   },
   {
     "name": "opencode-bare",
     "host": "opencode",
     "harness": "none",
-    "cmd": ["opencode", "run", "--pure", "--format", "json", "--dir", "{cwd}", "--model", "{model}", "{prompt}"],
-    "env": {"OPENCODE_CONFIG": "{bare}/opencode.json"},
-    "toggle": "--pure disables external plugins (verified from `opencode run --help`); OPENCODE_CONFIG is NOT verified against opencode 1.18.31, so confirm it points at a config without the tezgah instructions before scoring this arm",
-    "flag_verified": false
+    "cmd": [
+      "opencode",
+      "run",
+      "--format",
+      "json",
+      "--dir",
+      "{cwd}",
+      "--model",
+      "{model}",
+      "{prompt}"
+    ],
+    "env": {
+      "XDG_CONFIG_HOME": "{root}/arms/opencode-bare"
+    },
+    "toggle": "an isolated opencode config carrying ONLY the same mcp block as the tezgah arm: no instructions, no permission.skill deny, no plugin",
+    "flag_verified": true,
+    "verification": "`opencode run --print-logs` with that XDG_CONFIG_HOME loads <arm>/opencode/opencode.json instead of ~/.config/opencode/opencode.json; the other two sources it also loads (~/.opencode/opencode.json and the Orca shared config) are both empty"
   },
   {
     "name": "codex+tezgah",
     "host": "codex",
     "harness": "tezgah",
-    "cmd": ["codex", "exec", "--json", "-C", "{cwd}", "--model", "{model}", "{prompt}"],
+    "cmd": [
+      "codex",
+      "exec",
+      "--json",
+      "-C",
+      "{cwd}",
+      "--model",
+      "{model}",
+      "{prompt}"
+    ],
     "env": {},
     "toggle": "default install: $CODEX_HOME/config.toml and execpolicy rules are loaded",
-    "flag_verified": false
+    "flag_verified": false,
+    "verification": "not verified: do not score this arm yet"
   },
   {
     "name": "codex-bare",
     "host": "codex",
     "harness": "none",
-    "cmd": ["codex", "exec", "--json", "--ignore-user-config", "--ignore-rules", "-C", "{cwd}", "--model", "{model}", "{prompt}"],
+    "cmd": [
+      "codex",
+      "exec",
+      "--json",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "-C",
+      "{cwd}",
+      "--model",
+      "{model}",
+      "{prompt}"
+    ],
     "env": {},
     "toggle": "--ignore-user-config + --ignore-rules (both verified from `codex exec --help`)",
-    "flag_verified": true
+    "flag_verified": false,
+    "verification": "not verified: do not score this arm yet"
   },
   {
     "name": "claude+tezgah",
     "host": "claude",
     "harness": "tezgah",
-    "cmd": ["claude", "-p", "--output-format", "json", "--model", "{model}", "{prompt}"],
+    "cmd": [
+      "claude",
+      "-p",
+      "--output-format",
+      "json",
+      "--model",
+      "{model}",
+      "{prompt}"
+    ],
     "env": {},
     "toggle": "default install: ~/.claude/settings.json hooks and the tezgah output style are active",
-    "flag_verified": false
+    "flag_verified": false,
+    "verification": "not verified: do not score this arm yet"
   },
   {
     "name": "claude-bare",
     "host": "claude",
     "harness": "none",
-    "cmd": ["claude", "-p", "--output-format", "json", "--model", "{model}", "{prompt}"],
-    "env": {"CLAUDE_CONFIG_DIR": "{bare}/claude"},
+    "cmd": [
+      "claude",
+      "-p",
+      "--output-format",
+      "json",
+      "--model",
+      "{model}",
+      "{prompt}"
+    ],
+    "env": {
+      "CLAUDE_CONFIG_DIR": "{bare}/claude"
+    },
     "toggle": "CLAUDE_CONFIG_DIR is the documented isolation knob but is NOT in `claude --help`, so this arm is unverified: run it and check that no tezgah hook fired before trusting the pair",
-    "flag_verified": false
+    "flag_verified": false,
+    "verification": "not verified: do not score this arm yet"
   },
   {
     "name": "omp+tezgah",
     "host": "omp",
     "harness": "tezgah",
-    "cmd": ["omp", "-p", "--mode", "json", "--cwd", "{cwd}", "--model", "{model}", "{prompt}"],
+    "cmd": [
+      "omp",
+      "-p",
+      "--mode",
+      "json",
+      "--cwd",
+      "{cwd}",
+      "--model",
+      "{model}",
+      "{prompt}"
+    ],
     "env": {},
     "toggle": "default install: the managed RULES.md and the omp hook are active",
-    "flag_verified": false
+    "flag_verified": false,
+    "verification": "not verified: do not score this arm yet"
   },
   {
     "name": "omp-bare",
     "host": "omp",
     "harness": "none",
-    "cmd": ["omp", "-p", "--mode", "json", "--profile", "arm-bench-bare", "--cwd", "{cwd}", "--model", "{model}", "{prompt}"],
+    "cmd": [
+      "omp",
+      "-p",
+      "--mode",
+      "json",
+      "--profile",
+      "arm-bench-bare",
+      "--cwd",
+      "{cwd}",
+      "--model",
+      "{model}",
+      "{prompt}"
+    ],
     "env": {},
     "toggle": "--profile uses an isolated profile for auth, sessions and settings (verified from `omp --help`); create the empty profile once before scoring",
-    "flag_verified": true
+    "flag_verified": false,
+    "verification": "not verified: do not score this arm yet"
   }
 ]

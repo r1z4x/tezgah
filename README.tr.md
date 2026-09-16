@@ -348,14 +348,14 @@ enjekte edilir, böylece aynı hata sessizce tekrarlanamaz.
 
 Tahmin edilmemiş, bu makinede (macOS, Python 3.10) ölçülmüştür:
 
-- **Bağlam (Context).** Bir oturum başlangıcı ~4.8 KB (~1.2k token) sözleşme metni enjekte eder.
+- **Bağlam (Context).** Bir oturum başlangıcı ~5.4 KB (~1.3k token) sözleşme metni enjekte eder.
   Codex'te her turda 480 baytlık bir hatırlatıcı yer alır; Claude ve diğer barındırıcıların
   tur başına kancası yoktur, bu nedenle tur başına maliyetleri sıfırdır. Tam `tezgah-contract`
   yeteneği (~25k karakter) yalnızca bir görev onu yüklediğinde ödenir. opencode'da
   sözleşme ~5.8 KB'lık bir talimat dosyası olarak gönderilir. opencode aksi takdirde
-  her oturumun sistem istemine ~53 KB'lık yetenek adı/açıklaması/konumu metni enjekte ederdi;
+  her oturumun sistem istemine yetenek adı/açıklaması/konumu metni enjekte ederdi;
   tezgah bu listeyi reddeder (`permission.skill = deny`) ve bunun yerine oluşturulmuş
-  ~16 KB'lık bir yetenek yönlendiricisi gönderir, böylece bir yetenek yönlendiriciden
+  bir yetenek yönlendiricisi gönderir, böylece bir yetenek yönlendiriciden
   `SKILL.md` yolu okunarak bulunur.
 - **Gecikme (Latency).** Kancalar ayrı Python süreçleridir, bu nedenle ~19 ms'lik yorumlayıcı
   başlangıcı baskındır. Bunun üzerine, oturum başlangıcı ~25 ms, geçitli bir araç çağrısı

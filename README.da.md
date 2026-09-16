@@ -344,14 +344,14 @@ samme fejl ikke kan gentage sig i stilhed.
 
 Målt på denne maskine (macOS, Python 3.10), ikke estimeret:
 
-- **Kontekst.** En sessionsstart injicerer ~4,8 KB (~1,2k tokens) kontrakttekst.
+- **Kontekst.** En sessionsstart injicerer ~5,4 KB (~1,3k tokens) kontrakttekst.
   På Codex følger en 480-byte påmindelse med hver tur; Claude og de andre værter har
   ingen hook pr. tur, så deres omkostning pr. tur er nul. Den fulde `tezgah-contract`-skill
   (~19,9k tegn) betales kun, når en opgave indlæser den. På opencode leveres
-  kontrakten som en ~5,5 KB instruktionsfil. opencode ville ellers
-  injicere ~53 KB tekst med skill-navn/beskrivelse/placering i hver sessions
+  kontrakten som en ~5,8 KB instruktionsfil. opencode ville ellers
+  injicere tekst med skill-navn/beskrivelse/placering i hver sessions
   systemprompt; tezgah afviser den liste (`permission.skill = deny`) og leverer
-  i stedet en genereret ~16 KB skill-router, så en skill findes ved at læse dens
+  i stedet en genereret skill-router, så en skill findes ved at læse dens
   `SKILL.md`-sti fra routeren.
 - **Forsinkelse.** Hooks er separate Python-processer, så fortolkerens start på ~19 ms
   dominerer. Oven i det tilføjer sessionsstart ~25 ms, et portstyret værktøjskald

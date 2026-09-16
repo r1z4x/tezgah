@@ -347,14 +347,14 @@ stesso errore non possa ripetersi silenziosamente.
 
 Misurati su questa macchina (macOS, Python 3.10), non stimati:
 
-- **Contesto.** L'avvio di una sessione inietta ~4,8 KB (~1,2k token) di testo del contratto.
+- **Contesto.** L'avvio di una sessione inietta ~5,4 KB (~1,3k token) di testo del contratto.
   Su Codex un promemoria di 480 byte accompagna ogni turno; Claude e gli altri host non
   hanno hook per turno, quindi il loro costo per turno è zero. La skill completa `tezgah-contract`
   (~19,9k caratteri) viene pagata solo quando un'attività la carica. Su opencode il
-  contratto viene fornito come file di istruzioni di ~5,5 KB. opencode inietterebbe altrimenti
-  ~53 KB di testo con nome/descrizione/posizione delle skill nel prompt di sistema di ogni sessione;
-  tezgah nega quella lista (`permission.skill = deny`) e fornisce invece un router di skill generato
-  di ~16 KB, in modo che una skill venga trovata leggendo il suo percorso `SKILL.md` dal router.
+  contratto viene fornito come file di istruzioni di ~5,8 KB. opencode inietterebbe altrimenti
+  testo con nome/descrizione/posizione delle skill nel prompt di sistema di ogni sessione;
+  tezgah nega quella lista (`permission.skill = deny`) e fornisce invece un router di skill generato,
+  in modo che una skill venga trovata leggendo il suo percorso `SKILL.md` dal router.
 - **Latenza.** Gli hook sono processi Python separati, quindi l'avvio dell'interprete di ~19 ms
   domina. Oltre a questo, l'avvio della sessione aggiunge ~25 ms, una chiamata a uno strumento con gate
   (Bash/Grep/Task) aggiunge ~9 ms, e il segmento Stop di Codex aggiunge ~15 ms per turno.

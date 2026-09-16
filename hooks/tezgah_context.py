@@ -55,6 +55,8 @@ CORE_RULES = (
     ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
     ("integrity", '**Integrity: evidence, or "doğrulanmadı".**'),
     ("loop", "**Loop discipline.**"),
+    ("safety", "**Irreversible or outward-facing actions need an explicit ask "
+               "first.**"),
     ("spec", "**Spec before building.**"),
     ("lessons", "**Lessons ledger: stop repeating mistakes.**"),
     ("cbm", "**Code discovery: graph first.**"),
@@ -355,6 +357,36 @@ def always_on_core():
     return "\n\n".join(always).strip() + "\n\n" + POINTERS.strip()
 
 
+def subagent_core(core=None):
+    """The invariants as a labelled brief, for a delegated agent.
+
+    A subagent is a fresh context that must know every rule exists, but it does
+    not need the long-form rationale the main thread pays for once: each rule
+    keeps its bold label and its opening clause, and the full text stays one hop
+    away in the `tezgah-contract` skill. The brief is built from CORE_RULES, so
+    it can neither drop a rule nor invent one, and a test asserts exactly that."""
+    text = core or always_on_core()
+    paragraphs = {}
+    for block in text.split("\n\n"):
+        if block.startswith("**") and "**" in block[2:]:
+            paragraphs[block.split("**")[1]] = block
+    short = []
+    for key, label in CORE_RULES:
+        if key in CONDITIONAL_KEYS:
+            continue
+        block = paragraphs.get(label.strip("*"))
+        if block is None:
+            continue
+        body = block.split("**", 2)[2].strip()
+        first = body.split(". ", 1)[0].strip()
+        if first and not first.endswith((".", ":")):
+            first += "."
+        short.append("%s %s" % (label, first) if first else label)
+    return ("**Contract.** Full text in the `tezgah-contract` skill; the rules "
+            "below are the short form and all of them are in force.\n\n"
+            + "\n".join(short))
+
+
 def context_for(event, cwd, payload=None, with_core=True):
     """The context block for a normalized event, or None when out of scope.
 
@@ -401,7 +433,8 @@ def context_for(event, cwd, payload=None, with_core=True):
     # plus live index/consult state. The deep orchestration/exec detail moved
     # out of the every-session payload into the tezgah-contract skill, which
     # the last line tells the model to load on demand.
-    parts = [core] if with_core else []
+    parts = [subagent_core(core) if event == "subagent_start" else core] \
+        if with_core else []
     _, marks = repo_marks(cwd)
     if ".no-cbm" in marks:
         parts.append("Graph: disabled for this repo (.no-cbm), so use grep/find "

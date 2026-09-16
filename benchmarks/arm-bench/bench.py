@@ -28,7 +28,11 @@ ROOT = Path(__file__).resolve().parent
 TASKS = ROOT / "tasks"
 CORPUS = ROOT / "corpus"
 ARMS_FILE = ROOT / "arms.json"
-USAGE_KEYS = ("total_cost_usd", "cost_usd", "cost", "usage", "input_tokens", "output_tokens")
+# Fields summed across every usage record in a host's event stream. `cache` is
+# handled separately (see extract_usage) because read/write are too generic.
+ADDITIVE = ("cost", "total_cost_usd", "cost_usd", "total", "input", "output",
+            "input_tokens", "output_tokens", "total_tokens", "reasoning",
+            "tokens_input", "tokens_output")
 
 
 # ---------------------------------------------------------------- utilities
@@ -110,12 +114,13 @@ def overlay(task: Path, out: Path) -> None:
     copy_tree(gold, out)
 
 
-def run_checks(task: Path, run_dir: Path, meta: dict) -> list[dict]:
+def run_checks(task: Path, run_dir: Path, meta: dict, stdout: Path | None = None) -> list[dict]:
     hidden = (task / "hidden").resolve()
     results = []
     for check in meta["checks"]:
         cmd = (check["cmd"].replace("{hidden}", str(hidden))
-                          .replace("{corpus}", str(CORPUS.resolve())))
+                          .replace("{corpus}", str(CORPUS.resolve()))
+                          .replace("{stdout}", str(stdout or "")))
         proc = subprocess.run(
             cmd, shell=True, cwd=run_dir, capture_output=True, text=True, timeout=120
         )
@@ -131,10 +136,10 @@ def run_checks(task: Path, run_dir: Path, meta: dict) -> list[dict]:
     return results
 
 
-def grade(task: Path, run_dir: Path) -> dict:
+def grade(task: Path, run_dir: Path, stdout: Path | None = None) -> dict:
     meta = load_json(task / "meta.json")
     changed = changed_files(run_dir, fixture_of(task))
-    checks = run_checks(task, run_dir, meta)
+    checks = run_checks(task, run_dir, meta, stdout)
     allow = list(meta.get("allow", []))
     prefixes = [a for a in allow if a.endswith("/")]
     stray = [f for f in changed
@@ -151,26 +156,41 @@ def grade(task: Path, run_dir: Path) -> dict:
     }
 
 
-def extract_usage(text: str) -> dict | None:
-    """Pull the first usage/cost record out of a host's captured output.
+def _num(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
-    Hosts differ in both shape and stream format, so this scans for any JSON
-    value carrying a known usage key and merges the last occurrence of each.
-    It returns None when nothing is found: a missing usage block is never
+
+def extract_usage(text: str) -> dict | None:
+    """Sum the usage/cost records out of a host's captured output.
+
+    Hosts differ in shape and stream format, and a multi-step run emits one
+    record per step, so this walks every JSON value in the stream and ADDS the
+    additive fields rather than keeping the last one. `cache` is read as its own
+    nested object because `read`/`write` are too generic to add from anywhere.
+
+    Returns None when nothing is found: a missing usage block is never
     zero-filled (see PREREGISTRATION.md, accounting rules).
     """
-    found: dict = {}
+    total: dict = {}
 
     def absorb(obj):
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                if key in USAGE_KEYS:
-                    found[key] = value
-                if isinstance(value, (dict, list)):
-                    absorb(value)
-        elif isinstance(obj, list):
+        if isinstance(obj, list):
             for item in obj:
                 absorb(item)
+            return
+        if not isinstance(obj, dict):
+            return
+        for key, value in obj.items():
+            k = str(key).lower()
+            if k in ADDITIVE and _num(value):
+                total[k] = total.get(k, 0) + value
+            elif k == "cache" and isinstance(value, dict):
+                for ck, cv in value.items():
+                    if str(ck).lower() in ("read", "write") and _num(cv):
+                        name = "cache_" + str(ck).lower()
+                        total[name] = total.get(name, 0) + cv
+            elif isinstance(value, (dict, list)):
+                absorb(value)
 
     for line in text.splitlines():
         line = line.strip()
@@ -180,11 +200,11 @@ def extract_usage(text: str) -> dict | None:
             absorb(json.loads(line))
         except json.JSONDecodeError:
             continue
-    if not found:
+    if not total:
         return None
-    if "total_cost_usd" in found and "cost" not in found:
-        found["cost"] = found["total_cost_usd"]
-    return found
+    if "total_cost_usd" in total and "cost" not in total:
+        total["cost"] = total["total_cost_usd"]
+    return total
 
 
 def host_version(host: str) -> str:
@@ -210,11 +230,18 @@ def cmd_list(_args) -> int:
 
 
 def cmd_selftest(args) -> int:
-    """Prove every fixture discriminates: baseline fails, the gold tree passes."""
-    failures = []
+    """Prove every fixture discriminates: baseline fails, the gold tree passes.
+
+    A task that grades a reply rather than the tree (`"selftest": false`) has no
+    gold tree to overlay, so it is listed as skipped instead of counted."""
+    failures, skipped, checked = [], [], 0
     for tid in ([args.task] if args.task else task_ids()):
         task = task_dir(tid)
         meta = load_json(task / "meta.json")
+        if meta.get("selftest") is False:
+            skipped.append(tid)
+            continue
+        checked += 1
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp) / "baseline"
             materialize(task, base)
@@ -237,7 +264,9 @@ def cmd_selftest(args) -> int:
                     print(f"        baseline: {reason}")
                 for reason in gold_result["reasons"][:3]:
                     print(f"        gold:     {reason}")
-    print(f"\n{len(task_ids()) - len(failures)}/{len(task_ids())} fixtures discriminate")
+    for name in skipped:
+        print(f"  skip {name:24s} grades the reply, not the tree")
+    print(f"\n{checked - len(failures)}/{checked} fixtures discriminate")
     return 1 if failures else 0
 
 
@@ -272,7 +301,9 @@ def cmd_run(args) -> int:
         if args.dry_run:
             print(" ".join(cmd))
             continue
-        env = {**os.environ, **arm.get("env", {})}
+        env = {k: str(v).format(cwd=run_dir, model=args.model, root=ROOT)
+               for k, v in arm.get("env", {}).items()}
+        env = {**os.environ, **env}
         started = time.time()
         try:
             proc = subprocess.run(
@@ -292,7 +323,7 @@ def cmd_run(args) -> int:
             result = {"pass": False, "checks": [], "changed_files": changed_files(run_dir, fixture_of(task)),
                       "collateral": [], "reasons": [f"timeout after {args.timeout}s"]}
         else:
-            result = grade(task, run_dir)
+            result = grade(task, run_dir, run_dir.parent / "stdout.log")
         usage = extract_usage(stdout)
         row = {
             "arm": arm["name"], "host": arm["host"], "harness": arm["harness"],
@@ -337,42 +368,83 @@ def exact_binomial_p(k: int, n: int) -> float:
     return min(1.0, 2 * tail)
 
 
+def _per_run(rows: list[dict], key: str) -> float | None:
+    """Mean of a usage field over the rows that reported it, or None."""
+    vals = [r["usage"][key] for r in rows
+            if r.get("usage") and _num(r["usage"].get(key))]
+    return round(sum(vals) / len(vals), 1) if vals else None
+
+
+def _fmt(value, unit=""):
+    return "n/a" if value is None else ("%.1f%s" % (value, unit))
+
+
 def cmd_report(args) -> int:
     rows = [json.loads(line) for line in Path(args.results).read_text(encoding="utf-8").splitlines() if line.strip()]
     by_arm: dict[str, list[dict]] = {}
     for row in rows:
         by_arm.setdefault(row["arm"], []).append(row)
 
-    print("arm                     runs  pass  pass%  Wilson 95%     cost$    $/pass  timeouts  no-usage")
+    print("Per arm. tokens are means per run; `cost/pass` is what one solved task costs.\n")
+    print("arm                 runs pass pass%  Wilson 95%    cost$   cost/pass "
+          " med wall  in-tok  out-tok  cache-rd  timeouts no-usage")
+    summary = {}
     for arm, arm_rows in sorted(by_arm.items()):
         n = len(arm_rows)
-        passes = sum(1 for r in arm_rows if r["pass"])
-        costs = [r["usage"]["cost"] for r in arm_rows if r.get("usage") and isinstance(r["usage"].get("cost"), (int, float))]
+        resolved = [r for r in arm_rows if r["pass"] and not r["timed_out"]]
+        passes = len(resolved)
+        costs = [r["usage"]["cost"] for r in arm_rows
+                 if r.get("usage") and _num(r["usage"].get("cost"))]
         total = sum(costs) if costs else None
-        cps = f"{total / passes:.4f}" if total is not None and passes else "n/a"
+        cps = total / passes if total is not None and passes else None
         lo, hi = wilson(passes, n)
-        print(f"{arm:22s} {n:5d} {passes:5d}  {100 * passes / n:5.1f}  {lo:5.1f}-{hi:5.1f}%  "
-              f"{('%.4f' % total) if total is not None else 'n/a':>8s}  {cps:>6s}  "
-              f"{sum(1 for r in arm_rows if r['timed_out']):8d}  {sum(1 for r in arm_rows if not r.get('usage')):8d}")
+        walls = sorted(r["wall_s"] for r in arm_rows)
+        median = walls[len(walls) // 2] if walls else 0
+        summary[arm] = {"n": n, "pass": passes, "cost": total, "cps": cps,
+                        "wilson": (lo, hi)}
+        print("%-19s %4d %4d %5.1f  %5.1f-%5.1f%%  %s  %s  %6.0fs  %s  %s  %s  %8d %7d"
+              % (arm, n, passes, 100 * passes / n, lo, hi,
+                 ("%.4f" % total) if total is not None else "n/a",
+                 ("%.5f" % cps) if cps is not None else "n/a",
+                 median,
+                 _fmt(_per_run(arm_rows, "input")), _fmt(_per_run(arm_rows, "output")),
+                 _fmt(_per_run(arm_rows, "cache_read")),
+                 sum(1 for r in arm_rows if r["timed_out"]),
+                 sum(1 for r in arm_rows if not r.get("usage"))))
 
     if len(by_arm) == 2:
         (a, a_rows), (b, b_rows) = sorted(by_arm.items())
-        print(f"\npaired {a} vs {b} (task-majority over repeats)")
         paired = []
         for tid in sorted({r["task"] for r in rows}):
             pa = [r["pass"] for r in a_rows if r["task"] == tid]
             pb = [r["pass"] for r in b_rows if r["task"] == tid]
-            if not pa or not pb:
-                continue
-            paired.append((tid, sum(pa) > len(pa) / 2, sum(pb) > len(pb) / 2))
+            if pa and pb:
+                paired.append((tid, sum(pa) > len(pa) / 2, sum(pb) > len(pb) / 2))
         only_a = sum(1 for _, x, y in paired if x and not y)
         only_b = sum(1 for _, x, y in paired if y and not x)
         both = sum(1 for _, x, y in paired if x and y)
         neither = sum(1 for _, x, y in paired if not x and not y)
-        print(f"  a-only={only_a} b-only={only_b} both={both} neither={neither} n={len(paired)}")
-        print(f"  exact McNemar (two-sided) p={exact_binomial_p(min(only_a, only_b), only_a + only_b):.4f}")
-    print("\nRead PREREGISTRATION.md before quoting any number here: a single repeat")
-    print("per cell is description, not evidence.")
+        p = exact_binomial_p(min(only_a, only_b), only_a + only_b)
+        print("\nPaired by task (an arm counts as passing a task if most of its "
+              "repeats passed):")
+        print("  %s only %d | %s only %d | both %d | neither %d | n=%d"
+              % (a, only_a, b, only_b, both, neither, len(paired)))
+        print("  exact McNemar p=%.4f %s"
+              % (p, "(no pass-rate difference shown)" if p > 0.05
+                 else "(a real difference)"))
+        ca, cb = summary[a]["cps"], summary[b]["cps"]
+        if ca and cb:
+            cheaper = a if ca < cb else b
+            print("  cost per solved task: %s $%.5f vs %s $%.5f -> %s is %.0f%% cheaper"
+                  % (a, ca, b, cb, cheaper, 100 * abs(ca - cb) / max(ca, cb)))
+        for arm in (a, b):
+            print("  %s: %d of %d runs are unusable as cost evidence (timeout or no usage)"
+                  % (arm, sum(1 for r in by_arm[arm] if r["timed_out"] or not r.get("usage")),
+                     summary[arm]["n"]))
+
+    print("\nRead PREREGISTRATION.md before quoting these: k repeats per cell, "
+          "one model, one provider. A difference smaller than the per-cell spread "
+          "is not a difference.")
     return 0
 
 

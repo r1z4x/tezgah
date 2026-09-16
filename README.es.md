@@ -347,14 +347,14 @@ el mismo error no pueda repetirse silenciosamente.
 
 Medido en esta máquina (macOS, Python 3.10), no estimado:
 
-- **Contexto.** Un inicio de sesión inyecta ~4.8 KB (~1.2k tokens) de texto de contrato.
+- **Contexto.** Un inicio de sesión inyecta ~5.4 KB (~1.3k tokens) de texto de contrato.
   En Codex, un recordatorio de 480 bytes acompaña cada turno; Claude y los otros hosts
   no tienen un hook por turno, por lo que su costo por turno es cero. La habilidad completa `tezgah-contract`
   (~25k caracteres) se paga solo cuando una tarea la carga. En opencode, el contrato se envía como un
   archivo de instrucciones de ~5.8 KB. De lo contrario, opencode
-  inyectaría ~53 KB de texto de nombre/descripción/ubicación de habilidades en el prompt del sistema de cada sesión;
+  inyectaría texto de nombre/descripción/ubicación de habilidades en el prompt del sistema de cada sesión;
   tezgah deniega esa lista (`permission.skill = deny`) y en su lugar envía
-  un enrutador de habilidades generado de ~16 KB, por lo que una habilidad se encuentra leyendo su
+  un enrutador de habilidades generado, por lo que una habilidad se encuentra leyendo su
   ruta `SKILL.md` desde el enrutador.
 - **Latencia.** Los hooks son procesos de Python separados, por lo que el inicio del intérprete de ~19 ms domina.
   Además de eso, el inicio de sesión agrega ~25 ms, una llamada a herramienta controlada
