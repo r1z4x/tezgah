@@ -36,7 +36,7 @@ Implemented on branch `plan/004-contract-abs-paths` (commit `a47b649`); not merg
 - Verified by rendering CORE/RESEARCH/REMINDER in-process and by generating
   `opencode-contract.md` in a throwaway HOME: zero bare `bin/consult` /
   `bin/codegen` / `through the orx CLI`, the absolute consult path is present,
-  and orx renders as `/Users/rizax/.cargo/bin/orx`.
+  and orx renders as `~/.cargo/bin/orx`.
 - Note on the report's check: `grep -c 'bin/consult'` also matches the tail of
   the absolute path `…/tezgah/bin/consult`, so it is not 0 even when correct;
   the precise check is a bare occurrence (`(?<!tezgah/)bin/consult`), which is 0.
