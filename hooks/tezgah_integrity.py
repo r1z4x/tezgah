@@ -226,8 +226,8 @@ def claims(text):
 
 
 def stop_reason(text, session_id, edited_hint=None):
-    """Why this turn must not end yet, or None. Used by the Stop hooks (Claude
-    and Codex, which share the payload fields and the block envelope).
+    """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
+    Codex and omp, which share the payload fields and the block envelope).
 
     Blocks only on evidence that is checkable: a placating opener, or a
     completion/verification claim in a session that changed code (or ran
