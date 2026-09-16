@@ -4,10 +4,6 @@
 line-length = 100
 target-version = "py38"
 
-# Benchmark fixtures keep deliberately buggy code and copied skill scripts; they
-# are test inputs, not repo code.
-exclude = ["benchmarks"]
-
 # Keep the historical ruff core rules explicit: newer ruff releases ship a much
 # broader default, and pinning the set keeps `ruff check .` stable in CI.
 [tool.ruff.lint]

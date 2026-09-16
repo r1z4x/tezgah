@@ -1,1 +1,0 @@
-inventory/ledger.py içinde farklı Ledger nesneleri aynı entries listesini paylaşıyor; ayrı Ledger'lar birbirinin kayıtlarını görüyor. Her nesnenin kendi kayıtları olacak şekilde kökten düzelt; total() ve zincirleme add() davranışı korunsun.

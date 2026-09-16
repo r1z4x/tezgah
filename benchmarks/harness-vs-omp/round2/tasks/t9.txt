@@ -1,1 +1,0 @@
-inventory/money.py içindeki format_money şu sözleşmeye uymalı: tutarı iki ondalıkla yaz, sonra bir boşluk, sonra para birimi kodu. Örnek: format_money(12.34) == "12.34 TL", format_money(5.0, "USD") == "5.00 USD". Negatif tutarlar da aynı kuralla. Fonksiyonu bu sözleşmeye göre düzelt.

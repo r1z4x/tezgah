@@ -1,1 +1,0 @@
-inventory/clock.py içindeki is_business_hours naive (tz'siz) datetime kabul etmemeli: tz-aware olmayan girdide ValueError yükselt. Davranış korunsun: hafta içi 09:00-17:00 arası True, hafta sonu ve saat dışı False.

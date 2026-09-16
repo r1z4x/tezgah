@@ -1,1 +1,0 @@
-inventory/format.py içindeki label fonksiyonunu tag olarak değiştir ve yeni bir upper=False parametresi ekle: upper=True iken metin büyük harfe çevrilsin. Tüm çağrı yerlerini güncelle. Var olan testleri bozma.

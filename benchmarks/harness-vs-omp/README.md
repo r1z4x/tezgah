@@ -1,8 +1,10 @@
 # Harness benchmark: tezgah vs oh-my-pi (omp)
 
 Compares the tezgah harness against [oh-my-pi](https://github.com/can1357/oh-my-pi)
-(`omp`) on automated coding tasks. Two rounds are preserved; raw per-run logs,
-JSON results, fixtures, tasks and the runners live beside this file.
+(`omp`) on automated coding tasks. Two rounds were run; only the scored results
+are published here (`round*/results.jsonl`, plus the round-2 `quality.jsonl`).
+The working data - fixtures, task prompts, hidden tests, the runners, the port
+configuration and the per-run logs - is not part of this repository.
 
 ## Arms
 
@@ -71,9 +73,9 @@ tokens and are billed ~22.4k fresh input each, while `omp+graph` reuses
 26.6k-27.9k. That repeats across tasks (several tasks have identical step counts
 but 5-28x the non-cached input).
 
-A component-removal probe (`probe-deepseek.log`, 7 variants x 2 runs, run via
-the DeepSeek provider because the OpenRouter key hit its spend limit after the
-scored run) isolates this:
+A component-removal probe (7 variants x 2 runs, run via the DeepSeek provider
+because the OpenRouter key hit its spend limit after the scored run) isolated
+this:
 
 - On DeepSeek direct the warm-cache penalty is only ~1.9k tokens once per
   session (port step-0 fresh input ~2,200 vs graph ~300), not the ~22k seen
@@ -88,7 +90,8 @@ scored run) isolates this:
 
 ## Code quality (round 2, naive metric `output` cannot see this)
 
-`quality.py` diffs every run against the pristine fixture. Median stats:
+Every run was diffed against the pristine fixture; `quality.jsonl` holds the
+per-run rows. Median stats:
 
 | Arm | Median added lines | Files touched/task | Comments added | Docstring lines | Turkish replies | Claims a verification |
 |---|---|---|---|---|---|---|
@@ -129,32 +132,22 @@ the first turn, so the cost side of each structure is visible:
 
 ```
 context budget (always-on text; ~tokens = chars/4):
-     core contract (per session)        ~ 1.2k tok    4836 chars
+     core contract (always-on, per session) ~ 0.8k tok    3214 chars
      per-turn reminder                  ~ 0.2k tok     621 chars
      skill metadata (8)                 ~ 1.1k tok    4255 chars
      subagent metadata (5)              ~ 0.2k tok     891 chars
-     full contract (on demand)          ~ 5.0k tok  (only when the skill is read)
+     conditional rules (armed by task class) ~ 0.6k tok    2231 chars
+     full contract (on demand)          ~ 5.1k tok  (only when the skill is read)
      MCP tool schemas                   host-side, not counted
 ```
 
-~2.7k tokens are always-on; the largest single band after the core is the skill
-metadata. MCP tool schemas are the host's size to report and are the one band
-this instrument cannot see.
+~2.3k tokens are always-on; the largest single band after the core is the skill
+metadata, and the conditional rules add ~0.6k only on the turn that arms them.
+MCP tool schemas are the host's size to report and are the one band this
+instrument cannot see.
 
-## Reproduce
-
-Round 2:
-
-```sh
-cd round2
-python3 run_bench2.py            # needs omp, opencode, codebase-memory-mcp, OPENROUTER_API_KEY
-python3 analyze2.py
-```
-
-Round 1: `cd round1 && python3 run_bench.py && python3 analyze2.py` (round 2 ships the analyzer).
-
-Per-run stdout/stderr are in `round*/logs.tar.gz`; the scored rows are
-`round*/results.jsonl`.
+opencode's own always-on is higher: its generated skill router is a second
+instructions file (see the main README's Cost section).
 
 ## Limitations
 

@@ -1,1 +1,0 @@
-inventory/textnorm.py içindeki normalize_name yetersiz: aynı ürün adının ayrık (decomposed) ve birleşik (composed) yazımları farklı sonuç veriyor. Fonksiyon şunları yapmalı: NFC Unicode normalizasyonu, baş/son boşluk temizliği, içteki ardışık boşlukları tek boşluğa indirme ve küçük harfe çevirme. Var olan testleri bozma.
