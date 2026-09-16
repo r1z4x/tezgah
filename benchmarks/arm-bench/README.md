@@ -209,11 +209,11 @@ blocks are the scored runs executed in this directory so far. The arm toggles
 marked `flag_verified: false` in `arms.json` must be validated before their rows
 are scored.
 
-The task set is **32 tasks over 21 families**: eight hand-built tasks
+The task set is **33 tasks over 21 families**: eight hand-built tasks
 (`tasks/t0*/`), twenty imported from the historical round-2 corpus (`tasks/c*/`),
-and the four hard tasks above (`tasks/h0*/`), sharing one fixture at
+and the five hard tasks above (`tasks/h0*/`), sharing one fixture at
 `corpus/inventory/` with reference solutions in each task's `gold/`.
-`python3 bench.py selftest` reads `31/31 fixtures discriminate`, plus one task
+`python3 bench.py selftest` reads `32/32 fixtures discriminate`, plus one task
 listed as skipped because it grades the reply rather than the tree
 (`c04-turkish-explain-readonly`, whose check reads the run's captured transcript
 with a published Turkish-marker detector and a stated threshold).
