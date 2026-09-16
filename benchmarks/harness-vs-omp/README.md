@@ -194,20 +194,20 @@ and real HOME, warm caches. The payloads are the shapes the tests drive: Claude
 | session start (`projects-auto-init.py`, SessionStart) | 65.6-65.7 ms | 63.7 | 74.9 | +47 to +48 |
 | session start, codex hook | 71.3-72.1 ms | 70.3 | 87.7 | +53 to +54 |
 | session start, omp hook | 71.3-71.6 ms | 69.6 | 80.9 | +53 to +54 |
-| session start, cursor hook | 72.2-72.3 ms | 69.8 | 79.6 | +54 |
+| session start, cursor hook | 72.2-72.3 ms | 69.8 | 79.6 | +53 to +54 |
 | gated call, Claude entry (`projects-pretooluse.py`, Bash) | 34.5-34.8 ms | 33.9 | 36.1 | +16 to +17 |
-| gated call, cursor hook (preToolUse, Shell) | 41.1-41.2 ms | 40.0 | 42.4 | +23 |
-| gated call, codex hook (PreToolUse, Bash) | 71.2-71.9 ms | 69.4 | 79.7 | +53 |
+| gated call, cursor hook (preToolUse, Shell) | 41.1-41.2 ms | 40.0 | 42.4 | +22 to +23 |
+| gated call, codex hook (PreToolUse, Bash) | 71.2-71.9 ms | 69.4 | 79.7 | +52 to +54 |
 
 Against the published row: the ~19 ms base holds (17.9-18.8 here, 20.0 in two
 earlier rounds), and the turn adds +28 to +31 across four rounds against the
-row's +31. Session start's 50-81 ms brackets the warm hosts at its lower end
-(+47 to +54 measured here); its top end is the colder omp run the publishing
-slice timed at 100.1 ms in total. The gated call's 24-25 ms is a pair of
-readings, not a band: cursor measures +23 here, close to it, while the Claude
-entry is +16 to +17 and the codex entry +53 with the payload above - the gate's
-work follows the payload it is handed, which is why the row quotes one pair and
-this table names the payloads behind the spread.
+row's +31. Session start's 50-81 ms starts a hair above the warm band measured
+here (+47 to +54 across the four hosts); its top end is the colder omp run the
+publishing slice timed at 100.1 ms in total. The gated call's 24-25 ms is a pair
+of readings, not a band: cursor measures +22 to +23 here, close to it, while the
+Claude entry is +16 to +17 and the codex entry +52 to +54 with the payload above
+- the gate's work follows the payload it is handed, which is why the row quotes
+one pair and this table names the payloads behind the spread.
 
 ## Limitations
 
