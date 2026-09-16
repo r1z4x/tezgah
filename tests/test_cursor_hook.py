@@ -58,5 +58,22 @@ class CursorHook(TempHome):
         self.assertEqual(out, {"continue": True})
 
 
+class CursorHookThroughTheInstalledLink(TempHome):
+    """tezgah-setup wires cursor to ~/.config/tezgah/bin/tezgah-cursor-hook, a
+    symlink; the hook must find the repo from the link path."""
+
+    def test_events_run_through_the_symlink(self):
+        repo = self.make_repo()
+        env = self.env()
+        env.pop("PYTHONPATH", None)  # the host's own environment carries none
+        link = support.linked(support.CURSOR_HOOK, self.home)
+        out, proc = run_json([link], {
+            "hook_event_name": "preToolUse", "cwd": repo,
+            "conversation_id": "s", "tool_name": "Shell",
+            "tool_input": {"command": "pytest -q || true"}}, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out["permission"], "deny")
+
+
 if __name__ == "__main__":
     unittest.main()

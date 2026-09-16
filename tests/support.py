@@ -56,6 +56,17 @@ def base_env(home, roots=None, extra=None):
     return env
 
 
+def linked(script, home, name=None):
+    """A ~/.config/tezgah/bin-style symlink to a host hook, as tezgah-setup
+    installs it. The hook must still find the repo from the link path."""
+    d = os.path.join(home, ".config", "tezgah", "bin")
+    os.makedirs(d, exist_ok=True)
+    link = os.path.join(d, name or os.path.basename(script))
+    if not os.path.exists(link):
+        os.symlink(script, link)
+    return link
+
+
 def run(args, payload=None, env=None, cwd=None):
     data = None if payload is None else json.dumps(payload)
     return subprocess.run(
