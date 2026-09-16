@@ -136,16 +136,21 @@ kaynağında kapatılır.
 ### Durum çubuğu
 
 Her barındırıcı, `tezgah-status`'tan aynı tek satırlık kontrol listesini oluşturur, böylece
-birbirlerinden sapamazlar. Önemli olan durumdur: bir işaret, kural bu oturumda devrede
-ve yürürlükte olduğunda **yeşil**, devrede ancak isteğe bağlı olduğunda (henüz kullanılmadığında)
-**sarı** ve bir acil durum anahtarı (kill switch) onu kapattığında **kırmızı** olur. `idx` grafik hazır olma durumunu
+birbirlerinden sapamazlar. Önemli olan durumdur: `isim✓` parçasının tamamı renklenir —
+kural bu oturumda devrede ve yürürlükte olduğunda **yeşil**, devrede ancak isteğe bağlı
+olduğunda (henüz kullanılmadığında) **sarı**, bir acil durum anahtarı (kill switch) onu
+kapattığında **kırmızı** ve durum taşımayan bir işaret için **soluk (dim)**. Glif her
+durumda yerinde kalır, yani renk ikinci bir kanaldır, tek kanal değil. `idx` grafik hazır olma durumunu
 ayrı olarak raporlar (`✓` indekslendi, `↻` bayat, `✗` indekslenmedi, `–` uygulanamaz) ve
 `plans N (M blk)` açık planları gösterir. `tezgah-status --legend` anahtarı yazdırır,
 `--json` bir kullanıcı arayüzü için aynı segmentleri verir ve `--no-color` (veya `NO_COLOR`)
 düz metne zorlar. Claude Code ve Cursor yerel durum çubuğunu renklendirir;
 opencode TUI kendi bileşenini renklendirir ve barındırıcı olay veriyolunda (event bus) yenilenir;
 dsh Web UI başlık bileşenini renklendirir ve yalnızca sekmesi görünürken yenilenir; Codex
-düz dizeyi `systemMessage` içinde gösterir.
+düz dizeyi `systemMessage` içinde gösterir; omp eklentisi renkli satırı
+`ctx.ui.setWidget` ile çizer, çünkü diğer yüzeyi olan `setStatus` kaçış dizilerini
+siler; satır oturum başlangıcında, oturum geçişinde, tur sonunda ve bir işareti
+kaydırabilecek her araç sonucunda yenilenir.
 
 dsh, aynı Claude kanca dosyalarını `dsh-hooks-claude-code` köprüsü üzerinden çalıştırır,
 bu nedenle oturum başlatma sözleşmesi, atıf geçidi ve ilk-grep dürtmesi (nudge)
@@ -346,8 +351,8 @@ Tahmin edilmemiş, bu makinede (macOS, Python 3.10) ölçülmüştür:
 - **Bağlam (Context).** Bir oturum başlangıcı ~4.8 KB (~1.2k token) sözleşme metni enjekte eder.
   Codex'te her turda 480 baytlık bir hatırlatıcı yer alır; Claude ve diğer barındırıcıların
   tur başına kancası yoktur, bu nedenle tur başına maliyetleri sıfırdır. Tam `tezgah-contract`
-  yeteneği (~19.9k karakter) yalnızca bir görev onu yüklediğinde ödenir. opencode'da
-  sözleşme ~5.5 KB'lık bir talimat dosyası olarak gönderilir. opencode aksi takdirde
+  yeteneği (~25k karakter) yalnızca bir görev onu yüklediğinde ödenir. opencode'da
+  sözleşme ~5.8 KB'lık bir talimat dosyası olarak gönderilir. opencode aksi takdirde
   her oturumun sistem istemine ~53 KB'lık yetenek adı/açıklaması/konumu metni enjekte ederdi;
   tezgah bu listeyi reddeder (`permission.skill = deny`) ve bunun yerine oluşturulmuş
   ~16 KB'lık bir yetenek yönlendiricisi gönderir, böylece bir yetenek yönlendiriciden

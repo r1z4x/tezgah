@@ -278,6 +278,47 @@ class PostToolUse(TempHome):
                   "tool_input": {"command": "pytest"}}, env=self.envv)
         self.assertEqual(self.kinds(), [])
 
+    def counters(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "counters", "session": self.session},
+                          env=self.envv)
+        return out
+
+    def test_counters_aggregate_what_the_ledger_saw(self):
+        # A gate refusal, a nudge, a passing check, a consult call and a codegen
+        # call that exited 2 - the numbers the report needs, from one ledger.
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"})
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note", "session": self.session, "kind": "deny",
+                  "detail": "attribution: Attribution is banned"}, env=self.envv)
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note", "session": self.session, "kind": "nudge",
+                  "detail": "proj"}, env=self.envv)
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": self.session, "tool": "Bash",
+                  "input": {"command": "consult 'is this safe?'"}, "failed": False},
+                 env=self.envv)
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": self.session, "tool": "Bash",
+                  "input": {"command": "codegen 'x' --files a.py"}, "failed": True},
+                 env=self.envv)
+
+        counts = self.counters()
+        self.assertEqual(counts["denies"], {"attribution": 1})
+        self.assertEqual(counts["nudges"], 1)
+        self.assertEqual(counts["consult"], 1)
+        self.assertEqual(counts["codegen"], 1)
+        self.assertEqual(counts["codegen_failed"], 1)
+        self.assertEqual(counts["kinds"]["verify_ok"], 1)
+        self.assertEqual(counts["events"], 5)
+
+    def test_an_unreported_outcome_is_not_counted_as_a_failure(self):
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": self.session, "tool": "Bash",
+                  "input": {"command": "codegen 'x'"}, "failed": None},
+                 env=self.envv)
+        self.assertEqual(self.counters()["codegen_failed"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

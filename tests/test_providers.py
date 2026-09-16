@@ -59,6 +59,16 @@ class Providers(unittest.TestCase):
         self.assertEqual(p.returncode, 1, p.stderr)
         self.assertIn("unknown argument --apply-to", p.stderr)
 
+    def test_consult_rejects_a_flag_without_a_value(self):
+        # A trailing flag used to miss its arm and fall through to the question
+        # arm, so the flag text became the prompt and a paid request went out
+        # for it, answered with exit 3 instead of the documented misuse exit 1.
+        for args in (("--provider",), ("--models",), ("--timeout",), ("q", "--models")):
+            p = self.invoke(CONSULT, *args)
+            self.assertEqual(p.returncode, 1, "%s: %s" % (args, p.stderr))
+            self.assertIn("needs a value", p.stderr)
+            self.assertNotIn("consulted:", p.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

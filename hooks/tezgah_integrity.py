@@ -126,16 +126,57 @@ def note(session_id, kind, detail=""):
 
 def kinds(session_id):
     """The distinct evidence kinds recorded for this session."""
-    out = set()
+    return {str(e.get("kind")) for e in events(session_id) if e.get("kind")}
+
+
+def events(session_id):
+    """Every parseable ledger entry for this session, oldest first."""
+    out = []
     try:
         with open(_path(session_id)) as fh:
             for line in fh:
                 try:
-                    out.add(json.loads(line)["kind"])
-                except (ValueError, KeyError, TypeError):
+                    out.append(json.loads(line))
+                except ValueError:
                     pass
     except OSError:
         pass
+    return out
+
+
+# Appended to a non-verify event's detail when the host reported its outcome, so
+# a failed run is countable without a new kind (kinds are pinned by tests and by
+# the Stop rule, detail is free text nothing parses).
+FAILED_MARK = "[exit!=0]"
+
+
+def counters(session_id):
+    """One session's ledger, aggregated: what the gate refused, what ran, what
+    failed, and which cheap-model tier was used.
+
+    This is the instrumentation the contract's own mechanisms need before
+    anyone can claim they help: a rule that never fires is indistinguishable
+    from a rule that is wrong."""
+    out = {"events": 0, "denies": {}, "nudges": 0, "kinds": {},
+           "consult": 0, "codegen": 0, "codegen_failed": 0, "fanout": 0}
+    for entry in events(session_id):
+        out["events"] += 1
+        kind = str(entry.get("kind") or "")
+        detail = str(entry.get("detail") or "")
+        out["kinds"][kind] = out["kinds"].get(kind, 0) + 1
+        if kind == "deny":
+            rule = detail.split(":", 1)[0].strip() or "other"
+            out["denies"][rule] = out["denies"].get(rule, 0) + 1
+        elif kind == "nudge":
+            out["nudges"] += 1
+        if "consult" in detail:
+            out["consult"] += 1
+        if "codegen" in detail:
+            out["codegen"] += 1
+            if detail.endswith(FAILED_MARK):
+                out["codegen_failed"] += 1
+    out["fanout"] = sum(out["kinds"].get(k, 0)
+                        for k in ("orch", "task", "agent", "subagent"))
     return out
 
 
@@ -287,9 +328,11 @@ def note_tool(session_id, tool, inp, failed=False):
         else:
             kind = "verify_fail" if failed else "verify_ok"
     if kind:
-        note(session_id, kind,
-             inp.get("command") or inp.get("file_path")
-             or inp.get("filePath") or "")
+        detail = (inp.get("command") or inp.get("file_path")
+                  or inp.get("filePath") or "")
+        if failed is not None and kind != "verify":
+            detail = "%s %s" % (detail, "[exit=0]" if not failed else FAILED_MARK)
+        note(session_id, kind, detail)
 
 
 def claims(text):

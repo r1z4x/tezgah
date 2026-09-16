@@ -15,7 +15,8 @@ window.__ModuleLoader__.load({
 
 		const REFRESH_MS = 10000;
 		// Fixed, theme-agnostic colors: the marks must read on light and dark.
-		const STATE_COLOR = { on: "#3fb950", ready: "#d29922", off: "#f85149" };
+		const STATE_COLOR = { on: "#3fb950", ready: "#d29922", off: "#f85149",
+			info: "var(--dsw-alias-label-tertiary)" };
 
 		/**
 		 * One status line for a session, polled from the host route only while the
@@ -77,12 +78,10 @@ window.__ModuleLoader__.load({
 							key: `${seg.key}-${i}`,
 							children: [
 								react_jsx_runtime.jsx("span", {
-									style: { color: "var(--dsw-alias-label-tertiary)" },
-									children: seg.text
-								}),
-								react_jsx_runtime.jsx("span", {
+									// the whole name+glyph carries the state color, the
+									// same as the terminal hosts; `info` stays muted
 									style: { color: STATE_COLOR[seg.state] || "inherit" },
-									children: seg.glyph || ""
+									children: seg.text + (seg.glyph || "")
 								}),
 								i < data.segments.length - 1 ? "  " : ""
 							]

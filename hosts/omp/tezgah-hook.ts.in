@@ -9,6 +9,19 @@ const HOOK = "@HOOK@";
 // session switch, turn end, and the tool results that move a used mark - so the
 // extension polls nothing and holds no timer that a session switch could stale.
 
+// omp sanitizes what `setStatus` stores (ANSI/VT sequences stripped), so the
+// per-mark colors the hook returns survive only through the widget path, which
+// renders the string as it is. The status key stays as the fallback for a build
+// without setWidget: the text is then uncolored, never wrong.
+function draw(ctx: any, line: string): void {
+  if (!line || !ctx?.ui) return;
+  if (typeof ctx.ui.setWidget === "function") {
+    ctx.ui.setWidget("tezgah", [line], { placement: "belowEditor" });
+  } else {
+    ctx.ui.setStatus("tezgah", line);
+  }
+}
+
 // Tools whose result can move the status line's used marks or the evidence the
 // Stop rule reads. read/grep/glob are absent on purpose: a read-heavy turn
 // would otherwise spawn python per call for nothing.
@@ -53,13 +66,13 @@ function sessionOf(ctx: any): string | undefined {
 export default function tezgahOmp(pi: any): void {
   const refresh = (ctx: any): void => {
     const res = ask({ event: "status", cwd: cwdOf(ctx), session_id: sessionOf(ctx) });
-    if (res.status && ctx?.ui) ctx.ui.setStatus("tezgah", res.status);
+    if (res.status) draw(ctx, res.status);
   };
 
   pi.on("session_start", async (_event: any, ctx: any) => {
     const res = ask({ event: "session_start", cwd: cwdOf(ctx),
                       session_id: sessionOf(ctx) });
-    if (res.status && ctx?.ui) ctx.ui.setStatus("tezgah", res.status);
+    if (res.status) draw(ctx, res.status);
     if (res.context) {
       // omp's always-on RULES.md carries the contract itself; what rides here
       // is this repo's state, so the model knows the index, the open plans and
@@ -111,7 +124,7 @@ export default function tezgahOmp(pi: any): void {
     const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
                       input: event?.input ?? {}, failed,
                       session_id: sessionOf(ctx) });
-    if (res.status && ctx?.ui) ctx.ui.setStatus("tezgah", res.status);
+    if (res.status) draw(ctx, res.status);
   });
 
   pi.on("session_stop", async (event: any, ctx: any) => {

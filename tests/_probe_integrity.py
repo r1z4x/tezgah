@@ -23,6 +23,8 @@ elif fn == "note_tool":
     out = None
 elif fn == "kinds":
     out = sorted(ti.kinds(p.get("session")))
+elif fn == "counters":
+    out = ti.counters(p.get("session"))
 elif fn == "shortcut_command":
     out = ti.shortcut_command(p.get("command"))
 elif fn == "shortcut_edit":

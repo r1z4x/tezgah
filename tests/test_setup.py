@@ -17,6 +17,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP = os.path.join(REPO, "bin", "tezgah-setup")
 ALL = "claude,codex,opencode,cursor,dsh,omp"
 
+sys.path.insert(0, os.path.join(REPO, "hooks"))
+import tezgah_apps  # noqa: E402
+
 
 class SetupBase(unittest.TestCase):
     def setUp(self):
@@ -376,6 +379,32 @@ class Uninstall(SetupBase):
             self.assertFalse(os.path.exists(self.path(".config", "tezgah", name)), name)
 
 
+class ContractParity(unittest.TestCase):
+    """policy.CONTRACT and skills/tezgah-contract/SKILL.md are two hand-kept
+    copies of the same rules. The hash in bin/tezgah-setup notices that one of
+    them changed; this notices that only one of them changed, which is the
+    drift that actually happens."""
+
+    def rules(self, text):
+        import re
+        return dict.fromkeys(
+            re.findall(r"\*\*[^*]{3,60}\.\*\*", text)
+            + [h.strip() for h in re.findall(r"(?m)^#{2,3} .+$", text)])
+
+    def test_every_rule_and_heading_in_the_contract_reaches_the_skill(self):
+        import tezgah_policy as policy
+        path = os.path.join(REPO, "skills", "tezgah-contract", "SKILL.md")
+        with open(path, encoding="utf-8") as fh:
+            skill = fh.read()
+        # the contract is a template; the skill writes the placeholders out
+        text = policy.CONTRACT.replace("{ROOT}", "the configured tezgah roots")
+        missing = [item for item in self.rules(text) if item not in skill]
+        self.assertEqual([], missing,
+                         "these rules exist in policy.CONTRACT but not in the "
+                         "skill: %s" % missing)
+
+
+
 class Refresh(SetupBase):
     """--refresh re-renders the generated opencode contract in-session when the
     policy or the full-contract skill changed, without a reinstall."""
@@ -393,6 +422,41 @@ class Refresh(SetupBase):
         stored = self.read_text(
             self.path(".config", "tezgah", "contract.sha256")).strip()
         self.assertEqual(stored, self.contract_sha())
+
+    def test_benchmark_readme_quotes_the_live_budget(self):
+        # The benchmark README embeds the installer's budget report verbatim.
+        # Hand-copying those figures is how that file came to print a core band
+        # 1,830 characters smaller than the one the installer produces, so the
+        # block is pinned to the instrument rather than to a memory of it.
+        # The on-demand row is rendered against the local config path, so its
+        # token figure moves by a character or two between machines; its number
+        # is normalised out and every char-counted row is compared exactly.
+        readme = os.path.join(REPO, "benchmarks", "harness-vs-omp", "README.md")
+        with open(readme, encoding="utf-8") as fh:
+            block = re.search(r"```\n(context budget \(always-on text.*?)```",
+                              fh.read(), re.S)
+        self.assertIsNotNone(block, "no budget block in the benchmark README")
+        live = subprocess.run(
+            [sys.executable, "-c",
+             "import contextlib, importlib.machinery, importlib.util, io, sys\n"
+             "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+             "m = importlib.util.module_from_spec(\n"
+             "    importlib.util.spec_from_loader('setup', loader))\n"
+             "sys.modules['setup'] = m\n"
+             "loader.exec_module(m)\n"
+             "buf = io.StringIO()\n"
+             "with contextlib.redirect_stdout(buf):\n"
+             "    m.context_budget_report()\n"
+             "print(buf.getvalue(), end='')", SETUP],
+            capture_output=True, text=True, env=self.env)
+        self.assertEqual(live.returncode, 0, live.stderr)
+
+        def normalize(text):
+            return re.sub(r"~ *[\d.]+k tok(?=  \(only when the skill is read\))",
+                          "~<n>k tok", text)
+
+        self.assertEqual(normalize(block.group(1).strip()),
+                         normalize(live.stdout.strip()))
 
     def test_refresh_rerenders_a_stale_contract(self):
         self.setup("--install", "--hosts", "opencode")
@@ -558,6 +622,12 @@ class OmpHost(SetupBase):
                 os.path.islink(self.path(".omp", "agent", "skills", s)), s)
         mcp = self.read_json(self.path(".omp", "agent", "mcp.json"))
         self.assertIn("codebase-memory-mcp", mcp["mcpServers"])
+        # omp spawns `command` as one executable and passes `args`; the argv must
+        # round-trip. A list in `command` is spawned comma-joined (ENOENT).
+        for srv in tezgah_apps.servers(False):
+            entry = mcp["mcpServers"][srv["name"]]
+            self.assertEqual([entry["command"]] + entry["args"],
+                             list(srv["command"]), srv["name"])
         agents = os.listdir(self.path(".omp", "agent", "agents"))
         self.assertTrue(any(a.startswith("tezgah-") for a in agents))
         hook = self.read_text(
@@ -565,14 +635,27 @@ class OmpHost(SetupBase):
         self.assertIn(os.path.join("hosts", "omp", "hook.py"), hook)
         self.assertNotIn("@HOOK@", hook)
         for handler in ("session_start", "before_agent_start", "tool_call",
-                        "tool_result", "session_stop", "setStatus"):
+                        "tool_result", "session_stop", "setWidget", "setStatus"):
             self.assertIn(handler, hook)
+
+    def test_install_heals_an_argv_as_list_mcp_entry(self):
+        path = self.path(".omp", "agent", "mcp.json")
+        self.write_json(path, {"mcpServers": {"mobile-mcp": {
+            "type": "stdio",
+            "command": ["npx", "-y", "@mobilenext/mobile-mcp@latest"],
+            "timeout": 5000}}})
+        self.install()
+        entry = self.read_json(path)["mcpServers"]["mobile-mcp"]
+        self.assertEqual(entry["command"], "npx")
+        self.assertEqual(entry["args"], ["-y", "@mobilenext/mobile-mcp@latest"])
+        self.assertEqual(entry["timeout"], 5000)  # the user's own key survives
 
     def test_status_reports_the_omp_wiring(self):
         self.install()
         proc = self.setup("--hosts", "omp")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("RULES.md carries the contract", proc.stdout)
+        self.assertIn("app MCP command is one executable", proc.stdout)
         self.assertIn("status line answers", proc.stdout)
 
     def test_uninstall_removes_the_omp_wiring(self):
@@ -638,6 +721,64 @@ class ContextBudget(SetupBase):
         self.assertGreater(float(skill.group(1)), 0)
         # the on-demand whole contract is bigger than the always-on summary
         self.assertGreater(float(ondemand.group(1)), float(core.group(1)))
+
+
+class McpSchemas(SetupBase):
+    """The one context band no static report can see: the tool schemas a host
+    injects. It is measured by asking the server, so the handshake is tested
+    against a fake one rather than against whatever is installed here."""
+
+    FAKE = (
+        "import json, sys\n"
+        "tools = [{'name': 'a', 'description': 'x' * 40,"
+        " 'inputSchema': {'type': 'object'}},\n"
+        "         {'name': 'b', 'description': 'y' * 40,"
+        " 'inputSchema': {'type': 'object'}}]\n"
+        "for line in sys.stdin:\n"
+        "    try:\n"
+        "        msg = json.loads(line)\n"
+        "    except ValueError:\n"
+        "        continue\n"
+        "    if msg.get('id') == 1:\n"
+        "        print(json.dumps({'jsonrpc': '2.0', 'id': 1,"
+        " 'result': {'protocolVersion': '2024-11-05'}}))\n"
+        "    elif msg.get('id') == 2:\n"
+        "        print(json.dumps({'jsonrpc': '2.0', 'id': 2,"
+        " 'result': {'tools': tools}}))\n"
+    )
+
+    MEASURE = (
+        "import importlib.machinery, importlib.util, json, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "print(json.dumps(m.mcp_tool_schemas(sys.argv[2:])))"
+    )
+
+    def server(self, source):
+        path = os.path.join(self.home, "server.py")
+        with open(path, "w") as fh:
+            fh.write(source)
+        return [sys.executable, path]
+
+    def measure(self, *command):
+        out = subprocess.run([sys.executable, "-c", self.MEASURE, SETUP]
+                             + list(command),
+                             env=self.env, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout.strip().splitlines()[-1])
+
+    def test_measures_the_schemas_a_server_declares(self):
+        count, size = self.measure(*self.server(self.FAKE))
+        self.assertEqual(count, 2)
+        self.assertGreater(size, 100)
+
+    def test_a_silent_server_is_unmeasured_not_zero(self):
+        count, size = self.measure(*self.server("import sys; sys.stdin.read()\n"))
+        self.assertEqual(count, 0)
+        self.assertIsNone(size)
 
 
 if __name__ == "__main__":

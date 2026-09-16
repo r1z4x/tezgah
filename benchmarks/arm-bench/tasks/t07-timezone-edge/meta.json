@@ -1,0 +1,13 @@
+{
+  "id": "t07-timezone-edge",
+  "family": "edge-case-timezone",
+  "prompt": "prompt.md",
+  "allow": ["src/calendar_day.py"],
+  "allow_note": "the prompt permits exactly one file; any other change is collateral",
+  "checks": [
+    {"name": "zone_days", "cmd": "python3 {hidden}/check_zone_days.py", "expect_exit": 0},
+    {"name": "contract", "cmd": "python3 {hidden}/check_contract.py", "expect_exit": 0}
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

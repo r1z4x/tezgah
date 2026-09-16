@@ -54,6 +54,7 @@ CORE_RULES = (
     ("ponytail", "**Ponytail (minimal code).**"),
     ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
     ("integrity", '**Integrity: evidence, or "doğrulanmadı".**'),
+    ("loop", "**Loop discipline.**"),
     ("spec", "**Spec before building.**"),
     ("lessons", "**Lessons ledger: stop repeating mistakes.**"),
     ("cbm", "**Code discovery: graph first.**"),
@@ -549,15 +550,19 @@ def plan_mark(cwd, base):
 
 _FLAG_KEYS = ("pony", "exec", "consult", "research", "cbm", "orch")
 GLYPHS = {"on": "✓", "ready": "○", "off": "✗", "info": ""}
-# ANSI foreground for each state: green in force, yellow on-demand, red off.
-COLORS = {"on": "\033[32m", "ready": "\033[33m", "off": "\033[31m", "info": ""}
+# ANSI foreground for each state: green in force, yellow on-demand, red off,
+# dim for a mark that carries no state (idx n/a, the plan count).
+COLORS = {"on": "\033[32m", "ready": "\033[33m", "off": "\033[31m", "info": "\033[2m"}
+DIM = "\033[2m"
 RESET = "\033[0m"
 IDX_STATE = {"✓": "on", "↻": "ready", "✗": "off", "–": "info"}
 LEGEND = """\
-tezgah status marks (state first, glyph after the name):
+tezgah status marks (state first, glyph after the name; the whole name+glyph is
+colored, and the glyph carries the state on its own where color does not):
   name\u2713  green   armed and in force this session (or always-on)
   name\u25cb  yellow  armed, on demand - not used yet this session
   name\u2717  red     turned off by a kill switch or a per-repo .no-* mark
+  dim               no state to report: idx n/a, or no blocked plan
   idx\u2713 indexed   idx\u21bb stale (HEAD moved)   idx\u2717 not indexed   idx\u2013 n/a
   plans N (M blk)   open plans under the repo, M of them blocked
 Outside a tezgah root the per-repo extras (idx, plans) are omitted.
@@ -569,9 +574,10 @@ def health_segments(cwd, session_id=None, used_override=None):
 
     Each segment is {"key", "state", "glyph", "text"} with state in
     {on, ready, off, info}; `text` is the human name and `glyph` the mark. Hosts
-    that can color (Claude/Cursor ANSI, opencode TUI, dsh Web) map `state` to a
-    color; hosts that cannot (Codex systemMessage) render text+glyph plain.
-    `health_lines()` renders this to the exact plain string for the rest.
+    that can color (Claude/Cursor ANSI, opencode TUI, dsh Web, omp's widget
+    path) map `state` to a color; hosts that cannot (Codex systemMessage, omp's
+    setStatus) render text+glyph plain. `health_lines()` renders this to the
+    exact plain string for the rest.
 
     Global, not root-scoped: tezgah ships as a globally loaded instructions file
     on opencode, so the indicator must not go silent off-root; the per-repo
@@ -610,25 +616,44 @@ def health_segments(cwd, session_id=None, used_override=None):
     return segs
 
 
+def color_default():
+    """Whether the environment allows ANSI: NO_COLOR or TEZGAH_STATUS_COLOR=0
+    opts out. One place, so every surface drops color for the same reason."""
+    return (os.environ.get("NO_COLOR") is None
+            and os.environ.get("TEZGAH_STATUS_COLOR") != "0")
+
+
 def _seg_text(seg, color):
-    glyph = seg["glyph"]
-    if not color or not glyph or seg["state"] == "info":
-        return seg["text"] + glyph
-    return seg["text"] + COLORS[seg["state"]] + glyph + RESET
+    """One mark as a chip, colored by state.
+
+    The whole name+glyph is colored, not the glyph alone, so the line reads at a
+    glance the way omp's own footer does. The glyph stays either way: the state
+    is never carried by color only (WCAG 1.4.1)."""
+    chip = seg["text"] + seg["glyph"]
+    if not color or not chip:
+        return chip
+    return COLORS[seg["state"]] + chip + RESET
 
 
 def render_line(segs, color=False):
     """Render segments to the one-line status string; `color` adds ANSI."""
     flags = [s for s in segs if s["key"] in _FLAG_KEYS]
+    sep = (DIM + "  \u00b7  " + RESET) if color else "  \u00b7  "
     line = (" ".join(_seg_text(s, color) for s in flags[:2])
-            + "  ·  " + " ".join(_seg_text(s, color) for s in flags[2:]))
+            + sep + " ".join(_seg_text(s, color) for s in flags[2:]))
     extra = [_seg_text(s, color) for s in segs if s["key"] in ("idx", "plans")]
     if extra:
-        line += "  ·  " + "  ·  ".join(extra)
+        line += sep + sep.join(extra)
     return line
 
 
-def health_lines(cwd, session_id=None, used_override=None):
-    """The plain armed/used checklist every host can render (no ANSI)."""
-    return render_line(health_segments(cwd, session_id, used_override))
+def health_lines(cwd, session_id=None, used_override=None, color=False):
+    """The armed/used checklist, one line, plain text unless `color` is asked
+    for.
+
+    A host whose surface renders ANSI (Claude/Cursor status line, omp's widget
+    path) passes color=True; a host that sanitizes it (omp's setStatus, Codex's
+    systemMessage) or a pipe stays plain - the marks are then uncolored, never
+    wrong."""
+    return render_line(health_segments(cwd, session_id, used_override), color=color)
 

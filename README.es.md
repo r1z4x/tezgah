@@ -350,8 +350,8 @@ Medido en esta máquina (macOS, Python 3.10), no estimado:
 - **Contexto.** Un inicio de sesión inyecta ~4.8 KB (~1.2k tokens) de texto de contrato.
   En Codex, un recordatorio de 480 bytes acompaña cada turno; Claude y los otros hosts
   no tienen un hook por turno, por lo que su costo por turno es cero. La habilidad completa `tezgah-contract`
-  (~19.9k caracteres) se paga solo cuando una tarea la carga. En opencode, el contrato se envía como un
-  archivo de instrucciones de ~5.5 KB. De lo contrario, opencode
+  (~25k caracteres) se paga solo cuando una tarea la carga. En opencode, el contrato se envía como un
+  archivo de instrucciones de ~5.8 KB. De lo contrario, opencode
   inyectaría ~53 KB de texto de nombre/descripción/ubicación de habilidades en el prompt del sistema de cada sesión;
   tezgah deniega esa lista (`permission.skill = deny`) y en su lugar envía
   un enrutador de habilidades generado de ~16 KB, por lo que una habilidad se encuentra leyendo su

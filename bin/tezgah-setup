@@ -958,10 +958,19 @@ def install_omp():
     servers.setdefault("codebase-memory-mcp",
                        {"type": "stdio", "command": cbm_command()})
     for srv in app_servers():
-        entry = {"type": "stdio", "command": list(srv["command"])}
+        # omp spawns `command` as ONE executable and takes the rest in `args`
+        # (its mcp-schema.json); the whole argv in `command` is spawned as the
+        # comma-joined string and fails with ENOENT.
+        entry = {"type": "stdio", "command": srv["command"][0],
+                 "args": list(srv["command"][1:])}
         if srv["env"]:
             entry["env"] = dict(srv["env"])
-        servers.setdefault(srv["name"], entry)
+        prev = servers.get(srv["name"])
+        if isinstance(prev, dict) and isinstance(prev.get("command"), list):
+            # heal an entry an earlier release wrote; other keys are the user's
+            prev["command"], prev["args"] = entry["command"], entry["args"]
+        else:
+            servers.setdefault(srv["name"], entry)
     write_json(mcp_path, cfg)
     print("%s %s (mcpServers)" % (OK, mcp_path))
     try:
@@ -1533,6 +1542,66 @@ def context_budget():
     return rows, len(tezgah_context.render(policy.CONTRACT))
 
 
+def mcp_tool_schemas(command, timeout=30):
+    """(tool count, schema bytes) an MCP server declares, or (0, None).
+
+    The one band the budget report cannot count: the schemas are the host's,
+    and the only honest way to size them is to ask the server. This performs
+    the initialize + tools/list handshake over stdio and measures the JSON."""
+    import json as _json
+    import subprocess as _subprocess
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+         "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                    "clientInfo": {"name": "tezgah-setup", "version": "1"}}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+    ]
+    payload = "".join(_json.dumps(r) + "\n" for r in requests)
+    try:
+        proc = _subprocess.run(command, input=payload, capture_output=True,
+                               text=True, timeout=timeout)
+    except (OSError, _subprocess.SubprocessError):
+        return 0, None
+    for line in proc.stdout.splitlines():
+        try:
+            msg = _json.loads(line)
+        except ValueError:
+            continue
+        if msg.get("id") == 2 and isinstance(msg.get("result"), dict):
+            tools = msg["result"].get("tools") or []
+            if tools:
+                return len(tools), len(_json.dumps(tools))
+    return 0, None
+
+
+def mcp_schema_report():
+    """Print the measured schema band for every MCP server tezgah registers."""
+    servers = []
+    cbm = tp.cbm_bin()
+    if cbm:
+        servers.append(("codebase-memory-mcp", [cbm]))
+    print("\nMCP tool-schema band (measured by an initialize + tools/list handshake):")
+    total_tools = total_bytes = 0
+    for name, command in servers:
+        tools, size = mcp_tool_schemas(command)
+        if size is None:
+            print("     %-24s not measured (the server did not answer tools/list)"
+                  % name)
+            continue
+        total_tools += tools
+        total_bytes += size
+        print("     %-24s %3d tools  %7d bytes  ~%4.1fk tok"
+              % (name, tools, size, size / 4 / 1000.0))
+    if not servers:
+        print("     no MCP server binary found on this machine")
+    else:
+        print("     %-24s %3d tools  %7d bytes  ~%4.1fk tok"
+              % ("total", total_tools, total_bytes, total_bytes / 4 / 1000.0))
+    print("     These bytes ride every request unless the host fetches schemas "
+          "on demand.")
+
+
 def context_budget_report():
     rows, on_demand = context_budget()
     print("\ncontext budget (always-on text; ~tokens = chars/4):")
@@ -1541,7 +1610,7 @@ def context_budget_report():
               % (label, (chars + 3) // 4 / 1000.0, chars))
     print("     %-34s ~%4.1fk tok  (only when the skill is read)"
           % ("full contract (on demand)", (on_demand + 3) // 4 / 1000.0))
-    print("     %-34s host-side, not counted" % "MCP tool schemas")
+    print("     %-34s run --mcp-schemas to measure" % "MCP tool schemas")
 
 
 def report(hosts):
@@ -1743,10 +1812,13 @@ def host_checks_omp():
         ("MCP in mcp.json", "codebase-memory-mcp" in servers),
         ("app MCP servers in mcp.json",
          all(n in servers for n in tezgah_apps.names(False))),
+        ("app MCP command is one executable",
+         all(isinstance((servers.get(n) or {}).get("command"), str)
+             for n in tezgah_apps.names(False))),
         ("session, prompt, tool and stop hooks wired",
          all(k in hook_text for k in ("session_start", "before_agent_start",
                                       "tool_call", "session_stop",
-                                      "setStatus"))),
+                                      "setWidget", "setStatus"))),
         ("status line answers", omp_hook_answers()),
     ]
 
@@ -1824,6 +1896,8 @@ def main(argv):
     ap.add_argument("--agents", nargs="?", const=os.getcwd(),
                     help="regenerate this repo's subagent set (default: cwd)")
     ap.add_argument("--deps", action="store_true")
+    ap.add_argument("--mcp-schemas", action="store_true",
+                    help="measure the MCP tool-schema band by asking each server")
     ap.add_argument("--no-deps", action="store_true")
     ap.add_argument("--devtools", action="store_true",
                     help="also wire the optional Chrome DevTools MCP")
@@ -1846,6 +1920,9 @@ def main(argv):
         return 0
     if args.deps and not args.install:
         install_deps(dry_run=args.dry_run)
+        return 0
+    if args.mcp_schemas:
+        mcp_schema_report()
         return 0
 
     if args.agents:

@@ -70,8 +70,8 @@ function TezgahBar(props: { api: TuiPluginApi }) {
       <For each={segs()}>
         {(s, i) => (
           <box flexDirection="row">
-            <text fg={props.api.theme.current.text}>{s.text}</text>
-            <text fg={segmentColor(props.api, s.state)}>{s.glyph || ""}</text>
+            {/* the whole name+glyph carries the state color, as on every host */}
+            <text fg={segmentColor(props.api, s.state)}>{s.text + (s.glyph || "")}</text>
             <text fg={props.api.theme.current.textMuted}>
               {i() < segs().length - 1 ? "  " : ""}
             </text>

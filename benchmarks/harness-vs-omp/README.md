@@ -24,22 +24,32 @@ validation, an O(n^2)->O(n) rewrite, Unicode normalization, timezone-aware input
 an exact error contract, a Turkish BLUF explanation, no-collateral scoping, and
 two read-only "who calls X / what breaks" impact tasks.
 
-| Arm | Pass | Cost | Median | Max | Tools | Graph calls | Input tok | Output tok |
-|---|---|---|---|---|---|---|---|---|
-| tezgah+opencode | 19/20 | $0.0743 | 48s | 159s | 160 | 3 | 409,750 | 21,223 |
-| omp+graph | 20/20 | $0.0656 | 47s | 240s | 165 | 0 | 187,390 | 29,074 |
-| omp+tezgah-port | 19/20 | $0.1490 | 51s | 240s | 228 | 0 | 813,528 | 44,544 |
+| Arm | Pass (not timed out) | Pass (as recorded) | Cost | Median | Max | Tools | Graph calls | Input tok | Output tok |
+|---|---|---|---|---|---|---|---|---|---|
+| tezgah+opencode | 19/20 | 19/20 | $0.0743 | 48s | 159s | 160 | 3 | 409,750 | 21,223 |
+| omp+graph | 19/20 | 20/20 | $0.0656 | 47s | 240s | 165 | 0 | 187,390 | 29,074 |
+| omp+tezgah-port | 18/20 | 19/20 | $0.1490 | 51s | 240s | 228 | 0 | 813,528 | 44,544 |
+
+The two Pass columns differ wherever a run was scored `pass` despite
+timing out: the runner called the checker unconditionally after killing the
+process, so `omp+graph`'s published 20/20 counted a run that never finished, and
+`omp+tezgah-port`'s 19/20 likewise. **The first column is the one to quote.**
+Neither timeout was a genuine solve: `t5` was a real task that `tezgah+opencode`
+completed in 159s for $0.0078, and neither omp arm produced a scored result for
+it.
 
 Failures:
 
 - `t6` / `tezgah+opencode`: read "%20 KDV'li toplam" as the tax amount (0.60) instead of the total with tax (3.60). Genuine.
-- `t19` / `omp+tezgah-port`: answered the transitive impact set (added `tests/test_report.py`). The recorded ground truth listed direct call sites only, so this is a ground-truth limitation, not clearly a failure.
+- `t19` / `omp+tezgah-port`: answered the transitive impact set (added `tests/test_report.py`). The recorded ground truth listed direct call sites only, so this is a ground-truth limitation, not clearly a failure. Note that the checker scored it by **exact set equality**, which cannot distinguish an over-broad answer from a wrong one; the new benchmark in `../arm-bench/` scores this family by precision and recall instead.
 
 Cost accounting defect: `t5` timed out on both omp arms (`rc=-1`,
 `wall_s=240.1`) and its `tokens` block is zero-filled (`cost: 0.0`), so the omp
 cost totals above omit a task `tezgah+opencode` paid $0.0078 for. Read every
 omp-vs-tezgah cost comparison here as one-sided in tezgah's favour until that
-run is re-costed, and do not score a timeout as `pass` with zero usage.
+run is re-costed. Because a timed-out run is also a zero-cost run, publishing
+timeout-excluded and timeout-included totals side by side would show the same
+number for both omp arms - the run has to be re-costed, not just re-bucketed.
 
 Graph use: only `tezgah+opencode` reached for the graph (`search_graph` /
 `search_code` on t19 and t20). All 40 omp runs used grep/shell only, including
@@ -141,24 +151,27 @@ Easier task set; every arm passed every task, so it separated cost/context only.
 
 ## Always-on context budget (measured by the installer)
 
-`tezgah-setup` (no flags, or `--install`) now prints what tezgah injects before
-the first turn, so the cost side of each structure is visible:
+`tezgah-setup` (no flags, or `--install`) prints what tezgah injects before the
+first turn, so the cost side of each structure is visible. This is that report
+verbatim at the commit that last ran it:
 
 ```
 context budget (always-on text; ~tokens = chars/4):
-     core contract (always-on, per session) ~ 0.8k tok    3214 chars
-     per-turn reminder                  ~ 0.2k tok     621 chars
-     skill metadata (8)                 ~ 1.1k tok    4255 chars
+     core contract (always-on, per session) ~ 1.3k tok    5369 chars
+     per-turn reminder                  ~ 0.2k tok     954 chars
+     skill metadata (8)                 ~ 1.1k tok    4343 chars
      subagent metadata (5)              ~ 0.2k tok     891 chars
      conditional rules (armed by task class) ~ 0.6k tok    2231 chars
-     full contract (on demand)          ~ 5.1k tok  (only when the skill is read)
-     MCP tool schemas                   host-side, not counted
+     full contract (on demand)          ~ 5.8k tok  (only when the skill is read)
+     MCP tool schemas                   run --mcp-schemas to measure
 ```
 
-~2.3k tokens are always-on; the largest single band after the core is the skill
-metadata, and the conditional rules add ~0.6k only on the turn that arms them.
-MCP tool schemas are the host's size to report and are the one band this
-instrument cannot see.
+The core band is the one to watch: it grew from the 3,214 characters quoted in
+the first revision of this file to **5,369**, and the cost side of that +67% is
+borne by every session. The always-on bands total ~2.9k tokens before the first
+turn; the conditional rules add ~0.6k only on the turn that arms them, and the
+largest single band after the core is the skill metadata. MCP tool schemas are
+the host's size to report and are the one band this instrument cannot see.
 
 opencode's own always-on is higher: its generated skill router is a second
 instructions file (see the main README's Cost section).

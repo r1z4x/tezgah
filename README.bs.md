@@ -348,8 +348,8 @@ Izmjereno na ovoj mašini (macOS, Python 3.10), nije procijenjeno:
 - **Kontekst.** Početak sesije ubacuje ~4.8 KB (~1.2k tokena) teksta ugovora.
   Na Codex-u podsjetnik od 480 bajtova prati svaki potez; Claude i ostali hostovi
   nemaju hook po potezu, tako da je njihov trošak po potezu nula. Puna `tezgah-contract`
-  vještina (~19.9k karaktera) se plaća samo kada je zadatak učita. Na opencode-u
-  ugovor se isporučuje kao datoteka sa instrukcijama od ~5.5 KB. opencode bi inače
+  vještina (~25k karaktera) se plaća samo kada je zadatak učita. Na opencode-u
+  ugovor se isporučuje kao datoteka sa instrukcijama od ~5.8 KB. opencode bi inače
   ubacio ~53 KB teksta sa imenom/opisom/lokacijom vještine u sistemski prompt svake sesije;
   tezgah odbija tu listu (`permission.skill = deny`) i umjesto toga isporučuje
   generisani ruter vještina od ~16 KB, tako da se vještina pronalazi čitanjem njene

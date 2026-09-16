@@ -19,16 +19,43 @@
 // Hook names a given opencode build does not know are skipped by the runtime
 // (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
 // lacks is safe and must never be a load-time error.
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { homedir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
 const HOME = homedir()
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "tezgah")
 const CACHE = join(HOME, ".cache", "tezgah")
+// A sandboxed host denies the global cache. The Python half falls back to temp
+// (hooks/tezgah_paths.py cache_dir) and this half must do the same, or the
+// nudge, the evidence ledger and the used marks all disappear on the first
+// unwritable write.
+const FALLBACK_CACHE = join(tmpdir(), "tezgah-" + String(process.getuid?.() ?? "u"))
+let cacheMemo = null
+
+function writableDir(dir) {
+  try {
+    mkdirSync(dir, { recursive: true })
+    const probe = join(dir, ".tezgah-write-probe")
+    writeFileSync(probe, "")
+    rmSync(probe, { force: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function cacheDir() {
+  if (cacheMemo) return cacheMemo
+  for (const d of [CACHE, FALLBACK_CACHE]) {
+    if (writableDir(d)) { cacheMemo = d; return d }
+  }
+  cacheMemo = CACHE
+  return CACHE
+}
 const CBM_DIR = join(HOME, ".cache", "codebase-memory-mcp")
 const STATUS_BIN = join(CONFIG, "bin", "tezgah-status")
 const INDEX_BIN = join(CONFIG, "bin", "tezgah-index")
@@ -43,6 +70,14 @@ const EXPLORE_DENY =
 // (WRITE_CMD/ATTRIB) so opencode enforces the same ban from the same shapes.
 const ATTRIB =
   /co-authored-by\s*:|generated with|made with|built by|assisted by|authored by|noreply@anthropic|\u{1F916}/iu
+// The same forms anchored to the start of a line, for the text a write/edit
+// tool is about to land. Mirrors hooks/tezgah_gate.py ATTRIB_LINE: a credit owns
+// its line, while prose naming the ban does not, and that anchor is what keeps
+// the rule from denying the documentation that describes it.
+const ATTRIB_LINE =
+  /^[\s>#*/<!+-]*(?:co-authored-by\s*:|generated with|made with|built by|assisted by|authored by|noreply@anthropic|\u{1F916})/imu
+const EDIT_TEXT = ["content", "new_string", "newString", "new_str", "file_text",
+  "patch", "text"]
 const WRITE_CMD =
   /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*(?:commit|merge|tag|notes)\b|(?:^|[|;&]\s*|\s)gh\s+api\b|(?:^|[|;&]\s*|\s)gh\s+(?:pr|issue|release)\s+(?:create|edit|comment|review|merge|close)\b/i
 const ATTRIB_DENY =
@@ -79,7 +114,11 @@ const TEST_PATH =
 const LITERALS =
   /'''[\s\S]*?'''|"""[\s\S]*?"""|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|\/\*[\s\S]*?\*\/|\/\/[^\n]*|#[^\n]*/g
 const HEREDOC = /<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?/
+// Mirrors hooks/tezgah_integrity.py WRITE_TOOLS exactly: the two halves must
+// agree on what counts as a write, or a credit or a skip marker lands on
+// whichever host has the narrower list.
 const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
+  "apply_patch", "str_replace_editor", "create_file", "str_replace",
   "edit_file", "write_file", "search_replace"])
 const BASH_TOOLS = new Set(["bash", "shell", "command"])
 
@@ -184,7 +223,7 @@ async function recordEvidence(sessionID, tool, args, metadata) {
   const detail = String(
     args?.command || args?.filePath || args?.file_path || "").slice(0, 200)
   try {
-    const dir = join(CACHE, "evidence")
+    const dir = join(cacheDir(), "evidence")
     await mkdir(dir, { recursive: true })
     await appendFile(join(dir, slug(sessionID) + ".jsonl"),
       JSON.stringify({ kind, ts: Math.floor(Date.now() / 1000), detail }) + "\n")
@@ -193,9 +232,18 @@ async function recordEvidence(sessionID, tool, args, metadata) {
 
 function attribution(tool, args) {
   const t = String(tool || "").toLowerCase()
-  if (t !== "bash" && t !== "shell" && t !== "command") return false
-  const cmd = String(args?.command || args?.cmd || "")
-  return WRITE_CMD.test(cmd) && ATTRIB.test(cmd)
+  if (BASH_TOOLS.has(t)) {
+    const cmd = String(args?.command || args?.cmd || "")
+    return WRITE_CMD.test(cmd) && ATTRIB.test(cmd)
+  }
+  // The bash path needs WRITE_CMD to establish that a commit or PR body is
+  // being written; for a write/edit tool the tool itself is the write, so the
+  // content is the whole question.
+  if (WRITE_TOOLS.has(t)) {
+    return EDIT_TEXT.some(
+      (k) => typeof args?.[k] === "string" && ATTRIB_LINE.test(args[k]))
+  }
+  return false
 }
 // Re-injected around compaction so the contract survives the summary.
 const CONTRACT_REMINDER =
@@ -291,7 +339,7 @@ function permissionToolArgs(input) {
 }
 
 async function oncePerSession(sessionID) {  const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
-  const dir = join(CACHE, "nudged")
+  const dir = join(cacheDir(), "nudged")
   const mark = join(dir, key)
   if (existsSync(mark)) return false
   try {
@@ -306,7 +354,7 @@ async function oncePerSession(sessionID) {  const key = createHash("sha1").updat
 async function record(sessionID, kind) {
   if (!sessionID || !kind) return
   try {
-    const dir = join(CACHE, "sessions")
+    const dir = join(cacheDir(), "sessions")
     await mkdir(dir, { recursive: true })
     await appendFile(join(dir, slug(sessionID) + ".jsonl"), JSON.stringify({ kind }) + "\n")
   } catch {}

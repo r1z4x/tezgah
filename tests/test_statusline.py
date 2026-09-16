@@ -48,9 +48,10 @@ class Statusline(TempHome):
         env.pop("NO_COLOR")
         proc = run([support.STATUSLINE], {"cwd": self.repo}, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("\033[32m\u2713", proc.stdout)   # green, in force
-        self.assertIn("\033[33m\u25cb", proc.stdout)   # yellow, on-demand
-        self.assertIn("\033[31m\u2717", proc.stdout)   # red, off (research here)
+        self.assertIn("\033[32mpony\u2713\033[0m", proc.stdout)      # in force
+        self.assertIn("\033[33mconsult\u25cb\033[0m", proc.stdout)   # on demand
+        self.assertIn("\033[31mresearch\u2717\033[0m", proc.stdout)  # off
+        self.assertIn("\033[2m  \u00b7  \033[0m", proc.stdout)       # dim separator
 
     def test_status_color_env_off_strips_ansi(self):
         env = dict(self.envv)

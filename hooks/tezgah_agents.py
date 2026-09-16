@@ -107,6 +107,8 @@ def _explorer_body(host):
         "claim carries file:line; never invent a symbol, caller or result. Disclose\n"
         "coverage gaps (unindexed files, truncation, graph blind spots). If the repo\n"
         "is not indexed, say so and stop. Read-only: no writes, edits or shell.\n\n"
+        "You may use: the codebase-memory-mcp graph tools, read, grep and glob.\n"
+        "Nothing else.\n\n"
         "Return the direct answer first in one or two sentences, then file:line\n"
         "evidence, then a one-line Coverage note." % _graph_howto(host))
 
@@ -124,8 +126,19 @@ def _reviewer_body(host):
         "scenario + file:line), refuted (a guard, caller contract, type or test\n"
         "already prevents it) or unverified (not settled). Default to refuted when\n"
         "the evidence is unclear. Report only confirmed findings as bugs; no style\n"
-        "notes, no praise; empty is the correct answer for a clean change. Disclose\n"
-        "coverage and caps. Read-only: no writes, edits or shell." % _graph_howto(host))
+        "notes, no praise; empty is the correct answer for a clean change.\n\n"
+        "Score the constraints separately from the defects. For every constraint\n"
+        "the task stated - keep this behaviour, touch no other file, preserve this\n"
+        "format - report kept or violated with the file:line that shows which. A\n"
+        "patch that passes the tests and breaks a stated constraint is not clean,\n"
+        "and a functional test will not notice it.\n\n"
+        "Every finding carries a severity - critical (the change cannot stand as\n"
+        "written), major (a real weakness that must be fixed), minor (noticeable),\n"
+        "suggestion (an improvement, not a flaw) - and a verbatim quote of the\n"
+        "code it accuses; a finding about an absence carries no quote. Disclose\n"
+        "the order you read the files in.\n\n"
+        "You may use: read, grep, glob, and the codebase-memory-mcp graph tools.\n"
+        "Nothing else - no writes, no edits, no shell. Read-only." % _graph_howto(host))
 
 
 def _researcher_body(_host):
@@ -138,8 +151,9 @@ def _researcher_body(_host):
         "research artifact. Do not use it for plain code discovery (that is the\n"
         "graph-first explorer). If `%s` is missing, say the research tooling is\n"
         "unavailable and fall back to a bounded host subagent. Report commands run\n"
-        "and observed output; never claim a result you did not see."
-        % (orx, orx, orx))
+        "and observed output; never claim a result you did not see.\n\n"
+        "You may use: the `%s` CLI, read, grep and glob. Nothing else."
+        % (orx, orx, orx, orx))
 
 
 def _verifier_body(_host):
@@ -151,8 +165,9 @@ def _verifier_body(_host):
         "and what would falsify each>\"` and report which models agreed or disagreed.\n"
         "Treat the answers as advisory and verify each against the code; never adopt\n"
         "an unverified claim. If no key or models exist, say the second opinion was\n"
-        "skipped and why. Skip trivial local edits."
-        % consult)
+        "skipped and why. Skip trivial local edits.\n\n"
+        "You may use: the `%s` CLI, read, grep and glob. Nothing else."
+        % (consult, consult))
 
 
 # name, description, capability gate, body(host), read-only?

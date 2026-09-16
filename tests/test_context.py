@@ -84,6 +84,22 @@ class HealthLines(TempHome):
                           env=self.env())
         self.assertIn("cbm\u2717", out)
 
+    def test_color_paints_the_whole_mark_by_state(self):
+        # the glyph is still there, so color is a second channel and never the
+        # only one (WCAG 1.4.1); the separator is dimmed, not colored
+        repo = self.make_repo()
+        self.armed_key()
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "health_lines", "cwd": repo,
+                              "session_id": "s", "color": True},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("\033[32mpony\u2713\033[0m", out)      # in force
+        self.assertIn("\033[33mconsult\u25cb\033[0m", out)   # armed, unused
+        self.assertIn("\033[31mresearch\u2717\033[0m", out)  # off
+        self.assertIn("\033[2midx\u2013\033[0m", out)        # no state
+        self.assertIn("\033[2m  \u00b7  \033[0m", out)
+
     def test_open_plans_segment(self):
         repo = self.make_repo()
         self.armed_key()

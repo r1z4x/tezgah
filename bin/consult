@@ -97,11 +97,20 @@ def ask(provider, model, question, key, timeout):
         return model, None, "%s%s" % (exc, detail)
 
 
+VALUE_FLAGS = ("--provider", "--models", "--timeout")
+
+
 def main():
     args = sys.argv[1:]
     provider, models, timeout, question, online = "openrouter", None, 120, None, False
     i = 0
     while i < len(args):
+        if args[i] in VALUE_FLAGS and i + 1 >= len(args):
+            # Without this, a trailing flag fails to match its arm, falls to the
+            # `question is None` branch below, and the flag text becomes the
+            # prompt - a paid request for a typo, answered with exit 3 instead
+            # of the documented misuse exit 1.
+            sys.exit("consult: %s needs a value" % args[i])
         if args[i] == "--provider" and i + 1 < len(args):
             provider = args[i + 1]
             i += 2

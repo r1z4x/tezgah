@@ -10,7 +10,7 @@ the same code every other host runs.
     {"event": "session_start", "cwd": ..., "session_id": ...}
         -> {"context": <this repo's live state>, "status": "pony✓ ..."}
     {"event": "status", "cwd": ..., "session_id": ...}
-        -> {"status": "pony✓ ..."}
+        -> {"status": "pony✓ ..."}  (ANSI-colored; see status_line below)
     {"event": "user_prompt", "cwd": ..., "prompt": ...}
         -> {"context": <reminder + the rules this prompt arms>}
     {"event": "pre_tool_use", "cwd": ..., "tool": ..., "input": {...}}
@@ -24,6 +24,10 @@ The status line is the one signal that is not root-scoped - tezgah ships as a
 globally loaded rules file, so the indicator must not go silent off-root - and
 `status` therefore answers anywhere. Every other event is inert outside a
 configured root.
+
+The line carries ANSI foreground per mark, because the extension draws it
+through omp's widget path, which renders the string as it is. `setStatus`, the
+fallback, strips the escapes and shows the same marks uncolored.
 """
 import json
 import os
@@ -31,7 +35,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import context_for, health_lines, record  # noqa: E402
+from tezgah_context import (  # noqa: E402
+    color_default, context_for, health_lines, record)
 from tezgah_gate import decision  # noqa: E402
 from tezgah_integrity import note_tool, stop_reason  # noqa: E402
 from tezgah_paths import off, root_for  # noqa: E402
@@ -59,12 +64,18 @@ def classify(tool, inp):
     return None
 
 
+def status_line(cwd, session_id):
+    """The checklist as omp should draw it: colored per mark, plain when the
+    environment opts out (NO_COLOR / TEZGAH_STATUS_COLOR=0)."""
+    return health_lines(cwd, session_id, color=color_default())
+
+
 def handle(payload):
     event = payload.get("event") or ""
     cwd = payload.get("cwd") or os.getcwd()
     session_id = payload.get("session_id")
     if event == "status":
-        line = health_lines(cwd, session_id)
+        line = status_line(cwd, session_id)
         return {"status": line} if line else {}
     if event == "pre_tool_use":
         reason = decision(payload.get("tool", ""), payload.get("input") or {},
@@ -80,7 +91,7 @@ def handle(payload):
         context = context_for("session_start", cwd, payload, with_core=False)
         if context:
             out["context"] = context
-        line = health_lines(cwd, session_id)
+        line = status_line(cwd, session_id)
         if line:
             out["status"] = line
         return out
@@ -98,7 +109,7 @@ def handle(payload):
                   failed=failed if isinstance(failed, bool) else None)
         # the call is already paid for, so the status line's used marks are
         # refreshed from the same answer instead of a second subprocess
-        line = health_lines(cwd, session_id)
+        line = status_line(cwd, session_id)
         return {"status": line} if line else {}
     if event == "stop":
         if payload.get("stop_hook_active") or off("verify-off"):

@@ -5,8 +5,8 @@
 //     "session": "<session id>",
 //     "calls": [ { "event": "session_start", "arg": {...} } ] }
 // The extension's default factory runs against a stub pi (handlers captured,
-// sendMessage/setStatus recorded), then every call runs through the handler
-// registered for that event. Prints JSON, so a failure is reported rather than
+// sendMessage/setStatus/setWidget recorded), then every call runs through the
+// handler registered for that event. Prints JSON, so a failure is reported rather than
 // killing the process. Node strips the extension's type annotations on import.
 import { pathToFileURL } from "node:url"
 
@@ -23,6 +23,7 @@ try {
   const handlers = {}
   const sent = []
   const statuses = []
+  const widgets = []
   const pi = {
     on(event, handler) {
       handlers[event] = handler
@@ -33,10 +34,16 @@ try {
   }
   const mod = await import(pathToFileURL(spec.extension).href)
   mod.default(pi)
+  // spec.noWidget drops setWidget, the way a build without the widget surface
+  // looks: the extension must fall back to setStatus instead of going silent.
+  const ui = { setStatus: (key, text) => statuses.push([key, text]) }
+  if (!spec.noWidget) {
+    ui.setWidget = (key, content, options) => widgets.push([key, content, options])
+  }
   const ctx = {
     cwd: spec.dir,
     sessionManager: { getSessionId: () => spec.session },
-    ui: { setStatus: (key, text) => statuses.push([key, text]) },
+    ui,
     setInterval: () => ({ timer: true }),
     clearTimer: () => {},
   }
@@ -56,7 +63,7 @@ try {
       })
     }
   }
-  out = { handlers: Object.keys(handlers), results, sent, statuses }
+  out = { handlers: Object.keys(handlers), results, sent, statuses, widgets }
 } catch (err) {
   out = { fatal: String(err && err.stack ? err.stack : err) }
 }
