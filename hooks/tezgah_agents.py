@@ -415,12 +415,8 @@ def sync_root(root):
         return None
     infra = detect_infra(root)
     hosts = set(infra["hosts"])
-    if not hosts:
-        return None
     active = [r for r in ROLES if r[2](infra)]
     names = [r[0] for r in active]
-    if not names:
-        return None
 
     # markdown: one dir serves Claude and Cursor (Cursor reads .claude/agents/)
     md_dir = os.path.join(root, HOST_DIRS["claude"]) if hosts & {"claude", "cursor"} else None
@@ -438,6 +434,8 @@ def sync_root(root):
             written += 1
         paths.append(path)
 
+    wanted_md, wanted_oc, wanted_codex = set(), set(), set()
+
     def sweep(directory, wanted):
         nonlocal removed
         before = set(os.path.basename(p) for p in glob.glob(os.path.join(directory, "tezgah-*.*")))
@@ -445,27 +443,28 @@ def sync_root(root):
         after = set(os.path.basename(p) for p in glob.glob(os.path.join(directory, "tezgah-*.*")))
         removed += len(before - after)
 
-    if md_dir:  # Claude Code + Cursor
-        wanted = set()
+    if md_dir and names:  # Claude Code + Cursor
         for name, desc, _cap, body, readonly in active:
-            emit(md_dir, wanted, name + ".md", render_md(name, desc, readonly, body("claude")))
-        emit(md_dir, wanted, "tezgah-orchestrator.md", render_orch_md(names))
-        sweep(md_dir, wanted)
+            emit(md_dir, wanted_md, name + ".md", render_md(name, desc, readonly, body("claude")))
+        emit(md_dir, wanted_md, "tezgah-orchestrator.md", render_orch_md(names))
 
-    if oc_dir:  # opencode
-        wanted = set()
+    if oc_dir and names:  # opencode
         for name, desc, _cap, body, readonly in active:
-            emit(oc_dir, wanted, name + ".md",
+            emit(oc_dir, wanted_oc, name + ".md",
                  render_md_opencode(name, desc, readonly, body("opencode")))
-        emit(oc_dir, wanted, "tezgah-orchestrator.md", render_orch_md_opencode(names))
-        sweep(oc_dir, wanted)
+        emit(oc_dir, wanted_oc, "tezgah-orchestrator.md", render_orch_md_opencode(names))
 
-    if codex_dir:  # Codex (no orchestrator agent; the main thread orchestrates)
-        wanted = set()
+    if codex_dir and names:  # Codex (no orchestrator agent; the main thread orchestrates)
         for name, desc, _cap, body, readonly in active:
-            emit(codex_dir, wanted, name + ".toml",
+            emit(codex_dir, wanted_codex, name + ".toml",
                  render_toml(name, desc, readonly, body("codex")))
-        sweep(codex_dir, wanted)
+
+    # The sweep runs over every dir this module can write, not only the selected
+    # ones: a host dropped from the config, or a capability that disappeared,
+    # must not leave tezgah agents behind for the host to keep loading.
+    sweep(os.path.join(root, HOST_DIRS["claude"]), wanted_md)
+    sweep(os.path.join(root, HOST_DIRS["opencode"]), wanted_oc)
+    sweep(os.path.join(root, HOST_DIRS["codex"]), wanted_codex)
 
     if paths:
         dirs = set()
@@ -479,6 +478,13 @@ def sync_root(root):
         if gi:
             paths.append(gi)
         _record(root, paths)
+    if not names:
+        # no role survived the capability gate: the sweep above is the whole job
+        return ("%d stale agent file(s) removed" % removed) if removed else None
+    if not (md_dir or oc_dir or codex_dir):
+        # roles exist but the config named no host with a per-repo surface
+        # (omp's agents are user-level), so nothing is rendered here
+        return ("%d stale agent file(s) removed" % removed) if removed else None
     return ("%d agent(s) %s%s" % (len(names), "written" if written else "current",
                                   ", %d removed" % removed if removed else ""))
 
