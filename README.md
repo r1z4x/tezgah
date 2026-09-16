@@ -278,6 +278,7 @@ knowing:
 | `bin/tezgah-status [PATH]` | Show whether the rules are active in that repo |
 | `bin/tezgah-setup --status [PATH]` | Print the armed/used checklist |
 | `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Runs and checks a research line: state, findings, claims, and the protocol-before-results rule |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
 | `/plan-add` | Turn a piece of work into a tracked plan |
 | `/plan-status` | Summarize open plans and pick the next one |
@@ -369,9 +370,9 @@ revision came to quote a core band smaller than the one it installs.
 
 | Band | What it costs |
 |---|---|
-| Session start | the always-on contract (the invariants plus a one-line pointer per on-demand rule): on this machine and skill set, ~1.3k tokens of contract text and ~1.1k of skill metadata, with the conditional rules (spec, consult, research, graph) adding ~0.6k only on the turn whose prompt matches |
+| Session start | the always-on contract (the invariants plus a one-line pointer per on-demand rule): on this machine and skill set, ~1.3k tokens of contract text and ~1.3k of skill metadata, with the conditional rules (spec, consult, research, graph) adding ~0.6k only on the turn whose prompt matches |
 | Per turn | a short reminder (~0.2k tokens) plus the armed rule when it matches; hooks are separate Python processes, so the ~19 ms interpreter start dominates - session start adds ~25 ms, a gated tool call (Bash/Grep/Task) ~9 ms. opencode has no prompt-time hook, so it pays zero |
-| On demand | the full `tezgah-contract` skill (~5.8k tokens), paid only when a task loads it |
+| On demand | the full `tezgah-contract` skill (~5.9k tokens), paid only when a task loads it |
 | MCP schemas | the largest band, and the one no static report sees: the graph server alone declares 15 tools / 24,508 bytes (~6.1k tokens), riding every request unless the host fetches schemas on demand. `tezgah-setup --mcp-schemas` measures it |
 | Disk | installation takes ~58 ms, and every file tezgah rewrites is kept once as `<file>.tezgah-bak` |
 

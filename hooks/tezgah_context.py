@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 
+import tezgah_research
 from tezgah_policy import CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER
 from tezgah_paths import (cache_dir, cbm_bin, have_consult_key, off,
                           orx_bin, root_for, roots, tool, writable_dir)
@@ -469,6 +470,12 @@ def context_for(event, cwd, payload=None, with_core=True):
             past = lessons(root)
             if past:
                 parts.append(past)
+        broken = tezgah_research.failing(root)
+        if broken:
+            line_slug, err = broken[0]
+            parts.append("Research: %s has %d problem(s), first: %s - run "
+                         "`%s check` before reporting a result"
+                         % (line_slug, len(broken), err, tool("tezgah-research")))
     if disabled:
         parts.append(off_note)
         if "orchestrate-off" in disabled:

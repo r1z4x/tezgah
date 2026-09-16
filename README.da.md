@@ -249,6 +249,7 @@ kende:
 | `bin/tezgah-status [PATH]` | Vis, om reglerne er aktive i det repo |
 | `bin/tezgah-setup --status [PATH]` | Udskriv den aktiverede/brugte tjekliste |
 | `bin/tezgah-setup --deps [--dry-run]` | Installer manglende valgfrie værktøjer (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Opretter og tjekker en forskningslinje: tilstand, findings, claims og reglen protokol-før-resultater |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Rapporter harness-diskforbrug; `--clean` sletter gamle indekslogs og støvsuger opencode-databasen; `--prune-sessions` sletter inaktive sessioner (den eneste handling, der rent faktisk krymper databasen) |
 | `/plan-add` | Gør et stykke arbejde til en sporet plan |
 | `/plan-status` | Opsummer åbne planer og vælg den næste |
@@ -340,9 +341,9 @@ hvordan en tidligere revision kom til at citere et kernebånd mindre end det, de
 
 | Bånd | Hvad det koster |
 |---|---|
-| Sessionsstart | den altid-aktive kontrakt (invarianterne plus en enlinjes pointer pr. on-demand-regel): på denne maskine og skill-sæt ~1.3k tokens kontrakttekst og ~1.1k skill-metadata, hvor de betingede regler (spec, consult, research, graph) kun tilføjer ~0.6k på den tur, hvis prompt matcher |
+| Sessionsstart | den altid-aktive kontrakt (invarianterne plus en enlinjes pointer pr. on-demand-regel): på denne maskine og skill-sæt ~1.3k tokens kontrakttekst og ~1.3k skill-metadata, hvor de betingede regler (spec, consult, research, graph) kun tilføjer ~0.6k på den tur, hvis prompt matcher |
 | Pr. tur | en kort påmindelse (~0.2k tokens) plus den aktiverede regel, når den matcher; hooks er separate Python-processer, så den ~19 ms interpretestart dominerer - sessionsstart tilføjer ~25 ms, et gated værktøjskald (Bash/Grep/Task) ~9 ms. opencode har ingen prompt-tids-hook, så den betaler nul |
-| On demand | den fulde `tezgah-contract`-skill (~5.8k tokens), kun betalt når en opgave indlæser den |
+| On demand | den fulde `tezgah-contract`-skill (~5.9k tokens), kun betalt når en opgave indlæser den |
 | MCP-skemaer | det største bånd og det, ingen statisk rapport ser: alene grafserveren erklærer 15 værktøjer / 24,508 bytes (~6.1k tokens), rider på hver anmodning medmindre værten henter skemaer on demand. `tezgah-setup --mcp-schemas` måler det |
 | Disk | installationen tager ~58 ms, og hver fil, tezgah genskriver, gemmes én gang som `<file>.tezgah-bak` |
 

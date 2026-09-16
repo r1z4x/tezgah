@@ -249,6 +249,7 @@ d'être connues :
 | `bin/tezgah-status [PATH]` | Afficher si les règles sont actives dans ce dépôt |
 | `bin/tezgah-setup --status [PATH]` | Afficher la liste de contrôle armée/utilisée |
 | `bin/tezgah-setup --deps [--dry-run]` | Installer les outils optionnels manquants (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Crée et vérifie une ligne de recherche : état, findings, claims et la règle protocole-avant-résultats |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Signaler l'utilisation du disque par le harnais ; `--clean` supprime les anciens journaux d'index et nettoie (vacuum) la base de données opencode ; `--prune-sessions` supprime les sessions inactives (la seule action qui réduit réellement la base de données) |
 | `/plan-add` | Transformer un travail en un plan suivi |
 | `/plan-status` | Résumer les plans ouverts et choisir le suivant |
@@ -343,9 +344,9 @@ en direct - lisez-le là plutôt que de faire confiance à un chiffre copié ici
 
 | Bande | Ce qu'elle coûte |
 |---|---|
-| Démarrage de session | le contrat toujours actif (les invariants plus un pointeur d'une ligne par règle à la demande) : sur cette machine et ce jeu de compétences, ~1.3k tokens de texte de contrat et ~1.1k de métadonnées de compétences, les règles conditionnelles (spec, consult, research, graph) n'ajoutant ~0.6k que sur le tour dont le prompt correspond |
+| Démarrage de session | le contrat toujours actif (les invariants plus un pointeur d'une ligne par règle à la demande) : sur cette machine et ce jeu de compétences, ~1.3k tokens de texte de contrat et ~1.3k de métadonnées de compétences, les règles conditionnelles (spec, consult, research, graph) n'ajoutant ~0.6k que sur le tour dont le prompt correspond |
 | Par tour | un court rappel (~0.2k tokens) plus la règle armée quand elle correspond ; les hooks sont des processus Python distincts, donc le démarrage de l'interpréteur de ~19 ms domine - le démarrage de session ajoute ~25 ms, un appel d'outil contrôlé (Bash/Grep/Task) ~9 ms. opencode n'a pas de hook au moment du prompt, il ne paie donc rien |
-| À la demande | la compétence complète `tezgah-contract` (~5.8k tokens), payée seulement quand une tâche la charge |
+| À la demande | la compétence complète `tezgah-contract` (~5.9k tokens), payée seulement quand une tâche la charge |
 | Schémas MCP | la plus grande bande, et celle qu'aucun rapport statique ne voit : le serveur de graphe à lui seul déclare 15 outils / 24,508 octets (~6.1k tokens), embarqués dans chaque requête sauf si l'hôte récupère les schémas à la demande. `tezgah-setup --mcp-schemas` le mesure |
 | Disque | l'installation prend ~58 ms, et chaque fichier que tezgah réécrit est conservé une fois sous `<file>.tezgah-bak` |
 

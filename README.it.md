@@ -250,6 +250,7 @@ Niente da eseguire: le regole si caricano all'avvio di un host. Vale la pena con
 | `bin/tezgah-status [PATH]` | Mostra se le regole sono attive in quella repo |
 | `bin/tezgah-setup --status [PATH]` | Stampa la checklist armata/usata |
 | `bin/tezgah-setup --deps [--dry-run]` | Installa gli strumenti opzionali mancanti (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Crea e verifica una linea di ricerca: stato, findings, claim e la regola protocollo-prima-dei-risultati |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Riporta l'uso del disco dell'harness; `--clean` elimina i vecchi log dell'indice ed esegue il vacuum del DB di opencode; `--prune-sessions` elimina le sessioni inattive (l'unica azione che riduce effettivamente il DB) |
 | `/plan-add` | Trasforma un lavoro in un piano tracciato |
 | `/plan-status` | Riepiloga i piani aperti e sceglie il successivo |
@@ -343,9 +344,9 @@ portato una revisione precedente a citare una banda core più piccola di quella 
 
 | Banda | Quanto costa |
 |---|---|
-| Avvio della sessione | il contratto sempre attivo (gli invarianti più un puntatore di una riga per ogni regola on-demand): su questa macchina e con questo set di skill, ~1.3k token di testo del contratto e ~1.1k di metadati delle skill, con le regole condizionali (spec, consult, research, graph) che aggiungono ~0.6k solo sul turno il cui prompt corrisponde |
+| Avvio della sessione | il contratto sempre attivo (gli invarianti più un puntatore di una riga per ogni regola on-demand): su questa macchina e con questo set di skill, ~1.3k token di testo del contratto e ~1.3k di metadati delle skill, con le regole condizionali (spec, consult, research, graph) che aggiungono ~0.6k solo sul turno il cui prompt corrisponde |
 | Per turno | un breve promemoria (~0.2k token) più la regola armata quando corrisponde; gli hook sono processi Python separati, quindi domina l'avvio dell'interprete di ~19 ms - l'avvio della sessione aggiunge ~25 ms, una chiamata a uno strumento con gate (Bash/Grep/Task) ~9 ms. opencode non ha hook al momento del prompt, quindi paga zero |
-| On demand | la skill completa `tezgah-contract` (~5.8k token), pagata solo quando un'attività la carica |
+| On demand | la skill completa `tezgah-contract` (~5.9k token), pagata solo quando un'attività la carica |
 | Schemi MCP | la banda più grande, e quella che nessun report statico vede: il solo server del grafo dichiara 15 strumenti / 24,508 byte (~6.1k token), presenti in ogni richiesta a meno che l'host non recuperi gli schemi on demand. `tezgah-setup --mcp-schemas` lo misura |
 | Disco | l'installazione richiede ~58 ms, e ogni file che tezgah riscrive viene conservato una volta come `<file>.tezgah-bak` |
 

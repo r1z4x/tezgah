@@ -250,6 +250,7 @@ znati:
 | `bin/tezgah-status [PATH]` | Prikazuje da li su pravila aktivna u tom repozitoriju |
 | `bin/tezgah-setup --status [PATH]` | Ispisuje kontrolnu listu aktiviranog/korištenog |
 | `bin/tezgah-setup --deps [--dry-run]` | Instalira opcione alate koji nedostaju (orx, cursor-agent, dsh) |
+| `bin/tezgah-research init\|check\|status` | Pravi i provjerava istraživačku liniju: stanje, nalazi, tvrdnje i pravilo protokol-prije-rezultata |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Izvještava o upotrebi diska alata; `--clean` briše stare logove indeksa i usisava (vacuum) opencode bazu podataka; `--prune-sessions` briše neaktivne sesije (jedina akcija koja zapravo smanjuje bazu podataka) |
 | `/plan-add` | Pretvara dio posla u praćeni plan |
 | `/plan-status` | Sumira otvorene planove i bira sljedeći |
@@ -340,9 +341,9 @@ koji je ranija revizija citirala manji core band od onoga koji instalira.
 
 | Opseg | Šta košta |
 |---|---|
-| Početak sesije | always-on ugovor (invarijante plus pokazivač od jedne linije po pravilu na zahtjev): na ovoj mašini i skupu vještina, ~1.3k tokena teksta ugovora i ~1.1k metapodataka vještina, pri čemu uslovna pravila (spec, consult, research, graph) dodaju ~0.6k samo na potezu čiji se prompt poklopi |
+| Početak sesije | always-on ugovor (invarijante plus pokazivač od jedne linije po pravilu na zahtjev): na ovoj mašini i skupu vještina, ~1.3k tokena teksta ugovora i ~1.3k metapodataka vještina, pri čemu uslovna pravila (spec, consult, research, graph) dodaju ~0.6k samo na potezu čiji se prompt poklopi |
 | Po potezu | kratki podsjetnik (~0.2k tokena) plus naoružano pravilo kada se poklopi; hookovi su odvojeni Python procesi, pa ~19 ms pokretanja interpretera dominira - početak sesije dodaje ~25 ms, poziv alata kroz kapiju (Bash/Grep/Task) ~9 ms. opencode nema hook u vrijeme prompta, pa plaća nulu |
-| Na zahtjev | puna `tezgah-contract` vještina (~5.8k tokena), plaća se samo kada je zadatak učita |
+| Na zahtjev | puna `tezgah-contract` vještina (~5.9k tokena), plaća se samo kada je zadatak učita |
 | MCP šeme | najveći opseg, i onaj koji nijedan statički izvještaj ne vidi: samo graf server deklariše 15 alata / 24,508 bajtova (~6.1k tokena), jaše na svakom zahtjevu osim ako host dohvati šeme na zahtjev. `tezgah-setup --mcp-schemas` to mjeri |
 | Disk | instalacija traje ~58 ms, i svaka datoteka koju tezgah prepisuje čuva se jednom kao `<file>.tezgah-bak` |
 

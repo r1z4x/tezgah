@@ -159,10 +159,10 @@ verbatim at the commit that last ran it:
 context budget (always-on text; ~tokens = chars/4):
      core contract (always-on, per session) ~ 1.3k tok    5369 chars
      per-turn reminder                  ~ 0.2k tok     954 chars
-     skill metadata (8)                 ~ 1.1k tok    4343 chars
+     skill metadata (9)                 ~ 1.3k tok    5186 chars
      subagent metadata (5)              ~ 0.2k tok     891 chars
      conditional rules (armed by task class) ~ 0.6k tok    2231 chars
-     full contract (on demand)          ~ 5.8k tok  (only when the skill is read)
+     full contract (on demand)          ~ 5.9k tok  (only when the skill is read)
      MCP tool schemas                   run --mcp-schemas to measure
 ```
 
