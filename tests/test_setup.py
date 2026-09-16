@@ -1,4 +1,4 @@
-"""bin/tezgah-setup: install wiring, idempotency, uninstall, adopt.
+"""bin/tezgah-setup: install wiring, idempotency, uninstall, adopt, wizard.
 
 Every test runs the installer in a throwaway HOME with fake host dirs, so the
 real ~/.claude, ~/.codex, ~/.config/opencode, ~/.cursor and ~/.dsh are never
@@ -58,9 +58,13 @@ class SetupBase(unittest.TestCase):
         with open(path) as fh:
             return fh.read()
 
-    def setup(self, *args):
+    def setup(self, *args, stdin=""):
+        # stdin is always a pipe: a bare run with a terminal on stdin would take
+        # the wizard path and then block on the real terminal instead of
+        # printing the report this suite asserts on
         return subprocess.run([sys.executable, SETUP] + list(args),
-                              capture_output=True, text=True, env=self.env)
+                              capture_output=True, text=True, env=self.env,
+                              input=stdin)
 
 
 class Install(SetupBase):
@@ -819,6 +823,65 @@ class McpAppSpec(unittest.TestCase):
 
     def test_the_playwright_pin_is_visible(self):
         self.assertIn(("@playwright/mcp", "0.0.81"), self.packages())
+
+
+class Wizard(SetupBase):
+    """The interactive install. Answers are fed through a piped stdin, so no
+    test needs a terminal, and the wizard must write nothing before its final
+    yes - a decline or a closed stdin leaves the machine untouched."""
+
+    def wiz(self, *answers, flags=()):
+        """Feed the wizard exactly these answers, one per prompt, through a pipe."""
+        return self.setup("--wizard", *flags, stdin="\n".join(answers) + "\n")
+
+    def config(self):
+        return self.read_json(self.path(".config", "tezgah", "config.json"))
+
+    def test_answers_drive_the_same_install_path_as_the_flags(self):
+        proc = self.wiz("", "", "", "", "")  # every default, then proceed
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("the plan:", proc.stdout)
+        # what the plan promised is what the shared install path applied; the
+        # detected set itself is machine-dependent (omp is on PATH here)
+        planned = re.search(r"^\s+ok\s+arm: (.+)$", proc.stdout, re.M).group(1).split(", ")
+        self.assertIn("installing for: %s" % ", ".join(planned), proc.stdout)
+        cfg = self.config()
+        self.assertEqual(cfg["hosts"], planned)
+        self.assertIn(self.path("Projects"), cfg["roots"])
+        self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin", "consult")))
+
+    def test_flags_stand_in_as_the_default_answers(self):
+        proc = self.wiz("", "", "", "", "", flags=("--hosts", "claude", "--no-deps"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("installing for: claude", proc.stdout)
+        self.assertNotIn("installing for: claude,", proc.stdout)
+        self.assertEqual(self.config()["hosts"], ["claude"])
+
+    def test_a_bad_answer_is_asked_again_not_installed_half_way(self):
+        proc = self.wiz("claude,bogus", "claude", "relative/path", "", "", "", "")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("unknown host; choose from", proc.stdout)
+        self.assertIn("use absolute paths", proc.stdout)
+        self.assertEqual(self.config()["hosts"], ["claude"])
+
+    def test_declining_the_plan_writes_nothing(self):
+        proc = self.wiz("", "", "", "", "n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("nothing was installed", proc.stdout)
+        self.assertFalse(os.path.exists(self.path(".config", "tezgah", "config.json")))
+
+    def test_a_closed_stdin_aborts_instead_of_hanging(self):
+        proc = self.setup("--wizard", stdin="")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("wizard: stdin closed", proc.stdout)
+        self.assertFalse(os.path.exists(self.path(".config", "tezgah", "config.json")))
+
+    def test_a_piped_bare_run_still_reports_and_asks_nothing(self):
+        proc = self.setup()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("tezgah checkout:", proc.stdout)
+        self.assertNotIn("the plan:", proc.stdout)
+        self.assertNotIn("arm which hosts?", proc.stdout)
 
 
 if __name__ == "__main__":

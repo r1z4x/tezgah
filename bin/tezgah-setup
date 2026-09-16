@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """tezgah-setup - arm every host you have from this one checkout.
 
-  tezgah-setup                         report what is armed, per host
+  tezgah-setup                         on a terminal: the install wizard
+  tezgah-setup --report                report what is armed, per host
+  tezgah-setup --wizard                the same wizard, forced (also on a pipe)
   tezgah-setup --install               wire every detected host
   tezgah-setup --install --hosts omp
   tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh
@@ -1882,11 +1884,163 @@ def sync():
     return 0
 
 
+# ----------------------------------------------------------------- wizard ----
+
+class WizardAbort(Exception):
+    """No answer could be collected: EOF on stdin, or a non-answer repeated past
+    WIZ_TRIES. The wizard writes nothing before its final yes, so an abort
+    leaves the machine as it was."""
+
+
+WIZ_TRIES = 5
+
+
+def _ask(prompt, default, input_fn):
+    """One line of input. Empty takes the default; EOF aborts instead of
+    hanging, which is what makes a piped stdin safe."""
+    text = "%s [%s] " % (prompt, default) if default else "%s " % prompt
+    try:
+        raw = input_fn(text)
+    except EOFError:
+        raise WizardAbort("stdin closed before the wizard finished")
+    return raw.strip() or default
+
+
+def _ask_bool(prompt, default, input_fn):
+    hint = "[Y/n]" if default else "[y/N]"
+    for _ in range(WIZ_TRIES):
+        raw = _ask("%s %s " % (prompt, hint), "", input_fn).lower()
+        if not raw:
+            return default
+        if raw in ("y", "yes"):
+            return True
+        if raw in ("n", "no"):
+            return False
+        print("  answer y or n")
+    raise WizardAbort("no yes/no answer for %r" % prompt)
+
+
+def parse_hosts(raw):
+    """Names, 1-based numbers, or `all` -> host list. None when anything is
+    unknown, so the caller re-asks instead of arming half the selection."""
+    if raw.strip().lower() == "all":
+        return list(ALL_HOSTS)
+    picked = []
+    for tok in re.split(r"[,\s]+", raw.strip()):
+        if not tok:
+            continue
+        if tok.isdigit() and 1 <= int(tok) <= len(ALL_HOSTS):
+            tok = ALL_HOSTS[int(tok) - 1]
+        if tok not in ALL_HOSTS:
+            return None
+        if tok not in picked:
+            picked.append(tok)
+    return picked or None
+
+
+def _ask_hosts(default, input_fn):
+    present = detected()
+    print("\nhosts (%s detected here):" % (", ".join(
+        h for h in ALL_HOSTS if present[h]) or "none"))
+    for i, h in enumerate(ALL_HOSTS, 1):
+        print("  %d) %-9s %s" % (i, h, "detected" if present[h] else "not detected"))
+    for _ in range(WIZ_TRIES):
+        picked = parse_hosts(_ask("arm which hosts?", ",".join(default), input_fn))
+        if picked:
+            return picked
+        print("  unknown host; choose from %s" % ", ".join(ALL_HOSTS))
+    raise WizardAbort("no valid host selection")
+
+
+def _ask_roots(default, input_fn):
+    print("\nroots are the directories your repos live in; context and subagents "
+          "are scoped to them")
+    for _ in range(WIZ_TRIES):
+        raw = _ask("roots (%s-separated)" % os.pathsep, os.pathsep.join(default), input_fn)
+        picked = [expand(p) for p in raw.split(os.pathsep) if p.strip()]
+        # a relative root would be resolved against whatever cwd a later session
+        # happens to have, so it is rejected here instead of silently arming the
+        # wrong tree
+        if picked and all(os.path.isabs(p) for p in picked):
+            return picked
+        print("  use absolute paths, e.g. %s/work" % HOME)
+    raise WizardAbort("no valid root directory")
+
+
+def wizard_plan(hosts, roots, deps_off, devtools, adopt_now):
+    """What the wizard is about to do, printed before it does any of it."""
+    print("\nthe plan:")
+    print("  %s arm: %s" % (OK, ", ".join(hosts)))
+    for r in roots:
+        print("  %s root %s" % (OK if os.path.isdir(r) else NO, r))
+    print("  %s optional tools: %s" % (OK, "skip" if deps_off else
+          "install the missing ones over the network (orx, cursor-agent, dsh, pnpm)"))
+    print("  %s Chrome DevTools MCP: %s" % (OK, "wire" if devtools else "skip"))
+    if adopt_now:
+        print("  %s retire the predecessor wiring (moved aside, not deleted)" % OK)
+    print("  files tezgah rewrites are backed up once as <file>.tezgah-bak")
+
+
+def wizard(default_hosts, default_roots, deps_off_default, devtools_default,
+           dry_run=False, input_fn=input):
+    """Every question first, then the plan, then the shared apply path. The flags
+    supply the defaults, so `--wizard --hosts omp` only asks the rest."""
+    print("tezgah setup - press enter to take the value in brackets\n")
+    hosts = _ask_hosts(default_hosts, input_fn)
+    roots = _ask_roots(default_roots, input_fn)
+    deps_off = not _ask_bool("install the missing optional tools (needs the network)?",
+                             not deps_off_default, input_fn)
+    devtools = _ask_bool("wire the optional Chrome DevTools MCP?", devtools_default, input_fn)
+    pred = predecessors()
+    if pred:
+        print("\npredecessor wiring still present:")
+        for p in pred:
+            print("  ?    %s" % p)
+    adopt_now = _ask_bool("retire it (moved aside under ~/.config/tezgah/adopted/)?",
+                          True, input_fn) if pred else False
+    wizard_plan(hosts, roots, deps_off, devtools, adopt_now)
+    if not _ask_bool("\nproceed?", True, input_fn):
+        print("nothing was installed; `tezgah-setup --install` runs the same steps "
+              "with no questions")
+        return 0
+    global APPS_DEVTOOLS
+    APPS_DEVTOOLS = devtools
+    if adopt_now:
+        adopt()
+    return install_all(hosts, roots, deps_off, dry_run, redetect=False)
+
+
 # ------------------------------------------------------------------- main ----
+
+def install_all(hosts, new_roots, deps_off, dry_run, redetect):
+    """The one install path, shared by `--install` and the wizard: the wizard
+    decides the answers, never how they are applied."""
+    if not deps_off:
+        install_deps(dry_run=dry_run)
+        # a just-installed tool can enable a host we did not detect at start
+        if redetect:
+            hosts = [h for h, present in detected().items() if present]
+    print("installing for: %s\n" % (", ".join(hosts) or "none detected"))
+    install_common(new_roots, hosts)
+    # before the host installers: opencode's generated skill router indexes
+    # the orx skill dir, so the shim must exist when the router is written
+    install_openresearch(hosts)
+    for h in hosts:
+        INSTALLERS[h]()
+    print()
+    if deps_off:
+        print("(deps skipped; run `tezgah-setup --deps` to install orx, "
+              "cursor-agent and dsh)")
+    return report(hosts)
+
 
 def main(argv):
     ap = argparse.ArgumentParser(description="arm tezgah in every installed host")
     ap.add_argument("--install", action="store_true")
+    ap.add_argument("--wizard", action="store_true",
+                    help="ask the install questions (a bare run on a terminal does this)")
+    ap.add_argument("--report", action="store_true",
+                    help="report what is armed, per host (a bare run on a pipe does this)")
     ap.add_argument("--refresh", action="store_true",
                     help="re-render generated contract artifacts when the policy changed")
     ap.add_argument("--uninstall", action="store_true")
@@ -1937,36 +2091,35 @@ def main(argv):
     if bad:
         sys.exit("unknown host(s): %s (choose from %s)" % (", ".join(bad), ", ".join(ALL_HOSTS)))
 
+    # A bare run in a terminal is a person, so it gets the wizard; a piped,
+    # agent or CI run keeps the non-interactive report.
+    bare_tty = not argv[1:] and sys.stdin.isatty() and sys.stdout.isatty()
+
     if args.uninstall:
         uninstall(hosts)
         return 0
 
     if args.adopt:
         adopt()
-        if not args.install:
+        if not (args.install or args.wizard or bare_tty):
             return 0
 
+    new_roots = [r for r in args.roots.split(os.pathsep) if r.strip()] if args.roots else []
+    # TEZGAH_NO_DEPS is the CI/test escape hatch, mirroring --no-deps
+    deps_off = args.no_deps or os.environ.get("TEZGAH_NO_DEPS", "").strip() not in ("", "0")
+
+    if (args.wizard or bare_tty) and not args.report:
+        try:
+            return wizard(hosts, new_roots or tp.roots() or [tp.DEFAULT_ROOT],
+                          deps_off, args.devtools, args.dry_run)
+        except WizardAbort as exc:
+            print("wizard: %s" % exc)
+            print("nothing was installed; `tezgah-setup --install` runs the same "
+                  "steps with no questions")
+            return 1
+
     if args.install:
-        new_roots = [r for r in args.roots.split(os.pathsep) if r.strip()] if args.roots else []
-        # TEZGAH_NO_DEPS is the CI/test escape hatch, mirroring --no-deps
-        deps_off = args.no_deps or os.environ.get("TEZGAH_NO_DEPS", "").strip() not in ("", "0")
-        if not deps_off:
-            install_deps(dry_run=args.dry_run)
-            # a just-installed tool can enable a host we did not detect at start
-            if not args.hosts:
-                hosts = [h for h, present in detected().items() if present]
-        print("installing for: %s\n" % (", ".join(hosts) or "none detected"))
-        install_common(new_roots, hosts)
-        # before the host installers: opencode's generated skill router indexes
-        # the orx skill dir, so the shim must exist when the router is written
-        install_openresearch(hosts)
-        for h in hosts:
-            INSTALLERS[h]()
-        print()
-        if deps_off:
-            print("(deps skipped; run `tezgah-setup --deps` to install orx, "
-                  "cursor-agent and dsh)")
-        return report(hosts)
+        return install_all(hosts, new_roots, deps_off, args.dry_run, redetect=not args.hosts)
 
     if args.roots:
         sys.exit("--roots only means something with --install")
