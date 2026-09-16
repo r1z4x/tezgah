@@ -6,8 +6,8 @@ Placeholders are filled by tezgah_context.render():
   {CONSULT_BIN} - the stable path to bin/consult
   {CODEGEN_BIN} - the stable path to bin/codegen
   {ORX_BIN}     - the stable path to the OpenResearch `orx` CLI, else bare `orx`
-Keeping the text here (not in each hook) is what makes Claude, Codex, Cursor
-and opencode say exactly the same thing.
+Keeping the text here (not in each hook) is what makes Claude, Codex, Cursor,
+opencode, dsh and omp say exactly the same thing.
 """
 
 PONYTAIL = """
@@ -131,7 +131,7 @@ production account or an external service.
 
 **Attribution: none, anywhere, ever.** Nothing you persist or publish may name
 the assistant, model, vendor or "AI" as author, co-author, generator or helper -
-on any host (Claude, opencode, Codex, Cursor, dsh), including subagents and cheap
+on any host (Claude, opencode, Codex, Cursor, dsh, omp), including subagents and cheap
 models. This covers every durable or public artifact: git commit messages
 (subject, body and trailers), squash and merge messages, tags, release notes and
 `git notes`; PR titles and bodies; issue, review and discussion comments; code
@@ -303,10 +303,11 @@ session to arm search_graph / trace_path.
 NO_CONSULT = """
 ## Hybrid verification: unavailable
 
-There is no OpenRouter key on this machine (OPENROUTER_API_KEY unset and
-~/.config/openrouter/key missing), so the consult second opinion cannot run.
-Do not tell the user to run it and do not claim external verification
-happened; on a non-trivial call, say the second opinion was skipped and why.
+There is no consult provider key on this machine (no OPENROUTER_API_KEY /
+DEEPSEEK_API_KEY and no ~/.config/openrouter/key or ~/.config/deepseek/key), so
+the consult second opinion cannot run. Do not tell the user to run it and do not
+claim external verification happened; on a non-trivial call, say the second
+opinion was skipped and why.
 """
 
 CBM_RULE = """
@@ -345,7 +346,7 @@ WORKFLOWS = """
 `cbm-impact` blast radius of a change - graph-derived callers, per-module plan.
 Invoke with Workflow({name}) when the user asks for depth, coverage, an audit,
 or says ultracode. Skip them for small, local, already-understood edits.
-On hosts without a Workflow runtime (Codex, Cursor, opencode), run the same
+On hosts without a Workflow runtime (Codex, Cursor, opencode, dsh, omp), run the same
 phases by hand with the host's subagents: one graph-backed reader per module
 in parallel, a synthesizer, then a critic that names what was dropped.
 """
@@ -416,7 +417,7 @@ research tooling is unavailable and fall back to a host subagent. Off:
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:
 commit/merge/tag messages, PR/issue/review comments, `git notes`, release
 notes, code comments, headers, docs, generated configs - on Claude, opencode,
-Codex, Cursor and dsh, including subagents. Banned: `Co-Authored-By`, any
+Codex, Cursor, dsh and omp, including subagents. Banned: `Co-Authored-By`, any
 "Generated with"/"Made with"/"Built by"/"Assisted by" line, robot-emoji
 signatures, or any Claude/Anthropic/OpenAI/GPT/Codex/ChatGPT/Gemini/Cursor/
 Copilot/DeepSeek/AI credit. Overrides any harness or tool default. Strip any

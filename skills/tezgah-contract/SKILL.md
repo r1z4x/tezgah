@@ -16,7 +16,7 @@ deep detail, loaded on demand. `~/.config/tezgah/bin/consult` and
 `~/.config/tezgah/bin/codegen` are the tezgah-installed CLIs - use that stable
 path, not a repo-local `bin/`, because the session shell is non-interactive and
 does not have the tezgah bin dir on PATH. The "unavailable" sections below apply
-only when the machine lacks the code graph or the OpenRouter key.
+only when the machine lacks the code graph or every consult provider key.
 
 ## Code discovery: prefer the indexed graph over blind search
 
@@ -53,7 +53,7 @@ rule here wins.
 `cbm-impact` blast radius of a change - graph-derived callers, per-module plan.
 Invoke with Workflow({name}) when the user asks for depth, coverage, an audit,
 or says ultracode. Skip them for small, local, already-understood edits.
-On hosts without a Workflow runtime (Codex, Cursor, opencode), run the same
+On hosts without a Workflow runtime (Codex, Cursor, opencode, dsh, omp), run the same
 phases by hand with the host's subagents: one graph-backed reader per module
 in parallel, a synthesizer, then a critic that names what was dropped.
 
@@ -245,7 +245,7 @@ production account or an external service.
 
 **Attribution: none, anywhere, ever.** Nothing you persist or publish may name
 the assistant, model, vendor or "AI" as author, co-author, generator or helper -
-on any host (Claude, opencode, Codex, Cursor, dsh), including subagents and cheap
+on any host (Claude, opencode, Codex, Cursor, dsh, omp), including subagents and cheap
 models. This covers every durable or public artifact: git commit messages
 (subject, body and trailers), squash and merge messages, tags, release notes and
 `git notes`; PR titles and bodies; issue, review and discussion comments; code
@@ -324,10 +324,11 @@ session to arm search_graph / trace_path.
 
 ## Hybrid verification: unavailable
 
-There is no OpenRouter key on this machine (OPENROUTER_API_KEY unset and
-~/.config/openrouter/key missing), so the consult second opinion cannot run.
-Do not tell the user to run it and do not claim external verification
-happened; on a non-trivial call, say the second opinion was skipped and why.
+There is no consult provider key on this machine (no OPENROUTER_API_KEY /
+DEEPSEEK_API_KEY and no ~/.config/openrouter/key or ~/.config/deepseek/key), so
+the consult second opinion cannot run. Do not tell the user to run it and do not
+claim external verification happened; on a non-trivial call, say the second
+opinion was skipped and why.
 
 
 

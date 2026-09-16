@@ -2,8 +2,8 @@
 """The one place that decides what tezgah injects, independent of the host.
 
 Each host adapter normalizes its own event names and output envelope, then
-calls context_for() here; the text is identical on Claude, Codex, Cursor and
-opencode because it is built once. Stdlib only.
+calls context_for() here; the text is identical on Claude, Codex, Cursor,
+opencode, dsh and omp because it is built once. Stdlib only.
 """
 import glob
 import json
@@ -14,7 +14,7 @@ import sys
 import time
 
 from tezgah_policy import CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER
-from tezgah_paths import (CACHE, cache_dir, cbm_bin, have_consult_key, off,
+from tezgah_paths import (cache_dir, cbm_bin, have_consult_key, off,
                           orx_bin, root_for, roots, tool, writable_dir)
 
 # A prompt that matches one of these arms the matching conditional rule for that
@@ -140,6 +140,16 @@ def autoindex(root):
         stamped = ""
     if stamped == head and head != "nogit":
         return "index current (HEAD unchanged since last index)"
+    # a failed worker leaves this marker; surface it and clear it once, so the
+    # session learns the last index failed instead of it looping invisibly
+    failure = stamp_path + ".failed"
+    note = None
+    if os.path.exists(failure):
+        try:
+            os.remove(failure)
+        except OSError:
+            pass
+        note = "last auto-index failed (see %s/%s.log)" % (cache, name)
     try:
         log = open(os.path.join(cache, "logs", name + ".log"), "ab")
         # Spawn the lock-guarded worker rather than indexing inline. Two sessions
@@ -156,6 +166,8 @@ def autoindex(root):
     except Exception as exc:
         return "auto-index could not start (%s); run index_repository manually" % exc
     verb = "re-indexing" if stamped else "indexing (first time)"
+    if note:
+        return "%s; %s in background now" % (note, verb)
     return "%s in background now" % verb
 
 
@@ -393,8 +405,9 @@ def context_for(event, cwd, payload=None):
                      "grep/find and say the answer came from text search; never "
                      "claim the index answered.")
     if not off("consult-off") and not have_consult_key():
-        parts.append("Consult: no OpenRouter key, so the second opinion cannot "
-                     "run; on a non-trivial call say it was skipped and why.")
+        parts.append("Consult: no provider key (OpenRouter or DeepSeek), so the "
+                     "second opinion cannot run; on a non-trivial call say it was "
+                     "skipped and why.")
     if not off("research-off") and not orx_bin():
         parts.append("Research: orx (OpenResearch) is not installed, so route "
                      "research to a host subagent and say the tooling is "
@@ -431,7 +444,7 @@ def record(session_id, kind):
     if not session_id:
         return
     try:
-        d = os.path.join(CACHE, "sessions")
+        d = os.path.join(cache_dir(), "sessions")
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, slug(session_id) + ".jsonl"), "a") as fh:
             fh.write(json.dumps({"kind": kind}) + "\n")
@@ -444,7 +457,8 @@ def used(session_id):
         return set()
     out = set()
     try:
-        with open(os.path.join(CACHE, "sessions", slug(session_id) + ".jsonl")) as fh:
+        with open(os.path.join(cache_dir(), "sessions",
+                               slug(session_id) + ".jsonl")) as fh:
             for line in fh:
                 try:
                     out.add(json.loads(line)["kind"])
@@ -491,7 +505,7 @@ def index_mark(cwd, base):
         return "✗"
     try:
         head = git(repo_root(cwd), "rev-parse", "HEAD")
-        with open(os.path.join(CACHE, slug)) as fh:
+        with open(os.path.join(cache_dir(), slug)) as fh:
             stamped = fh.read().strip()
         if head and stamped and stamped != head:
             return "↻"

@@ -148,7 +148,7 @@ def main():
             model = args[i + 1]; i += 2; continue
         if args[i] == "--timeout" and i + 1 < len(args):
             timeout = int(args[i + 1]); i += 2; continue
-        if args[i] in ("--out-dir", "--apply-to") and i + 1 < len(args):
+        if args[i] == "--out-dir" and i + 1 < len(args):
             out_dir = args[i + 1]; i += 2; continue
         if args[i] == "--max-tokens" and i + 1 < len(args):
             max_tokens = int(args[i + 1]); i += 2; continue

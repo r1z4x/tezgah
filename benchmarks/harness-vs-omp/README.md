@@ -35,6 +35,12 @@ Failures:
 - `t6` / `tezgah+opencode`: read "%20 KDV'li toplam" as the tax amount (0.60) instead of the total with tax (3.60). Genuine.
 - `t19` / `omp+tezgah-port`: answered the transitive impact set (added `tests/test_report.py`). The recorded ground truth listed direct call sites only, so this is a ground-truth limitation, not clearly a failure.
 
+Cost accounting defect: `t5` timed out on both omp arms (`rc=-1`,
+`wall_s=240.1`) and its `tokens` block is zero-filled (`cost: 0.0`), so the omp
+cost totals above omit a task `tezgah+opencode` paid $0.0078 for. Read every
+omp-vs-tezgah cost comparison here as one-sided in tezgah's favour until that
+run is re-costed, and do not score a timeout as `pass` with zero usage.
+
 Graph use: only `tezgah+opencode` reached for the graph (`search_graph` /
 `search_code` on t19 and t20). All 40 omp runs used grep/shell only, including
 the ported gate arm - the gate blocks the `grep` tool but keeps tezgah's own
@@ -53,6 +59,10 @@ reasoning-inclusive generated tokens:
 | tezgah+opencode | 21,223 | 8,806 | 30,029 |
 | omp+graph | 20,919 | 8,155 | 29,074 |
 | omp+tezgah-port | 30,364 | 14,180 | 44,544 |
+
+The published `results.jsonl` carries only `input`/`output`/`cache_read`/`total`,
+with no `reasoning` field, so this text/reasoning split comes from the
+unpublished per-step logs; it cannot be recomputed from this repository.
 
 The port generates ~48% more than the other two (more text and more reasoning),
 driven by more turns and tool calls (228 vs 165 overall; e.g. t15 28 steps vs 6,
@@ -91,13 +101,17 @@ this:
 ## Code quality (round 2, naive metric `output` cannot see this)
 
 Every run was diffed against the pristine fixture; `quality.jsonl` holds the
-per-run rows. Median stats:
+per-run rows. Cells are medians unless the header says total: the
+comment/docstring distributions are skewed, so their median is 0 for every arm
+and only the totals separate them. The Turkish rate counts replies the detector
+scored `tr_hits >= 2`; at the looser `>= 1` it is 85% / 60% / 80%, so the row is
+a stated threshold, not a rounded rate.
 
-| Arm | Median added lines | Files touched/task | Comments added | Docstring lines | Turkish replies | Claims a verification |
+| Arm | Median added lines | Files touched/task (median) | Comment lines (total) | Docstring lines (total) | Turkish replies (tr_hits>=2) | Claims a verification |
 |---|---|---|---|---|---|---|
-| tezgah+opencode | 2 | 1 | 1 | 1 | 75% | 60% |
-| omp+graph | 2 | 1 | 8 | 10 | 30% | 55% |
-| omp+tezgah-port | 2 | 1 | 1 | 6 | 65% | 65% |
+| tezgah+opencode | 2.0 | 1 | 1 | 1 | 75% | 60% |
+| omp+graph | 2.5 | 1 | 8 | 10 | 30% | 55% |
+| omp+tezgah-port | 2.5 | 1 | 1 | 6 | 65% | 65% |
 
 Diff *size* is equal; diff *discipline* is not. On `t5` (root cause, shared
 parser) all three found the same root cause and fixed it in a shared helper, but:

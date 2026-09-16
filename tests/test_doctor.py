@@ -91,6 +91,14 @@ class Doctor(unittest.TestCase):
         self.assertIn("session delete ses_old", calls)
         self.assertNotIn("ses_new", calls)
 
+    def test_prune_sessions_without_the_cli_counts_nothing_failed(self):
+        # no opencode binary => nothing is attempted, so no id may be "failed"
+        self.session("ses_old", 10)
+        mod = load_module()
+        mod.OPENCODE_DB = self.db
+        mod.OPENCODE_BIN = None
+        self.assertEqual(mod.prune_sessions(7), (0, 0))
+
     def test_json_report_counts_logs_and_db(self):
         self.log("Users-x-1.log", age_days=0)
         self.log("Users-x-2.log", age_days=10)

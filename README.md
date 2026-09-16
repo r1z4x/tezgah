@@ -52,8 +52,8 @@
 ---
 
 One working contract for every AI coding assistant you run — Claude Code,
-opencode, Codex, Cursor, and DeepSeek's dsh harness — inside a set of
-configured repository roots.
+opencode, Codex, Cursor, DeepSeek's dsh harness, and oh-my-pi (omp) — inside a
+set of configured repository roots.
 
 Left alone, each assistant has its own habits: one answers in Turkish, another
 in English; one greps for everything, another queries a code graph; one says
@@ -62,7 +62,7 @@ get the same language, the same discipline, and the same standard of evidence.
 
 The design is two layers. The rules live once in a shared core; each host gets
 a thin adapter that translates that core into the shape the host understands.
-Change a rule in one place and all five hosts see it — no five-way copy of the
+Change a rule in one place and all six hosts see it — no six-way copy of the
 same text.
 
 <a id="what-it-enforces"></a>
@@ -106,8 +106,9 @@ same text.
 - **Two-tier orchestration.** The main thread decides and verifies; a cheap
   model (`~/.config/tezgah/bin/codegen`, OpenRouter by default or `--provider deepseek`) drafts
   bounded, well-specified edits to a scratch directory. Nothing reaches the repo
-  except through the router, and a failed draft falls back to the main model
-  automatically.
+  except through the router; on a failed draft (codegen exit 2) the contract
+  requires the router to write the code itself with the main model - a rule the
+  router follows, not a mechanism inside codegen.
 - **Per-repo subagents.** At session start the enclosing repo gets a small set of
   capability-gated agents (`tezgah-explorer`, `tezgah-reviewer`,
   `tezgah-researcher`, `tezgah-verifier`) plus a `tezgah-orchestrator`, rendered
@@ -127,15 +128,17 @@ same text.
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style | native `statusLine` |
 | **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message | TUI plugin (no command statusLine) |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
-| **Cursor** | `hooks.json` + skills + MCP | `statusLine` in `cli-config.json` |
+| **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them | `statusLine` in `cli-config.json` |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) | Web UI plugin: `tezgah-dsh-statusline` in the session header |
 | **omp** (oh-my-pi) | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and a `hooks/pre` gate; the contract is checked by `tezgah-setup` | none (omp has no tezgah status line) |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
-and subagent calls through the same check as the other hosts. On Claude, the
-attribution ban is enforced mechanically too: the `attribution` setting is
-emptied (`commit`, `pr`, `sessionUrl`) so commit and PR credits are off at the
-source.
+and subagent calls through the same check as the other hosts. On Claude the
+`attribution` setting is emptied (`commit`, `pr`, `sessionUrl`), which turns off
+the harness-emitted commit/PR trailers - it does not edit text the model writes.
+Elsewhere the ban is enforced only by the tool gate (a git/gh write whose command
+carries a credit is refused) and by the contract; Cursor exposes no attribution
+lever tezgah can set.
 
 ### Status line
 
@@ -191,8 +194,8 @@ the task's answer; interactive web sessions are unaffected.
 `bin/tezgah-setup --install` also triggers `orx install-skills` for Claude,
 Codex, opencode and Cursor when `orx` is on PATH, so the research rule has a
 manual to load. The shim files belong to orx, so tezgah only runs that installer
-and never lists them for uninstall. dsh has no orx harness; the research rule
-there falls back to `orx skill` on the shell.
+and never lists them for uninstall. dsh and omp have no orx harness; the research
+rule there falls back to `orx skill` on the shell.
 
 The Claude plugin also ships two read-only agents. `agents/tezgah-explorer.md`
 does code discovery from the graph and returns `file:line` evidence;
@@ -354,9 +357,9 @@ Measured on this machine (macOS, Python 3.10), not estimated:
   conditional rules (spec-first, consult, OpenResearch, code-graph) are armed by
   the prompt's task class instead of being paid every session - ~2.2 KB
   (~0.6k tokens) rides only the turn whose prompt matches, and the full text
-  stays in the on-demand skill. Codex, Claude and Cursor have a per-turn hook
-  (a ~621-byte reminder, plus the armed rule when it matches); opencode and dsh
-  have none, so their per-turn cost is zero. `tezgah-setup` prints this budget.
+  stays in the on-demand skill. Claude, Codex, Cursor and dsh have a per-turn
+  hook (a ~621-byte reminder, plus the armed rule when it matches); opencode has
+  none, so its per-turn cost is zero. `tezgah-setup` prints this budget.
   The full `tezgah-contract`
   skill (~19.9k characters) is paid only when a task loads it. On opencode the
   contract ships as a ~3.8 KB instructions file. opencode would otherwise

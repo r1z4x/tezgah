@@ -27,6 +27,8 @@ elif op == "which_user":
     out = tp.which_user(sys.argv[2])
 elif op == "orx_bin":
     out = tp.orx_bin()
+elif op == "have_consult_key":
+    out = tp.have_consult_key()
 else:
     raise SystemExit("unknown op: %s" % op)
 print(json.dumps(out))

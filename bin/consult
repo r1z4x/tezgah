@@ -13,7 +13,11 @@ Providers (--provider, default openrouter):
   deepseek    DEEPSEEK_API_KEY    ~/.config/deepseek/key
 Key lookup order: the provider's env var, then its key file.
 Output: one "## <model>" section per model with its answer, then a footer
-line naming which models answered and which errored. Exit 1 if ALL failed.
+line naming which models answered and which errored.
+
+Exit codes: 0 at least one model answered; 1 misuse (bad or unknown arguments,
+or --online on a provider that has no :online suffix); 2 the chosen provider has
+no key; 3 the models ran but none answered.
 """
 import concurrent.futures
 import json
@@ -60,8 +64,9 @@ def get_key(provider):
         except OSError:
             pass
     if not k:
-        sys.exit("consult: no API key for %s. Set %s or write the key to %s "
-                 "(chmod 600)." % (provider, env, path))
+        print("consult: no API key for %s. Set %s or write the key to %s "
+              "(chmod 600)." % (provider, env, path), file=sys.stderr)
+        sys.exit(2)
     return k
 
 
@@ -117,6 +122,11 @@ def main():
     if provider not in PROVIDERS:
         sys.exit("consult: unknown provider %r (use %s)"
                  % (provider, " or ".join(sorted(PROVIDERS))))
+    if online and provider != "openrouter":
+        # ":online" is an OpenRouter suffix; appending it elsewhere yields an
+        # unknown model id, so refuse rather than fail every model.
+        sys.exit("consult: --online is OpenRouter-only; drop it or use "
+                 "--provider openrouter")
     if models is None:
         models = defaults(provider)
     if not question:
@@ -157,7 +167,7 @@ def main():
     sys.stdout.flush()
     # ponytail: hard exit so a still-hung request thread cannot wedge the process (18-min hang seen);
     # flush above preserves output. Upgrade to per-thread cancellation only if a leaked socket ever matters.
-    os._exit(0 if ok else 1)
+    os._exit(0 if ok else 3)
 
 
 main()

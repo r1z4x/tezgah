@@ -174,7 +174,9 @@ def prune_sessions(days):
     """
     ids = select_old_sessions(days)
     if not ids or not OPENCODE_BIN:
-        return 0, len(ids)
+        # nothing is attempted without the CLI; the caller reports the skip, so
+        # do not count these ids as failed deletions
+        return 0, 0
     deleted = failed = 0
     for sid in ids:
         proc = subprocess.run([OPENCODE_BIN, "session", "delete", sid],
@@ -221,6 +223,8 @@ def main():
         if args.prune_sessions is not None and os.path.exists(OPENCODE_DB):
             if rep["opencode_running"]:
                 cleaned["prune_sessions"] = "skipped: opencode is running"
+            elif not OPENCODE_BIN:
+                cleaned["prune_sessions"] = "skipped: opencode is not installed"
             else:
                 deleted, failed = prune_sessions(args.prune_sessions)
                 cleaned["prune_sessions"] = {"deleted": deleted, "failed": failed}

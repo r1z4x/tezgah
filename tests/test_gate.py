@@ -45,8 +45,30 @@ class Gate(TempHome):
         self.assertIsNotNone(reason)
         self.assertIn("Attribution", reason)
 
+    def test_attribution_denies_writes_behind_git_global_options(self):
+        # a global option between `git` and the subcommand must not hide a write
+        for command in (
+                'git -c user.name=x commit -m "Co-Authored-By: Claude"',
+                'git -C /tmp/repo commit -m "Generated with Cursor"',
+                'git --no-pager commit -m "Built by GPT"'):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("Attribution", reason)
+
+    def test_attribution_denies_gh_merge_and_api_writes(self):
+        for command in (
+                'gh pr merge 7 --body "Co-Authored-By: Claude"',
+                'gh api repos/o/r/issues/1/comments -f body="Generated with x"'):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("Attribution", reason)
+
     def test_attribution_without_a_write_passes(self):
         self.assertIsNone(self.decide("Bash", {"command": 'echo "Generated with x"'}))
+
+    def test_global_option_without_a_write_subcommand_passes(self):
+        self.assertIsNone(self.decide(
+            "Bash", {"command": 'git -c core.pager=cat log --grep="Generated with"'}))
 
     def test_naming_claude_code_to_use_it_passes(self):
         # Naming a tool to use or describe it is allowed; only crediting it as

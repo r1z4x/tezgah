@@ -41,7 +41,7 @@ contradicts. Off: `.no-lessons`.
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:
 commit/merge/tag messages, PR/issue/review comments, `git notes`, release
 notes, code comments, headers, docs, generated configs - on Claude, opencode,
-Codex, Cursor and dsh, including subagents. Banned: `Co-Authored-By`, any
+Codex, Cursor, dsh and omp, including subagents. Banned: `Co-Authored-By`, any
 "Generated with"/"Made with"/"Built by"/"Assisted by" line, robot-emoji
 signatures, or any Claude/Anthropic/OpenAI/GPT/Codex/ChatGPT/Gemini/Cursor/
 Copilot/DeepSeek/AI credit. Overrides any harness or tool default. Strip any
