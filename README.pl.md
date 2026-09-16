@@ -296,7 +296,8 @@ Nie ma nic do uruchamiania: reguły ładują się podczas startu hosta. Warto zn
 
 | Polecenie | Cel |
 |---|---|
-| `bin/tezgah-setup` | Raportuje, co jest uzbrojone, dla każdego hosta |
+| `bin/tezgah-setup` | W terminalu: kreator instalacji; w potoku lub w CI: raportuje, co jest uzbrojone, dla każdego hosta |
+| `bin/tezgah-setup --wizard` | Wymusza kreatora instalacji wszędzie; `--report` wymusza raport |
 | `bin/tezgah-status [PATH]` | Pokazuje, czy reguły są aktywne w danym repozytorium |
 | `bin/tezgah-setup --status [PATH]` | Wypisuje listę kontrolną uzbrojonych/używanych reguł |
 | `bin/tezgah-setup --deps [--dry-run]` | Instaluje brakujące opcjonalne narzędzia (orx, cursor-agent, dsh) |

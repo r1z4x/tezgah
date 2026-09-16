@@ -157,7 +157,8 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 
 | コマンド | 目的 |
 |---|---|
-| `bin/tezgah-setup` | ホストごとに有効化されているものを報告する |
+| `bin/tezgah-setup` | ターミナルではインストールウィザード、パイプや CI ではホストごとに有効化されているものを報告する |
+| `bin/tezgah-setup --wizard` | どこでもインストールウィザードを強制する。`--report` はレポートを強制する |
 | `bin/tezgah-status [PATH]` | そのリポジトリでルールがアクティブかどうかを表示する |
 | `bin/tezgah-setup --status [PATH]` | 有効化/使用済みのチェックリストを出力する |
 | `bin/tezgah-setup --deps [--dry-run]` | 不足しているオプションツール（orx、cursor-agent、dsh）をインストールする |

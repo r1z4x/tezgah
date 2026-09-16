@@ -157,7 +157,8 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 
 | 指令 | 用途 |
 |---|---|
-| `bin/tezgah-setup` | 報告每個主機已武裝的項目 |
+| `bin/tezgah-setup` | 在終端機中：安裝精靈；在管線或 CI 中：報告每個主機已武裝的項目 |
+| `bin/tezgah-setup --wizard` | 在任何位置強制使用安裝精靈；`--report` 強制輸出報告 |
 | `bin/tezgah-status [PATH]` | 顯示規則在該儲存庫中是否處於作用中 |
 | `bin/tezgah-setup --status [PATH]` | 印出已武裝/已使用的檢查清單 |
 | `bin/tezgah-setup --deps [--dry-run]` | 安裝缺少的選用工具 (orx、cursor-agent、dsh) |
