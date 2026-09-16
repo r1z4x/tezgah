@@ -339,6 +339,17 @@ class Detection(AgentsBase):
         self.config({"hosts": ["omp"]})
         self.assertEqual(self.detect()["hosts"], [])
 
+    def test_a_config_without_a_file_host_sweeps_the_previous_files(self):
+        # a repo that got agents while another host was configured must not keep
+        # them: Claude and Cursor load that dir, so a stale agent is a live one
+        self.sync()
+        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.config({"hosts": ["omp"]})
+        self.sync()
+        self.assertEqual(self.names(CLAUDE), [])
+        self.assertEqual(self.names(CODEX), [])
+        self.assertEqual(self.names(OPENCODE), [])
+
     def test_detection_does_not_read_another_hosts_dir(self):
         # cursor was probed through ~/.claude, so it was "installed" wherever
         # Claude was; only the hosts that are actually here may be selected
