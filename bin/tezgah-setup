@@ -42,23 +42,25 @@ from tezgah_policy import (  # noqa: E402
     CBM_RULE, CONSULT, EXEC, NO_CONSULT, ORCHESTRATE, PONYTAIL, WORKFLOWS)
 
 HOME = os.path.expanduser("~")
-CLAUDE = os.path.join(HOME, ".claude")
-CODEX = os.path.join(HOME, ".codex")
-OPENCODE = os.path.join(
-    os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"), "opencode")
-CURSOR = os.path.join(HOME, ".cursor")
-DSH = os.environ.get("DSH_HOME") or os.path.join(HOME, ".dsh")
+# The per-host config roots live in tezgah_paths, the one place that also decides
+# whether a host is installed: the installer's report and the per-repo agent
+# generation must not answer that question differently.
+CLAUDE = tp.HOST_DIRS["claude"]
+CODEX = tp.HOST_DIRS["codex"]
+OPENCODE = tp.HOST_DIRS["opencode"]
+CURSOR = tp.HOST_DIRS["cursor"]
+DSH = tp.HOST_DIRS["dsh"]
 DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
 DSH_WEB = os.path.join(DSH, "profiles", "web")
 DSH_WEB_PATCH = os.path.join(DSH_WEB, "cordis.patch.yml")
 DSH_STATUSLINE = "tezgah-dsh-statusline"
-OMP = os.path.join(HOME, ".omp")
+OMP = tp.HOST_DIRS["omp"]
 OMP_AGENT = os.path.join(OMP, "agent")
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
-# omp does expose a prompt-time hook (before_agent_start) and a status line, but
-# tezgah does not wire them yet; until it does, the always-on markdown carries
-# one extra line that pulls the per-repo lessons ledger in by hand.
+# The managed RULES.md still carries this one line: RULES.md is the always-on
+# file, so a session whose extension cannot start still learns the ledger
+# exists. The hook injects the actual lessons at session start.
 OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
                "treat every line as a standing constraint on the work.")
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
@@ -303,15 +305,8 @@ def dsh_key_resolvable(name):
 
 
 def detected():
-    return {
-        "claude": os.path.isdir(CLAUDE),
-        "codex": os.path.isdir(CODEX),
-        "opencode": os.path.isdir(OPENCODE) or bool(shutil.which("opencode")),
-        "cursor": os.path.isdir(CURSOR) or bool(
-            tp.which_user("cursor-agent") or tp.which_user("cursor")),
-        "dsh": os.path.isdir(DSH) or bool(shutil.which("dsh")),
-        "omp": os.path.isdir(OMP) or bool(shutil.which("omp")),
-    }
+    """Which hosts exist here, from the one place that decides that."""
+    return {h: tp.host_installed(h) for h in ALL_HOSTS}
 
 
 # ---------------------------------------------------------------- install ----

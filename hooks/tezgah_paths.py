@@ -43,6 +43,33 @@ USER_BINS = (os.path.join(HOME, ".local", "bin"), os.path.join(HOME, ".cargo", "
 # canonical kill switches live in CONFIG_DIR; the pre-multi-host setup wrote
 # them to ~/.claude, so that stays a recognized channel
 OFF_DIRS = (CONFIG_DIR, os.path.join(HOME, ".claude"))
+# Where each host keeps its config. One definition, shared by the installer
+# (which writes into these) and the agent generator (which decides whose
+# per-repo subagent files to render), so "is this host installed?" cannot mean
+# two different things in the two places that ask.
+XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+HOST_DIRS = {
+    "claude": os.path.join(HOME, ".claude"),
+    "codex": os.path.join(HOME, ".codex"),
+    "cursor": os.path.join(HOME, ".cursor"),
+    "opencode": os.path.join(XDG_CONFIG, "opencode"),
+    "dsh": os.environ.get("DSH_HOME") or os.path.join(HOME, ".dsh"),
+    "omp": os.path.join(HOME, ".omp"),
+}
+# a host can be installed with no config dir yet (a CLI on PATH is enough)
+HOST_BINS = {"cursor": ("cursor-agent", "cursor"), "opencode": ("opencode",),
+             "dsh": ("dsh",), "omp": ("omp",)}
+
+
+def host_installed(name):
+    """True when this host is present on this machine.
+
+    The config dir is the primary signal; the CLI covers a host that is
+    installed but has not been run yet. Both the installer's detection report
+    and the per-repo agent generation answer with this."""
+    if os.path.isdir(HOST_DIRS.get(name) or ""):
+        return True
+    return any(which_user(b) for b in HOST_BINS.get(name, ()))
 
 
 def config():
