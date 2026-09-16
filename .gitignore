@@ -15,3 +15,8 @@ __pycache__/
 
 # arm-bench: per-arm agent state (SQLite, model caches) is runtime, not evidence
 /benchmarks/arm-bench/arms/*/
+# ...but the contract variants are the experiment, so they are committed
+!/benchmarks/arm-bench/arms/orx-*/
+/benchmarks/arm-bench/arms/orx-*/*
+!/benchmarks/arm-bench/arms/orx-*/RULES.md
+!/benchmarks/arm-bench/arms/orx-*/PROVENANCE.md
