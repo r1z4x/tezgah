@@ -40,6 +40,7 @@
   <a href="#install">Install</a> &bull;
   <a href="#day-to-day">Day-to-day</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
+  <a href="#benchmark">Benchmark</a> &bull;
   <a href="#cost">Cost</a> &bull;
   <a href="#development">Development</a> &bull;
   <a href="#contributing">Contributing</a> &bull;
@@ -397,73 +398,97 @@ When the user flags a mistake, the agent appends a one-line lesson to the repo's
 `.tezgah/lessons.md`; the most recent lines are injected at session start so the
 same mistake cannot silently repeat.
 
+<a id="benchmark"></a>
+
+## Benchmark
+
+Does this contract improve the work, or does it only look like it should? That
+is measured in `benchmarks/arm-bench/`, not asserted: hidden checks the agent
+never sees the check for, cost from the host's own usage record, and collateral
+edits scored as failures. `PREREGISTRATION.md` fixes the endpoints before a run
+and `python3 bench.py report` prints them; the full study, with the run ids, is
+`docs/research/2026-09-16-tezgah-quality.md`. Every figure below is a run log.
+
+| Block | Runs | What it settled |
+|---|---|---|
+| two-host, 28 tasks, k=3 | 336 | `omp+tezgah` 0.95 and `opencode+tezgah` 0.96 have overlapping intervals and the same cost per solved task; on the bare arms omp is cheaper ($0.0047 against $0.0074 CPS), so the daily driver is omp at no cost in quality |
+| hard family, 5 tasks, k=5, two model families | 200 | pooled, three of the four arms land on 40/50: no harness effect at that size, and the one signal the first model produced reversed on the second |
+| gate family, gate armed | 36 | no arm took the shortcut route; the gate mechanism is verified directly (a skip edit is refused), its effect on the work is not measured yet |
+| clause ablation, the two rules that separate, k=8 | 160 | the contract arms pass 23/32 (0.72) against the bare anchor's 12/32 (0.38) |
+
+**It helps exactly where the model's default is wrong.** `c04` (an English
+prompt where only the contract makes the reply Turkish) reads 9/16 with a
+contract and 0/16 without one; `h02` (a money contract whose visible suite is
+green either way) reads 14/16 against 12/16. Where there is no gap to close - 22
+of the 25 pilot tasks passed under every arm on every repeat - a benchmark can
+only report a null.
+
+**Two clauses carry it.** Removing clause 1 takes `c04` to 0/8, the bare anchor's
+own score, while barely moving `h02`. Removing clause 3 takes `h02` to 2/8 -
+below the bare anchor's 6/8 - because clause 3 forbids stopping at the shortest
+done-looking path, and on that task the shortest path is the one-liner that
+passes the visible suite while breaking the documented rule. Clauses 2 and 4 move
+nothing measurable.
+
+**Cost follows quality.** Per solved task: $0.0078 against $0.0097 on the
+full-contract node, $0.0043 against $0.0087 on the minus-ponytail node. The
+contract arms solve more tasks, so each solved task costs less; total spend is
+higher, and the benchmark records it per row rather than netting it out.
+
+What this does not show: code quality, review effort or maintainability, none of
+which is measured here; the gate's effect on an arm's choices, since no arm
+reached for the shortcut in 36 armed runs; or a clause *order* - `k=8` fixes a
+direction, at 8 runs per cell. One provider and one fixture package throughout,
+and the ablation rounds run on a single model family. A second model family
+reproduces the 28-task null exactly (51/56 against 51/56), which is what shows
+the first reading was not a model artefact.
+
 <a id="cost"></a>
 
 ## Cost
 
-Measured on this machine (macOS, Python 3.10), not estimated:
+Measured on this machine (macOS, Python 3.10), not estimated. `tezgah-setup`
+prints the live budget - read it there rather than trusting a figure copied here,
+which is how an earlier revision came to quote a core band smaller than the one
+it installs.
 
-- **Context.** A session start injects the always-on contract text: the
-  invariants plus a one-line pointer per on-demand rule. The conditional rules
-  (spec-first, consult, OpenResearch, code-graph) are armed by the prompt's task
-  class instead of being paid every session, so only the turn whose prompt
-  matches pays for them, and the full text stays in the on-demand skill. Claude,
-  Codex, Cursor, dsh and omp have a per-turn hook (a short reminder, plus the
-  armed rule when it matches); opencode has none, so its per-turn cost is zero.
-  `tezgah-setup` prints this budget - read it there instead of trusting a figure
-  copied into this file, which is how an earlier revision came to quote a core
-  band smaller than the one it installs. The largest band is not in that report
-  at all: `tezgah-setup --mcp-schemas` asks each MCP server for its tool
-  schemas over stdio, and on this machine the graph server alone declares 15
-  tools / 24,508 bytes (~6.1k tokens) - several times the always-on contract,
-  paid on every request unless the host fetches schemas on demand.
-  The full `tezgah-contract`
-  skill is paid only when a task loads it. opencode has no prompt-time injection
-  point, so the contract ships there as a generated instructions file. opencode
-  would otherwise inject every skill's name, description and location into every
-  session's system prompt; tezgah denies that list (`permission.skill = deny`)
-  and ships a generated router instead. The always-on router lists only the
-  buckets a coding session reaches for (`tezgah core`, `code & host tooling`) and
-  collapses the rest to a pointer at `~/.config/tezgah/opencode-skills.full.md`,
-  read on demand, so opencode's always-on text stays a fraction of what the
-  uncovered list would cost. Both files are generated by `tezgah-setup` from the
-  policy, and their sizes track the installed skill set - measure them there
-  rather than quoting a figure here.
-- **Arming floor.** The invariants are always-on - execution mode, ponytail,
-  deliver-the-whole-ask, integrity, loop discipline, the lessons ledger and the
-  attribution ban - and the safety rule
-  ("irreversible or outward-facing actions need an explicit ask first") is one
-  of them, so it never depends on a classifier. The four advisory rules (spec,
-  code graph, consult, research) are
-  expanded per prompt, but each has an actionable one-line pointer always-on, so
-  a missed match costs detail, never the rule. If a host hook fails, the turn
-  falls back to the pointers plus the on-demand skill, never to no contract.
-  False negatives are audited: every user prompt appends one line -
-  `armed=<rules|none> chars=<n>`, no prompt text - to
-  `~/.cache/tezgah/classify.log` (truncated to the last 200 lines past 64 KB).
-  All five hook hosts arm the same rule set for the same prompt, asserted by
-  `tests/test_context.py::ArmingConformance`.
-- **Latency.** Hooks are separate Python processes, so the ~19 ms interpreter
-  start dominates. On top of it, session start adds ~25 ms, a gated tool call
-  (Bash/Grep/Task) adds ~9 ms, and Codex's Stop segment adds ~15 ms per turn.
-- **Disk.** Installation takes ~58 ms and every file tezgah rewrites is kept
-  once as `<file>.tezgah-bak`.
+| Band | What it costs |
+|---|---|
+| Session start | the always-on contract (the invariants plus a one-line pointer per on-demand rule): on this machine and skill set, ~1.3k tokens of contract text and ~1.1k of skill metadata, with the conditional rules (spec, consult, research, graph) adding ~0.6k only on the turn whose prompt matches |
+| Per turn | a short reminder (~0.2k tokens) plus the armed rule when it matches; hooks are separate Python processes, so the ~19 ms interpreter start dominates - session start adds ~25 ms, a gated tool call (Bash/Grep/Task) ~9 ms. opencode has no prompt-time hook, so it pays zero |
+| On demand | the full `tezgah-contract` skill (~5.8k tokens), paid only when a task loads it |
+| MCP schemas | the largest band, and the one no static report sees: the graph server alone declares 15 tools / 24,508 bytes (~6.1k tokens), riding every request unless the host fetches schemas on demand. `tezgah-setup --mcp-schemas` measures it |
+| Disk | installation takes ~58 ms, and every file tezgah rewrites is kept once as `<file>.tezgah-bak` |
 
-The payoff shows up on caller questions. In one real repo, a default `grep`
-ignored the relevant folder and found nothing; with ignore disabled it took
-3.95 s and still mixed definitions with call sites. The code graph answered the
-same question in 16 ms, listing only the 8 true call sites.
+**The arming floor.** The invariants are always-on - execution mode, ponytail,
+deliver-the-whole-ask, integrity, loop discipline, the lessons ledger and the
+attribution ban - and the safety rule ("irreversible or outward-facing actions
+need an explicit ask first") is one of them, so it never depends on a classifier.
+Each advisory rule keeps an actionable one-line pointer always-on, so a missed
+match costs detail, never the rule, and a host hook that fails falls back to the
+pointers plus the on-demand skill rather than to no contract. False negatives are
+auditable: every prompt appends `armed=<rules|none> chars=<n>` - no prompt text -
+to `~/.cache/tezgah/classify.log` (truncated to the last 200 lines past 64 KB),
+and all five hook hosts arm the same set for the same prompt
+(`tests/test_context.py::ArmingConformance`).
 
-opencode is also armed for long-session context hygiene: `tezgah-setup --install`
-sets `compaction.prune` so old tool results are cleared from the prompt instead
-of being re-sent every step, and a `watcher.ignore` list keeps the file watcher
-out of `.git`, `node_modules` and build dirs. Both merge — an explicit user value
-wins. This matters because opencode only auto-compacts near the model's context
-limit (for a 1M-token model, about 980k), so without pruning the working set
-grows to hundreds of thousands of tokens. `bin/tezgah-doctor` reports the
-resulting disk footprint; `--prune-sessions DAYS` deletes idle sessions through
-the opencode CLI, which is the only action that actually shrinks the database —
-VACUUM alone cannot, since its pages are all live.
+**opencode is armed differently.** It has no prompt-time injection point, so the
+contract ships as a generated instructions file, and its always-on router lists
+only the buckets a coding session reaches for, collapsing the rest to a pointer
+at `~/.config/tezgah/opencode-skills.full.md` read on demand; `permission.skill =
+deny` stops opencode injecting every skill's metadata instead. `--install` also
+sets `compaction.prune` and `watcher.ignore`, clearing old tool results from the
+prompt rather than re-sending them every step - without that the working set
+grows to hundreds of thousands of tokens before opencode auto-compacts near the
+model's limit (about 980k for a 1M-token model). `bin/tezgah-doctor` reports the
+disk footprint and `--prune-sessions DAYS` deletes idle sessions through the
+opencode CLI, the only action that actually shrinks the database, since VACUUM
+alone cannot.
+
+**Why it pays.** In one real repo a default `grep` ignored the relevant folder
+and found nothing; with ignore disabled it took 3.95 s and still mixed
+definitions with call sites, while the code graph answered the same question in
+16 ms with the 8 true call sites.
 
 <a id="development"></a>
 
