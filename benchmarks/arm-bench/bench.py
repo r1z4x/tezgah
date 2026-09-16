@@ -322,6 +322,27 @@ def cmd_grade(args) -> int:
     return 0 if result["pass"] else 1
 
 
+def existing_cells(out: Path, arm: str, task: str, model: str) -> set[int]:
+    """Repeats already recorded for one cell, so a block resumes where it stopped.
+
+    The key carries the model because a row measures a (arm, task, repeat,
+    model) cell: changing the model must run the cell again, not inherit a row
+    the new model did not produce. Rows are only ever skipped, never replaced.
+    """
+    if not out.exists():
+        return set()
+    repeats = set()
+    for line in out.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if (row.get("arm"), row.get("task"), row.get("model")) == (arm, task, model):
+            repeat = row.get("repeat")
+            if isinstance(repeat, int):
+                repeats.add(repeat)
+    return repeats
+
+
 def cmd_run(args) -> int:
     arms = {a["name"]: a for a in load_json(ARMS_FILE)}
     if args.arm not in arms:
@@ -333,8 +354,13 @@ def cmd_run(args) -> int:
 
     out = Path(args.results)
     out.parent.mkdir(parents=True, exist_ok=True)
+    recorded = set() if args.force else existing_cells(out, arm["name"], args.task, args.model)
     rows = []
     for repeat in range(1, args.repeat + 1):
+        if repeat in recorded:
+            print(f"{arm['name']:22s} {args.task:24s} r{repeat} skip "
+                  f"(already in {out})")
+            continue
         run_dir = Path(tempfile.mkdtemp(prefix=f"armbench-{args.task}-")) / "repo"
         materialize(task, run_dir)
         cmd = [part.format(cwd=run_dir, model=args.model, prompt=prompt) for part in arm["cmd"]]
@@ -517,6 +543,9 @@ def main() -> int:
     p.add_argument("--results", default=str(ROOT / "results.jsonl"))
     p.add_argument("--keep", action="store_true", help="keep the run directory")
     p.add_argument("--dry-run", action="store_true", help="print the command and exit")
+    p.add_argument("--force", action="store_true",
+                   help="re-run repeats already recorded in --results (default: skip them, "
+                        "so an interrupted block resumes instead of re-spending)")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("report", help="aggregate a results file")
