@@ -14,6 +14,8 @@ Adapters translate the returned reason into their own permission envelope.
 import os
 import re
 
+from tezgah_integrity import (BASH_TOOLS, WRITE_TOOLS, shortcut_command,
+                             shortcut_edit)
 from tezgah_paths import cache_dir, off, root_for
 
 DB_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codebase-memory-mcp")
@@ -125,7 +127,18 @@ def decision(tool, inp, cwd, session_id=None):
     sub = inp.get("subagent_type") or (inp.get("args") or {}).get("subagent_type")
     if t in ("agent", "task", "subagent") and explored(sub):
         return EXPLORE_DENY
-    if t in ("bash", "shell") and attribution(inp.get("command")):
+    # anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
+    # failure disappears. This is the mechanical half of the integrity rule; the
+    # reply-level half is the Stop hook (hosts/claude).
+    if t in BASH_TOOLS:
+        reason = shortcut_command(inp.get("command"))
+        if reason:
+            return reason
+    if t in WRITE_TOOLS:
+        reason = shortcut_edit(inp)
+        if reason:
+            return reason
+    if t in BASH_TOOLS and attribution(inp.get("command")):
         return ATTRIB_DENY
     if searched_identifier(tool, inp):
         slug = index_slug(cwd, base)

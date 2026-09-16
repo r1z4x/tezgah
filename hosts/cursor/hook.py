@@ -22,6 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import context_for, record, slug, under  # noqa: E402
 from tezgah_gate import decision, explored  # noqa: E402
+from tezgah_integrity import note, note_tool  # noqa: E402
 from tezgah_paths import cache_dir, off  # noqa: E402
 
 ALLOW = {"permission": "allow"}
@@ -96,6 +97,8 @@ def main():
     elif event == "postToolUse":
         if kind:
             record(session_id, kind)
+        note_tool(session_id, payload.get("tool_name", ""),
+                  payload.get("tool_input") or {})
         out = {}
         if (kind in ("cbm", "consult") and under(cwd) and not quiet
                 and first_time(session_id, "graph")):
@@ -103,10 +106,19 @@ def main():
     elif event == "postToolUseFailure":
         if kind:
             record(session_id, kind)
+        note_tool(session_id, payload.get("tool_name", ""),
+                  payload.get("tool_input") or {}, failed=True)
         out = {"additional_context": RECOVERY} if under(cwd) and not quiet else {}
     elif event in ("afterShellExecution", "afterMCPExecution", "afterFileEdit"):
         if kind:
             record(session_id, kind)
+        if event == "afterFileEdit":
+            note(session_id, "edit",
+                 payload.get("file_path") or payload.get("path") or "")
+        elif event == "afterShellExecution":
+            note_tool(session_id, "shell",
+                      {"command": payload.get("command")
+                       or (payload.get("tool_input") or {}).get("command", "")})
         out = {}
     elif event == "beforeMCPExecution":
         if kind:

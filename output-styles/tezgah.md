@@ -45,6 +45,17 @@ opens with agreement, praise or an apology ("haklısın", "you're right", "good
 catch", "detaylı bakmadım", "I didn't look closely"); if the user is right,
 state the fact and the fix, if wrong, show the evidence.
 
+**Integrity: evidence, or "doğrulanmadı".** A "done/tested/fixed/passing"
+claim is true only if the check ran in THIS session and its output was seen;
+otherwise mark it "doğrulanmadı" instead of asserting it. The gate enforces the
+mechanical half and cannot be argued with: a check made unable to fail is denied
+- `--no-verify`, an env var that skips the hooks, `pytest || true` / `; true`,
+and a newly added skip/xfail/`.only` on a test - and on Claude a Stop hook
+refuses to end a turn that claims done/tested with no successful check recorded
+in the session. Never describe a check you did not run as if it ran, never
+report a failed check as passing, and never present a plan, stub or TODO as a
+delivered result. Off: `verify-off`.
+
 **Lessons ledger: stop repeating mistakes.** A repo may keep
 `.tezgah/lessons.md` (one lesson per line; the most recent are injected each
 session). Read them before starting and treat each as a standing constraint.
@@ -71,7 +82,8 @@ classifier decides.
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
-`pretooluse-off` (the gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
+`verify-off` (the integrity rule and the Stop gate), `pretooluse-off` (the
+gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
 
 **On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a non-trivial or hard-to-reverse decision. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".
 

@@ -50,6 +50,94 @@ const ATTRIB_DENY =
   "Co-Authored-By / \"Generated with\" / robot-emoji / model-name credit from " +
   "the commit, PR, issue or review text and re-run. Naming a tool in order to " +
   "use it or describe real behavior is fine; crediting it as author is not."
+// Anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
+// failure disappears. Ported from hooks/tezgah_integrity.py so opencode denies
+// the same shapes from the same patterns.
+const VERIFY =
+  /(?:^|[|;&(]\s*|\s)(?:(?:python3?|uv run)\s+-m\s+(?:pytest|unittest|mypy|ruff|flake8|compileall)|pytest|py\.test|npm\s+(?:test|t\b)|npm\s+run\s+\S*(?:test|lint|typecheck|check|build|ci)|(?:yarn|pnpm|bun)\s+(?:test|run\s+\S*(?:test|lint|build|check))|ruff|flake8|mypy|pyright|tsc|eslint|prettier|vitest|jest|ava|mocha|go\s+(?:test|vet)|cargo\s+(?:test|clippy|check|build)|tox|nox|pre-commit|(?:^|\s)(?:make|just)\b|\.\/\S*(?:test|check|lint)\S*|(?:\.\/)?(?:gradlew|mvn)\s+\S*(?:test|check)|dotnet\s+(?:test|build)|swift\s+test|golangci-lint|shellcheck)\b/i
+const NEUTER = /\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])/
+const SKIP_ENV = /\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b/
+const NO_VERIFY = /--no-verify\b/
+const GITISH = /\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b/i
+const SKIP_TEST = new RegExp(
+  "@pytest\\.mark\\.(?:skip|skipif|xfail)|@pytest\\.mark\\.only|" +
+  "@unittest\\.(?:skip|skipIf|expectedFailure)|@Ignore\\b|@Disabled\\b|" +
+  "\\bpytest\\.skip\\(|\\bunittest\\.skip\\w*\\(|\\bt\\.Skip\\w*\\(|" +
+  "\\b(?:it|test|describe)\\.(?:skip|only)\\(|\\bxit\\(|\\bxdescribe\\(|" +
+  "\\bpytestmark\\s*=\\s*pytest\\.mark\\.skip", "gi")
+const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
+  "edit_file", "write_file", "search_replace"])
+const BASH_TOOLS = new Set(["bash", "shell", "command"])
+
+function verifyCommand(cmd) {
+  const m = String(cmd || "").match(VERIFY)
+  return m ? m[0] : null
+}
+
+function shortcutCommand(cmd) {
+  const c = String(cmd || "")
+  if (NO_VERIFY.test(c) && GITISH.test(c))
+    return "Verification bypass denied: `--no-verify` skips the commit/push " +
+      "hooks that run the checks. Run the checks, fix what they report, and " +
+      "commit without it."
+  if (SKIP_ENV.test(c))
+    return "Verification bypass denied: an env var that skips the hooks " +
+      "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them instead."
+  if (verifyCommand(c) && NEUTER.test(c))
+    return "Verification neutered: this check is chained with `|| true` / " +
+      "`; true`, so it reports success no matter what it found. Run it plain " +
+      "and read the real exit status."
+  return null
+}
+
+function addedSkips(newText, oldText) {
+  const before = new Set((String(oldText || "").match(SKIP_TEST) || [])
+    .map((s) => s.toLowerCase()))
+  const out = []
+  for (const m of String(newText || "").matchAll(SKIP_TEST))
+    if (!before.has(m[0].toLowerCase())) out.push(m[0])
+  return out
+}
+
+async function shortcutEdit(args) {
+  const oldText = String(args?.oldString ?? args?.old_string ?? "")
+  const newText = String(
+    args?.newString ?? args?.new_string ?? args?.content ?? "")
+  if (!newText) return null
+  let base = oldText
+  if (!base) {
+    const p = String(args?.filePath ?? args?.file_path ?? args?.path ?? "")
+    if (p) { try { base = await readFile(expand(p), "utf8") } catch { base = "" } }
+  }
+  const added = addedSkips(newText, base)
+  if (!added.length) return null
+  return "Test disable denied: this change adds " +
+    [...new Set(added)].join(", ") + ". Making a failing test disappear is not " +
+    "a fix - fix the code or say the test is failing. Ask the user first if the " +
+    "skip is genuinely intended."
+}
+
+// Evidence ledger, the same JSONL the Python gate and Stop hook read. Written
+// per tool call so a "done/tested" claim can be checked against what ran.
+async function recordEvidence(sessionID, tool, args, failed) {
+  if (!sessionID) return
+  const t = String(tool || "").toLowerCase()
+  let kind = null
+  if (WRITE_TOOLS.has(t)) kind = "edit"
+  else if (BASH_TOOLS.has(t))
+    kind = verifyCommand(args?.command || args?.cmd || "")
+      ? (failed ? "verify_fail" : "verify_ok") : "run"
+  if (!kind) return
+  const detail = String(
+    args?.command || args?.filePath || args?.file_path || "").slice(0, 200)
+  try {
+    const dir = join(CACHE, "evidence")
+    await mkdir(dir, { recursive: true })
+    await appendFile(join(dir, slug(sessionID) + ".jsonl"),
+      JSON.stringify({ kind, ts: Math.floor(Date.now() / 1000), detail }) + "\n")
+  } catch {}
+}
+
 function attribution(tool, args) {
   const t = String(tool || "").toLowerCase()
   if (t !== "bash" && t !== "shell" && t !== "command") return false
@@ -268,6 +356,10 @@ export const Tezgah = async ({ directory }) => {
           deny = ATTRIB_DENY
         } else if (tool === "task" && /explore/i.test(sub)) {
           deny = EXPLORE_DENY
+        } else if (BASH_TOOLS.has(tool)) {
+          deny = shortcutCommand(args.command || args.cmd || "")
+        } else if (WRITE_TOOLS.has(tool)) {
+          deny = await shortcutEdit(args)
         } else if (identifierFrom(tool, args)) {
           const js = indexSlug(dir)
           // oncePerSession is shared with permission.ask so exactly one of the
@@ -334,8 +426,11 @@ export const Tezgah = async ({ directory }) => {
       try {
         if (!(await rootFor(dir))) return
         const tool = String(input?.tool || "").toLowerCase()
-        const kind = classify(tool, output?.args || input?.args || {})
+        const args = output?.args || input?.args || {}
+        const kind = classify(tool, args)
         if (kind) await record(input?.sessionID || input?.sessionId, kind)
+        await recordEvidence(input?.sessionID || input?.sessionId, tool, args,
+                             !!(output?.error || output?.isError))
       } catch {}
     },
 

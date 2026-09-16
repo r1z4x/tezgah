@@ -53,6 +53,7 @@ CORE_RULES = (
     ("exec", "**Turkish, BLUF.**"),
     ("ponytail", "**Ponytail (minimal code).**"),
     ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
+    ("integrity", '**Integrity: evidence, or "doğrulanmadı".**'),
     ("spec", "**Spec before building.**"),
     ("lessons", "**Lessons ledger: stop repeating mistakes.**"),
     ("cbm", "**Code discovery: graph first.**"),
@@ -303,6 +304,9 @@ def core_split(cwd):
     if off("spec-off"):
         drop.add("spec")
         disabled.append("spec-off")
+    if off("verify-off"):
+        drop.add("integrity")
+        disabled.append("verify-off")
     if ".no-lessons" in marks:
         drop.add("lessons")
         disabled.append(".no-lessons")

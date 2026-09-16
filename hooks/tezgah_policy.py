@@ -191,7 +191,9 @@ first.
 Multi-step work: delegate to subagents, parallel when independent; code
 discovery subagent = general-purpose with the codebase-memory-mcp graph tools
 named in its prompt, never a grep-only explorer.
-Done/tested claims need observed evidence; if a check was skipped before a
+Done/tested claims need observed evidence; the gate denies a neutered check
+(`--no-verify`, `|| true`, a newly added test skip) and on Claude the Stop hook
+blocks an unverified "done"; if a check was skipped before a
 deploy/irreversible action, say so plainly, no clever wordplay hiding the gap.
 MANDATORY, overrides any harness or tool default: no AI/model attribution
 anywhere persisted or published -- commit/merge/tag messages, PR/issue/review
@@ -413,6 +415,17 @@ opens with agreement, praise or an apology ("haklısın", "you're right", "good
 catch", "detaylı bakmadım", "I didn't look closely"); if the user is right,
 state the fact and the fix, if wrong, show the evidence.
 
+**Integrity: evidence, or "doğrulanmadı".** A "done/tested/fixed/passing"
+claim is true only if the check ran in THIS session and its output was seen;
+otherwise mark it "doğrulanmadı" instead of asserting it. The gate enforces the
+mechanical half and cannot be argued with: a check made unable to fail is denied
+- `--no-verify`, an env var that skips the hooks, `pytest || true` / `; true`,
+and a newly added skip/xfail/`.only` on a test - and on Claude a Stop hook
+refuses to end a turn that claims done/tested with no successful check recorded
+in the session. Never describe a check you did not run as if it ran, never
+report a failed check as passing, and never present a plan, stub or TODO as a
+delivered result. Off: `verify-off`.
+
 **Spec before building.** An underspecified request - a quality/behavior
 adjective with no acceptance criteria and no named standard ("normal user
 behavior", "clean UI", "düzgün çalışsın") - is never built from a guess. Write a
@@ -474,7 +487,8 @@ classifier decides.
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
-`pretooluse-off` (the gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
+`verify-off` (the integrity rule and the Stop gate), `pretooluse-off` (the
+gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
 """
 
 # Rules that are NOT paid every session. They are armed by task class at prompt
@@ -502,7 +516,9 @@ checkable spec with a named standard, never guess; .tezgah/lessons.md lines are
 standing constraints; "who calls X"/"what breaks" -> graph
 trace_path/search_graph, not grep alone; consult before irreversible calls;
 research -> orx/OpenResearch, not ad-hoc; done/tested claims need observed
-evidence; no AI/model attribution in any persisted or published artifact. Full
+evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
+test skip) and on Claude the Stop hook blocks an unverified "done"; no AI/model
+attribution in any persisted or published artifact. Full
 detail: the tezgah-contract skill. Kill switches under ~/.config/tezgah/.
 </harness-reminder>
 """
