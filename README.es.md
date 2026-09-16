@@ -298,7 +298,8 @@ Nada que ejecutar: las reglas se cargan cuando se inicia un host. Vale la pena c
 
 | Comando | Propósito |
 |---|---|
-| `bin/tezgah-setup` | Informar qué está armado, por host |
+| `bin/tezgah-setup` | En una terminal: el asistente de instalación; en una tubería o en CI: informa qué está armado, por host |
+| `bin/tezgah-setup --wizard` | Fuerza el asistente de instalación en cualquier lugar; `--report` fuerza el informe |
 | `bin/tezgah-status [PATH]` | Mostrar si las reglas están activas en ese repositorio |
 | `bin/tezgah-setup --status [PATH]` | Imprimir la lista de verificación de lo armado/usado |
 | `bin/tezgah-setup --deps [--dry-run]` | Instalar herramientas opcionales faltantes (orx, cursor-agent, dsh) |

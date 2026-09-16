@@ -157,7 +157,8 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 
 | 命令 | 用途 |
 |---|---|
-| `bin/tezgah-setup` | 报告每个宿主已武装的内容 |
+| `bin/tezgah-setup` | 在终端中：安装向导；在管道或 CI 中：报告每个宿主已武装的内容 |
+| `bin/tezgah-setup --wizard` | 在任何位置强制使用安装向导；`--report` 强制输出报告 |
 | `bin/tezgah-status [PATH]` | 显示规则在该代码库中是否处于活动状态 |
 | `bin/tezgah-setup --status [PATH]` | 打印已武装/已使用的检查列表 |
 | `bin/tezgah-setup --deps [--dry-run]` | 安装缺失的可选工具（orx、cursor-agent、dsh） |
