@@ -27,8 +27,11 @@ export default function tezgahOmp(pi: any): void {
   pi.on("tool_call", async (event: any) => {
     const tool = String(event?.toolName ?? event?.name ?? "");
     // task/agent so the grep-only-explorer refusal reaches the gate too; bash
-    // carries the attribution check (git/gh write commands).
-    if (!["grep", "bash", "shell", "task", "agent"].includes(tool)) return;
+    // carries the anti-shortcut and attribution checks; the edit/write names
+    // carry the test-skip check.
+    if (!["grep", "bash", "shell", "task", "agent", "edit", "write",
+          "multiedit", "notebookedit", "edit_file", "write_file",
+          "search_replace"].includes(tool)) return;
     const reason = gate(tool, event?.input ?? event?.args, process.cwd());
     if (reason) return { block: true, reason };
     return undefined;

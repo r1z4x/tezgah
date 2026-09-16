@@ -100,6 +100,43 @@ class Gate(TempHome):
     def test_general_purpose_subagent_passes(self):
         self.assertIsNone(self.decide("Agent", {"subagent_type": "general-purpose"}))
 
+    # ---- anti-shortcut: verification that cannot fail ---------------------
+    def test_no_verify_commit_denied(self):
+        reason = self.decide("Bash", {"command": "git commit -m x --no-verify"})
+        self.assertIsNotNone(reason)
+        self.assertIn("Verification bypass", reason)
+
+    def test_skip_env_denied(self):
+        reason = self.decide("Bash", {"command": "SKIP=ruff git commit -m x"})
+        self.assertIsNotNone(reason)
+        self.assertIn("bypass", reason.lower())
+
+    def test_neutered_check_denied(self):
+        reason = self.decide("Bash", {"command": "pytest -q || true"})
+        self.assertIsNotNone(reason)
+        self.assertIn("neutered", reason.lower())
+
+    def test_plain_check_passes(self):
+        self.assertIsNone(self.decide("Bash", {"command": "pytest -q"}))
+        self.assertIsNone(self.decide("Bash", {"command": "git commit -m fix"}))
+
+    def test_adding_a_test_skip_denied(self):
+        reason = self.decide("Edit", {
+            "file_path": "t.py",
+            "old_string": "def test_x():\n    assert 1",
+            "new_string": "@pytest.mark.skip\ndef test_x():\n    assert 1"})
+        self.assertIsNotNone(reason)
+        self.assertIn("Test disable", reason)
+
+    def test_plain_edit_passes(self):
+        self.assertIsNone(self.decide("Edit", {
+            "file_path": "t.py", "old_string": "a = 1", "new_string": "a = 2"}))
+
+    def test_shortcut_denials_respect_pretooluse_off(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "pretooluse-off"))
+        self.assertIsNone(
+            self.decide("Bash", {"command": "git commit -m x --no-verify"}))
+
     # ---- kill switch -------------------------------------------------------
     def test_pretooluse_off_kills_denials(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "pretooluse-off"))

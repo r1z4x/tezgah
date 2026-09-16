@@ -21,6 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import context_for, health_lines, record  # noqa: E402
 from tezgah_gate import decision  # noqa: E402
+from tezgah_integrity import note_tool  # noqa: E402
 
 EVENTS = {
     "SessionStart": "session_start",
@@ -92,6 +93,8 @@ def main():
         return
     if event == "PostToolUse":
         record(session_id, classify(payload))
+        note_tool(session_id, payload.get("tool_name", ""),
+                  payload.get("tool_input") or {})
         return
     if event == "SubagentStart":
         record(session_id, "orch")
