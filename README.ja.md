@@ -144,7 +144,8 @@ claude plugin install tezgah@rizacan-local
 必要に応じてインストールを明示的に制限します：
 
 ```bash
-bin/tezgah-setup --install --hosts claude,codex,opencode,cursor,dsh
+bin/tezgah-setup --install --hosts omp
+bin/tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh
 bin/tezgah-setup --roots ~/work:~/oss --install
 ```
 

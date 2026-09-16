@@ -114,7 +114,11 @@ same text.
   `tezgah-researcher`, `tezgah-verifier`) plus a `tezgah-orchestrator`, rendered
   into each installed host's native surface (Claude/Cursor `.claude/agents/`,
   opencode `.opencode/agents/` plus a live config injection, Codex
-  `.codex/agents/`) and ignored with one managed `.gitignore` block. On Claude the
+  `.codex/agents/`) and ignored with one managed `.gitignore` block. Which hosts
+  get files is the config's `hosts` list when it names one of those four, and
+  otherwise every host detected on the machine - omp is not one of them, because
+  its subagents are user-level (`~/.omp/agent/agents/`), so a config of
+  `hosts: ["omp"]` writes no per-repo agent files at all. On Claude the
   orchestrator's `Agent(tezgah-*)` allowlist only takes effect when it runs as the
   main thread (`claude --agent tezgah-orchestrator`); as a subagent the list is
   ignored. dsh has no per-role surface, so the contract's router rule covers it.
@@ -322,10 +326,11 @@ claude plugin marketplace add ~/Projects/tezgah
 claude plugin install tezgah@rizacan-local
 ```
 
-Limit the install explicitly when needed:
+Limit the install explicitly when needed (the first form is the
+primary host alone):
 
 ```bash
-bin/tezgah-setup --install --hosts omp          # the primary host
+bin/tezgah-setup --install --hosts omp
 bin/tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh
 bin/tezgah-setup --roots ~/work:~/oss --install
 ```

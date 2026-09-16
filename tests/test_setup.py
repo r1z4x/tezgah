@@ -587,6 +587,30 @@ class OmpHost(SetupBase):
             self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts")))
 
 
+class ReadmeSnippets(unittest.TestCase):
+    """The install snippets are the one language-neutral part of the READMEs.
+
+    Translations are allowed to lag on prose (the English README says so), but a
+    command that no longer matches the installer is a real bug in every
+    language, so the snippet is pinned here. A hermetic check: no HOME, no
+    subprocess.
+    """
+
+    LINES = ("bin/tezgah-setup --install --hosts omp",
+             "bin/tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh",
+             "bin/tezgah-setup --roots ~/work:~/oss --install")
+
+    def test_every_readme_carries_the_current_install_snippet(self):
+        import glob
+        paths = sorted(glob.glob(os.path.join(REPO, "README*.md")))
+        self.assertGreater(len(paths), 1, paths)
+        for path in paths:
+            with open(path) as fh:
+                text = fh.read()
+            for line in self.LINES:
+                self.assertIn(line, text, os.path.basename(path))
+
+
 class ContextBudget(SetupBase):
     """The status report must show what tezgah injects before the first turn."""
 

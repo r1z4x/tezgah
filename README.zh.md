@@ -144,7 +144,8 @@ claude plugin install tezgah@rizacan-local
 需要时显式限制安装：
 
 ```bash
-bin/tezgah-setup --install --hosts claude,codex,opencode,cursor,dsh
+bin/tezgah-setup --install --hosts omp
+bin/tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh
 bin/tezgah-setup --roots ~/work:~/oss --install
 ```
 
