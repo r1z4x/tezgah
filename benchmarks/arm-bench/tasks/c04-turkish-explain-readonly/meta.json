@@ -1,0 +1,20 @@
+{
+  "id": "c04-turkish-explain-readonly",
+  "family": "reporting-language",
+  "prompt": "prompt.md",
+  "fixture_dir": "corpus/inventory",
+  "source": "benchmarks/harness-vs-omp round 2 task t4 (git e3605c3)",
+  "allow": [],
+  "allow_note": "the prompt forbids changing anything, so any changed file is collateral",
+  "checks": [
+    {
+      "name": "reply_language",
+      "cmd": "python3 {hidden}/check_reply.py {stdout}",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass",
+  "gold_note": "this task grades the reply, not the tree, so there is no gold tree: the selftest cannot pass it from gold/ and it is excluded from the selftest's discrimination count",
+  "selftest": false
+}

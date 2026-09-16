@@ -51,14 +51,28 @@ The runner, the arm table and the task set are new; no scored run has been
 executed in this directory yet. The arm toggles marked `flag_verified: false`
 in `arms.json` must be validated before their rows are scored.
 
-The task set is **25 tasks over 17 families**: eight hand-built tasks
-(`tasks/t0*/`) and seventeen imported from the historical round-2 corpus
+The task set is **28 tasks over 19 families**: eight hand-built tasks
+(`tasks/t0*/`) and all twenty imported from the historical round-2 corpus
 (`tasks/c*/`), sharing one fixture at `corpus/inventory/` with reference
 solutions in each task's `gold/`. `python3 bench.py selftest` reads
-`25/25 fixtures discriminate`.
+`27/27 fixtures discriminate`, plus one task listed as skipped because it grades
+the reply rather than the tree (`c04-turkish-explain-readonly`, whose check reads
+the run's captured transcript with a published Turkish-marker detector and a
+stated threshold).
 
 The corpus import restored the historical runner's separate rename check that
 the conversion had dropped: `c03` and `c10` grade the rename itself
 (`hidden/check_rename.py`) on top of the behavioural hidden test, because a
 hidden test that only re-asserts existing behaviour cannot tell a completed
-rename from no change at all.
+rename from no change at all. The two read-only impact tasks (`c19`, `c20`) score
+precision and recall against a call-site set computed from the fixture with an
+AST pass, and their prompts state the direct-vs-transitive rule that the
+historical exact-equality scoring left ambiguous.
+
+## The pilot block
+
+`python3 pilot.py --group N --groups 10` runs one slice of the pilot: every task
+x both opencode arms x 3 repeats, one model, one provider, groups in parallel.
+Results land in `results/pilot/g<N>.jsonl`; `bench.py report --results` reads
+them. k=3 makes this a **pilot**, not the k>=5 block `PREREGISTRATION.md` asks
+for: it bounds the pass-rate question, not the per-cell cost variance.

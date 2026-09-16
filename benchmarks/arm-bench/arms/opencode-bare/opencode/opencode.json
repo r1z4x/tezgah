@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "codebase-memory-mcp": {
+      "enabled": true,
+      "type": "local",
+      "command": [
+        "/Users/rizax/.local/bin/codebase-memory-mcp"
+      ]
+    },
+    "playwright": {
+      "enabled": true,
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest",
+        "--isolated"
+      ],
+      "environment": {
+        "PLAYWRIGHT_MCP_OUTPUT_DIR": "/Users/rizax/.cache/tezgah/apps"
+      }
+    },
+    "mobile-mcp": {
+      "enabled": true,
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@mobilenext/mobile-mcp@latest"
+      ],
+      "environment": {
+        "MOBILEMCP_DISABLE_TELEMETRY": "1"
+      }
+    }
+  }
+}

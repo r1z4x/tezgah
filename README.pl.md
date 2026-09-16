@@ -344,14 +344,14 @@ ten sam błąd nie mógł się po cichu powtórzyć.
 
 Zmierzone na tej maszynie (macOS, Python 3.10), a nie oszacowane:
 
-- **Kontekst.** Start sesji wstrzykuje ~4,8 KB (~1,2 tys. tokenów) tekstu kontraktu.
+- **Kontekst.** Start sesji wstrzykuje ~5,4 KB (~1,2 tys. tokenów) tekstu kontraktu.
   W Codex przypomnienie o rozmiarze 480 bajtów towarzyszy każdej turze; Claude i inne hosty
   nie mają hooka na turę, więc ich koszt na turę wynosi zero. Pełna umiejętność `tezgah-contract`
   (~19,9 tys. znaków) jest opłacana tylko wtedy, gdy zadanie ją załaduje. W opencode
-  kontrakt jest dostarczany jako plik instrukcji o rozmiarze ~5,5 KB. opencode w przeciwnym razie
-  wstrzyknąłby ~53 KB tekstu z nazwą/opisem/lokalizacją umiejętności do systemowego promptu każdej sesji;
+  kontrakt jest dostarczany jako plik instrukcji o rozmiarze ~5,8 KB. opencode w przeciwnym razie
+  wstrzyknąłby tekstu z nazwą/opisem/lokalizacją umiejętności do systemowego promptu każdej sesji;
   tezgah odrzuca tę listę (`permission.skill = deny`) i dostarcza w zamian
-  wygenerowany router umiejętności o rozmiarze ~16 KB, więc umiejętność jest znajdowana poprzez odczytanie jej
+  wygenerowany router umiejętności , więc umiejętność jest znajdowana poprzez odczytanie jej
   ścieżki `SKILL.md` z routera.
 - **Opóźnienie.** Hooki to oddzielne procesy Pythona, więc dominuje start interpretera
   zajmujący ~19 ms. Oprócz tego start sesji dodaje ~25 ms, wywołanie narzędzia z bramką

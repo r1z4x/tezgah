@@ -187,7 +187,8 @@ class Install(SetupBase):
         dsh = self.read_text(self.path(".dsh", "cordis.patch.yml"))
         self.assertIn("serverName: playwright", dsh)
         self.assertIn("serverName: mobile-mcp", dsh)
-        self.assertIn("'@playwright/mcp@latest'", dsh)
+        # the exact version is the pin guard's business; here it has to be a pin
+        self.assertRegex(dsh, r"'@playwright/mcp@\d+(\.\d+)+'")
 
         # re-install is idempotent: no duplicated server tables
         self.setup("--install", "--hosts", ALL)
@@ -647,7 +648,8 @@ class OmpHost(SetupBase):
         self.install()
         entry = self.read_json(path)["mcpServers"]["mobile-mcp"]
         self.assertEqual(entry["command"], "npx")
-        self.assertEqual(entry["args"], ["-y", "@mobilenext/mobile-mcp@latest"])
+        self.assertEqual(entry["args"][0], "-y")
+        self.assertRegex(entry["args"][1], r"^@mobilenext/mobile-mcp@\d+(\.\d+)+$")
         self.assertEqual(entry["timeout"], 5000)  # the user's own key survives
 
     def test_status_reports_the_omp_wiring(self):
@@ -779,6 +781,44 @@ class McpSchemas(SetupBase):
         count, size = self.measure(*self.server("import sys; sys.stdin.read()\n"))
         self.assertEqual(count, 0)
         self.assertIsNone(size)
+
+
+class McpAppSpec(unittest.TestCase):
+    """The app-analysis MCP commands tezgah writes must pin their version.
+
+    An unpinned npx declaration fetches whatever the registry serves at session
+    start and runs it with the agent's privileges; a 2,660-harness study found
+    that defect in 9.8% of committed agent configurations (arXiv 2609.07360)."""
+
+    def commands(self):
+        sys.path.insert(0, os.path.join(REPO, "hooks"))
+        import tezgah_apps
+        return [s["command"] for s in tezgah_apps.SERVERS] + [
+            tezgah_apps._CHROME_DEVTOOLS]
+
+    def packages(self):
+        """(name, tag) for every package spec in the declared commands."""
+        out = []
+        for command in self.commands():
+            for part in command:
+                if "@" not in part or part.startswith("-"):
+                    continue
+                if part.startswith("@"):
+                    name, _, tag = part.rpartition("@")
+                else:
+                    name, _, tag = part.partition("@")
+                out.append((name, tag))
+        return out
+
+    def test_every_package_runner_declares_a_version(self):
+        packages = self.packages()
+        self.assertTrue(packages, "no package specs found to check")
+        for name, tag in packages:
+            self.assertRegex(tag, r"^\d+(\.\d+)*$",
+                             "%s declares the floating tag %r" % (name, tag))
+
+    def test_the_playwright_pin_is_visible(self):
+        self.assertIn(("@playwright/mcp", "0.0.81"), self.packages())
 
 
 if __name__ == "__main__":

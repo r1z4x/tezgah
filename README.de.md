@@ -346,14 +346,14 @@ sich derselbe Fehler nicht stillschweigend wiederholen kann.
 
 Auf dieser Maschine gemessen (macOS, Python 3.10), nicht geschätzt:
 
-- **Kontext.** Ein Sitzungsstart injiziert ~4,8 KB (~1,2k Token) Vertragstext.
+- **Kontext.** Ein Sitzungsstart injiziert ~5,4 KB (~1,2k Token) Vertragstext.
   Bei Codex wird in jedem Zug eine 480-Byte-Erinnerung mitgeschickt; Claude und die anderen Hosts haben
   keinen Hook pro Zug, daher sind ihre Kosten pro Zug null. Der vollständige `tezgah-contract`-Skill
   (~19,9k Zeichen) wird nur bezahlt, wenn eine Aufgabe ihn lädt. Bei opencode wird der
-  Vertrag als ~5,5 KB große Anweisungsdatei ausgeliefert. opencode würde andernfalls
-  ~53 KB an Skill-Namen/Beschreibungen/Speicherort-Text in den System-Prompt jeder Sitzung injizieren;
+  Vertrag als ~5,8 KB große Anweisungsdatei ausgeliefert. opencode würde andernfalls
+  Skill-Namen/Beschreibungen/Speicherort-Text in den System-Prompt jeder Sitzung injizieren;
   tezgah verweigert diese Liste (`permission.skill = deny`) und liefert
-  stattdessen einen generierten ~16 KB großen Skill-Router aus, sodass ein Skill gefunden wird, indem sein
+  stattdessen einen generierten Skill-Router aus, sodass ein Skill gefunden wird, indem sein
   `SKILL.md`-Pfad aus dem Router gelesen wird.
 - **Latenz.** Hooks sind separate Python-Prozesse, daher dominiert der Interpreter-Start von ~19 ms.
   Zusätzlich fügt der Sitzungsstart ~25 ms hinzu, ein durch ein Gate geschützter Tool-Aufruf

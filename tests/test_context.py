@@ -503,6 +503,39 @@ class ArmingConformance(TempHome):
                       tc.always_on_core())
 
 
+class SubagentBrief(unittest.TestCase):
+    """A delegated agent gets the rules in short form: every label, the opening
+    clause, and a pointer to the full text. Losing a rule here would be silent,
+    so the label set is asserted rather than trusted."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks"))
+        import tezgah_context as tc  # noqa: E402
+        self.tc = tc
+
+    def test_every_always_on_rule_appears_in_the_brief(self):
+        brief = self.tc.subagent_core()
+        for key, label in self.tc.CORE_RULES:
+            if key in self.tc.CONDITIONAL_KEYS:
+                continue
+            self.assertIn(label, brief, "missing from the subagent brief: %s" % key)
+
+    def test_the_brief_is_shorter_and_leaves_the_detail_on_demand(self):
+        core = self.tc.always_on_core()
+        brief = self.tc.subagent_core(core)
+        self.assertLess(len(brief), len(core) * 0.5)
+        self.assertIn("tezgah-contract", brief)
+        for key, label in self.tc.CORE_RULES:
+            if key in self.tc.CONDITIONAL_KEYS:
+                self.assertNotIn(label, brief,
+                                 "a conditional rule rode into the brief: %s" % key)
+
+    def test_the_safety_rule_survives_the_shortening(self):
+        self.assertIn("Irreversible or outward-facing", self.tc.subagent_core())
+
+
+
 class OutputStyleMirrorsCore(unittest.TestCase):
     """output-styles/tezgah.md is the hookless duplicate of the always-on core."""
 

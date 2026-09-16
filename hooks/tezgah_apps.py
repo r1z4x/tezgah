@@ -22,10 +22,15 @@ ARTIFACTS = os.environ.get("TEZGAH_ARTIFACTS") or os.path.join(
     os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"),
     "tezgah", "apps")
 
-_PLAYWRIGHT = ["npx", "-y", "@playwright/mcp@latest", "--isolated"]
-_CHROME_DEVTOOLS = ["npx", "-y", "chrome-devtools-mcp@latest", "--isolated",
+# Pinned on purpose. A floating tag (`@latest`) makes every session start fetch
+# whatever is current on the registry and run it with the agent's privileges -
+# a supply-chain defect a 2,660-harness study found in 9.8% of committed agent
+# configurations ("Scanning the Harness", arXiv 2609.07360). Bump these
+# deliberately, not implicitly.
+_PLAYWRIGHT = ["npx", "-y", "@playwright/mcp@0.0.81", "--isolated"]
+_CHROME_DEVTOOLS = ["npx", "-y", "chrome-devtools-mcp@1.9.0", "--isolated",
                     "--no-usage-statistics"]
-_MOBILE = ["npx", "-y", "@mobilenext/mobile-mcp@latest"]
+_MOBILE = ["npx", "-y", "@mobilenext/mobile-mcp@1.0.4"]
 
 # Wired by default: the two surfaces an app analysis actually needs.
 SERVERS = (
