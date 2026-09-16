@@ -51,9 +51,9 @@
 
 ---
 
-One working contract for every AI coding assistant you run — Claude Code,
-opencode, Codex, Cursor, DeepSeek's dsh harness, and oh-my-pi (omp) — inside a
-set of configured repository roots.
+One working contract for every AI coding assistant you run — **oh-my-pi (omp),
+the primary host**, plus Claude Code, Codex, Cursor, opencode and DeepSeek's dsh
+harness — inside a set of configured repository roots.
 
 Left alone, each assistant has its own habits: one answers in Turkish, another
 in English; one greps for everything, another queries a code graph; one says
@@ -123,14 +123,22 @@ same text.
 
 ## Supported hosts
 
+`omp` is the primary host — the one tezgah is developed and verified against.
+Its whole surface (session start, per-turn rules, gate, evidence, end-of-turn
+block, status line) is covered by tests, and it is the only host whose status
+line is also checked against the real TUI. The rest are adapters, each claimed
+for what it mechanically enforces: the adapter docstrings and the gate tests
+record what a host actually refuses, and `benchmarks/harness-vs-omp/` keeps the
+cost evidence, which is a separate question from enforcement.
+
 | Host | Wired by | Status line |
 |---|---|---|
+| **omp** (oh-my-pi) — primary | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and an extension (`hooks/pre/tezgah-hook.ts`) that arms the per-prompt rules, gates tools, records evidence and runs the Stop rule; the wiring is checked by `tezgah-setup` | extension status: `tezgah pony✓ exec✓ · …` in the footer, refreshed on turn end |
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style | native `statusLine` |
-| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message | TUI plugin (no command statusLine) |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
 | **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them | `statusLine` in `cli-config.json` |
+| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message | TUI plugin (no command statusLine) |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) | Web UI plugin: `tezgah-dsh-statusline` in the session header |
-| **omp** (oh-my-pi) | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and an extension (`hooks/pre/tezgah-hook.ts`) that arms the per-prompt rules, gates tools, records evidence and runs the Stop rule; the wiring is checked by `tezgah-setup` | extension status: `tezgah pony✓ exec✓ · …` in the footer, refreshed on turn end |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
 and subagent calls through the same check as the other hosts. On Claude the
@@ -317,7 +325,8 @@ claude plugin install tezgah@rizacan-local
 Limit the install explicitly when needed:
 
 ```bash
-bin/tezgah-setup --install --hosts claude,codex,opencode,cursor,dsh
+bin/tezgah-setup --install --hosts omp          # the primary host
+bin/tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh
 bin/tezgah-setup --roots ~/work:~/oss --install
 ```
 

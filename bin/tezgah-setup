@@ -3,7 +3,8 @@
 
   tezgah-setup                         report what is armed, per host
   tezgah-setup --install               wire every detected host
-  tezgah-setup --install --hosts claude,codex,opencode,cursor,dsh
+  tezgah-setup --install --hosts omp
+  tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh
   tezgah-setup --roots ~/work:~/oss --install
   tezgah-setup --uninstall             remove only tezgah-managed wiring
   tezgah-setup --version               print the plugin version
