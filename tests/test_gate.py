@@ -45,6 +45,34 @@ class Gate(TempHome):
         self.assertIsNotNone(reason)
         self.assertIn("Attribution", reason)
 
+    def test_attribution_denies_a_credit_landed_by_a_write_tool(self):
+        # The rule covers file contents, so the gate has to read the payload,
+        # not only a bash command.
+        for tool, inp in (
+                ("Write", {"file_path": "src/a.py", "content":
+                           "def f():\n    return 1\n\n# Generated with Claude Code\n"}),
+                ("Edit", {"file_path": "src/a.py", "old_string": "x = 1",
+                          "new_string": "x = 1\nCo-Authored-By: Claude <noreply@anthropic.com>"}),
+                ("write_file", {"file_path": "a.py", "content": "\U0001F916"}),
+                ("apply_patch", {"patch": "*** Begin Patch\n+// Made with Cursor\n*** End Patch"})):
+            reason = self.decide(tool, inp)
+            self.assertIsNotNone(reason, tool)
+            self.assertIn("Attribution", reason)
+
+    def test_prose_that_names_the_ban_is_not_a_credit(self):
+        # The anchor is what keeps the rule from denying the documentation that
+        # describes it: a credit owns its line, prose does not.
+        for body in (
+                "Banned forms include `Co-Authored-By` / `Co-authored-by`, any\n"
+                'Never add a Co-Authored-By trailer or a "Generated with" line.\n',
+                "- `Generated with X` is a banned signature\n",
+                "| form | `authored by` |\n",
+                "The gate denies a commit whose message carries a Co-Authored-By "
+                "trailer.\n"):
+            self.assertIsNone(
+                self.decide("Write", {"file_path": "docs/policy.md", "content": body}),
+                body)
+
     def test_attribution_denies_writes_behind_git_global_options(self):
         # a global option between `git` and the subcommand must not hide a write
         for command in (

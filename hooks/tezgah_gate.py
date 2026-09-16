@@ -14,7 +14,7 @@ Adapters translate the returned reason into their own permission envelope.
 import os
 import re
 
-from tezgah_integrity import (BASH_TOOLS, WRITE_TOOLS, shortcut_command,
+from tezgah_integrity import (BASH_TOOLS, WRITE_TOOLS, note, shortcut_command,
                              shortcut_edit)
 from tezgah_paths import cache_dir, off, root_for
 
@@ -29,6 +29,22 @@ BASH_SEARCH = re.compile(r"(?:^|[|;&(]\s*|\s)(?:grep|rg)\s+((?:-\S+\s+)*)(\S+)")
 ATTRIB = re.compile(
     r"co-authored-by\s*:|generated with|made with|built by|assisted by|"
     r"authored by|noreply@anthropic|\U0001F916", re.I)
+# The same forms anchored to the start of a line, for the text a write/edit tool
+# is about to land. A credit is a signature: it owns its line, bare or behind a
+# comment marker, and a patch body prefixes an added line with `+` (`-` stays
+# last in the class so it is a literal, not a range). Prose that merely names the
+# ban ("Banned forms include `Co-Authored-By`") starts with other words, and a
+# markdown list item puts a backtick between the marker and the form, so neither
+# matches. That anchoring is what stops the rule from denying the documentation
+# that describes it.
+# ponytail: a file that quotes a forged trailer on its own line is still denied;
+# the deny states the reason, so one rephrase clears it.
+ATTRIB_LINE = re.compile(
+    r"(?im)^[\s>#*/<!+-]*(?:co-authored-by\s*:|generated with|made with|"
+    r"built by|assisted by|authored by|noreply@anthropic|\U0001F916)")
+# the payload fields a write/edit tool carries its content in, per host dialect
+EDIT_TEXT = ("content", "new_string", "newString", "new_str", "file_text",
+             "patch", "text")
 # the write subcommand may sit behind git's global options: `git -c k=v commit`,
 # `git -C dir commit`, `git --no-pager commit`. `gh api` writes comments/reviews,
 # and `gh pr merge` lands a commit, so both count as writes.
@@ -57,6 +73,18 @@ def attribution(command):
     """True when a git/gh write command carries an AI/model credit."""
     c = str(command or "")
     return bool(WRITE_CMD.search(c) and ATTRIB.search(c))
+
+
+def attribution_edit(inp):
+    """True when the text a write/edit tool is about to land carries a credit.
+
+    The bash path needs `WRITE_CMD` to establish that a commit or PR body is
+    being written; here the tool itself is the write, so the content is the
+    whole question."""
+    if not isinstance(inp, dict):
+        return False
+    return any(isinstance(v, str) and ATTRIB_LINE.search(v)
+               for k, v in inp.items() if k in EDIT_TEXT)
 
 
 def explored(subagent_type):
@@ -116,6 +144,13 @@ def nudge_reason(slug):
             "session." % slug)
 
 
+def _deny(session_id, rule, reason):
+    """Record a refusal before returning it: a deny nobody counts is a rule
+    whose effect can never be argued about (hooks/tezgah_integrity.counters)."""
+    note(session_id, "deny", "%s: %s" % (rule, str(reason)[:80]))
+    return reason
+
+
 def decision(tool, inp, cwd, session_id=None):
     """A deny reason for this call, or None to let it pass."""
     if off("pretooluse-off"):
@@ -126,7 +161,7 @@ def decision(tool, inp, cwd, session_id=None):
     t = str(tool or "").lower()
     sub = inp.get("subagent_type") or (inp.get("args") or {}).get("subagent_type")
     if t in ("agent", "task", "subagent") and explored(sub):
-        return EXPLORE_DENY
+        return _deny(session_id, "explorer", EXPLORE_DENY)
     # anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
     # failure disappears. This is the mechanical half of the integrity rule; the
     # reply-level half is the Stop hook (hosts/claude, hosts/codex,
@@ -138,15 +173,18 @@ def decision(tool, inp, cwd, session_id=None):
         if t in BASH_TOOLS:
             reason = shortcut_command(inp.get("command"))
             if reason:
-                return reason
+                return _deny(session_id, "shortcut", reason)
         if t in WRITE_TOOLS:
             reason = shortcut_edit(inp)
             if reason:
-                return reason
+                return _deny(session_id, "shortcut", reason)
     if t in BASH_TOOLS and attribution(inp.get("command")):
-        return ATTRIB_DENY
+        return _deny(session_id, "attribution", ATTRIB_DENY)
+    if t in WRITE_TOOLS and attribution_edit(inp):
+        return _deny(session_id, "attribution", ATTRIB_DENY)
     if searched_identifier(tool, inp):
         slug = index_slug(cwd, base)
         if slug and first_nudge(session_id):
+            note(session_id, "nudge", slug)
             return nudge_reason(slug)
     return None

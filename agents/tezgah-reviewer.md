@@ -57,6 +57,28 @@ Look only for defects in, or newly caused by, the changed code:
 Default to refuted when the evidence is not clear. A finding that cannot be
 tied to real code is refuted.
 
+## Severity
+
+Every reported finding carries one of these, and the words mean exactly this:
+
+- critical: the change cannot stand as written; the stated behaviour is wrong
+  or a required property is unsupported.
+- major: a real weakness that must be fixed before the change lands.
+- minor: a noticeable issue that does not block the change.
+- suggestion: an improvement, not a flaw.
+
+## Constraints, scored separately
+
+The task named constraints the change had to keep - preserve this behaviour,
+touch no other file, keep this output format, stay backward compatible. Score
+each one `kept` or `violated` with the file:line that shows which, as its own
+section. A patch that passes the functional tests and breaks a stated
+constraint is not clean, and the tests will not notice it. If the task stated no
+constraint, say that instead of inventing one.
+
+Every finding quotes, verbatim, the code it accuses. A finding about an absence
+has nothing to quote and says so.
+
 ## Rules
 
 - Report only confirmed findings as defects. Refuted and unverified findings
@@ -76,6 +98,8 @@ tied to real code is refuted.
 1. Scope: target, changed files, impacted modules, one line on how far the
    blast radius reaches.
 2. Confirmed findings, most severe first: title, file:line, concrete failure
-   scenario, evidence, severity.
-3. Refuted and unverified: title plus one line each on why.
-4. Coverage: what the graph could not see.
+   scenario, evidence, severity, and the verbatim quote.
+3. Constraints: each stated constraint, `kept` or `violated`, with the
+   file:line that shows which.
+4. Refuted and unverified: title plus one line each on why.
+5. Coverage: what the graph could not see, and the order you read the files in.

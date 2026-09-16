@@ -20,14 +20,15 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_context import LEGEND, health_segments, render_line  # noqa: E402
+from tezgah_context import (LEGEND, color_default, health_segments,
+                            render_line)  # noqa: E402
 
 
 def main():
     args = sys.argv[1:]
     flags = {a for a in args if a.startswith("--")}
     pos = [a for a in args if not a.startswith("--")]
-    known = {"--legend", "--json", "--color", "--no-color", "--help"}
+    known = {"--legend", "--json", "--color", "--no-color", "--counters", "--help"}
     unknown = sorted(f for f in flags if f not in known)
     if unknown:
         sys.stderr.write("tezgah-status: unknown option(s): %s (try --help)\n"
@@ -39,6 +40,23 @@ def main():
     if "--legend" in flags:
         sys.stdout.write(LEGEND)
         return 0
+    if "--counters" in flags:
+        session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
+        import tezgah_integrity as ti
+        counts = ti.counters(session)
+        if "--json" in flags:
+            print(json.dumps(counts, sort_keys=True))
+            return 0
+        print("session %s: %d events" % (session or "(none)", counts["events"]))
+        for key in ("denies", "nudges", "fanout", "consult", "codegen",
+                    "codegen_failed"):
+            value = counts[key]
+            if key == "denies":
+                value = ", ".join("%s=%d" % kv for kv in sorted(value.items())) or "none"
+            print("  %-16s %s" % (key, value))
+        print("  %-16s %s" % ("kinds", ", ".join(
+            "%s=%d" % kv for kv in sorted(counts["kinds"].items())) or "none"))
+        return 0
     cwd = os.path.realpath(pos[0] if pos else os.getcwd())
     session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
     segs = health_segments(cwd, session)
@@ -46,8 +64,7 @@ def main():
         print(json.dumps(segs))
         return 0
     color = "--color" in flags or (
-        "--no-color" not in flags and sys.stdout.isatty()
-        and not os.environ.get("NO_COLOR"))
+        "--no-color" not in flags and sys.stdout.isatty() and color_default())
     line = render_line(segs, color=color)
     if line:
         print(line)

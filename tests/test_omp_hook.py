@@ -25,14 +25,24 @@ class OmpHook(TempHome):
         # omp's managed RULES.md already carries the always-on core, so the
         # session payload must not pay for the contract a second time
         self.assertNotIn("**Turkish, BLUF.**", out["context"])
-        self.assertIn("pony", out["status"])
+        self.assertIn("\033[32mpony\u2713\033[0m", out["status"])
 
     def test_status_answers_off_root(self):
         # the status line is the one global signal: tezgah loads as a globally
         # loaded rules file on omp, so the marks must not go silent off-root
         out, proc = self.event({"event": "status", "cwd": self.home})
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("pony", out["status"])
+        self.assertIn("\033[32mpony\u2713\033[0m", out["status"])
+
+    def test_status_drops_color_when_the_environment_opts_out(self):
+        # NO_COLOR must strip the escapes at the source, so a terminal that
+        # asked for none cannot end up showing them literally
+        out, proc = run_json([support.OMP_HOOK],
+                             {"event": "status", "cwd": self.home},
+                             env=self.env(extra={"NO_COLOR": "1"}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("\033", out["status"])
+        self.assertIn("pony\u2713", out["status"])
 
     def test_session_context_is_inert_off_root(self):
         out, proc = self.event({"event": "session_start", "cwd": self.home})

@@ -222,7 +222,11 @@ discovery, review, impact analysis (research goes to OpenResearch - see the
 Research section - with a host subagent only as the fallback when `orx` is
 absent). Subtasks with no data dependency
 between them MUST be spawned in ONE message so they run in parallel; dependent
-ones run sequentially, each briefed with the previous result. If the work
+ones run sequentially, each briefed with the previous result. Fan out only when
+the subtasks share no mutable file and no interface: if two of them would edit
+the same file, or one's answer decides the other's, keep them in one context or
+sequence them. The shared artifact is the coordination channel, not chatter -
+naming a lead coordinates nothing by itself. If the work
 cannot be split - one file, one bounded change, a strictly serial chain - do it
 directly. Never spawn a subagent whose briefing is bigger than the work.
 Routing: the general-purpose agent for everything. A code-discovery briefing
@@ -265,6 +269,14 @@ Read the diff yourself. Then tests, lint and type check must pass, and anything
 non-trivial gets an independent review before it lands. A delegate's output is
 a draft until the router has evidence; "the agent said it works" is not
 evidence.
+
+**The acceptance boundary is exogenous.** The check that decides whether
+non-trivial work is done is one the executor cannot see or edit while it works:
+hidden tests, a gold tree, a fresh clone, a deterministic script that lives
+outside the change. The reviewer is a fresh context that did not write the
+change. State the constraint the change must keep in the task itself - a
+constraint nobody wrote down cannot be verified, and a functional test will not
+notice it. Never author your own acceptance material.
 
 ### Decision quality, which is the router's actual job
 State the decision and the evidence behind it in one line each. Run
@@ -425,6 +437,12 @@ Codex, omp) refuses to end a turn that claims done/tested with no successful
 check recorded in the session. Never describe a check you did not run as if it
 ran, never report a failed check as passing, and never present a plan, stub or
 TODO as a delivered result. Off: `verify-off`.
+
+**Loop discipline.** Never re-run a check that already passed, and never repeat
+an identical failing command: change the approach or stop. Three attempts on one
+failure is the ceiling - then report what you tried and what is still unknown
+instead of attempting a fourth. A turn must either change the state or end the
+work.
 
 **Spec before building.** An underspecified request - a quality/behavior
 adjective with no acceptance criteria and no named standard ("normal user

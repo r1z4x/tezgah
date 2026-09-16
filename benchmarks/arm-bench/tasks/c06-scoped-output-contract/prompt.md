@@ -1,0 +1,1 @@
+inventory/report.py içindeki summary fonksiyonunun çıktısına %20 KDV'li toplamı da ekle. Yeni format tam olarak şu olsun: items=2 total=3.00 tax=3.60 (mevcut alanlar korunacak, sona tax eklenecek). Sadece bu değişikliği yap, başka dosyaya dokunma.

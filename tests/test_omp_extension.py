@@ -29,9 +29,11 @@ class OmpExtension(TempHome):
         with open(self.ext, "w") as fh:
             fh.write(text)
 
-    def drive(self, calls, cwd=None):
+    def drive(self, calls, cwd=None, no_widget=False):
         spec = {"extension": self.ext, "dir": cwd or self.make_repo(),
                 "session": "s", "calls": calls}
+        if no_widget:
+            spec["noWidget"] = True
         proc = subprocess.run([self.node, support.OMP_HARNESS],
                               input=json.dumps(spec), capture_output=True,
                               text=True, env=self.env(), timeout=120)
@@ -52,12 +54,16 @@ class OmpExtension(TempHome):
             ["before_agent_start", "session_start", "session_stop",
              "session_switch", "tool_call", "tool_result", "turn_end"])
 
-    def test_session_start_sets_the_status_line_and_injects_the_state(self):
+    def test_session_start_draws_the_status_line_and_injects_the_state(self):
         out = self.drive([{"event": "session_start"}])
         self.results(out)
-        key, text = out["statuses"][0]
+        key, content, options = out["widgets"][0]
         self.assertEqual(key, "tezgah")
-        self.assertIn("pony", text)
+        # the whole first mark carries its state color: setStatus, omp's other
+        # surface, sanitizes exactly these escapes away
+        self.assertIn("\u001b[32mpony\u2713\u001b[0m", content[0])
+        self.assertEqual(options["placement"], "belowEditor")
+        self.assertEqual(out["statuses"], [])
         message = out["sent"][0]["message"]
         self.assertIn("Graph", message["content"])
         # the contract itself rides omp's always-on RULES.md, not this message
@@ -94,9 +100,19 @@ class OmpExtension(TempHome):
         out = self.drive([{"event": "tool_result", "arg": {
             "toolName": "task", "input": {"prompt": "x"}}}])
         self.results(out)
+        key, content, _options = out["widgets"][0]
+        self.assertEqual(key, "tezgah")
+        self.assertIn("orch", content[0])
+
+    def test_a_build_without_the_widget_surface_falls_back_to_setstatus(self):
+        # same event, an omp whose ctx.ui has no setWidget: the host sanitizes
+        # the escapes, so the line loses its color but never the marks
+        out = self.drive([{"event": "session_start"}], no_widget=True)
+        self.results(out)
+        self.assertEqual(out["widgets"], [])
         key, text = out["statuses"][0]
         self.assertEqual(key, "tezgah")
-        self.assertIn("orch", text)
+        self.assertIn("pony", text)
 
     def test_tool_result_without_an_outcome_does_not_license_a_done_claim(self):
         out = self.drive([

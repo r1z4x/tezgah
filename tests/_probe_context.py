@@ -16,7 +16,7 @@ fn = p.get("fn")
 if fn == "context_for":
     out = tc.context_for(p.get("event", "session_start"), p["cwd"], p.get("payload"))
 elif fn == "health_lines":
-    out = tc.health_lines(p["cwd"], p.get("session_id"))
+    out = tc.health_lines(p["cwd"], p.get("session_id"), color=p.get("color", False))
 elif fn == "health_segments":
     out = tc.health_segments(p["cwd"], p.get("session_id"))
 elif fn == "record":

@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 import support
@@ -178,6 +179,28 @@ class OpenCodePlugin(TempHome):
         self.denied(self.before("bash", {
             "command": 'gh pr create --title x --body "Generated with Cursor"'}))
 
+    def test_attribution_denies_a_credit_landed_by_a_write_tool(self):
+        # The rule covers file contents, so the plugin has to read the payload,
+        # not only a bash command - the same shape hooks/tezgah_gate.py denies.
+        for tool, args in (
+                ("write", {"filePath": "src/a.py",
+                           "content": "x = 1\n# Generated with Claude Code\n"}),
+                ("edit", {"filePath": "src/a.py", "old_string": "x = 1",
+                          "new_string": "x = 1\nCo-Authored-By: Claude <noreply@anthropic.com>"}),
+                ("apply_patch", {"patch": "*** Begin Patch\n+// Made with Cursor\n*** End Patch"})):
+            error = self.denied(self.before(tool, args))
+            self.assertIn("Attribution", error)
+
+    def test_prose_that_names_the_ban_is_not_a_credit(self):
+        for body in (
+                "Banned forms include `Co-Authored-By` / `Co-authored-by`, any\n"
+                'Never add a Co-Authored-By trailer or a "Generated with" line.\n',
+                "- `Generated with X` is a banned signature\n",
+                "The gate denies a commit whose message carries a Co-Authored-By "
+                "trailer.\n"):
+            self.allowed(self.before("write", {"filePath": "docs/policy.md",
+                                               "content": body}))
+
     # ---- explore subagent --------------------------------------------------
     def test_explore_subagent_denied(self):
         self.denied(self.before("task", {"subagent_type": "explore"}))
@@ -225,6 +248,22 @@ class OpenCodePlugin(TempHome):
 
     def test_identifier_grep_nudged_once_then_passes(self):
         self.make_index()
+        self.denied(self.before("grep", {"pattern": "FooBar"}))
+        self.allowed(self.before("grep", {"pattern": "FooBar"}))
+
+    def test_nudge_survives_an_unwritable_global_cache(self):
+        # A sandboxed host denies the global cache. The Python half falls back
+        # to temp (hooks/tezgah_paths.py cache_dir) and this half must too:
+        # without the fallback the mark is never written, so the first grep
+        # would pass unnudged instead of being denied once.
+        self.make_index()
+        cache = os.path.join(self.home, ".cache")
+        os.chmod(cache, 0o500)
+        self.addCleanup(os.chmod, cache, 0o700)
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self.envv = self.env(extra={"TMPDIR": tmp})
+
         self.denied(self.before("grep", {"pattern": "FooBar"}))
         self.allowed(self.before("grep", {"pattern": "FooBar"}))
 

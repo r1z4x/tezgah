@@ -6,6 +6,10 @@ TUI's own output and asserts the tezgah marks appear in the footer the extension
 writes them to. The unit tests cover what the hook answers; only this covers
 that omp draws it.
 
+The mark is matched with its color attached: `setStatus` is the one omp surface
+that strips ANSI, so a green escape in the frame is exactly what proves the line
+went through the widget path instead.
+
 Opt-in local check, not collected by the stdlib suite (name does not match
 `test*.py`): it needs the omp binary and the extension tezgah-setup installs. It
 exits 0 with "SKIP: ..." when one of those is missing, and 1 only on a real
@@ -16,6 +20,7 @@ render failure.
 import fcntl
 import os
 import pty
+import select
 import shutil
 import signal
 import struct
@@ -28,8 +33,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AGENT = os.path.join(os.path.expanduser("~"), ".omp", "agent")
 EXTENSION = os.path.join(AGENT, "hooks", "pre", "tezgah-hook.ts")
 TIMEOUT = 45.0
-# the first segment of the status string (hooks/tezgah_context.render_line)
-MARK = "pony"
+# the first segment of the status string with the color its "on" state paints
+# (hooks/tezgah_context.render_line)
+MARK = "\x1b[32mpony"
 
 
 def omp_bin():
@@ -45,14 +51,22 @@ def render(omp):
     master, slave = pty.openpty()
     # the TUI lays out to the real terminal size, so give it one
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+    # the check pins the colored form, so a NO_COLOR shell must not turn it into
+    # a hang: the mark would never arrive and the deadline is the only exit
+    env = dict(os.environ, TERM="xterm-256color")
+    env.pop("NO_COLOR", None)
     proc = subprocess.Popen([omp, "--cwd", REPO], stdin=slave, stdout=slave,
                             stderr=slave, cwd=REPO, start_new_session=True,
-                            env=dict(os.environ, TERM="xterm-256color"))
+                            env=env)
     os.close(slave)
     seen = b""
     deadline = time.time() + TIMEOUT
     try:
         while time.time() < deadline:
+            # a blocking read would sit on a quiet TUI until the pty closes, so
+            # the deadline above could never fire; poll instead
+            if not select.select([master], [], [], 0.5)[0]:
+                continue
             try:
                 chunk = os.read(master, 65536)
             except OSError:
@@ -99,7 +113,7 @@ def run():
         return "FAIL: omp ignored SIGTERM"
     if MARK in frame:
         return "PASS: the tezgah status line rendered in the omp footer"
-    return ("FAIL: no tezgah status line in %d bytes of omp TUI output"
+    return ("FAIL: no colored tezgah status line in %d bytes of omp TUI output"
             % len(frame))
 
 

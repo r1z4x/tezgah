@@ -56,6 +56,12 @@ check recorded in the session. Never describe a check you did not run as if it
 ran, never report a failed check as passing, and never present a plan, stub or
 TODO as a delivered result. Off: `verify-off`.
 
+**Loop discipline.** Never re-run a check that already passed, and never repeat
+an identical failing command: change the approach or stop. Three attempts on one
+failure is the ceiling - then report what you tried and what is still unknown
+instead of attempting a fourth. A turn must either change the state or end the
+work.
+
 **Lessons ledger: stop repeating mistakes.** A repo may keep
 `.tezgah/lessons.md` (one lesson per line; the most recent are injected each
 session). Read them before starting and treat each as a standing constraint.
@@ -87,5 +93,3 @@ Stop gate), `pretooluse-off` (the whole gate); per-repo `.no-ponytail`,
 `.no-cbm`, `.no-lessons`.
 
 **On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a non-trivial or hard-to-reverse decision. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".
-
-Deep orchestration, codegen, consult detail and the exact kill switches: load the `tezgah-contract` skill.

@@ -137,7 +137,7 @@ cost evidence, which is a separate question from enforcement.
 
 | Host | Wired by | Status line |
 |---|---|---|
-| **omp** (oh-my-pi) — primary | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and an extension (`hooks/pre/tezgah-hook.ts`) that arms the per-prompt rules, gates tools, records evidence and runs the Stop rule; the wiring is checked by `tezgah-setup` | extension status: `tezgah pony✓ exec✓ · …` in the footer, refreshed on turn end |
+| **omp** (oh-my-pi) — primary | `~/.omp/agent`: managed `RULES.md` always-on block, skills, generated subagents, `mcp.json`, and an extension (`hooks/pre/tezgah-hook.ts`) that arms the per-prompt rules, gates tools, records evidence and runs the Stop rule; the wiring is checked by `tezgah-setup` | widget footer line: colored `pony✓ exec✓ · …`, refreshed on turn end |
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style | native `statusLine` |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate | hook `systemMessage` (footer item list is closed) |
 | **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them | `statusLine` in `cli-config.json` |
@@ -168,19 +168,21 @@ stays unenforced there.
 ### Status line
 
 Every host renders the same one-line checklist from `tezgah-status`, so they
-cannot drift. The state is the point: a mark is **green** when the rule is armed
-and in force this session, **yellow** when it is armed but on demand (not used
-yet), and **red** when a kill switch turned it off. `idx` reports graph readiness
+cannot drift. The state is the point: the whole `name✓` chip is colored —
+**green** when the rule is armed and in force this session, **yellow** when it is
+armed but on demand (not used yet), **red** when a kill switch turned it off, and
+**dim** for a mark that carries no state. The glyph stays either way, so the
+color is a second channel and never the only one. `idx` reports graph readiness
 separately (`✓` indexed, `↻` stale, `✗` not indexed, `–` not applicable) and
 `plans N (M blk)` the open plans. `tezgah-status --legend` prints the key,
 `--json` gives the same segments for a UI, and `--no-color` (or `NO_COLOR`)
 forces plain text. Claude Code and Cursor color the native status line; the
 opencode TUI colors its own component and refreshes on the host event bus; the
 dsh Web UI colors its header component and refreshes only while its tab is
-visible; Codex shows the plain string in `systemMessage`; omp's extension
-registers the plain string with `ctx.ui.setStatus`, so it rides omp's own footer
-(the theme colors it) and refreshes on session start, session switch, turn end
-and every tool result that can move a mark.
+visible; Codex shows the plain string in `systemMessage`; omp's extension draws
+the colored line through `ctx.ui.setWidget`, since `setStatus` — its other
+surface — strips the escapes, and it refreshes on session start, session switch,
+turn end and every tool result that can move a mark.
 
 dsh runs the same Claude hook files through its `dsh-hooks-claude-code` bridge,
 so the session-start contract, the attribution gate, and the first-grep nudge
@@ -393,28 +395,38 @@ same mistake cannot silently repeat.
 
 Measured on this machine (macOS, Python 3.10), not estimated:
 
-- **Context.** A session start injects ~2.9 KB (~0.7k tokens) of always-on
-  contract text: the invariants plus a one-line pointer per on-demand rule. The
-  conditional rules (spec-first, consult, OpenResearch, code-graph) are armed by
-  the prompt's task class instead of being paid every session - ~2.2 KB
-  (~0.6k tokens) rides only the turn whose prompt matches, and the full text
-  stays in the on-demand skill. Claude, Codex, Cursor, dsh and omp have a
-  per-turn hook (a ~621-byte reminder, plus the armed rule when it matches);
-  opencode has none, so its per-turn cost is zero. `tezgah-setup` prints this
-  budget.
+- **Context.** A session start injects the always-on contract text: the
+  invariants plus a one-line pointer per on-demand rule. The conditional rules
+  (spec-first, consult, OpenResearch, code-graph) are armed by the prompt's task
+  class instead of being paid every session, so only the turn whose prompt
+  matches pays for them, and the full text stays in the on-demand skill. Claude,
+  Codex, Cursor, dsh and omp have a per-turn hook (a short reminder, plus the
+  armed rule when it matches); opencode has none, so its per-turn cost is zero.
+  `tezgah-setup` prints this budget - read it there instead of trusting a figure
+  copied into this file, which is how an earlier revision came to quote a core
+  band smaller than the one it installs. The largest band is not in that report
+  at all: `tezgah-setup --mcp-schemas` asks each MCP server for its tool
+  schemas over stdio, and on this machine the graph server alone declares 15
+  tools / 24,508 bytes (~6.1k tokens) - several times the always-on contract,
+  paid on every request unless the host fetches schemas on demand.
   The full `tezgah-contract`
-  skill (~19.9k characters) is paid only when a task loads it. On opencode the
-  contract ships as a ~3.8 KB instructions file. opencode would otherwise
-  inject ~53 KB of skill name/description/location text into every session's
-  system prompt; tezgah denies that list (`permission.skill = deny`) and ships a
-  generated router instead. The always-on router lists only the buckets a coding
-  session reaches for (`tezgah core`, `code & host tooling`, ~3.2 KB) and
-  collapses the rest to a pointer at `~/.config/tezgah/opencode-skills.full.md`
-  (~16 KB, read on demand), so opencode's always-on budget is ~1.7k tokens
-  instead of ~5.1k.
-- **Arming floor.** The four invariants are always-on, and the safety rule
+  skill is paid only when a task loads it. opencode has no prompt-time injection
+  point, so the contract ships there as a generated instructions file. opencode
+  would otherwise inject every skill's name, description and location into every
+  session's system prompt; tezgah denies that list (`permission.skill = deny`)
+  and ships a generated router instead. The always-on router lists only the
+  buckets a coding session reaches for (`tezgah core`, `code & host tooling`) and
+  collapses the rest to a pointer at `~/.config/tezgah/opencode-skills.full.md`,
+  read on demand, so opencode's always-on text stays a fraction of what the
+  uncovered list would cost. Both files are generated by `tezgah-setup` from the
+  policy, and their sizes track the installed skill set - measure them there
+  rather than quoting a figure here.
+- **Arming floor.** The invariants are always-on - execution mode, ponytail,
+  deliver-the-whole-ask, integrity, loop discipline, the lessons ledger and the
+  attribution ban - and the safety rule
   ("irreversible or outward-facing actions need an explicit ask first") is one
-  of them, so it never depends on a classifier. The four advisory rules are
+  of them, so it never depends on a classifier. The four advisory rules (spec,
+  code graph, consult, research) are
   expanded per prompt, but each has an actionable one-line pointer always-on, so
   a missed match costs detail, never the rule. If a host hook fails, the turn
   falls back to the pointers plus the on-demand skill, never to no contract.
