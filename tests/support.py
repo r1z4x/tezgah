@@ -28,6 +28,8 @@ POSTTOOLUSE = os.path.join(REPO, "hooks", "projects-posttooluse.py")
 CODEX_HOOK = os.path.join(REPO, "hosts", "codex", "hook.py")
 CURSOR_HOOK = os.path.join(REPO, "hosts", "cursor", "hook.py")
 STATUSLINE = os.path.join(REPO, "statusline.py")
+OPENCODE_PLUGIN = os.path.join(REPO, "hosts", "opencode", "plugins", "tezgah.js")
+OPENCODE_HARNESS = os.path.join(TESTS, "_opencode_plugin_harness.mjs")
 
 
 def slug(path):
