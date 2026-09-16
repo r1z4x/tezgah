@@ -164,9 +164,9 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 | `bin/tezgah-setup --deps [--dry-run]` | 不足しているオプションツール（orx、cursor-agent、dsh）をインストールする |
 | `bin/tezgah-research init\|check\|status` | 研究ラインを作成・検査する: 状態、findings、クレーム、プロトコル先行のルール |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | ハーネスのディスク使用量を報告する。`--clean` は古いインデックスログを削除し、opencodeのDBをバキュームする。`--prune-sessions` はアイドル状態のセッションを削除する（実際にDBを縮小する唯一のアクション） |
-| `/plan-add` | 作業の一部を追跡対象のプランに変換する |
-| `/plan-status` | オープンなプランを要約し、次のプランを選択する |
-| `/plan-sync` | 完了したプランをクローズする |
+| `/tezgah:plan-add` | 作業の一部を追跡対象のプランに変換する |
+| `/tezgah:plan-status` | オープンなプランを要約し、次のプランを選択する |
+| `/tezgah:plan-sync` | 完了したプランをクローズする |
 | `bin/tezgah-setup --version` | プラグインのバージョンを出力する |
 | `bin/tezgah-setup --uninstall` | tezgahのシンボリックリンク、ホストフックエントリ、およびdshの管理されたブロックのみを削除する |
 

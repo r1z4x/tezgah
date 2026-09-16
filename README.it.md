@@ -252,9 +252,9 @@ Niente da eseguire: le regole si caricano all'avvio di un host. Vale la pena con
 | `bin/tezgah-setup --deps [--dry-run]` | Installa gli strumenti opzionali mancanti (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status` | Crea e verifica una linea di ricerca: stato, findings, claim e la regola protocollo-prima-dei-risultati |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Riporta l'uso del disco dell'harness; `--clean` elimina i vecchi log dell'indice ed esegue il vacuum del DB di opencode; `--prune-sessions` elimina le sessioni inattive (l'unica azione che riduce effettivamente il DB) |
-| `/plan-add` | Trasforma un lavoro in un piano tracciato |
-| `/plan-status` | Riepiloga i piani aperti e sceglie il successivo |
-| `/plan-sync` | Chiude i piani completati |
+| `/tezgah:plan-add` | Trasforma un lavoro in un piano tracciato |
+| `/tezgah:plan-status` | Riepiloga i piani aperti e sceglie il successivo |
+| `/tezgah:plan-sync` | Chiude i piani completati |
 | `bin/tezgah-setup --version` | Stampa la versione del plugin |
 | `bin/tezgah-setup --uninstall` | Rimuove solo i link simbolici di tezgah, le voci degli hook dell'host e il blocco gestito di dsh |
 

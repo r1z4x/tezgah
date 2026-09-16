@@ -50,11 +50,13 @@ class OmpExtension(TempHome):
         with open(log) as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
-    def drive(self, calls, cwd=None, no_widget=False):
+    def drive(self, calls, cwd=None, no_widget=False, widget_throws=False):
         spec = {"extension": self.ext, "dir": cwd or self.make_repo(),
                 "session": "s", "calls": calls}
         if no_widget:
             spec["noWidget"] = True
+        if widget_throws:
+            spec["widgetThrows"] = True
         proc = subprocess.run([self.node, support.OMP_HARNESS],
                               input=json.dumps(spec), capture_output=True,
                               text=True, env=self.env(), timeout=120)
@@ -190,6 +192,16 @@ class OmpExtension(TempHome):
         key, text = out["statuses"][0]
         self.assertEqual(key, "tezgah")
         self.assertIn("pony", text)
+
+    def test_a_host_that_refuses_the_widget_still_gets_the_message(self):
+        # draw() talks to the host UI. An exception there used to travel up the
+        # handler, so a cosmetic failure swallowed the session brief itself.
+        out = self.drive([{"event": "session_start"}], widget_throws=True)
+        self.results(out)
+        self.assertEqual(out["widgets"], [])
+        self.assertEqual(out["statuses"], [])
+        self.assertEqual(len(out["sent"]), 1)
+        self.assertIn("Graph", out["sent"][0]["message"]["content"])
 
     def test_tool_result_without_an_outcome_does_not_license_a_done_claim(self):
         out = self.drive([

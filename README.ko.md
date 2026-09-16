@@ -223,9 +223,9 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 | `bin/tezgah-setup --deps [--dry-run]` | 누락된 선택적 도구(orx, cursor-agent, dsh) 설치 |
 | `bin/tezgah-research init\|check\|status` | 연구 라인을 만들고 검사한다: 상태, findings, 클레임, 프로토콜 우선 규칙 |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | 하네스 디스크 사용량 보고; `--clean`은 오래된 인덱스 로그를 삭제하고 opencode DB를 정리(vacuum)합니다; `--prune-sessions`는 유휴 세션을 삭제합니다(실제로 DB 크기를 줄이는 유일한 작업) |
-| `/plan-add` | 작업을 추적되는 계획으로 변환 |
-| `/plan-status` | 열려 있는 계획을 요약하고 다음 계획 선택 |
-| `/plan-sync` | 완료된 계획 마감 |
+| `/tezgah:plan-add` | 작업을 추적되는 계획으로 변환 |
+| `/tezgah:plan-status` | 열려 있는 계획을 요약하고 다음 계획 선택 |
+| `/tezgah:plan-sync` | 완료된 계획 마감 |
 | `bin/tezgah-setup --version` | 플러그인 버전 출력 |
 | `bin/tezgah-setup --uninstall` | tezgah의 심볼릭 링크, 호스트 훅 항목, dsh 관리형 블록만 제거 |
 

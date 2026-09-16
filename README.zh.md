@@ -163,9 +163,9 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 | `bin/tezgah-setup --deps [--dry-run]` | 安装缺失的可选工具（orx、cursor-agent、dsh） |
 | `bin/tezgah-research init\|check\|status` | 创建并检查研究线：状态、findings、声明以及协议先于结果的规则 |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | 报告框架磁盘使用情况；`--clean` 删除旧的索引日志并清理 opencode 数据库；`--prune-sessions` 删除空闲会话（唯一真正缩小数据库的操作） |
-| `/plan-add` | 将一项工作转化为受跟踪的计划 |
-| `/plan-status` | 总结开放的计划并选择下一个 |
-| `/plan-sync` | 完结已完成的计划 |
+| `/tezgah:plan-add` | 将一项工作转化为受跟踪的计划 |
+| `/tezgah:plan-status` | 总结开放的计划并选择下一个 |
+| `/tezgah:plan-sync` | 完结已完成的计划 |
 | `bin/tezgah-setup --version` | 打印插件版本 |
 | `bin/tezgah-setup --uninstall` | 仅移除 tezgah 的符号链接、宿主钩子条目以及 dsh 受管块 |
 

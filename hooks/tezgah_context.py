@@ -619,8 +619,14 @@ def command_text(raw):
 
 
 def record(session_id, kind):
-    """Append a used-tool kind for the status line (any host, best effort)."""
-    if not session_id:
+    """Append a used-tool kind for the status line (any host, best effort).
+
+    A missing kind is not an event: the hosts classify every tool and most
+    tools are not one of ours, so writing those would fill the ledger with
+    no-ops (a real session: 395 null lines against 30 kinds) and make every
+    later read walk them.
+    """
+    if not session_id or not kind:
         return
     try:
         d = os.path.join(cache_dir(), "sessions")

@@ -249,9 +249,9 @@ bilmekte fayda var:
 | `bin/tezgah-setup --deps [--dry-run]` | Eksik isteğe bağlı araçları kurar (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status` | Bir araştırma hattını kurar ve denetler: state, findings, claims ve protokol-sonuç kuralı |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Donanım disk kullanımını raporlar; `--clean` eski indeks günlüklerini siler ve opencode veritabanını vakumlar; `--prune-sessions` boşta kalan oturumları siler (veritabanını gerçekten küçülten tek eylem) |
-| `/plan-add` | Bir iş parçasını izlenen bir plana dönüştürür |
-| `/plan-status` | Açık planları özetler ve bir sonrakini seçer |
-| `/plan-sync` | Biten planları kapatır |
+| `/tezgah:plan-add` | Bir iş parçasını izlenen bir plana dönüştürür |
+| `/tezgah:plan-status` | Açık planları özetler ve bir sonrakini seçer |
+| `/tezgah:plan-sync` | Biten planları kapatır |
 | `bin/tezgah-setup --version` | Eklenti sürümünü yazdırır |
 | `bin/tezgah-setup --uninstall` | Yalnızca tezgah'ın sembolik bağlantılarını, barındırıcı kanca girişlerini ve dsh yönetilen bloğunu kaldırır |
 

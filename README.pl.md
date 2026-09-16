@@ -249,9 +249,9 @@ Nie ma nic do uruchamiania: reguły ładują się podczas startu hosta. Warto zn
 | `bin/tezgah-setup --deps [--dry-run]` | Instaluje brakujące opcjonalne narzędzia (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status` | Tworzy i sprawdza linię badawczą: stan, ustalenia, twierdzenia i reguła protokół-przed-wynikami |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Raportuje zużycie dysku przez środowisko; `--clean` usuwa stare logi indeksu i czyści (vacuum) bazę danych opencode; `--prune-sessions` usuwa bezczynne sesje (jedyna akcja, która faktycznie zmniejsza bazę danych) |
-| `/plan-add` | Zmienia fragment pracy w śledzony plan |
-| `/plan-status` | Podsumowuje otwarte plany i wybiera następny |
-| `/plan-sync` | Zamyka ukończone plany |
+| `/tezgah:plan-add` | Zmienia fragment pracy w śledzony plan |
+| `/tezgah:plan-status` | Podsumowuje otwarte plany i wybiera następny |
+| `/tezgah:plan-sync` | Zamyka ukończone plany |
 | `bin/tezgah-setup --version` | Wypisuje wersję wtyczki |
 | `bin/tezgah-setup --uninstall` | Usuwa tylko dowiązania symboliczne tezgah, wpisy hooków hosta i zarządzany blok dsh |
 

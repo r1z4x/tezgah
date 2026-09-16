@@ -249,9 +249,9 @@ Nada para executar: as regras são carregadas quando um host é iniciado. Vale a
 | `bin/tezgah-setup --deps [--dry-run]` | Instalar ferramentas opcionais ausentes (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status` | Cria e verifica uma linha de pesquisa: estado, findings, claims e a regra protocolo-antes-dos-resultados |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Relatar o uso de disco do harness; `--clean` exclui logs de índice antigos e faz vacuum no BD do opencode; `--prune-sessions` exclui sessões ociosas (a única ação que realmente reduz o BD) |
-| `/plan-add` | Transformar um trabalho em um plano rastreado |
-| `/plan-status` | Resumir planos abertos e escolher o próximo |
-| `/plan-sync` | Fechar planos concluídos |
+| `/tezgah:plan-add` | Transformar um trabalho em um plano rastreado |
+| `/tezgah:plan-status` | Resumir planos abertos e escolher o próximo |
+| `/tezgah:plan-sync` | Fechar planos concluídos |
 | `bin/tezgah-setup --version` | Imprimir a versão do plugin |
 | `bin/tezgah-setup --uninstall` | Remover apenas os links simbólicos do tezgah, entradas de hook do host e o bloco gerenciado do dsh |
 
