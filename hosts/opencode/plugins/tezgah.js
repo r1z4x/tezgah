@@ -119,17 +119,22 @@ async function shortcutEdit(args) {
 
 // Evidence ledger, the same JSONL the Python gate and Stop hook read. Written
 // per tool call so a "done/tested" claim can be checked against what ran.
-// ponytail: tool.execute.after exposes no success flag (only title/output/
-// metadata), so the outcome is unknowable here - record that a check RAN
-// (`verify`), never that it passed (`verify_ok`). A wrong "passed" is the exact
-// lie this ledger exists to catch.
-async function recordEvidence(sessionID, tool, args) {
+// The bash tool returns `metadata.exit` (the process exit code), so a check's
+// real outcome is available: exit 0 -> verify_ok, non-zero -> verify_fail, and
+// `verify` only when the code is absent (aborted/spawn failure).
+async function recordEvidence(sessionID, tool, args, metadata) {
   if (!sessionID) return
   const t = String(tool || "").toLowerCase()
   let kind = null
   if (WRITE_TOOLS.has(t)) kind = "edit"
-  else if (BASH_TOOLS.has(t))
-    kind = verifyCommand(args?.command || args?.cmd || "") ? "verify" : "run"
+  else if (BASH_TOOLS.has(t)) {
+    if (!verifyCommand(args?.command || args?.cmd || "")) kind = "run"
+    else {
+      const exit = metadata?.exit
+      kind = typeof exit === "number"
+        ? (exit === 0 ? "verify_ok" : "verify_fail") : "verify"
+    }
+  }
   if (!kind) return
   const detail = String(
     args?.command || args?.filePath || args?.file_path || "").slice(0, 200)
@@ -432,7 +437,8 @@ export const Tezgah = async ({ directory }) => {
         const args = input?.args || output?.args || {}
         const kind = classify(tool, args)
         if (kind) await record(input?.sessionID || input?.sessionId, kind)
-        await recordEvidence(input?.sessionID || input?.sessionId, tool, args)
+        await recordEvidence(input?.sessionID || input?.sessionId, tool, args,
+                             output?.metadata)
       } catch {}
     },
 
