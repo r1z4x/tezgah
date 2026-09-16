@@ -2,10 +2,13 @@
 
 Every workspace lives in a throwaway git repo under a temp HOME, so the
 protocol-before-results rule is exercised against real commit history and no
-test touches the repository it runs from.
+test touches the repository it runs from. Every git and hook subprocess gets a
+fresh HOME and a null global/system git config, so the developer's git config,
+aliases and GIT_* environment cannot reach a fixture.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -23,6 +26,7 @@ BEFORE = "2020-01-01T00:00:00+0000"
 AFTER = "2021-06-06T00:00:00+0000"
 NOT_A_PREDICTION = "not a prediction"
 NOT_COMMITTED = "is not committed"
+BOTH_TOGETHER = "one commit added both protocol.md and results.jsonl"
 
 
 def read(path):
@@ -40,8 +44,28 @@ def named(errors, needle):
     return [e for e in errors if needle in e]
 
 
+GIT_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_EDITOR": "true",
+}
+
+
 class Workspace(TempHome):
     """A research line inside a throwaway git repo, committed at fixed dates."""
+
+    def setUp(self):
+        super().setUp()
+        if shutil.which("git") is None:
+            self.skipTest("git is not installed")
+
+    def env(self, roots=None, extra=None):
+        """The throwaway environment every subprocess gets: no inherited GIT_DIR
+        or GIT_WORK_TREE, no global git config, a HOME of our own."""
+        clean = dict(GIT_ENV)
+        clean.update(extra or {})
+        return super().env(roots, clean)
 
     def repo(self, name="repo"):
         path = self.make_repo(name)
@@ -51,7 +75,11 @@ class Workspace(TempHome):
         return path
 
     def git(self, repo, *args, when=None):
-        env = dict(os.environ)
+        # built from scratch, never dict(os.environ): a developer's GIT_DIR,
+        # GIT_WORK_TREE or GIT_CONFIG_GLOBAL must not decide what a fixture is
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/local/bin"),
+               "HOME": self.home, "LANG": "C.UTF-8"}
+        env.update(GIT_ENV)
         if when:
             env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = when
         proc = subprocess.run(["git", "-C", repo] + list(args),
@@ -59,6 +87,9 @@ class Workspace(TempHome):
         self.assertEqual(proc.returncode, 0,
                          "%s: %s" % (" ".join(args), proc.stderr))
         return proc.stdout
+
+    def rel(self, repo, *paths):
+        return [os.path.relpath(p, repo) for p in paths]
 
     def commit(self, repo, message, when=None):
         self.git(repo, "add", "-A", "-f")
@@ -203,6 +234,18 @@ class Findings(Workspace):
         self.write(path, full.replace("## Patterns", "## patterns"))
         self.assertTrue(hit("does not answer: Patterns", self.errors(repo)))
 
+    def test_an_unreadable_findings_file_is_an_error_not_a_crash(self):
+        repo = self.repo()
+        base = self.line(repo)
+        path = os.path.join(base, "findings.md")
+        os.chmod(path, 0)
+        self.addCleanup(os.chmod, path, 0o600)
+        errors, warnings = tr.check_line(repo, "q")
+        self.assertTrue(hit("findings.md cannot be read", errors), errors)
+        self.assertEqual(tr.check(repo, "q")["q"]["errors"], errors)
+        self.assertTrue(hit("cannot be read",
+                            [e for _, e in tr.failing(repo, git=True)]))
+
 
 class Claims(Workspace):
     def test_no_claims_warns_but_is_not_an_error(self):
@@ -226,6 +269,17 @@ class Claims(Workspace):
         self.write(os.path.join(tr.line_dir(repo, "q"), "claims.jsonl"),
                    json.dumps(CLAIM) + "\n{broken\n")
         self.assertTrue(hit("claims.jsonl:2 does not parse", self.errors(repo)))
+
+    def test_a_claims_file_that_is_not_utf8_is_an_error_not_a_crash(self):
+        repo = self.repo()
+        base = self.line(repo)
+        with open(os.path.join(base, "claims.jsonl"), "wb") as fh:
+            fh.write(b'{"id": "c1", "statement": "caf\xe9"}\n')
+        errors, warnings = tr.check_line(repo, "q")
+        self.assertTrue(hit("claims.jsonl cannot be read", errors), errors)
+        self.assertEqual(tr.check(repo, "q")["q"]["errors"], errors)
+        self.assertTrue(hit("cannot be read",
+                            [e for _, e in tr.failing(repo, git=True)]))
 
     def test_claim_without_a_statement(self):
         repo = self.repo()
@@ -281,6 +335,98 @@ class Experiments(Workspace):
         self.assertIn("experiment h1 has results but no analysis.md",
                       self.errors(repo))
 
+    def test_protocol_and_results_committed_in_the_same_second(self):
+        # two commits in the same second are still two commits: ancestry decides
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=BEFORE)
+        self.assertEqual(self.errors(repo), [])
+
+    def test_protocol_edited_and_committed_after_the_results(self):
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=AFTER)
+        self.assertEqual(self.errors(repo), [])
+        self.write(os.path.join(self.exp_dir(repo), "protocol.md"),
+                   "# Protocol\n\nchange: cache the lookups\nprediction: p95 drops\n"
+                   "outcome: p95 dropped, so the cache stays\n")
+        self.commit(repo, "protocol edited after the run", when=AFTER)
+        self.assertTrue(hit("changed after the run", self.errors(repo)),
+                        self.errors(repo))
+
+    def test_a_rebased_history_stays_ordered(self):
+        # a rebase rewrites hashes and dates but not the order of the plan
+        repo = self.repo()
+        self.write(os.path.join(repo, "README.md"), "the old base\n")
+        self.commit(repo, "old base", when=BEFORE)
+        base = self.git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        self.git(repo, "checkout", "-q", "-b", "work")
+        self.line(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=AFTER)
+        self.git(repo, "checkout", "-q", base)
+        self.write(os.path.join(repo, "newer.txt"), "the base moved on\n")
+        self.commit(repo, "newer base", when=AFTER)
+        self.git(repo, "checkout", "-q", "work")
+        self.git(repo, "rebase", base)
+        self.assertEqual(self.errors(repo), [])
+
+    def test_a_renamed_results_file_still_faces_the_order_rule(self):
+        # the rename is how the path enters the history, so a line that renames
+        # the results in after the protocol is the same line as any other
+        repo = self.repo()
+        self.line(repo)
+        d = self.exp_dir(repo)
+        self.write(os.path.join(d, "results-v1.jsonl"), '{"run": 1}\n')
+        self.write(os.path.join(d, "analysis.md"), "# Analysis\n\nheld.\n")
+        self.commit(repo, "results under a working name", when=BEFORE)
+        self.git(repo, "mv", *self.rel(repo, os.path.join(d, "results-v1.jsonl"),
+                                       os.path.join(d, "results.jsonl")))
+        self.commit(repo, "rename the results into place", when=BEFORE)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=AFTER)
+        errors, warnings = tr.check_line(repo, "q")
+        self.assertTrue(hit("entered the history after results.jsonl", errors),
+                        errors)
+        self.assertFalse(hit("not committed yet", warnings), warnings)
+
+    def test_a_rename_after_the_protocol_keeps_the_line_clean(self):
+        # --diff-filter=AR: a rename into the path counts as the results being
+        # committed, so it is ordered, not skipped as "not committed yet"
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        d = self.exp_dir(repo)
+        self.write(os.path.join(d, "results-v1.jsonl"), '{"run": 1}\n')
+        self.write(os.path.join(d, "analysis.md"), "# Analysis\n\nheld.\n")
+        self.commit(repo, "results under a working name", when=BEFORE)
+        self.git(repo, "mv", *self.rel(repo, os.path.join(d, "results-v1.jsonl"),
+                                       os.path.join(d, "results.jsonl")))
+        self.commit(repo, "rename the results into place", when=AFTER)
+        errors, warnings = tr.check_line(repo, "q")
+        self.assertEqual(errors, [])
+        self.assertFalse(hit("not committed yet", warnings), warnings)
+
+    def test_untracked_results_only_warn(self):
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        errors, warnings = tr.check_line(repo, "q")
+        self.assertEqual(errors, [])
+        self.assertTrue(hit("results.jsonl is not committed yet, so the protocol "
+                            "order cannot be checked", warnings), warnings)
+
     def test_protocol_committed_after_the_results(self):
         repo = self.repo()
         self.line(repo)
@@ -297,7 +443,7 @@ class Experiments(Workspace):
         self.protocol(repo)
         self.results(repo)
         self.commit(repo, "protocol and results", when=BEFORE)
-        self.assertTrue(hit(NOT_A_PREDICTION, self.errors(repo)),
+        self.assertTrue(hit(BOTH_TOGETHER, self.errors(repo)),
                         self.errors(repo))
 
     def test_protocol_committed_before_the_results(self):
@@ -325,10 +471,23 @@ class Experiments(Workspace):
     def test_git_false_skips_the_git_dependent_checks(self):
         repo = self.repo()
         self.line(repo)
-        self.protocol(repo)
         self.results(repo)
+        self.commit(repo, "results only", when=BEFORE)
+        self.protocol(repo)
         self.assertTrue(hit(NOT_COMMITTED, self.errors(repo, git=True)))
         self.assertEqual(self.errors(repo, git=False), [])
+
+    def test_a_repo_with_no_commit_at_all_cannot_be_ordered(self):
+        # git log has nothing to answer with, so the line warns instead of
+        # accusing: the order is unverifiable, not violated
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.results(repo)
+        errors, warnings = tr.check_line(repo, "q")
+        self.assertEqual(errors, [])
+        self.assertTrue(hit("git could not be asked about the order", warnings),
+                        warnings)
 
 
 class Reports(Workspace):
@@ -352,7 +511,7 @@ class Reports(Workspace):
         self.commit(repo, "protocol and results", when=BEFORE)
         rows = tr.failing(repo, git=True)
         self.assertEqual([s for s, _ in rows], ["q"])
-        self.assertTrue(hit(NOT_A_PREDICTION, [e for _, e in rows]))
+        self.assertTrue(hit(BOTH_TOGETHER, [e for _, e in rows]))
         self.assertEqual(tr.failing(repo), [])
 
     def test_summary_is_one_line_per_line(self):
@@ -392,14 +551,41 @@ class Cli(Workspace):
         self.assertIn("FAIL q: state.json records no question", proc.stdout)
         self.assertIn("warn q: no claims recorded yet", proc.stdout)
 
-    def test_check_json_prints_the_report(self):
+    def test_check_json_prints_the_report_of_a_broken_line(self):
         repo = self.repo()
         self.line(repo, question="")
-        out = self.cli(repo, "check", "--json").stdout.splitlines()
+        proc = self.cli(repo, "check", "--json")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        out = proc.stdout.splitlines()
         start = [n for n, line in enumerate(out) if line.startswith("{")]
         self.assertTrue(start, out)
         payload = json.loads("\n".join(out[start[0]:]))
-        self.assertEqual(payload, tr.check(repo))
+        # the payload is what the caller reads: the slug keyed report, with the
+        # problems in it - not a copy of a call the test made for itself
+        self.assertEqual(list(payload), ["q"])
+        self.assertTrue(payload["q"]["errors"], payload)
+        self.assertIn("state.json records no question", payload["q"]["errors"])
+        self.assertIn("no claims recorded yet", payload["q"]["warnings"])
+
+    def test_check_for_an_unknown_slug_exits_one(self):
+        repo = self.repo()
+        self.line(repo, "alpha", question="alpha?")
+        proc = self.cli(repo, "check", "nope")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("FAIL nope: no such research line", proc.stdout)
+        self.assertIn("have: alpha", proc.stdout)
+
+    def test_misuse_exits_two_on_stderr(self):
+        repo = self.repo()
+        cases = ((("init",), "init needs a slug"),
+                 (("init", "q", "--question"), "init <slug>"),
+                 (("nonsense",), "unknown command"),
+                 ((), "tezgah-research"))
+        for args, message in cases:
+            proc = self.cli(repo, *args)
+            self.assertEqual(proc.returncode, 2, (args, proc.stdout, proc.stderr))
+            self.assertIn(message, proc.stderr, args)
+            self.assertEqual(proc.stdout, "", args)
 
     def test_check_with_a_slug_reports_only_that_line(self):
         repo = self.repo()
@@ -456,6 +642,14 @@ class SessionNote(Workspace):
         self.line(repo)
         self.protocol(repo)
         self.results(repo)
+        self.assertNotIn("problem(s)", self.session(repo))
+
+    def test_research_off_suppresses_the_note(self):
+        repo = self.repo()
+        self.line(repo, "beta", question="")
+        self.assertIn("Research: beta has 1 problem(s), first: "
+                      "state.json records no question", self.session(repo))
+        self.touch(os.path.join(self.home, ".config", "tezgah", "research-off"))
         self.assertNotIn("problem(s)", self.session(repo))
 
 
