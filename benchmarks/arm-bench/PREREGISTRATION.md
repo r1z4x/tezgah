@@ -93,8 +93,11 @@ result.
 
 ## 6. What this benchmark still cannot show
 
-- It measures a harness at one model family and one provider; provider prefix
-  caching behaviour is a confound and is recorded per run, not controlled.
+- **The old corpus is still single-model**: the pilot and two-host blocks were run
+  on `deepseek-v4-flash` only. The hard family has been run on two families
+  (`deepseek-v4-flash`, `glm-5.3-flash`, both at k=5), and one provider
+  (OpenRouter) throughout; provider prefix caching is recorded per run, not
+  controlled.
 - It does not measure long-horizon or multi-day behaviour: every fixture is a
   single bounded task, and the `long-horizon` family means many requirements in
   one session, not many sessions.
@@ -104,3 +107,10 @@ result.
   a real repository would ask for. The families were chosen from the failure
   modes the pilot showed, and that choice is a judgement, recorded in the
   README, not a measurement.
+- **The gate family produced no separation, so the gate is still unmeasured.**
+  `g01` was passed by every arm (the frozen-test shortcut was not reached for)
+  and `g02` was failed by every arm, including the harness arms, whose captured
+  reply shows it noticed the contradiction and amended the documented rule to fit
+  the failing test. Two tasks with one outcome each cannot rank the arms; they
+  show that this pair of prompts does not provoke the difference, which is not
+  the same as showing there is none.
