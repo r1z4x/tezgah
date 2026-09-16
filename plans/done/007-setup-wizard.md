@@ -62,14 +62,15 @@ of the new tests fail on `00b60a7` and pass on `be27cb2`. Its low findings that
 were acted on: `_ask` now survives a closed or non-UTF-8 stdin, an empty machine
 can answer "arm none" instead of aborting, the suite runs the installer under a
 subprocess timeout, and the no-write claims compare the whole fake HOME before
-and after. Left as-is, with the reason in the plan: translated READMEs still
-describe the bare command as the report (the repo's own policy is that English
-is the source of truth and translations may lag), and a root that does not exist
-is accepted but marked ` MISS ` in the plan, exactly as `--install --roots`
-accepts it.
+and after. Its two remaining low findings were closed in the follow-up PR: the
+wizard now re-asks a root that is a file and notes a root that does not exist yet
+instead of accepting both silently, and the 18 translated READMEs no longer
+describe the bare command as the report (each carries the same fact and the
+`--wizard`/`--report` rows; `--install --roots` still accepts those values, so
+only the interactive path validates).
 
-Full suite 324 tests and `ruff check .` pass on `be27cb2`; CI (3.10, 3.12,
-apps-e2e) green on the PR.
+Full suite 325 tests and `ruff check .` pass on the follow-up branch; CI
+(3.10, 3.12, apps-e2e) green on the PR.
 
 ## Next
 Nothing outstanding; merged PR #10 on 2026-09-16T19:47:01Z. The wizard is on
