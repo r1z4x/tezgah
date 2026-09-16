@@ -182,30 +182,32 @@ The main README's Cost row quotes deltas over the interpreter start. Measured
 again on the same machine, independently of the slice that published the row:
 two rounds of 11 runs per entry point, wall time of the whole process (the
 interpreter start included, because that is what a session pays), real checkout
-and real HOME, warm caches.
+and real HOME, warm caches. The payloads are the shapes the tests drive: Claude
+`{"tool_name": "Bash", "tool_input": {"command": "ls"}}`, codex
+`{"event": "PreToolUse", ...}`, cursor `{"hook_event_name": "preToolUse",
+"tool_name": "Shell", "command": "ls"}`.
 
 | Entry point | Median | Min | Max | Over the base |
 |---|---|---|---|---|
-| interpreter start (`python3 -c pass`) | 18.7-20.0 ms | 18.2 | 20.8 | - |
-| turn (`projects-auto-init.py`, UserPromptSubmit) | 48.0-51.2 ms | 46.4 | 58.3 | +29 to +31 |
-| session start (`projects-auto-init.py`, SessionStart) | 63.8-68.4 ms | 62.2 | 75.2 | +45 to +48 |
-| session start, codex hook | 73.6-76.4 ms | 69.3 | 87.1 | +55 to +56 |
-| session start, omp hook | 74.5-76.4 ms | 67.4 | 87.3 | +56 |
-| session start, cursor hook | 75.0-75.6 ms | 69.6 | 301.2 | +56 |
-| gated call, Claude entry (`projects-pretooluse.py`, Bash) | 35.2-37.3 ms | 34.8 | 39.8 | +17 |
-| gated call, cursor hook (preToolUse, Shell) | 41.1 ms | 40.3 | 43.0 | +22 |
-| gated call, codex hook (PreToolUse, Bash) | 70.1 ms | 68.5 | 77.4 | +51 |
+| interpreter start (`python3 -c pass`) | 17.9-18.8 ms | 17.6 | 19.5 | - |
+| turn (`projects-auto-init.py`, UserPromptSubmit) | 46.7-48.2 ms | 45.9 | 51.2 | +28 to +30 |
+| session start (`projects-auto-init.py`, SessionStart) | 65.6-65.7 ms | 63.7 | 74.9 | +47 to +48 |
+| session start, codex hook | 71.3-72.1 ms | 70.3 | 87.7 | +53 to +54 |
+| session start, omp hook | 71.3-71.6 ms | 69.6 | 80.9 | +53 to +54 |
+| session start, cursor hook | 72.2-72.3 ms | 69.8 | 79.6 | +54 |
+| gated call, Claude entry (`projects-pretooluse.py`, Bash) | 34.5-34.8 ms | 33.9 | 36.1 | +16 to +17 |
+| gated call, cursor hook (preToolUse, Shell) | 41.1-41.2 ms | 40.0 | 42.4 | +23 |
+| gated call, codex hook (PreToolUse, Bash) | 71.2-71.9 ms | 69.4 | 79.7 | +53 |
 
-What that does to the published row: the ~19 ms base and the turn's +31 ms hold
-(+29 to +31 across both rounds). Session start's 50-81 ms covers the warm hosts
-at its lower end (+45 to +56 measured here); its top end is the colder omp run
-the publishing slice timed at 100.1 ms in total, so the range spans a warm and a
-cold cache. The gated call's 24-25 ms is a pair of host readings, not a band: the
-same hook costs +17 through the Claude entry and +22 through cursor here, while
-the codex entry measured +51 with the payload this table uses - the gate's work
-depends on the payload it is handed, which is why the row quotes one pair and
-this table quotes the spread. The 301.2 ms cursor max in an 11-run set is the
-cold-start effect the upper end of the published range comes from.
+Against the published row: the ~19 ms base holds (17.9-18.8 here, 20.0 in two
+earlier rounds), and the turn adds +28 to +31 across four rounds against the
+row's +31. Session start's 50-81 ms brackets the warm hosts at its lower end
+(+47 to +54 measured here); its top end is the colder omp run the publishing
+slice timed at 100.1 ms in total. The gated call's 24-25 ms is a pair of
+readings, not a band: cursor measures +23 here, close to it, while the Claude
+entry is +16 to +17 and the codex entry +53 with the payload above - the gate's
+work follows the payload it is handed, which is why the row quotes one pair and
+this table names the payloads behind the spread.
 
 ## Limitations
 

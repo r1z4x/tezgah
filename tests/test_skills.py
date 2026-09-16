@@ -92,7 +92,10 @@ class SkillStandards(unittest.TestCase):
                          % (len(switches) - len(missing), len(switches)))
 
     def test_no_unrendered_placeholder_reaches_the_injected_text(self):
-        text = self.all_text + "\n" + self.policy.CORE
+        injected = [v for k, v in vars(self.policy).items()
+                    if k.isupper() and isinstance(v, str)]
+        self.assertTrue(injected, "no injected text found in tezgah_policy")
+        text = "\n".join([self.all_text] + injected)
         for placeholder in ("<repo slug>", "<index status>"):
             self.assertNotIn(placeholder, text)
 
