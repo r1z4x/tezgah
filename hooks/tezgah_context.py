@@ -52,6 +52,7 @@ ACTIVE_ROOT = [""]
 CORE_RULES = (
     ("exec", "**Turkish, BLUF.**"),
     ("ponytail", "**Ponytail (minimal code).**"),
+    ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
     ("spec", "**Spec before building.**"),
     ("lessons", "**Lessons ledger: stop repeating mistakes.**"),
     ("cbm", "**Code discovery: graph first.**"),
