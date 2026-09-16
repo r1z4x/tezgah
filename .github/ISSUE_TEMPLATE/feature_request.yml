@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest a change to tezgah
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard or missing today, in your own words
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you would change, and which host(s) it affects
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - shared core (hooks/)
+        - one host adapter (hosts/<name>/)
+        - install or uninstall (bin/tezgah-setup)
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
