@@ -19,7 +19,7 @@ if fn == "note":
     out = None
 elif fn == "note_tool":
     ti.note_tool(p.get("session"), p.get("tool"), p.get("input") or {},
-                 bool(p.get("failed")))
+                 p.get("failed", False))
     out = None
 elif fn == "kinds":
     out = sorted(ti.kinds(p.get("session")))
