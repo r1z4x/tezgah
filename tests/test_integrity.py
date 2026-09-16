@@ -65,6 +65,13 @@ class ShortcutEdit(unittest.TestCase):
     def test_empty_edit_passes(self):
         self.assertIsNone(ti.shortcut_edit({}))
 
+    def test_removing_an_assertion_is_not_caught(self):
+        # documented ceiling: only an ADDED skip marker is mechanical; a
+        # weakened assertion is not, so it is left to review by design.
+        self.assertIsNone(ti.shortcut_edit(
+            {"old_string": "def t():\n    assert x == 1",
+             "new_string": "def t():\n    pass"}))
+
 
 class StopHook(TempHome):
     def setUp(self):
