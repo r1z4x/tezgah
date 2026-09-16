@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parent
 TASKS = ROOT / "tasks"
 CORPUS = ROOT / "corpus"
 ARMS_FILE = ROOT / "arms.json"
+# runs land here, inside the repository: see run_dir_for
+RUN_ROOT = ROOT / ".runs"
 # Fields summed across every usage record in a host's event stream. `cache` is
 # handled separately (see extract_usage) because read/write are too generic.
 
@@ -343,6 +345,20 @@ def existing_cells(out: Path, arm: str, task: str, model: str) -> set[int]:
     return repeats
 
 
+def run_dir_for(task_id: str) -> Path:
+    """A fresh run directory for one cell, inside the repository on purpose.
+
+    tezgah arms only inside a configured root (hooks/tezgah_paths.py:root_for),
+    and the tool gate refuses a test-skip edit only there. A fixture materialised
+    under the system temp directory therefore ran the tezgah arms with the gate
+    inert - which is how the first gate tasks measured nothing. `.runs/` sits in
+    this repository, inside the configured root, so the gate is armed for every
+    arm while the fixture stays a throwaway copy.
+    """
+    RUN_ROOT.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="armbench-%s-" % task_id, dir=str(RUN_ROOT))) / "repo"
+
+
 def cmd_run(args) -> int:
     arms = {a["name"]: a for a in load_json(ARMS_FILE)}
     if args.arm not in arms:
@@ -361,7 +377,7 @@ def cmd_run(args) -> int:
             print(f"{arm['name']:22s} {args.task:24s} r{repeat} skip "
                   f"(already in {out})")
             continue
-        run_dir = Path(tempfile.mkdtemp(prefix=f"armbench-{args.task}-")) / "repo"
+        run_dir = run_dir_for(args.task)
         materialize(task, run_dir)
         cmd = [part.format(cwd=run_dir, model=args.model, prompt=prompt) for part in arm["cmd"]]
         if args.dry_run:
