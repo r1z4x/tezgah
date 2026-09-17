@@ -63,3 +63,18 @@ evidence that drove it.
   `to_human/agent-failure-controls.md` (frame, synthesis, the seven sections, the
   review, reproduction). The line's deliverable is the evidence and the design;
   implementing any control is follow-on work, not claimed here.
+- 2026-09-17 experiment E4 (mechanical-off block, 60 runs): no measurable
+  difference between the arms. Two of the three tasks were passed 5/5 by every
+  arm including the bare anchor; the only task that moved did so by one run.
+  All six failures were the same mistake with the same completion claim, spread
+  across the arms. Evidence: `experiments/E4-mechanical-off-effect/results.jsonl`,
+  `analysis.md`.
+- 2026-09-17 lesson: a task must be piloted for ARM-level separation (k=1 per
+  arm) before a block is spent on it. `bench.py selftest` proves a task separates
+  fixture from gold, which is a different property, and E4 paid for the
+  difference.
+- 2026-09-17 decision: the external second opinion ran for real this time (the
+  env OpenRouter key is over its limit; the file key has $18.66 left). Gemini and
+  Grok agreed that the ledger's action identity is the load-bearing change and
+  disagreed on the priority order; the referee picked Gemini. Recorded in
+  `to_human/synthesis.md` next to the design cut.

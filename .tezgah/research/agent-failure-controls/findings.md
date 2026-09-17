@@ -26,6 +26,14 @@
   lessons block is byte-identical at 200 and 400 ledger lines. So the unbounded
   context in a session is the host's history, tool output and MCP schemas, not
   tezgah's injection.
+- Measured (E4, 60 runs, four arms): disabling the Stop rule, disabling the
+  whole PreToolUse gate, or removing the harness does not move the pass rate on
+  this task set - every Wilson interval overlaps and the largest gap is 1/15.
+  Two of the three tasks were solved 5/5 by every arm including the bare anchor.
+- Measured (E4): every failure in the block (six of them) was the same
+  one-line mistake followed by a completion claim, spread evenly across the
+  mechanical-on and mechanical-off arms. The behaviour the Stop rule targets did
+  occur; the rule did not stop it.
 - The ten priority controls are mostly absent: the evidence ledger implements the
   success-language gate, and there are no operation ids, no cycle detector, no
   retry cap, no untrusted-content labelling and no per-trace false-completion
@@ -64,6 +72,10 @@
   failure mode, not from the regex, or the probe tests the regex against itself.
 - Write the expectation per `(family, condition)`, not per case - E2's summary
   field got this wrong and the error is recorded rather than quietly fixed.
+- **Pilot a task for arm-level separation before spending a block on it.**
+  `bench.py selftest` proves a task separates a fixture from a gold tree; it says
+  nothing about whether it separates two arms. E4 spent 60 runs to learn that two
+  of its three tasks could not separate anything.
 - **An absence claim is the easiest thing to overstate.** The dominant defect the
   independent pass found was "the grep returns only X" over a grep that returns
   more - and once "only" is in the sentence, the conclusion built on it inherits

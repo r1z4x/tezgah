@@ -44,6 +44,12 @@
       "statement": "Every context block tezgah injects is static or capped, so the unbounded context in a session comes from the host's history, tool output and MCP schemas rather than from tezgah's own injection.",
       "status": "supported",
       "evidence": "experiments/E3-context-budget/results.jsonl, results-exploratory.jsonl"
+    },
+    {
+      "id": "H7",
+      "statement": "An enforced control changes the outcome of the work only where the model's unprompted default violates it; on tasks the model solves anyway the arms cannot separate, so a null block is a statement about the task set.",
+      "status": "supported",
+      "evidence": "experiments/E4-mechanical-off-effect/results.jsonl (e02, e03: 5/5 in every arm including bare)"
     }
   ],
   "sessions": [
@@ -57,6 +63,15 @@
         "ai-executed: seven group sections written against five read-only inventories, then two independent read-only review passes, then the findings applied",
         "ai-failed: the consult second opinion returned HTTP 403 (key limit exceeded) on both providers; no external model corroborated the design cut",
         "user-revised: none this session"
+      ]
+    },
+    {
+      "date": "2026-09-17",
+      "events": [
+        "ai-executed: E4 mechanical-off block built and run (node 326eb400, 60 runs, 0ee1036); arms disable the Stop rule, the whole gate, or the harness",
+        "ai-failed: the first launch ran the baseline instrument (5 old tasks, k=3) because a chained git command failed silently before the instrument files were written; cancelled at 2m27s, no rows survived",
+        "ai-failed: the arms commit landed on main by mistake (orx create-experiment leaves the checkout on main); cherry-picked onto the node branch and main restored to origin/main",
+        "ai-executed: the consult second opinion ran successfully with the file key (the env key was over its limit) - both models agreed the ledger identity is the load-bearing change and disagreed on priority"
       ]
     }
   ]
