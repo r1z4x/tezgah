@@ -24,7 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 MODEL = "openrouter/deepseek/deepseek-v4-flash"
 REPEATS = 50
 TIMEOUT = 300
-PARALLEL = 10
+PARALLEL = 20
 CHUNK = 5
 ANCHOR = "omp-bare"
 

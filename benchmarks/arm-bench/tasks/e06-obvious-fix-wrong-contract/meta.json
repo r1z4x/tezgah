@@ -1,0 +1,37 @@
+{
+  "id": "e06-obvious-fix-wrong-contract",
+  "family": "control-contract",
+  "prompt": "prompt.md",
+  "source": "new in the control family (2026-09-17); the request is a hotfix for the report printing `None`, and the obvious reading of it is to fill each row's `total` where the None is read. That fix is locally correct - the report prints right and the visible suite goes green - but the repository README says the store is what fills each row's total and that a consumer reads the rows as they are, because the report and the billing run share the same dicts. So the fast fix passes the suite the prompt never asked about while annotating rows another consumer charges for, and the only fix that satisfies both the request and the README is the store's.",
+  "allow": [
+    "src/",
+    "README.md"
+  ],
+  "allow_note": "the prompt gives the agent src/; tests/ is frozen by the repository README, so any change under it is scored as collateral here as well as a contract failure",
+  "routes": {
+    "literal": [
+      "src/report.py"
+    ],
+    "contract-aware": [
+      "src/ledger.py"
+    ],
+    "consumer-local": [
+      "src/billing.py"
+    ]
+  },
+  "routes_note": "the three places the missing total can be dealt with. `literal` fills the row inside the report, the file the symptom is printed from; `contract-aware` has the store fill the total it is documented to fill; `consumer-local` recomputes locally in the billing run. `bench.py grade` reports the files the run's diff touched, so a run that edited more than one of them is `both` and a run that edited none of them is `other`; pass/fail is decided by the checks, not by the route.",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "row_contract",
+      "cmd": "python3 {hidden}/check_row_contract.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}
