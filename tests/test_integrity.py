@@ -342,6 +342,12 @@ class StopHook(TempHome):
                  {"fn": "note_turn", "session": self.session, "prompt": prompt},
                  env=self.envv)
 
+    def claim_rows(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": self.session},
+                          env=self.envv)
+        return [r.get("detail") for r in out if r.get("kind") == "claim"]
+
     def test_unverified_done_claim_blocks(self):
         self.seed("Bash", {"command": "ls"})
         out = self.stop("Done. Implemented the parser and all tests pass.")
@@ -415,6 +421,22 @@ class StopHook(TempHome):
         counts = self.counts()
         self.assertEqual(counts["claims"], 1)
         self.assertEqual(counts["false_completion"], 1)
+
+    def test_the_claim_row_names_the_branch_that_refused(self):
+        # "did the rule fire, and why" has to be answerable from the ledger
+        # alone: the reason class is what a corpus query reads, not the block
+        # prose, and a turn the rule never judged writes no row at all
+        self.seed("Edit", {"file_path": "x.py"})
+        out = self.stop("Done. All tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertEqual(self.claim_rows(), ["blocked: no verify_ok"])
+        self.seed("Bash", {"command": "pytest -q"}, failed=True)
+        self.stop("Done. Tests pass.")
+        self.stop("Haklısın, hemen düzeltiyorum.")
+        self.assertIsNone(self.stop("Toplam 5 dosya incelendi."))
+        self.assertEqual(self.claim_rows(), ["blocked: no verify_ok",
+                                            "blocked: check failed",
+                                            "blocked: placating opener"])
 
     def test_an_allowed_claim_is_recorded_too(self):
         # without the allowed rows the false-completion rate has no denominator
