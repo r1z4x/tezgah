@@ -24,6 +24,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The user's half of the consent rule is a command.** `bin/tezgah-consent
+  <digest>` records that the user approved the action the gate asked about, and
+  `tezgah-consent --last` approves the newest ask no grant answers yet, so a
+  digest never has to be copied by hand. Both write
+  `{"kind": "grant", "detail": "cli", "id": <digest>}` into the ledger that
+  carries the ask - the session the gate reads the approval from - through the
+  same appender the hooks write their rows with. The ask, the approval and a
+  repeat the gate allowed stay three rows in that ledger (`consent`, `grant`,
+  `repeat-allowed`) instead of one row meaning all three, and the contract says
+  what to put in front of the user when the gate refuses.
 - **The domain library ships with tezgah, as one skill.** `skills/ai-research/`
   carries Orchestra Research's `AI-research-SKILLs` (98 skills, 23 categories,
   MIT, revision `773a529`) in the upstream layout, reached as the single

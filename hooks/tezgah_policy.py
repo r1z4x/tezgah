@@ -559,7 +559,10 @@ found in local history; ask before rewriting pushed history.
 rewriting pushed history, deleting a repo or branch, applying a migration to a
 live database, deploying, and anything touching a live production account or an
 external service. This one is an invariant: it stays armed whatever a prompt
-classifier decides.
+classifier decides. When the gate refuses a command for consent, put the exact
+command and what it cannot undo in front of the user, and name
+`tezgah-consent --last` (or the digest the refusal prints) as what the user runs
+to approve it.
 
 **Session scope: the user's repo, not tezgah.** Tezgah's own installation is
 not this session's work: its optional tools (codebase-memory-mcp, orx, consult,
