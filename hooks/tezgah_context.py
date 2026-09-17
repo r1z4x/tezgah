@@ -65,6 +65,7 @@ CORE_RULES = (
     ("loop", "**Loop discipline.**"),
     ("safety", "**Irreversible or outward-facing actions need an explicit ask "
                "first.**"),
+    ("scope", "**Session scope: the user's repo, not tezgah.**"),
     ("spec", "**Spec before building.**"),
     ("lessons", "**Lessons ledger: stop repeating mistakes.**"),
     ("cbm", "**Code discovery: graph first.**"),

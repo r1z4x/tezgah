@@ -157,7 +157,7 @@ verbatim at the commit that last ran it:
 
 ```
 context budget (always-on text; ~tokens = chars/4):
-     core contract (always-on, per session) ~ 1.3k tok    5377 chars
+     core contract (always-on, per session) ~ 1.5k tok    5987 chars
      per-turn reminder                  ~ 0.2k tok     961 chars
      skill metadata (9)                 ~ 1.3k tok    5207 chars
      subagent metadata (5)              ~ 0.2k tok     891 chars

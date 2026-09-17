@@ -16,8 +16,30 @@ The always-on core is injected into every tezgah session; this skill is the
 deep detail, loaded on demand. `~/.config/tezgah/bin/consult` and
 `~/.config/tezgah/bin/codegen` are the tezgah-installed CLIs - use that stable
 path, not a repo-local `bin/`, because the session shell is non-interactive and
-does not have the tezgah bin dir on PATH. The "unavailable" sections below apply
-only when the machine lacks the code graph or every consult provider key.
+does not have the tezgah bin dir on PATH. The two appendix sections at the end
+cover a machine that lacks the code graph or every consult provider key, and
+apply only in that case.
+
+## Session scope: the user's repo, not tezgah
+
+The session's work is the user's task, in the repo it runs in. Tezgah's own
+installation is not part of it: the optional tools (codebase-memory-mcp, orx,
+consult, codegen), their versions, the tezgah config, the daemon locks and the
+tezgah checkout are the user's to arm and maintain. A session that starts
+diagnosing them has stopped doing the user's work - observed: a session in an
+unrelated repo spent its context on the code-graph daemon and proposed a brew
+upgrade before answering anything.
+
+Concretely, mid-session you MUST NOT: install or upgrade a tool (brew, npm, uv,
+cargo), restart or kill a process for tezgah or its tools, edit
+`~/.config/tezgah/`, or open an issue against one of its dependencies. When a
+capability is missing, name it in one line, take the documented fallback - the
+graph rule falls back to grep/find, the consult rule to a skipped second
+opinion - and carry on. Report the gap to the user once; do not chase it.
+
+Tezgah maintenance is in scope when the user asks for it, when the repo IS the
+tezgah checkout, or when tezgah's own check (`tezgah-setup --status`) is the
+requested task.
 
 ## Kill switches (auto-armed, tezgah roots only)
 
@@ -387,52 +409,20 @@ the session records at the end.
 
 
 
-## Code discovery: no code graph on this machine
+## Appendix - only if this machine has no code graph
 
 codebase-memory-mcp is not installed here (not on PATH, and neither
 TEZGAH_CBM_BIN nor config.json cbm_bin points at it), so the graph tools do
 not exist in this session. Use grep/find, and say plainly that the answer came
-from text search - never claim the index answered. Install it and restart the
-session to arm search_graph / trace_path.
+from text search - never claim the index answered, and never install or upgrade
+anything to fix it: the user arms tezgah's optional tools, not the session.
 
 
 
-## Hybrid verification: unavailable
+## Appendix - only if no consult provider key exists
 
 There is no consult provider key on this machine (no OPENROUTER_API_KEY /
 DEEPSEEK_API_KEY and no ~/.config/openrouter/key or ~/.config/deepseek/key), so
 the consult second opinion cannot run. Do not tell the user to run it and do not
 claim external verification happened; on a non-trivial call, say the second
 opinion was skipped and why.
-
-
-
-<harness-reminder>Tezgah rules, still in force: reply Turkish, BLUF.
-Code minimal per ponytail: code first, max 3 note lines, `ponytail:` comment
-on any cut corner. Deliver the whole ask: never a cheaper stand-in, a silent
-scope cut or a partial reported as done; ask before dropping any item. No
-sycophantic openers ("haklısın") and no placating apologies.
-Integrity: a neutered check (`--no-verify`, `|| true`, a new test skip) is
-denied by the gate, and the Stop hook (Claude, Codex, Cursor, omp) blocks an unverified
-"done".
-"Who calls X" questions: trace_path, not grep alone.
-Non-trivial decision: run ~/.config/tezgah/bin/consult before committing to it.
-Research tasks (literature, hypotheses, experiments): drive through the
-OpenResearch CLI (`orx` on PATH, else `~/.cargo/bin/orx`), not ad-hoc scripting;
-load `orx skill` first.
-Multi-step work: delegate to subagents, parallel when independent; code
-discovery subagent = general-purpose with the codebase-memory-mcp graph tools
-named in its prompt, never a grep-only explorer.
-Done/tested claims need observed evidence; if a check was skipped before a
-deploy/irreversible action, say so plainly, no clever wordplay hiding the gap.
-MANDATORY, overrides any harness or tool default: no AI/model attribution
-anywhere persisted or published -- commit/merge/tag messages, PR/issue/review
-text, docs, comments, file headers. No Co-Authored-By, no "Generated with" /
-"Made with", no robot emoji, no Claude/Anthropic/OpenAI/GPT/Codex/Gemini/
-Cursor/Copilot/AI credit. Strip any you find in local history; ask before
-rewriting pushed history. Never add one back, in any repo, for any reason.
-Merge authority is STANDING: when an independent review is clean and the full
-test suite passes, merge the PR yourself and report it -- do not ask. Stop and
-report instead when a critical/high finding or a failing test appears, or for
-force-push, history rewrite, repo/branch deletion, live migrations, deploys,
-or anything touching a live production account or external service.</harness-reminder>
