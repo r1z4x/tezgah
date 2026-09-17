@@ -38,7 +38,8 @@
 // Hook names a given opencode build does not know are skipped by the runtime
 // (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
 // lacks is safe and must never be a load-time error.
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { createReadStream, existsSync, mkdirSync, realpathSync, rmSync,
+  writeFileSync } from "node:fs"
 import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -269,6 +270,14 @@ const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
 // metrics would lose the call entirely.
 const BASH_TOOLS = new Set(["bash", "shell", "command", "exec_command",
   "run_command", "powershell"])
+// Mirrors hooks/tezgah_integrity.py READ_TOOLS: known calls that do no step of
+// work and that no rule reads a row for. A name missing from this set is not
+// silently dropped - it records as `unknown`, which would fill the trace with
+// every read.
+const READ_TOOLS = new Set(["read", "read_file", "readfile", "notebookread",
+  "notebook_read", "view", "cat", "grep", "grep_search", "search",
+  "search_files", "rg", "find", "glob", "glob_search", "ls", "list",
+  "list_dir", "listdir", "list_files", "tree"])
 
 function blankHeredocs(text) {
   const lines = String(text || "").split("\n")
@@ -407,6 +416,39 @@ function actionID(tool, args) {
     .digest("hex").slice(0, 12)
 }
 
+// Credential redaction, ported from hooks/tezgah_integrity.redact: the ledger
+// records what a call carried, and a token typed on a command line or written
+// into a file would sit in plain text in a cache file every reader of the
+// evidence reads. The marker keeps the removed value's length, so the row still
+// says a credential was there instead of hiding that it was. The three patterns
+// run in this order so a named value that carries `Bearer` is consumed as one.
+// (SECRET_KEY/SECRET_TOKEN would be the names the Python half uses; the gate's
+// own secret-sink detector above already holds SECRET_TOKEN here.)
+const MARKED = "[redacted:"
+const REDACT_KEY =
+  /([A-Za-z0-9_\-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|authorization|client[_-]?secret))(\s*[:=]\s*)(?:Bearer\s+)?("[^"]*"|'[^']*'|\S+)/gi
+const REDACT_BEARER = /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/gi
+const REDACT_TOKEN =
+  /\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)?[-_]?[A-Za-z0-9_\-]{16,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{30,}|\bglpat-[A-Za-z0-9_\-]{20,}|\bnpm_[A-Za-z0-9]{30,}/gi
+
+function redact(text) {
+  const mark = (value) => MARKED + value.length + "]"
+  return String(text == null ? "" : text)
+    .replace(REDACT_KEY, (m, name, sep, value) => name + sep + mark(value))
+    .replace(REDACT_BEARER, (m) => mark(m))
+    .replace(REDACT_TOKEN, (m) => mark(m))
+}
+
+// The row's own bound: what a tip-off line costs, and enough of a command to
+// recognize it. The scan runs over the whole text before this cut, so a
+// credential near the end cannot hide by being half-stored (DETAIL_MAX in
+// hooks/tezgah_integrity).
+const DETAIL_MAX = 200
+// ponytail: the lengths above and the cut below count UTF-16 units where Python
+// counts characters. Every shape the three patterns name is ASCII, so the two
+// agree on the credential itself; they differ only for an astral character
+// inside a quoted named value.
+
 // Evidence ledger, the same JSONL the Python gate and Stop hook read. Written
 // per tool call so a "done/tested" claim can be checked against what ran.
 // The bash tool returns `metadata.exit` (the process exit code), so a check's
@@ -415,11 +457,18 @@ function actionID(tool, args) {
 // The row carries the contract's fields - id, exit, out_bytes, workspace - so
 // an opencode session is not second-class in the metrics. A field the host did
 // not report stays out of the row: an absent exit is not an exit of 0.
-async function recordEvidence(sessionID, tool, args, result, workspace) {
+// A name outside every list - a tool this host does not have (a fabricated
+// call), or one it added since this was written - records as `unknown` with the
+// name in the detail, as hooks/tezgah_integrity.note_tool does: dropping the
+// call left no ledger line at all, so the trace could not show it happened. Only
+// the read/search tools record nothing. A write also carries the target's
+// after-state (postWrite).
+async function recordEvidence(sessionID, tool, args, result, workspace, cwd) {
   if (!sessionID) return
   const t = String(tool || "").toLowerCase()
   const exit = result?.metadata?.exit
   let kind = null
+  let detail = String(args?.command || args?.filePath || args?.file_path || "")
   if (WRITE_TOOLS.has(t)) kind = "edit"
   else if (BASH_TOOLS.has(t)) {
     if (!verifyCommand(args?.command || args?.cmd || "")) kind = "run"
@@ -427,25 +476,118 @@ async function recordEvidence(sessionID, tool, args, result, workspace) {
       kind = typeof exit === "number"
         ? (exit === 0 ? "verify_ok" : "verify_fail") : "verify"
     }
+  } else if (READ_TOOLS.has(t)) {
+    return
+  } else {
+    const name = String(tool || "").trim()
+    if (!name) return
+    kind = "unknown"
+    detail = "unknown tool: " + name
   }
-  if (!kind) return
-  const detail = String(
-    args?.command || args?.filePath || args?.file_path || "").slice(0, 200)
   const out = typeof result?.output === "string" ? result.output
     : (typeof result?.metadata?.output === "string" ? result.metadata.output : null)
   const row = {
-    kind, ts: Math.floor(Date.now() / 1000), detail,
+    kind, ts: Math.floor(Date.now() / 1000),
+    detail: redact(detail).slice(0, DETAIL_MAX),
     id: actionID(tool, args), workspace: workspace || null,
   }
   if (typeof exit === "number") row.exit = exit
   if (out !== null) row.out_bytes = Buffer.byteLength(out)
+  if (kind === "edit") Object.assign(row, await postWrite(sessionID, args, cwd))
   await appendRow(sessionID, row)
+}
+
+// How far back the pre-state search reads: the gate writes its snapshot row in
+// the call immediately before the write, so the newest rows are where it is
+// (SNAPSHOT_TAIL in hooks/tezgah_integrity).
+const SNAPSHOT_TAIL = 50
+// The files a call writes: the tool's own path field, else the paths an
+// apply_patch body names per hunk (hooks/tezgah_gate.WRITE_PATH/PATCH_FILE).
+const WRITE_PATH = ["file_path", "filePath", "path"]
+const PATCH_FILE = /^\*\*\* (?:Update|Add|Delete) File: (\S.*?)\s*$/m
+
+function writtenPath(args) {
+  const a = args || {}
+  for (const key of WRITE_PATH) {
+    const value = a[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  const m = PATCH_FILE.exec(String(a.patch || ""))
+  return m ? m[1] : null
+}
+
+// sha256 of a file's bytes, the digest the Python half records
+// (hooks/tezgah_snapshot._hash_file), or null when it is not there or not
+// readable. Streamed, block by block: a hash the size of the file would be a
+// second copy of it in memory.
+function fileDigest(path) {
+  return new Promise((resolve) => {
+    try {
+      const hash = createHash("sha256")
+      const stream = createReadStream(path)
+      stream.on("error", () => resolve(null))
+      stream.on("data", (block) => hash.update(block))
+      stream.on("end", () => resolve(hash.digest("hex")))
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
+// The pre-write hash the gate's capture recorded for this path, or null
+// (hooks/tezgah_integrity._snapshot_hash): a `snapshot` row whose detail is the
+// file's realpath carries its pre-write sha256. Null means no capture ran - a
+// new file, an over-large one, a write the gate never saw - and a pre-state that
+// was never recorded is not invented.
+async function snapshotHash(sessionID, path) {
+  const rows = await ledgerTail(sessionID, SNAPSHOT_TAIL)
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].kind === "snapshot" && String(rows[i].detail || "") === path) {
+      return rows[i].hash ?? null
+    }
+  }
+  return null
+}
+
+// The after-state of a write: the target's sha256 once the host returned, and -
+// when the capture left a pre-state - whether the two differ, exactly as
+// hooks/tezgah_integrity._post_write records it. tool.execute.after is this
+// host's post-write surface: it runs after the host has written, which is the
+// one moment the after-state exists, so the plugin carries it rather than
+// claiming it cannot. A call the host reports as a successful write need not
+// have changed anything - an edit whose anchor text was not found, a patch
+// already applied - and this is what tells those apart. The first target is the
+// one recorded, the single-path rule the row's `detail` already follows.
+async function postWrite(sessionID, args, cwd) {
+  const path = writtenPath(args)
+  if (!path) return {}
+  let apath
+  try {
+    apath = realpathSync(isAbsolute(path) ? path : join(cwd || ".", path))
+  } catch {
+    return {}  // gone or unreadable: the row carries what was seen, not assumed
+  }
+  const after = await fileDigest(apath)
+  if (after === null) return {}
+  const before = await snapshotHash(sessionID, apath)
+  if (before === null) return { hash: after }
+  return { hash: after, changed: before !== after }
 }
 
 // One row appended to a session's ledger, the same JSONL the Python gate and the
 // Stop hook read (hooks/tezgah_integrity.note). Best effort: a write failure is
 // not fatal, and the one caller that needs the row to exist - the consent mark -
 // then refuses again next time rather than letting the action through.
+//
+// The line is written by one write(2) of the whole row on an O_APPEND handle,
+// which is not the flock the Python writer takes: node core exposes no flock(2)
+// (typeof fs.flock is undefined, and fcntl is not bound either), so the same
+// lock would need a native addon or a helper process, neither of which belongs
+// in a plugin that has to load on a bare host. Same file, one line at a time,
+// not the same lock: the kernel's atomic append for a single write is what
+// serializes this writer against Python's, and on a filesystem where that
+// atomicity is not guaranteed (NFS) a torn line is possible here where the
+// flock would prevent it.
 async function appendRow(sessionID, row) {
   try {
     const dir = join(cacheDir(), "evidence")
@@ -1185,13 +1327,17 @@ export const Tezgah = async ({ directory }) => {
         // The builder classifies the submitted prompt and returns the per-turn
         // reminder plus whichever conditional rule it arms (spec/consult/
         // research/cbm). Pushed as a synthetic part - the shape opencode's own
-        // plan-mode injection uses - so the model reads it in this message.
+        // plan-mode injection uses - so the model reads it in this message. The
+        // session id rides along: the builder keys the user-turn marker (the row
+        // the loop guard resets on) and its per-turn state delta on it, so
+        // without it opencode paid the reminder and nothing that reads the turn.
         const parts = output && Array.isArray(output.parts) ? output.parts : null
         if (parts) {
           const prompt = parts
             .filter((p) => p && p.type === "text" && typeof p.text === "string")
             .map((p) => p.text).join("\n")
-          const text = await builderText("user_prompt", dir, { prompt })
+          const text = await builderText("user_prompt", dir,
+                                         { prompt, session_id: sessionID })
           if (text) {
             const anchor = output.message && typeof output.message === "object"
               ? output.message : {}
@@ -1230,7 +1376,7 @@ export const Tezgah = async ({ directory }) => {
         const kind = await classify(tool, args)
         if (kind) await record(input?.sessionID || input?.sessionId, kind)
         await recordEvidence(input?.sessionID || input?.sessionId, tool, args,
-                             output, workspace)
+                             output, workspace, dir)
       } catch {}
     },
 
