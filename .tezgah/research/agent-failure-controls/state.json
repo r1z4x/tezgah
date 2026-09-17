@@ -1,0 +1,13 @@
+{
+  "question": "For each failure mode in the agent-failure taxonomy the user supplied, what control can tezgah enforce, at which enforcement point, and with what evidence?",
+  "phase": "bootstrap",
+  "direction": "undecided",
+  "created": "2026-09-17",
+  "evaluation": {
+    "metric": "",
+    "baseline": "",
+    "locked_at": ""
+  },
+  "hypotheses": [],
+  "sessions": []
+}
