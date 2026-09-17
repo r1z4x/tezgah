@@ -17,6 +17,9 @@
 //     per action, so the ask reaches the user), secret for a credential on its
 //     way into a file, and the two repeat ceilings (loop per user turn, retry
 //     per session).
+//   - the same hook keeps the pre-write bytes of what a write tool is about to
+//     change, through bin/tezgah-capture, on the allow path only: opencode is
+//     the one host whose plugin cannot call tezgah_snapshot.capture in process.
 //   - shell.env: export the tezgah roots and paths into every shell call.
 //   - chat.message: pay the shared builder's text for the submitted prompt -
 //     the per-turn reminder plus the conditional rule that prompt arms.
@@ -78,6 +81,7 @@ const INDEX_BIN = join(CONFIG, "bin", "tezgah-index")
 const AGENTS_BIN = join(CONFIG, "bin", "tezgah-agents")
 const SETUP_BIN = join(CONFIG, "bin", "tezgah-setup")
 const CONTEXT_BIN = join(CONFIG, "bin", "tezgah-context")
+const CAPTURE_BIN = join(CONFIG, "bin", "tezgah-capture")
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
 const EXPLORE_DENY =
   "A grep-only explorer subagent is not allowed in this tree. Use a " +
@@ -1008,6 +1012,30 @@ function builderText(event, directory, payload) {
   })
 }
 
+// The pre-write bytes of what a write tool is about to change, taken through
+// bin/tezgah-capture: the CLI the snapshot slice added for the one host that
+// cannot call tezgah_snapshot.capture in process (every other host calls it
+// directly from the Python gate, at this same point). The argument is the
+// payload the gate hands capture, as one JSON object and one argv element, as
+// the CLI's usage says. Best effort and silent - the capture, a missing CLI, a
+// non-zero exit and the id it prints are all ignored: the snapshot is a
+// convenience, and it must never block the edit it protects. Awaited, because
+// the bytes have to be read before the write lands and not after it. Returns
+// nothing either way.
+function captureSnapshot(tool, args, dir, sessionID) {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn("python3", [CAPTURE_BIN, JSON.stringify({
+        tool, input: args, cwd: dir, session_id: sessionID || null })],
+      { stdio: "ignore" })
+      child.on("error", () => resolve())
+      child.on("close", () => resolve())
+    } catch {
+      resolve()
+    }
+  })
+}
+
 export const Tezgah = async ({ directory }) => {
   // installed under both plugin/ and plugins/ for opencode version drift; if
   // both are scanned, only the first module instance registers hooks
@@ -1105,6 +1133,14 @@ export const Tezgah = async ({ directory }) => {
               "trace_path tools. If you need literal text, re-run this search unchanged; " +
               "it will pass - this nudge fires once per session."
           }
+        }
+        // Nothing refused this call, so a write is about to land: keep the bytes
+        // it is about to change, which is what bin/tezgah-rollback restores by
+        // hand. A refused write changes no file, so it is captured nowhere. The
+        // Python gate keeps its snapshot at this same point, after every deny
+        // check and before the call proceeds.
+        if (!deny && WRITE_TOOLS.has(tool)) {
+          await captureSnapshot(tool, args, dir, sessionID)
         }
       } catch {}
       if (deny) throw new Error(deny)

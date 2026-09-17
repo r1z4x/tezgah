@@ -355,6 +355,49 @@ class OpenCodePlugin(TempHome):
         self.assertIn("declared `publish` ignored, `destructive` stands",
                       denied["detail"])
 
+    def test_a_write_that_is_allowed_is_snapshotted_and_a_denied_one_is_not(self):
+        # opencode is the one host whose plugin cannot call
+        # tezgah_snapshot.capture in process, so it spawns bin/tezgah-capture on
+        # the allow path - the CLI the snapshot slice added for exactly this.
+        # Linked the way tezgah-setup links it, so this runs the real CLI in a
+        # throwaway HOME: the evidence is the `snapshot` row it writes, which it
+        # writes only after the bytes are on disk. The row has to be there when
+        # the hook returns, which is what pins the await: a capture started after
+        # the write would copy the bytes the write had already replaced.
+        support.linked(os.path.join(support.REPO, "bin", "tezgah-capture"),
+                       self.home)
+        target = os.path.join(self.repo, "src", "a.py")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w") as fh:
+            fh.write("x = 1\n")
+
+        self.allowed(self.before("edit", {"file_path": target, "old_string":
+                                          "x = 1", "new_string": "x = 2"}))
+        rows = self.ledger()
+        self.assertEqual([r["kind"] for r in rows], ["snapshot"], rows)
+        self.assertEqual(rows[0]["detail"], target)   # the file it copied
+        self.assertEqual(rows[0]["out_bytes"], len("x = 1\n"))
+
+        # and a write the plugin refuses is captured nowhere: the deny lands
+        # first, so no copy is spent on a file the refusal never touches
+        self.denied(self.before("edit", {
+            "file_path": target,
+            "new_string": "Co-Authored-By: Claude <noreply@anthropic.com>"}))
+        self.assertEqual(self.kinds(), ["snapshot"])
+
+    def test_a_capture_that_cannot_run_does_not_block_the_write(self):
+        # The CLI is not linked here and there is no python3 to run it with, so
+        # the spawn itself fails: the write still passes and nothing is recorded.
+        # A snapshot that cannot be taken must never block the edit it protects.
+        self.envv = self.env(extra={"PATH": os.path.join(self.home, "no-path")})
+        target = os.path.join(self.repo, "src", "a.py")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w") as fh:
+            fh.write("x = 1\n")
+        self.allowed(self.before("edit", {"file_path": target, "old_string":
+                                          "x = 1", "new_string": "x = 2"}))
+        self.assertEqual(self.kinds(), [])
+
     # ---- secret: a credential on its way into a file -----------------------
     def test_secret_denies_a_credential_written_to_a_file(self):
         for command in ("echo token=abc > log",
