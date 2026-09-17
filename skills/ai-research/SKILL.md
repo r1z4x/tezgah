@@ -88,7 +88,10 @@ account, a paid service or the user's data still needs the user's yes first.
 ## Provenance
 
 Vendored, not adapted: the bodies are byte-for-byte upstream, frontmatter
-included; a markdown file with no frontmatter carries one attribution comment.
+included - the author line is upstream's, and two entries carry a contributing
+author's name rather than Orchestra Research's
+(`10-optimization/ml-training-recipes`, `14-agents/a-evolve`); a markdown file
+with no frontmatter carries one attribution comment.
 `SOURCE` records the revision and the exact drop list, `library.json` is the
 manifest (`bin/tezgah-import-ai-research --check` verifies every digest), and
 `NOTICE` records the licence. Neither the library nor any entry in it is a
