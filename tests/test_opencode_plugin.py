@@ -301,6 +301,60 @@ class OpenCodePlugin(TempHome):
                                 {"command": "git push --force origin main"}))
         self.denied(self.before("bash", {"command": "echo token=abc > log"}))
 
+    def seed_grant(self, digest, session="s1"):
+        """The row bin/tezgah-consent writes when the user approves an action:
+        the same ledger, the same shape, and never a row the plugin could write
+        for itself."""
+        path = self.evidence_path(session)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as fh:
+            fh.write(json.dumps({"kind": "grant", "detail": "cli",
+                                 "id": digest}) + "\n")
+
+    def test_an_allowed_repeat_is_not_recorded_as_a_grant(self):
+        # The same three rows the Python gate leaves: the ask, the refusal, and a
+        # pass that says it rests on the ask alone. A `grant` here would record a
+        # consent the user never gave.
+        command = {"command": "git push --force origin main"}
+        self.denied(self.before("bash", command))
+        self.allowed(self.before("bash", command))
+        rows = self.ledger()
+        self.assertEqual([r["kind"] for r in rows],
+                         ["consent", "deny", "repeat-allowed"], rows)
+        self.assertEqual(rows[2]["detail"], "destructive")
+        self.assertEqual(rows[2]["id"], ti.call_id("bash", command))
+        self.assertEqual(rows[2]["workspace"], self.roots)
+
+    def test_a_grant_passes_before_the_ask_is_ever_made(self):
+        # the CLI answered, so the command passes first time with no ask row
+        command = {"command": "npm publish"}
+        self.seed_grant(ti.call_id("bash", command))
+        self.allowed(self.before("bash", command))
+        self.assertEqual(self.kinds(), ["grant"])
+
+    def test_a_declared_effect_at_or_above_the_class_is_used(self):
+        # the patterns cannot see someone's own script, so the command declares
+        # what it is - and a class below the derived one is not on offer
+        for command, klass in (
+                ("./ship.sh  # tezgah:effect=deploy", "deploy"),
+                ("git push origin production  # tezgah:effect=destructive",
+                 "destructive")):
+            error = self.denied(self.before("bash", {"command": command}))
+            self.assertIn("`%s` effect" % klass, error, command)
+            self.assertNotIn("declared", error, command)
+
+    def test_a_declared_effect_below_the_class_is_ignored(self):
+        # a declaration that can lower a class is a bypass of the rule reading
+        # it, so the derived class stands - and the attempt stays visible in the
+        # refusal and in the deny row, not only in this test
+        error = self.denied(self.before("bash", {
+            "command": "git push --force origin main  # tezgah:effect=publish"}))
+        self.assertIn("`destructive` effect", error)
+        self.assertIn("declared `tezgah:effect=publish`", error)
+        denied = [r for r in self.ledger() if r["kind"] == "deny"][0]
+        self.assertIn("declared `publish` ignored, `destructive` stands",
+                      denied["detail"])
+
     # ---- secret: a credential on its way into a file -----------------------
     def test_secret_denies_a_credential_written_to_a_file(self):
         for command in ("echo token=abc > log",

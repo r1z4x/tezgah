@@ -155,6 +155,24 @@ const CONSENT_DENY =
   "before an irreversible or outward-facing action, so put the exact command " +
   "and what it cannot undo in front of the user. Once this refusal is in the " +
   "transcript, the same command passes on the next attempt."
+// The classes from the one that cannot be walked back at all to the one a
+// reviewer can still catch. It is the order "at least as severe" is read in (see
+// consentEffect), which is what keeps a declared effect a way to raise a
+// command's class and never a way to lower it.
+const EFFECT_RANK = ["outward", "publish", "deploy", "schema", "destructive"]
+// The class a command declares for itself. Read off the RAW text, not the masked
+// text: the natural place for the declaration is a trailing `#` comment, and
+// maskText blanks comments. ponytail: a command that merely quotes the form - a
+// commit message documenting this rule - is held to the declared class too; the
+// direction is the safe one (the class can only go up) and the refusal is
+// one-shot.
+const DECLARED_EFFECT = /tezgah:effect\s*=\s*([A-Za-z]+)/
+// Appended to the refusal when the command declared a lower class than the one it
+// is held to: the attempt to talk the class down is the user's to see, in the
+// refusal and in the deny row's detail.
+const DOWNGRADE_NOTE =
+  " The command declared `tezgah:effect=%s`; a declaration can only make this " +
+  "stricter, so `%s` stands."
 // --- secret: a credential on its way into a file ----------------------------
 // Only the two shapes the contract names: a bearer header, or a `name=value`
 // assignment. `:` is NOT a separator here - `{"api_key": "x"}` is a JSON field in
@@ -536,56 +554,79 @@ function retryReason(tool, args, rows) {
     "that FAILED, counted per user turn.)"
 }
 
-// True when this exact action was already put in front of the user once, so the
-// one-shot mark is spent (hooks/tezgah_gate.asked_before). Read by kind and id
-// alone: the row carries the effect class in its detail, so "who was asked to
-// confirm what" is a query over these rows rather than a match on a deny message
-// that a later reword would silently break.
-async function askedBefore(sessionID, digest) {
-  if (!sessionID || !digest) return false
-  return (await ledgerTail(sessionID, LEDGER_TAIL))
-    .some((row) => row.kind === "consent" && row.id === digest)
+// Which consent record this action already carries: "grant" when
+// bin/tezgah-consent recorded the user's own approval of it, "ask" when only the
+// gate's refusal is on record, null when neither is
+// (hooks/tezgah_gate.consent_mark).
+//
+// Three rows, three facts, never one row conflating them: the gate writes
+// `consent` (it asked) and `repeat-allowed` (it let a repeat through on that ask
+// alone) and never `grant` - a grant is the user's, written by the CLI, so the
+// approval cannot be forged by the rule it constrains. Read by kind and id alone,
+// so "who was asked to confirm what, and who allowed the repeat" is a query over
+// rows rather than a match on a deny message a later reword would silently break.
+async function consentMark(sessionID, digest) {
+  if (!sessionID || !digest) return null
+  const rows = await ledgerTail(sessionID, LEDGER_TAIL)
+  if (rows.some((row) => row.kind === "grant" && row.id === digest)) return "grant"
+  if (rows.some((row) => row.kind === "consent" && row.id === digest)) return "ask"
+  return null
 }
 
-// The row a consent refusal leaves behind, and the one-shot mark with it: the
-// refusal the user reads and the thing that lets the identical repeat through
-// are one row, so nothing new is written and no second mark can fall out of step
-// with the ledger.
-async function noteConsent(sessionID, klass, digest, workspace) {
+// A consent row: the gate's own two facts, `consent` (it asked) or
+// `repeat-allowed` (it let a repeat through on that ask alone). `detail` is the
+// effect class and `id` the action digest, so both are read back by kind and id.
+// The gate writes no `grant` - that row belongs to the user.
+async function noteConsentRow(sessionID, kind, klass, digest, workspace) {
   if (!sessionID) return
   await appendRow(sessionID, {
-    kind: "consent", ts: Math.floor(Date.now() / 1000), detail: klass,
+    kind, ts: Math.floor(Date.now() / 1000), detail: klass,
     id: digest, workspace: workspace || null,
   })
 }
 
 // The refusal recorded before it is returned, as the Python gate's `_deny` does:
 // a deny nobody counts is a rule whose effect can never be argued about, and the
-// row says which action the rule stopped and where.
-async function noteDeny(sessionID, rule, reason, tool, args, workspace) {
+// row says which action the rule stopped and where. `extra` appends a fact the
+// row must keep beyond the 80 characters of the reason it truncates, which is
+// where a declaration the class refused stays visible (consentEffect).
+async function noteDeny(sessionID, rule, reason, tool, args, workspace, extra) {
   if (!sessionID) return
+  let detail = rule + ": " + String(reason).slice(0, 80)
+  if (extra) detail += "; " + extra
   await appendRow(sessionID, {
-    kind: "deny", ts: Math.floor(Date.now() / 1000),
-    detail: rule + ": " + String(reason).slice(0, 80),
+    kind: "deny", ts: Math.floor(Date.now() / 1000), detail,
     id: actionID(tool, args), workspace: workspace || null,
   })
 }
 
-// Consent, then secret: the two shell rules that need the ledger. The consent
-// refusal writes the `consent` row before it returns, because that row IS the
-// one-shot mark askedBefore reads; an action already asked about falls through to
-// the secret scan exactly as it does in the Python gate. Both stay armed under
-// `verify-off`: that kill switch removes the shortcut and repeat rules, not the
-// consent the user owes.
+// Consent, then secret: the two shell rules that need the ledger. The class is
+// the one the command text derives, raised by a `tezgah:effect=` declaration that
+// is at least as severe and never lowered by one that is not (consentEffect);
+// what the ledger then holds is one row per fact - `consent` for the ask,
+// `repeat-allowed` when the pass rests on that ask alone, and, written by
+// bin/tezgah-consent and never here, the user's own `grant`. An action already
+// asked about falls through to the secret scan exactly as it does in the Python
+// gate. Both stay armed under `verify-off`: that kill switch removes the shortcut
+// and repeat rules, not the consent the user owes.
 async function shellRules(tool, args, sessionID, base, dir) {
   const cmd = String(args.command || args.cmd || "")
   const digest = actionID(tool, args)
-  const klass = effectClass(cmd, dir, base)
-  if (klass && !(await askedBefore(sessionID, digest))) {
-    await noteConsent(sessionID, klass, digest, base)
-    const reason = consentReason(klass)
-    await noteDeny(sessionID, "consent", reason, tool, args, base)
+  const [klass, ignored] = consentEffect(cmd, dir, base)
+  const mark = klass ? await consentMark(sessionID, digest) : null
+  if (klass && mark === null) {
+    await noteConsentRow(sessionID, "consent", klass, digest, base)
+    const reason = consentReason(klass, ignored)
+    await noteDeny(sessionID, "consent", reason, tool, args, base,
+                   ignored ? "declared `" + ignored + "` ignored, `" + klass +
+                             "` stands" : null)
     return reason
+  }
+  if (klass && mark === "ask") {
+    // The pass rests on the gate's own refusal and nothing else - the ask went
+    // out and no approval came back - so the row says exactly that. A `grant`
+    // here would claim a consent the user never gave.
+    await noteConsentRow(sessionID, "repeat-allowed", klass, digest, base)
   }
   const reason = secretCommand(cmd)
   if (reason) await noteDeny(sessionID, "secret", reason, tool, args, base)
@@ -683,13 +724,16 @@ function rmOutside(masked, raw, cwd, base) {
 // instead of listing the patterns it hit.
 //
 // One call is all the gate sees and it cannot ask, so the ask becomes a refusal
-// the user reads: the identical command passes on its second attempt because the
-// `consent` row the refusal writes is the mark (askedBefore). That is the least
-// friction that still stops an agent spending someone else's branch, database or
-// deployment unasked. Tradeoff: a user who did ask pays one round-trip, and an
-// agent that ignores the reason twice can still proceed - in front of a user who
-// has now seen the refusal. A session whose ledger cannot be written refuses
-// every time, so there the ask has to happen outside the agent.
+// the user reads. What the ledger then says is the point: the `consent` row
+// records the ask, `repeat-allowed` records a pass that rests on nothing but that
+// ask, and a `grant` - the user's own approval, written by bin/tezgah-consent and
+// never here - records a pass the user authorised before the command ran (see
+// consentMark). That is the least friction that still stops an agent spending
+// someone else's branch, database or deployment unasked. Tradeoff: a user who did
+// ask pays one round-trip, and an agent that ignores the reason twice can still
+// proceed - in front of a user who has now seen the refusal. A session whose
+// ledger cannot be written refuses every time, so there the ask has to happen
+// outside the agent.
 function effectClass(command, cwd, base) {
   const c = String(command || "")
   if (!c) return null
@@ -707,9 +751,45 @@ function effectClass(command, cwd, base) {
   return null
 }
 
-// The refusal for one effect class: the class, what it means, and what to ask.
-function consentReason(klass) {
-  return CONSENT_DENY.replace("%s", klass).replace("%s", EFFECTS[klass])
+// The class this command declares for itself with `tezgah:effect=<class>`, or
+// null when it declares nothing or nothing this gate knows how to rank.
+function declaredEffect(command) {
+  const m = DECLARED_EFFECT.exec(String(command || ""))
+  const klass = m ? m[1].toLowerCase() : ""
+  return Object.prototype.hasOwnProperty.call(EFFECTS, klass) ? klass : null
+}
+
+// The class to hold this command to, and the declaration it ignored, as the
+// Python gate's consent_effect decides it.
+//
+// A command may declare `tezgah:effect=<class>`, which is how an effect no
+// pattern here can see - someone's own deploy script, a migration runner this
+// module does not know - still gets asked about. The declaration is taken only
+// when it stands at or above the class the command text derives along
+// EFFECT_RANK, and one that would stand below it is ignored: a declaration able
+// to lower a class is a bypass of the very gate that reads it. So the declaration
+// can tighten the rule and never loosen it. Returns [class, ignored declaration].
+function consentEffect(command, cwd, base) {
+  const derived = effectClass(command, cwd, base)
+  const declared = declaredEffect(command)
+  if (declared === null) return [derived, null]
+  if (derived !== null &&
+      EFFECT_RANK.indexOf(declared) < EFFECT_RANK.indexOf(derived)) {
+    return [derived, declared]
+  }
+  return [declared, null]
+}
+
+// The refusal for one effect class: the class, what it means, and what to ask,
+// never the list of patterns the command happened to match. An ignored
+// declaration is named with it, so an attempt to talk the class down reaches the
+// user instead of failing silently.
+function consentReason(klass, ignored) {
+  let reason = CONSENT_DENY.replace("%s", klass).replace("%s", EFFECTS[klass])
+  if (ignored) {
+    reason += DOWNGRADE_NOTE.replace("%s", ignored).replace("%s", klass)
+  }
+  return reason
 }
 
 // The refusal when this command would write a credential into a file, or null.

@@ -17,9 +17,15 @@ Rules, all only inside a tezgah root:
      the `verify-off` kill switch the integrity rule shares.
   5. an irreversible or outward-facing command is refused ONCE per action per
      session, naming its effect class (destructive, schema, deploy, publish or
-     outward) rather than the pattern it matched, and writing that class to the
-     ledger as a `consent` row, so the ask the gate cannot make reaches the user
-     before the action runs (consent).
+     outward) rather than the pattern it matched, so the ask the gate cannot make
+     reaches the user before the action runs (consent). The ledger keeps three
+     distinguishable rows for it: `consent` is the gate's refusal (the ask),
+     `repeat-allowed` is the gate letting the identical retry through on that ask
+     alone, and `grant` is the user's approval, which only bin/tezgah-consent
+     writes - the gate never writes one. A command may declare
+     `tezgah:effect=<class>` for an effect no pattern here can see; a declaration
+     is taken only when it is at least as severe as the class the command text
+     derives, so it can raise that class and never lower it.
   6. a command that would write a credential into a file (a redirect, `tee`,
      `git add` or a curl trace next to a `name=value` / bearer token) is
      refused (secret).
@@ -46,6 +52,14 @@ try:  # The race rule reads the write history through tezgah_integrity; that
     from tezgah_integrity import writers_elsewhere
 except ImportError:  # pragma: no cover - only on an integrity module without it
     writers_elsewhere = None
+
+try:  # The bytes a write is about to change. The snapshot module is newer than
+    # some checkouts too, and a missing module must cost the snapshot, never the
+    # session: a file that cannot be snapshotted is still a file the agent may
+    # edit, so this reader is the one that fails open.
+    from tezgah_snapshot import capture
+except ImportError:  # pragma: no cover - only where the module has not landed
+    capture = None
 
 DB_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codebase-memory-mcp")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{2,}$")
@@ -182,11 +196,31 @@ EFFECTS = {
                "review",
 }
 
+# The classes from the one that cannot be walked back at all to the one a
+# reviewer can still catch. It is the order "at least as severe" is read in (see
+# consent_effect), which is what keeps a declared effect a way to raise a
+# command's class and never a way to lower it.
+EFFECT_RANK = ("outward", "publish", "deploy", "schema", "destructive")
+# The class a command declares for itself. Read off the RAW text, not the masked
+# text: the natural place for the declaration is a trailing `#` comment, and
+# mask() blanks comments. ponytail: a command that merely quotes the form - a
+# commit message documenting this rule - is held to the declared class too; the
+# direction is the safe one (the class can only go up) and the refusal is
+# one-shot.
+DECLARED_EFFECT = re.compile(r"tezgah:effect\s*=\s*([A-Za-z]+)")
+
 CONSENT_DENY = (
     "Consent gate (`%s` effect): %s. The contract requires an explicit ask "
     "before an irreversible or outward-facing action, so put the exact command "
     "and what it cannot undo in front of the user. Once this refusal is in the "
     "transcript, the same command passes on the next attempt.")
+
+# Appended to the refusal when the command declared a lower class than the one it
+# is held to: the attempt to talk the class down is the user's to see, in the
+# refusal and in the deny row's detail.
+DOWNGRADE_NOTE = (
+    " The command declared `tezgah:effect=%s`; a declaration can only make this "
+    "stricter, so `%s` stands.")
 
 SECRET_DENY = (
     "Credential write denied: this command would land a credential in a file "
@@ -377,27 +411,36 @@ def retry_reason(tool, inp, session_id):
             "FAILED, counted per user turn.)" % (attempts + 1, RETRY_CEILING))
 
 
-# How much of the ledger tail the one-shot consent check reads before a matched
+# How much of the ledger tail the consent marks are read from before a matched
 # command may be repeated, the same bound the loop guard reads its attempts from.
 # It is read only after a class has matched, so a normal call pays nothing.
 CONSENT_TAIL = 200
 
 
-def asked_before(session_id, digest):
-    """True when this exact action was already put in front of the user once, so
-    the one-shot mark is spent.
+def consent_mark(session_id, digest):
+    """Which consent record this action already carries: "grant" when
+    bin/tezgah-consent recorded the user's own approval of it, "ask" when only
+    the gate's refusal is on record, None when neither is.
 
-    The `consent` row the refusal writes is the mark (see effect_class), and it
-    is read here by kind and id alone: the row also carries the effect class in
-    its detail, so "who was asked to confirm what" is a query over these rows -
-    each one names an action and its class - rather than a string match on a
-    deny message that a later reword would silently break. The window is the
-    ledger tail like the loop guard's, so an action refused more than
-    `CONSENT_TAIL` rows ago can be asked about once more."""
+    Three rows, three facts, never one row conflating them: the gate writes
+    `consent` (it asked) and `repeat-allowed` (it let a repeat through on that
+    ask alone) and never `grant` - a grant is the user's, written by the CLI, so
+    the approval cannot be forged by the rule it constrains. Read by kind and id
+    alone, so "who was asked to confirm what, and who allowed the repeat" is a
+    query over rows rather than a match on a deny message a later reword would
+    silently break. The window is the ledger tail like the loop guard's, so an
+    action asked about more than `CONSENT_TAIL` rows ago can be asked about once
+    more."""
     if not (session_id and digest):
-        return False
-    return any(row.get("kind") == "consent" and row.get("id") == digest
-               for row in events(session_id, tail=CONSENT_TAIL))
+        return None
+    rows = events(session_id, tail=CONSENT_TAIL)
+    if any(row.get("kind") == "grant" and row.get("id") == digest
+           for row in rows):
+        return "grant"
+    if any(row.get("kind") == "consent" and row.get("id") == digest
+           for row in rows):
+        return "ask"
+    return None
 
 
 def rm_outside(masked, raw, cwd, base):
@@ -448,14 +491,16 @@ def effect_class(command, cwd, base):
     the class rather than a rule name.
 
     One call is all the gate sees and it cannot ask, so the ask becomes a refusal
-    the user reads: the identical command passes on its second attempt because
-    the `consent` row the refusal writes is the mark (asked_before). That is the
-    least friction that still stops an agent spending someone else's branch,
-    database or deployment unasked. Tradeoff: a user who did ask pays one
-    round-trip, and an agent that ignores the reason twice can still proceed - in
-    front of a user who has now seen the refusal. A session whose ledger cannot
-    be written refuses every time, so there the ask has to happen outside the
-    agent."""
+    the user reads. What the ledger then says is the point: the `consent` row
+    records the ask, `repeat-allowed` records a pass that rests on nothing but
+    that ask, and a `grant` - the user's own approval, written by
+    bin/tezgah-consent and never here - records a pass the user authorised before
+    the command ran (see consent_mark). That is the least friction that still
+    stops an agent spending someone else's branch, database or deployment
+    unasked. Tradeoff: a user who did ask pays one round-trip, and an agent that
+    ignores the reason twice can still proceed - in front of a user who has now
+    seen the refusal. A session whose ledger cannot be written refuses every
+    time, so there the ask has to happen outside the agent."""
     c = str(command or "")
     if not c:
         return None
@@ -477,10 +522,45 @@ def effect_class(command, cwd, base):
     return None
 
 
-def consent_reason(klass):
+def declared_effect(command):
+    """The class this command declares for itself with `tezgah:effect=<class>`,
+    or None when it declares nothing or nothing this gate knows how to rank."""
+    m = DECLARED_EFFECT.search(str(command or ""))
+    klass = m.group(1).lower() if m else ""
+    return klass if klass in EFFECTS else None
+
+
+def consent_effect(command, cwd, base):
+    """The class to hold this command to, and the declaration it ignored.
+
+    A command may declare `tezgah:effect=<class>`, which is how an effect no
+    pattern here can see - someone's own deploy script, a migration runner this
+    module does not know - still gets asked about. The declaration is taken only
+    when it stands at or above the class the command text derives along
+    EFFECT_RANK, and one that would stand below it is ignored: a declaration able
+    to lower a class is a bypass of the very gate that reads it. So the
+    declaration can tighten the rule and never loosen it.
+
+    Returns (class or None, the declaration that was refused or None)."""
+    derived = effect_class(command, cwd, base)
+    declared = declared_effect(command)
+    if declared is None:
+        return derived, None
+    if (derived is not None
+            and EFFECT_RANK.index(declared) < EFFECT_RANK.index(derived)):
+        return derived, declared
+    return declared, None
+
+
+def consent_reason(klass, ignored=None):
     """The refusal for one effect class: the class, what it means, and what to
-    ask - never the list of patterns the command happened to match."""
-    return CONSENT_DENY % (klass, EFFECTS[klass])
+    ask - never the list of patterns the command happened to match. An ignored
+    declaration is named with it, so an attempt to talk the class down reaches
+    the user instead of failing silently."""
+    reason = CONSENT_DENY % (klass, EFFECTS[klass])
+    if ignored:
+        reason += DOWNGRADE_NOTE % (ignored, klass)
+    return reason
 
 
 def secret_command(command):
@@ -645,15 +725,20 @@ def effectful(t, inp):
     return False
 
 
-def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None):
+def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None,
+          extra=None):
     """Record a refusal before returning it: a deny nobody counts is a rule
     whose effect can never be argued about (hooks/tezgah_integrity.counters).
 
     The row carries the refused call's id and workspace, so the ledger says
     which action was stopped and where - the same two facts a PostToolUse row
-    carries."""
-    note(session_id, "deny", "%s: %s" % (rule, str(reason)[:80]),
-         id=call_id(tool, inp), workspace=workspace)
+    carries. `extra` appends a fact the row must keep beyond the 80 characters
+    of the reason it truncates, which is where a declaration the class refused
+    stays visible (consent_effect)."""
+    detail = "%s: %s" % (rule, str(reason)[:80])
+    if extra:
+        detail = "%s; %s" % (detail, extra)
+    note(session_id, "deny", detail, id=call_id(tool, inp), workspace=workspace)
     return reason
 
 
@@ -698,16 +783,28 @@ def decision(tool, inp, cwd, session_id=None):
             return _deny(session_id, "race", reason, tool, inp, base)
     # Consent: an irreversible or outward-facing command, refused once per action
     # per session so the ask reaches the user (see effect_class for the design
-    # and its tradeoff). The row this writes is both the classification and the
-    # one-shot mark, and the second identical attempt falls through every other
-    # rule, so a user who asked is not looped.
+    # and its tradeoff). The class is the one the command text derives, raised by
+    # a `tezgah:effect=` declaration that is at least as severe and never lowered
+    # by one that is not (consent_effect). What the ledger then holds is one row
+    # per fact: `consent` for the ask, `repeat-allowed` when the pass rests on
+    # that ask alone, and - written by bin/tezgah-consent and never here - the
+    # user's own `grant`.
     if t in BASH_TOOLS:
         digest = call_id(tool, inp)
-        klass = effect_class(inp.get("command"), cwd, base)
-        if klass and not asked_before(session_id, digest):
+        klass, ignored = consent_effect(inp.get("command"), cwd, base)
+        mark = consent_mark(session_id, digest) if klass else None
+        if klass and mark is None:
             note(session_id, "consent", klass, id=digest, workspace=base)
-            return _deny(session_id, "consent", consent_reason(klass), tool, inp,
-                         base)
+            extra = ("declared `%s` ignored, `%s` stands" % (ignored, klass)
+                     if ignored else None)
+            return _deny(session_id, "consent",
+                         consent_reason(klass, ignored), tool, inp, base,
+                         extra=extra)
+        if klass and mark == "ask":
+            # The pass rests on the gate's own refusal and nothing else - the ask
+            # went out and no approval came back - so the row says exactly that.
+            # A `grant` here would claim a consent the user never gave.
+            note(session_id, "repeat-allowed", klass, id=digest, workspace=base)
         # A credential on its way into a file. No escape hatch: the deny text
         # names the rephrase (a name, a length, a fingerprint), so the write can
         # be replaced rather than repeated.
@@ -743,4 +840,16 @@ def decision(tool, inp, cwd, session_id=None):
         reason = drift_reason(session_id, cwd)
         if reason:
             return _deny(session_id, "drift", reason, tool, inp, base)
+    # Nothing refused this call, so a write is about to land: keep the bytes it
+    # is about to change, which is what bin/tezgah-rollback restores by hand.
+    # Nothing automatic undoes work here - see tezgah_snapshot's own note on why.
+    # A refused write changes no file, so it is never captured, and this is the
+    # only place the gate writes anything the deny path does not. capture returns
+    # None rather than raising, but no host wraps decision(), so the outer try is
+    # cheap insurance in the one path where a failure would block an edit.
+    if capture and t in WRITE_TOOLS:
+        try:
+            capture(tool, inp, cwd, session_id)
+        except Exception:
+            pass
     return None
