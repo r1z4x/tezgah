@@ -10,7 +10,11 @@ so this adapter translates them onto the shared tezgah core:
   subagentStart       -> {"additional_context": <short contract brief>} for the
                          delegate, or deny for a grep-only explorer
   subagentStop        -> record orch, no followup
-  postToolUse         -> record usage; reinforce once per session on graph/consult
+  postToolUse         -> {"additional_context": <provenance | reinforce>}: the
+                         untrusted-content label on a result that came from
+                         outside the user, the taint notice on an effect made in
+                         a turn that read one, and the once-per-session code-graph
+                         reinforcement on a graph/consult call
   postToolUseFailure  -> record usage; one-line recovery hint
   after*Execution/Edit-> record usage, no output (observers)
   afterAgentResponse  -> remember the reply for the stop decision, no output
@@ -43,6 +47,7 @@ from tezgah_context import (  # noqa: E402
 from tezgah_gate import decision, explored  # noqa: E402
 from tezgah_integrity import note, note_tool, stop_reason  # noqa: E402
 from tezgah_paths import cache_dir, off  # noqa: E402
+from tezgah_untrusted import marks  # noqa: E402
 
 ALLOW = {"permission": "allow"}
 GRAPH = ("search_graph", "trace_path", "search_code", "get_architecture",
@@ -74,6 +79,18 @@ RECOVERY = ("tezgah: tool call failed. Read the error, fix the cause, then "
 def cwd_of(payload):
     return (payload.get("cwd") or (payload.get("workspace_roots") or [None])[0]
             or os.getcwd())
+
+
+def source_tool(payload):
+    """The tool name the provenance test (`untrusted_source`) reads.
+
+    Cursor names an MCP tool by its server (`mcp_server_name`) plus the raw tool
+    name, while the shared vocabulary's shape is `mcp__<server>__<tool>` - the
+    same translation `gate_name` does for the gate, so the prefix test stays in
+    one place."""
+    name = payload.get("tool_name", "") or ""
+    server = payload.get("mcp_server_name") or ""
+    return "mcp__%s__%s" % (server, name) if server else name
 
 
 def classify(payload, event=""):
@@ -188,15 +205,26 @@ def main():
     elif event == "postToolUse":
         if kind:
             record(session_id, kind)
+        inp = gate_input(payload.get("tool_input") or {})
+        # read before this call's row lands: `source` on the row is the taint's
+        # own mark, and `marks` answers about the turn the call arrived in. Like
+        # every other tezgah surface but the status line, both halves are armed
+        # only inside a configured root.
+        source, notice = (marks(source_tool(payload), inp, session_id)
+                          if under(cwd) else (None, None))
         # failed=None: this event carries no failure signal, so the row records a
         # check that ran - never a fabricated exit 0. The name and the input go
         # through the same mapping the gate saw, so one call hashes to one id.
-        note_tool(session_id, gate_name(payload.get("tool_name", "")),
-                  gate_input(payload.get("tool_input") or {}), failed=None)
-        out = {}
+        note_tool(session_id, gate_name(payload.get("tool_name", "")), inp,
+                  failed=None, source=source)
+        reinforce = None
         if (kind in ("cbm", "consult") and under(cwd) and not quiet
                 and first_time(session_id, "graph")):
-            out["additional_context"] = REINFORCE
+            reinforce = REINFORCE
+        # both are one line for the model, on the result they belong to; a turn
+        # that earns both reads them together rather than one replacing the other
+        text = "\n".join(t for t in (notice, reinforce) if t)
+        out = {"additional_context": text} if text else {}
     elif event == "postToolUseFailure":
         if kind:
             record(session_id, kind)

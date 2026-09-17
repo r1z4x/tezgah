@@ -127,6 +127,74 @@ class CodexLoopGuardIdentity(TempHome):
         self.assertTrue(hso["permissionDecisionReason"])
 
 
+class CodexProvenance(TempHome):
+    """The untrusted-content half on Codex. Its PostToolUse output carries
+    `hookSpecificOutput.additionalContext` - the field the hook output schema in
+    the codex binary defines for this event - so the label rides with the result
+    the model just read, and an effect made in a turn that already read one is
+    marked on its own row and in the same context."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.session = "s-codex-untrusted"
+
+    def post(self, tool, inp, session=None, **extra):
+        payload = {"hook_event_name": "PostToolUse", "cwd": self.repo,
+                   "session_id": session or self.session, "tool_name": tool,
+                   "tool_input": inp}
+        payload.update(extra)
+        out, proc = run_json([support.CODEX_HOOK], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out or {}
+
+    def line(self, tool, inp, **kw):
+        return self.post(tool, inp, **kw).get(
+            "hookSpecificOutput", {}).get("additionalContext", "")
+
+    def rows(self, session=None):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": session or self.session},
+                          env=self.envv)
+        return out
+
+    def test_a_result_from_outside_is_labelled(self):
+        # `webSearch` is Codex's own spelling of the web tool, `mcp__*` is how
+        # every MCP tool reaches the hook, and a shell read that left the machine
+        # is the third channel.
+        cases = [("webSearch", {"query": "x"}, "a web result"),
+                 ("mcp__codebase-memory-mcp__search_graph", {"q": "x"},
+                  "an MCP server"),
+                 ("exec_command", {"command": "curl -s https://x"},
+                  "a network read")]
+        for i, (tool, inp, channel) in enumerate(cases):
+            with self.subTest(tool=tool):
+                text = self.line(tool, inp, session="s-cx-label-%d" % i)
+                self.assertIn("untrusted content", text)
+                self.assertIn(channel, text)
+
+    def test_an_effect_after_an_untrusted_read_carries_the_channel(self):
+        self.post("mcp__codebase-memory-mcp__search_graph", {"q": "x"})
+        text = self.line("exec_command", {"command": "ls"},
+                         tool_response={"exit_code": 0})
+        self.assertIn("already read an MCP server", text)
+        self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
+                         [("external", "mcp"), ("run", "mcp")])
+        # one notice per read
+        self.assertEqual(self.line("apply_patch", {"file_path": "/tmp/x"}),
+                         "")
+
+    def test_an_ordinary_call_prints_nothing(self):
+        self.assertEqual(self.post("exec_command", {"command": "pytest -q"},
+                                   tool_response={"exit_code": 0}), {})
+        self.assertEqual(self.post("Task", {"prompt": "x"}), {})
+
+    def test_outside_a_root_nothing_is_shown(self):
+        self.assertEqual(self.post("webSearch", {"query": "x"}, cwd=self.home),
+                         {})
+
+
 class CodexHookThroughTheInstalledLink(TempHome):
     """tezgah-setup wires codex to ~/.config/tezgah/bin/tezgah-codex-hook, a
     symlink. The hook derived ROOT from the unresolved link path, so every event
