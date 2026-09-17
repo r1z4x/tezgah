@@ -1,0 +1,24 @@
+{
+  "sessions": 217,
+  "rows": 6771,
+  "session_lines": {
+    "median": 8,
+    "p95": 100,
+    "max": 927
+  },
+  "rows_with_an_id": 140,
+  "repeat_gaps": {
+    "n": 39,
+    "median": 1,
+    "p95": 1,
+    "max": 21
+  },
+  "irreversible_shaped_commands": {
+    "total": 65,
+    "by_shape": {
+      "rm -rf": 63,
+      "reset --hard": 1,
+      "branch -d": 1
+    }
+  }
+}

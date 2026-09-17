@@ -66,9 +66,13 @@ on this machine). Adding rules must not move those numbers materially.
 
 ## Non-goals
 
-Consent gate for irreversible actions (measured frequency first), context
-summarisation, untrusted-input labelling on the context side, token metrics.
-See the study's synthesis for why each is deferred.
+Consent gate for irreversible actions, context summarisation, untrusted-input
+labelling on the context side, token metrics. The study's synthesis carries the
+reasoning, with one correction the census forced: the consent gate was deferred
+on the belief that irreversible commands never happen, and the ledger census
+found 65 of them in 6,771 rows (`to_human/blocks/E5-ledger-census/`). It stays
+deferred because 63 of the 65 are `rm -rf` shapes whose context a 200-character
+command cannot show, not because the frequency is zero.
 
 ## Evidence (landed 2026-09-17)
 

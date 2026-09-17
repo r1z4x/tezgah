@@ -164,10 +164,12 @@ F mode 6's "deny the third", G control 6's "two prior rows" and G control 7's
 "cap 2 / cap 1" collapse into this one rule.
 
 **P5 - the trust label.** Every event carries `trust` (`user` / `tool` / `doc`)
-and the reply's claims are scoped to the events behind them. This is the only
-form of the untrusted-input control reachable today, because no hook receives the
-assembled prompt: the label rides the ledger, it does not ride the text the model
-reads.
+and the reply's claims are scoped to the events behind them. What is *not*
+reachable today is narrower than "impossible": no hook receives the assembled
+prompt, so a label cannot ride the text the model reads. What is reachable is the
+ledger side - the `UserPromptSubmit` hook sees the user's own text and, on
+Claude, `PostToolUse` carries the tool's result - so content can be labelled
+where it enters, just not annotated on its way to the model.
 
 ## What this study does not establish
 
@@ -183,3 +185,9 @@ reads.
 - **The literature is a 41-source retrieval sample**, not a systematic review;
   the index names every source and the two OpenAlex reviews whose full text was
   not read.
+- **Two frequency claims in this synthesis were made without a measurement and
+  are corrected by the ledger census** (`to_human/blocks/E5-ledger-census/`): the
+  consent gate's deferral rested on "it never happens", and 6,771 rows across 217
+  sessions contain 65 irreversible-shaped commands (63 `rm -rf`); and the loop
+  guard's 200-row window was a number I wrote into a task brief, now measured
+  against a median session of 8 rows and a maximum repeat gap of 21.
