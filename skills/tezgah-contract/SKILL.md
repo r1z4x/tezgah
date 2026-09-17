@@ -198,10 +198,14 @@ intuitive". Such a request is NEVER built from a guess. Before any code:
    the domain, the assumptions, and the non-goals. For UI/UX the standard is
    named, not implied: WCAG for accessibility, the platform guidelines (Apple
    HIG / Material) for native feel, Nielsen's heuristics for interaction.
-2. Ask at most three questions that change the outcome, each with a recommended
+2. When the ask is really a choice, do not stop at A, B and A+B. Name at least
+   one genuinely different option, the smallest reversible experiment that
+   separates them, and the evidence that would flip the choice: a recommendation
+   with no flip condition is a preference, not a decision.
+3. Ask at most three questions that change the outcome, each with a recommended
    default. If the user is unavailable, proceed on the recorded assumptions and
    say so in one line instead of stalling.
-3. Verify design, behavior and quality claims against an external source, never
+4. Verify design, behavior and quality claims against an external source, never
    from memory alone: `~/.config/tezgah/bin/consult --online "<question>"` for a
    fast second opinion, or the OpenResearch CLI (`orx` on PATH, else
    `~/.cargo/bin/orx`) when it is a real investigation. A claim you could not
@@ -351,20 +355,45 @@ rule.
 
 ## Hybrid verification: consult external models (auto-armed, tezgah roots only)
 
-Before committing to a non-trivial decision - architecture choice, root-cause
-verdict, risky migration, security judgment, "is this safe to deploy" - get a
-second opinion: run `~/.config/tezgah/bin/consult "<question in English, self-
-contained, with the minimal code/context needed>"` via the shell. It queries
-independent models through OpenRouter in parallel (default Gemini + Grok;
-override with --models or CONSULT_MODELS env) and prints one
-section per model. Add `--online` (live web search) ONLY when the question
-needs facts newer or wider than the codebase - current versions, CVEs,
-vendor status, breaking-change news; skip it for pure code/design reasoning. Treat answers as advisory evidence, never as truth: verify their
-claims against the actual code before adopting, and tell the user which
-models were consulted and where they agreed or disagreed. If the script
-reports a missing API key or all models fail, say the external verification
-was skipped - never pretend a consult happened. Skip consulting for trivial,
-local, already-understood edits.
+Run `~/.config/tezgah/bin/consult "<question>"` before a decision that is hard
+to reverse or that a single model would answer with unearned confidence. The
+trigger is checkable, and ANY of these fires it:
+
+- the decision has persistent or hard-to-reverse side effects (a schema, a
+  migration, a config or a policy others will inherit),
+- it redesigns a durable structure, interface or contract rather than fixing one
+  concrete spot,
+- several choices must be made together, so changing one forces the others,
+- it repeats a mistake already recorded in the lessons ledger,
+- its output becomes a contract other steps or people consume.
+
+A trivial, local, already-understood edit is not a trigger.
+
+Ask a self-contained English question carrying the options, the constraints and
+what would falsify each. Send the RAW artifact, never your own summary of it,
+and never your conclusion or self-assessment: a reviewer handed the author's
+framing finds measurably fewer defects, and a verdict you supply is a verdict
+you did not get. Give the artifact, the acceptance criteria and an adversarial
+frame ("assume the author was careful but missed something"). For a packet
+longer than a few lines, pipe it in (`~/.config/tezgah/bin/consult - <
+packet.md`) instead of pasting it into argv: argv has a length limit, and some
+endpoints stall on a long argument before the request even starts.
+
+It queries independent models in parallel (default Gemini + Grok; `--models` or
+CONSULT_MODELS override), then spends ONE more call on a referee that names the
+disagreements instead of averaging them. Read back the referee's named fields -
+recommendation, key disagreements, unchecked assumptions, what would change its
+mind, requested evidence - not a paraphrase, because the paraphrase is where the
+minority view gets dropped. Add `--online` (live web search) ONLY when the
+question needs facts newer or wider than the codebase - current versions, CVEs,
+vendor status, breaking-change news; skip it for pure code/design reasoning.
+
+Treat every answer as advisory evidence, never as truth: verify each claim
+against the actual code before adopting it, and tell the user which models were
+consulted and where they disagreed. Relay the failure class and the retry line
+the tool prints, and if the key is missing, a model errors or the referee dies,
+say which part of the verification is missing - never report a consult that did
+not happen. Off: `consult-off`.
 
 
 

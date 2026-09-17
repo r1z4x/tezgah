@@ -161,8 +161,8 @@ context budget (always-on text; ~tokens = chars/4):
      per-turn reminder                  ~ 0.2k tok     961 chars
      skill metadata (9)                 ~ 1.3k tok    5207 chars
      subagent metadata (5)              ~ 0.2k tok     891 chars
-     conditional rules (armed by task class) ~ 0.6k tok    2231 chars
-     full contract (on demand)          ~ 6.0k tok  (only when the skill is read)
+     conditional rules (armed by task class) ~ 0.7k tok    2989 chars
+     full contract (on demand)          ~ 6.4k tok  (only when the skill is read)
      MCP tool schemas                   run --mcp-schemas to measure
 ```
 
