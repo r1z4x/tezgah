@@ -279,12 +279,12 @@ enjekte edilir, böylece aynı hata sessizce tekrarlanamaz.
 ## Benchmark
 
 Bu sözleşme işi gerçekten iyileştiriyor mu, yoksa yalnızca iyileştirmesi gerekiyormuş gibi
-mi görünüyor? Bu, iddia edilmek yerine `benchmarks/arm-bench/` içinde ölçülür: ajanın
-varlığından haberdar olmadığı gizli denetimler, barındırıcının kendi kullanım kaydından
-alınan maliyet ve başarısızlık olarak puanlanan yan düzenlemeler. `PREREGISTRATION.md` bir
-çalıştırmadan önce uç noktaları sabitler ve `python3 bench.py report` bunları yazdırır;
-çalıştırma kimlikleriyle birlikte tam çalışma OpenResearch projesi
-`tezgah-harness-research` içindedir. Aşağıdaki her rakam bir çalıştırma günlüğüdür.
+mi görünüyor? Bu, iddia edilmek yerine ölçülür: ajanın varlığından haberdar olmadığı gizli
+denetimler, barındırıcının kendi kullanım kaydından alınan maliyet ve başarısızlık olarak
+puanlanan yan düzenlemeler. Enstrüman - kollar, ön kayıt ve `bench.py` - `benchmarks/lab`
+branch'inde durur; yani bu branch sonuçları taşır, laboratuvarı değil. Çalıştırma
+kimlikleriyle birlikte tam çalışma OpenResearch projesi `tezgah-harness-research` içindedir.
+Aşağıdaki her rakam bir çalıştırma günlüğüdür.
 
 | Blok | Çalıştırma | Neyi kesinleştirdi |
 |---|---|---|

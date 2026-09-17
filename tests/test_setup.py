@@ -632,41 +632,6 @@ class Refresh(SetupBase):
             self.path(".config", "tezgah", "contract.sha256")).strip()
         self.assertEqual(stored, self.contract_sha())
 
-    def test_benchmark_readme_quotes_the_live_budget(self):
-        # The benchmark README embeds the installer's budget report verbatim.
-        # Hand-copying those figures is how that file came to print a core band
-        # 1,830 characters smaller than the one the installer produces, so the
-        # block is pinned to the instrument rather than to a memory of it.
-        # The on-demand row is rendered against the local config path, so its
-        # token figure moves by a character or two between machines; its number
-        # is normalised out and every char-counted row is compared exactly.
-        readme = os.path.join(REPO, "benchmarks", "harness-vs-omp", "README.md")
-        with open(readme, encoding="utf-8") as fh:
-            block = re.search(r"```\n(context budget \(always-on text.*?)```",
-                              fh.read(), re.S)
-        self.assertIsNotNone(block, "no budget block in the benchmark README")
-        live = subprocess.run(
-            [sys.executable, "-c",
-             "import contextlib, importlib.machinery, importlib.util, io, sys\n"
-             "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
-             "m = importlib.util.module_from_spec(\n"
-             "    importlib.util.spec_from_loader('setup', loader))\n"
-             "sys.modules['setup'] = m\n"
-             "loader.exec_module(m)\n"
-             "buf = io.StringIO()\n"
-             "with contextlib.redirect_stdout(buf):\n"
-             "    m.context_budget_report()\n"
-             "print(buf.getvalue(), end='')", SETUP],
-            capture_output=True, text=True, env=self.env)
-        self.assertEqual(live.returncode, 0, live.stderr)
-
-        def normalize(text):
-            return re.sub(r"~ *[\d.]+k tok(?=  \(only when the skill is read\))",
-                          "~<n>k tok", text)
-
-        self.assertEqual(normalize(block.group(1).strip()),
-                         normalize(live.stdout.strip()))
-
     def test_refresh_rerenders_a_stale_contract(self):
         self.setup("--install", "--hosts", "opencode")
         sha = self.path(".config", "tezgah", "contract.sha256")

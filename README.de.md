@@ -280,13 +280,13 @@ sich derselbe Fehler nicht stillschweigend wiederholen kann.
 
 ## Benchmark
 
-Verbessert dieser Vertrag die Arbeit, oder sieht es nur so aus, als sollte er? Das wird in
-`benchmarks/arm-bench/` gemessen, nicht behauptet: versteckte Prüfungen, für die der Agent
-die Prüfung nie sieht, Kosten aus dem eigenen Nutzungsprotokoll des Hosts, und
-Kollateral-Edits, die als Fehler gewertet werden. `PREREGISTRATION.md` legt die Endpunkte
-vor einem Lauf fest und `python3 bench.py report` druckt sie; die vollständige Studie mit
-den Lauf-IDs ist das OpenResearch-Projekt `tezgah-harness-research`. Jede Zahl unten ist ein
-Laufprotokoll.
+Verbessert dieser Vertrag die Arbeit, oder sieht es nur so aus, als sollte er? Das wird
+gemessen, nicht behauptet: versteckte Prüfungen, für die der Agent die Prüfung nie sieht,
+Kosten aus dem eigenen Nutzungsprotokoll des Hosts, und Kollateral-Edits, die als Fehler
+gewertet werden. Das Instrument - die Arme, die Vorregistrierung und `bench.py` - liegt auf
+dem Branch `benchmarks/lab`, dieser Branch trägt also die Ergebnisse und nicht das Labor;
+die vollständige Studie mit den Lauf-IDs ist das OpenResearch-Projekt
+`tezgah-harness-research`. Jede Zahl unten ist ein Laufprotokoll.
 
 | Block | Läufe | Was er geklärt hat |
 |---|---|---|

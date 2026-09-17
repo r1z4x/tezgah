@@ -281,13 +281,12 @@ la même erreur ne puisse pas se répéter silencieusement.
 ## Benchmark
 
 Ce contrat améliore-t-il le travail, ou donne-t-il seulement l'impression qu'il le devrait ?
-C'est mesuré dans `benchmarks/arm-bench/`, pas affirmé : des contrôles cachés dont l'agent
-ne voit jamais le test, le coût tiré du propre relevé d'usage de l'hôte, et les
-modifications collatérales comptées comme des échecs. `PREREGISTRATION.md` fixe les critères
-d'évaluation avant une exécution et `python3 bench.py report` les imprime ; l'étude
-complète, avec les identifiants d'exécution, est le projet OpenResearch
-`tezgah-harness-research`. Chaque chiffre ci-dessous est un journal
-d'exécution.
+C'est mesuré, pas affirmé : des contrôles cachés dont l'agent ne voit jamais le test, le
+coût tiré du propre relevé d'usage de l'hôte, et les modifications collatérales comptées
+comme des échecs. L'instrument - les bras, la préinscription et `bench.py` - vit sur la
+branche `benchmarks/lab`, donc cette branche porte les résultats et non le laboratoire ;
+l'étude complète, avec les identifiants d'exécution, est le projet OpenResearch
+`tezgah-harness-research`. Chaque chiffre ci-dessous est un journal d'exécution.
 
 | Bloc | Exécutions | Ce qu'elle a établi |
 |---|---|---|

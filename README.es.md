@@ -281,12 +281,12 @@ el mismo error no pueda repetirse silenciosamente.
 
 ## Benchmark
 
-¿Mejora este contrato el trabajo, o solo parece que debería? Eso se mide en
-`benchmarks/arm-bench/`, no se afirma: verificaciones ocultas que el agente nunca ve, costo
-a partir del propio registro de uso del host, y ediciones colaterales puntuadas como fallos.
-`PREREGISTRATION.md` fija los endpoints antes de una ejecución y `python3 bench.py report`
-los imprime; el estudio completo, con los ids de ejecución, es el proyecto OpenResearch
-`tezgah-harness-research`. Cada cifra de abajo es un registro de
+¿Mejora este contrato el trabajo, o solo parece que debería? Eso se mide, no se afirma:
+verificaciones ocultas que el agente nunca ve, costo a partir del propio registro de uso del
+host, y ediciones colaterales puntuadas como fallos. El instrumento - los brazos, el
+prerregistro y `bench.py` - vive en la rama `benchmarks/lab`, así que esta rama lleva los
+resultados y no el laboratorio; el estudio completo, con los ids de ejecución, es el
+proyecto OpenResearch `tezgah-harness-research`. Cada cifra de abajo es un registro de
 ejecución.
 
 | Bloque | Ejecuciones | Qué resolvió |

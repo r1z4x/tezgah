@@ -348,13 +348,12 @@ same mistake cannot silently repeat.
 
 ## Benchmark
 
-Does this contract improve the work, or does it only look like it should? That is measured
-in `benchmarks/arm-bench/`, not asserted: hidden checks the agent never sees the check for,
-cost from the host's own usage record, and collateral edits scored as failures.
-`PREREGISTRATION.md` fixes the endpoints before a run and `python3 bench.py report` prints
-them; the full study, with the run ids, is the OpenResearch project
-`tezgah-harness-research`.
-Every figure below is a run log.
+Does this contract improve the work, or does it only look like it should? That is measured,
+not asserted: hidden checks the agent never sees the check for, cost from the host's own
+usage record, and collateral edits scored as failures. The instrument - the arms, the
+pre-registration and `bench.py` - lives on the `benchmarks/lab` branch, so this branch
+carries the results and not the lab; the full study, with the run ids, is the OpenResearch
+project `tezgah-harness-research`. Every figure below is a run log.
 
 | Block | Runs | What it settled |
 |---|---|---|

@@ -3,11 +3,9 @@
 [tool.ruff]
 line-length = 100
 target-version = "py38"
-# The benchmark's fixtures are deliberately-broken code kept exactly as it was
-# (an unused import is part of the buggy baseline) and its gold trees are
-# solutions written against those fixtures, so neither is linted. The runner,
-# the corpus helpers and the rest of the tree still are.
-extend-exclude = ["benchmarks/arm-bench/corpus", "benchmarks/arm-bench/tasks"]
+# The benchmark's fixtures (deliberately-broken code, and gold trees written
+# against them) used to be excluded here; the instrument left this branch for
+# `benchmarks/lab`, and its exclusions went with it.
 
 # Keep the historical ruff core rules explicit: newer ruff releases ship a much
 # broader default, and pinning the set keeps `ruff check .` stable in CI.

@@ -13,17 +13,6 @@ __pycache__/
 /.opencode/agents/
 # tezgah: end generated agents
 
-# arm-bench: per-arm agent state (SQLite, model caches) is runtime, not evidence
-/benchmarks/arm-bench/arms/*/
-# ...but the contract variants are the experiment, so they are committed
-!/benchmarks/arm-bench/arms/orx-*/
-/benchmarks/arm-bench/arms/orx-*/*
-!/benchmarks/arm-bench/arms/orx-*/RULES.md
-!/benchmarks/arm-bench/arms/orx-*/PROVENANCE.md
-
-# arm-bench: run directories are throwaway fixtures
-/benchmarks/arm-bench/.runs/
-
 # local state: the lessons ledger, the research lines, and the local plugin
 # manifest are the maintainer's, not repository content
 /.tezgah/

@@ -1,6 +1,0 @@
-# March expenses, one entry per line: CATEGORY AMOUNT
-food 10.00
-travel 25.50
-food 2.50
-books 25.50
-misc 1.00

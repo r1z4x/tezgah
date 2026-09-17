@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The benchmark moved to its own branch.** `benchmarks/` - the arms, the
+  fixtures, the pre-registrations and `bench.py` - is no longer on `main`; it
+  lives on `benchmarks/lab`, cut before the removal so the tree is intact there.
+  `main` keeps the results: every README's benchmark section still carries its
+  block table and findings, and now says where the instrument is instead of
+  pointing at a directory this branch does not have. Three things went with the
+  tree because their subject left: the test that pinned
+  `benchmarks/harness-vs-omp/README.md` against the installer's live budget
+  report, the arm-bench entries in `.gitignore`, and the fixture excludes in
+  `pyproject.toml`. The `opencode-bare` arm needs its dependencies installed
+  again on that branch before it can run.
+
 - **Three README translations are gone, and the benchmark paragraph now points
   somewhere a reader can reach.** Brazilian Portuguese, Chinese and Japanese are
   removed, leaving English, German, Spanish, French and Turkish, and every
