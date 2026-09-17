@@ -519,7 +519,7 @@ class PromptTurn(TempHome):
                                      "conversation_id"),
                                     (support.OMP_HOOK, "user_prompt",
                                      "session_id")):
-            session = "turn-%s" % os.path.basename(hook)
+            session = "turn-%s" % hook.replace(os.sep, "-")
             payload = {"cwd": self.repo, "prompt": "run the tests again",
                        id_key: session}
             payload.update({"event": event} if hook == support.OMP_HOOK

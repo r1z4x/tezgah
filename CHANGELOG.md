@@ -10,8 +10,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Ledger action identity, trace metrics and the loop guard** (plan 012). Every
   evidence row now carries `id` (a digest of the tool and its canonical
-  arguments), `exit`, `out_bytes`, `fail_class` and `workspace`, written by both
-  the Python hooks and the opencode plugin. On top of that identity: the
+  arguments) and `workspace`, plus whichever of `exit`, `out_bytes` and
+  `fail_class` the host actually reports - `note()` drops a field nobody
+  reported rather than writing a zero - written by both the Python hooks and the
+  opencode plugin. On top of that identity: the
   PreToolUse gate refuses the third identical call whose previous attempts
   failed - one ceiling for every failure class, reset per user turn, with
   `fail_class` kept as a metric only - and `tezgah-status --counters` prints

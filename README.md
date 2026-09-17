@@ -164,7 +164,9 @@ Cursor, which reports the reply on `afterAgentResponse` and takes the decision a
 `stop`. Its ledger is shared, so the newest check wins: a later failure blocks a
 "tests pass" claim even if an earlier run was green. Each row carries the action
 it belongs to (`id`, a digest of the tool and its canonical arguments), the
-structured outcome (`exit`, `out_bytes`, `fail_class`) and the workspace, so a
+workspace, and whichever of `exit`, `out_bytes` and `fail_class` the host
+actually reported - a field a host cannot report is absent, never zeroed, so a
+reader can tell "it failed" from "nobody said" - so a
 run can be reconstructed rather than guessed at; the same identity feeds the
 loop guard, which refuses a third identical call whose previous attempts exited
 non-zero. `tezgah-status --counters <cwd> <session>` reports four trace figures
