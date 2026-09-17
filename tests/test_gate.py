@@ -1,5 +1,9 @@
-"""hooks/tezgah_gate.py: attribution gate, explore gate, first-grep nudge."""
+"""hooks/tezgah_gate.py: the attribution, explore, shortcut, consent and secret
+refusals, the first-grep nudge, the concurrent-write refusal and the long-turn
+re-statement."""
+import json
 import os
+import time
 import unittest
 
 import support
@@ -582,6 +586,138 @@ class Gate(TempHome):
             self.decide("Bash", {"command": "git push --force origin main"}))
         self.assertIsNotNone(
             self.decide("Bash", {"command": 'echo "api_key=x" >> log'}))
+
+    # ---- concurrent write: another session wrote this file -----------------
+    def seed_write(self, session, path, tool="Edit"):
+        """The row a real PostToolUse hook writes after a write: the gate reads
+        the ledger, so the test seeds it through the writer, never by hand."""
+        out, proc = run_json(
+            [support.PROBE_INTEGRITY],
+            {"fn": "note_tool", "session": session, "tool": tool,
+             "input": {"file_path": path, "old_string": "a", "new_string": "b"},
+             "cwd": self.repo},
+            env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_a_write_to_a_file_another_session_wrote_is_refused(self):
+        target = os.path.join(self.repo, "src", "a.py")
+        self.seed_write("other", target)
+        reason = self.decide("Edit", {"file_path": target, "old_string": "a",
+                                      "new_string": "b"}, session_id="mine")
+        self.assertIsNotNone(reason)
+        self.assertIn("other", reason)    # names the other session
+        self.assertIn(target, reason)     # and the file
+        self.assertIn("Re-read", reason)  # and what to do about it
+
+    def test_the_session_that_wrote_the_file_may_write_it_again(self):
+        # the failure is a collision between two sessions, not a lock on a file,
+        # so this session's own writes never refuse each other
+        target = os.path.join(self.repo, "src", "a.py")
+        self.seed_write("mine", target)
+        for _ in range(2):
+            self.assertIsNone(self.decide(
+                "Edit", {"file_path": target, "old_string": "a",
+                         "new_string": "b"}, session_id="mine"))
+
+    def test_a_file_only_this_session_wrote_is_not_a_collision(self):
+        self.seed_write("other", os.path.join(self.repo, "src", "a.py"))
+        self.assertIsNone(self.decide(
+            "Edit", {"file_path": os.path.join(self.repo, "src", "b.py"),
+                     "old_string": "a", "new_string": "b"}, session_id="mine"))
+
+    def test_another_sessions_write_does_not_block_a_read(self):
+        # a read cannot overwrite anyone: only the write tools are this rule's
+        target = os.path.join(self.repo, "src", "a.py")
+        self.seed_write("other", target)
+        self.assertIsNone(self.decide("Bash", {"command": "cat %s" % target},
+                                      session_id="mine"))
+
+    def test_the_patch_dialect_is_matched_by_its_own_paths(self):
+        # apply_patch carries its paths in the body, not in file_path
+        target = os.path.join(self.repo, "src", "a.py")
+        self.seed_write("other", target)
+        reason = self.decide("apply_patch", {"patch": (
+            "*** Begin Patch\n*** Update File: %s\n@@\n-x\n+y\n*** End Patch"
+            % target)}, session_id="mine")
+        self.assertIsNotNone(reason)
+        self.assertIn(target, reason)
+
+    # ---- constraint drift: a long turn re-states the rules -----------------
+    # Above the gate's DRIFT_STEPS whatever it is tuned to: this test is about a
+    # turn long enough to have lost the prompt that armed the rules, not about
+    # the exact number.
+    LONG = 60
+
+    def ledger(self, session):
+        """The ledger file a session's rows land in, found rather than derived:
+        the stem is tezgah_integrity._slug's, and a test that re-implemented it
+        would stop testing the file the hooks actually read."""
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note", "session": session, "kind": "turn",
+                  "detail": "seed"}, env=self.envv)
+        d = os.path.join(self.home, ".cache", "tezgah", "evidence")
+        names = os.listdir(d)
+        self.assertEqual(len(names), 1, names)
+        return os.path.join(d, names[0])
+
+    def seed_turn(self, session, steps):
+        """One user turn's ledger: the turn marker, then `steps` work rows."""
+        path = self.ledger(session)
+        with open(path, "a") as fh:
+            for i in range(steps):
+                fh.write(json.dumps({"kind": "run", "ts": int(time.time()),
+                                     "detail": "step %d" % i}) + "\n")
+
+    def write_call(self, session, path="a.py"):
+        return self.decide("Edit", {"file_path": path, "old_string": "x",
+                                    "new_string": "y"}, session_id=session)
+
+    def test_a_long_turn_restates_the_constraints_before_a_write(self):
+        self.seed_turn("long", self.LONG)
+        reason = self.write_call("long")
+        self.assertIsNotNone(reason)
+        self.assertIn("Long turn", reason)
+        self.assertIn("still in force", reason)
+        # the text is tezgah_policy's own, not a second copy of the contract
+        self.assertIn("Ponytail (minimal code)", reason)
+        self.assertIn("Deliver the whole ask", reason)
+
+    def test_the_restatement_is_once_per_turn(self):
+        # a re-statement on every call is noise the agent learns to skip
+        self.seed_turn("long", self.LONG)
+        self.assertIsNotNone(self.write_call("long"))
+        self.assertIsNone(self.write_call("long", path="b.py"))
+
+    def test_a_short_turn_is_left_alone(self):
+        self.seed_turn("short", 3)
+        self.assertIsNone(self.write_call("short"))
+
+    def test_a_read_does_not_earn_the_restatement(self):
+        self.seed_turn("long", self.LONG)
+        self.assertIsNone(self.decide("Grep", {"pattern": "two words"},
+                                      session_id="long"))
+
+    def test_a_git_write_is_effectful_enough(self):
+        self.seed_turn("long", self.LONG)
+        reason = self.decide("Bash", {"command": 'git commit -m "fix: typo"'},
+                             session_id="long")
+        self.assertIsNotNone(reason)
+        self.assertIn("Long turn", reason)
+
+    def test_the_next_turn_gets_its_own_restatement(self):
+        # the mark is per turn: the prompt reminder decays the same way in the
+        # turn after it, so the notice has to be able to fire again
+        self.seed_turn("long", self.LONG)
+        self.assertIsNotNone(self.write_call("long"))
+        self.seed_turn("long", self.LONG)
+        self.assertIsNotNone(self.write_call("long", path="b.py"))
+
+    def test_the_restatement_respects_reminder_off(self):
+        # it is the mid-turn half of the per-turn reminder, so that reminder's
+        # own switch removes it
+        self.touch(os.path.join(self.home, ".config", "tezgah", "reminder-off"))
+        self.seed_turn("long", self.LONG)
+        self.assertIsNone(self.write_call("long"))
 
     # ---- ledger rows the gate writes ---------------------------------------
     def test_a_denial_records_the_call_identity_and_the_workspace(self):
