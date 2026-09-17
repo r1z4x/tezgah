@@ -44,7 +44,18 @@ are no key disagreements" when the two models happened to agree - it did not
 invent one.
 
 The armed-by-task-class band grew 758 bytes (2,231 -> 2,989); the benchmark
-README quotes the re-measured report.
+README quotes the re-measured report, as do README.md and the 19 translations.
+
+An independent review of the diff (tezgah-reviewer, read-only) reported three
+minor defects and six suggestions; all are fixed in `fix: answer the independent
+review's three findings`. The real ones: a scheme-less `CONSULT_URL` escaped the
+worker as a traceback and exited 1 where the all-failed path owes 3; a stalled
+body read classed as `error` rather than `timeout`, so the retry line named the
+wrong lever; a missing question argument silently read stdin instead of printing
+the usage error, turning a stray pipe into a paid prompt; and two more copies of
+the consult rule still said "non-trivial or hard-to-reverse". Four cases were
+added for the field list, the `empty` class, the `CONSULT_JUDGE` default and the
+scheme-less endpoint: 12 in the file, 442 in the suite.
 
 `~/.config/tezgah/bin/consult` symlinks to the main checkout, so the live tool
 picks this up only once this branch is on `main`.
