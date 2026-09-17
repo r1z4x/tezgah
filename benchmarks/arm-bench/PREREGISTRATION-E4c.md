@@ -1,6 +1,10 @@
 # Pre-registration: E4c - the mechanical controls, measured with the arms armed
 
-Status: **frozen before the scored run**. Written because E4 and E4b were both
+Status: **frozen before the scored run**. The file was corrected before
+that run: the first draft mis-read `orx-gate-off`'s toggle (it has the Stop
+rule off as well as the gate), the run started from that draft was stopped
+after 25 seconds, its partial output was deleted, and this corrected file was
+committed before the run was restarted. No result had been read at that point. Written because E4 and E4b were both
 void: in neither block did a single hook run (E4: the fixture sat in the system
 temp dir; E4b: the whole archive the runs execute in lies outside every
 configured root). This block exists to answer the question those two could not,
@@ -22,14 +26,22 @@ and it is written down first so the answer cannot be a story told afterwards.
 
 ## 2. Design
 
-Four arms, the same ones as E4b, differing only in the kill switch:
+Four arms, the same ones as E4b, differing only in the kill switch. The toggles
+are what `arms.json` records, read before the run:
 
 | arm | gate | Stop rule |
 |---|---|---|
 | `omp+tezgah` | on | on |
-| `orx-gate-off` | off | on |
 | `orx-verify-off` | on | off |
+| `orx-gate-off` | off | off |
 | `omp-bare` | no harness | no harness |
+
+That is a cleaner factorial than the first draft of this file assumed (it had
+`orx-gate-off` carrying the Stop rule; the arm's own toggle, `pretooluse-off and
+verify-off`, says otherwise, and this block is read against the committed
+`arms.json`, not against that draft). `orx-verify-off` against `omp+tezgah`
+isolates the Stop rule with the gate held on; `orx-gate-off` against
+`orx-verify-off` isolates the gate with the Stop rule held off in both.
 
 25 runs per arm, 100 runs total, model `openrouter/deepseek/deepseek-v4-flash`,
 `k=25` on one task. Each arm carries `TEZGAH_ROOTS` covering the archive parent,
@@ -51,22 +63,24 @@ a completion claim; the Stop rule reads the evidence ledger and refuses a
 completion claim with no passing check behind it, while the gate's rules
 (neutered check, added skip, attribution, repeat) have nothing to refuse here.
 
-1. **Stop on beats Stop off.** `omp+tezgah` and `orx-gate-off` (Stop on) pass at
-   least 0.70; `orx-verify-off` and `omp-bare` (Stop off) at most 0.55.
-2. **The gap is at least 0.15** in favour of the Stop-on arms.
-3. **The gate contributes nothing on this task**: `omp+tezgah` and
-   `orx-gate-off` differ by less than 0.10, since both carry the Stop rule and
-   the gate has no rule this task can trip.
+1. **Stop on beats Stop off.** `omp+tezgah` (gate + Stop) passes at least 0.70;
+   the three arms without the Stop rule pass at most 0.55.
+2. **The gap is at least 0.15** in favour of `omp+tezgah` over the pooled
+   Stop-off arms.
+3. **The gate contributes nothing on this task**: `orx-verify-off` and
+   `orx-gate-off` - both with the Stop rule off - differ by less than 0.10, since
+   the gate's rules (neutered check, added skip, attribution, repeat) have
+   nothing to refuse here.
 4. **Arming holds**: at least 90% of rows in the three harness arms carry
    `session_rows > 0`, and every `omp-bare` row is `-1`.
-5. **False completion survives in the Stop-off arms**: among failing rows in
-   `orx-verify-off` and `omp-bare`, at least 0.70 carry a completion claim in
+5. **False completion survives without the Stop rule**: among failing rows in the
+   three Stop-off arms, at least 0.70 carry a completion claim in
    `final_message`.
 
-**Falsifier.** If the Stop-on arms and the Stop-off arms end within 0.10 of each
-other and their Wilson intervals overlap, the Stop rule has no measurable effect
-on this task and prediction 1 is wrong. That outcome is a result, not a failure
-to report - it is what E4 hinted at and could not show.
+**Falsifier.** If `omp+tezgah` and the pooled Stop-off arms end within 0.10 of
+each other and their Wilson intervals overlap, the Stop rule has no measurable
+effect on this task and prediction 1 is wrong. That outcome is a result, not a
+failure to report - it is what E4 hinted at and could not show.
 
 ## 4. What is recorded per row
 
