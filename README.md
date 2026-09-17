@@ -188,7 +188,13 @@ repeat the gate allowed without either writes `repeat-allowed`. The approval is
 `tezgah-consent --last` for the newest ask no grant answers yet - the form that
 costs no copy-paste. The grant lands in the ledger that carries the ask, which is
 the session the gate reads it from, so "who approved what" is a query over the
-ledger rather than a claim about it.
+ledger rather than a claim about it. A command can name its own class with
+`tezgah:effect=<class>` (outward, publish, deploy, schema, destructive) when no
+pattern can see the effect; the declaration holds only at or above the class the
+command text derives, so it can tighten the rule and never loosen it - a
+downgrade is ignored and named in the refusal and the deny row. The declaration
+is read off the raw command, so a trailing `# tezgah:effect=deploy` counts, and a
+command that merely quotes the form is held to it too.
 
 ### App analysis
 

@@ -34,6 +34,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repeat the gate allowed stay three rows in that ledger (`consent`, `grant`,
   `repeat-allowed`) instead of one row meaning all three, and the contract says
   what to put in front of the user when the gate refuses.
+- **A declared effect can only make the gate stricter.** A command that names its
+  own class with `tezgah:effect=<class>` (outward, publish, deploy, schema,
+  destructive) is held to it when it stands at or above the class the command
+  text derives, which is how an effect no pattern can see still gets asked about.
+  A declaration that would stand below it is ignored and named in the refusal, so
+  no command can talk its own class down: a declaration that can loosen the gate
+  reading it is a bypass of that gate.
 - **The domain library ships with tezgah, as one skill.** `skills/ai-research/`
   carries Orchestra Research's `AI-research-SKILLs` (98 skills, 23 categories,
   MIT, revision `773a529`) in the upstream layout, reached as the single
