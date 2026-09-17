@@ -323,7 +323,7 @@ text injected into the session, so the rule actually stops:
 | `research-off` | routing research tasks to OpenResearch |
 | `orchestrate-off` | subagent delegation (adds a do-not-delegate line) |
 | `reminder-off` | the per-turn reminder text |
-| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, grep nudge) |
+| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, loop, grep nudge) |
 
 Per repo, `.no-ponytail`, `.no-cbm` and `.no-lessons` turn off the minimal-code
 rule, the code-graph rule (and its auto-index), and the lessons ledger

@@ -308,6 +308,142 @@ class Gate(TempHome):
         self.assertIsNone(
             self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
 
+    # ---- consent: an irreversible or outward-facing call -------------------
+    def test_a_force_push_denies_once_then_the_identical_call_passes(self):
+        # The gate sees one call and cannot ask the user, so the refusal is the
+        # ask: it lands in the transcript, and the identical command passes on
+        # the next attempt - which is what a user who did ask re-issues.
+        for command in ("git push --force origin main",
+                        "git push -f origin main",
+                        "git push --force-with-lease origin main",
+                        "git push --force-with-lease=origin/main origin main",
+                        "git -C /tmp/repo push --force origin master"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("Consent", reason)
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_a_force_push_to_a_scratch_branch_passes(self):
+        for command in ("git push -f origin tmp/scratch",
+                        "git push --force origin wip-parser",
+                        "git push origin main"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_branch_deletes_deny(self):
+        for command in ("git branch -D main",
+                        "git branch --delete feature",
+                        "git branch -rd origin/feature",
+                        "git push origin --delete feature",
+                        "git push origin -d feature"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("Consent", reason)
+
+    def test_branch_reads_are_not_deletes(self):
+        # `--merged` carries a `d`, so the delete flag is matched by shape
+        for command in ("git branch --merged", "git branch -a",
+                        "git branch --contains HEAD", "git branch -vv"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_rm_rf_outside_the_run_directory_denies(self):
+        for command in ("rm -rf /tmp/scratch",
+                        'rm -rf "%s"' % os.path.join(self.home, "elsewhere"),
+                        "rm -rf ~/Downloads/junk",
+                        "rm -rf ../sibling-artifact",
+                        "rm -rf $BUILD_DIR",
+                        "rm -rf ."):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("Consent", reason)
+
+    def test_a_delete_inside_the_run_directory_passes(self):
+        # both flags are required (`rm -f` / `rm -r` alone are not this rule's),
+        # and a path under the run directory is the agent's own workspace
+        for command in ("rm -rf build", "rm -rf node_modules && npm ci",
+                        'rm -rf "./dist"', "rm -f /tmp/scratch", "rm -r /tmp/x"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_a_migration_or_a_deploy_denies(self):
+        for command in ("alembic upgrade head", "python3 manage.py migrate",
+                        "bin/rails db:migrate", "prisma migrate deploy",
+                        "vercel deploy --prod", "terraform apply -auto-approve",
+                        "kubectl apply -f k8s/",
+                        "npm publish --access public",
+                        "docker push registry/img:tag"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("Consent", reason)
+
+    def test_ordinary_work_passes_the_consent_rule(self):
+        for command in ("npm run build", "pytest -q", "git status",
+                        "docker build -t img .", "alembic revision -m add_col",
+                        "python3 manage.py makemigrations"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_a_message_that_names_an_irreversible_command_passes(self):
+        # the patterns run on the masked text, so a commit message that describes
+        # a force-push or an `rm -rf` is not doing it
+        self.assertIsNone(self.decide("Bash", {
+            "command": 'git commit -m "gate: ask before rm -rf /tmp/x"'}))
+
+    def test_consent_is_a_command_rule(self):
+        # writing a migration file is not applying it
+        self.assertIsNone(self.decide("Write", {
+            "file_path": "migrations/0002_add_col.py",
+            "content": "def upgrade():\n    op.add_column('t', sa.Column('c'))\n"}))
+
+    # ---- secret: a credential on its way into a file -----------------------
+    def test_a_credential_written_to_a_file_denies(self):
+        for command in (
+                'echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY" >> /tmp/run.log',
+                'echo "api_key=sk-live-abc123" > out.txt',
+                "printf 'token=%s\\n' \"$GITHUB_TOKEN\" | tee run.log",
+                'curl --trace-ascii run.log -H "Authorization: Bearer $TOKEN" '
+                "https://api.example.com/x"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("Credential", reason)
+
+    def test_reading_a_credential_or_carrying_it_in_env_passes(self):
+        # the normal work this rule must not touch: a read, a tool with the key
+        # in its environment, and a request that saves only a response body
+        for command in ("echo $OPENROUTER_API_KEY",
+                        "env | grep OPENROUTER_API_KEY",
+                        "OPENROUTER_API_KEY=xyz python3 audit.py",
+                        'curl -H "Authorization: Bearer $TOKEN" '
+                        "https://api.example.com/data",
+                        'curl -H "Authorization: Bearer $TOKEN" -o data.json '
+                        "https://api.example.com/data",
+                        "grep -rn 'api_key=' src/",
+                        "export API_KEY=abc && echo done"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_a_message_about_a_credential_write_passes(self):
+        # a sink only carries its own simple command's text, so adding the files
+        # and committing a message that mentions the shape is not a write
+        self.assertIsNone(self.decide("Bash", {
+            "command": 'git add -A && git commit -m "fix api_key= handling"'}))
+        self.assertIsNone(self.decide("Bash", {"command": "git add .env"}))
+
+    def test_a_credential_write_has_no_repeat_escape(self):
+        # unlike consent, this rule keeps refusing: the deny text names the
+        # rephrase (a name, a length, a fingerprint), so the write is replaced
+        # rather than repeated
+        command = 'echo "api_key=sk-live-abc123" > out.txt'
+        for _ in range(2):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason)
+            self.assertIn("Credential", reason)
+
+    def test_consent_and_secret_are_their_own_rules(self):
+        # `verify-off` removes the shortcut and loop halves only; these are not
+        # the integrity rule's, so they stay armed
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.assertIsNotNone(
+            self.decide("Bash", {"command": "git push --force origin main"}))
+        self.assertIsNotNone(
+            self.decide("Bash", {"command": 'echo "api_key=x" >> log'}))
+
     # ---- ledger rows the gate writes ---------------------------------------
     def test_a_denial_records_the_call_identity_and_the_workspace(self):
         # the PreToolUse writer carries the same id and workspace a PostToolUse
