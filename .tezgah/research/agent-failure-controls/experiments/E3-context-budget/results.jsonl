@@ -1,0 +1,13 @@
+{"id": "core-always-on", "event": "always_on_core", "bytes": 5387, "lines": 81, "keys": []}
+{"id": "session-start", "event": "session_start", "bytes": 6716, "lines": 98, "keys": []}
+{"id": "subagent-start", "event": "subagent_start", "bytes": 1992, "lines": 31, "keys": []}
+{"id": "user-prompt-plain", "event": "user_prompt", "bytes": 961, "lines": 14, "keys": []}
+{"id": "user-prompt-spec", "event": "user_prompt", "bytes": 1727, "lines": 25, "keys": ["spec"]}
+{"id": "user-prompt-consult", "event": "user_prompt", "bytes": 1375, "lines": 20, "keys": ["consult"]}
+{"id": "user-prompt-research", "event": "user_prompt", "bytes": 1556, "lines": 23, "keys": ["research"]}
+{"id": "user-prompt-cbm", "event": "user_prompt", "bytes": 1519, "lines": 23, "keys": ["cbm"]}
+{"id": "lessons-empty", "event": "lessons", "bytes": 0, "lines": 1, "keys": []}
+{"id": "plans-empty", "event": "open_plans", "bytes": 0, "lines": 1, "keys": []}
+{"id": "lessons-200", "event": "lessons", "bytes": 754, "lines": 8, "keys": []}
+{"id": "plans-8", "event": "open_plans", "bytes": 362, "lines": 6, "keys": []}
+{"summary": {"session_start": 6716, "session_start_tokens": 1679, "conditional_over_plain": {"spec": 766, "consult": 414, "research": 595, "cbm": 558}, "lessons_growth": 754, "plans_growth": 362}}

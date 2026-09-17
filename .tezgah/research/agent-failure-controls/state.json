@@ -35,6 +35,12 @@
       "id": "H5",
       "statement": "The ten priority controls in the user's checklist are mostly absent today: the evidence ledger implements the success-language gate, and the rest are prose or nothing.",
       "status": "testing"
+    },
+    {
+      "id": "H6",
+      "statement": "Every context block tezgah injects is static or capped, so the unbounded context in a session comes from the host's history, tool output and MCP schemas rather than from tezgah's own injection.",
+      "status": "supported",
+      "evidence": "experiments/E3-context-budget/results.jsonl, results-exploratory.jsonl"
     }
   ],
   "sessions": [

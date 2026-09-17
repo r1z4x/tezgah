@@ -21,6 +21,11 @@
   success, hidden failure, wrong operation order, unconsented side effect
   (force-push, branch delete, destructive command, dependency install), partial
   failure with no rollback, concurrent write race, secret written to a log.
+- Measured: every context block tezgah injects is static or capped.
+  `session_start` is 6,716 bytes; one conditional rule adds 414-766 bytes; the
+  lessons block is byte-identical at 200 and 400 ledger lines. So the unbounded
+  context in a session is the host's history, tool output and MCP schemas, not
+  tezgah's injection.
 - The ten priority controls are mostly absent: the evidence ledger implements the
   success-language gate, and there are no operation ids, no cycle detector, no
   retry cap, no untrusted-content labelling and no per-trace false-completion

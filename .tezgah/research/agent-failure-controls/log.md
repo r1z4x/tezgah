@@ -3,7 +3,7 @@
 Newest last. One line per decision, experiment, dead end or pivot, with the
 evidence that drove it.
 
-- 2026-09-17 decision: research line opened for the user's 47-mode taxonomy plus
+- 2026-09-17 decision: research line opened for the user's 44-mode taxonomy (plus the ten priority controls) plus
   the ten priority controls; question locked in `state.json`. Evidence: the
   request itself.
 - 2026-09-17 decision: branch `research/agent-failure-controls` off `main`, not
@@ -28,3 +28,16 @@ evidence that drove it.
   with 0/2 controls refused. Instrument defect found and recorded: the summary's
   `mismatches` field compares verified-ledger rows against a per-case label.
   Evidence: `experiments/E2-completion-claim-coverage/results.jsonl`.
+- 2026-09-17 experiment E3 (injected-context budget): `session_start` injects
+  6,716 bytes, a conditional rule adds 414-766 bytes, and the falsifier for the
+  lessons block fired (754 B growth against a 500 B allowance). A post-hoc
+  exploratory measurement settled the question the failed allowance obscured:
+  the lessons block is byte-identical at 200 and 400 ledger lines, so every
+  tezgah-injected block is bounded. Evidence:
+  `experiments/E3-context-budget/results.jsonl`,
+  `results-exploratory.jsonl`.
+- 2026-09-17 decision: seven writers, one per taxonomy group, draft the
+  per-mode control sections against the five scout inventories and the 38
+  fetched paper notes; the router integrates, reviews and verifies them rather
+  than writing all 44 modes in one context. Evidence: this log and
+  `to_human/sections/`.
