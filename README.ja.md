@@ -152,7 +152,7 @@ bin/tezgah-setup --roots ~/work:~/oss --install
 | `bin/tezgah-status [PATH]` | そのリポジトリでルールがアクティブかどうかを表示する |
 | `bin/tezgah-setup --status [PATH]` | 有効化/使用済みのチェックリストを出力する |
 | `bin/tezgah-setup --deps [--dry-run]` | 不足しているオプションツール（orx、cursor-agent、dsh）をインストールする |
-| `bin/tezgah-research init\|check\|status` | 研究ラインを作成・検査する: 状態、findings、クレーム、プロトコル先行のルール |
+| `bin/tezgah-research init\|check\|status\|claim` | 研究ラインを作成・検査する: 状態、findings、クレーム、プロトコル先行のルール |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | ハーネスのディスク使用量を報告する。`--clean` は古いインデックスログを削除し、opencodeのDBをバキュームする。`--prune-sessions` はアイドル状態のセッションを削除する（実際にDBを縮小する唯一のアクション） |
 | `/tezgah:plan-add` | 作業の一部を追跡対象のプランに変換する |
 | `/tezgah:plan-status` | オープンなプランを要約し、次のプランを選択する |

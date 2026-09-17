@@ -240,7 +240,7 @@ d'être connues :
 | `bin/tezgah-status [PATH]` | Afficher si les règles sont actives dans ce dépôt |
 | `bin/tezgah-setup --status [PATH]` | Afficher la liste de contrôle armée/utilisée |
 | `bin/tezgah-setup --deps [--dry-run]` | Installer les outils optionnels manquants (orx, cursor-agent, dsh) |
-| `bin/tezgah-research init\|check\|status` | Crée et vérifie une ligne de recherche : état, findings, claims et la règle protocole-avant-résultats |
+| `bin/tezgah-research init\|check\|status\|claim` | Crée et vérifie une ligne de recherche : état, findings, claims et la règle protocole-avant-résultats |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Signaler l'utilisation du disque par le harnais ; `--clean` supprime les anciens journaux d'index et nettoie (vacuum) la base de données opencode ; `--prune-sessions` supprime les sessions inactives (la seule action qui réduit réellement la base de données) |
 | `/tezgah:plan-add` | Transformer un travail en un plan suivi |
 | `/tezgah:plan-status` | Résumer les plans ouverts et choisir le suivant |

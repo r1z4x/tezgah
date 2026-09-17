@@ -307,7 +307,7 @@ knowing:
 | `bin/tezgah-status [PATH]` | Show whether the rules are active in that repo |
 | `bin/tezgah-setup --status [PATH]` | Print the armed/used checklist |
 | `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
-| `bin/tezgah-research init\|check\|status` | Runs and checks a research line: state, findings, claims, and the protocol-before-results rule |
+| `bin/tezgah-research init\|check\|status\|claim` | Runs and checks a research line: state, findings, claims, and the protocol-before-results rule |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
 | `/tezgah:plan-add` | Turn a piece of work into a tracked plan |
 | `/tezgah:plan-status` | Summarize open plans and pick the next one |

@@ -22,11 +22,21 @@ rest readable a week later: a claim with no falsification criterion or no
 evidence, a claim whose provenance is unstated, a claim whose proof names a path
 this line does not have, results with no analysis, a findings file that answers
 none of the four questions.
+
+A claim enters the file through `append_claim`, not a hand edit: claims.jsonl
+holds every claim of the line, so an unlocked read-modify-write of it can lose
+one of two claims written at the same moment.
 """
 import json
 import os
 import re
 import subprocess
+import time
+
+try:
+    import fcntl
+except ImportError:  # not POSIX: append_claim refuses rather than append unlocked
+    fcntl = None
 
 PHASES = ("bootstrap", "inner", "outer", "concluded")
 DIRECTIONS = ("undecided", "deepen", "broaden", "pivot", "conclude")
@@ -35,6 +45,13 @@ STATUSES = ("hypothesis", "untested", "testing", "supported", "weakened",
             "refuted", "revised")
 FINDINGS_SECTIONS = ("What we know", "Patterns", "Lessons", "Open questions")
 STATE_FILES = ("state.json", "log.md", "findings.md", "claims.jsonl")
+
+# How long an append to claims.jsonl waits for its lock, and how often it
+# retries. The holders are other sessions recording one claim, so the wait is
+# normally microseconds; the bound is what keeps a stuck holder from wedging the
+# session that is recording its evidence. Same values as the ledger's append.
+LOCK_WAIT = 1.0
+LOCK_POLL = 0.01
 
 
 def root(repo):
@@ -207,6 +224,91 @@ def _check_claims(base, errors, warnings, roots=()):
     if not count:
         warnings.append("no claims recorded yet")
     return count
+
+
+def claim_problems(claim, base, repo):
+    """The reasons this claim cannot be recorded, as a list of strings; [] when
+    valid. Exactly the rules `check` applies to a row - a statement, a
+    falsification criterion, a proof, a provenance in PROVENANCE, a status in
+    STATUSES, and every cited path resolving under the line or the repository -
+    so the write path can never refuse a claim the checker would have accepted."""
+    # `check` names an id-less row by its line; a row about to be written has no
+    # line yet, and numbering stays the writer's business.
+    cid = claim.get("id") or "(no id)"
+    problems = []
+    if not str(claim.get("statement", "")).strip():
+        problems.append("claim %s states nothing" % cid)
+    if not str(claim.get("falsification", "")).strip():
+        problems.append("claim %s carries no falsification criterion" % cid)
+    if not claim.get("proof"):
+        problems.append("claim %s cites no evidence" % cid)
+    else:
+        for token in _cited(claim["proof"]):
+            if not _resolves(token, (base, repo)):
+                problems.append("claim %s cites %s, which is not in this line"
+                                % (cid, token))
+    if claim.get("provenance") not in PROVENANCE:
+        problems.append("claim %s provenance %r is not one of %s"
+                        % (cid, claim.get("provenance"), ", ".join(PROVENANCE)))
+    if claim.get("status") not in STATUSES:
+        problems.append("claim %s status %r is not one of %s"
+                        % (cid, claim.get("status"), ", ".join(STATUSES)))
+    return problems
+
+
+def _locked(handle):
+    """None once the exclusive lock on this descriptor is held, else the problem
+    that refuses the append. A holder keeps the lock for one write, so a holder
+    still there after LOCK_WAIT is stuck, and waiting past the bound would wedge
+    the session that is recording its evidence behind it."""
+    if fcntl is None:
+        return "claims.jsonl cannot be locked on this platform"
+    deadline = time.time() + LOCK_WAIT
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return None
+        except OSError:
+            if time.time() >= deadline:
+                return "claims.jsonl is locked by another writer"
+            time.sleep(LOCK_POLL)
+
+
+def append_claim(repo, slug, claim):
+    """(id, problems); problems is [] exactly when the claim was written.
+
+    The lock is the claims.jsonl descriptor itself, so no sidecar lock file
+    appears beside it: a reader lists that directory to find the line's files,
+    and one extra name per line would be a false record there. It dies with the
+    process, so a crash leaves nothing held.
+
+    Where the harness ledger falls back to the unlocked write when its lock
+    cannot be taken, this path refuses and names the reason: a ledger row is a
+    trace and a lost one costs a line, while a claim is evidence, and evidence
+    that raced - one of two claims lost silently, or a half-written line that
+    does not parse - is worse than evidence that was refused.
+
+    Raises FileNotFoundError when the line directory does not exist."""
+    base = line_dir(repo, slug)
+    if not os.path.isdir(base):
+        raise FileNotFoundError(base)
+    problems = claim_problems(claim, base, repo)
+    if problems:
+        return claim.get("id"), problems
+    # Binary, so the last-byte test below reads one byte and not a decoded one.
+    with open(os.path.join(base, "claims.jsonl"), "a+b") as handle:
+        problem = _locked(handle)
+        if problem:
+            return claim.get("id"), [problem]
+        # A last line a hand edit left unterminated must not swallow the claim:
+        # the whole point of this path is a claims.jsonl that parses.
+        handle.seek(0, os.SEEK_END)
+        if handle.tell():
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) != b"\n":
+                handle.write(b"\n")
+        handle.write(json.dumps(claim).encode("utf-8") + b"\n")
+    return claim.get("id"), []
 
 
 def _check_experiments(repo, base, errors, warnings, git):
