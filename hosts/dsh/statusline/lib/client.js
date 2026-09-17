@@ -83,7 +83,11 @@ window.__ModuleLoader__.load({
 									style: { color: STATE_COLOR[seg.state] || "inherit" },
 									children: seg.text + (seg.glyph || "")
 								}),
-								i < data.segments.length - 1 ? "  " : ""
+								i < data.segments.length - 1
+									? (data.segments[i + 1].group === seg.group
+										? " "
+										: "  ·  ")
+									: ""
 							]
 						})
 					),

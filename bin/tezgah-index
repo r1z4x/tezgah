@@ -15,7 +15,13 @@ from tezgah_context import autoindex, repo_root, under  # noqa: E402
 
 
 def main():
-    cwd = os.path.realpath(sys.argv[1] if len(sys.argv) > 1 else os.getcwd())
+    args = sys.argv[1:]
+    # Without this, `--help` is taken as PATH and the index path runs instead of
+    # a usage path, printing the index status and spawning the auto-index.
+    if "-h" in args or "--help" in args:
+        print(__doc__.strip())
+        return 0
+    cwd = os.path.realpath(args[0] if args else os.getcwd())
     if not under(cwd):
         return 0
     print(autoindex(repo_root(cwd)))

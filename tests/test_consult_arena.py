@@ -192,6 +192,18 @@ class StdinPacket(ArenaCase):
         self.assertIn("Usage:", p.stderr)
 
 
+class Help(ArenaCase):
+    """--help is answered locally. Without that arm the flag fell into the
+    question position and the panel answered it as an engineering question."""
+
+    def test_help_prints_usage_and_asks_nobody(self):
+        for flag in ("--help", "-h"):
+            p = self.consult(flag)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("Usage:", p.stdout, flag)
+        self.assertEqual([], Fake.seen)
+
+
 class Stall(threading.Thread):
     """Accepts, sends headers, then sends no body at all.
 

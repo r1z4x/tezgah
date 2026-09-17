@@ -1656,11 +1656,17 @@ def mcp_tool_schemas(command, timeout=30):
 
 
 def mcp_schema_report():
-    """Print the measured schema band for every MCP server tezgah registers."""
+    """Print the measured schema band for every MCP server tezgah registers.
+
+    The app-analysis servers run through `npx`, so measuring them needs node and
+    a (one-time) registry fetch; a server that cannot start is reported as not
+    measured rather than silently left out of the band."""
     servers = []
     cbm = tp.cbm_bin()
     if cbm:
         servers.append(("codebase-memory-mcp", [cbm]))
+    for spec in tezgah_apps.servers(APPS_DEVTOOLS):
+        servers.append((spec["name"], list(spec["command"])))
     print("\nMCP tool-schema band (measured by an initialize + tools/list handshake):")
     total_tools = total_bytes = 0
     for name, command in servers:
@@ -1709,7 +1715,7 @@ def report(hosts):
         ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
          os.path.isdir(tezgah_apps.ARTIFACTS)),
         ("git", bool(shutil.which("git"))),
-        ("local plugin manifest present and consistent (untracked)",
+        ("local plugin manifest consistent when present (untracked)",
          versions_agree()),
     ]
     for label, good in rows:

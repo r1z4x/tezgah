@@ -17,7 +17,7 @@ const HOME = process.env.HOME || ""
 const STATUS = process.env.TEZGAH_STATUS_BIN || `${HOME}/.config/tezgah/bin/tezgah-status`
 const SAFETY_MS = 30000
 
-type Seg = { key: string; state: string; glyph: string; text: string }
+type Seg = { key: string; state: string; glyph: string; text: string; group?: number }
 
 function run(args: string[]): string {
   try {
@@ -73,7 +73,11 @@ function TezgahBar(props: { api: TuiPluginApi }) {
             {/* the whole name+glyph carries the state color, as on every host */}
             <text fg={segmentColor(props.api, s.state)}>{s.text + (s.glyph || "")}</text>
             <text fg={props.api.theme.current.textMuted}>
-              {i() < segs().length - 1 ? "  " : ""}
+              {/* the host's own spacing: one space inside a group, "  ·  "
+                  between groups, exactly as render_line() draws it */}
+              {i() < segs().length - 1
+                ? (segs()[i() + 1].group === s.group ? " " : "  ·  ")
+                : ""}
             </text>
           </box>
         )}

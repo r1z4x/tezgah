@@ -65,6 +65,17 @@ class AgentsBase(TempHome):
 
 
 class Generation(AgentsBase):
+    def test_help_prints_usage_without_generating_agents(self):
+        # --help used to be read as PATH, so the run printed nothing at all.
+        proc = subprocess.run(
+            [sys.executable, os.path.join(support.REPO, "bin", "tezgah-agents"),
+             "--help"],
+            capture_output=True, text=True, env=self.env(), cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("tezgah-agents [PATH]", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, CLAUDE)),
+                         "the help path generated agents")
+
     def test_generates_every_active_role_for_every_file_host(self):
         self.assertIn("4 agent(s)", self.sync())
         for d in (CLAUDE, OPENCODE, CODEX):

@@ -840,6 +840,20 @@ class HealthSegments(TempHome):
         self.assertEqual(states["idx"], "info")       # no cbm_bin in tests
         self.assertEqual([s for s in out if s["key"] == "pony"][0]["glyph"], "\u2713")
 
+    def test_the_group_is_what_a_renderer_separates_on(self):
+        # opencode's TUI and dsh's Web status line build their own line from
+        # this JSON, so the group must be there and must ascend: without it they
+        # cannot tell the flag groups from the per-repo facts.
+        repo = self.make_repo()
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "health_segments", "cwd": repo,
+                              "session_id": "s"}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        groups = [s["group"] for s in out]
+        self.assertEqual(groups, sorted(groups), "groups must be in order")
+        self.assertEqual(groups[:2], [0, 0], "pony and exec lead")
+        self.assertNotEqual(groups[1], groups[-1], "per-repo marks are their own")
+
 
 class RecordKinds(TempHome):
     """record() is the ledger's only writer, and every host classifies every

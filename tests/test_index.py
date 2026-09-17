@@ -110,6 +110,22 @@ class IndexWorker(TempHome):
 
 
 class IndexCli(TempHome):
+    def test_help_prints_usage_and_starts_no_index(self):
+        # --help used to be taken as PATH: the run printed the index status and
+        # spawned the auto-index worker for a directory that does not exist.
+        fake = os.path.join(self.home, "fake-cbm")
+        with open(fake, "w") as fh:
+            fh.write(FAKE)
+        os.chmod(fake, 0o755)
+        log = os.path.join(self.home, "calls.log")
+        env = self.env(extra={"TEZGAH_CBM_BIN": fake, "FAKE_CBM_LOG": log,
+                              "FAKE_CBM_COUNTER": os.path.join(self.home, "counter")})
+        proc = subprocess.run([sys.executable, CLI, "--help"], capture_output=True,
+                              text=True, env=env, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("tezgah-index [PATH]", proc.stdout)
+        self.assertFalse(os.path.exists(log), "an index worker was spawned anyway")
+
     def test_outside_roots_is_silent(self):
         proc = subprocess.run([sys.executable, CLI, self.home],
                               capture_output=True, text=True, env=self.env(),

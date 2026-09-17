@@ -193,6 +193,12 @@ VALUE_FLAGS = ("--provider", "--models", "--timeout", "--judge")
 
 def main():
     args = sys.argv[1:]
+    # Before the loop: an unrecognized flag falls through to the `question is
+    # None` arm below and the flag text becomes the prompt, so `--help` used to
+    # spend a paid panel call and print no usage.
+    if "-h" in args or "--help" in args:
+        print(__doc__.strip())
+        return 0
     provider, models, timeout, question, judge = "openrouter", None, 120, None, None
     online, referee = False, True
     i = 0

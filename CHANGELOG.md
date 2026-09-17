@@ -6,6 +6,43 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`--help` no longer costs a paid call on `consult`, and no longer runs the
+  work on `tezgah-agents` and `tezgah-index`.** None of the three had a help
+  arm, so the flag landed in the positional argument. `consult --help` sent the
+  flag text to the panel as an engineering question and printed no usage;
+  `tezgah-agents --help` read it as a PATH and regenerated the repo's subagent
+  set (or printed nothing when that path did not resolve); `tezgah-index --help`
+  printed the index status and spawned the auto-index worker. All three answer
+  `-h`/`--help` with the usage in their docstring now, and one test per tool
+  holds it.
+
+- **`tezgah-setup --mcp-schemas` measures every server tezgah registers.** It
+  reported the graph server alone while its docstring promised every server, so
+  the band it printed (15 tools / 24,508 bytes / ~6.1k tokens) left out the two
+  app-analysis servers that ride every request in the Claude, Codex, Cursor and
+  opencode configs. Measured on this machine the band is 73 tools / 74,390 bytes
+  / ~18.6k tokens; a server that cannot start is reported as not measured.
+
+- **The status line's own renderers separate the mark groups.** opencode's TUI
+  plugin and dsh's Web status line build their line from `tezgah-status --json`,
+  which carried no group, so both drew every mark with the same spacing and
+  dropped the `  ·  ` that `render_line()` puts between the always-on switches,
+  the on-demand capabilities and the per-repo facts. Each segment carries its
+  `group` now and both renderers use it, so the four surfaces read the same.
+
+### Changed
+
+- **`tezgah-setup --report` no longer claims the local plugin manifest is
+  present.** The row read "present and consistent" while its predicate also
+  passes on an absent pair - the manifest is the maintainer's untracked file, so
+  absence is normal. It reads "consistent when present".
+
+- **`hooks/projects-posttooluse.py` and `hooks/projects-stop.py` are executable
+  like the other two hook scripts.** Both manifests invoke every hook as `python3
+  "<path>"`, so no wiring was broken; only the file mode was wrong.
+
 ## [0.10.0] - 2026-09-18
 
 ### Changed

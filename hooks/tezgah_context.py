@@ -1027,7 +1027,12 @@ def plan_mark(cwd, base):
     return None
 
 
-_FLAG_KEYS = ("pony", "exec", "consult", "research", "cbm", "orch")
+# The marks read in groups, "  ·  " between them: the two always-on switches,
+# the on-demand capabilities, then the per-repo facts (idx, and the plan count
+# as its own). The group rides each segment so a renderer that builds its own
+# line from --json (opencode's TUI plugin, dsh's Web status line) separates them
+# the same way instead of keeping a second copy of the partition.
+_GROUP = {"pony": 0, "exec": 0, "consult": 1, "research": 1, "cbm": 1, "orch": 1}
 GLYPHS = {"on": "✓", "ready": "○", "off": "✗", "info": ""}
 # ANSI foreground for each state: green in force, yellow on-demand, red off,
 # dim for a mark that carries no state (idx n/a, the plan count).
@@ -1051,12 +1056,15 @@ Outside a tezgah root the per-repo extras (idx, plans) are omitted.
 def health_segments(cwd, session_id=None, used_override=None, idx_override=None):
     """The armed/used checklist as structured segments, host-neutral.
 
-    Each segment is {"key", "state", "glyph", "text"} with state in
+    Each segment is {"key", "state", "glyph", "text", "group"} with state in
     {on, ready, off, info}; `text` is the human name and `glyph` the mark. Hosts
     that can color (Claude/Cursor ANSI, opencode TUI, dsh Web, omp's widget
     path) map `state` to a color; hosts that cannot (Codex systemMessage, omp's
     setStatus) render text+glyph plain. `health_lines()` renders this to the
-    exact plain string for the rest.
+    exact plain string for the rest. `group` is the separator's own datum (see
+    _GROUP): a renderer that builds its line from this JSON inserts "  ·  "
+    between groups and one space inside one, so it matches `health_lines()`
+    without keeping a second copy of the partition.
 
     Global, not root-scoped: tezgah ships as a globally loaded instructions file
     on opencode, so the indicator must not go silent off-root; the per-repo
@@ -1087,16 +1095,17 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None)
             state = "on"
         else:
             state = "ready"
-        segs.append({"key": name, "state": state, "glyph": GLYPHS[state], "text": name})
+        segs.append({"key": name, "state": state, "glyph": GLYPHS[state],
+                     "text": name, "group": _GROUP[name]})
     if base:
         glyph = (idx_override if idx_override is not None
                  else index_mark(cwd, base))
         segs.append({"key": "idx", "state": IDX_STATE.get(glyph, "info"),
-                     "glyph": glyph, "text": "idx"})
+                     "glyph": glyph, "text": "idx", "group": 2})
         plan = plan_mark(cwd, base)
         if plan:
             segs.append({"key": "plans", "state": "ready" if "blk" in plan else "info",
-                         "glyph": "", "text": plan})
+                         "glyph": "", "text": plan, "group": 3})
     return segs
 
 
@@ -1121,14 +1130,11 @@ def _seg_text(seg, color):
 
 def render_line(segs, color=False):
     """Render segments to the one-line status string; `color` adds ANSI."""
-    flags = [s for s in segs if s["key"] in _FLAG_KEYS]
     sep = (DIM + "  \u00b7  " + RESET) if color else "  \u00b7  "
-    line = (" ".join(_seg_text(s, color) for s in flags[:2])
-            + sep + " ".join(_seg_text(s, color) for s in flags[2:]))
-    extra = [_seg_text(s, color) for s in segs if s["key"] in ("idx", "plans")]
-    if extra:
-        line += sep + sep.join(extra)
-    return line
+    groups = {}
+    for seg in segs:
+        groups.setdefault(seg.get("group", 0), []).append(_seg_text(seg, color))
+    return sep.join(" ".join(chips) for _, chips in sorted(groups.items()))
 
 
 def health_lines(cwd, session_id=None, used_override=None, color=False,
