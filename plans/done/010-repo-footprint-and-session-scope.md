@@ -1,7 +1,7 @@
 ---
 id: 010
 title: Stop touching the user's repo and nagging about tezgah itself
-status: open
+status: done
 branch: plan/010-repo-footprint-and-session-scope
 pr:
 created: 2026-09-17
@@ -55,7 +55,8 @@ files/health inside a project session.
       pass on the committed tip, re-run from a detached worktree.
 
 ## State
-Landed on `plan/010-repo-footprint-and-session-scope`, tip `cbe2bae`:
+Landed on `plan/010-repo-footprint-and-session-scope` (tip `583695e`), merged
+into main as `00eef9c`:
 `801dcfa` exclude instead of .gitignore + silent steady state, `ed11e20` the
 Session scope rule and the dropped install directives, `99c1ad8` codegen's
 end-to-end deadline, `08b77cc` the re-measured README bands, `cbe2bae` the
@@ -70,15 +71,17 @@ switched branches mid-task and stashed the in-progress half of `cbe2bae` - it wa
 recovered from `stash@{0}`, and the remaining work was done in a throwaway
 worktree so it could not be swept again.
 
-Not done, by decision: no push and no PR (outward-facing, awaiting the user), and
-the two upstream items the session report raised are external - the
-codebase-memory-mcp daemon lock is an upstream bug (the graph answers fine in
-this session), and the `idx✓` mark reports index freshness, not daemon health,
-so it stays as documented rather than paying a health probe on every redraw.
+Not done, by decision: the two upstream items the session report raised are
+external - the codebase-memory-mcp daemon lock is an upstream bug (the graph
+answers fine in this session), and the `idx✓` mark reports index freshness, not
+daemon health, so it stays as documented rather than paying a health probe on
+every redraw.
 
 ## Next
-Push the branch and open the PR (or leave it local), then run
-`tezgah-setup --install` on this machine: the always-on core changed, so
-`~/.omp/agent/RULES.md` and the Claude output-style copy only pick up the
-Session scope rule from that install.
+MERGED into main (`00eef9c`) and pushed, so there is no next action on the code.
+Two follow-ups for the machine, not for the branch: run `tezgah-setup --install`
+so the installed always-on copies (`~/.omp/agent/RULES.md`, the Claude
+output-style copy) pick up the Session scope rule, and revert tezgah's stale
+`.gitignore` block in any repo that still carries it
+(`git -C <repo> checkout -- .gitignore`).
 
