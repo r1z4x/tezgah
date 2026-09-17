@@ -1,9 +1,9 @@
 ---
 id: 011
 title: Bring agent-arena's critique discipline into consult
-status: open
+status: done
 branch: plan/011-consult-arena-rules
-pr:
+pr: 20
 created: 2026-09-17
 updated: 2026-09-17
 ---
@@ -65,8 +65,11 @@ two no-key notices. Four cases were added for the field list, the `empty` class,
 the `CONSULT_JUDGE` default and the scheme-less endpoint, plus one that stalls a
 server to pin the timeout class: 13 in the file, 449 in the suite.
 
-`~/.config/tezgah/bin/consult` symlinks to the main checkout, so the live tool
-picks this up only once this branch is on `main`.
+`~/.config/tezgah/bin/consult` symlinks into the checkout's working tree, so the
+live tool follows whichever branch that checkout has: the shared checkout was
+moved to `main` for this to take effect.
+
+merged PR #20 on 2026-09-17T11:29:04Z
 
 ## Not adopted, with reasons
 - Multi-round stateful debate (independent -> critique -> revise -> blind judge):
@@ -87,5 +90,4 @@ picks this up only once this branch is on `main`.
   hosts than their plain markdown does.
 
 ## Next
-Open the PR (`plan/011-consult-arena-rules` -> `main`) once the independent
-review of the diff is clean.
+Merged in PR #20; nothing outstanding.
