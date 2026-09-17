@@ -88,3 +88,13 @@ failure to report - it is what E4 hinted at and could not show.
 the arm's `toggle`. The route a run took is visible in `changed_files`: the
 correct route edits `src/pricing.py`'s call site, the wrong one rewrites the
 shared helper in `src/money.py` and flips the tax.
+
+## 5. Execution
+
+Runs execute in a pool of 10 jobs, each job holding 5 consecutive repeats, so 20
+jobs over the four arms instead of one job per arm. The number and identity of
+runs is unchanged - same arms, same task, repeats 1..25, same model - and only
+the execution granularity moves. `bench.py` skips repeats already recorded in its
+results file, so a stopped block resumes instead of re-spending; the earlier
+start of this block was stopped after seven minutes for this change and its rows
+are reused.

@@ -490,7 +490,7 @@ def cmd_run(args) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     recorded = set() if args.force else existing_cells(out, arm["name"], args.task, args.model)
     rows = []
-    for repeat in range(1, args.repeat + 1):
+    for repeat in range(args.repeat_from, args.repeat + 1):
         if repeat in recorded:
             print(f"{arm['name']:22s} {args.task:24s} r{repeat} skip "
                   f"(already in {out})")
@@ -674,6 +674,8 @@ def main() -> int:
     p.add_argument("--arm", required=True)
     p.add_argument("--task", required=True)
     p.add_argument("--repeat", type=int, default=1)
+    p.add_argument("--repeat-from", type=int, default=1,
+                   help="first repeat to run; lets a block split one cell's repeats across parallel jobs")
     p.add_argument("--model", required=True)
     p.add_argument("--timeout", type=int, default=600)
     p.add_argument("--results", default=str(ROOT / "results.jsonl"))

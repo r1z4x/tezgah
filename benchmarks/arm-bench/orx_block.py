@@ -24,7 +24,8 @@ ROOT = pathlib.Path(__file__).resolve().parent
 MODEL = "openrouter/deepseek/deepseek-v4-flash"
 REPEATS = 25
 TIMEOUT = 300
-PARALLEL = 6
+PARALLEL = 10
+CHUNK = 5
 ANCHOR = "omp-bare"
 
 
@@ -65,17 +66,21 @@ def main() -> int:
         print("arm      %-19s harness=%-8s toggle=%s"
               % (arm["name"], arm["harness"], arm.get("toggle", "")[:110]))
 
-    jobs = [(task, arm["name"]) for task in tasks for arm in arms]
-    print("cells    %d (%d tasks x %d arms), %d in parallel"
-          % (len(jobs), len(tasks), len(arms), min(PARALLEL, len(jobs))))
+    jobs = [(task, arm["name"], lo)
+            for task in tasks for arm in arms
+            for lo in range(1, REPEATS + 1, CHUNK)]
+    print("cells    %d (%d tasks x %d arms), %d jobs of %d repeats, %d in parallel"
+          % (len(tasks) * len(arms), len(tasks), len(arms), len(jobs), CHUNK,
+             min(PARALLEL, len(jobs))))
 
     def run(job):
-        task, arm = job
-        results = str(out / ("%s.%s.jsonl" % (task, arm)))
+        task, arm, lo = job
+        hi = min(lo + CHUNK - 1, REPEATS)
+        results = str(out / ("%s.%s.r%d-%d.jsonl" % (task, arm, lo, hi)))
         proc = subprocess.run(
             [sys.executable, str(ROOT / "bench.py"), "run", "--arm", arm,
-             "--task", task, "--repeat", str(REPEATS), "--model", MODEL,
-             "--results", results, "--timeout", str(TIMEOUT)],
+             "--task", task, "--repeat", str(hi), "--repeat-from", str(lo),
+             "--model", MODEL, "--results", results, "--timeout", str(TIMEOUT)],
             cwd=ROOT, capture_output=True, text=True)
         return task, arm, proc.returncode, proc.stdout.strip().splitlines()[-1:] or [""]
 
