@@ -1,23 +1,12 @@
 <p align="center">
   <a href="README.md">English</a> |
   <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
   <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.no.md">Norsk</a> |
   <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a>
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 # Tezgah
@@ -68,7 +57,7 @@
 - **无障碍优先的应用分析。** 运行中的 Web 或移动应用通过其无障碍 / DOM / 原生视图树进行读取，而不是每步截取一张屏幕截图。`analyze-app` 涵盖浏览器（Playwright MCP）、iOS 模拟器或 Android 模拟器（Mobile MCP），以及可选的 Web 诊断（Chrome DevTools MCP）；屏幕截图是针对视图树无法回答的问题而采取的明确的、按需执行的操作。
 - **外部第二意见。** 在进行非平凡或难以撤销的调用之前，`~/.config/tezgah/bin/consult` 会通过 OpenRouter（或使用 `--provider deepseek` 的 DeepSeek API）并行询问独立的模型，然后代理会报告它们达成一致或存在分歧的地方。
 - **通过 OpenResearch 进行研究。** 当路由器判断一项任务属于研究时——文献综述、形成和测试假设、运行实验、研究产物——它会通过 alphaXiv 的 OpenResearch (`orx`) 驱动工作，并首先加载 `orx` 手册，而不是临时拼凑协议。纯代码发现仍保留在代码图谱上。当缺少 `orx` 时，路由器会说明情况并回退到宿主子代理。
-  实验所需的领域知识也一并提供：vendored 的 `AI-research-SKILLs` 库（98 个技能、23 个分类、MIT）作为 `ai-research`
+  实验所需的领域知识也一并提供：仓库内置的 `AI-research-SKILLs` 库（98 个技能、23 个分类、MIT）作为 `ai-research`
   技能随附，按阶段索引逐条读取。
 - **验证下的诚实。** 除非看到了输出结果，否则绝不报告已完成、已测试或已修复。失败的测试会如实报告为失败并附上确切的错误信息，跳过的检查也会被清楚地说明。
 - **任何地方都没有 AI 署名。** 任何持久化或发布的内容——提交、合并和标签信息、PR 和 issue 文本、代码注释、文件头、文档——都不得归功于助手、模型、供应商或“AI”。使用工具没问题；把它的名字签在你的工作成果上则不行。

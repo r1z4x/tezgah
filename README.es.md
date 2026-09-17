@@ -1,23 +1,12 @@
 <p align="center">
   <a href="README.md">English</a> |
   <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
   <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.no.md">Norsk</a> |
   <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a>
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 # Tezgah
@@ -98,7 +87,7 @@ mismo texto cinco veces.
   código simple se mantiene en el grafo de código. Cuando `orx` está ausente, el enrutador lo indica
   y recurre a un subagente del host.
   El conocimiento de dominio que necesita un experimento viaja con él: la biblioteca
-  `AI-research-SKILLs` vendorizada (98 skills, 23 categorías, MIT) llega como skill
+  `AI-research-SKILLs` integrada (98 skills, 23 categorías, MIT) llega como skill
   `ai-research` y se lee entrada por entrada desde su índice por etapas.
 - **Honestidad bajo verificación.** Nada se reporta como hecho, probado o arreglado
   a menos que se haya visto el resultado. Una prueba fallida se reporta como fallida con su

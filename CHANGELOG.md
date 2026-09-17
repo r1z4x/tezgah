@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The README translations are reduced to six languages plus Turkish** -
+  English, 简体中文, Deutsch, Español, Français, 日本語, Português (Brasil), Türkçe -
+  and every remaining file's language switcher lists exactly that set. The
+  eleven dropped translations (বাংলা, Bosanski, Dansk, Italiano, 한국어, Norsk, Polski,
+  Русский, ไทย, Українська, 繁體中文) stay in git history; English is still the
+  source of truth. The one sentence each translation carries about the shipped
+  library was re-read through `consult --online`: the French, Spanish, Italian
+  and Brazilian Portuguese lines no longer carry a "vendored" loan word, and the
+  Chinese line says 仓库内置的 rather than an inline English term.
+- A copy of the plugin (the tree Claude Code actually runs) now syncs past a
+  path that is deleted in the working tree but not yet staged in the index;
+  `ls-files` still lists it, and copying it crashed `--sync` and `--install`
+  (hit while the README translations were reduced).
+
 ### Added
 
 - **The domain library ships with tezgah, as one skill.** `skills/ai-research/`
