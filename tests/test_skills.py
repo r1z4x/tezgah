@@ -51,6 +51,23 @@ class SkillStandards(unittest.TestCase):
         cls.apps = load("tezgah_apps", os.path.join(support.HOOKS, "tezgah_apps.py"))
         cls.policy = load("tezgah_policy", os.path.join(support.HOOKS, "tezgah_policy.py"))
 
+    def test_every_shipped_skill_name_resolves_to_its_skill_file(self):
+        # A name in the installer's SKILLS list whose SKILL.md was never written
+        # links a dangling path into every host at once and still reported as
+        # installed, because the check asked `islink` and a link to nothing is a
+        # link. Pin the name list against the files it claims.
+        import importlib.machinery
+        name = "tezgah_setup_under_test"
+        loader = importlib.machinery.SourceFileLoader(
+            name, os.path.join(support.REPO, "bin", "tezgah-setup"))
+        spec = importlib.util.spec_from_loader(name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        missing = [s for s in mod.SKILLS
+                   if not os.path.isfile(os.path.join(SKILLS, s, "SKILL.md"))]
+        self.assertEqual(missing, [],
+                         "SKILLS names a skill with no SKILL.md: %s" % missing)
+
     def bootstrap_step(self):
         """The numbered bootstrap step, whatever number it carries."""
         m = re.search(r"\n\d+\.\s*Bootstrap(.*?)(?=\n\d+\.\s|\Z)",

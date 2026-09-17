@@ -4,6 +4,13 @@ at the root covers tezgah's own files; the copies below keep their original term
 skills/no-ai-slop  - MIT, Peter Yang, https://github.com/petergyang/no-ai-slop
 skills/ponytail    - MIT. Origin not recorded at vendoring time; if you are the
                      author, open an issue and the attribution will be corrected.
+skills/i-have-adhd - MIT, ayghri, https://github.com/ayghri/i-have-adhd.
+                     Adapted for tezgah: the ten rules are kept and two are
+                     rewritten (the state restatement points at the todo list
+                     instead of duplicating it, and a time estimate is marked
+                     as an estimate), the user-invocation frontmatter is
+                     dropped so the skill is model-invocable from the router,
+                     and the trigger phrases are tezgah's.
 skills/research    - MIT, Orchestra Research. Adapts the orchestration layer of
                      its AI-research-SKILLs library (the autoresearch,
                      ara-rigor-reviewer and ara-research-manager skills):

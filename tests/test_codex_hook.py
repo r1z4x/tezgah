@@ -26,6 +26,19 @@ class CodexHook(TempHome):
         self.assertIn("systemMessage", out)
         self.assertIn("tezgah", out["systemMessage"])
 
+    def test_the_status_line_does_not_claim_a_skill_was_never_opened(self):
+        # Codex sees only the tool calls its hook fires on, so the two
+        # skill-read marks state nothing instead of "armed, unused": a host that
+        # cannot observe the read has no business claiming the skill is unread.
+        repo = self.make_repo()
+        out, proc = run_json([support.CODEX_HOOK],
+                             {"hook_event_name": "SessionStart", "cwd": repo,
+                              "session_id": "s"}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        seg = out["systemMessage"]
+        self.assertIn("pony", seg)
+        self.assertNotIn("pony\u25cb", seg)
+
     def test_outside_roots_reports_status_without_context(self):
         # The status segment is a global indicator (tezgah loads globally where
         # it ships as an instructions file), so it prints off-root too; the

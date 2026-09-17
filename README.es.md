@@ -63,7 +63,20 @@ mismo texto cinco veces.
 - **Código mínimo (ponytail).** El cambio más perezoso que realmente funcione: YAGNI,
   luego reutilizar un helper existente, luego stdlib, luego una característica nativa de la plataforma,
   luego una dependencia instalada, luego una línea. Sin abstracciones no solicitadas.
-  La validación, el manejo de errores y la seguridad nunca se simplifican ni se omiten.
+  La validación, el manejo de errores y la seguridad nunca se simplifican ni
+  se omiten. El nivel de intensidad es un interruptor real -
+  `tezgah-pony lite|full|ultra`, o `/tezgah:ponytail` en Claude - y un nivel
+  no predeterminado viaja en el recordatorio por turno.
+- **Forma de salida accionable (i-have-adhd).** La respuesta o la siguiente
+  acción está en la primera línea; el trabajo de varios pasos es una lista
+  numerada que reafirma su posición en una línea mientras se ejecuta; los
+  temas tangenciales esperan a que termine el asunto en curso; los errores se
+  leen como ubicación, causa, solución; una lista muestra como máximo cinco
+  elementos clasificados y el resto se guarda en reserva; una estimación va en
+  unidades concretas y se marca como estimación. El interruptor es
+  `tezgah-adhd off|on` (o `/tezgah:adhd` en Claude; un repositorio puede
+  desactivarla con `.no-adhd`). Incluido (vendored) y adaptado de
+  `i-have-adhd` (MIT).
 - **Descubrimiento priorizando el grafo de código.** "Dónde está X", "quién llama a Y", "qué se rompe si
   Z cambia" van al grafo `codebase-memory-mcp` (`search_graph`,
   `trace_path`, `search_code`), no a grep. Grep sigue siendo adecuado para texto literal,
@@ -245,6 +258,18 @@ Nada que ejecutar: las reglas se cargan cuando se inicia un host. Vale la pena c
 | `bin/tezgah-setup --version` | Imprimir la versión del plugin |
 | `bin/tezgah-setup --uninstall` | Eliminar solo los enlaces simbólicos de tezgah, las entradas de hooks del host y el bloque administrado de dsh |
 
+La línea de estado marca cada regla con su estado primero: una marca de
+verificación significa armada y en vigor en esta sesión (o always-on), un
+círculo significa armada pero bajo demanda - aún no usada en esta sesión - y
+una cruz significa desactivada por un interruptor de apagado o una marca
+`.no-*`. `pony` y `adhd` se leen como círculo hasta que la sesión haya leído
+realmente el texto completo de esa habilidad, y como marca de verificación
+después; en Claude, opencode y omp esa lectura es observable, mientras que en
+codex, cursor y dsh no lo es a un coste aceptable, así que allí esas dos
+marcas se muestran atenuadas y sin glifo: la línea no afirma nada en lugar de
+declarar que la habilidad nunca se abrió. Un interruptor de apagado sigue
+mostrándose en rojo en todas partes.
+
 <a id="configuration"></a>
 
 ## Configuración
@@ -262,6 +287,7 @@ texto inyectado en la sesión, por lo que la regla realmente se detiene:
 |---|---|
 | `exec-mode.off` | informes en turco centrados en los resultados |
 | `ponytail-auto.off` | la regla de código mínimo |
+| `adhd-off` | la forma de salida accionable (i-have-adhd) |
 | `spec-off` | la regla de especificación antes de construir |
 | `consult-off` | la regla de segunda opinión externa |
 | `research-off` | el enrutamiento de tareas de investigación a OpenResearch |
@@ -269,8 +295,9 @@ texto inyectado en la sesión, por lo que la regla realmente se detiene:
 | `reminder-off` | el texto de recordatorio por turno |
 | `pretooluse-off` | la puerta PreToolUse en sí (atribución, explorador, empujón de grep) |
 
-Por repositorio, `.no-ponytail`, `.no-cbm` y `.no-lessons` desactivan la regla de código mínimo,
-la regla del grafo de código (y su auto-indexación) y el registro de lecciones
+Por repositorio, `.no-ponytail`, `.no-adhd`, `.no-cbm` y `.no-lessons`
+desactivan la regla de código mínimo, la forma de salida accionable, la regla
+del grafo de código (y su auto-indexación) y el registro de lecciones
 respectivamente.
 
 Cuando el usuario señala un error, el agente añade una lección de una línea a `.tezgah/lessons.md`
@@ -421,6 +448,6 @@ a texto de instrucciones está dentro del alcance. Incluye el host, la versión 
 
 ## Licencia
 
-El archivo `LICENSE` (MIT) en la raíz cubre los propios archivos de tezgah. `skills/ponytail` y
-`skills/no-ai-slop` se incluyen (vendored) bajo sus propios términos MIT, registrados en
+El archivo `LICENSE` (MIT) en la raíz cubre los propios archivos de tezgah. `skills/ponytail`,
+`skills/no-ai-slop` y `skills/i-have-adhd` se incluyen (vendored) bajo sus propios términos MIT, registrados en
 `NOTICE`.

@@ -21,7 +21,8 @@ import sys
 # real file to find the plugin it ships with before importing the shared core
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "hooks"))
-from tezgah_context import (LEGEND, color_default, health_segments, render_line,
+from tezgah_context import (LEGEND, TOOL_USE_MEASURES, color_default,
+                            health_segments, render_line, skill_read_kind,
                             used as used_kinds)  # noqa: E402
 
 HOME = os.path.expanduser("~")
@@ -87,7 +88,10 @@ def claude_used():
             if not isinstance(b, dict) or b.get("type") != "tool_use":
                 continue
             name = b.get("name", "")
-            if name.startswith("mcp__codebase-memory-mcp__"):
+            read_kind = skill_read_kind(name, b.get("input"))
+            if read_kind:
+                used.add(read_kind)
+            elif name.startswith("mcp__codebase-memory-mcp__"):
                 used.add("cbm")
             elif name in ("Task", "Agent"):
                 used.add("orch")
@@ -98,8 +102,11 @@ def claude_used():
 
 
 seen = used_kinds(payload.get("session_id")) if HOST == "cursor" else claude_used()
+# Cursor's line reads tezgah's store, which sees the tool calls its hook fires on
+# and nothing else; Claude's transcript carries the skill reads too.
+observable = TOOL_USE_MEASURES if HOST == "cursor" else None
 segs = health_segments(real or os.getcwd(), payload.get("session_id"),
-                       used_override=seen)
+                       used_override=seen, observable=observable)
 # Claude Code and Cursor render ANSI; let a user or a plain terminal opt out.
 color = color_default()
 seg = render_line(segs, color=color)

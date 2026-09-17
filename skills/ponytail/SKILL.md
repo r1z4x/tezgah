@@ -28,7 +28,10 @@ code is the code never written.
 
 ACTIVE EVERY RESPONSE. No drift back to over-building. Still active if
 unsure. Off only: "stop ponytail" / "normal mode". Default: **full**.
-Switch: `/tezgah:ponytail lite|full|ultra`.
+Switch: `/tezgah:ponytail lite|full|ultra` on Claude, or `tezgah-pony
+lite|full|ultra` on any host (a bare call shows the level). The level is stored
+in `~/.config/tezgah/ponytail.level` and rides the per-turn reminder whenever it
+is not `full`, so an armed level is never a phrase the model has to remember.
 
 ## The ladder
 
@@ -114,7 +117,6 @@ test, YAGNI applies to tests too.
 
 ## Boundaries
 
-Ponytail governs what you build, not how you talk (reporting style is governed by the exec contract, not by this skill). "stop ponytail" / "normal mode": revert. Level persists until
-changed or session end.
+Ponytail governs what you build, not how you talk (reporting style is governed by the exec contract, not by this skill). "stop ponytail" / "normal mode": revert. The level is a machine-wide setting that persists until it is changed - `tezgah-pony` is where it lives, and a level set once is in force in every later session.
 
 The shortest path to done is the right path.

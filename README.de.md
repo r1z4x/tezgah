@@ -64,6 +64,19 @@ desselben Textes.
   dann Wiederverwendung eines vorhandenen Helfers, dann stdlib, dann eine native Plattformfunktion,
   dann eine installierte Abhängigkeit, dann ein Einzeiler. Keine ungefragten Abstraktionen.
   Validierung, Fehlerbehandlung und Sicherheit werden niemals wegvereinfacht.
+  Der Intensitätsgrad ist ein echter Schalter - `tezgah-pony lite|full|ultra`,
+  oder `/tezgah:ponytail` auf Claude - und ein Nicht-Standard-Grad fährt im
+  Erinnerungstext pro Zug mit.
+- **Umsetzbare Ausgabeform (i-have-adhd).** Die Antwort oder die nächste
+  Aktion steht in der ersten Zeile; mehrstufige Arbeit ist eine nummerierte
+  Liste, die ihre Position während des Laufs in einer Zeile erneut nennt;
+  Abschweifungen warten, bis das laufende Thema beendet ist; Fehler lesen sich
+  als Ort, Ursache, Behebung; eine Liste zeigt höchstens fünf geordnete
+  Punkte, der Rest bleibt in Reserve statt zu entfallen; eine Schätzung steht
+  in konkreten Einheiten und ist als Schätzung gekennzeichnet. Der Schalter ist
+  `tezgah-adhd off|on` (oder `/tezgah:adhd` auf Claude; ein Repo kann ihn mit
+  `.no-adhd` selbst abschalten). Bereitgestellt (vendored) und angepasst aus
+  `i-have-adhd` (MIT).
 - **Code-Graphen-basierte Entdeckung zuerst.** „Wo ist X“, „wer ruft Y auf“, „was geht kaputt, wenn
   sich Z ändert“ gehen an den `codebase-memory-mcp`-Graphen (`search_graph`,
   `trace_path`, `search_code`), nicht an Grep. Grep bleibt richtig für wörtlichen Text,
@@ -245,6 +258,18 @@ Nichts auszuführen: Die Regeln werden geladen, wenn ein Host startet. Ein paar 
 | `bin/tezgah-setup --version` | Druckt die Plugin-Version |
 | `bin/tezgah-setup --uninstall` | Entfernt nur die Symlinks von tezgah, Host-Hook-Einträge und den von dsh verwalteten Block |
 
+Die Statuszeile markiert jede Regel mit ihrem Zustand zuerst: ein Haken
+bedeutet scharfgeschaltet und in dieser Sitzung in Kraft (oder immer aktiv),
+ein Kreis bedeutet scharfgeschaltet, aber auf Anfrage - in dieser Sitzung noch
+nicht genutzt - und ein Kreuz bedeutet durch einen Kill-Switch oder eine
+`.no-*`-Marke abgeschaltet. `pony` und `adhd` lesen sich als Kreis, bis die
+Sitzung den Volltext dieser Skill tatsächlich gelesen hat, danach als Haken;
+auf Claude, opencode und omp ist dieses Lesen beobachtbar, auf codex, cursor
+und dsh dagegen nicht zu vertretbaren Kosten, dort werden diese beiden Marken
+gedimmt und ohne Symbol dargestellt: die Zeile sagt nichts, statt zu behaupten,
+die Skill sei nie geöffnet worden. Ein Kill-Switch erscheint weiterhin überall
+rot.
+
 <a id="configuration"></a>
 
 ## Konfiguration
@@ -262,6 +287,7 @@ in die Sitzung injizierten Text, sodass die Regel tatsächlich stoppt:
 |---|---|
 | `exec-mode.off` | Türkische, ergebnisorientierte Berichterstattung |
 | `ponytail-auto.off` | die Minimal-Code-Regel |
+| `adhd-off` | die umsetzbare Ausgabeform (i-have-adhd) |
 | `spec-off` | die Spezifikation-vor-dem-Bauen-Regel |
 | `consult-off` | die Externe-Zweitmeinung-Regel |
 | `research-off` | das Weiterleiten von Forschungsaufgaben an OpenResearch |
@@ -269,8 +295,9 @@ in die Sitzung injizierten Text, sodass die Regel tatsächlich stoppt:
 | `reminder-off` | den Erinnerungstext pro Zug |
 | `pretooluse-off` | das PreToolUse-Gate selbst (Zuschreibung, Explorer, Grep-Nudge) |
 
-Pro Repo schalten `.no-ponytail`, `.no-cbm` und `.no-lessons` die Minimal-Code-Regel,
-die Code-Graphen-Regel (und ihren Auto-Index) bzw. das Lektionen-Ledger aus.
+Pro Repo schalten `.no-ponytail`, `.no-adhd`, `.no-cbm` und `.no-lessons` die
+Minimal-Code-Regel, die umsetzbare Ausgabeform, die Code-Graphen-Regel (und
+ihren Auto-Index) bzw. das Lektionen-Ledger aus.
 
 Wenn der Benutzer einen Fehler markiert, hängt der Agent eine einzeilige Lektion an die
 `.tezgah/lessons.md` des Repos an; die neuesten Zeilen werden beim Sitzungsstart injiziert, sodass
@@ -427,6 +454,6 @@ zu Anweisungstext eskalieren. Geben Sie den Host, die tezgah-Version
 
 ## Lizenz
 
-Die `LICENSE` (MIT) im Stammverzeichnis deckt die eigenen Dateien von tezgah ab. `skills/ponytail` und
-`skills/no-ai-slop` werden unter ihren eigenen MIT-Bedingungen bereitgestellt (vendored), die in
+Die `LICENSE` (MIT) im Stammverzeichnis deckt die eigenen Dateien von tezgah ab. `skills/ponytail`,
+`skills/no-ai-slop` und `skills/i-have-adhd` werden unter ihren eigenen MIT-Bedingungen bereitgestellt (vendored), die in
 `NOTICE` festgehalten sind.

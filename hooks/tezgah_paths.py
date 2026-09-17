@@ -220,6 +220,25 @@ def off(name):
     return any(os.path.exists(os.path.join(d, name)) for d in OFF_DIRS)
 
 
+PONY_LEVEL = os.path.join(CONFIG_DIR, "ponytail.level")
+PONY_LEVELS = ("lite", "full", "ultra")
+
+
+def pony_level():
+    """The armed ponytail intensity level, `full` unless the user set one.
+
+    One machine-wide setting rather than a per-session one: the switch is a
+    file `bin/tezgah-pony` writes, and a session-keyed level would need a
+    session id the CLI does not have. An unreadable or unknown value falls back
+    to the default instead of inventing a level."""
+    try:
+        with open(PONY_LEVEL) as fh:
+            value = fh.read().strip().lower()
+    except OSError:
+        return "full"
+    return value if value in PONY_LEVELS else "full"
+
+
 def tool(name):
     """Stable installed path for a tezgah CLI, else the plugin's own copy, so
     the text injected into a session names something that actually exists."""

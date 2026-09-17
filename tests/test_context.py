@@ -52,7 +52,7 @@ class HealthLines(TempHome):
                              {"fn": "health_lines", "cwd": self.home},
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(out, "pony\u2713 exec\u2713  \u00b7  "
+        self.assertEqual(out, "pony\u25cb exec\u2713 adhd\u25cb  \u00b7  "
                               "consult\u2717 research\u2717 cbm\u25cb orch\u25cb")
 
     def test_armed_but_unused_checklist(self):
@@ -61,7 +61,7 @@ class HealthLines(TempHome):
         out, _ = run_json([support.PROBE_CONTEXT],
                           {"fn": "health_lines", "cwd": repo, "session_id": "s"},
                           env=self.env())
-        self.assertEqual(out, "pony\u2713 exec\u2713  \u00b7  "
+        self.assertEqual(out, "pony\u25cb exec\u2713 adhd\u25cb  \u00b7  "
                               "consult\u25cb research\u2717 cbm\u25cb orch\u25cb  \u00b7  idx\u2013")
 
     def test_used_kind_flips_a_mark(self):
@@ -75,6 +75,25 @@ class HealthLines(TempHome):
                           {"fn": "health_lines", "cwd": repo, "session_id": "s"},
                           env=self.env())
         self.assertIn("cbm\u2713", out)
+
+    def test_reading_the_skill_flips_the_pony_mark(self):
+        # the mark's whole point: armed is not the same as read. A host records
+        # the kind when the session opens the skill's full text.
+        repo = self.make_repo()
+        self.armed_key()
+        before, _ = run_json([support.PROBE_CONTEXT],
+                             {"fn": "health_lines", "cwd": repo,
+                              "session_id": "s"}, env=self.env())
+        self.assertIn("pony\u25cb", before)
+        _, proc = run_json([support.PROBE_CONTEXT],
+                           {"fn": "record", "session_id": "s", "kind": "pony"},
+                           env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        after, _ = run_json([support.PROBE_CONTEXT],
+                            {"fn": "health_lines", "cwd": repo,
+                             "session_id": "s"}, env=self.env())
+        self.assertIn("pony\u2713", after)
+        self.assertIn("adhd\u25cb", after)   # one skill read is not the other
 
     def test_repo_no_cbm_mark(self):
         repo = self.make_repo()
@@ -95,7 +114,9 @@ class HealthLines(TempHome):
                               "session_id": "s", "color": True},
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("\033[32mpony\u2713\033[0m", out)      # in force
+        self.assertIn("\033[32mexec\u2713\033[0m", out)      # always-on
+        self.assertIn("\033[33mpony\u25cb\033[0m", out)      # armed, not read
+        self.assertIn("\033[33madhd\u25cb\033[0m", out)      # armed, not read
         self.assertIn("\033[33mconsult\u25cb\033[0m", out)   # armed, unused
         self.assertIn("\033[31mresearch\u2717\033[0m", out)  # off
         self.assertIn("\033[2midx\u2013\033[0m", out)        # no state
@@ -347,6 +368,7 @@ class KillSwitchEnforcement(TempHome):
 
     OFF = "**Turkish, BLUF.**"
     PONY = "**Ponytail (minimal code).**"
+    ADHD = "**Output shape: ADHD-friendly.**"
     FIDELITY = "**Deliver the whole ask; never the shortcut.**"
     INTEGRITY = '**Integrity: evidence, or "doğrulanmadı".**'
     LOOP = "**Loop discipline.**"
@@ -378,8 +400,8 @@ class KillSwitchEnforcement(TempHome):
     def test_default_keeps_the_invariants(self):
         repo = self.make_repo()
         out = self.session(repo)
-        for label in (self.OFF, self.PONY, self.FIDELITY, self.INTEGRITY,
-                      self.LOOP, self.ATTRIBUTION, self.LESSONS):
+        for label in (self.OFF, self.PONY, self.ADHD, self.FIDELITY,
+                      self.INTEGRITY, self.LOOP, self.ATTRIBUTION, self.LESSONS):
             self.assertIn(label, out)
 
     def test_fidelity_and_the_sycophancy_ban_are_invariants(self):
@@ -428,6 +450,16 @@ class KillSwitchEnforcement(TempHome):
         repo = self.make_repo()
         self.touch(os.path.join(repo, ".no-ponytail"))
         self.assertNotIn(self.PONY, self.session(repo))
+
+    def test_adhd_off_drops_the_adhd_rule(self):
+        repo = self.make_repo()
+        self.switch("adhd-off")
+        self.assertNotIn(self.ADHD, self.session(repo))
+
+    def test_repo_no_adhd_drops_the_adhd_rule(self):
+        repo = self.make_repo()
+        self.touch(os.path.join(repo, ".no-adhd"))
+        self.assertNotIn(self.ADHD, self.session(repo))
 
     def test_spec_off_drops_the_spec_rule(self):
         repo = self.make_repo()
@@ -754,6 +786,7 @@ class ConstraintNotice(ChildCall):
         out = self.notice()
         self.assertIn("**Turkish, BLUF.**", out)
         self.assertIn("**Ponytail (minimal code).**", out)
+        self.assertIn("**Output shape: ADHD-friendly.**", out)
         self.assertIn("On-demand rules", out)
 
     def test_with_a_moved_state_it_carries_the_delta(self):
@@ -833,12 +866,14 @@ class HealthSegments(TempHome):
                               "session_id": "s"}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         states = {s["key"]: s["state"] for s in out}
-        self.assertEqual(states["pony"], "on")        # always-on
+        self.assertEqual(states["pony"], "ready")     # armed, skill not read
+        self.assertEqual(states["exec"], "on")        # always-on
+        self.assertEqual(states["adhd"], "ready")     # armed, skill not read
         self.assertEqual(states["consult"], "ready")  # armed, unused
         self.assertEqual(states["cbm"], "ready")
         self.assertEqual(states["orch"], "ready")
         self.assertEqual(states["idx"], "info")       # no cbm_bin in tests
-        self.assertEqual([s for s in out if s["key"] == "pony"][0]["glyph"], "\u2713")
+        self.assertEqual([s for s in out if s["key"] == "pony"][0]["glyph"], "\u25cb")
 
     def test_the_group_is_what_a_renderer_separates_on(self):
         # opencode's TUI and dsh's Web status line build their own line from
@@ -927,6 +962,20 @@ class StatusCli(TempHome):
         proc = self.status("--bogus")
         self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertIn("unknown option", proc.stderr)
+
+    def test_a_measure_the_surface_cannot_see_states_nothing(self):
+        # "armed, unused" is a claim, and a host that would have to spawn a
+        # process per read to see a skill read cannot make it. It passes the
+        # measures it does have; those two marks render dim with no glyph, while
+        # a measure it can see keeps its own state.
+        self.armed()
+        repo = self.make_repo()
+        env = self.env()
+        out = self.status(repo, "--no-color",
+                          "--observable=consult,research,cbm,orch", env=env).stdout
+        self.assertIn("pony ", out)
+        self.assertNotIn("pony\u25cb", out)
+        self.assertIn("consult\u25cb", out)
 
     def test_env_session_id_is_used_when_no_arg(self):
         self.armed()
@@ -1073,6 +1122,94 @@ class OutputStyleMirrorsCore(unittest.TestCase):
         self.assertIn(tc.always_on_core().strip(), body)
         for label in self.CONDITIONAL:
             self.assertNotIn(label, body)
+
+
+class PonyLevel(TempHome):
+    """The intensity level is a stored setting, not a phrase in a document: the
+    CLI is what writes it and the per-turn reminder is what names it."""
+
+    CLI = os.path.join(support.REPO, "bin", "tezgah-pony")
+
+    def cli(self, *args):
+        return support.run([self.CLI] + list(args), env=self.env())
+
+    def level_file(self):
+        return os.path.join(self.home, ".config", "tezgah", "ponytail.level")
+
+    def prompt(self, repo):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": repo, "payload": {"prompt": "fix it"}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_the_cli_sets_shows_and_clears_the_level(self):
+        proc = self.cli("ultra")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "ponytail level: ultra")
+        with open(self.level_file()) as fh:
+            self.assertEqual(fh.read().strip(), "ultra")
+        # the bare call is the query
+        self.assertEqual(self.cli().stdout.strip(), "ultra")
+        # `full` is the absence of the file, so going back to it removes the state
+        self.assertEqual(self.cli("full").stdout.strip(), "ponytail level: full")
+        self.assertFalse(os.path.exists(self.level_file()))
+        self.assertEqual(self.cli().stdout.strip(), "full")
+
+    def test_an_unknown_level_is_a_usage_error(self):
+        proc = self.cli("lazier")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("usage: tezgah-pony", proc.stderr)
+        self.assertFalse(os.path.exists(self.level_file()))
+
+    def test_a_non_default_level_rides_the_reminder(self):
+        repo = self.make_repo()
+        self.assertNotIn("Ponytail level", self.prompt(repo))
+        self.cli("lite")
+        self.assertIn("Ponytail level: lite.", self.prompt(repo))
+
+    def test_a_corrupt_level_file_falls_back_to_the_default(self):
+        # an unreadable value must not arm a level nobody chose
+        repo = self.make_repo()
+        path = self.level_file()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("turbo\n")
+        self.assertNotIn("Ponytail level", self.prompt(repo))
+        self.assertEqual(self.cli().stdout.strip(), "full")
+
+
+class AdhdSwitch(TempHome):
+    """`tezgah-adhd off` is what the rule's own text names as its switch, so the
+    documented way to turn the rule off has to work, not just the file."""
+
+    CLI = os.path.join(support.REPO, "bin", "tezgah-adhd")
+
+    def cli(self, *args):
+        return support.run([self.CLI] + list(args), env=self.env())
+
+    def session(self, repo):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "session_start",
+                              "cwd": repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_off_disarms_the_rule_and_on_arms_it_again(self):
+        repo = self.make_repo()
+        self.assertIn("**Output shape: ADHD-friendly.**", self.session(repo))
+        self.assertEqual(self.cli().stdout.strip(), "on")
+        self.assertEqual(self.cli("off").stdout.strip(), "adhd rule: off")
+        self.assertEqual(self.cli().stdout.strip(), "off")
+        self.assertNotIn("**Output shape: ADHD-friendly.**", self.session(repo))
+        self.assertEqual(self.cli("on").stdout.strip(), "adhd rule: on")
+        self.assertIn("**Output shape: ADHD-friendly.**", self.session(repo))
+
+    def test_an_unknown_argument_is_a_usage_error(self):
+        proc = self.cli("maybe")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("usage: tezgah-adhd", proc.stderr)
 
 
 if __name__ == "__main__":

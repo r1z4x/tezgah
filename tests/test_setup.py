@@ -92,6 +92,7 @@ class Install(SetupBase):
         self.assertIn(self.path("Projects"), cfg["roots"])
         self.assertEqual(sorted(cfg["hosts"]), sorted(ALL.split(",")))
         for name in ("consult", "codegen", "tezgah-status", "tezgah-index",
+                     "tezgah-pony", "tezgah-adhd",
                      "tezgah-codex-hook", "tezgah-cursor-hook", "tezgah-statusline"):
             self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin", name)),
                             name)
@@ -878,7 +879,7 @@ class ContextBudget(SetupBase):
         out = proc.stdout
         self.assertIn("context budget (always-on text", out)
         for band in ("core contract (always-on, per session)", "per-turn reminder",
-                     "skill metadata (10)", "subagent metadata (5)",
+                     "skill metadata (11)", "subagent metadata (5)",
                      "conditional rules (armed by task class)",
                      "full contract (on demand)", "MCP tool schemas"):
             self.assertIn(band, out)
@@ -887,7 +888,7 @@ class ContextBudget(SetupBase):
         proc = self.setup()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         core = re.search(r"core contract \(always-on, per session\)\s+~\s*([\d.]+)k tok", proc.stdout)
-        skill = re.search(r"skill metadata \(10\)\s+~\s*([\d.]+)k tok", proc.stdout)
+        skill = re.search(r"skill metadata \(11\)\s+~\s*([\d.]+)k tok", proc.stdout)
         ondemand = re.search(r"full contract \(on demand\)\s+~\s*([\d.]+)k tok", proc.stdout)
         self.assertIsNotNone(core)
         self.assertIsNotNone(skill)

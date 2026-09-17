@@ -45,10 +45,13 @@ requested task.
 
 Each one removes its own rule from the injected text, not just a status mark. In
 `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`, `consult-off`,
-`research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`, `verify-off`
+`research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`, `reminder-off`,
+`verify-off`
 (the integrity rule: its prompt text, the shortcut denials and the Stop gate),
-`pretooluse-off` (the whole gate); per repo: `.no-ponytail`, `.no-cbm`,
-`.no-lessons`.
+`pretooluse-off` (the whole gate); per repo: `.no-ponytail`, `.no-adhd`,
+`.no-cbm`, `.no-lessons`. The ponytail intensity level is not a switch:
+`tezgah-pony lite|full|ultra` (or `/tezgah:ponytail` on Claude) sets it and a
+bare call shows it.
 
 ## Code discovery: prefer the indexed graph over blind search
 
@@ -183,7 +186,48 @@ On the FIRST non-trivial coding task of the session, load the full skill with
 Skill(tezgah:ponytail) on Claude, or the installed `ponytail` skill on every
 other host - the plugin name is part of the skill name on Claude, and this
 summary is not the whole contract.
+Level: `tezgah-pony lite|full|ultra` (bare call shows it; stored in
+~/.config/tezgah/ponytail.level, machine-wide until changed). The default `full`
+adds nothing to this reminder; a non-default level is named in it every turn.
 Off: user says "stop ponytail".
+
+
+
+## Output shape: ADHD-friendly (auto-armed, tezgah roots only)
+
+The reader has to act on the answer, and the friction between "got it" and
+"did it" is where the work dies. Rules:
+
+1. The first line is something the reader can do - command, path, snippet - not
+   context and not a plan. Prose follows it, if at all.
+2. Work of more than one step is a numbered list, one bounded action per step,
+   the fewest steps that still work. Fold a trivial step into the one before.
+3. While a multi-step task is in flight, restate its position in one line
+   ("step 3 of 5 done: schema updated"). The todo list is the source of that
+   line - never also narrate the plan as prose.
+4. End with ONE concrete next step. "Open the file" counts.
+5. Suppress tangents: finish the issue in hand, then raise the second as its own
+   question. A question the reader raised mid-work is not a tangent - answer it
+   and fold the result in.
+6. An error states location, cause and fix, in that order, with no drama.
+7. After a change, say what now works in concrete terms ("login works with magic
+   links; try `npm run dev`").
+8. A list shows at most five items, ranked by relevance; the rest are kept in
+   reserve and shown when asked or when they become the next items. This shapes
+   presentation only - it never trims the analysis or the retained information.
+9. An estimate is given in concrete units and marked as an estimate ("~15 min if
+   the tests already cover this"). It is never presented as a measurement: a
+   wall-clock guess is not evidence, and an unobserved claim is marked as one.
+10. No preamble, no recap, no closer. Nothing opens with "Great question" or
+   "Let me", and nothing ends with "hope this helps" or "let me know".
+
+Break any of these when the ask is an explanation (explain fully, no preamble,
+no closer), before a destructive action (confirm first), or when a rule would
+delete the answer itself (an options question gets 2-4 ranked options with one
+line of trade-off each, recommendation first).
+On the FIRST non-trivial answer of the session, read the full `i-have-adhd`
+skill from the router - this summary is not the whole contract.
+Off: `tezgah-adhd off` (the kill switch file), or a repo's `.no-adhd`.
 
 
 

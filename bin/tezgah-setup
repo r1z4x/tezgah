@@ -41,7 +41,7 @@ import tezgah_paths as tp  # noqa: E402
 import tezgah_policy as policy  # noqa: E402
 import tezgah_agents  # noqa: E402
 from tezgah_policy import (  # noqa: E402
-    CBM_RULE, CONSULT, EXEC, NO_CONSULT, ORCHESTRATE, PONYTAIL, WORKFLOWS)
+    ADHD, CBM_RULE, CONSULT, EXEC, NO_CONSULT, ORCHESTRATE, PONYTAIL, WORKFLOWS)
 
 HOME = os.path.expanduser("~")
 # The per-host config roots live in tezgah_paths, the one place that also decides
@@ -68,9 +68,20 @@ OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
 OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
                "treat every line as a standing constraint on the work.")
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
-SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
+SKILLS = ["harness", "tezgah-contract", "ponytail", "i-have-adhd", "no-ai-slop",
           "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
           "ai-research"]
+
+
+def skills_linked(base):
+    """True when every shipped skill resolves to a readable SKILL.md under
+    `base`. `islink` alone called a dangling link installed: a name in SKILLS
+    whose skill file was never written reported as linked on every host at once,
+    while no host could read it."""
+    return all(os.path.isfile(os.path.join(base, s, "SKILL.md"))
+               for s in SKILLS)
+
+
 # Shipped by tezgah, reached only from a research task: the always-on router
 # collapses it to its bucket's count line like every other on-demand bucket.
 RESEARCH_SKILLS = frozenset(("ai-research",))
@@ -347,6 +358,8 @@ def install_common(new_roots, hosts):
             ("consult", os.path.join(HERE, "bin", "consult")),
             ("codegen", os.path.join(HERE, "bin", "codegen")),
             ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
+            ("tezgah-pony", os.path.join(HERE, "bin", "tezgah-pony")),
+            ("tezgah-adhd", os.path.join(HERE, "bin", "tezgah-adhd")),
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
             ("tezgah-consent", os.path.join(HERE, "bin", "tezgah-consent")),
             ("tezgah-rollback", os.path.join(HERE, "bin", "tezgah-rollback")),
@@ -525,7 +538,7 @@ def opencode_contract():
         blocks = [core]
     else:
         blocks = [CBM_RULE % ("each repository", "index it with index_repository if unindexed"),
-                  WORKFLOWS, ORCHESTRATE, PONYTAIL, EXEC,
+                  WORKFLOWS, ORCHESTRATE, PONYTAIL, ADHD, EXEC,
                   CONSULT if tp.have_consult_key() else NO_CONSULT]
     # opencode has no session-start inject hook, so the always-on file must
     # carry the same pointer every hook host appends: without it the two-tier
@@ -1778,7 +1791,7 @@ def host_checks_codex():
         ("hooks.json wired%s" % where,
          _hooks_has(os.path.join(CODEX, "hooks.json"), cmd)),
         ("skills linked%s" % where,
-         all(os.path.islink(os.path.join(CODEX, "skills", s)) for s in SKILLS)),
+         skills_linked(os.path.join(CODEX, "skills"))),
         ("MCP in config.toml", "mcp_servers.codebase-memory-mcp" in toml),
         ("app MCP servers in config.toml",
          all("[mcp_servers.%s]" % n in toml for n in tezgah_apps.names(False))),
@@ -1793,7 +1806,7 @@ def host_checks_opencode():
     return [
         ("plugin linked", any(os.path.islink(os.path.join(OPENCODE, d, "tezgah.js"))
                               for d in ("plugins", "plugin"))),
-        ("skills linked", all(os.path.islink(os.path.join(OPENCODE, "skills", s)) for s in SKILLS)),
+        ("skills linked", skills_linked(os.path.join(OPENCODE, "skills"))),
         ("contract in instructions", any("tezgah" in i for i in instr)),
         ("skill router in instructions + written",
          SKILL_ROUTER in instr and os.path.isfile(SKILL_ROUTER)),
@@ -1819,7 +1832,7 @@ def host_checks_cursor():
     cli = read_json(os.path.join(CURSOR, "cli-config.json"), {})
     return [
         ("hooks.json wired", _hooks_has(os.path.join(CURSOR, "hooks.json"), "tezgah-cursor-hook")),
-        ("skills linked", all(os.path.islink(os.path.join(CURSOR, "skills", s)) for s in SKILLS)),
+        ("skills linked", skills_linked(os.path.join(CURSOR, "skills"))),
         ("MCP in mcp.json", "codebase-memory-mcp" in (mcp.get("mcpServers") or {})),
         ("app MCP servers in mcp.json",
          all(n in (mcp.get("mcpServers") or {}) for n in tezgah_apps.names(False))),
@@ -1850,7 +1863,7 @@ def host_checks_dsh():
          "openrouter" in patched and "DEEPSEEK_API_KEY" in patched),
         ("dsh launcher on PATH (~/.local/bin/dsh)",
          is_tezgah_link(os.path.join(LOCAL_BIN, "dsh"))),
-        ("skills linked", all(os.path.islink(os.path.join(DSH, "skills", s)) for s in SKILLS)),
+        ("skills linked", skills_linked(os.path.join(DSH, "skills"))),
         ("OpenRouter route key resolvable (env, ~/.config/openrouter/key or store)",
          dsh_key_resolvable("OPENROUTER_API_KEY")),
         ("DeepSeek route key resolvable (env, ~/.config/deepseek/key or store)",
@@ -1905,9 +1918,8 @@ def host_checks_omp():
         ("RULES.md carries the contract",
          "tezgah:start" in rules_text and "Ponytail" in rules_text),
         ("skill metadata band present", "Ponytail" in rules_text),
-        ("skills linked",
-         all(os.path.islink(os.path.join(OMP_AGENT, "skills", s))
-             for s in SKILLS)),
+        ("output-shape rule present", "ADHD-friendly" in rules_text),
+        ("skills linked", skills_linked(os.path.join(OMP_AGENT, "skills"))),
         ("subagents generated", len(agents) >= 4),
         ("MCP in mcp.json", "codebase-memory-mcp" in servers),
         ("app MCP servers in mcp.json",

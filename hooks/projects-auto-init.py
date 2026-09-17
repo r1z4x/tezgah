@@ -11,7 +11,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from tezgah_context import context_for  # noqa: E402
+from tezgah_context import context_for, record  # noqa: E402
 
 EVENTS = {
     "SessionStart": "session_start",
@@ -28,6 +28,11 @@ def main():
         payload = {}
     event = payload.get("hook_event_name") or "SessionStart"
     cwd = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    if event == "SubagentStart":
+        # The status line's orch mark. This file is the only SubagentStart hook
+        # tezgah wires, and dsh (which runs it too) has no transcript to derive
+        # the kind from, so the store is the only channel its line has.
+        record(payload.get("session_id"), "orch")
     text = context_for(EVENTS.get(event, "session_start"), cwd, payload)
     if text:
         json.dump({"hookSpecificOutput": {

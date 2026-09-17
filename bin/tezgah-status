@@ -9,6 +9,11 @@ their status line; this CLI is how every host (and a human) gets it:
   tezgah-status --no-color force plain, or set NO_COLOR
   tezgah-status --json     the structured segments (key/state/glyph/text)
   tezgah-status --legend   explain the marks
+  tezgah-status --observable=consult,research,cbm,orch
+                           the measures this surface can see; a measure outside
+                           the set renders as dim "no state" instead of claiming
+                           "armed, not used yet". A host that cannot see a skill
+                           read (dsh) passes the tool-use four.
 
 The session id may be passed as the second argument or via TEZGAH_SESSION;
 without it the "used" marks cannot light up, so a host that knows the id should
@@ -29,7 +34,8 @@ def main():
     flags = {a for a in args if a.startswith("--")}
     pos = [a for a in args if not a.startswith("--")]
     known = {"--legend", "--json", "--color", "--no-color", "--counters", "--help"}
-    unknown = sorted(f for f in flags if f not in known)
+    unknown = sorted(f for f in flags
+                     if f not in known and not f.startswith("--observable="))
     if unknown:
         sys.stderr.write("tezgah-status: unknown option(s): %s (try --help)\n"
                          % ", ".join(unknown))
@@ -60,7 +66,10 @@ def main():
         return 0
     cwd = os.path.realpath(pos[0] if pos else os.getcwd())
     session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
-    segs = health_segments(cwd, session)
+    spec = next((f.split("=", 1)[1] for f in flags
+                 if f.startswith("--observable=")), None)
+    observable = set(spec.split(",")) if spec else None
+    segs = health_segments(cwd, session, observable=observable)
     if "--json" in flags:
         print(json.dumps(segs))
         return 0

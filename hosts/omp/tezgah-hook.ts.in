@@ -37,6 +37,21 @@ const WATCHED = ["bash", "shell", "command", "edit", "write", "multiedit",
   "notebookedit", "apply_patch", "edit_file", "write_file", "search_replace",
   "task", "agent", "spawn_agent", "web_search", "web_fetch", "browser"];
 
+// A read of a tezgah skill file is the one read whose result moves a status
+// mark, and matching it here keeps the rule that made reads unwatched: ordinary
+// reads never reach python. Mirror of hooks/tezgah_context.skill_read_kind.
+const SKILL_MARKS: Record<string, string> =
+  { ponytail: "pony", "i-have-adhd": "adhd" };
+const READ_TOOLS = ["read", "read_file", "readfile", "view_file"];
+
+function skillRead(tool: string, args: any): boolean {
+  if (!READ_TOOLS.includes(tool.toLowerCase())) return false;
+  const raw = args?.filePath ?? args?.file_path ?? args?.path ?? "";
+  const path = String(raw).replace(/\\/g, "/");
+  return Object.keys(SKILL_MARKS).some(
+    (name) => path.endsWith("skills/" + name + "/SKILL.md"));
+}
+
 // The gate is only consulted for the tools the shared rule knows: the refusal
 // of the grep-only explorer (task/agent), the anti-shortcut and attribution
 // checks (bash), and the test-skip check (the edit/write names).
@@ -219,7 +234,9 @@ export default function tezgahOmp(pi: any): void {
 
   pi.on("tool_result", async (event: any, ctx: any) => {
     const tool = String(event?.toolName ?? "");
-    if (!WATCHED.includes(tool.toLowerCase()) && !tool.startsWith("mcp__")) {
+    const args = event?.input ?? {};
+    if (!WATCHED.includes(tool.toLowerCase()) && !tool.startsWith("mcp__")
+        && !skillRead(tool, args)) {
       return;
     }
     // Tri-state: an unread outcome must never be written as a passed check,

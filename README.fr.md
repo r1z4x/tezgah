@@ -63,7 +63,20 @@ copie en cinq exemplaires du même texte.
 - **Code minimal (ponytail).** La modification la plus paresseuse qui fonctionne réellement : YAGNI,
   puis réutilisation d'un helper existant, puis stdlib, puis une fonctionnalité native de la plateforme,
   puis une dépendance installée, puis une seule ligne. Aucune abstraction non demandée.
-  La validation, la gestion des erreurs et la sécurité ne sont jamais simplifiées à l'excès.
+  La validation, la gestion des erreurs et la sécurité ne sont jamais
+  simplifiées à l'excès. Le niveau d'intensité est un véritable interrupteur -
+  `tezgah-pony lite|full|ultra`, ou `/tezgah:ponytail` sur Claude - et un
+  niveau non par défaut accompagne le rappel à chaque tour.
+- **Forme de sortie actionnable (i-have-adhd).** La réponse ou l'action
+  suivante est sur la première ligne ; le travail en plusieurs étapes est une
+  liste numérotée dont la position est redite en une ligne pendant qu'elle
+  s'exécute ; les digressions attendent que le sujet en cours soit terminé ;
+  les erreurs se lisent comme emplacement, cause, correction ; une liste
+  montre au plus cinq éléments classés et le reste est gardé en réserve ; une
+  estimation est en unités concrètes et est signalée comme une estimation.
+  L'interrupteur est `tezgah-adhd off|on` (ou `/tezgah:adhd` sur Claude ; un
+  dépôt peut le désactiver avec `.no-adhd`). Intégré et adapté depuis
+  `i-have-adhd` (MIT).
 - **Découverte axée sur le graphe de code.** « Où est X », « qui appelle Y », « qu'est-ce qui casse si
   Z change » passent par le graphe `codebase-memory-mcp` (`search_graph`,
   `trace_path`, `search_code`), et non par grep. Grep reste approprié pour le texte littéral,
@@ -245,6 +258,18 @@ d'être connues :
 | `bin/tezgah-setup --version` | Afficher la version du plugin |
 | `bin/tezgah-setup --uninstall` | Supprimer uniquement les liens symboliques de tezgah, les entrées de hook de l'hôte et le bloc géré dsh |
 
+La ligne d'état marque chaque règle avec son état d'abord : une coche signifie
+armée et en vigueur dans cette session (ou toujours actif), un cercle signifie
+armée mais à la demande - pas encore utilisée dans cette session - et une
+croix signifie désactivée par un interrupteur d'arrêt ou une marque `.no-*`.
+`pony` et `adhd` se lisent comme un cercle jusqu'à ce que la session ait
+réellement lu le texte complet de cette compétence, puis comme une coche ; sur
+Claude, opencode et omp cette lecture est observable, alors que sur codex,
+cursor et dsh elle ne l'est pas à un coût acceptable, donc là ces deux marques
+s'affichent en grisé et sans glyphe : la ligne n'affirme rien plutôt que de
+prétendre que la compétence n'a jamais été ouverte. Un interrupteur d'arrêt
+reste rouge partout.
+
 <a id="configuration"></a>
 
 ## Configuration
@@ -262,6 +287,7 @@ texte injecté dans la session, de sorte que la règle s'arrête réellement :
 |---|---|
 | `exec-mode.off` | les rapports en turc axés sur les résultats |
 | `ponytail-auto.off` | la règle du code minimal |
+| `adhd-off` | la forme de sortie actionnable (i-have-adhd) |
 | `spec-off` | la règle de spécification avant construction |
 | `consult-off` | la règle du second avis externe |
 | `research-off` | le routage des tâches de recherche vers OpenResearch |
@@ -269,8 +295,9 @@ texte injecté dans la session, de sorte que la règle s'arrête réellement :
 | `reminder-off` | le texte de rappel à chaque tour |
 | `pretooluse-off` | la porte PreToolUse elle-même (attribution, explorateur, incitation grep) |
 
-Par dépôt, `.no-ponytail`, `.no-cbm` et `.no-lessons` désactivent respectivement la règle du code minimal,
-la règle du graphe de code (et son auto-indexation), et le registre des leçons.
+Par dépôt, `.no-ponytail`, `.no-adhd`, `.no-cbm` et `.no-lessons` désactivent
+respectivement la règle du code minimal, la forme de sortie actionnable, la
+règle du graphe de code (et son auto-indexation), et le registre des leçons.
 
 Lorsque l'utilisateur signale une erreur, l'agent ajoute une leçon d'une ligne au fichier
 `.tezgah/lessons.md` du dépôt ; les lignes les plus récentes sont injectées au démarrage de la session afin que
@@ -425,6 +452,6 @@ s'élever au rang de texte d'instruction est dans le périmètre. Incluez l'hôt
 
 ## Licence
 
-Le fichier `LICENSE` (MIT) à la racine couvre les propres fichiers de tezgah. `skills/ponytail` et
-`skills/no-ai-slop` sont intégrés sous leurs propres termes MIT, enregistrés dans
+Le fichier `LICENSE` (MIT) à la racine couvre les propres fichiers de tezgah. `skills/ponytail`,
+`skills/no-ai-slop` et `skills/i-have-adhd` sont intégrés sous leurs propres termes MIT, enregistrés dans
 `NOTICE`.

@@ -12,6 +12,10 @@ import os from "node:os";
 import path from "node:path";
 
 const STATUS_PATH = "/api/tezgah.status";
+// dsh's hook records the tool-use kinds (consult/research/cbm/orch) and nothing
+// else, so its line must not claim a skill was never opened: the two skill-read
+// marks state nothing here instead.
+const OBSERVABLE = "--observable=consult,research,cbm,orch";
 
 function statusBin() {
 	if (process.env.TEZGAH_STATUS_BIN) return process.env.TEZGAH_STATUS_BIN;
@@ -40,7 +44,8 @@ export function apply(ctx) {
 			const sessionId = url.searchParams.get("sessionId") ?? undefined;
 			const session = sessionId === undefined ? undefined : ctx.sessions.get(sessionId);
 			const dir = session?.header?.cwd ?? process.cwd();
-			const where = sessionId === undefined ? [dir] : [dir, sessionId];
+			const where = sessionId === undefined ? [dir, OBSERVABLE]
+				: [dir, sessionId, OBSERVABLE];
 			if (url.searchParams.get("format") === "json") {
 				const [raw, legend] = await Promise.all([
 					statusText([...where, "--json"]),

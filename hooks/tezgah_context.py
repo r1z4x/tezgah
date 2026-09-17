@@ -19,7 +19,8 @@ import tezgah_research
 from tezgah_integrity import note_turn
 from tezgah_policy import CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER
 from tezgah_paths import (ai_research_dir, cache_dir, cbm_bin, have_consult_key,
-                          off, orx_bin, root_for, roots, tool, writable_dir)
+                          off, orx_bin, pony_level, root_for, roots, tool,
+                          writable_dir)
 
 # A prompt that matches one of these arms the matching conditional rule for that
 # turn only. Kept as (key, compiled regex) so the arming is one pass and the
@@ -62,6 +63,7 @@ ACTIVE_ROOT = [""]
 CORE_RULES = (
     ("exec", "**Turkish, BLUF.**"),
     ("ponytail", "**Ponytail (minimal code).**"),
+    ("adhd", "**Output shape: ADHD-friendly.**"),
     ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
     ("integrity", '**Integrity: evidence, or "doğrulanmadı".**'),
     ("loop", "**Loop discipline.**"),
@@ -86,8 +88,49 @@ def render(text, root=""):
                 .replace("{ORX_BIN}", orx_bin() or "orx")
                 .replace("{RESEARCH_BIN}", tool("tezgah-research"))
                 .replace("{AI_RESEARCH_DIR}", ai_research_dir())
+                .replace("{PONY_LEVEL}", _pony_level_line())
                 .replace("{ROOT}", root or ACTIVE_ROOT[0]
                          or "the configured tezgah roots"))
+
+
+def _pony_level_line():
+    """The armed ponytail level as a reminder sentence, or "" at the default.
+
+    The level is the one thing in the reminder that changes without an install,
+    so it is substituted per render; the default `full` adds no characters,
+    which is what keeps a user who never sets a level paying nothing."""
+    level = pony_level()
+    return "" if level == "full" else " Ponytail level: %s." % level
+
+
+# The skill files whose read is worth a status mark. Reading one is the only
+# signal that the full rule text reached the session rather than the always-on
+# summary - the marks that carry it are the ones whose whole job is "the full
+# text was loaded". Matched on the path, so a read of any other file costs
+# nothing.
+SKILL_MARKS = {"ponytail": "pony", "i-have-adhd": "adhd"}
+READ_TOOL_NAMES = ("read", "read_file", "readfile", "view_file")
+
+
+def skill_read_kind(tool, inp):
+    """The used-kind a read of a tezgah skill file earns, else None.
+
+    Only the hosts that can see a read without paying a process per read call
+    this (Claude parses its transcript, opencode classifies in-process, omp's
+    embedded runner filters before it asks python). On codex, cursor and dsh a
+    read is not observable at that price, so those marks stay at their armed
+    state and the legend says so."""
+    if str(tool or "").strip().lower() not in READ_TOOL_NAMES:
+        return None
+    path = ""
+    if isinstance(inp, dict):
+        path = str(inp.get("file_path") or inp.get("filePath")
+                   or inp.get("path") or "")
+    path = path.replace("\\", "/")
+    for name, mark in SKILL_MARKS.items():
+        if path.endswith("skills/%s/SKILL.md" % name):
+            return mark
+    return None
 
 
 def under(path):
@@ -448,6 +491,9 @@ def core_split(cwd):
         drop.add("ponytail")
         disabled.append("ponytail-auto.off" if off("ponytail-auto.off")
                         else ".no-ponytail")
+    if off("adhd-off") or ".no-adhd" in marks:
+        drop.add("adhd")
+        disabled.append("adhd-off" if off("adhd-off") else ".no-adhd")
     if off("spec-off"):
         drop.add("spec")
         disabled.append("spec-off")
@@ -925,7 +971,7 @@ def repo_marks(cwd):
     base = root_for(cwd)
     p = os.path.realpath(cwd)
     while base and p.startswith(base):
-        for f in (".no-ponytail", ".no-cbm", ".no-lessons"):
+        for f in (".no-ponytail", ".no-adhd", ".no-cbm", ".no-lessons"):
             if os.path.exists(os.path.join(p, f)):
                 marks.add(f)
         if p == base:
@@ -1027,12 +1073,13 @@ def plan_mark(cwd, base):
     return None
 
 
-# The marks read in groups, "  ·  " between them: the two always-on switches,
-# the on-demand capabilities, then the per-repo facts (idx, and the plan count
-# as its own). The group rides each segment so a renderer that builds its own
-# line from --json (opencode's TUI plugin, dsh's Web status line) separates them
-# the same way instead of keeping a second copy of the partition.
-_GROUP = {"pony": 0, "exec": 0, "consult": 1, "research": 1, "cbm": 1, "orch": 1}
+# The marks read in groups, "  ·  " between them: the always-on switches, the
+# on-demand capabilities, then the per-repo facts (idx, and the plan count as
+# its own). The group rides each segment so a renderer that builds its own line
+# from --json (opencode's TUI plugin, dsh's Web status line) separates them the
+# same way instead of keeping a second copy of the partition.
+_GROUP = {"pony": 0, "exec": 0, "adhd": 0, "consult": 1, "research": 1,
+          "cbm": 1, "orch": 1}
 GLYPHS = {"on": "✓", "ready": "○", "off": "✗", "info": ""}
 # ANSI foreground for each state: green in force, yellow on-demand, red off,
 # dim for a mark that carries no state (idx n/a, the plan count).
@@ -1046,6 +1093,10 @@ colored, and the glyph carries the state on its own where color does not):
   name\u2713  green   armed and in force this session (or always-on)
   name\u25cb  yellow  armed, on demand - not used yet this session
   name\u2717  red     turned off by a kill switch or a per-repo .no-* mark
+  pony, adhd, dim   this surface cannot report that measure (a skill read
+                    needs a process per read to observe on codex, cursor and
+                    dsh, so those two marks state nothing there instead of
+                    claiming the skill was never opened)
   dim               no state to report: idx n/a, or no blocked plan
   idx\u2713 indexed   idx\u21bb stale (HEAD moved)   idx\u2717 not indexed   idx\u2013 n/a
   plans N (M blk)   open plans under the repo, M of them blocked
@@ -1053,7 +1104,17 @@ Outside a tezgah root the per-repo extras (idx, plans) are omitted.
 """
 
 
-def health_segments(cwd, session_id=None, used_override=None, idx_override=None):
+# The measures a host can report when all it sees is the tool calls its own hook
+# fires on: the four tool-use marks. The skill-read marks need a channel those
+# hosts do not have - Claude parses its transcript, opencode classifies in
+# process, omp filters in its embedded runner before it asks python - so their
+# surfaces pass this set and the two skill marks state nothing there instead of
+# claiming the skill was never opened.
+TOOL_USE_MEASURES = frozenset(("consult", "research", "cbm", "orch"))
+
+
+def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
+                    observable=None):
     """The armed/used checklist as structured segments, host-neutral.
 
     Each segment is {"key", "state", "glyph", "text", "group"} with state in
@@ -1074,14 +1135,23 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None)
     (Claude parses the transcript because it does not write tezgah's recorder);
     None falls back to tezgah's recorder for session_id.
 
+    observable: the measure keys THIS surface can see for this session, or None
+    for all of them. A measure outside the set renders as `info` (dim, no glyph)
+    rather than `ready`: "armed, not used yet" is a claim a host cannot make
+    about a mark it cannot observe - the skill-read marks on a host that would
+    have to spawn a process per read to see one. `off` still wins, because a
+    kill switch is observable everywhere.
+
     idx_override: an idx glyph the host already resolved (one of "✓↻✗–"), for a
     redraw that must not fork git for a cosmetic line - omp re-renders on every
     turn_end and tool_result. None probes as before; the other marks stay live."""
     base, marks = repo_marks(cwd)
     seen = set(used_override) if used_override is not None else used(session_id)
     flags = [
-        ("pony", not off("ponytail-auto.off") and ".no-ponytail" not in marks, None),
+        ("pony", not off("ponytail-auto.off") and ".no-ponytail" not in marks,
+         "pony"),
         ("exec", not off("exec-mode.off"), None),
+        ("adhd", not off("adhd-off") and ".no-adhd" not in marks, "adhd"),
         ("consult", not off("consult-off") and have_consult_key(), "consult"),
         ("research", not off("research-off") and bool(orx_bin()), "research"),
         ("cbm", ".no-cbm" not in marks, "cbm"),
@@ -1091,6 +1161,8 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None)
     for name, on, meas in flags:
         if not on:
             state = "off"
+        elif meas is not None and observable is not None and meas not in observable:
+            state = "info"
         elif meas is None or meas in seen:
             state = "on"
         else:
@@ -1138,7 +1210,7 @@ def render_line(segs, color=False):
 
 
 def health_lines(cwd, session_id=None, used_override=None, color=False,
-                 idx_override=None):
+                 idx_override=None, observable=None):
     """The armed/used checklist, one line, plain text unless `color` is asked
     for.
 
@@ -1146,7 +1218,10 @@ def health_lines(cwd, session_id=None, used_override=None, color=False,
     path) passes color=True; a host that sanitizes it (omp's setStatus, Codex's
     systemMessage) or a pipe stays plain - the marks are then uncolored, never
     wrong. `idx_override` is health_segments': a host redrawing a cosmetic line
-    passes the glyph it already resolved and forks no git."""
+    passes the glyph it already resolved and forks no git. `observable` is
+    health_segments' too: the measures this surface can see, so a host that
+    cannot report a skill read stops claiming the skill is unused."""
     return render_line(health_segments(cwd, session_id, used_override,
-                                       idx_override=idx_override), color=color)
+                                       idx_override=idx_override,
+                                       observable=observable), color=color)
 

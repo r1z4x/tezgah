@@ -25,7 +25,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import (  # noqa: E402
-    command_text, context_for, health_lines, record, shell_kind)
+    TOOL_USE_MEASURES, command_text, context_for, health_lines, record,
+    shell_kind)
 from tezgah_gate import decision  # noqa: E402
 from tezgah_integrity import note_tool, stop_reason  # noqa: E402
 from tezgah_paths import off, root_for  # noqa: E402
@@ -159,7 +160,7 @@ def main():
             if reason:
                 out["decision"] = "block"
                 out["reason"] = reason
-        seg = health_lines(cwd, session_id)
+        seg = health_lines(cwd, session_id, observable=TOOL_USE_MEASURES)
         if seg:
             out["systemMessage"] = "tezgah  " + seg
         if out:
@@ -173,7 +174,7 @@ def main():
     if text:
         out["hookSpecificOutput"] = {"hookEventName": event, "additionalContext": text}
     if event == "SessionStart":
-        seg = health_lines(cwd, session_id)
+        seg = health_lines(cwd, session_id, observable=TOOL_USE_MEASURES)
         if seg:
             out["systemMessage"] = "tezgah  " + seg
     if out:

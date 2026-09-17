@@ -19,9 +19,23 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from tezgah_context import record, shell_kind  # noqa: E402
 from tezgah_integrity import note_tool, untrusted_source  # noqa: E402
 from tezgah_paths import root_for  # noqa: E402
 from tezgah_untrusted import marks  # noqa: E402
+
+# The tool-use kinds this hook can see, for the status line's used marks. Claude
+# reads them from its transcript and ignores this store, but dsh runs this same
+# file with no transcript of its own - the store is the only channel its Web
+# status line has, so without this its consult/cbm marks could never light.
+CBM_TOOLS = ("mcp__codebase-memory-mcp__", "mcp__codebase_memory_mcp__")
+
+
+def used_kind(tool, inp):
+    """The used-tool kind one PostToolUse call earns, or None."""
+    if str(tool).startswith(CBM_TOOLS):
+        return "cbm"
+    return shell_kind(inp.get("command") or inp.get("cmd") or "")
 
 
 def result_size(result):
@@ -67,6 +81,7 @@ def main():
         source, notice = marks(tool, inp, session_id)
     else:
         source, notice = untrusted_source(tool, inp), None
+    record(session_id, used_kind(tool, inp))
     # Whether a successful PostToolUse means the call itself succeeded. Claude
     # splits a call's outcome across two events, so the event name carries it;
     # the dsh bridge collapses both into this one and its payload has no outcome

@@ -33,9 +33,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AGENT = os.path.join(os.path.expanduser("~"), ".omp", "agent")
 EXTENSION = os.path.join(AGENT, "hooks", "pre", "tezgah-hook.ts")
 TIMEOUT = 45.0
-# the first segment of the status string with the color its "on" state paints
-# (hooks/tezgah_context.render_line)
-MARK = "\x1b[32mpony"
+# the first segment of the status string with the color its armed state paints
+# (hooks/tezgah_context.render_line): a fresh session has not read the skill's
+# full text yet, so the mark starts armed
+MARK = "\x1b[33mpony"
 
 
 def omp_bin():

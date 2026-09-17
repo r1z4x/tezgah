@@ -6,6 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The act-on-it output shape is a rule of its own (`tezgah-adhd off`,
+  `.no-adhd`).**
+  `skills/i-have-adhd` (MIT, vendored and adapted) is armed beside ponytail:
+  the answer or the next action on the first line, numbered steps for
+  multi-step work, the position restated in one line while it runs, tangents
+  waiting their turn, errors as location/cause/fix, a list capped at five ranked
+  items with the rest kept in reserve, and an estimate marked as an estimate.
+  Two upstream rules are rewritten rather than imported verbatim, because they
+  collided with rules already in force: the state restatement points at the todo
+  list instead of duplicating it, and a time estimate can no longer be read as a
+  measurement (the integrity rule). Armed everywhere ponytail is - the always-on
+  text, the on-demand contract, the subagent brief, every host's skill router -
+  with its own switch (`tezgah-adhd off|on`, or a repo's `.no-adhd`) and its own
+  `adhd` status mark.
+
+- **The ponytail intensity level is a stored switch (`tezgah-pony lite|full|ultra`,
+  `/tezgah:ponytail` on Claude).** The skill advertised a level switch and
+  nothing stored one, so `lite` and `ultra` were phrases in a document. The level
+  lives in `~/.config/tezgah/ponytail.level` and rides the per-turn reminder when
+  it is not `full`, which is why an armed level is no longer something the model
+  has to remember. The default removes the file and adds no characters.
+
 ### Fixed
 
 - **`--help` no longer costs a paid call on `consult`, and no longer runs the
@@ -33,6 +57,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `group` now and both renderers use it, so the four surfaces read the same.
 
 ### Changed
+
+- **`pony` reports the read, not just the arming.** The mark meant "the rule is
+  on", which is a different claim from "the session has the full skill text" -
+  the always-on text is a fifth of it. It flips from armed to in-force when the
+  session actually opens `skills/ponytail/SKILL.md`, on the three hosts that can
+  observe a read without paying a process for it (Claude parses its transcript,
+  opencode classifies in-process, omp's embedded runner filters the path before
+  it asks python). A host that cannot see the read does not get to say "not used
+  yet" either: it passes the measures it does have
+  (`tezgah-status --observable=`, the new flag every status surface threads
+  through) and those marks render dim with no glyph, so the line neither claims
+  the skill was opened nor that it was not. Codex and Cursor pass the tool-use
+  four; so does dsh's Web route - which along the way gained the used marks it
+  never had, because the shared PostToolUse hook now records the kind it can see
+  (consult, research, cbm) instead of leaving that store empty for the one host
+  with no transcript of its own.
+
+- **The always-on ponytail rule now points at the full skill.** The summary
+  paragraph carried the ladder, the root-cause rule and the `ponytail:` comment
+  but never told the session to open `skills/ponytail/SKILL.md` - that pointer
+  lived only inside the on-demand `tezgah-contract` skill, so the intensity
+  levels (`lite|full|ultra`), the single runnable-check rule and the
+  `[code] -> skipped:` output pattern arrived only if the model happened to read
+  it. One sentence sends it there on the first non-trivial coding task, in the
+  always-on core and in the `output-styles/tezgah.md` mirror (+150 chars, ~38
+  tokens per session).
 
 - **A `rm -rf` under a temp root no longer needs the user's approval.** The
   consent rule asked about any recursive force delete outside the run directory,

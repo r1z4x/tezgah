@@ -63,7 +63,18 @@ same text.
 - **Minimal code (ponytail).** The laziest change that actually works: YAGNI,
   then reuse an existing helper, then stdlib, then a native platform feature,
   then an installed dependency, then one line. No unrequested abstractions.
-  Validation, error handling, and security are never simplified away.
+  Validation, error handling, and security are never simplified away. The
+  intensity level is a real switch - `tezgah-pony lite|full|ultra`, or
+  `/tezgah:ponytail` on Claude - and a non-default level rides the per-turn
+  reminder.
+- **Act-on-it output shape (i-have-adhd).** The answer or the next action is
+  on the first line; multi-step work is a numbered list whose position is
+  restated in one line while it runs; tangents wait until the issue in hand is
+  finished; errors read as location, cause, fix; a list shows at most five
+  ranked items with the rest kept in reserve; an estimate is in concrete units
+  and is marked as an estimate. The switch is `tezgah-adhd off|on` (or
+  `/tezgah:adhd` on Claude; a repo opts out with `.no-adhd`). Vendored and
+  adapted from `i-have-adhd` (MIT).
 - **Code-graph-first discovery.** "Where is X", "who calls Y", "what breaks if
   Z changes" go to the `codebase-memory-mcp` graph (`search_graph`,
   `trace_path`, `search_code`), not to grep. Grep stays right for literal text,
@@ -317,6 +328,16 @@ knowing:
 | `bin/tezgah-setup --version` | Print the plugin version |
 | `bin/tezgah-setup --uninstall` | Remove only tezgah's symlinks, host hook entries, and the dsh managed block |
 
+The status line marks each rule with its state first: a check means armed and
+in force this session (or always-on), a circle means armed but on demand - not
+used yet this session - and a cross means turned off by a kill switch or a
+`.no-*` mark. `pony` and `adhd` read a circle until the session has actually
+read that skill's full text, and a check after it; on Claude, opencode and omp
+that read is observable. On codex, cursor and dsh that read is not observable
+at an acceptable cost, so those two marks render dim, with no glyph: the line
+states nothing rather than claiming the skill was never opened. A kill switch
+still shows red everywhere.
+
 <a id="configuration"></a>
 
 ## Configuration
@@ -334,6 +355,7 @@ text injected into the session, so the rule actually stops:
 |---|---|
 | `exec-mode.off` | Turkish, outcome-first reporting |
 | `ponytail-auto.off` | the minimal-code rule |
+| `adhd-off` | the act-on-it output shape (i-have-adhd) |
 | `spec-off` | the spec-before-building rule |
 | `consult-off` | the external-second-opinion rule |
 | `research-off` | routing research tasks to OpenResearch |
@@ -341,9 +363,9 @@ text injected into the session, so the rule actually stops:
 | `reminder-off` | the per-turn reminder text |
 | `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, loop, grep nudge) |
 
-Per repo, `.no-ponytail`, `.no-cbm` and `.no-lessons` turn off the minimal-code
-rule, the code-graph rule (and its auto-index), and the lessons ledger
-respectively.
+Per repo, `.no-ponytail`, `.no-adhd`, `.no-cbm` and `.no-lessons` turn off the
+minimal-code rule, the act-on-it output shape, the code-graph rule (and its
+auto-index), and the lessons ledger respectively.
 
 When the user flags a mistake, the agent appends a one-line lesson to the repo's
 `.tezgah/lessons.md`; the most recent lines are injected at session start so the
@@ -494,6 +516,6 @@ into instruction text is in scope. Include the host, the tezgah version
 
 ## License
 
-The root `LICENSE` (MIT) covers tezgah's own files. `skills/ponytail` and
-`skills/no-ai-slop` are vendored under their own MIT terms, recorded in
-`NOTICE`.
+The root `LICENSE` (MIT) covers tezgah's own files. `skills/ponytail`,
+`skills/no-ai-slop` and `skills/i-have-adhd` are vendored under their own MIT
+terms, recorded in `NOTICE`.

@@ -83,8 +83,9 @@ class OmpExtension(TempHome):
         key, content, options = out["widgets"][0]
         self.assertEqual(key, "tezgah")
         # the whole first mark carries its state color: setStatus, omp's other
-        # surface, sanitizes exactly these escapes away
-        self.assertIn("\u001b[32mpony\u2713\u001b[0m", content[0])
+        # surface, sanitizes exactly these escapes away. Armed, not read: the
+        # skill's full text is a read this session has not made yet.
+        self.assertIn("\u001b[33mpony\u25cb\u001b[0m", content[0])
         self.assertEqual(options["placement"], "belowEditor")
         self.assertEqual(out["statuses"], [])
         message = out["sent"][0]["message"]

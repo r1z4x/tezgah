@@ -46,7 +46,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import (  # noqa: E402
     color_default, command_text, context_for, health_segments, record,
-    render_line, shell_kind)
+    render_line, shell_kind, skill_read_kind)
 from tezgah_gate import decision  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
     note_tool, stop_reason, untrusted_label, untrusted_source)
@@ -66,6 +66,9 @@ def classify(tool, inp):
     name = str(tool or "")
     if name.startswith("mcp__") and "codebase" in name:
         return "cbm"
+    read_kind = skill_read_kind(name, inp)
+    if read_kind:
+        return read_kind
     low = name.lower()
     if low in ("task", "agent", "spawn_agent"):
         return "orch"

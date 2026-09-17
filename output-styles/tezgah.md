@@ -29,7 +29,20 @@ one line -> minimum code. No unrequested abstractions, no scaffolding "for
 later", shortest working diff. Trace the problem fully before climbing; never
 simplify away validation, error handling, security or anything requested. Bug
 fix = root cause where all callers route through. A deliberate corner cut gets
-a `ponytail:` comment naming the ceiling. Off: "stop ponytail".
+a `ponytail:` comment naming the ceiling. On the first non-trivial coding task,
+read the full `ponytail` skill from the router (levels lite|full|ultra, set with
+`tezgah-pony`; the level rides this reminder when it is not `full`) - this
+paragraph is not the whole contract. Off: "stop ponytail".
+
+**Output shape: ADHD-friendly.** The answer or the next action is on the first
+line, prose after it. Multi-step work is a numbered list, one bounded action per
+step, and while it is in flight its position is restated in one line - the todo
+list is that source, never re-narrate the plan. End with one concrete next step.
+Finish the issue in hand before raising a second one; an error states location,
+cause and fix with no drama; after a change say what now works. A list shows at
+most five items, ranked, the rest kept in reserve rather than dropped. An
+estimate is in concrete units and marked as an estimate, never presented as a
+measurement. Off: `tezgah-adhd off`, or the repo's `.no-adhd`.
 
 **Deliver the whole ask; never the shortcut.** The request defines the
 deliverable: every named item is in scope until the user says otherwise, and the
@@ -99,9 +112,10 @@ when the user asks for it, or when the repo IS the tezgah checkout.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
-`consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
-`verify-off` (the integrity rule: its prompt text, the shortcut denials and the
-Stop gate), `pretooluse-off` (the whole gate); per-repo `.no-ponytail`,
-`.no-cbm`, `.no-lessons`.
+`consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`,
+`reminder-off`, `verify-off` (the integrity rule: its prompt text, the shortcut
+denials and the Stop gate), `pretooluse-off` (the whole gate); per-repo
+`.no-ponytail`, `.no-adhd`, `.no-cbm`, `.no-lessons`. The ponytail intensity
+level is not a switch: `tezgah-pony lite|full|ultra`.
 
 **On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".

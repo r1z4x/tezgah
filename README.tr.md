@@ -62,6 +62,17 @@ beş ayrı kopyası yoktur.
   ardından mevcut bir yardımcıyı yeniden kullanma, ardından stdlib, ardından yerel bir platform özelliği,
   ardından kurulu bir bağımlılık, ardından tek bir satır. İstenmeyen soyutlamalar yoktur.
   Doğrulama, hata yönetimi ve güvenlik asla basitleştirilerek geçiştirilmez.
+  Yoğunluk seviyesi gerçek bir anahtardır - `tezgah-pony lite|full|ultra`,
+  Claude'da `/tezgah:ponytail` - ve varsayılan dışı bir seviye her turdaki
+  hatırlatıcıyla birlikte gelir.
+- **Harekete geçirici çıktı biçimi (i-have-adhd).** Yanıt ya da sıradaki eylem
+  ilk satırdadır; çok adımlı iş, çalışırken konumunu tek satırda yeniden
+  bildiren numaralı bir listedir; eldeki iş bitene kadar yan konular bekler;
+  hatalar konum, neden, çözüm olarak okunur; bir liste en fazla beş sıralı
+  madde gösterir, kalanı düşürülmek yerine yedekte tutulur; bir tahmin somut
+  birimlerle verilir ve tahmin olarak işaretlenir. Anahtar `tezgah-adhd off|on`
+  (Claude'da `/tezgah:adhd`); bir depo `.no-adhd` ile kendi başına kapatır.
+  `i-have-adhd` (MIT) kaynağından alınıp tezgah için uyarlanmıştır.
 - **Önce kod grafiği ile keşif.** "X nerede", "Y'yi kim çağırıyor", "Z değişirse ne bozulur"
   gibi sorular grep'e değil, `codebase-memory-mcp` grafiğine (`search_graph`,
   `trace_path`, `search_code`) gider. Grep; düz metinler, yapılandırmalar ve
@@ -243,6 +254,17 @@ bilmekte fayda var:
 | `bin/tezgah-setup --version` | Eklenti sürümünü yazdırır |
 | `bin/tezgah-setup --uninstall` | Yalnızca tezgah'ın sembolik bağlantılarını, barındırıcı kanca girişlerini ve dsh yönetilen bloğunu kaldırır |
 
+Durum satırı her kuralı önce durumuyla işaretler: bir tik, kuralın bu oturumda
+devrede ve yürürlükte olduğunu (ya da her zaman açık olduğunu); bir daire,
+devrede ama isteğe bağlı olduğunu - bu oturumda henüz kullanılmadığını -; bir
+çarpı ise bir acil durum anahtarı ya da `.no-*` işaretiyle kapatıldığını
+gösterir. `pony` ve `adhd`, oturum o yeteneğin tam metnini gerçekten okuyana
+kadar daire, okuduktan sonra tik okunur; bu okuma Claude, opencode ve omp'de
+gözlemlenir; codex, cursor ve dsh'de ise kabul edilebilir bir maliyetle
+gözlemlenemez, bu yüzden bu iki işaret oralarda soluk ve glifsiz çizilir: satır,
+o yeteneğin hiç açılmadığını iddia etmek yerine hiçbir şey söylemez. Bir acil
+durum anahtarı yine her yerde kırmızı görünür.
+
 <a id="configuration"></a>
 
 ## Yapılandırma
@@ -260,6 +282,7 @@ oturuma enjekte edilen metinden çıkarır, böylece kural gerçekten durur:
 |---|---|
 | `exec-mode.off` | Türkçe, sonuç odaklı raporlamayı |
 | `ponytail-auto.off` | minimal kod kuralını |
+| `adhd-off` | harekete geçirici çıktı biçimini (i-have-adhd) |
 | `spec-off` | inşa etmeden önce spesifikasyon kuralını |
 | `consult-off` | harici ikinci görüş kuralını |
 | `research-off` | araştırma görevlerini OpenResearch'e yönlendirmeyi |
@@ -267,8 +290,9 @@ oturuma enjekte edilen metinden çıkarır, böylece kural gerçekten durur:
 | `reminder-off` | her turdaki hatırlatıcı metnini |
 | `pretooluse-off` | PreToolUse geçidinin kendisini (atıf, kaşif, grep dürtmesi) |
 
-Depo başına, `.no-ponytail`, `.no-cbm` ve `.no-lessons` sırasıyla minimal kod
-kuralını, kod grafiği kuralını (ve otomatik indekslemesini) ve dersler defterini (lessons ledger) kapatır.
+Depo başına, `.no-ponytail`, `.no-adhd`, `.no-cbm` ve `.no-lessons` sırasıyla
+minimal kod kuralını, harekete geçirici çıktı biçimini, kod grafiği kuralını
+(ve otomatik indekslemesini) ve dersler defterini (lessons ledger) kapatır.
 
 Kullanıcı bir hatayı işaretlediğinde, ajan deponun
 `.tezgah/lessons.md` dosyasına tek satırlık bir ders ekler; en son satırlar oturum başlangıcında
@@ -422,5 +446,6 @@ tezgah sürümünü (`bin/tezgah-setup --version`) ve minimal bir yeniden üreti
 
 ## Lisans
 
-Kök dizindeki `LICENSE` (MIT) tezgah'ın kendi dosyalarını kapsar. `skills/ponytail` ve
-`skills/no-ai-slop`, `NOTICE` içinde kaydedilen kendi MIT koşulları altında sağlanmaktadır.
+Kök dizindeki `LICENSE` (MIT) tezgah'ın kendi dosyalarını kapsar. `skills/ponytail`,
+`skills/no-ai-slop` ve `skills/i-have-adhd`, `NOTICE` içinde kaydedilen kendi MIT koşulları
+altında sağlanmaktadır.

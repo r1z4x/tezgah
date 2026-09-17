@@ -1108,8 +1108,29 @@ function commandKind(command) {
   })
 }
 
+// A read of a tezgah skill file is the one read whose result moves a status
+// mark: reading the full text is the only signal that the always-on summary was
+// not the whole rule. Matched in-process so ordinary reads stay free. Mirrors
+// hooks/tezgah_context.skill_read_kind - the two halves must agree on the path
+// shape and on the mark names.
+const SKILL_MARKS = { ponytail: "pony", "i-have-adhd": "adhd" }
+
+function skillReadKind(tool, args) {
+  // the read names the integrity mirror above already lists: a second list here
+  // would be a second definition of "a read", and a skill read by `cat` counts
+  if (!READ_TOOLS.has(String(tool || "").toLowerCase())) return null
+  const raw = (args && (args.filePath || args.file_path || args.path)) || ""
+  const path = String(raw).replace(/\\/g, "/")
+  for (const [name, mark] of Object.entries(SKILL_MARKS)) {
+    if (path.endsWith("skills/" + name + "/SKILL.md")) return mark
+  }
+  return null
+}
+
 async function classify(tool, args) {
   const blob = tool + " " + JSON.stringify(args || {})
+  const read = skillReadKind(tool, args)
+  if (read) return read
   if (/search_graph|trace_path|search_code|get_architecture|detect_changes|codebase.memory/.test(blob)) return "cbm"
   if (tool === "task") return "orch"
   if (tool === "bash" || tool === "shell") {
