@@ -3,11 +3,13 @@
 The pure detectors run in-process; the ledger and the two Claude hooks run in a
 subprocess with a throwaway HOME so the real cache is never touched.
 """
+import fcntl
 import json
 import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -18,6 +20,7 @@ from support import TempHome, run_json
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_context as tc  # noqa: E402
 import tezgah_integrity as ti  # noqa: E402
+import tezgah_snapshot as tz  # noqa: E402
 
 
 class FailClass(unittest.TestCase):
@@ -443,6 +446,177 @@ class WritersElsewhere(unittest.TestCase):
         self.assertEqual(ti.writers_elsewhere("", "mine"), [])
 
 
+class CredentialRedaction(unittest.TestCase):
+    """E4/X2: a credential the call carried never reaches the row.
+
+    The row stores what the call carried - a command line, a path - so a token
+    on a command line landed verbatim in a plain file in the cache. The scan is
+    in the one append every writer goes through, and it records itself in the
+    row: an evidence file altered without a mark would be a worse artifact than
+    the leak it hides. `_path` is patched so the real cache is never touched."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+
+    def test_the_named_and_bare_shapes_are_replaced_and_the_command_survives(self):
+        cases = (
+            ("export GITHUB_TOKEN=ghp_%s" % ("b" * 36),
+             "ghp_" + "b" * 36, "GITHUB_TOKEN"),
+            ("curl -H 'Authorization: Bearer sk-live-abcdefghijklmnop1234' https://x",
+             "sk-live-abcdefghijklmnop1234", "curl"),
+            ("aws s3 ls --access-key AKIAIOSFODNN7EXAMPLE",
+             "AKIAIOSFODNN7EXAMPLE", "aws s3 ls"),
+            ("mysql --password=hunter2swordfish -e select",
+             "hunter2swordfish", "mysql"),
+            ("slack --token xoxb-1234567890-abcdefghij post",
+             "xoxb-1234567890-abcdefghij", "slack"),
+        )
+        for cmd, _secret, _keep in cases:
+            ti.note("s", "run", cmd)
+        rows = ti.events("s")
+        self.assertEqual(len(rows), len(cases))
+        for row, (cmd, secret, keep) in zip(rows, cases):
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, row["detail"])
+                self.assertIn("[redacted:", row["detail"])
+                self.assertIn(keep, row["detail"])
+
+    def test_the_marker_names_what_was_removed(self):
+        # the length is what a reader has to tell a one-character value from a
+        # whole token: the row says a credential was there and how big it was
+        key = "ghp_" + "c" * 36
+        ti.note("s", "run", "export GITHUB_TOKEN=%s" % key)
+        self.assertIn("[redacted:%d]" % len(key), ti.events("s")[-1]["detail"])
+
+    def test_a_real_tool_row_is_redacted(self):
+        # the writer a host reaches, not `note` directly: the detail comes from
+        # the call's own command field
+        ti.note_tool("s", "Bash",
+                     {"command": "curl -H 'Authorization: Bearer ghp_%s' https://x"
+                                 % ("d" * 36)}, failed=None)
+        row = ti.events("s")[-1]
+        self.assertEqual(row["kind"], "run")
+        self.assertNotIn("ghp_", row["detail"])
+        self.assertIn("[redacted:", row["detail"])
+
+    def test_a_credential_past_the_stored_budget_is_still_replaced(self):
+        # the scan runs over the whole command before the row's own cut: a
+        # credential sitting in the last chars of the stored line is replaced
+        # whole, never stored as the fragment a scan of the cut text would leave
+        key = "ghp_" + "e" * 36
+        ti.note("s", "run", "x" * 185 + " " + key)
+        detail = ti.events("s")[-1]["detail"]
+        self.assertNotIn(key, detail)
+        self.assertIn("[redacted:", detail)
+        self.assertLessEqual(len(detail), 200)
+
+
+class PostWriteState(unittest.TestCase):
+    """G4: the write's after-state, the half the ledger was missing.
+
+    The gate's `capture` records the pre-state in a `snapshot` row; `note_tool`
+    records the target's hash once the host returned, and whether the two
+    differ. Without the second half nothing could tell a write that landed from
+    one the host accepted and did nothing with."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        self.target = os.path.join(self.dir, "x.py")
+        with open(self.target, "w") as fh:
+            fh.write("before\n")
+
+    def rows(self):
+        return ti.events("s")
+
+    def pre_hash(self):
+        tz.capture("Edit", {"file_path": self.target}, self.dir, "s")
+        return [r for r in self.rows() if r.get("kind") == "snapshot"][-1]["hash"]
+
+    def test_the_after_hash_is_recorded_and_differs_from_the_pre_hash(self):
+        pre = self.pre_hash()
+        with open(self.target, "w") as fh:
+            fh.write("after\n")
+        ti.note_tool("s", "Edit", {"file_path": self.target}, failed=False)
+        row = self.rows()[-1]
+        self.assertEqual(row["kind"], "edit")
+        self.assertNotEqual(row["hash"], pre)
+        self.assertTrue(row["changed"])
+        self.assertEqual(ti.changed_files("s"), {self.target})
+
+    def test_a_write_that_changed_nothing_is_recorded_as_unchanged(self):
+        # a host-reported success over a file nobody touched: before this the row
+        # was indistinguishable from a write that landed
+        pre = self.pre_hash()
+        ti.note_tool("s", "Edit", {"file_path": self.target}, failed=False)
+        row = self.rows()[-1]
+        self.assertEqual(row["hash"], pre)
+        self.assertFalse(row["changed"])
+        self.assertEqual(ti.changed_files("s"), set())
+
+    def test_no_pre_state_leaves_the_change_unstated(self):
+        # a new file has no pre-image: the after-hash is recorded and `changed`
+        # is not guessed from the absence of a capture
+        new = os.path.join(self.dir, "new.py")
+        with open(new, "w") as fh:
+            fh.write("x\n")
+        ti.note_tool("s", "Write", {"file_path": new}, failed=False)
+        row = self.rows()[-1]
+        self.assertEqual(row["kind"], "edit")
+        self.assertIn("hash", row)
+        self.assertNotIn("changed", row)
+
+    def test_a_target_that_is_not_readable_records_nothing_extra(self):
+        ti.note_tool("s", "Edit", {"file_path": os.path.join(self.dir, "gone.py")},
+                     failed=False)
+        row = self.rows()[-1]
+        self.assertNotIn("hash", row)
+        self.assertNotIn("changed", row)
+
+
+class LedgerAppendLock(unittest.TestCase):
+    """B9: the ledger's appender serializes on an exclusive lock.
+
+    A host fires PostToolUse once per call of a parallel batch, each in its own
+    process, so two writers reach one file at once. The lock is taken on the
+    ledger's own descriptor - what it must do is what is under test, exclude a
+    second writer. (`_path` is patched so the real cache is never touched.)
+
+    ponytail: a row LOST to an unlocked append could not be reproduced on APFS
+    even with six writers and 400-byte lines, because one `write(2)` on an
+    O_APPEND handle lands whole - so this asserts the exclusion, which is what
+    the change adds and what can be observed, not a torn line this filesystem
+    does not produce."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        self.path = os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: self.path
+
+    def test_the_append_waits_for_the_lock_a_second_writer_holds(self):
+        # the lock's own premise: a holder excludes the append. Without it the
+        # append returns at once and the two writers are back to racing.
+        held = open(self.path, "a")
+        self.addCleanup(held.close)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        release = threading.Timer(0.4, lambda: fcntl.flock(held, fcntl.LOCK_UN))
+        release.daemon = True
+        release.start()
+        self.addCleanup(release.cancel)
+        start = time.time()
+        ti.note("s", "run", "ls")
+        self.assertGreaterEqual(time.time() - start, 0.3,
+                                "the append did not wait for the lock")
+        self.assertEqual([r["detail"] for r in ti.events("s")], ["ls"])
+
+
 class StopHook(TempHome):
     def setUp(self):
         super().setUp()
@@ -606,6 +780,11 @@ class StopHook(TempHome):
         self.seed("Bash", {"command": "pytest -q"}, failed=True)
         self.stop("Done. Tests pass.")
         self.stop("Haklısın, hemen düzeltiyorum.")
+        # a turn the rule never judged writes no row at all: with a passing check
+        # behind the work, a reply with no claim vocabulary is not this rule's
+        # business (a turn with work and NO passing check is judged now, and
+        # writes `blocked: no verify_ok`)
+        self.seed("Bash", {"command": "pytest -q"})
         self.assertIsNone(self.stop("Toplam 5 dosya incelendi."))
         self.assertEqual(self.claim_rows(), ["blocked: no verify_ok",
                                             "blocked: check failed",
@@ -638,8 +817,42 @@ class StopHook(TempHome):
         self.assertEqual(self.counts()["claims"], 2)
 
     def test_a_reply_without_a_claim_records_nothing(self):
+        # the claim row is this rule's verdict on a reply: a turn with a passing
+        # check behind it is a turn the rule never judged, so the false-completion
+        # denominator must not grow with it
         self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
         self.assertIsNone(self.stop("Toplam 5 dosya incelendi."))
+        self.assertEqual(self.counts()["claims"], 0)
+
+    def test_work_with_no_passing_check_is_refused_without_a_claim_word(self):
+        # A1/D5/G5, the evidence-shaped half. The vocabulary list let the same
+        # unfounded state through when it was stated as a description (E2
+        # measured 0 of 10 implicit claims refused). The turn's own evidence is
+        # the trigger now, so this reply carries no claim word and is still
+        # refused - and the refusal is recorded like any other.
+        self.seed("Edit", {"file_path": "x.py"})
+        out = self.stop("The parser handles the new field and the wiring is in "
+                        "place.")
+        self.assertEqual((out or {}).get("decision"), "block")
+        self.assertIn("no check ran", (out or {}).get("reason", ""))
+        self.assertEqual(self.claim_rows(), ["blocked: no verify_ok"])
+        self.assertEqual(self.counts()["false_completion"], 1)
+
+    def test_a_step_that_failed_is_refused_without_a_claim_word(self):
+        # the same rule over a check that ran and failed: "verify_fail" is a step
+        # the turn did, and the reply says nothing about it
+        self.seed("Bash", {"command": "pytest -q"}, failed=True)
+        out = self.stop("The suite was slow, so I looked at the slowest file.")
+        self.assertEqual((out or {}).get("decision"), "block")
+        self.assertIn("failed", (out or {}).get("reason", ""))
+
+    def test_the_admission_is_the_only_exemption(self):
+        # the same state and the same absence of claim words, with the reply's own
+        # `doğrulanmadı`: nothing is refused and no row is written
+        self.seed("Edit", {"file_path": "x.py"})
+        self.assertIsNone(
+            self.stop("The parser handles the new field. doğrulanmadı."))
         self.assertEqual(self.counts()["claims"], 0)
 
     def test_stop_hook_active_passes(self):
@@ -859,6 +1072,32 @@ class PostToolUse(TempHome):
     def test_edit_records_edit(self):
         self.run_hook("PostToolUse", "Edit", {"file_path": "/tmp/x.py"})
         self.assertIn("edit", self.kinds())
+
+    def test_a_tool_name_no_rule_knows_is_recorded_by_name(self):
+        # B3: `classify` returns None for a name outside every list, so the call
+        # left no ledger line at all and a fabricated tool was invisible in the
+        # trace it exists to be in. The kind says unclassified, the detail names
+        # the tool.
+        self.run_hook("PostToolUse", "Fabricated", {"whatever": 1})
+        rows = self.rows()
+        self.assertEqual([(r["kind"], r["detail"]) for r in rows],
+                         [("unknown", "unknown tool: Fabricated")])
+        self.assertEqual(len(rows[-1]["id"]), 12)
+
+    def test_an_unknown_row_is_not_a_step_of_work(self):
+        # the counters and the Stop rule read the step set; an unclassified call
+        # claims no work there, or every fabricated name would look like progress
+        self.run_hook("PostToolUse", "Fabricated", {})
+        self.assertEqual(self.counters()["steps"], 0)
+
+    def test_a_read_tool_still_writes_no_row(self):
+        # the row is for a name nothing classifies. The read/search tools are
+        # known calls that do no step of work, and a row each would bury the work
+        # rows every reader scans for.
+        for tool in ("Read", "Grep", "Glob", "LS", "read", "grep", "glob",
+                     "read_file", "list_dir", "search_files"):
+            self.run_hook("PostToolUse", tool, {"file_path": "x"})
+        self.assertEqual(self.kinds(), [])
 
     def test_unknown_outcome_records_a_run_not_a_pass(self):
         # a host that reports no exit status must never write verify_ok
