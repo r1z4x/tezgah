@@ -4,6 +4,10 @@
     codegen "task" --files src/a.py src/b.py [--provider p] [--model m]
             [--timeout s] [--max-tokens N] [--out-dir DIR]   (drafts only; nothing is applied)
 
+--timeout (default 300) caps the WHOLE request, not one socket operation, so a
+stalled connection exits 2 instead of hanging the caller. CODEGEN_URL overrides
+the endpoint (a gateway, or a test server); CODEGEN_MODEL the model.
+
 The model NEVER writes into the repository. It returns whole file bodies, this
 script writes them to a scratch directory and prints `diff -u` against the
 working tree. The caller reviews that diff, applies it, and runs the gate
@@ -18,14 +22,16 @@ Key lookup order: the provider's env var, then its key file.
 EXIT CODES, and they are the contract:
   0  usable drafts, diff printed
   2  codegen cannot deliver -- WRITE THE CODE YOURSELF with the main model.
-     Raised for: no key, API or network failure, the model answering BLOCKED,
-     an unparseable reply, a TRUNCATED reply (finish_reason=length), a draft
-     that is not valid Python, or drafts identical to what is already there.
+     Raised for: no key, API or network failure, a request that outlived
+     --timeout, the model answering BLOCKED, an unparseable reply, a TRUNCATED
+     reply (finish_reason=length), a draft that is not valid Python, or drafts
+     identical to what is already there.
      A half-written file that happens to parse is the failure this guards
      against: it looks like an answer and is not one.
   1  the caller misused the tool (bad arguments)
 """
 import ast
+import concurrent.futures
 import os
 import re
 import subprocess
@@ -95,6 +101,11 @@ class Insufficient(Exception):
     """codegen cannot deliver; the caller must fall back to the main model."""
 
 
+def fetch(req, timeout):
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
 def ask(task, files, model, provider, timeout, max_tokens):
     parts = [f"TASK:\n{task}\n"]
     for path in files:
@@ -112,14 +123,23 @@ def ask(task, files, model, provider, timeout, max_tokens):
     if max_tokens:
         payload["max_tokens"] = max_tokens
     req = urllib.request.Request(
-        PROVIDERS[provider][0], data=json.dumps(payload).encode(),
+        os.environ.get("CODEGEN_URL", "").strip() or PROVIDERS[provider][0],
+        data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {key(provider)}", "Content-Type": "application/json",
                  "X-Title": "codegen"})
+    # --timeout is the cap on the WHOLE request, not on one socket operation:
+    # urllib's own timeout restarts on every recv, so a body that trickles (or a
+    # connection kept alive with nothing on it) outlives it indefinitely - seen
+    # as a 3-minute hang under --timeout 90. consult caps its calls the same way.
+    pool = concurrent.futures.ThreadPoolExecutor(1)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            out = json.load(r)
+        out = pool.submit(fetch, req, timeout).result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        raise Insufficient("the request outlived --timeout=%ds" % timeout)
     except Exception as exc:                      # noqa: BLE001 - any failure is a fallback
         raise Insufficient(f"the request failed: {exc}") from exc
+    finally:
+        pool.shutdown(wait=False)
     choice = (out.get("choices") or [{}])[0]
     msg = choice.get("message") or {}
     if choice.get("finish_reason") == "length":
@@ -217,4 +237,8 @@ except Insufficient as exc:
     print(f"codegen: INSUFFICIENT -- {exc}\n"
           f"codegen: fall back to the main model and write this one yourself.",
           file=sys.stderr)
-    sys.exit(2)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # A request thread that outlived --timeout is still alive, and sys.exit
+    # waits for it at interpreter shutdown; the message above is already out.
+    os._exit(2)
