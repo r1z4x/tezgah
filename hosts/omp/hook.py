@@ -17,8 +17,11 @@ the same code every other host runs.
         -> {"deny": reason}
     {"event": "post_tool_use", "cwd": ..., "tool": ..., "input": {...},
      "failed": bool, "idx": glyph}
-        -> {"status": "pony✓ ...", "idx": glyph}  (records the evidence the Stop
-           rule reads; `idx` echoed from the payload skips the git probe)
+        -> {"status": "pony✓ ...", "idx": glyph, "label": one line}
+           (records the evidence the Stop rule reads; `idx` echoed from the
+           payload skips the git probe; `label` is the untrusted-content notice
+           for a result that came from outside the user and the workspace, and
+           is absent for every ordinary result)
     {"event": "stop", "last_assistant_message": ..., "stop_hook_active": bool}
         -> {"decision": "block", "reason": reason}
 
@@ -45,7 +48,8 @@ from tezgah_context import (  # noqa: E402
     color_default, command_text, context_for, health_segments, record,
     render_line, shell_kind)
 from tezgah_gate import decision  # noqa: E402
-from tezgah_integrity import note_tool, stop_reason  # noqa: E402
+from tezgah_integrity import (  # noqa: E402
+    note_tool, stop_reason, untrusted_label, untrusted_source)
 from tezgah_paths import off, root_for  # noqa: E402
 
 
@@ -130,15 +134,26 @@ def handle(payload):
         tool = payload.get("tool", "")
         inp = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         failed = payload.get("failed")
+        source = untrusted_source(tool, inp)
         record(session_id, classify(tool, inp))
         # failed is tri-state on purpose: None means omp reported no outcome,
         # and the ledger then records a check that ran, never one that passed.
+        # `source` is the untrusted channel the result came through, and is left
+        # out of the row for every result that is the user's or the workspace's.
         note_tool(session_id, tool, inp,
-                  failed=failed if isinstance(failed, bool) else None)
+                  failed=failed if isinstance(failed, bool) else None,
+                  source=source)
         # the call is already paid for, so the status line's used marks are
         # refreshed from the same answer instead of a second subprocess, and
         # from the idx glyph the session already carries instead of a git fork
-        return answered(*status_line(cwd, session_id, payload.get("idx")))
+        out = answered(*status_line(cwd, session_id, payload.get("idx")))
+        # The result is the other thing this event carries. A label is not a
+        # deny: the bridge puts it in front of the content itself, so the model
+        # reads where the text came from while it reads the text.
+        label = untrusted_label(source)
+        if label:
+            out["label"] = label
+        return out
     if event == "stop":
         if payload.get("stop_hook_active") or off("verify-off"):
             return {}
