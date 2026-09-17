@@ -3,11 +3,15 @@ refusals, the first-grep nudge, the concurrent-write refusal and the long-turn
 re-statement."""
 import json
 import os
+import sys
 import time
 import unittest
 
 import support
 from support import TempHome, run_json
+
+sys.path.insert(0, os.path.join(support.REPO, "hooks"))
+import tezgah_integrity as ti  # noqa: E402  (call_id only: the digest a grant carries)
 
 
 class Gate(TempHome):
@@ -17,9 +21,11 @@ class Gate(TempHome):
         self.envv = self.env()
         self.probe = support.PROBE_GATE
 
-    def decide(self, tool, inp, cwd=None, session_id="s1"):
+    def decide(self, tool, inp, cwd=None, session_id="s1", capture_log=None):
         payload = {"tool": tool, "input": inp, "cwd": cwd or self.repo,
                    "session_id": session_id}
+        if capture_log:
+            payload["capture_log"] = capture_log
         out, proc = run_json([self.probe], payload, env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
@@ -520,6 +526,98 @@ class Gate(TempHome):
         self.assertEqual(len([r for r in self.rows("oneshot")
                               if r["kind"] == "consent"]), 1)
 
+    # ---- consent: the three rows it may leave behind ----------------------
+    def seed_grant(self, session_id, digest):
+        """The row bin/tezgah-consent writes when the user approves an action:
+        the same writer, the same shape, and never a row the gate could write
+        for itself."""
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "note", "session": session_id,
+                              "kind": "grant", "detail": "cli", "id": digest},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_an_allowed_repeat_is_not_recorded_as_a_grant(self):
+        # One refusal, then the pass the gate allows on the ask alone: the
+        # ledger has to say which of the two that pass was, or a repeat the user
+        # never approved reads as a consent they gave.
+        command = "git push --force origin main"
+        session = "three-rows"
+        self.assertIsNotNone(self.decide("Bash", {"command": command},
+                                         session_id=session))
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id=session))
+        self.assertEqual([r["kind"] for r in self.rows(session)],
+                         ["consent", "deny", "repeat-allowed"])
+        asked = [r for r in self.rows(session) if r["kind"] == "consent"][0]
+        repeat = [r for r in self.rows(session)
+                  if r["kind"] == "repeat-allowed"][0]
+        # the repeat names the same action, class and root the ask did, so the
+        # two rows answer "what was asked" and "what was let through" together
+        self.assertEqual(repeat["id"], asked["id"])
+        self.assertEqual(repeat["detail"], "destructive")
+        self.assertEqual(repeat["workspace"], self.roots)
+
+    def test_a_grant_passes_before_the_ask_is_ever_made(self):
+        # The user answered through the CLI, so there is nothing left to ask:
+        # the command passes first time and no `consent` row claims the gate
+        # asked a question the user had already answered.
+        command = "npm publish"
+        session = "granted"
+        self.seed_grant(session, ti.call_id("Bash", {"command": command}))
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id=session))
+        self.assertEqual([r["kind"] for r in self.rows(session)], ["grant"])
+
+    def test_the_pass_after_a_grant_is_the_grant_row_alone(self):
+        # ask, then grant, then the command: the grant is the record of the
+        # pass, and the gate writes no `repeat-allowed` beside it - that row
+        # would name a repeat where the user had in fact approved the action.
+        command = "git push --force origin main"
+        session = "granted-late"
+        self.assertIsNotNone(self.decide("Bash", {"command": command},
+                                         session_id=session))
+        asked = [r for r in self.rows(session) if r["kind"] == "consent"][0]
+        self.seed_grant(session, asked["id"])
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id=session))
+        self.assertEqual([r["kind"] for r in self.rows(session)],
+                         ["consent", "deny", "grant"])
+
+    # ---- consent: a declared effect, which may only tighten the class ------
+    def test_a_declared_effect_at_or_above_the_class_is_used(self):
+        # The patterns here cannot see someone's own script, so the command is
+        # asked to say what it is - and a class below the one the text derives
+        # is not on offer.
+        for command, klass in (
+                ("./ship.sh  # tezgah:effect=deploy", "deploy"),
+                ("git push origin production  # tezgah:effect=destructive",
+                 "destructive")):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("`%s` effect" % klass, reason)
+            self.assertNotIn("declared", reason)
+
+    def test_a_declared_effect_below_the_class_is_ignored(self):
+        # A declaration that can lower a class is a bypass of the rule that
+        # reads it, so the derived class stands - and the attempt stays visible
+        # in the refusal and in the deny row, not only in this test.
+        command = "git push --force origin main  # tezgah:effect=publish"
+        reason = self.decide("Bash", {"command": command}, session_id="talking")
+        self.assertIsNotNone(reason)
+        self.assertIn("`destructive` effect", reason)
+        self.assertIn("declared `tezgah:effect=publish`", reason)
+        denied = [r for r in self.rows("talking") if r["kind"] == "deny"][0]
+        self.assertIn("declared `publish` ignored, `destructive` stands",
+                      denied["detail"])
+
+    def test_a_declaration_that_names_no_class_is_dropped(self):
+        # "at least as severe" is a comparison over the five classes, so a word
+        # outside them is not a class and cannot invent one
+        for command in ("npm run build  # tezgah:effect=whatever",
+                        "pytest -q  # tezgah:effect="):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
     def test_an_action_that_is_not_irreversible_still_passes(self):
         # the classifier must not widen the rule: an ordinary push, a rollback-
         # free read and a release *check* are not effect actions
@@ -641,6 +739,39 @@ class Gate(TempHome):
             % target)}, session_id="mine")
         self.assertIsNotNone(reason)
         self.assertIn(target, reason)
+
+    # ---- snapshot: the bytes a write is about to change --------------------
+    def test_a_write_that_passes_is_captured_and_a_denied_one_is_not(self):
+        # The gate keeps the pre-write bytes for an edit it lets through, and
+        # for nothing else: a refused write changes no file, so capturing one
+        # spends a copy on nothing. `capture` is imported behind a guard, so the
+        # probe plants a stub in sys.modules - the same call site is pinned
+        # whether or not hooks/tezgah_snapshot.py has landed.
+        log = os.path.join(self.home, "capture.jsonl")
+
+        def calls():
+            if not os.path.exists(log):
+                return []
+            with open(log) as fh:
+                return [json.loads(line) for line in fh if line.strip()]
+
+        write = {"file_path": os.path.join(self.repo, "src", "a.py"),
+                 "old_string": "a", "new_string": "b"}
+        self.assertIsNone(self.decide("Edit", write, session_id="cap",
+                                      capture_log=log))
+        self.assertIsNotNone(self.decide("Edit", {
+            "file_path": "src/a.py",
+            "new_string": "Co-Authored-By: Claude <noreply@anthropic.com>"},
+            session_id="cap", capture_log=log))
+        self.assertEqual(len(calls()), 1, calls())
+        self.assertEqual(calls()[0]["tool"], "Edit")
+        self.assertEqual(calls()[0]["input"], write)
+        self.assertEqual(calls()[0]["cwd"], self.repo)
+        self.assertEqual(calls()[0]["session_id"], "cap")
+        # and a bash command is not a write tool: there is no file to keep
+        self.assertIsNone(self.decide("Bash", {"command": "pytest -q"},
+                                      session_id="cap", capture_log=log))
+        self.assertEqual(len(calls()), 1, calls())
 
     # ---- constraint drift: a long turn re-states the rules -----------------
     # Above the gate's DRIFT_STEPS whatever it is tuned to: this test is about a
