@@ -213,11 +213,10 @@ nicht gelöscht:
 bin/tezgah-setup --adopt
 ```
 
-Claude Code wird über seinen eigenen Plugin-Kanal installiert:
+Claude Code wird vom selben Skript eingerichtet - das Plugin-Manifest ist eine lokale, nicht versionierte Datei:
 
 ```bash
-claude plugin marketplace add ~/Projects/tezgah
-claude plugin install tezgah@rizacan-local
+bin/tezgah-setup --install --hosts claude
 ```
 
 Beschränken Sie die Installation bei Bedarf explizit:
@@ -385,7 +384,7 @@ ruff check .                               # lint (config in pyproject.toml)
 
 CI läuft sowohl auf Python 3.10 als auch auf 3.12. Um eine installierte Claude-Kopie
 aus diesem Checkout zu aktualisieren, verwenden Sie `bin/tezgah-setup --sync` und validieren Sie das Manifest mit
-`claude plugin validate .claude-plugin/plugin.json`. Wenn Sie die Version erhöhen, aktualisieren Sie
+`claude plugin validate .claude-plugin/plugin.json` (das Manifest ist lokal und nicht versioniert). Wenn Sie die Version erhöhen, aktualisieren Sie
 `.claude-plugin/plugin.json` und `.claude-plugin/marketplace.json`
 zusammen – sie müssen übereinstimmen.
 

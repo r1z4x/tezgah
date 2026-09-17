@@ -117,9 +117,19 @@ def expand(p):
 
 
 def plugin_version():
+    """The plugin manifest's version, else the newest release in CHANGELOG.md.
+
+    The manifest is the maintainer's local file and is not tracked, so a clone
+    without it must still answer `--version`."""
     try:
         with open(os.path.join(HERE, ".claude-plugin", "plugin.json")) as fh:
             return json.load(fh).get("version", "unknown")
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(HERE, "CHANGELOG.md")) as fh:
+            hit = re.search(r"^## \[(\d+\.\d+\.\d+)\]", fh.read(), re.M)
+        return hit.group(1) if hit else "unknown"
     except Exception:
         return "unknown"
 
@@ -1699,7 +1709,8 @@ def report(hosts):
         ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
          os.path.isdir(tezgah_apps.ARTIFACTS)),
         ("git", bool(shutil.which("git"))),
-        ("plugin.json and marketplace.json agree on the version", versions_agree()),
+        ("local plugin manifest present and consistent (untracked)",
+         versions_agree()),
     ]
     for label, good in rows:
         print("  %s %s" % (OK if good else NO, label))
@@ -1912,6 +1923,10 @@ HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
 
 
 def versions_agree():
+    """Do the local manifest's two files carry one version?
+
+    Both are untracked (they are the maintainer's), so an absent pair is normal
+    and only a present-but-disagreeing pair is a failure."""
     try:
         v = []
         for f in ("plugin.json", "marketplace.json"):
@@ -1919,6 +1934,8 @@ def versions_agree():
                 d = json.load(fh)
             v.append(d["plugins"][0]["version"] if f == "marketplace.json" else d["version"])
         return v[0] == v[1]
+    except FileNotFoundError:
+        return True
     except Exception:
         return False
 
@@ -1943,17 +1960,17 @@ def plugin_copies():
     """Every installed tezgah plugin copy under ~/.claude/plugins/cache.
 
     Claude Code runs the plugin from a COPY, never from this checkout, so this
-    is the tree its hooks and skills actually come from."""
+    is the tree its hooks and skills actually come from. A copy is recognised by
+    the hook file `sync` writes into it, not by the plugin manifest: the manifest
+    is the maintainer's local, untracked file, so a fresh clone (and CI) has
+    none and a copy made from it would go unrecognised."""
     cache = os.path.join(HOME, ".claude", "plugins", "cache")
     out = []
-    for dirpath, _dirnames, _files in os.walk(cache):
-        try:
-            with open(os.path.join(dirpath, ".claude-plugin", "plugin.json")) as fh:
-                if json.load(fh).get("name") == "tezgah":
-                    out.append(dirpath)
-        except Exception:
-            continue
-    return out
+    for dirpath, dirnames, _files in os.walk(cache):
+        dirnames.sort()
+        if os.path.isfile(os.path.join(dirpath, PLUGIN_FINGERPRINT)):
+            out.append(dirpath)
+    return sorted(out)
 
 
 def plugin_copy_current(target):
@@ -2002,6 +2019,15 @@ def sync():
             dst = os.path.join(t, f)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
+        # The plugin manifest is the maintainer's local, untracked file, and a
+        # copy without one is not a plugin Claude can load: carry it over when
+        # this checkout has it, and copy nothing when it does not.
+        for name in ("plugin.json", "marketplace.json"):
+            src = os.path.join(HERE, ".claude-plugin", name)
+            if os.path.isfile(src):
+                dst = os.path.join(t, ".claude-plugin", name)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
         print("%s synced %s (%d files)" % (OK, t, len(files)))
     print("\nrestart Claude Code: hooks are read once per session.")
     return 0

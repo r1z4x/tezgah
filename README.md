@@ -278,11 +278,10 @@ not deleted:
 bin/tezgah-setup --adopt
 ```
 
-Claude Code installs through its own plugin channel:
+Claude Code is armed by the same script - the plugin manifest is a local, untracked file:
 
 ```bash
-claude plugin marketplace add ~/Projects/tezgah
-claude plugin install tezgah@rizacan-local
+bin/tezgah-setup --install --hosts claude
 ```
 
 Limit the install explicitly when needed (the first form is the
@@ -446,7 +445,7 @@ ruff check .                               # lint (config in pyproject.toml)
 
 CI runs both on Python 3.10 and 3.12. To refresh an installed Claude copy from
 this checkout, use `bin/tezgah-setup --sync`, and validate the manifest with
-`claude plugin validate .claude-plugin/plugin.json`. When bumping the version,
+`claude plugin validate .claude-plugin/plugin.json` (the manifest is local and untracked). When bumping the version,
 update `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`
 together — they must agree.
 

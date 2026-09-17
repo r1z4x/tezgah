@@ -213,11 +213,10 @@ no se elimina:
 bin/tezgah-setup --adopt
 ```
 
-Claude Code se instala a través de su propio canal de plugins:
+Claude Code se arma con el mismo script: el manifiesto del plugin es un archivo local, no versionado:
 
 ```bash
-claude plugin marketplace add ~/Projects/tezgah
-claude plugin install tezgah@rizacan-local
+bin/tezgah-setup --install --hosts claude
 ```
 
 Limita la instalación explícitamente cuando sea necesario:
@@ -384,7 +383,7 @@ pip install -r requirements-dev.txt        # pinned ruff, the only dev dep
 ruff check .                               # lint (config in pyproject.toml)
 ```
 
-CI se ejecuta tanto en Python 3.10 como en 3.12. Para actualizar una copia instalada de Claude desde este checkout, usa `bin/tezgah-setup --sync`, y valida el manifiesto con `claude plugin validate .claude-plugin/plugin.json`. Al incrementar la versión, actualiza `.claude-plugin/plugin.json` y `.claude-plugin/marketplace.json` juntos — deben coincidir.
+CI se ejecuta tanto en Python 3.10 como en 3.12. Para actualizar una copia instalada de Claude desde este checkout, usa `bin/tezgah-setup --sync`, y valida el manifiesto con `claude plugin validate .claude-plugin/plugin.json` (el manifiesto es local y no está versionado). Al incrementar la versión, actualiza `.claude-plugin/plugin.json` y `.claude-plugin/marketplace.json` juntos — deben coincidir.
 
 `codebase-memory-mcp` es instalado por el usuario. Los hooks y archivos de Orca no son parte de este proyecto y se dejan intactos. Claude recibe el núcleo siempre activo desde el hook SessionStart; `output-styles/tezgah.md` es un duplicado para las compilaciones que cargan estilos de salida de plugins, por lo que el hook es la ruta autoritativa.
 

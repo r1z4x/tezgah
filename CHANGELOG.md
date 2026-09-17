@@ -8,6 +8,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The public repository no longer carries the local state.** `.tezgah/` (the
+  lessons ledger and the research lines) and `.claude-plugin/` (the plugin
+  manifest, whose marketplace path is a personal one) are gitignored and
+  untracked: they stay on the maintainer's machine and a clone stops carrying
+  them. The READMEs' Claude install line is `bin/tezgah-setup --install --hosts
+  claude` like every other host, the manifest note in the READMEs and
+  `RELEASING.md` says it is local, `bin/tezgah-setup --version` falls back to the
+  newest `CHANGELOG.md` heading when the manifest is absent, and `--status`
+  reports an absent local manifest as normal rather than as a failure. What this
+  costs, named rather than implied: Claude's skills, agents, output style and
+  hooks were installed by the plugin channel, so a fresh clone can no longer arm
+  Claude - the maintainer's checkout keeps them through the untracked manifest,
+  and wiring those four through `bin/tezgah-setup` is the follow-up.
+
 - **The README translations are reduced to six languages plus Turkish** -
   English, 简体中文, Deutsch, Español, Français, 日本語, Português (Brasil), Türkçe -
   and every remaining file's language switcher lists exactly that set. The

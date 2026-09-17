@@ -23,3 +23,8 @@ __pycache__/
 
 # arm-bench: run directories are throwaway fixtures
 /benchmarks/arm-bench/.runs/
+
+# local state: the lessons ledger, the research lines, and the local plugin
+# manifest are the maintainer's, not repository content
+/.tezgah/
+/.claude-plugin/

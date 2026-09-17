@@ -1,12 +1,15 @@
 # Releasing
 
-The version lives in `.claude-plugin/plugin.json` (mirrored in
-`.claude-plugin/marketplace.json`); `bin/tezgah-setup --version` reads it.
+The version the public repository carries is the newest `## [x.y.z]` heading in
+`CHANGELOG.md` plus the git tag; `bin/tezgah-setup --version` reads the local
+plugin manifest when it is there and falls back to that heading. The manifest
+itself (`.claude-plugin/plugin.json`, mirrored in
+`.claude-plugin/marketplace.json`) is the maintainer's local, untracked file.
 
 ## Cut a release
 
-1. Bump `version` to the same semantic version in both
-   `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+1. Bump `version` in the local manifest's two files together (they are not
+   tracked - nothing in the repository needs the edit to publish).
 2. Add a `## [x.y.z] - YYYY-MM-DD` section to `CHANGELOG.md`, newest first, and
    add the tag link at the bottom.
 3. Run the three checks CI runs:

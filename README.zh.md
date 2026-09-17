@@ -124,11 +124,10 @@ shell；无论如何，tezgah 自己的检查都会在这些目录中查找，�
 bin/tezgah-setup --adopt
 ```
 
-Claude Code 通过其自己的插件通道安装：
+Claude Code 由同一个脚本装配——插件清单是本地文件，不纳入版本控制：
 
 ```bash
-claude plugin marketplace add ~/Projects/tezgah
-claude plugin install tezgah@rizacan-local
+bin/tezgah-setup --install --hosts claude
 ```
 
 需要时显式限制安装：
@@ -257,7 +256,7 @@ pip install -r requirements-dev.txt        # pinned ruff, the only dev dep
 ruff check .                               # lint (config in pyproject.toml)
 ```
 
-CI 在 Python 3.10 和 3.12 上均会运行。要从当前检出刷新已安装的 Claude 副本，请使用 `bin/tezgah-setup --sync`，并使用 `claude plugin validate .claude-plugin/plugin.json` 验证清单。在提升版本时，请同时更新 `.claude-plugin/plugin.json` 和 `.claude-plugin/marketplace.json`——它们必须保持一致。
+CI 在 Python 3.10 和 3.12 上均会运行。要从当前检出刷新已安装的 Claude 副本，请使用 `bin/tezgah-setup --sync`，并使用 `claude plugin validate .claude-plugin/plugin.json`（清单为本地文件，不纳入版本控制） 验证清单。在提升版本时，请同时更新 `.claude-plugin/plugin.json` 和 `.claude-plugin/marketplace.json`——它们必须保持一致。
 
 `codebase-memory-mcp` 由用户安装。Orca 的钩子和文件不属于本项目，保持原样。Claude 从 SessionStart 钩子接收始终在线的核心；`output-styles/tezgah.md` 是为加载插件输出样式的构建准备的副本，因此钩子才是权威路径。
 

@@ -125,11 +125,10 @@ DevTools MCP を接続するかを尋ね、計画を表示し、はいと言っ�
 bin/tezgah-setup --adopt
 ```
 
-Claude Codeは独自のプラグインチャネルを通じてインストールされます：
+Claude Code も同じスクリプトで設定します - プラグインのマニフェストはローカルの非管理ファイルです：
 
 ```bash
-claude plugin marketplace add ~/Projects/tezgah
-claude plugin install tezgah@rizacan-local
+bin/tezgah-setup --install --hosts claude
 ```
 
 必要に応じてインストールを明示的に制限します：
@@ -264,7 +263,7 @@ pip install -r requirements-dev.txt        # pinned ruff, the only dev dep
 ruff check .                               # lint (config in pyproject.toml)
 ```
 
-CIはPython 3.10と3.12の両方で実行されます。このチェックアウトからインストール済みのClaudeのコピーを更新するには、`bin/tezgah-setup --sync` を使用し、`claude plugin validate .claude-plugin/plugin.json` でマニフェストを検証します。バージョンを上げる際は、`.claude-plugin/plugin.json` と `.claude-plugin/marketplace.json` を一緒に更新してください。これらは一致している必要があります。
+CIはPython 3.10と3.12の両方で実行されます。このチェックアウトからインストール済みのClaudeのコピーを更新するには、`bin/tezgah-setup --sync` を使用し、`claude plugin validate .claude-plugin/plugin.json`（マニフェストはローカルで、管理対象外です） でマニフェストを検証します。バージョンを上げる際は、`.claude-plugin/plugin.json` と `.claude-plugin/marketplace.json` を一緒に更新してください。これらは一致している必要があります。
 
 `codebase-memory-mcp` はユーザーによってインストールされます。Orcaのフックとファイルはこのプロジェクトの一部ではなく、手付かずのまま残されます。ClaudeはSessionStartフックから常時稼働のコアを受け取ります。`output-styles/tezgah.md` はプラグインの出力スタイルを読み込むビルド用の複製であるため、フックが信頼できるパスとなります。
 

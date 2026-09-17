@@ -210,11 +210,10 @@ Eğer önceki bir kurulum zaten mevcutsa, önce onu içe aktarın — silinmez, 
 bin/tezgah-setup --adopt
 ```
 
-Claude Code kendi eklenti kanalı üzerinden kurulur:
+Claude Code da aynı betikle kurulur - eklenti manifesti yerel ve sürüm kontrolü dışında bir dosyadır:
 
 ```bash
-claude plugin marketplace add ~/Projects/tezgah
-claude plugin install tezgah@rizacan-local
+bin/tezgah-setup --install --hosts claude
 ```
 
 Gerektiğinde kurulumu açıkça sınırlandırın:
@@ -380,7 +379,7 @@ ruff check .                               # lint (config in pyproject.toml)
 
 CI hem Python 3.10 hem de 3.12 üzerinde çalışır. Kurulu bir Claude kopyasını
 bu checkout'tan yenilemek için `bin/tezgah-setup --sync` kullanın ve manifestoyu
-`claude plugin validate .claude-plugin/plugin.json` ile doğrulayın. Sürümü yükseltirken,
+`claude plugin validate .claude-plugin/plugin.json` (manifest yerel ve izlenmiyor) ile doğrulayın. Sürümü yükseltirken,
 `.claude-plugin/plugin.json` ve `.claude-plugin/marketplace.json` dosyalarını
 birlikte güncelleyin — birbiriyle uyuşmalıdırlar.
 
