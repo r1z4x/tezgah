@@ -2,11 +2,12 @@
 """Claude Code Stop hook: refuse to end a turn on a false claim.
 
 Blocks (decision: "block") when the final message opens by placating, or claims
-done/tested/passing in a session that changed code but never ran a check that
-succeeded. An explicit "doğrulanmadı" always clears it, so honest uncertainty is
-never punished. `stop_hook_active` short-circuits the loop, and Claude Code
-overrides the hook after its own consecutive-block cap, so this can never trap a
-session. Inert outside a tezgah root or under the `verify-off` kill switch.
+done/tested/passing in a session whose newest turn changed code and left a check
+failing or unproven by a later pass. An explicit "doğrulanmadı" always clears
+it, so honest uncertainty is never punished. `stop_hook_active` short-circuits
+the loop, and Claude Code overrides the hook after its own consecutive-block
+cap, so this can never trap a session. Inert outside a tezgah root or under the
+`verify-off` kill switch.
 """
 import json
 import os
