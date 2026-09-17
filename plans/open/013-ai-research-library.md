@@ -197,11 +197,11 @@ supplies and `skills/research` lacks; each is small and separately reviewable):
 - [x] `python3 -m unittest discover -s tests` green - 525 tests, OK; `python3 -m compileall -q hooks hosts bin statusline.py`; `ruff check .` clean.
 - [x] `bin/tezgah-setup --context` reports `skill metadata (10)`: 5,716 chars against 5,207 for nine - **+509 bytes** for the whole library.
 - [x] `bin/tezgah-setup --install --hosts opencode` under a scratch `HOME`: the always-on router collapses the bucket to `research & papers: 1 skill`, the full router lists `- \`ai-research\` - Use when a research line needs AI or ML machinery ...`, and the skill dir is symlinked into `~/.config/opencode/skills/`.
-- [x] Skill metadata grows by exactly one entry, measured by the same instrument the native hosts are sized with (`--context`, above). A live Claude session was not run from here.
-- [x] An agent given only `skills/ai-research/` and a research question (4-bit vs fp16 for a 7B model on an M1 Pro) walked `SKILL.md` → `index/3-train.md` → `10-optimization/gguf/SKILL.md` + its `troubleshooting.md` and answered with the K-quant table (verbatim quotes in the evidence table). Not a full host session with the hook armed - the shipped read path, exercised.
-- [x] `bin/tezgah-research check` is clean on `.tezgah/research/agent-failure-controls` - after the new proof rule caught two stale pointers there (below).
+- [x] Skill metadata grows by exactly one entry, measured by the same instrument the native hosts are sized with (`--context`, above).
+- [x] **A real host ran it.** `opencode run` in an isolated `HOME` with this branch installed, on a research prompt: it read `skills/research/SKILL.md`, then `skills/ai-research/index/3-train.md` and `4-measure.md`, then `10-optimization/bitsandbytes/SKILL.md` with its `references/quantization-formats.md`, and answered with the vendored numbers (45.9% → 45.2% MMLU, perplexity 5.12 → 5.18, 14 GB → 3.5 GB), naming the file it read, with zero permission rejections. The first attempt failed in two ways that are now fixed (below).
+- [x] `bin/tezgah-research check` is clean on `.tezgah/research/agent-failure-controls` - after the new proof rule caught stale pointers there (below).
 - [x] `NOTICE` names the vendored library, revision and licence; every vendored body keeps upstream frontmatter (96 `Orchestra Research`, `dailycafi`, `A-EVO Lab`) and every reference file carries the attribution comment, both test-pinned.
-- [x] `README.md`, the 19 READMEs and `CHANGELOG.md` updated. One drafted sentence per translation; `th`/`bn` are the two a native speaker should re-read.
+- [x] `README.md`, the 19 READMEs and `CHANGELOG.md` updated. Each translation's added line uses that file's own term for "skill" (the Thai line said สกิล where the file says ทักษะ, and was corrected); no native proofread was performed.
 
 ## Risks
 
@@ -392,22 +392,40 @@ work; what landed is below, with the command that shows it.
 | context cost | `bin/tezgah-setup --context` | `skill metadata (10)  ~ 1.4k tok  5716 chars` - **+509 bytes** over nine skills |
 | opencode wiring | `bin/tezgah-setup --install --hosts opencode` in a scratch HOME | always-on router: `research & papers: 1 skill`; full router: the `ai-research` line with its trigger; dir symlinked |
 | it is usable end to end | a read-only agent given only the library and a research question | `SKILL.md` → `index/3-train.md` → `10-optimization/gguf/SKILL.md` + `references/troubleshooting.md`, and it answered with the K-quant table (`Q4_K_M 4.5 bits ~4.1 GB High (recommended default)`, fp16 `~13.5 GB`) |
-| the checks still pass | `python3 -m unittest discover -s tests`, `python3 -m compileall -q ...`, `ruff check .` | 525 tests OK (482 before), lint and compile clean |
+| a real host reads it | `opencode run` in an isolated `HOME`, research prompt, first attempt | 6 tool calls, 0 file reads: it globbed its own project, found nothing, and reported *"Domain kütüphanesi bulunamadı"* with estimates, flagging that exact numbers were unavailable |
+| the same host, after the two wiring fixes | the same prompt, same isolated `HOME` | **7 tool calls, 0 auto-rejections**: `skills/research/SKILL.md` → `ai-research/index/3-train.md` + `4-measure.md` → `10-optimization/bitsandbytes/SKILL.md` + `references/quantization-formats.md`, answered `45.9% → 45.2%` MMLU, perplexity `5.12 → 5.18`, `14 GB → 3.5 GB`, and named the file it read |
+| every evidence pointer resolves | a sweep of `experiments/`, `to_human/blocks/` and `literature/` paths in the line, not just the two the check named | four stale pointers (claims ×2, `state.json` H7, the E4 log line) all corrected; the block's protocol annotated, not rewritten; the move recorded in `log.md` |
+| the checks still pass | `python3 -m unittest discover -s tests`, `python3 -m compileall -q ...`, `ruff check .` | 527 tests OK (482 before), lint and compile clean |
 
-Two things the work itself surfaced, both recorded rather than smoothed over:
+Four things the work itself surfaced, all recorded rather than smoothed over:
 
 - **`tezgah-research check` found real drift in this repository's own research
-  line.** The new proof-resolution rule refused `C10` and `C11` because they cite
-  `experiments/E4-mechanical-off-effect/results.jsonl`, which does not exist: E4's
-  evidence lives under `to_human/blocks/E4-mechanical-off-effect/`. The two
-  pointers now name the real location and the line is clean again. That is the
-  rule paying for itself before it was even committed.
+  line, and the sweep found more of it.** The new proof-resolution rule refused
+  `C10`/`C11`, which cited `experiments/E4-mechanical-off-effect/results.jsonl`.
+  `bd68a36` had filed that block under `to_human/blocks/` after its run, and four
+  pointers were left behind: two claims, `state.json`'s H7 and the E4 log line.
+  All four now name the real location, the block's own protocol keeps its
+  pre-move command (annotated, not rewritten), and `log.md` records the move so
+  the correction cannot read as history rewriting.
 - **Upstream authorship is not uniform.** `ml-training-recipes` (`dailycafi`) and
-  `a-evolve` (`A-EVO Lab`) are third-party contributions; NOTICE and `SOURCE` say
-  so, and a test pins the three-name set so a re-vendor cannot quietly change it.
+  `a-evolve` (`A-EVO Lab`) are third-party contributions; NOTICE, `SOURCE` and
+  the entry point say so, and a test pins the three-name set so a re-vendor
+  cannot quietly change it.
+- **The library was unreachable on opencode until the live turn proved it.** The
+  first `opencode run` read nothing and answered with estimates; the event stream
+  showed why - the router named `ai-research` only in the on-demand file, and
+  opencode auto-rejected the out-of-project read (`external_directory`) that
+  followed. Both are fixed (always-on router section for tezgah's own on-demand
+  skills; `external_directory` grants for `<checkout>/skills/**` and
+  `~/.config/tezgah/bin/**`, leaving an explicit user action alone, removed by
+  `--uninstall`), and the same prompt then read the library and quoted it.
+- **The translations needed a terminology pass, not just a sentence.** The Thai
+  README says ทักษะ where the added line said สกิล; each file's own term is now
+  used. No native proofread was performed.
 
 ## Next
 Open the PR for `plan/013-ai-research-library`; after it merges, `/tezgah:plan-sync`
-closes this plan. Then the only follow-on worth doing is running one real research
-turn on each host to confirm the armed rule leads the session to the index (this
-plan verified the path with an agent, not through every host's hook).
+closes this plan. The live turn was run on opencode, the host whose skill
+discovery is the most fragile (generated router + `permission.skill = deny`);
+Claude, Codex, Cursor and omp receive the skill as native metadata and were not
+run live - if one of them is to be checked, that is the follow-on.
