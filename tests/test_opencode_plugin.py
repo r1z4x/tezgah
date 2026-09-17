@@ -6,6 +6,7 @@ hooks through a node harness with a throwaway HOME, so a drift between the two
 implementations fails here instead of silently in a session. Skips when node is
 missing, matching the other node-dependent checks.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -599,6 +600,95 @@ class OpenCodePlugin(TempHome):
         self.after("bash", {"command": "ls"}, directory=self.home)
         self.assertEqual(self.kinds(), [])
 
+    def test_a_credential_in_a_detail_is_stored_redacted(self):
+        # A token typed on a command line would otherwise sit in plain text in a
+        # cache file. Python's own redact() is the reference, so a pattern that
+        # drifts between the two writers fails here instead of leaking from one
+        # of them - and the row still says a credential was there, and how long.
+        for command in (
+                "export GITHUB_TOKEN=ghp_16C7e42F292c6912E7710c838347Ae178B4a",
+                "curl -H 'Authorization: Bearer sk-live-abcdefghijklmnop' x",
+                "psql --password=hunter2 -c 'select 1'"):
+            self.after("bash", {"command": command})
+        rows = self.ledger()
+        self.assertEqual([row["detail"] for row in rows],
+                         [ti.redact(c)[:200] for c in
+                          ("export GITHUB_TOKEN=ghp_16C7e42F292c6912E7710c838347Ae178B4a",
+                           "curl -H 'Authorization: Bearer sk-live-abcdefghijklmnop' x",
+                           "psql --password=hunter2 -c 'select 1'")])
+        self.assertIn("[redacted:", rows[0]["detail"])
+        self.assertNotIn("ghp_16C7e42F292c6912E7710c838347Ae178B4a",
+                         rows[0]["detail"])
+        # the cut comes after the scan, so a credential near the 200th character
+        # cannot hide by being half stored
+        long = ("x" * 190) + " token=ghp_16C7e42F292c6912E7710c838347Ae178B4a"
+        self.after("bash", {"command": long})
+        self.assertEqual(self.ledger()[-1]["detail"], ti.redact(long)[:200])
+
+    def test_a_tool_name_no_rule_knows_records_an_unknown_row(self):
+        # A fabricated call (or a tool this host added) used to leave no line at
+        # all, so the trace could not show it happened. Only the read/search
+        # tools record nothing: filling the trace with every read would hide the
+        # work rows it does have.
+        self.after("fabricated_tool", {"anything": 1}, exit=0)
+        self.after("grep", {"pattern": "FooBar"})
+        rows = self.ledger()
+        self.assertEqual([row["kind"] for row in rows], ["unknown"], rows)
+        self.assertEqual(rows[0]["detail"], "unknown tool: fabricated_tool")
+        self.assertEqual(rows[0]["id"], ti.call_id("fabricated_tool",
+                                                  {"anything": 1}))
+        self.assertEqual(rows[0]["exit"], 0)
+
+    def test_an_edit_row_carries_the_after_state_and_whether_it_moved(self):
+        # A call the host reports as a successful write need not have changed
+        # anything. The gate's capture holds the pre-state in the ledger and this
+        # row holds the after-state, so a claim about a change has both sides
+        # under it. tool.execute.after is the post-write surface that allows it.
+        support.linked(os.path.join(support.REPO, "bin", "tezgah-capture"),
+                       self.home)
+        target = os.path.join(self.repo, "src", "a.py")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w") as fh:
+            fh.write("x = 1\n")
+
+        def edit_row():
+            rows = [r for r in self.ledger() if r["kind"] == "edit"]
+            self.assertTrue(rows, self.ledger())
+            return rows[-1]
+
+        self.allowed(self.before("edit", {"file_path": target}))
+        with open(target, "w") as fh:          # the write lands
+            fh.write("x = 2\n")
+        self.after("edit", {"file_path": target})
+        row = edit_row()
+        self.assertEqual(row["hash"],
+                         hashlib.sha256(b"x = 2\n").hexdigest())
+        self.assertIs(row["changed"], True)
+
+        # the same edit twice: the pre-state is the capture's, the after-state is
+        # the file's, and nothing moved between them
+        self.allowed(self.before("edit", {"file_path": target}))
+        self.after("edit", {"file_path": target})
+        row = edit_row()
+        self.assertEqual(row["hash"],
+                         hashlib.sha256(b"x = 2\n").hexdigest())
+        self.assertIs(row["changed"], False)
+
+    def test_a_write_with_no_capture_carries_the_after_state_alone(self):
+        # No snapshot row means no pre-state was recorded, and one that was never
+        # recorded is not invented: the row carries the hash and no `changed`.
+        target = os.path.join(self.repo, "src", "b.py")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w") as fh:
+            fh.write("y = 1\n")
+        self.after("edit", {"file_path": target})
+        row = self.ledger()[0]
+        self.assertEqual(row["hash"], hashlib.sha256(b"y = 1\n").hexdigest())
+        self.assertNotIn("changed", row)
+        # and a path that is not there has no after-state to record
+        self.after("edit", {"file_path": os.path.join(self.repo, "src", "no.py")})
+        self.assertNotIn("hash", self.ledger()[-1])
+
     def test_a_mention_of_a_tool_is_not_a_use_of_it(self):
         # the plugin's cheap substring only decides whether to ask; the answer
         # comes from the shared tokenizer, so `grep -n consult hooks/` records
@@ -681,6 +771,41 @@ class OpenCodePlugin(TempHome):
         injected = self.message(prompt)[-1]["text"]
         self.assertEqual(injected, self.builder("user_prompt", {"prompt": prompt}))
         self.assertNotIn("**Spec before building.**", injected)
+
+    def test_a_prompt_pays_the_delta_of_what_moved_since_the_last_turn(self):
+        # The builder's per-turn state delta is keyed on the session: it compares
+        # the stamp that session's previous turn wrote with the state now. With
+        # only a prompt (no id) read_stamp() had nothing to compare, so the delta
+        # could never fire here. The reference is the builder's own answer for a
+        # session that does have a stamp at the same state.
+        self.context_bin()
+        prompt = "add a docstring to parse_quantity"
+        self.message("ilk istek")                       # this session's stamp, state A
+        self.builder("user_prompt", {"prompt": prompt, "session_id": "ref"})
+        plan = os.path.join(self.repo, "plans", "open", "001-x.md")
+        os.makedirs(os.path.dirname(plan), exist_ok=True)
+        with open(plan, "w") as fh:
+            fh.write("---\nid: 1\ntitle: x\n---\n")
+        expected = self.builder("user_prompt",
+                                {"prompt": prompt, "session_id": "ref"})
+        self.assertIn("State since your last turn:", expected)
+        self.assertIn("open plans 0 -> 1 (+001-x.md)", expected)
+        self.assertEqual(self.message(prompt)[-1]["text"], expected)
+
+    def test_a_prompt_writes_the_turn_marker_the_loop_guard_resets_on(self):
+        # One marker per user turn, from the same builder call and keyed on the
+        # same session id: without the id the plugin's own rows carried no turn
+        # boundary, so the loop ceiling counted every identical failure of the
+        # session as if it were this turn's. A re-send of the same submission is
+        # the same turn (hooks/tezgah_integrity.note_turn), and a different
+        # prompt is a new one.
+        self.context_bin()
+        self.message("selam")
+        self.assertEqual(self.kinds(), ["turn"], self.ledger())
+        self.message("başka bir istek")
+        self.assertEqual(self.kinds(), ["turn", "turn"], self.ledger())
+        self.message("başka bir istek")
+        self.assertEqual(self.kinds(), ["turn", "turn"], self.ledger())
 
     def test_a_missing_builder_injects_nothing(self):
         # Every path fails open: a host without ~/.config/tezgah/bin still sends
