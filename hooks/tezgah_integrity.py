@@ -261,7 +261,12 @@ def prior_calls(session_id, digest, tail=200):
 
     The loop guard's ceiling depends on whether the last failure was transient,
     so the class travels with the count: reading the file a second time for it
-    would double the only file I/O the PreToolUse path may do."""
+    would double the only file I/O the PreToolUse path may do.
+
+    The window is a real ceiling, not an optimisation detail: an attempt older
+    than the last `tail` rows is invisible, so a loop that spans more than that
+    many calls is not counted. 200 is roughly a long turn's worth of events; a
+    session that wants more pays for it on every gated call."""
     rows = [e for e in events(session_id, tail=tail) if e.get("id") == digest]
     if not rows:
         return 0, None, None

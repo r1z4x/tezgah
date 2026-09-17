@@ -162,7 +162,17 @@ file does not already carry. The reply-level half - the Stop rule - runs where
 the host hands over the final message: Claude, Codex, omp (`session_stop`) and
 Cursor, which reports the reply on `afterAgentResponse` and takes the decision at
 `stop`. Its ledger is shared, so the newest check wins: a later failure blocks a
-"tests pass" claim even if an earlier run was green. opencode has no
+"tests pass" claim even if an earlier run was green. Each row carries the action
+it belongs to (`id`, a digest of the tool and its canonical arguments), the
+structured outcome (`exit`, `out_bytes`, `fail_class`) and the workspace, so a
+run can be reconstructed rather than guessed at; the same identity feeds the
+loop guard, which refuses a third identical call whose previous attempts exited
+non-zero. `tezgah-status --counters <cwd> <session>` reports the trace figures -
+`steps`, `tool_error_rate`, `claims`, `false_completion` - next to the deny
+counts. A check counts as support only when the host reported exit 0, a
+non-empty result and an unmasked command; rows written before this rule existed
+are still accepted, so upgrading never blocks an open session on its own
+history. opencode has no
 end-of-turn surface to block, so it records the evidence and the reply claim
 stays unenforced there.
 

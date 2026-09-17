@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Ledger action identity, trace metrics and the loop guard** (plan 012). Every
+  evidence row now carries `id` (a digest of the tool and its canonical
+  arguments), `exit`, `out_bytes`, `fail_class` and `workspace`, written by both
+  the Python hooks and the opencode plugin. On top of that identity: the
+  PreToolUse gate denies a third identical call whose previous attempts exited
+  non-zero (two attempts when the last failure was transient), and
+  `tezgah-status --counters` prints `steps`, `tool_error_rate`, `claims` and
+  `false_completion`. The Stop rule now counts a `verify_ok` as support only when
+  the host reported exit 0, a non-empty result and an unmasked command; rows
+  written before this change are tolerated so an open session is never blocked on
+  its own history. Hook medians moved by less than 2.2 ms
+  (`benchmarks/hook-latency/`).
 - The research workspace: `bin/tezgah-research` (`init`, `check`, `status`) and
   the `research` skill. A research line lives in `<repo>/.tezgah/research/<slug>/`
   and holds the question and locked evaluation, the decision log, the findings,
