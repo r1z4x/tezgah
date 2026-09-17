@@ -181,6 +181,15 @@ written before this rule existed are still accepted, so upgrading never blocks
 an open session on its own history. opencode has no end-of-turn surface to
 block, so it records the evidence and the reply claim stays unenforced there.
 
+A consent ask is three rows, never one: the gate's refusal writes `consent` (the
+action's digest and its effect class), the user's approval writes `grant`, and a
+repeat the gate allowed without either writes `repeat-allowed`. The approval is
+`tezgah-consent <digest>` for the action a refusal named, or
+`tezgah-consent --last` for the newest ask no grant answers yet - the form that
+costs no copy-paste. The grant lands in the ledger that carries the ask, which is
+the session the gate reads it from, so "who approved what" is a query over the
+ledger rather than a claim about it.
+
 ### App analysis
 
 `analyze-app` drives a running application from its accessibility tree. The

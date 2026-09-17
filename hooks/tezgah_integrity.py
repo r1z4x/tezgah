@@ -215,25 +215,57 @@ def _path(session_id):
     return os.path.join(cache_dir(), "evidence", _slug(session_id) + ".jsonl")
 
 
-def note(session_id, kind, detail="", **fields):
-    """Append one evidence event. Best effort: a write failure is not fatal.
+def note_path(path, kind, detail="", **fields):
+    """Append one evidence event to an explicit ledger path. Same row contract
+    and same best-effort write as `note`.
 
-    The extra keys are the ledger contract's (`id`, `exit`, `out_bytes`,
-    `fail_class`, `workspace`); a caller's typo is dropped rather than parked in
-    the file, and a None value is left out because every reader treats a missing
-    key as None - a line should carry what its writer actually knew."""
-    if not session_id or not kind:
+    The consent CLI answers an ask it did not witness, so it resolves the ledger
+    it must write into without ever holding a session id - a ledger filename
+    carries a hash of the id and cannot be turned back into one."""
+    if not path or not kind:
         return
     row = {"kind": kind, "ts": int(time.time()), "detail": str(detail)[:200]}
     row.update({k: v for k, v in fields.items()
                 if v is not None and k in LEDGER_FIELDS})
     try:
-        d = os.path.join(cache_dir(), "evidence")
-        os.makedirs(d, exist_ok=True)
-        with open(_path(session_id), "a") as fh:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as fh:
             fh.write(json.dumps(row) + "\n")
     except OSError:
         pass
+
+
+def note(session_id, kind, detail="", **fields):
+    """Append one evidence event to this session's ledger, best effort: a write
+    failure is not fatal.
+
+    The extra keys are the ledger contract's (`id`, `exit`, `out_bytes`,
+    `fail_class`, `workspace`); a caller's typo is dropped rather than parked in
+    the file, and a None value is left out because every reader treats a missing
+    key as None - a line should carry what its writer actually knew."""
+    if not session_id:
+        return
+    note_path(_path(session_id), kind, detail, **fields)
+
+
+def ledgers():
+    """Every evidence ledger, newest activity first.
+
+    The newest first is what a reader without a session id needs: the ledger a
+    refusal was just written to is the one whose activity is newest."""
+
+    def mtime(path):
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0.0
+
+    d = os.path.join(cache_dir(), "evidence")
+    try:
+        return sorted((os.path.join(d, n) for n in os.listdir(d)
+                       if n.endswith(".jsonl")), key=mtime, reverse=True)
+    except OSError:
+        return []
 
 
 def kinds(session_id):
@@ -279,19 +311,25 @@ def _parse(lines):
     return out
 
 
+def events_path(path, tail=None):
+    """Every parseable ledger entry at an explicit ledger path, oldest first.
+    `events` is this function with the path derived from a session id."""
+    if tail:
+        return _parse(_tail_lines(path, tail))
+    try:
+        with open(path) as fh:
+            return _parse(fh)
+    except OSError:
+        return []
+
+
 def events(session_id, tail=None):
     """Every parseable ledger entry for this session, oldest first.
 
     With `tail`, only the last `tail` lines are read. The file grows with the
     session and the gate reads it on every gated call, so the tail path must
     never parse the whole of it."""
-    if tail:
-        return _parse(_tail_lines(_path(session_id), tail))
-    try:
-        with open(_path(session_id)) as fh:
-            return _parse(fh)
-    except OSError:
-        return []
+    return events_path(_path(session_id), tail)
 
 
 def _turn_start(rows):
