@@ -12,6 +12,11 @@
 //     native allow/deny path where a build emits it; tool.execute.before is the
 //     always-available fallback (1.18.30 never emits permission.ask, so the
 //     fallback is what enforces today).
+//   - tool.execute.before also carries the rules that need the ledger: consent
+//     for an unasked irreversible or outward-facing shell command (refused once
+//     per action, so the ask reaches the user), secret for a credential on its
+//     way into a file, and the two repeat ceilings (loop per user turn, retry
+//     per session).
 //   - shell.env: export the tezgah roots and paths into every shell call.
 //   - chat.message: pay the shared builder's text for the submitted prompt -
 //     the per-turn reminder plus the conditional rule that prompt arms.
@@ -20,23 +25,22 @@
 //   - tool.execute.after: record which tezgah tools a session used so
 //     `tezgah-status` can show it.
 //
-// Known gap: the PreToolUse half of the loop guard (rule 4 of
-// hooks/tezgah_gate.py - refuse a third identical call whose previous attempts
-// failed) is not ported here, although this plugin writes the very rows that
-// guard reads. An opencode session gets the action identity and the metrics but
-// not the ceiling, so a call a host with a PreToolUse gate refuses on its third
-// attempt runs here.
+// Known gap: every rule of hooks/tezgah_gate.py is enforced here, but the ledger
+// the counters read is complete only for the rules ported last - consent, secret,
+// loop and retry write the rows the Python gate's `_deny` writes, while the
+// explorer, attribution and shortcut refusals (and the nudge, marked by its
+// cache-dir file alone) still leave no row of their own.
 //
 // Every path fails open: if anything here throws unexpectedly, the tool runs.
 // Hook names a given opencode build does not know are skipped by the runtime
 // (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
 // lacks is safe and must never be a load-time error.
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { homedir, tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path"
 
 const HOME = homedir()
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "tezgah")
@@ -98,6 +102,110 @@ const ATTRIB_DENY =
   "Co-Authored-By / \"Generated with\" / robot-emoji / model-name credit from " +
   "the commit, PR, issue or review text and re-run. Naming a tool in order to " +
   "use it or describe real behavior is fine; crediting it as author is not."
+
+// --- consent: an irreversible or outward-facing command ---------------------
+// A `git push` carrying a force flag, to a branch that is not scratch: a scratch
+// branch is disposable, so the history it loses costs nobody else anything. The
+// flag has to sit in the push segment the command's own separators bound.
+const GIT_PUSH =
+  /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*push\b([^|;&]*)/gi
+const FORCE_FLAG =
+  /(?:^|\s)(?:-f|--force|--force-with-lease|--force-if-includes)(?=[\s=]|$)/
+const SCRATCH =
+  /\b(?:tmp|temp|scratch|wip|spike|throwaway|trash|sandbox)[-/][\w./-]*/i
+// `git branch -D`/`--delete`, and the remote delete `git push --delete`/`-d`. The
+// delete flag is matched by shape, because `--merged` also carries a `d`.
+const BRANCH_DELETE =
+  /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*(?:branch\s+(?:-[A-Za-z]*[dD]\b|--delete\b)|push\b[^|;&]*(?:--delete\b|-d\b))/i
+// A recursive force-delete: both flags have to be there (`rm -f` and `rm -r` on
+// their own are not this rule's), and the targets come from the raw text so a
+// quoted path still resolves - the `rm` itself is matched on the masked text, so
+// a message that describes the command is not the command.
+const RM = /(?:^|[|;&]\s*|\s)rm\s+((?:-\S+\s+)*)([^|;&]*)/g
+// The same pattern anchored at one offset, for the raw-text read in rmOutside.
+const RM_AT = new RegExp(RM.source, "y")
+const RM_RECURSIVE = /-[A-Za-z]*r[A-Za-z]*\b|--recursive\b/i
+const RM_FORCE = /-[A-Za-z]*f[A-Za-z]*\b|--force\b/
+// Applying a migration, by the runners that name it. ponytail: a hand-written
+// `psql -c "ALTER TABLE ..."` is not caught - reading SQL intent is not a regex.
+const MIGRATION =
+  /(?:^|[|;&]\s*|\s)(?:(?:alembic|flyway|goose|dbmate|sqitch)\s+(?:upgrade|up|migrate|deploy|down|downgrade|rollback|reset|redo)\b|(?:knex|prisma|sequelize|typeorm)\s+\S*migrat\S*|(?:django-admin|manage\.py)\s+migrate\b|python\d?\s+-m\s+django\s+migrate\b|(?:bin\/)?rails\s+db:(?:migrate|rollback|reset|schema:load)\b)/i
+// A deploy: putting code in front of users, by the runners that name it.
+const DEPLOY =
+  /(?:^|[|;&]\s*|\s)(?:(?:vercel|netlify|fly|flyctl|railway|render|wrangler|firebase|gcloud|eb)\b[^|;&]*?\bdeploy\b|(?:serverless|sls)\s+deploy\b|terraform\s+(?:apply|destroy)\b|helm\s+(?:install|upgrade|uninstall)\b|kubectl\s+(?:apply|delete|rollout|scale)\b|ansible-playbook\b)/i
+// Shipping an artifact outward: a registry, a release, an image.
+const PUBLISH =
+  /(?:^|[|;&]\s*|\s)(?:(?:npm|yarn|pnpm|bun)\s+publish\b|twine\s+upload\b|docker\s+push\b|gh\s+release\s+create\b)/i
+// A push to a target that is live rather than a branch under review.
+const OUTWARD =
+  /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*push\s+\S*\s*(?:heroku|production|prod)\b/i
+// The classes a refused command's effect belongs to, and what each one is. The
+// refusal names the class and this clause, never the pattern that matched: the
+// agent has to see what it is about to do, not which regex caught it.
+const EFFECTS = {
+  destructive: "this one rewrites or drops history, a branch or files outside " +
+    "the run directory",
+  schema: "this one changes the shape of a database",
+  deploy: "this one puts code in front of users",
+  publish: "this one ships an artifact to a registry or a release",
+  outward: "this one pushes to a live target rather than a branch under review",
+}
+const CONSENT_DENY =
+  "Consent gate (`%s` effect): %s. The contract requires an explicit ask " +
+  "before an irreversible or outward-facing action, so put the exact command " +
+  "and what it cannot undo in front of the user. Once this refusal is in the " +
+  "transcript, the same command passes on the next attempt."
+// --- secret: a credential on its way into a file ----------------------------
+// Only the two shapes the contract names: a bearer header, or a `name=value`
+// assignment. `:` is NOT a separator here - `{"api_key": "x"}` is a JSON field in
+// a program's text, while `token=$TOKEN` and `api_key=...` are a credential being
+// carried, and the value may be an env reference the shell resolves.
+const SECRET_TOKEN =
+  /authorization\s*:\s*bearer\s+\S|[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd)\s*=\s*["']?[^\s"']/i
+// The sinks that carry a command's own text into a file. `>>?` is read off the
+// masked text, so a quoted `>` is not a redirect and `2>&1` is not a file.
+// curl's -o/--output writes the response BODY, not the request header, so it is
+// not a sink; its traces are, because those do carry the header.
+const SECRET_SINK =
+  />>?(?![&=])|\|\s*tee\b|--trace(?:-ascii)?\b|(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*add\b/
+// The simple commands of a shell line: a sink only carries the text of its own
+// simple command, so `git add -A && git commit -m "fix api_key= handling"` is a
+// message about the rule rather than a credential in a write. `|` is NOT a
+// boundary here but a carrier, and the split is read off the masked text.
+const SEGMENT = /\|\||&&|[;&\n]/g
+const SECRET_DENY =
+  "Credential write denied: this command would land a credential in a file " +
+  "(`>`/`>>`, `tee`, `git add` or a curl trace). Record the credential's " +
+  "name, length or a fingerprint instead of its value, pass it through the " +
+  "tool's own environment, or let the tool read it from there rather than " +
+  "writing it out."
+// --- loop and retry: the two repeat ceilings --------------------------------
+// The attempt a repeat is refused on, per failure class. Two identical failures
+// are the retry the agent may still be fixing while it changes the code between
+// them; the third is the loop the contract bans ("three attempts on one failure
+// is the ceiling"). A transient failure - a timeout, a connection error, a rate
+// limit, a 5xx - can clear on its own, so its identical call gets one more try.
+// No row written here carries a class: opencode reports the process exit code and
+// no error text, so a class is never observed and the base allowance applies
+// (tezgah_integrity.fail_class).
+const LOOP_CEILING = 2
+const CLASS_CEILING = { transient: LOOP_CEILING + 1 }
+const CLASS_NOTE = {
+  transient: "the failure it names can clear on its own, so this class gets " +
+    "one more identical attempt than a permanent one",
+  permanent: "an assertion or a bad argument does not change by re-running it",
+}
+const NO_CLASS_NOTE = "the host reported no error text for it, so the class " +
+  "is unknown and the base allowance applies"
+// The session-wide half, blind to the outcome: a call the gate has seen run
+// three times may not run a fourth, whatever those runs returned. Set above the
+// common work loop (edit, test, edit, test reaches two identical test runs, and
+// a session's third `git status` still passes) so only a genuine spin reaches it.
+const RETRY_CEILING = 3
+// How much of the ledger tail the one-shot consent mark and the repeat guards
+// read before an action is visible again (hooks/tezgah_gate.CONSENT_TAIL and the
+// tail tezgah_integrity.prior_calls reads its attempts from).
+const LEDGER_TAIL = 200
 // Anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
 // failure disappears. Ported from hooks/tezgah_integrity.py so opencode denies
 // the same shapes from the same patterns.
@@ -309,12 +417,195 @@ async function recordEvidence(sessionID, tool, args, result, workspace) {
   }
   if (typeof exit === "number") row.exit = exit
   if (out !== null) row.out_bytes = Buffer.byteLength(out)
+  await appendRow(sessionID, row)
+}
+
+// One row appended to a session's ledger, the same JSONL the Python gate and the
+// Stop hook read (hooks/tezgah_integrity.note). Best effort: a write failure is
+// not fatal, and the one caller that needs the row to exist - the consent mark -
+// then refuses again next time rather than letting the action through.
+async function appendRow(sessionID, row) {
   try {
     const dir = join(cacheDir(), "evidence")
     await mkdir(dir, { recursive: true })
     await appendFile(join(dir, ledgerStem(sessionID) + ".jsonl"),
       JSON.stringify(row) + "\n")
   } catch {}
+}
+
+// The ledger tail, oldest first, as the Python guard reads it
+// (hooks/tezgah_integrity.events(session_id, tail)). It is read only after a
+// rule has matched, so a normal call pays nothing - but it runs on every gated
+// bash call of a matched one, and the file grows with the session, so the read
+// is bounded like the Python one: backwards in chunks until the last `tail`
+// lines are in hand, never a parse of the whole ledger. A chunk boundary can
+// split the first line; it fails to parse and is dropped, which is the same
+// partial-line tolerance `_tail_lines` has.
+const TAIL_CHUNK = 8192
+
+async function ledgerTail(sessionID, tail) {
+  let text = ""
+  try {
+    const fh = await open(join(cacheDir(), "evidence",
+                               ledgerStem(sessionID) + ".jsonl"), "r")
+    try {
+      let pos = (await fh.stat()).size
+      while (pos > 0 && (text.match(/\n/g) || []).length <= tail) {
+        const step = Math.min(TAIL_CHUNK, pos)
+        pos -= step
+        const buf = Buffer.alloc(step)
+        await fh.read(buf, 0, step, pos)
+        text = buf.toString("utf8") + text
+      }
+    } finally {
+      await fh.close()
+    }
+  } catch {
+    return []
+  }
+  const rows = []
+  for (const line of text.split("\n").filter((l) => l.trim()).slice(-tail)) {
+    try { rows.push(JSON.parse(line)) } catch {}
+  }
+  return rows
+}
+
+// (attempts in the current user turn, attempts over the whole tail, the newest
+// attempt's exit, its failure class) for one action identity - the Python
+// guard's tezgah_integrity.prior_calls. Only rows that carry an `exit` are
+// attempts: a `deny` row and the consent mark carry the same id with no outcome,
+// so counting them would leave the refusal itself as the newest row, read as "no
+// failure" and disarm the ceiling on every second repeat. A `turn` row opens the
+// current user turn; when the ledger carries none, the whole window is the turn.
+function priorCalls(rows, digest) {
+  let start = 0
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].kind === "turn") { start = i + 1; break }
+  }
+  let made = 0
+  let turn = 0
+  let last = null
+  rows.forEach((row, i) => {
+    if (row.id !== digest || !("exit" in row)) return
+    made++
+    if (i >= start) { turn++; last = row }
+  })
+  if (!turn) return [0, made, null, null]
+  return [turn, made, last.exit, last.fail_class ?? null]
+}
+
+// The identical attempts this failure class allows (hooks/tezgah_gate
+// .loop_ceiling): a class no host error text named gets the base allowance.
+function loopCeiling(klass) {
+  return CLASS_CEILING[klass] ?? LOOP_CEILING
+}
+
+// The failure-scoped half of the repeat rule, or null: this exact call already
+// failed often enough in this user turn. Past the ceiling the identical retry
+// cannot work - the agent has to change the approach or stop, which is the
+// contract's loop rule ("never repeat an identical failing command") given a
+// mechanical half. A call that never failed, or that failed differently, is not
+// this rule's.
+function loopReason(tool, args, rows) {
+  const [turn, , lastExit, klass] = priorCalls(rows, actionID(tool, args))
+  const ceiling = loopCeiling(klass)
+  if (lastExit !== 1 || turn < ceiling) return null
+  return "Loop guard denied: this is attempt " + (turn + 1) + " of an identical " +
+    "call whose " + turn + " previous attempt" + (turn === 1 ? "" : "s") +
+    " exited 1" + (klass ? " (a " + klass + " failure)" : "") +
+    ". This class allows " + ceiling + " identical attempt" +
+    (ceiling === 1 ? "" : "s") + ", because " +
+    (CLASS_NOTE[klass] ?? NO_CLASS_NOTE) + ". Repeating an identical failing " +
+    "command is not a retry - change the approach (fix what the error names, " +
+    "or run something else) or stop and report what is still unknown."
+}
+
+// The session-wide half, blind to the outcome, or null: a call this session has
+// already attempted RETRY_CEILING times may not run again, whatever those runs
+// returned. `loop` needs a failure to fire, so the call that runs ten times and
+// returns 0 each time - the spin that never reaches a decision - would pass it
+// forever. A refused call never ran, so the gate's own rows are not attempts.
+function retryReason(tool, args, rows) {
+  const attempts = priorCalls(rows, actionID(tool, args))[1]
+  if (attempts < RETRY_CEILING) return null
+  return "Retry ceiling denied: this is attempt " + (attempts + 1) + " of an " +
+    "identical call in this session, past the ceiling of " + RETRY_CEILING +
+    " attempts whatever their outcome. An unchanged repeat is not a retry - " +
+    "change the arguments or the target, or stop and report what is still " +
+    "unknown. (The `loop` guard is the narrower rule: the identical attempts " +
+    "that FAILED, counted per user turn.)"
+}
+
+// True when this exact action was already put in front of the user once, so the
+// one-shot mark is spent (hooks/tezgah_gate.asked_before). Read by kind and id
+// alone: the row carries the effect class in its detail, so "who was asked to
+// confirm what" is a query over these rows rather than a match on a deny message
+// that a later reword would silently break.
+async function askedBefore(sessionID, digest) {
+  if (!sessionID || !digest) return false
+  return (await ledgerTail(sessionID, LEDGER_TAIL))
+    .some((row) => row.kind === "consent" && row.id === digest)
+}
+
+// The row a consent refusal leaves behind, and the one-shot mark with it: the
+// refusal the user reads and the thing that lets the identical repeat through
+// are one row, so nothing new is written and no second mark can fall out of step
+// with the ledger.
+async function noteConsent(sessionID, klass, digest, workspace) {
+  if (!sessionID) return
+  await appendRow(sessionID, {
+    kind: "consent", ts: Math.floor(Date.now() / 1000), detail: klass,
+    id: digest, workspace: workspace || null,
+  })
+}
+
+// The refusal recorded before it is returned, as the Python gate's `_deny` does:
+// a deny nobody counts is a rule whose effect can never be argued about, and the
+// row says which action the rule stopped and where.
+async function noteDeny(sessionID, rule, reason, tool, args, workspace) {
+  if (!sessionID) return
+  await appendRow(sessionID, {
+    kind: "deny", ts: Math.floor(Date.now() / 1000),
+    detail: rule + ": " + String(reason).slice(0, 80),
+    id: actionID(tool, args), workspace: workspace || null,
+  })
+}
+
+// Consent, then secret: the two shell rules that need the ledger. The consent
+// refusal writes the `consent` row before it returns, because that row IS the
+// one-shot mark askedBefore reads; an action already asked about falls through to
+// the secret scan exactly as it does in the Python gate. Both stay armed under
+// `verify-off`: that kill switch removes the shortcut and repeat rules, not the
+// consent the user owes.
+async function shellRules(tool, args, sessionID, base, dir) {
+  const cmd = String(args.command || args.cmd || "")
+  const digest = actionID(tool, args)
+  const klass = effectClass(cmd, dir, base)
+  if (klass && !(await askedBefore(sessionID, digest))) {
+    await noteConsent(sessionID, klass, digest, base)
+    const reason = consentReason(klass)
+    await noteDeny(sessionID, "consent", reason, tool, args, base)
+    return reason
+  }
+  const reason = secretCommand(cmd)
+  if (reason) await noteDeny(sessionID, "secret", reason, tool, args, base)
+  return reason
+}
+
+// `loop` then `retry`, over one read of the ledger tail, after every
+// argument-shaped rule: a call another rule would have refused has to be counted
+// as that rule, not as a repeat.
+async function repeatRules(tool, args, sessionID, base) {
+  if (!sessionID) return null
+  const rows = await ledgerTail(sessionID, LEDGER_TAIL)
+  const loop = loopReason(tool, args, rows)
+  if (loop) {
+    await noteDeny(sessionID, "loop", loop, tool, args, base)
+    return loop
+  }
+  const retry = retryReason(tool, args, rows)
+  if (retry) await noteDeny(sessionID, "retry", retry, tool, args, base)
+  return retry
 }
 
 function attribution(tool, args) {
@@ -331,6 +622,114 @@ function attribution(tool, args) {
       (k) => typeof args?.[k] === "string" && ATTRIB_LINE.test(args[k]))
   }
   return false
+}
+
+// Python's os.path.realpath(strict=False): the symlinks that exist are resolved
+// and the segments below them are kept, so a path that does not exist yet still
+// compares the way the Python gate compares it. macOS makes /tmp and /var
+// symlinks, which is what keeps `rm -rf /tmp/x` outside a run directory under
+// /tmp.
+function realPath(p) {
+  const abs = resolve(p)
+  let dir = abs
+  const tail = []
+  for (;;) {
+    try {
+      return join(realpathSync(dir), ...tail)
+    } catch {}
+    const up = dirname(dir)
+    if (up === dir) return abs
+    tail.unshift(basename(dir))
+    dir = up
+  }
+}
+
+// True when this line recursively force-deletes a path outside the run directory
+// (`cwd`, the directory the command runs in). The `rm` is found on the masked
+// text - a message that names the command deletes nothing - while the flags and
+// targets are read from the raw text at the same offset, so a quoted path still
+// resolves. The run directory itself counts as outside: deleting where the
+// command runs is not a delete inside it. A target this cannot resolve (`$VAR`,
+// `~`, a URL) counts as outside too; the conservative direction is the one that
+// stops to ask. ponytail: a target behind a `cd` in the same line resolves
+// against `cwd`, not against the `cd`, so that case can pass - it fails open.
+function rmOutside(masked, raw, cwd, base) {
+  const root = realPath(cwd || base)
+  for (const m of masked.matchAll(RM)) {
+    // The args come from the raw text at the offset the masked match proved is a
+    // real `rm`: on the masked text a blanked target reads as more flags.
+    RM_AT.lastIndex = m.index
+    const r = RM_AT.exec(raw)
+    if (!r) continue
+    if (!(RM_RECURSIVE.test(r[1]) && RM_FORCE.test(r[1]))) continue
+    for (const flagless of r[2].split(/\s+/)) {
+      if (!flagless || flagless.startsWith("-")) continue
+      const tok = flagless.replace(/^['"]+|['"]+$/g, "")
+      if (!tok) continue
+      if (tok.includes("$") || tok.includes("~") || tok.includes("://")) return true
+      const p = realPath(isAbsolute(tok) ? tok : resolve(root, tok))
+      if (p === root || !p.startsWith(root + sep)) return true
+    }
+  }
+  return false
+}
+
+// The effect class of an irreversible or outward-facing command, or null:
+// `destructive` rewrites or drops history, a branch or files outside the run
+// directory; `schema` changes the shape of a database; `deploy` puts code in
+// front of users; `publish` ships an artifact to a registry or a release;
+// `outward` pushes to a live target rather than a branch under review. A command
+// carries the first class that matches, so the refusal says what the action is
+// instead of listing the patterns it hit.
+//
+// One call is all the gate sees and it cannot ask, so the ask becomes a refusal
+// the user reads: the identical command passes on its second attempt because the
+// `consent` row the refusal writes is the mark (askedBefore). That is the least
+// friction that still stops an agent spending someone else's branch, database or
+// deployment unasked. Tradeoff: a user who did ask pays one round-trip, and an
+// agent that ignores the reason twice can still proceed - in front of a user who
+// has now seen the refusal. A session whose ledger cannot be written refuses
+// every time, so there the ask has to happen outside the agent.
+function effectClass(command, cwd, base) {
+  const c = String(command || "")
+  if (!c) return null
+  const masked = maskText(c)
+  for (const m of masked.matchAll(GIT_PUSH)) {
+    if (FORCE_FLAG.test(m[1]) && !SCRATCH.test(m[1])) return "destructive"
+  }
+  if (BRANCH_DELETE.test(masked) || rmOutside(masked, c, cwd, base)) {
+    return "destructive"
+  }
+  if (MIGRATION.test(masked)) return "schema"
+  if (DEPLOY.test(masked)) return "deploy"
+  if (PUBLISH.test(masked)) return "publish"
+  if (OUTWARD.test(masked)) return "outward"
+  return null
+}
+
+// The refusal for one effect class: the class, what it means, and what to ask.
+function consentReason(klass) {
+  return CONSENT_DENY.replace("%s", klass).replace("%s", EFFECTS[klass])
+}
+
+// The refusal when this command would write a credential into a file, or null.
+// Reading an env var or running a tool with a key in its env is the normal work
+// this must not touch, so a token only counts next to a write sink, and a sink
+// only carries the text of its own simple command.
+function secretCommand(command) {
+  const c = String(command || "")
+  if (!c || !SECRET_TOKEN.test(c)) return null
+  const masked = maskText(c)
+  let start = 0
+  const ends = [...masked.matchAll(SEGMENT)].map((m) => m.index)
+  for (const end of ends.concat(c.length)) {
+    if (SECRET_TOKEN.test(c.slice(start, end))
+        && SECRET_SINK.test(masked.slice(start, end))) {
+      return SECRET_DENY
+    }
+    start = end
+  }
+  return null
 }
 
 function expand(p) {
@@ -603,7 +1002,19 @@ export const Tezgah = async ({ directory }) => {
           deny = shortcutCommand(args.command || args.cmd || "")
         } else if (shortcuts && WRITE_TOOLS.has(tool)) {
           deny = await shortcutEdit(args)
-        } else if (identifierFrom(tool, args)) {
+        }
+        // Consent and the credential sink, then the two repeat ceilings, then
+        // the nudge: the Python gate's own order (hooks/tezgah_gate.decision),
+        // so a call another rule would refuse is counted as that rule and never
+        // as a repeat.
+        if (!deny && BASH_TOOLS.has(tool)) {
+          deny = await shellRules(tool, args, sessionID, base, dir)
+        }
+        if (!deny && shortcuts &&
+            (BASH_TOOLS.has(tool) || WRITE_TOOLS.has(tool))) {
+          deny = await repeatRules(tool, args, sessionID, base)
+        }
+        if (!deny && identifierFrom(tool, args)) {
           const js = indexSlug(dir)
           // oncePerSession is shared with permission.ask so exactly one of the
           // two hooks consumes the nudge, whichever the build runs first.

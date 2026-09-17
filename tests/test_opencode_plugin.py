@@ -239,6 +239,154 @@ class OpenCodePlugin(TempHome):
     def test_general_subagent_passes(self):
         self.allowed(self.before("task", {"subagent_type": "general"}))
 
+    # ---- consent: an irreversible or outward-facing command ----------------
+    def test_consent_denies_by_effect_class(self):
+        # The refusal names what the action is, never the pattern that matched:
+        # the agent has to see what it is about to do.
+        for command, klass in (
+                ("git push --force origin main", "destructive"),
+                ("git branch -D old", "destructive"),
+                ("rm -rf ~/data", "destructive"),
+                ("alembic upgrade head", "schema"),
+                ("kubectl apply -f k8s/", "deploy"),
+                ("npm publish", "publish"),
+                ("git push heroku main", "outward")):
+            error = self.denied(self.before("bash", {"command": command}))
+            self.assertIn("Consent gate (`%s` effect)" % klass, error, command)
+            self.assertIn("passes on the next attempt", error, command)
+
+    def test_consent_leaves_what_it_does_not_own(self):
+        for command in ("git push origin main", "git push --force origin tmp/x",
+                        "rm -rf ./build", "rm -f x", "ls -la", "git status"):
+            self.allowed(self.before("bash", {"command": command}))
+
+    def test_prose_that_names_an_irreversible_command_passes(self):
+        # the masked text, so quoting the command is not running it
+        for command in ('grep -rn "rm -rf /" docs/',
+                        'echo "git push --force origin main" >> notes.md'):
+            self.allowed(self.before("bash", {"command": command}))
+
+    def test_the_second_identical_attempt_passes_and_a_different_one_does_not(self):
+        # The refusal IS the ask - the user reads it in the transcript - so the
+        # repeat of the same command passes, while another irreversible one is
+        # still refused. A rule that never let the second attempt through would
+        # block the user who did ask.
+        command = {"command": "git push --force origin main"}
+        self.denied(self.before("bash", command))
+        self.allowed(self.before("bash", command))
+        self.denied(self.before("bash",
+                                {"command": "git push --force origin other"}))
+
+    def test_the_one_shot_mark_is_a_consent_row_the_python_reader_uses(self):
+        # The mark is the `consent` row kind - class in the detail, the call's id
+        # and workspace - not the deny row, so the reader is a query over these
+        # rows rather than a match on a message a reword would break.
+        command = "npm publish"
+        self.denied(self.before("bash", {"command": command}))
+        digest = ti.call_id("bash", {"command": command})
+        rows = self.ledger()
+        self.assertEqual([r["kind"] for r in rows], ["consent", "deny"], rows)
+        self.assertEqual(rows[0]["detail"], "publish")
+        self.assertEqual(rows[0]["id"], digest)
+        self.assertEqual(rows[0]["workspace"], self.roots)
+        self.assertNotIn("exit", rows[0])
+        self.assertEqual(rows[1]["detail"][:9], "consent: ")
+        self.assertEqual(rows[1]["id"], digest)
+
+    def test_verify_off_leaves_consent_armed(self):
+        # verify-off removes the integrity rule's half (shortcut, loop/retry);
+        # the ask the user owes is not the integrity rule and stays.
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.denied(self.before("bash",
+                                {"command": "git push --force origin main"}))
+        self.denied(self.before("bash", {"command": "echo token=abc > log"}))
+
+    # ---- secret: a credential on its way into a file -----------------------
+    def test_secret_denies_a_credential_written_to_a_file(self):
+        for command in ("echo token=abc > log",
+                        "printf 'token=%s' \"$T\" | tee log",
+                        "OPENROUTER_API_KEY=$KEY printf x > log",
+                        "token=abc git add -f .env",
+                        'curl --trace-ascii dump.txt -H "Authorization: Bearer '
+                        'abc" https://api.example.com'):
+            error = self.denied(self.before("bash", {"command": command}))
+            self.assertIn("Credential write denied", error, command)
+
+    def test_secret_passes_a_read_or_a_message(self):
+        # a token only counts next to a write sink, and a sink only carries the
+        # text of its own simple command: reading a key is the work, and a commit
+        # message about one writes nothing
+        for command in ("cat .env", "echo $PASSWORD", "echo token=$TOKEN",
+                        "grep -rn api_key= src/",
+                        'git commit -m "fix api_key= handling"',
+                        'git add -A && git commit -m "fix api_key= handling"'):
+            self.allowed(self.before("bash", {"command": command}))
+
+    # ---- repeat ceilings: loop per turn, retry per session -----------------
+    def test_a_third_identical_failure_is_refused(self):
+        for _ in range(2):
+            self.after("bash", {"command": "pytest -q"}, exit=1)
+        error = self.denied(self.before("bash", {"command": "pytest -q"}))
+        self.assertIn("Loop guard denied: this is attempt 3", error)
+        # opencode reports the exit code and no error text, so no class is
+        # observed and the base allowance is the one that applies
+        self.assertIn("base allowance applies", error)
+        self.assertEqual(self.ledger()[-1]["detail"][:6], "loop: ")
+
+    def test_one_failure_is_not_a_loop(self):
+        self.after("bash", {"command": "pytest -q"}, exit=1)
+        self.allowed(self.before("bash", {"command": "pytest -q"}))
+
+    def test_a_repeat_that_keeps_returning_zero_hits_the_session_ceiling(self):
+        # the loop guard needs a failure, so the call that keeps "succeeding"
+        # without moving the work forward is the session ceiling's business
+        for _ in range(3):
+            self.after("bash", {"command": "git status"}, exit=0)
+        error = self.denied(self.before("bash", {"command": "git status"}))
+        self.assertIn("Retry ceiling denied: this is attempt 4", error)
+        self.assertEqual(self.ledger()[-1]["detail"][:7], "retry: ")
+
+    def test_the_guard_reads_the_rows_the_python_writer_produces(self):
+        # The tail is the same file, the same identity and the same fields the
+        # Python half writes, so a row written there counts here: a fork in any
+        # of the three would make an opencode session's attempts a second,
+        # invisible history.
+        digest = ti.call_id("bash", {"command": "pytest -q"})
+        path = self.evidence_path("s1")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            for _ in range(2):
+                fh.write(json.dumps({"kind": "verify_fail", "ts": 1,
+                                     "detail": "pytest -q", "id": digest,
+                                     "exit": 1, "workspace": self.roots}) + "\n")
+        error = self.denied(self.before("bash", {"command": "pytest -q"}))
+        self.assertIn("Loop guard denied: this is attempt 3", error)
+
+    def test_the_tail_read_survives_a_ledger_longer_than_one_chunk(self):
+        # The tail is read backwards in chunks, so the attempts must be found
+        # across that boundary: a reader that stopped at the first chunk would
+        # silently stop counting a long session's repeats.
+        digest = ti.call_id("bash", {"command": "pytest -q"})
+        filler = {"kind": "run", "ts": 1, "detail": "ls", "id": "0" * 12,
+                  "exit": 0, "workspace": self.roots}
+        path = self.evidence_path("s1")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            for _ in range(300):          # several 8 KB chunks of history
+                fh.write(json.dumps(filler) + "\n")
+            for _ in range(2):
+                fh.write(json.dumps({"kind": "verify_fail", "ts": 1,
+                                     "detail": "pytest -q", "id": digest,
+                                     "exit": 1, "workspace": self.roots}) + "\n")
+        error = self.denied(self.before("bash", {"command": "pytest -q"}))
+        self.assertIn("Loop guard denied: this is attempt 3", error)
+
+    def test_verify_off_drops_the_repeat_guards(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        for _ in range(3):
+            self.after("bash", {"command": "pytest -q"}, exit=1)
+        self.allowed(self.before("bash", {"command": "pytest -q"}))
+
     # ---- evidence ledger ---------------------------------------------------
     def after(self, tool, args, exit=None, session="s1", directory=None,
               result=None):

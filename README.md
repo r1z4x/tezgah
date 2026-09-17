@@ -140,7 +140,7 @@ cost evidence, which is a separate question from enforcement.
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate |
 | **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them |
-| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message; the plugin writes the ledger rows but does **not** carry the loop guard, so an identical call past the ceiling is refused only on the hosts with a PreToolUse gate |
+| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message; the plugin enforces the whole gate itself - attribution, explorer, the grep nudge, consent, secret and the loop/retry ceilings - so no rule is missing there |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
