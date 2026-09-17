@@ -370,6 +370,14 @@ enforces that, and `{RESEARCH_BIN} init <slug>` scaffolds it. Load the
 `research` skill for the two-loop rhythm, the ideation step, the six-dimension
 review a claim passes before it is reported, and the provenance tags the session
 records at the end.
+
+The domain machinery ships with tezgah too: `{AI_RESEARCH_DIR}` holds the
+vendored AI-research-SKILLs library (98 entries, 23 categories, revision in its
+`SOURCE`). When the experiment needs ML work - training, serving, quantizing,
+evaluating a benchmark, reading model internals, retrieval, agents, or writing
+the result up - read `index/<stage>.md` there and then the single entry it names;
+the index flags say which bodies are thin or name a superseded API. Never read
+the tree.
 """
 
 NO_CBM = """

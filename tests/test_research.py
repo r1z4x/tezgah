@@ -134,7 +134,7 @@ class Workspace(TempHome):
 CLAIM = {"id": "c1", "statement": "the cache cuts p95",
          "status": "supported", "provenance": "ai-executed",
          "falsification": "p95 does not drop",
-         "proof": "experiments/h1/results.jsonl"}
+         "proof": "to_human/report.md (p95 -12% over 7 runs)"}
 
 
 class Init(Workspace):
@@ -257,11 +257,26 @@ class Claims(Workspace):
 
     def test_a_complete_claim_is_clean(self):
         repo = self.repo()
-        self.line(repo)
+        base = self.line(repo)
+        self.write(os.path.join(base, "to_human", "report.md"), "# report\n")
         self.claims(repo, CLAIM)
         report = tr.check(repo, "q")["q"]
         self.assertEqual(report["errors"], [])
         self.assertEqual(report["warnings"], [])
+
+    def test_a_claim_citing_evidence_the_line_does_not_have_is_refused(self):
+        """The fabricated-evidence failure: `proof` is prose, so what a checker
+        can decide is whether the paths in it exist. A bare filename, a glob or a
+        `ref:path` pair stays out of it; a path the line never produced does not."""
+        repo = self.repo()
+        base = self.line(repo)
+        self.write(os.path.join(base, "to_human", "report.md"), "# report\n")
+        self.claims(repo, dict(CLAIM, proof="experiments/ghost/results.jsonl (7 runs)"))
+        self.assertEqual(named(self.errors(repo), "which is not in this line"),
+                         ["claim c1 cites experiments/ghost/results.jsonl, "
+                          "which is not in this line"])
+        self.claims(repo, dict(CLAIM, proof="to_human/report.md and analysis.md; 8/10"))
+        self.assertEqual(self.errors(repo), [])
 
     def test_a_line_that_does_not_parse(self):
         repo = self.repo()

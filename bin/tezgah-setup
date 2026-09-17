@@ -69,7 +69,11 @@ OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
                "treat every line as a standing constraint on the work.")
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
-          "analyze-app", "plan-add", "plan-status", "plan-sync", "research"]
+          "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
+          "ai-research"]
+# Shipped by tezgah, reached only from a research task: the always-on router
+# collapses it to its bucket's count line like every other on-demand bucket.
+RESEARCH_SKILLS = frozenset(("ai-research",))
 # opencode context hygiene tezgah arms: prune clears old tool results from the
 # prompt (stops a long session re-sending every output each step) and the
 # watcher ignore keeps fs-events out of noisy trees. Both merge; a user's
@@ -578,6 +582,8 @@ def skill_description(path):
 
 
 def skill_category(name, path=""):
+    if name in RESEARCH_SKILLS:
+        return "research & papers"
     if name in SKILLS:
         return "tezgah core"
     if name.startswith("deepscientist-") or name == "orx" or name.startswith("orx-"):
@@ -670,7 +676,8 @@ def skill_router_texts():
             % SKILL_ROUTER_FULL,
             "",
         ]
-        always += ["- %s: %d skills" % (cat, n) for cat, n in collapsed]
+        always += ["- %s: %d skill%s" % (cat, n, "" if n == 1 else "s")
+                   for cat, n in collapsed]
         always.append("")
     full = _router_head()
     for cat in ROUTER_ORDER:

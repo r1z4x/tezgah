@@ -19,11 +19,13 @@ that makes it auditable lives next to the repository it is about:
 `check` enforces one rule an agent can otherwise cheat on - a protocol committed
 after its results is not a prediction - and the completeness rules that make the
 rest readable a week later: a claim with no falsification criterion or no
-evidence, a claim whose provenance is unstated, results with no analysis, a
-findings file that answers none of the four questions.
+evidence, a claim whose provenance is unstated, a claim whose proof names a path
+this line does not have, results with no analysis, a findings file that answers
+none of the four questions.
 """
 import json
 import os
+import re
 import subprocess
 
 PHASES = ("bootstrap", "inner", "outer", "concluded")
@@ -134,7 +136,36 @@ def _check_findings(base, errors, warnings):
         errors.append("findings.md does not answer: %s" % ", ".join(missing))
 
 
-def _check_claims(base, errors, warnings):
+SITED = re.compile(
+    r"(?:[\w.-]+/)+[\w.*-]+\.(?:md|jsonl|json|csv|tsv|py|txt|ya?ml)\b"
+    r"|(?:experiments|literature|to_human)/[\w./*-]+")
+
+
+def _cited(proof):
+    """The path-like tokens in a claim's free-text proof."""
+    text = proof if isinstance(proof, str) else " ".join(str(p) for p in proof or [])
+    return sorted(set(SITED.findall(text)))
+
+
+def _resolves(token, roots):
+    """True when a cited token names something that exists under one of `roots`.
+
+    `proof` is prose, so this is deliberately forgiving: bare filenames, globs
+    and git refs are left alone, and a `ref:path` pair is satisfied by either
+    side. What it refuses is a path the line never produced - the fabricated
+    evidence failure - because that is the one part of a proof a checker can
+    decide without reading the claim."""
+    token = token.rstrip(".,;:)")
+    if not token or "*" in token:
+        return True
+    parts = [token.split(":")[0]]
+    if ":" in token:
+        parts.insert(0, token.rsplit(":", 1)[-1])
+    return any(os.path.exists(os.path.join(root, part))
+               for root in roots for part in parts if part)
+
+
+def _check_claims(base, errors, warnings, roots=()):
     path = os.path.join(base, "claims.jsonl")
     if not os.path.isfile(path):
         return 0
@@ -162,6 +193,11 @@ def _check_claims(base, errors, warnings):
             errors.append("claim %s carries no falsification criterion" % cid)
         if not claim.get("proof"):
             errors.append("claim %s cites no evidence" % cid)
+        else:
+            for token in _cited(claim["proof"]):
+                if not _resolves(token, (base,) + tuple(roots)):
+                    errors.append("claim %s cites %s, which is not in this line"
+                                  % (cid, token))
         if claim.get("provenance") not in PROVENANCE:
             errors.append("claim %s provenance %r is not one of %s"
                           % (cid, claim.get("provenance"), ", ".join(PROVENANCE)))
@@ -252,7 +288,7 @@ def check_line(repo, slug, git=True):
             errors.append("%s is missing" % name)
     _check_state(base, errors)
     _check_findings(base, errors, warnings)
-    _check_claims(base, errors, warnings)
+    _check_claims(base, errors, warnings, roots=(repo,))
     _check_experiments(repo, base, errors, warnings, git)
     return errors, warnings
 

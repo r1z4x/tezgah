@@ -112,6 +112,14 @@ def cache_dir():
     return CACHE
 
 
+def ai_research_dir():
+    """The vendored domain library, inside the plugin checkout that is running.
+
+    Derived from this file's location, like every other path tezgah advertises,
+    so it is right on Claude Code too, which runs the plugin from a copy."""
+    return os.path.join(PLUGIN_ROOT, "skills", "ai-research")
+
+
 def roots():
     """Configured roots as absolute real paths, longest (most specific) first."""
     env = os.environ.get("TEZGAH_ROOTS")

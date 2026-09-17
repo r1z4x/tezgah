@@ -17,8 +17,8 @@ import time
 import tezgah_research
 from tezgah_integrity import note_turn
 from tezgah_policy import CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER
-from tezgah_paths import (cache_dir, cbm_bin, have_consult_key, off,
-                          orx_bin, root_for, roots, tool, writable_dir)
+from tezgah_paths import (ai_research_dir, cache_dir, cbm_bin, have_consult_key,
+                          off, orx_bin, root_for, roots, tool, writable_dir)
 
 # A prompt that matches one of these arms the matching conditional rule for that
 # turn only. Kept as (key, compiled regex) so the arming is one pass and the
@@ -84,6 +84,7 @@ def render(text, root=""):
                 .replace("{CODEGEN_BIN}", tool("codegen"))
                 .replace("{ORX_BIN}", orx_bin() or "orx")
                 .replace("{RESEARCH_BIN}", tool("tezgah-research"))
+                .replace("{AI_RESEARCH_DIR}", ai_research_dir())
                 .replace("{ROOT}", root or ACTIVE_ROOT[0]
                          or "the configured tezgah roots"))
 

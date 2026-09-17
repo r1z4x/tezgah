@@ -8,6 +8,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The domain library ships with tezgah, as one skill.** `skills/ai-research/`
+  carries Orchestra Research's `AI-research-SKILLs` (98 skills, 23 categories,
+  MIT, revision `773a529`) in the upstream layout, reached as the single
+  `ai-research` skill - one metadata entry on every host instead of 98 - with a
+  generated stage index (`index/1-frame.md` … `index/6-write.md`) and the flags
+  that mark thin or stale bodies. `bin/tezgah-import-ai-research` regenerates the
+  tree from a pinned checkout and `--check` verifies every digest without one;
+  `SOURCE` names the revision, the drop list and the one modification. The
+  research rule, the `research` skill and the generated `tezgah-researcher` agent
+  all point at it, so a research line reaches the domain knowledge on all six
+  hosts rather than only where an external clone happened to be installed.
+- `tezgah-research check` refuses a claim whose proof names a path the line does
+  not have - the fabricated-evidence failure - and the `research` skill gains the
+  1-5 review anchors with their grade mapping, the claim-type/evidence table, the
+  finding record, the citation-verification rule, the evidence-fidelity rules
+  (exact numbers, derived views labelled, a source on every row), the deeper
+  ideation moves (hidden constraints, kill criteria) and the figure rules.
 - **Ledger action identity, trace metrics and the loop guard** (plan 012). Every
   evidence row now carries `id` (a digest of the tool and its canonical
   arguments) and `workspace`, plus whichever of `exit`, `out_bytes` and

@@ -97,6 +97,9 @@ istog teksta.
   i prvo učitava `orx` priručnik, umjesto da improvizuje protokol. Obično
   otkrivanje koda ostaje na grafu koda. Kada `orx` nije prisutan, ruter to kaže
   i prebacuje se na podagenta hosta.
+  Znanie iz domene koje eksperiment treba dolazi s njim: vendorovana biblioteka
+  `AI-research-SKILLs` (98 vještina, 23 kategorije, MIT) stoji kao skill `ai-research` i
+  čita se unos po unos iz indeksa faza.
 - **Iskrenost pod verifikacijom.** Ništa se ne prijavljuje kao gotovo, testirano ili popravljeno
   osim ako izlaz nije viđen. Test koji pada prijavljuje se kao neuspješan sa svojom
   tačnom greškom, a preskočena provjera se jasno navodi.
@@ -341,9 +344,9 @@ koji je ranija revizija citirala manji core band od onoga koji instalira.
 
 | Opseg | Šta košta |
 |---|---|
-| Početak sesije | always-on ugovor (invarijante plus pokazivač od jedne linije po pravilu na zahtjev): na ovoj mašini i skupu vještina, ~1.5k tokena teksta ugovora i ~1.3k metapodataka vještina, pri čemu uslovna pravila (spec, consult, research, graph) dodaju ~0.7k samo na potezu čiji se prompt poklopi |
+| Početak sesije | always-on ugovor (invarijante plus pokazivač od jedne linije po pravilu na zahtjev): na ovoj mašini i skupu vještina, ~1.5k tokena teksta ugovora i ~1.4k metapodataka vještina, pri čemu uslovna pravila (spec, consult, research, graph) dodaju ~0.7k samo na potezu čiji se prompt poklopi |
 | Po potezu | kratki podsjetnik (~0.2k tokena) plus naoružano pravilo kada se poklopi; hookovi su odvojeni Python procesi, pa je ~19 ms pokretanja interpretera osnova - potez dodaje ~31 ms, početak sesije dodaje ~50-81 ms, poziv alata kroz kapiju (Bash/Grep/Task) ~24-25 ms. opencode nema hook u vrijeme prompta, pa plaća nulu |
-| Na zahtjev | puna `tezgah-contract` vještina (~6.4k tokena), plaća se samo kada je zadatak učita |
+| Na zahtjev | puna `tezgah-contract` vještina (~6.6k tokena), plaća se samo kada je zadatak učita |
 | MCP šeme | najveći opseg, i onaj koji nijedan statički izvještaj ne vidi: samo graf server deklariše 15 alata / 24,508 bajtova (~6.1k tokena), jaše na svakom zahtjevu osim ako host dohvati šeme na zahtjev. `tezgah-setup --mcp-schemas` to mjeri |
 | Disk | instalacija traje ~58 ms, i svaka datoteka koju tezgah prepisuje čuva se jednom kao `<file>.tezgah-bak` |
 

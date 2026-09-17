@@ -97,6 +97,9 @@ den samme teksten.
   og laster `orx`-manualen først, i stedet for å improvisere protokollen. Ren
   kodeoppdagelse forblir på kodegrafen. Når `orx` mangler, sier ruteren ifra om
   dette og faller tilbake til en vert-underagent.
+  Domenekunnskapen et eksperiment trenger følger med: det vendore
+  `AI-research-SKILLs`-biblioteket (98 skills, 23 kategorier, MIT) ligger som skillen
+  `ai-research` og leses oppføring for oppføring fra trinnindeksen.
 - **Ærlighet under verifisering.** Ingenting rapporteres som ferdig, testet eller fikset
   med mindre utdataene ble sett. En feilende test rapporteres som feilende med sin
   nøyaktige feilmelding, og en hoppet over sjekk oppgis tydelig.
@@ -340,9 +343,9 @@ en tidligere revisjon kom til å oppgi en kjernebånd som er mindre enn den den 
 
 | Bånd | Hva det koster |
 |---|---|
-| Øktoppstart | den alltid-på-kontrakten (invariantene pluss en én-linjes peker per on-demand-regel): på denne maskinen og med dette ferdighetssettet, ~1.5k tokens kontraktstekst og ~1.3k ferdighetsmetadata, med de betingede reglene (spec, consult, research, graph) som legger til ~0.7k bare på turen hvis prompt matcher |
+| Øktoppstart | den alltid-på-kontrakten (invariantene pluss en én-linjes peker per on-demand-regel): på denne maskinen og med dette ferdighetssettet, ~1.5k tokens kontraktstekst og ~1.4k ferdighetsmetadata, med de betingede reglene (spec, consult, research, graph) som legger til ~0.7k bare på turen hvis prompt matcher |
 | Per tur | en kort påminnelse (~0.2k tokens) pluss den armerte regelen når den matcher; hooks er separate Python-prosesser, så oppstarten av tolken på ~19 ms er basen - en tur legger til ~31 ms, øktoppstart legger til ~50-81 ms, et portstyrt verktøykall (Bash/Grep/Task) ~24-25 ms. opencode har ingen hook ved prompt-tid, så den betaler null |
-| On demand | den fulle `tezgah-contract`-ferdigheten (~6.4k tokens), betalt bare når en oppgave laster den |
+| On demand | den fulle `tezgah-contract`-ferdigheten (~6.6k tokens), betalt bare når en oppgave laster den |
 | MCP-skjemaer | det største båndet, og det ingen statisk rapport ser: grafserveren alene erklærer 15 verktøy / 24,508 byte (~6.1k tokens), som rir på hver forespørsel med mindre verten henter skjemaer on demand. `tezgah-setup --mcp-schemas` måler det |
 | Disk | installasjonen tar ~58 ms, og hver fil tezgah skriver om beholdes én gang som `<file>.tezgah-bak` |
 

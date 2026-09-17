@@ -1,0 +1,38 @@
+# Source
+
+Vendored from https://github.com/orchestra-research/AI-research-SKILLs at `773a52944ba4747a18bd4ae9ade53fff041adcbc` (2026-06-15), MIT licence. Every body keeps its upstream
+frontmatter, `author` line included: 96 name Orchestra Research, and two
+(`10-optimization/ml-training-recipes`, `14-agents/a-evolve`) name the
+contributing author of that entry. Checkout for a re-vendor:
+`git clone https://github.com/orchestra-research/AI-research-SKILLs && git -C <clone> checkout 773a52944ba4747a18bd4ae9ade53fff041adcbc`.
+
+## What is vendored
+
+Every skill's `SKILL.md` and every markdown file beside it, in the upstream
+layout, because a vendored path is its provenance. 98 skills across 23
+categories, 365 files, 4202519 bytes.
+
+## What is not, and why
+
+Files: `03-fine-tuning/unsloth/references/llms-full.md`, `03-fine-tuning/unsloth/references/llms-txt.md`, `08-distributed-training/deepspeed/references/tutorials.md` - machine-scraped reference dumps, which the entry's own
+`SKILL.md` already distils.
+
+Directories: `20-ml-paper-writing/ml-paper-writing/templates`, `20-ml-paper-writing/systems-paper-writing/templates` - LaTeX class/bst/bib trees and example PDFs,
+re-downloadable from each venue.
+
+Everything else that is not markdown (PDFs, images, `.gitkeep`, scripts)
+is dropped by the importer's `*.md` filter, and `demos/`, `docs/`,
+`packages/`, `video-promo/` are upstream's repo furniture, not content.
+
+## The only modification
+
+A markdown file that carries no YAML frontmatter gets one attribution
+comment on its first line. `SKILL.md` files are byte-for-byte upstream,
+frontmatter included. `skills/ai-research/SKILL.md` is tezgah's own and is
+not part of the manifest.
+
+## Re-vendoring
+
+`bin/tezgah-import-ai-research --source <clone> --rev <sha>`, then commit
+the diff. `--check` verifies the committed tree against `library.json`
+without the clone, and is what CI runs.
