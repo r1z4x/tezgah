@@ -204,22 +204,20 @@ class DshLedger(TempHome):
         self.assertIn("untrusted content", out)
         self.assertIn("a web result", out)
 
-    def test_the_bridge_stop_payload_carries_no_reply_for_the_rule_to_read(self):
-        # The other half of the control on dsh is the Stop rule, and the bridge's
-        # stopPayload sends Claude's base fields plus `stop_hook_active` - no
-        # `last_assistant_message`. So the rule receives no claim to check and
-        # answers nothing today: the evidence is on the ledger (above) and the
-        # rule is armed, but the reply never reaches it. Missing capability: the
-        # bridge would have to put the turn's last assistant text in that field;
-        # its Stop handler already holds `agent`, which is where it reads the turn
-        # number from. This test is the tripwire: it fails the day the field
-        # arrives, which is when this note should go and the rule be proven.
+    def test_the_stop_rule_no_longer_needs_the_reply_the_bridge_drops(self):
+        # The bridge's stopPayload sends Claude's base fields plus
+        # `stop_hook_active` - no `last_assistant_message`. That used to leave the
+        # Stop rule mute on dsh, and this test pinned that as a tripwire. The
+        # trigger is evidence-shaped now: a turn whose ledger shows work and no
+        # passing check is refused whatever the reply said, so the missing field
+        # no longer disables the control here. The claim the bridge drops is still
+        # refused - now on the strength of the ledger alone, which is the point.
         self.post("bash", {"command": "pytest -q"}, "1 failed")
         stop = {"session_id": self.session, "transcript_path": "", "cwd": self.repo,
                 "hook_event_name": "Stop", "stop_hook_active": False}
         self.assertNotIn("last_assistant_message", stop)
-        self.assertEqual(self.run_command("Stop", stop), "")
-        # the same session, the claim the bridge drops: the rule refuses it
+        self.assertNotEqual(self.run_command("Stop", stop), "")
+        # the same session, with the claim the bridge drops: still refused
         self.assertNotEqual(self.run_command(
             "Stop", dict(stop, last_assistant_message="Done. All tests pass.")), "")
 
