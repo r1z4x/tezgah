@@ -2189,7 +2189,7 @@ def main(argv):
 
     if args.agents:
         repo = tezgah_context.repo_root(os.path.realpath(expand(args.agents)))
-        note = tezgah_agents.sync_root(repo)
+        note = tezgah_agents.sync_root(repo, report_steady=True)
         print(note or "no agents generated (outside a root, or no capability)")
         return 0
 

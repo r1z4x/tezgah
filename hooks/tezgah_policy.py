@@ -343,17 +343,17 @@ records at the end.
 """
 
 NO_CBM = """
-## Code discovery: no code graph on this machine
+## Appendix - only if this machine has no code graph
 
 codebase-memory-mcp is not installed here (not on PATH, and neither
 TEZGAH_CBM_BIN nor config.json cbm_bin points at it), so the graph tools do
 not exist in this session. Use grep/find, and say plainly that the answer came
-from text search - never claim the index answered. Install it and restart the
-session to arm search_graph / trace_path.
+from text search - never claim the index answered, and never install or upgrade
+anything to fix it: the user arms tezgah's optional tools, not the session.
 """
 
 NO_CONSULT = """
-## Hybrid verification: unavailable
+## Appendix - only if no consult provider key exists
 
 There is no consult provider key on this machine (no OPENROUTER_API_KEY /
 DEEPSEEK_API_KEY and no ~/.config/openrouter/key or ~/.config/deepseek/key), so
@@ -511,6 +511,15 @@ rewriting pushed history, deleting a repo or branch, applying a migration to a
 live database, deploying, and anything touching a live production account or an
 external service. This one is an invariant: it stays armed whatever a prompt
 classifier decides.
+
+**Session scope: the user's repo, not tezgah.** Tezgah's own installation is
+not this session's work: its optional tools (codebase-memory-mcp, orx, consult,
+codegen), its config and its version state are the user's to arm, never the
+session's. Never install, upgrade, restart or kill anything for tezgah, and
+never open an issue for one of its tools mid-session. Name a missing capability
+in one line, use the documented fallback (grep/find, or the second opinion
+skipped), and carry on with the task in hand. Tezgah maintenance is in scope
+when the user asks for it, or when the repo IS the tezgah checkout.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,

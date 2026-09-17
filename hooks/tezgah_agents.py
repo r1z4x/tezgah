@@ -12,7 +12,9 @@ A role is only emitted when the capability it needs is present (the code graph,
 orx, or the consult key). The whole set is regenerated when either this manifest
 or the repo's infrastructure changes, so the definitions stay updatable instead
 of drifting. Hosts with no such surface (dsh) get nothing here; the orchestrator
-directive in the injected contract already covers them.
+directive in the injected contract already covers them. The generated dirs are
+ignored through the clone's own `info/exclude`, never through the tracked
+`.gitignore`: a session must not hand the user back a modified file.
 
 Every write fails open: a hook must never fail a session because a file could
 not be written. Stdlib only.
@@ -22,6 +24,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 
 from tezgah_paths import (CONFIG_DIR, cbm_bin, have_consult_key, host_installed,
                           off, orx_bin, root_for, tool)
@@ -339,13 +342,22 @@ def _is_managed(text):
 
 
 def _write_if_changed(path, text):
+    """True when the file changed. Fails open, as the module promises: a hook
+    must never fail a session because a file could not be written."""
     if _read(path) == text:
         return False
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tezgah-tmp"
-    with open(tmp, "w") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.remove(tmp)      # os.replace onto a directory leaves it behind
+        except OSError:
+            pass
+        return False
     return True
 
 
@@ -359,19 +371,19 @@ def _remove_stale(directory, wanted):
                 pass
 
 
-GITIGNORE_BEGIN = ("# tezgah: generated agents (managed; removed by "
-                   "tezgah-setup --uninstall)")
-GITIGNORE_END = "# tezgah: end generated agents"
+BLOCK_BEGIN = ("# tezgah: generated agents (managed; removed by "
+               "tezgah-setup --uninstall)")
+BLOCK_END = "# tezgah: end generated agents"
 
 
-def _strip_gitignore(text):
+def _strip_block(text):
     out, skip = [], False
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
-        if stripped == GITIGNORE_BEGIN:
+        if stripped == BLOCK_BEGIN:
             skip = True
             continue
-        if stripped == GITIGNORE_END:
+        if stripped == BLOCK_END:
             skip = False
             continue
         if not skip:
@@ -379,35 +391,35 @@ def _strip_gitignore(text):
     return "".join(out)
 
 
-def _gitignore_dirs(text):
+def _block_dirs(text):
     """The dir names already inside the managed block of `text`."""
     out, inside = set(), False
     for line in text.splitlines():
         s = line.strip()
-        if s == GITIGNORE_BEGIN:
+        if s == BLOCK_BEGIN:
             inside = True
-        elif s == GITIGNORE_END:
+        elif s == BLOCK_END:
             inside = False
         elif inside and s.startswith("/") and s.endswith("/"):
             out.add(s.strip("/"))
     return out
 
 
-def _put_gitignore_block(old, block):
+def _put_block(old, block):
     """Put the managed block where it already is, or append it at the end.
 
-    Rebuilding the file around the block used to move it to the end of any
-    .gitignore whose block sat mid-file, so the first session start in a fresh
-    checkout dirtied the tree with a pure move. Replacing it in place keeps the
-    user's ordering, and the caller's `new != old` check then writes nothing."""
+    Rebuilding the file around the block used to move it to the end of any file
+    whose block sat mid-file, so the first session start in a fresh checkout
+    dirtied the tree with a pure move. Replacing it in place keeps the user's
+    ordering, and the caller's `new != old` check then writes nothing."""
     out, inside, replaced = [], False, False
     for line in old.splitlines():
         s = line.strip()
-        if s == GITIGNORE_BEGIN:
+        if s == BLOCK_BEGIN:
             inside, replaced = True, True
             out.extend(block.splitlines())
             continue
-        if s == GITIGNORE_END:
+        if s == BLOCK_END:
             inside = False
             continue
         if not inside:
@@ -418,36 +430,69 @@ def _put_gitignore_block(old, block):
     return "\n".join(out).strip("\n") + "\n"
 
 
-def ensure_gitignore(root, dirs):
-    """Ignore the generated agent dirs with one idempotent managed block.
+def _exclude_path(root):
+    """The clone's own `info/exclude`, or None when `root` is not a git tree.
 
-    The block is a UNION with what is already there: a dir ignored by an earlier
-    install keeps its line even when its host is not in the current set, so a
-    config change can never un-ignore a generated-agent dir and leak
-    machine-specific bodies into the repo. Returns the .gitignore path, or None
-    when opted out with TEZGAH_NO_GITIGNORE=1 or when there is nothing to
-    ignore."""
-    if os.environ.get("TEZGAH_NO_GITIGNORE") == "1":
+    A plain checkout answers from the directory listing, so a session start
+    keeps its two git forks; a linked worktree or submodule (`.git` is a file)
+    asks git, which resolves the path through the common dir - the file git
+    actually reads, not a per-worktree path it ignores. GIT_DIR/GIT_WORK_TREE
+    move the repository out from under that listing, so a set environment means
+    only git can answer."""
+    dot = os.path.join(root, ".git")
+    if (os.path.isdir(dot) and not os.environ.get("GIT_DIR")
+            and not os.environ.get("GIT_WORK_TREE")):
+        return os.path.join(dot, "info", "exclude")
+    if not os.path.exists(dot) and not os.environ.get("GIT_DIR"):
         return None
-    path = os.path.join(root, ".gitignore")
+    try:
+        out = subprocess.run(("git", "-C", root, "rev-parse", "--git-path",
+                              "info/exclude"),
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    path = out.stdout.strip()
+    if out.returncode != 0 or not path:
+        return None
+    return path if os.path.isabs(path) else os.path.join(root, path)
+
+
+def ensure_exclude(root, dirs):
+    """Ignore the generated agent dirs in the clone's own exclude file.
+
+    NOT in `.gitignore`: that file is tracked, so writing it handed the user a
+    repository back with a modification nobody asked for. `info/exclude` is
+    per-clone, never committed and still keeps `git status` clean, which is all
+    the ignore line was ever for. The block is a UNION with what is already
+    there: a dir ignored by an earlier install keeps its line even when its host
+    is not in the current set, so a config change can never un-ignore a
+    generated-agent dir. Returns the exclude path, or None when opted out with
+    TEZGAH_NO_EXCLUDE=1, when the root is not a git work tree, or when there is
+    nothing to ignore."""
+    if os.environ.get("TEZGAH_NO_EXCLUDE") == "1":
+        return None
+    path = _exclude_path(root)
+    if not path:
+        return None
     old = _read(path) or ""
-    dirs = sorted(set(d for d in dirs if d) | _gitignore_dirs(old))
+    dirs = sorted(set(d for d in dirs if d) | _block_dirs(old))
     if not dirs:
         return None
-    block = "\n".join([GITIGNORE_BEGIN] + ["/" + d + "/" for d in dirs]
-                      + [GITIGNORE_END]) + "\n"
-    new = _put_gitignore_block(old, block)
-    if new != old:
-        os.makedirs(root, exist_ok=True)
-        tmp = path + ".tezgah-tmp"
-        with open(tmp, "w") as fh:
-            fh.write(new)
-        os.replace(tmp, path)
+    block = "\n".join([BLOCK_BEGIN] + ["/" + d + "/" for d in dirs]
+                      + [BLOCK_END]) + "\n"
+    new = _put_block(old, block)
+    _write_if_changed(path, new)
     return path
 
 
-def sync_root(root):
-    """Generate/refresh this repo's agents. Returns a one-line status, or None."""
+def sync_root(root, report_steady=False):
+    """Generate/refresh this repo's agents.
+
+    Returns a one-line status - a write, a removal, or, only when
+    `report_steady`, "N agent(s) current". A steady state returns None by
+    default because the session hook injects this line: a session that changed
+    nothing was being told about tezgah's own files in the repo. The explicit
+    CLI asks for the steady line, since it is answering a user's command."""
     if off("agents-off"):
         return None
     if not root_for(root):
@@ -513,19 +558,21 @@ def sync_root(root):
             dirs.add(HOST_DIRS["opencode"])
         if codex_dir:
             dirs.add(HOST_DIRS["codex"])
-        gi = ensure_gitignore(root, dirs)
-        if gi:
-            paths.append(gi)
+        ex = ensure_exclude(root, dirs)
+        if ex:
+            paths.append(ex)
         _record(root, paths)
-    if not names:
-        # no role survived the capability gate: the sweep above is the whole job
-        return ("%d stale agent file(s) removed" % removed) if removed else None
-    if not (md_dir or oc_dir or codex_dir):
-        # roles exist but the config named no host with a per-repo surface
-        # (omp's agents are user-level), so nothing is rendered here
-        return ("%d stale agent file(s) removed" % removed) if removed else None
-    return ("%d agent(s) %s%s" % (len(names), "written" if written else "current",
-                                  ", %d removed" % removed if removed else ""))
+    # A steady-state session stays silent about the files tezgah keeps in this
+    # repo: the "N agent(s) current" line rode into every session brief and read
+    # as work tezgah was asking for. Only a change is worth a line.
+    if written:
+        return ("%d agent(s) written%s"
+                % (len(names), ", %d removed" % removed if removed else ""))
+    if removed:
+        return "%d stale agent file(s) removed" % removed
+    if report_steady and names and (md_dir or oc_dir or codex_dir):
+        return "%d agent(s) current" % len(names)
+    return None
 
 
 def opencode_agents_json(root):
@@ -577,21 +624,22 @@ def cleanup():
     removed = 0
     for paths in (data.values() if isinstance(data, dict) else []):
         for path in paths:
-            if os.path.basename(path) == ".gitignore":
-                text = _read(path)
-                if text and GITIGNORE_BEGIN in text:
-                    rest = _strip_gitignore(text).strip("\n")
-                    try:
-                        if rest:
-                            with open(path, "w") as fh:
-                                fh.write(rest + "\n")
-                        else:
-                            os.remove(path)
-                        removed += 1
-                    except OSError:
-                        pass
+            text = _read(path)
+            if text and BLOCK_BEGIN in text:
+                # the exclude file, or a .gitignore an older install edited:
+                # strip tezgah's block and keep every line the user owns
+                rest = _strip_block(text).strip("\n")
+                try:
+                    if rest:
+                        with open(path, "w") as fh:
+                            fh.write(rest + "\n")
+                    else:
+                        os.remove(path)
+                    removed += 1
+                except OSError:
+                    pass
                 continue
-            if _is_managed(_read(path)):
+            if _is_managed(text):
                 try:
                     os.remove(path)
                     removed += 1

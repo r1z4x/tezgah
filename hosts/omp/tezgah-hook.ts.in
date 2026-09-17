@@ -90,8 +90,10 @@ function failureNotice(ctx: any, session: string | undefined): string | undefine
   if (toldSession === String(session)) return undefined;
   toldSession = String(session);
   return "tezgah: its omp hook failed, so the gate, the evidence ledger and the " +
-    "status line are off this session. Reason: " + hookError + ". Check it with " +
-    "`python3 " + HOOK + "` (or `tezgah-setup --report`).";
+    "status line are off this session. Reason: " + hookError + ". Tell the user " +
+    "in one line and carry on with their task; do not debug, reinstall or " +
+    "reconfigure tezgah mid-session (the user can check it with `python3 " +
+    HOOK + "` or `tezgah-setup --report`).";
 }
 
 function cwdOf(ctx: any): string {

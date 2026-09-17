@@ -42,6 +42,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   change), a cohesion gate on fan-out, and an always-on loop-discipline
   invariant (no re-running a passed check, no repeating an identical failing
   command, three attempts is the ceiling).
+- The contract also gains an always-on **session scope** rule: tezgah's own
+  installation and its optional tools are the user's to maintain, never the
+  session's - no install, upgrade, restart, kill or upstream issue mid-session,
+  and a missing capability is one line plus the documented fallback. The
+  full-contract skill carries the same section, and its two "no code graph" /
+  "no consult key" variants are now labelled appendixes that apply only on a
+  machine that lacks them.
 
 ### Changed
 
@@ -71,6 +78,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stale ones.
 - The benchmark no longer publishes a timeout as a pass: `omp+graph` is 19/20
   and `omp+tezgah-port` 18/20 on the column to quote.
+- A session start no longer edits a repo's tracked `.gitignore`: the generated
+  agent dirs are ignored through the clone's own `.git/info/exclude`, so a
+  project that has nothing to do with tezgah is not handed back with a modified
+  file. Reproduced before the fix: `bin/tezgah-agents` in a scratch repo left
+  ` M .gitignore`, and two of the user's repos carried that uncommitted or
+  committed block. `--uninstall` still clears the block from a `.gitignore` an
+  older install edited.
+- The session brief stays silent when the generated agent set is already
+  current. `sync_root` returned "N agent(s) current" on every session start, so
+  every project session was told about tezgah's own files in it. The explicit
+  `tezgah-setup --agents` still reports the steady state, because it answers a
+  user's command rather than injecting context.
+- `hooks/tezgah_agents.py` writes now fail open as its own docstring promised: a
+  read-only `.git`, a path that is a directory, or a full disk costs the
+  generated file instead of raising out of the session-start hook.
+- `bin/codegen --timeout` now bounds the WHOLE request instead of one socket
+  operation, the way `bin/consult` already did: a response that trickles bytes
+  resets urllib's per-recv clock and used to hold the process open indefinitely
+  (observed live: an ESTABLISHED connection for over three minutes under
+  `--timeout 90`). A stalled request now exits 2 for the router to fall back on,
+  and `CODEGEN_URL` overrides the endpoint. A test drives a local trickling
+  server that never ends its body.
+- The `tezgah-contract` skill no longer ships a copy of the per-turn
+  `<harness-reminder>` block: 2 KB of injected reminder text had been committed
+  into the skill file, where it is neither the skill nor the reminder.
+- The no-graph contract text no longer tells the session to install
+  `codebase-memory-mcp`, and the omp hook-failure notice no longer tells the
+  model to run tezgah's own diagnostics mid-session: both now report the gap and
+  leave tezgah's maintenance to the user.
 
 - `benchmarks/arm-bench/`: a runnable harness/factor benchmark with a frozen
   pre-registration, eight host arms, and 25 task fixtures that each fail before

@@ -341,7 +341,7 @@ hvordan en tidligere revision kom til at citere et kernebånd mindre end det, de
 
 | Bånd | Hvad det koster |
 |---|---|
-| Sessionsstart | den altid-aktive kontrakt (invarianterne plus en enlinjes pointer pr. on-demand-regel): på denne maskine og skill-sæt ~1.3k tokens kontrakttekst og ~1.3k skill-metadata, hvor de betingede regler (spec, consult, research, graph) kun tilføjer ~0.6k på den tur, hvis prompt matcher |
+| Sessionsstart | den altid-aktive kontrakt (invarianterne plus en enlinjes pointer pr. on-demand-regel): på denne maskine og skill-sæt ~1.5k tokens kontrakttekst og ~1.3k skill-metadata, hvor de betingede regler (spec, consult, research, graph) kun tilføjer ~0.6k på den tur, hvis prompt matcher |
 | Pr. tur | en kort påmindelse (~0.2k tokens) plus den aktiverede regel, når den matcher; hooks er separate Python-processer, så den ~19 ms interpretestart er basen - en tur tilføjer ~31 ms, sessionsstart tilføjer ~50-81 ms, et gated værktøjskald (Bash/Grep/Task) ~24-25 ms. opencode har ingen prompt-tids-hook, så den betaler nul |
 | On demand | den fulde `tezgah-contract`-skill (~6.0k tokens), kun betalt når en opgave indlæser den |
 | MCP-skemaer | det største bånd og det, ingen statisk rapport ser: alene grafserveren erklærer 15 værktøjer / 24,508 bytes (~6.1k tokens), rider på hver anmodning medmindre værten henter skemaer on demand. `tezgah-setup --mcp-schemas` måler det |
