@@ -1,7 +1,7 @@
 {
   "question": "For each failure mode in the agent-failure taxonomy the user supplied, what control can tezgah enforce, at which enforcement point, and with what evidence?",
-  "phase": "inner",
-  "direction": "undecided",
+  "phase": "concluded",
+  "direction": "conclude",
   "created": "2026-09-17",
   "evaluation": {
     "metric": "share of taxonomy failure modes that have a mechanical control at a named enforcement point, measured against the installed rules on this checkout",
@@ -24,17 +24,20 @@
     {
       "id": "H3",
       "statement": "Every failure mode in the taxonomy maps onto one of four enforcement points (prompt clause, tool gate, Stop gate, workspace check), and the modes with no enforcement point form the design backlog.",
-      "status": "testing"
+      "status": "supported",
+      "evidence": "to_human/sections/A-..G-.md: every one of the 44 modes and 10 controls carries a Where line naming one of the four enforcement points"
     },
     {
       "id": "H4",
       "statement": "The backlog modes have published mechanisms that can be implemented inside tezgah's existing hook surfaces without new dependencies or new hosts.",
-      "status": "testing"
+      "status": "supported",
+      "evidence": "to_human/sections/: 41 fetched sources are cited by mechanism inside the design blocks; the two OpenAlex reviews were not fetched and are named as absent"
     },
     {
       "id": "H5",
       "statement": "The ten priority controls in the user's checklist are mostly absent today: the evidence ledger implements the success-language gate, and the rest are prose or nothing.",
-      "status": "testing"
+      "status": "supported",
+      "evidence": "to_human/sections/G-priority-controls.md: 1 implemented, 6 partial, 3 absent, verified against the cited file in the independent pass"
     },
     {
       "id": "H6",
@@ -47,10 +50,13 @@
     {
       "date": "2026-09-17",
       "events": [
-        "user: asked for a per-failure-mode control design for the 47-mode taxonomy plus the ten priority controls, using the research tooling",
-        "ai-executed: created branch research/agent-failure-controls off main",
-        "ai-executed: scaffolded the research line and committed two experiment protocols before any run",
-        "ai-executed: ran E1 and E2 probes against the installed rules"
+        "user: asked for a per-mode control design over the 44-mode taxonomy plus the ten priority controls, using the research tooling",
+        "ai-executed: branch research/agent-failure-controls created off main; research line scaffolded",
+        "ai-executed: E1, E2 and E3 protocols committed before their runs; probes run; results, analysis and claims committed",
+        "ai-executed: 41 sources fetched through orx discover/paper, indexed in literature/",
+        "ai-executed: seven group sections written against five read-only inventories, then two independent read-only review passes, then the findings applied",
+        "ai-failed: the consult second opinion returned HTTP 403 (key limit exceeded) on both providers; no external model corroborated the design cut",
+        "user-revised: none this session"
       ]
     }
   ]

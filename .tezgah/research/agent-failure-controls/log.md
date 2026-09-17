@@ -41,3 +41,25 @@ evidence that drove it.
   fetched paper notes; the router integrates, reviews and verifies them rather
   than writing all 44 modes in one context. Evidence: this log and
   `to_human/sections/`.
+- 2026-09-17 decision attempt, failed: the synthesis's five-gap cut was put to
+  `consult` (Gemini + Grok via OpenRouter) before the sections landed; both
+  providers answered HTTP 403 "Key limit exceeded", so the external second
+  opinion was skipped and the report says so. Evidence: the consult output in
+  this session; no claim in the report is corroborated by an external model.
+- 2026-09-17 correction: three literature ids (`2605.05403`, `2608.29646`,
+  `2608.25920`) were named in writer briefs but were not in `literature/` when
+  the sections that cite them were written; all three were fetched afterwards and
+  the two sections that flagged the gap carry a note recording it.
+- 2026-09-17 review: two independent read-only passes checked 39 claim-level
+  defects across the seven sections (8 major, 3 stale anchors caused by edits
+  made while the pass was reading). All were applied; the dominant class was an
+  absence claim stated as "returns only" over a grep that returns more. Evidence:
+  `to_human/review.md`.
+- 2026-09-17 decision: two cross-section conflicts were resolved by the router
+  rather than patched locally - one ledger schema (P1) and one attempt counter
+  (P4) now live in the synthesis, and F6/G6/G7/F4/G10 reference them. Evidence:
+  `to_human/synthesis.md`, "Shared primitives".
+- 2026-09-17 conclude: the report is assembled as
+  `to_human/agent-failure-controls.md` (frame, synthesis, the seven sections, the
+  review, reproduction). The line's deliverable is the evidence and the design;
+  implementing any control is follow-on work, not claimed here.

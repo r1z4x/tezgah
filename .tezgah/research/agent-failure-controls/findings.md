@@ -64,6 +64,14 @@
   failure mode, not from the regex, or the probe tests the regex against itself.
 - Write the expectation per `(family, condition)`, not per case - E2's summary
   field got this wrong and the error is recorded rather than quietly fixed.
+- **An absence claim is the easiest thing to overstate.** The dominant defect the
+  independent pass found was "the grep returns only X" over a grep that returns
+  more - and once "only" is in the sentence, the conclusion built on it inherits
+  the error. State the conclusion, not the hit list, unless the list is complete.
+- **Write the artifact once, review it with a fresh context, then fix.** All 39
+  findings were applied and none needed the mode list or a verdict changed; the
+  defects were in evidence lines, anchors and scope, exactly the class the author
+  of a sentence cannot see.
 
 ## Open questions
 
