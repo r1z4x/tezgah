@@ -344,7 +344,7 @@ portato una revisione precedente a citare una banda core più piccola di quella 
 
 | Banda | Quanto costa |
 |---|---|
-| Avvio della sessione | il contratto sempre attivo (gli invarianti più un puntatore di una riga per ogni regola on-demand): su questa macchina e con questo set di skill, ~1.3k token di testo del contratto e ~1.3k di metadati delle skill, con le regole condizionali (spec, consult, research, graph) che aggiungono ~0.6k solo sul turno il cui prompt corrisponde |
+| Avvio della sessione | il contratto sempre attivo (gli invarianti più un puntatore di una riga per ogni regola on-demand): su questa macchina e con questo set di skill, ~1.5k token di testo del contratto e ~1.3k di metadati delle skill, con le regole condizionali (spec, consult, research, graph) che aggiungono ~0.6k solo sul turno il cui prompt corrisponde |
 | Per turno | un breve promemoria (~0.2k token) più la regola armata quando corrisponde; gli hook sono processi Python separati, quindi l'avvio dell'interprete di ~19 ms è la base - un turno aggiunge ~31 ms, l'avvio della sessione aggiunge ~50-81 ms, una chiamata a uno strumento con gate (Bash/Grep/Task) ~24-25 ms. opencode non ha hook al momento del prompt, quindi paga zero |
 | On demand | la skill completa `tezgah-contract` (~6.0k token), pagata solo quando un'attività la carica |
 | Schemi MCP | la banda più grande, e quella che nessun report statico vede: il solo server del grafo dichiara 15 strumenti / 24,508 byte (~6.1k token), presenti in ogni richiesta a meno che l'host non recuperi gli schemi on demand. `tezgah-setup --mcp-schemas` lo misura |

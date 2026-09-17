@@ -345,7 +345,7 @@ installiert.
 
 | Band | Was es kostet |
 |---|---|
-| Sitzungsstart | der Always-on-Vertrag (die Invarianten plus ein einzeiliger Zeiger pro On-Demand-Regel): auf dieser Maschine und Skill-Menge ~1.3k Token Vertragstext und ~1.3k an Skill-Metadaten, wobei die bedingten Regeln (spec, consult, research, graph) nur in dem Zug, dessen Prompt passt, ~0.6k hinzufügen |
+| Sitzungsstart | der Always-on-Vertrag (die Invarianten plus ein einzeiliger Zeiger pro On-Demand-Regel): auf dieser Maschine und Skill-Menge ~1.5k Token Vertragstext und ~1.3k an Skill-Metadaten, wobei die bedingten Regeln (spec, consult, research, graph) nur in dem Zug, dessen Prompt passt, ~0.6k hinzufügen |
 | Pro Zug | eine kurze Erinnerung (~0.2k Token) plus die scharf geschaltete Regel, wenn sie passt; Hooks sind separate Python-Prozesse, daher ist der ~19 ms Interpreter-Start die Basis - ein Zug fügt ~31 ms hinzu, Sitzungsstart fügt ~50-81 ms hinzu, ein durch ein Gate geschützter Tool-Aufruf (Bash/Grep/Task) ~24-25 ms. opencode hat keinen Prompt-Zeit-Hook, zahlt also null |
 | On Demand | der vollständige `tezgah-contract`-Skill (~6.0k Token), nur bezahlt, wenn eine Aufgabe ihn lädt |
 | MCP-Schemas | das größte Band und das, das kein statischer Bericht sieht: allein der Graph-Server deklariert 15 Tools / 24,508 Bytes (~6.1k Token) und reitet auf jeder Anfrage mit, es sei denn, der Host holt Schemas auf Anfrage. `tezgah-setup --mcp-schemas` misst es |
