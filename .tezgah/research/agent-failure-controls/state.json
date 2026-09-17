@@ -1,13 +1,51 @@
 {
   "question": "For each failure mode in the agent-failure taxonomy the user supplied, what control can tezgah enforce, at which enforcement point, and with what evidence?",
-  "phase": "bootstrap",
+  "phase": "inner",
   "direction": "undecided",
   "created": "2026-09-17",
   "evaluation": {
-    "metric": "",
-    "baseline": "",
-    "locked_at": ""
+    "metric": "share of taxonomy failure modes that have a mechanical control at a named enforcement point, measured against the installed rules on this checkout",
+    "baseline": "today's installed rules on branch research/agent-failure-controls: the PreToolUse gate refuses 7/19 pre-registered write-path cases and none of the 12 trajectory/consent cases (E1); the Stop rule refuses 8/10 explicit completion claims and 0/10 implicit ones (E2)",
+    "locked_at": "2026-09-17"
   },
-  "hypotheses": [],
-  "sessions": []
+  "hypotheses": [
+    {
+      "id": "H1",
+      "statement": "The mechanical gate covers the write-time failure modes it was built for and covers none of the trajectory-time modes (repeat, order, partial failure, race, consent, secret, unvetted dependency).",
+      "status": "supported",
+      "evidence": "experiments/E1-write-path-coverage/results.jsonl"
+    },
+    {
+      "id": "H2",
+      "statement": "The Stop rule detects explicit completion claims in both languages and misses the same claim stated as a state description.",
+      "status": "supported",
+      "evidence": "experiments/E2-completion-claim-coverage/results.jsonl"
+    },
+    {
+      "id": "H3",
+      "statement": "Every failure mode in the taxonomy maps onto one of four enforcement points (prompt clause, tool gate, Stop gate, workspace check), and the modes with no enforcement point form the design backlog.",
+      "status": "testing"
+    },
+    {
+      "id": "H4",
+      "statement": "The backlog modes have published mechanisms that can be implemented inside tezgah's existing hook surfaces without new dependencies or new hosts.",
+      "status": "testing"
+    },
+    {
+      "id": "H5",
+      "statement": "The ten priority controls in the user's checklist are mostly absent today: the evidence ledger implements the success-language gate, and the rest are prose or nothing.",
+      "status": "testing"
+    }
+  ],
+  "sessions": [
+    {
+      "date": "2026-09-17",
+      "events": [
+        "user: asked for a per-failure-mode control design for the 47-mode taxonomy plus the ten priority controls, using the research tooling",
+        "ai-executed: created branch research/agent-failure-controls off main",
+        "ai-executed: scaffolded the research line and committed two experiment protocols before any run",
+        "ai-executed: ran E1 and E2 probes against the installed rules"
+      ]
+    }
+  ]
 }
