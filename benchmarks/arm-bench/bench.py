@@ -30,6 +30,7 @@ CORPUS = ROOT / "corpus"
 ARMS_FILE = ROOT / "arms.json"
 # runs land here, inside the repository: see run_dir_for
 RUN_ROOT = ROOT / ".runs"
+EVIDENCE = Path.home() / ".cache" / "tezgah" / "evidence"
 # Fields summed across every usage record in a host's event stream. `cache` is
 # handled separately (see extract_usage) because read/write are too generic.
 
@@ -249,6 +250,72 @@ def extract_usage(text: str) -> dict | None:
     return total
 
 
+def extract_final_message(text: str, limit: int = 2000) -> str:
+    """The last assistant message's text in the host's captured stream, or "".
+
+    Recorded so the analysis can score what the agent *claimed* against what the
+    hidden checks found (the false-completion rate), without the harness taking a
+    position on the wording: the classification stays in the analysis."""
+    messages = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (isinstance(event, dict) and event.get("type") == "agent_end"
+                and isinstance(event.get("messages"), list)):
+            messages = event["messages"]
+    if not messages:
+        return ""
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content[:limit]
+        if isinstance(content, list):
+            return "".join(
+                part.get("text", "") for part in content
+                if isinstance(part, dict) and part.get("type") == "text")[:limit]
+    return ""
+
+
+def ledger_rows_since(since: float) -> int:
+    """Evidence rows the harness wrote since `since` - the arming proof.
+
+    The mechanical-off block is void because its arms never armed: the run
+    directory sat under the system temp dir, so `root_for(cwd)` was None and
+    every hook returned before writing anything. A run that writes no row is not
+    evidence about the harness at all, so the count travels in the row and a
+    reader can throw the row out instead of trusting the arm's label. Returns -1
+    when the ledger directory cannot be read, never 0 - "unknown" and "nothing"
+    are different answers."""
+    total = 0
+    try:
+        paths = list(EVIDENCE.glob("*.jsonl"))
+    except OSError:
+        return -1
+    if not paths:
+        return 0
+    for path in paths:
+        try:
+            if path.stat().st_mtime < since - 5:
+                continue
+            with path.open(errors="replace") as handle:
+                for line in handle:
+                    try:
+                        if json.loads(line).get("ts", 0) >= since:
+                            total += 1
+                    except ValueError:
+                        pass
+        except OSError:
+            return -1
+    return total
+
+
 def host_version(host: str) -> str:
     try:
         out = subprocess.run([host, "--version"], capture_output=True, text=True, timeout=20)
@@ -414,6 +481,8 @@ def cmd_run(args) -> int:
             "checks": [{"name": c["name"], "passed": c["passed"]} for c in result["checks"]],
             "changed_files": result["changed_files"], "collateral": result["collateral"],
             "wall_s": wall, "rc": rc, "timed_out": timed_out,
+            "final_message": extract_final_message(stdout),
+            "ledger_rows": ledger_rows_since(started),
             "usage": usage, "usage_note": None if usage else "no usage record found in stdout",
             "model": args.model, "host_version": host_version(arm["host"]),
             "arm_cmd": cmd, "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
