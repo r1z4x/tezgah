@@ -17,6 +17,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,13 +25,18 @@ import tempfile
 import time
 from pathlib import Path
 
+# The arming proof reads the harness's own ledger, so the ledger file name comes
+# from the harness rather than being re-derived here: hooks/tezgah_integrity.py
+# owns the session-id slug. This file sits two levels under the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hooks"))
+from tezgah_integrity import _path as ledger_path  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent
 TASKS = ROOT / "tasks"
 CORPUS = ROOT / "corpus"
 ARMS_FILE = ROOT / "arms.json"
 # runs land here, inside the repository: see run_dir_for
 RUN_ROOT = ROOT / ".runs"
-EVIDENCE = Path.home() / ".cache" / "tezgah" / "evidence"
 # Fields summed across every usage record in a host's event stream. `cache` is
 # handled separately (see extract_usage) because read/write are too generic.
 
@@ -283,37 +289,82 @@ def extract_final_message(text: str, limit: int = 2000) -> str:
     return ""
 
 
-def ledger_rows_since(since: float) -> int:
-    """Evidence rows the harness wrote since `since` - the arming proof.
+def omp_session_dir(cwd, agent_dir) -> Path:
+    """The directory omp names for one cwd, under `agent_dir`/sessions.
 
-    The mechanical-off block is void because its arms never armed: the run
-    directory sat under the system temp dir, so `root_for(cwd)` was None and
-    every hook returned before writing anything. A run that writes no row is not
-    evidence about the harness at all, so the count travels in the row and a
-    reader can throw the row out instead of trusting the arm's label. Returns -1
-    when the ledger directory cannot be read, never 0 - "unknown" and "nothing"
-    are different answers."""
-    total = 0
-    try:
-        paths = list(EVIDENCE.glob("*.jsonl"))
-    except OSError:
+    `_Vo` in the omp session store: canonicalise the cwd; under $HOME the name
+    is "-" plus the home-relative path, under the temp dir "-tmp" plus that
+    relative path, anywhere else "--" plus the absolute path plus "--", with
+    every separator and colon turned into a dash. Checked against the host's own
+    directories: a run in /Users/rizax/Projects/tezgah belongs to
+    -Projects-tezgah, one in the orx archive to
+    -.local-share-openresearch-local-runs-<id>-repo-...-repo, one under TMPDIR
+    to -tmp-armbench-<task>-<rand>-repo."""
+    cwd_real = os.path.realpath(str(cwd))
+    home = os.path.realpath(os.path.expanduser("~"))
+    tmp = os.path.realpath(tempfile.gettempdir())
+    home_rel = os.path.relpath(cwd_real, home)
+    tmp_rel = os.path.relpath(cwd_real, tmp)
+
+    def dashes(path: str) -> str:
+        return re.sub(r"[/\\:]", "-", path)
+
+    if home_rel == ".":
+        name = "-"
+    elif not home_rel.startswith("..") and not os.path.isabs(home_rel):
+        name = "-" + dashes(home_rel)
+    elif tmp_rel == ".":
+        name = "-tmp"
+    elif not tmp_rel.startswith("..") and not os.path.isabs(tmp_rel):
+        name = "-tmp-" + dashes(tmp_rel)
+    else:
+        name = "--" + dashes(re.sub(r"^[/\\]", "", cwd_real)) + "--"
+    return Path(agent_dir) / "sessions" / name
+
+
+def session_rows(env: dict, cwd, host: str) -> int:
+    """Ledger rows this run's own session wrote - the arming proof.
+
+    A run that armed nothing writes no row, so the count travels in the row and
+    a reader can throw the row out instead of trusting the arm's label. Counting
+    the whole evidence directory failed at that job: the router's own armed
+    session kept the number above zero while every arm ran with the hooks inert
+    (E4b). Only the run's session answers the question, so this resolves that
+    session - omp names its directory after the cwd and its file
+    `<timestamp>_<session-id>.jsonl` - and counts that session's ledger.
+
+    0 means the session was found and wrote nothing (an inert harness); -1 means
+    the session could not be resolved, never "nothing": "unknown" and "nothing"
+    are different answers. Hosts other than omp are -1 until they get the same
+    treatment; every arm of the mechanical-off block is omp.
+
+    The ledger is written by the harness *installed* for the host, which need not
+    be this copy of the repository: the block runs the installed hook while
+    `bench.py` runs from the archive. `_path` names the file this copy would
+    write; a copy from before the session-id hash (plan 012) names it
+    `<session-id>.jsonl`. Both names are this session's ledger, so both count."""
+    if host != "omp":
         return -1
-    if not paths:
-        return 0
-    for path in paths:
+    agent_dir = env.get("PI_CODING_AGENT_DIR") or str(Path.home() / ".omp" / "agent")
+    sessions = sorted(omp_session_dir(cwd, agent_dir).glob("*.jsonl"),
+                      key=lambda path: path.stat().st_mtime)
+    if not sessions:
+        return -1
+    session_id = sessions[-1].stem.rsplit("_", 1)[-1]
+    if not session_id:
+        return -1
+    ledger = Path(ledger_path(session_id))
+    rows = 0
+    for name in {ledger.name, session_id + ".jsonl"}:
+        path = ledger.with_name(name)
+        if not path.exists():
+            continue
         try:
-            if path.stat().st_mtime < since - 5:
-                continue
             with path.open(errors="replace") as handle:
-                for line in handle:
-                    try:
-                        if json.loads(line).get("ts", 0) >= since:
-                            total += 1
-                    except ValueError:
-                        pass
+                rows += sum(1 for line in handle if line.strip())
         except OSError:
             return -1
-    return total
+    return rows
 
 
 def host_version(host: str) -> str:
@@ -450,9 +501,9 @@ def cmd_run(args) -> int:
         if args.dry_run:
             print(" ".join(cmd))
             continue
-        env = {k: str(v).format(cwd=run_dir, model=args.model, root=ROOT)
-               for k, v in arm.get("env", {}).items()}
-        env = {**os.environ, **env}
+        arm_env = {k: str(v).format(cwd=run_dir, model=args.model, root=ROOT)
+                   for k, v in arm.get("env", {}).items()}
+        env = {**os.environ, **arm_env}
         started = time.time()
         try:
             proc = subprocess.run(
@@ -482,7 +533,7 @@ def cmd_run(args) -> int:
             "changed_files": result["changed_files"], "collateral": result["collateral"],
             "wall_s": wall, "rc": rc, "timed_out": timed_out,
             "final_message": extract_final_message(stdout),
-            "ledger_rows": ledger_rows_since(started),
+            "session_rows": session_rows(env, run_dir, arm["host"]),
             "usage": usage, "usage_note": None if usage else "no usage record found in stdout",
             "model": args.model, "host_version": host_version(arm["host"]),
             "arm_cmd": cmd, "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
