@@ -38,6 +38,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A research claim is recorded under a lock.** `bin/tezgah-research claim
+  <slug>` reads one claim as a JSON object on stdin, applies the same rules
+  `check` applies to a row, and appends it to the line's `claims.jsonl` under an
+  exclusive `flock` on that file, refusing with the reason and writing nothing
+  when the claim breaks a rule or the file is another writer's. Recording a claim
+  used to mean editing the file: an unlocked read-modify-write of the one file
+  every claim of a line lives in, guarded only by the gate's `race` rule - whose
+  own comments name two ways a writer escapes it (`hooks/tezgah_gate.py:805` and
+  `:828`) - so two sessions recording at the same moment could lose a claim
+  silently or leave a line that does not parse, which `check` reports as `does
+  not parse` rather than as a race. Exit codes follow the rest of the CLI (0
+  recorded, 1 refused, 2 misuse), and refusing rather than falling back to an
+  unlocked append is the one place this path deliberately differs from the
+  ledger's `_append`.
+
 - **The user's half of the consent rule is a command.** `bin/tezgah-consent
   <digest>` records that the user approved the action the gate asked about, and
   `tezgah-consent --last` approves the newest ask no grant answers yet, so a
@@ -100,8 +115,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   written before this change are tolerated so an open session is never blocked on
   its own history. Hook medians moved by less than 1 ms against the committed
   baseline (`benchmarks/hook-latency/plan012-after.json`).
-- The research workspace: `bin/tezgah-research` (`init`, `check`, `status`) and
-  the `research` skill. A research line lives in `<repo>/.tezgah/research/<slug>/`
+- The research workspace: `bin/tezgah-research` (`init`, `check`, `status`; the
+  locked `claim` append is a later entry above) and the `research` skill. A
+  research line lives in `<repo>/.tezgah/research/<slug>/`
   and holds the question and locked evaluation, the decision log, the findings,
   the claims with their falsification criteria, provenance and evidence, and one
   directory per experiment whose `protocol.md` is committed before its

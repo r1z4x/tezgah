@@ -240,7 +240,7 @@ Nada que ejecutar: las reglas se cargan cuando se inicia un host. Vale la pena c
 | `bin/tezgah-status [PATH]` | Mostrar si las reglas están activas en ese repositorio |
 | `bin/tezgah-setup --status [PATH]` | Imprimir la lista de verificación de lo armado/usado |
 | `bin/tezgah-setup --deps [--dry-run]` | Instalar herramientas opcionales faltantes (orx, cursor-agent, dsh) |
-| `bin/tezgah-research init\|check\|status` | Crea y comprueba una línea de investigación: estado, hallazgos, afirmaciones y la regla protocolo-antes-de-resultados |
+| `bin/tezgah-research init\|check\|status\|claim` | Crea y comprueba una línea de investigación: estado, hallazgos, afirmaciones y la regla protocolo-antes-de-resultados |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Informar el uso de disco del entorno; `--clean` elimina registros de índice antiguos y hace vacuum a la BD de opencode; `--prune-sessions` elimina sesiones inactivas (la única acción que realmente reduce la BD) |
 | `/tezgah:plan-add` | Convertir una parte del trabajo en un plan rastreado |
 | `/tezgah:plan-status` | Resumir los planes abiertos y elegir el siguiente |

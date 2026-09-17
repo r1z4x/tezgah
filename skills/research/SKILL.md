@@ -50,7 +50,7 @@ One directory per research line, `<repo>/.tezgah/research/<slug>/`:
 | `state.json` | the question, phase, direction, the locked evaluation (metric, baseline) and the hypothesis list |
 | `log.md` | the decision timeline: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | `## What we know`, `## Patterns`, `## Lessons`, `## Open questions` |
-| `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `falsification`, `proof`, `dependencies` |
+| `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `falsification`, `proof`, `dependencies` - recorded with `tezgah-research claim <slug>`, never by editing the file |
 | `experiments/<hypothesis>/` | `protocol.md`, `results.jsonl`, `analysis.md` |
 | `literature/` | one note per source, saved when you read it, not later |
 | `to_human/` | reports for the person paying for the research |
@@ -62,7 +62,18 @@ Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 ~/.config/tezgah/bin/tezgah-research init my-line --question "does X hold under Y?"
 ~/.config/tezgah/bin/tezgah-research check    # 0 clean, 1 broken rule, 2 misuse
 ~/.config/tezgah/bin/tezgah-research status
+~/.config/tezgah/bin/tezgah-research claim my-line   # one JSON object on stdin
 ```
+
+`claim` reads that object from stdin and appends it as one line: exit 0,
+`claim <id> recorded` (just `claim recorded` when the object carries no `id`);
+exit 1 with one `FAIL <slug>: <problem>` line per problem
+and nothing written - including when `claims.jsonl` cannot be locked within a
+second; exit 2 when the slug is missing or unknown, or stdin is not one JSON
+object. Record a claim with the command, never by editing the file: a hand edit
+is an unlocked read-modify-write of the file every claim of the line lives in,
+while the command appends under an exclusive lock on that file and refuses rather
+than writing unlocked.
 
 `check` enforces the rules a session tends to skip: `protocol.md` committed
 before `results.jsonl` - decided on the commit graph, so two commits inside the

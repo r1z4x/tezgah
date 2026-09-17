@@ -13,6 +13,11 @@ import subprocess
 import sys
 import unittest
 
+try:
+    import fcntl
+except ImportError:  # not POSIX: the held-lock case cannot be exercised
+    fcntl = None
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "hooks"))
 import tezgah_research as tr  # noqa: E402
@@ -625,6 +630,199 @@ class Cli(Workspace):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.splitlines(),
                          ["alpha: ok", "beta: 1 problem(s)"])
+
+
+class ClaimAppend(Workspace):
+    """`claim <slug>`: one validated JSON object from stdin onto claims.jsonl."""
+
+    def cli(self, repo, *args, payload=None):
+        """`Cli.cli` plus stdin: `payload` is the object, or the raw text, the
+        command reads from it."""
+        data = None if payload is None else (
+            payload if isinstance(payload, str) else json.dumps(payload) + "\n")
+        return subprocess.run([sys.executable, CLI] + list(args), input=data,
+                              capture_output=True, text=True, env=self.env(),
+                              cwd=repo, timeout=60)
+
+    def valid(self, **over):
+        claim = {"id": "C1", "statement": "the cache cuts p95",
+                 "status": "supported", "provenance": "ai-executed",
+                 "falsification": "p95 does not drop",
+                 "proof": "to_human/report.md (p95 -12% over 7 runs)"}
+        claim.update(over)
+        return claim
+
+    def evidence(self, repo, slug="q"):
+        """A line whose proof cites a file the line really has, so a refusal
+        reports the rule the claim broke and nothing else."""
+        base = self.line(repo, slug)
+        self.write(os.path.join(base, "to_human", "report.md"), "# Report\n")
+        return os.path.join(base, "claims.jsonl")
+
+    def test_a_valid_claim_is_recorded_and_check_accepts_it(self):
+        repo = self.repo()
+        path = self.evidence(repo)
+        proc = self.cli(repo, "claim", "q", payload=self.valid())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("claim C1 recorded", proc.stdout)
+        lines = read(path).splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertEqual(json.loads(lines[0]), self.valid())
+        row = tr.check(repo)["q"]
+        self.assertEqual(row["errors"], [])
+        self.assertNotIn("no claims recorded yet", row["warnings"])
+
+    def test_a_claim_without_an_id_keeps_it_that_way(self):
+        # numbering is the writer's business: the command records what it is
+        # handed and says so without inventing an id
+        repo = self.repo()
+        path = self.evidence(repo)
+        claim = self.valid()
+        del claim["id"]
+        proc = self.cli(repo, "claim", "q", payload=claim)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("claim recorded", proc.stdout)
+        self.assertNotIn("id", json.loads(read(path).splitlines()[0]))
+
+    def test_a_claim_without_a_falsification_is_refused(self):
+        repo = self.repo()
+        path = self.evidence(repo)
+        proc = self.cli(repo, "claim", "q", payload=self.valid(falsification=""))
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("FAIL q: ", proc.stdout)
+        self.assertIn("falsification", proc.stdout)
+        self.assertEqual(read(path), "")
+
+    def test_a_provenance_outside_the_list_is_refused(self):
+        repo = self.repo()
+        path = self.evidence(repo)
+        proc = self.cli(repo, "claim", "q",
+                        payload=self.valid(provenance="remembered"))
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("FAIL q: ", proc.stdout)
+        self.assertIn("provenance", proc.stdout)
+        self.assertEqual(read(path), "")
+
+    def test_a_proof_citing_a_path_the_line_lacks_is_refused(self):
+        repo = self.repo()
+        path = self.evidence(repo)
+        proof = "experiments/nowhere/results.jsonl"
+        proc = self.cli(repo, "claim", "q", payload=self.valid(proof=proof))
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("FAIL q: ", proc.stdout)
+        self.assertIn(proof, proc.stdout)
+        self.assertEqual(read(path), "")
+
+    def test_an_append_after_a_line_without_a_trailing_newline_keeps_both(self):
+        # a hand edit can leave the file ending mid-line; the next append must
+        # still produce one whole claim per line
+        repo = self.repo()
+        path = self.evidence(repo)
+        self.write(path, json.dumps(self.valid()))
+        proc = self.cli(repo, "claim", "q", payload=self.valid(id="C2"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        lines = read(path).splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        self.assertEqual([json.loads(line)["id"] for line in lines], ["C1", "C2"])
+
+    def test_a_refused_claim_never_creates_the_file(self):
+        repo = self.repo()
+        path = self.evidence(repo)
+        os.remove(path)
+        proc = self.cli(repo, "claim", "q", payload=self.valid(falsification=""))
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("FAIL q: ", proc.stdout)
+        self.assertFalse(os.path.exists(path))
+
+    def test_misuse_exits_two_with_nothing_on_stdout(self):
+        repo = self.repo()
+        path = self.evidence(repo, "alpha")
+        cases = ((("claim",), self.valid(), None),          # no slug
+                 (("claim", "nope"), self.valid(), "alpha"),  # unknown slug
+                 (("claim", "alpha"), "{not json", None),     # not JSON
+                 (("claim", "alpha"), [1, 2], None))          # not an object
+        for args, payload, needle in cases:
+            proc = self.cli(repo, *args, payload=payload)
+            self.assertEqual(proc.returncode, 2, (args, proc.stdout, proc.stderr))
+            self.assertEqual(proc.stdout, "", args)
+            if needle:
+                self.assertIn(needle, proc.stderr, args)
+        self.assertEqual(read(path), "")
+
+    def test_eight_processes_appending_at_once_all_land(self):
+        repo = self.repo()
+        path = self.evidence(repo)
+        env = self.env()
+        claims = [self.valid(id="C%d" % n, statement="statement %d" % n)
+                  for n in range(1, 9)]
+        procs = [subprocess.Popen([sys.executable, CLI, "claim", "q"],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True, env=env,
+                                  cwd=repo) for _ in claims]
+
+        def cleanup():
+            for proc in procs:
+                if proc.poll() is None:
+                    proc.kill()
+                for fh in (proc.stdin, proc.stdout, proc.stderr):
+                    if fh is not None and not fh.closed:
+                        fh.close()
+
+        self.addCleanup(cleanup)
+        # every process is started and gets its whole input, and no stdin is
+        # left open, before any of them is waited on: the eight appends overlap
+        for proc, claim in zip(procs, claims):
+            proc.stdin.write(json.dumps(claim) + "\n")
+            proc.stdin.close()
+        codes = [proc.wait(timeout=60) for proc in procs]
+        results = [(proc.stdout.read(), proc.stderr.read()) for proc in procs]
+        self.assertEqual(codes, [0] * len(claims), results)
+        for (out, err), claim in zip(results, claims):
+            self.assertIn("claim %s recorded" % claim["id"], out, (out, err))
+        rows = [json.loads(line) for line in read(path).splitlines()]
+        self.assertEqual(len(rows), len(claims), read(path))
+        self.assertEqual(sorted(row["id"] for row in rows),
+                         sorted(claim["id"] for claim in claims))
+
+    def held_lock(self, repo):
+        """A line whose claims.jsonl this process holds exclusively, with what
+        the file held when the lock was taken."""
+        path = self.evidence(repo)
+        before = read(path)
+        holder = open(path, "a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        return path, before
+
+    def test_a_held_lock_refuses_in_process(self):
+        # the wait bound belongs to the process that appends, so it is patched
+        # here and the append path is called directly: this covers the bound
+        if fcntl is None:
+            self.skipTest("fcntl is unavailable")
+        repo = self.repo()
+        path, before = self.held_lock(repo)
+        saved = tr.LOCK_WAIT
+        tr.LOCK_WAIT = 0.05
+        try:
+            _, problems = tr.append_claim(repo, "q", self.valid())
+        finally:
+            tr.LOCK_WAIT = saved
+        self.assertTrue(problems, problems)
+        self.assertIn("claims.jsonl", " ".join(problems), problems)
+        self.assertEqual(read(path), before)
+
+    def test_a_held_lock_refuses_the_claim(self):
+        # end to end through the CLI, whose own interpreter keeps its default
+        # bound: this case costs about one second by design, not by accident
+        if fcntl is None:
+            self.skipTest("fcntl is unavailable")
+        repo = self.repo()
+        path, before = self.held_lock(repo)
+        proc = self.cli(repo, "claim", "q", payload=self.valid())
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("FAIL q: ", proc.stdout)
+        self.assertIn("claims.jsonl", proc.stdout)
+        self.assertEqual(read(path), before)
 
 
 class SessionNote(Workspace):

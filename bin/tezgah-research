@@ -4,6 +4,7 @@
   tezgah-research init <slug> [--question "..."]   scaffold a research line
   tezgah-research check [<slug>] [--json]          the discipline checks
   tezgah-research status                           one line per research line
+  tezgah-research claim <slug>                     record one claim from stdin
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
@@ -11,7 +12,9 @@ claims with their falsification criteria and evidence, and one directory per
 experiment whose protocol is committed before its results. `check` exits 1 when
 a line breaks those rules, so a hook or a person can act on it.
 
-Exit codes: 0 clean, 1 problems found, 2 misuse.
+Exit codes: 0 clean, 1 problems found - a broken line for `check`, or a refused
+claim for `claim`, which writes nothing and prints one reason per problem - 2
+misuse.
 """
 import json
 import os
@@ -101,6 +104,44 @@ def cmd_status(args):
     return 0
 
 
+def cmd_claim(args):
+    """Record the claim handed in on stdin; the line must exist first, so a
+    typo cannot create one. Reading stdin happens after the slug check, so a
+    misuse case never waits on a terminal."""
+    if not args:
+        return misuse("claim needs a slug")
+    slug = args[0]
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if slug not in known:
+        return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    try:
+        body = sys.stdin.read()
+    except UnicodeDecodeError:
+        return misuse("stdin is not valid UTF-8")
+    if not body.strip():
+        return misuse("claim needs one JSON object on stdin")
+    try:
+        claim = json.loads(body)
+    except ValueError:
+        return misuse("stdin is not valid JSON")
+    if not isinstance(claim, dict):
+        return misuse("stdin must be one JSON object")
+    try:
+        claim_id, problems = tr.append_claim(repo, slug, claim)
+    except OSError as exc:
+        # The line directory can go missing or stop being writable between the
+        # slug check and the append; that is a problem with the line, not with
+        # how the command was called, so it takes the refusal channel.
+        claim_id, problems = claim.get("id"), ["cannot append to claims.jsonl: %s" % exc]
+    if problems:
+        for problem in problems:
+            print("FAIL %s: %s" % (slug, problem))
+        return 1
+    print(("claim %s recorded" % claim_id) if claim_id else "claim recorded")
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -112,7 +153,9 @@ def main(argv):
         return cmd_check(rest)
     if cmd == "status":
         return cmd_status(rest)
-    return misuse("unknown command %r (init, check, status)" % cmd)
+    if cmd == "claim":
+        return cmd_claim(rest)
+    return misuse("unknown command %r (init, check, status, claim)" % cmd)
 
 
 if __name__ == "__main__":

@@ -240,7 +240,7 @@ Nichts auszuführen: Die Regeln werden geladen, wenn ein Host startet. Ein paar 
 | `bin/tezgah-status [PATH]` | Zeigt an, ob die Regeln in diesem Repo aktiv sind |
 | `bin/tezgah-setup --status [PATH]` | Druckt die Checkliste der scharfgeschalteten/verwendeten Regeln |
 | `bin/tezgah-setup --deps [--dry-run]` | Installiert fehlende optionale Tools (orx, cursor-agent, dsh) |
-| `bin/tezgah-research init\|check\|status` | Legt eine Research-Linie an und prüft sie: Zustand, Findings, Claims und die Protokoll-vor-Ergebnis-Regel |
+| `bin/tezgah-research init\|check\|status\|claim` | Legt eine Research-Linie an und prüft sie: Zustand, Findings, Claims und die Protokoll-vor-Ergebnis-Regel |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Meldet die Festplattennutzung des Harness; `--clean` löscht alte Index-Logs und bereinigt (vacuum) die opencode-DB; `--prune-sessions` löscht inaktive Sitzungen (die einzige Aktion, die die DB tatsächlich verkleinert) |
 | `/tezgah:plan-add` | Verwandelt ein Stück Arbeit in einen verfolgten Plan |
 | `/tezgah:plan-status` | Fasst offene Pläne zusammen und wählt den nächsten aus |
