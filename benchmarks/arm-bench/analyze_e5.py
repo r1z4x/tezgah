@@ -39,6 +39,10 @@ def main(path):
     by = collections.defaultdict(list)
     for r in rows:
         by[r["arm"]].append(r)
+    missing = [a for a in ("omp+tezgah", "orx-verify-off", "orx-gate-off", "omp-bare")
+               if a not in by]
+    if missing:
+        sys.exit("rows are missing arms: %s" % ", ".join(missing))
 
     print("E5 - %d rows\n" % len(rows))
     print("%-16s %8s %-14s %10s %8s %9s" % ("arm", "pass", "wilson", "wrong route", "armed", "fires>0"))
