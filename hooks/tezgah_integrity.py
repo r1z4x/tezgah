@@ -322,6 +322,79 @@ def prior_calls(session_id, digest, tail=200):
     return len(rows), rows[-1].get("exit"), rows[-1].get("fail_class")
 
 
+# How much of a sibling session's ledger a cross-session read parses. A write
+# inside the window is that ledger's newest activity by definition of "inside",
+# so the tail is where it is; a session whose window-write sits further back
+# than this many rows is missed.
+WRITE_TAIL = 200
+
+
+def writers_elsewhere(path, session_id, minutes=10):
+    """The other sessions that recorded a write of `path` in the last `minutes`,
+    newest first, as ledger ids.
+
+    `path` is matched verbatim against the string the writing session's hook put
+    in the row's `detail` (its `file_path` / `filePath` / `path`), because that is
+    the only form the ledger stores and this reader cannot re-derive the writing
+    session's cwd. So a caller passes the same field from its own tool input,
+    unnormalized. ponytail: a session that recorded an absolute path is not
+    matched to one that asked about the relative form of the same file (or the
+    reverse) - resolving that would need the writer's cwd, which the row carries
+    only sometimes, and a guess there invents an overlap instead of finding one.
+
+    The ids returned are the sessions' ledger ids - `_slug(session_id)`, the
+    evidence filename stem - because that is the only identity the ledger
+    stores: a raw session id is hashed into the filename and cannot be read back
+    out of the file. So a caller may print one as a label, but must not hand it
+    back to a reader that takes a session id (`_path` would slug it a second
+    time and open another file).
+
+    Neutral value: [] when the cache cannot be listed or a ledger cannot be
+    read. A cross-session rule that cannot see the other ledgers has learned
+    nothing, and must stay silent rather than act on a guess.
+
+    ponytail: only `edit` rows count, so a sibling that wrote the same file
+    through a shell redirect (`sed -i`, `>`) is invisible here - its row records
+    a command, not a path. Every session on the machine shares this cache, so
+    the window is the only thing separating unrelated work."""
+    want = str(path or "")
+    if not want.strip():
+        return []
+    d = os.path.join(cache_dir(), "evidence")
+    mine = _slug(session_id) + ".jsonl"
+    now = time.time()
+    window = minutes * 60
+    found = []
+    try:
+        entries = list(os.scandir(d))
+    except OSError:
+        return []
+    for entry in entries:
+        if not entry.name.endswith(".jsonl") or entry.name == mine:
+            continue
+        try:
+            # nothing in a file whose last write is older than the window can
+            # be inside it, so most of a long-lived cache is skipped unread
+            if now - entry.stat().st_mtime > window:
+                continue
+            rows = _parse(_tail_lines(entry.path, WRITE_TAIL))
+        except OSError:
+            continue
+        newest = None
+        for row in rows:
+            if row.get("kind") != "edit":
+                continue
+            ts = row.get("ts")
+            if not isinstance(ts, (int, float)) or now - ts > window:
+                continue
+            if str(row.get("detail") or "") != want:
+                continue
+            newest = ts if newest is None else max(newest, ts)
+        if newest is not None:
+            found.append((newest, entry.name[:-len(".jsonl")]))
+    return [stem for _, stem in sorted(found, key=lambda pair: -pair[0])]
+
+
 def note_turn(session_id, prompt, workspace=None):
     """Write the user-turn marker the loop guard resets on, at most once per
     submission.
@@ -631,6 +704,38 @@ def last_verify(session_id):
     return _last_verify(events(session_id))
 
 
+def _partial_state(rows):
+    """`partial_state`'s fold, over rows already read.
+
+    Turn-scoped like `_turn_start`'s other reader, `prior_calls`: the newest
+    turn's rows only, because a failure the user's next prompt moved past is not
+    this turn's state and must not refuse this turn's reply."""
+    rows = rows[_turn_start(rows):]
+    kinds = {str(row.get("kind")) for row in rows}
+    return {"edited": "edit" in kinds,
+            "failed": "verify_fail" in kinds,
+            "verified": _last_verify(rows) == "ok"}
+
+
+def partial_state(session_id):
+    """The newest turn's state, as {"edited", "failed", "verified"}.
+
+    `edited` is a write in the turn, `failed` is a check that failed in it, and
+    `verified` is a check that passed as the turn's newest check: a green run
+    *before* the failure does not set it, which is the point - the failure has
+    to be resolved, not merely followed by a check whose outcome nobody saw.
+
+    Neutral value: all three False when the ledger cannot be read, so the Stop
+    rule refuses nothing on this state it could not establish.
+
+    This reports a state; it does not repair one. There is no rollback here and
+    there must not be one: the host has no transaction concept, the edits the
+    turn made are the user's work, and a hook that undid them on its own
+    authority would destroy more than the failure it reacted to. The repair is
+    the model's - fix it and re-run, or report the failure as it stands."""
+    return _partial_state(events(session_id))
+
+
 def _claim_key(rows, text):
     """The identity of one reply inside one user turn: sha1 of the turn marker
     and the reply text.
@@ -655,9 +760,9 @@ def stop_reason(text, session_id, edited_hint=None):
     no trace otherwise, and the false-completion rate (counters) needs both the
     refusals and the claims that were allowed through. `detail` carries the
     reason class - `blocked: no verify_ok`, `blocked: check failed`,
-    `blocked: placating opener`, or `ok` - so which branch refused a turn is
-    readable without parsing the block text. One row per reply per turn: an
-    identical row for the same key is skipped."""
+    `blocked: partial failure`, `blocked: placating opener`, or `ok` - so which
+    branch refused a turn is readable without parsing the block text. One row
+    per reply per turn: an identical row for the same key is skipped."""
     rows = events(session_id)
     cls, reason = _stop_block(text, session_id, edited_hint, rows=rows)
     if reason:
@@ -673,6 +778,19 @@ def stop_reason(text, session_id, edited_hint=None):
     return reason
 
 
+def _failed_check(rows):
+    """The command of the turn's newest failed check, for the reason text.
+
+    The tail marker `note_tool` appends to a failed event's detail is not part of
+    the command and is dropped; a row that carries no detail still names a check,
+    so the caller has text to print either way."""
+    for row in reversed(rows):
+        if row.get("kind") == "verify_fail":
+            return str(row.get("detail") or "").replace(FAILED_MARK, "").strip() \
+                or "a check"
+    return "a check"
+
+
 def _stop_block(text, session_id, edited_hint=None, rows=None):
     """stop_reason's decision as (reason class, block text), without the ledger
     side effect. The class names the branch that refused the turn; the text is
@@ -681,6 +799,11 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
     Blocks only on evidence that is checkable: a placating opener, or a
     completion/verification claim whose newest check did not pass. An explicit
     'doğrulanmadı' clears it, so honest uncertainty is always allowed.
+
+    Branch order is the reason classes' contract: a new branch goes after the
+    ones it overlaps, so it cannot swallow their class - the partial-failure
+    branch below sits after "the newest check failed" precisely so a turn that
+    ends on a failed check still reads as `check failed`.
 
     `rows` is the ledger the caller already read (`stop_reason` needs it for the
     claim key), so the Stop path reads the file once per turn."""
@@ -706,6 +829,19 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
                 "A check failed in this session and the reply claims success. "
                 "Report the failure with its exact error line, or fix it and "
                 "re-run; do not describe a failed check as passing.")
+    # a failure the turn never resolved: the newest check is not a pass, so an
+    # earlier green run over a different command does not license the claim
+    state = _partial_state(rows)
+    if state["failed"] and not state["verified"]:
+        return ("partial failure",
+                "Partial failure: %s failed %s and no check has passed since, so "
+                "an earlier green run does not cover it. Report that failure "
+                "with its exact error line, or fix it and re-run the check; do "
+                "not describe a partial result as done. If you are deliberately "
+                "stopping on the failure, say what is still broken and mark the "
+                "claim \"doğrulanmadı\"."
+                % (_failed_check(rows),
+                   "after this turn's edits" if state["edited"] else "in this turn"))
     if any(passing_check(entry) for entry in rows):
         return (None, None)
     worked = ev & {"edit", "verify", "verify_fail", "run"}

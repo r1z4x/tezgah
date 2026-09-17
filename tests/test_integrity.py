@@ -8,6 +8,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -303,6 +304,138 @@ class TurnMarker(unittest.TestCase):
         self.assertNotIn("secret", json.dumps(self.marks()))
 
 
+class PartialStateReader(unittest.TestCase):
+    """partial_state: what the newest turn did.
+
+    The Stop rule's partial-failure branch reads this, so what is under test is
+    the turn scoping and which check counts as the turn's newest. Rows go
+    straight into a temp ledger; _path is patched so the real cache is untouched.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        self.path = os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: self.path
+
+    def seed(self, *rows):
+        with open(self.path, "w") as fh:
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
+
+    def test_a_failure_the_turn_never_resolved_is_not_verified(self):
+        self.seed({"kind": "edit", "detail": "x.py"},
+                  {"kind": "verify_ok", "detail": "pytest -q", "exit": 0,
+                   "out_bytes": 9},
+                  {"kind": "verify_fail", "detail": "ruff check . [exit!=0]",
+                   "exit": 1},
+                  {"kind": "verify", "detail": "mypy ."})
+        self.assertEqual(ti.partial_state("s"),
+                         {"edited": True, "failed": True, "verified": False})
+
+    def test_a_pass_after_the_failure_verifies_it(self):
+        self.seed({"kind": "edit", "detail": "x.py"},
+                  {"kind": "verify_fail", "detail": "pytest -q", "exit": 1},
+                  {"kind": "verify_ok", "detail": "pytest -q", "exit": 0,
+                   "out_bytes": 9})
+        self.assertEqual(ti.partial_state("s"),
+                         {"edited": True, "failed": True, "verified": True})
+
+    def test_a_green_run_before_the_failure_does_not_verify_it(self):
+        # the failure has to be resolved, not merely preceded by a passing run
+        self.seed({"kind": "verify_ok", "detail": "pytest -q", "exit": 0,
+                   "out_bytes": 9},
+                  {"kind": "verify_fail", "detail": "ruff check .", "exit": 1})
+        self.assertEqual(ti.partial_state("s"),
+                         {"edited": False, "failed": True, "verified": False})
+
+    def test_the_newest_turn_is_the_only_turn_read(self):
+        # a failure the user's next prompt moved past is not this turn's state
+        self.seed({"kind": "edit", "detail": "x.py"},
+                  {"kind": "verify_fail", "detail": "pytest -q", "exit": 1},
+                  {"kind": "turn", "detail": "abc"},
+                  {"kind": "verify_ok", "detail": "pytest -q", "exit": 0,
+                   "out_bytes": 9})
+        self.assertEqual(ti.partial_state("s"),
+                         {"edited": False, "failed": False, "verified": True})
+
+    def test_no_ledger_is_all_false(self):
+        self.assertEqual(ti.partial_state("s"),
+                         {"edited": False, "failed": False, "verified": False})
+
+
+class WritersElsewhere(unittest.TestCase):
+    """writers_elsewhere: which other sessions wrote this path recently.
+
+    The cross-session rule's input, so what is under test is whose ledger counts,
+    which paths match, and what the window excludes. cache_dir is patched so the
+    real cache is never read."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "cache_dir", ti.cache_dir)
+        ti.cache_dir = lambda: self.dir
+        self.evidence = os.path.join(self.dir, "evidence")
+        os.makedirs(self.evidence)
+
+    def write(self, session, rows, age=0):
+        path = os.path.join(self.evidence, ti._slug(session) + ".jsonl")
+        with open(path, "w") as fh:
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
+        if age:
+            os.utime(path, (time.time() - age, time.time() - age))
+
+    def edit(self, path, age=0, workspace=None):
+        row = {"kind": "edit", "ts": int(time.time()) - age, "detail": path}
+        if workspace:
+            row["workspace"] = workspace
+        return row
+
+    def test_the_other_writers_are_newest_first(self):
+        self.write("older", [self.edit("/repo/x.py", age=300)], age=300)
+        self.write("newer", [self.edit("/repo/x.py", age=60)], age=60)
+        self.write("mine", [self.edit("/repo/x.py")])
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"),
+                         [ti._slug("newer"), ti._slug("older")])
+
+    def test_the_caller_is_never_in_the_list(self):
+        self.write("mine", [self.edit("/repo/x.py")])
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
+
+    def test_a_write_outside_the_window_is_not_reported(self):
+        self.write("old", [self.edit("/repo/x.py", age=20 * 60)], age=20 * 60)
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
+
+    def test_an_old_write_in_an_active_ledger_is_not_reported(self):
+        # that file's mtime is recent because the session is still working, so
+        # the row's own timestamp is what has to exclude the write
+        self.write("busy", [self.edit("/repo/x.py", age=30 * 60),
+                            self.edit("/repo/y.py")])
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
+        self.assertEqual(ti.writers_elsewhere("/repo/y.py", "mine"),
+                         [ti._slug("busy")])
+
+    def test_a_relative_write_matches_the_same_relative_query(self):
+        # the caller passes the field its own host handed it, unchanged, so the
+        # two forms of one file only meet when the hosts spell them the same
+        self.write("rel", [self.edit("src/a.py", workspace="/repo")])
+        self.assertEqual(ti.writers_elsewhere("src/a.py", "mine"),
+                         [ti._slug("rel")])
+        self.assertEqual(ti.writers_elsewhere("/repo/src/a.py", "mine"), [])
+
+    def test_another_file_is_not_reported(self):
+        self.write("other", [self.edit("/repo/x.py")])
+        self.assertEqual(ti.writers_elsewhere("/repo/y.py", "mine"), [])
+
+    def test_an_unlistable_cache_and_an_empty_path_are_empty(self):
+        shutil.rmtree(self.evidence)
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
+        self.assertEqual(ti.writers_elsewhere("", "mine"), [])
+
+
 class StopHook(TempHome):
     def setUp(self):
         super().setUp()
@@ -385,6 +518,39 @@ class StopHook(TempHome):
         self.seed("Bash", {"command": "pytest -q"}, failed=True)
         self.seed("Bash", {"command": "pytest -q"})
         self.assertIsNone(self.stop("Done. All tests pass."))
+        self.assertEqual(self.claim_rows(), ["ok"])
+
+    def test_an_unresolved_failure_blocks_even_after_an_earlier_pass(self):
+        # the hole this closes: green over one command, then a failure, then a
+        # check whose outcome nobody saw. The earlier pass licensed the claim
+        # before this branch existed, whatever the newest check was.
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "ruff check ."}, failed=True)
+        self.seed("Bash", {"command": "mypy ."}, failed=None)
+        out = self.stop("Done. All tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("ruff check .", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: partial failure"])
+
+    def test_a_new_turn_is_not_refused_for_the_previous_turns_failure(self):
+        # boundary: the failure state is the newest turn's, so a failure the
+        # user's next prompt moved past cannot refuse this turn's reply
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"}, failed=True)
+        self.turn()
+        self.seed("Bash", {"command": "pytest -q"})
+        self.assertIsNone(self.stop("Done. All tests pass."))
+
+    def test_the_unresolved_failure_branch_does_not_swallow_the_others(self):
+        # a turn that ends on a failed check still reads as `check failed`, not
+        # as the newer partial-failure branch
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "pytest -q"}, failed=True)
+        out = self.stop("Done. Tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertEqual(self.claim_rows(), ["blocked: check failed"])
 
     def test_explicit_unverified_admission_passes(self):
         self.seed("Edit", {"file_path": "x.py"})
