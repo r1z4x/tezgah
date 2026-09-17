@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = pathlib.Path(__file__).resolve().parent
 MODEL = "openrouter/deepseek/deepseek-v4-flash"
-REPEATS = 25
+REPEATS = 50
 TIMEOUT = 300
 PARALLEL = 10
 CHUNK = 5

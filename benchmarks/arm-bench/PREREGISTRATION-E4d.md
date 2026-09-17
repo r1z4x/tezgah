@@ -83,7 +83,7 @@ number of runs per arm that took **`helper`** - the wrong one.
 **Pinned host state.** The installed omp hook loads `hosts/omp/hook.py` by
 absolute path from `/Users/rizax/Projects/tezgah`, so the running rules are
 whatever that tree's HEAD is. The HEAD is read before the block and re-read
-after; the block is void if it moved. For E4c that HEAD predated plan 012, which
+after; the block is void if it moved. Pinned for this block: `ef950f5`. For E4c that HEAD predated plan 012, which
 is why the Stop rule wrote no row there and the fires were unreadable; this
 block additionally requires the pinned tree's `hooks/tezgah_integrity.py` to
 write the `claim` row from `stop_reason` (`note(session_id, "claim"` present,
@@ -190,3 +190,21 @@ Two consequences, both deliberate. The route column is only as old as the task's
 those, the declaration is the only thing missing, not the runs. And E4c was
 scored with the analyzer's private copy of the rule; that copy stays as it was
 committed, and agrees with the instrument on every one of the 100 rows.
+
+## 2b. Sizing amendment, written before the run
+
+Section 3 states its thresholds for k=25, and section 1 recordta that E4c's
+24-point contrast sits one arm-size below its own 80%-power requirement (29 runs
+per arm). The block therefore runs **k=50 per arm, 200 runs**, which resolves an
+18-point difference at the same power. The registered comparisons scale with the
+run count and their binomial force is unchanged in substance:
+
+- **P1** becomes at most **4 of 50** `helper`-route runs for `orx-gate-off`, and
+  at least **24 of the pooled 150** for the other three arms.
+- **P3** becomes at least **10 of the 50** `omp+tezgah` rows recording a fire,
+  and **zero across the other 150**.
+- **P2**, **P4** and **P5** are ratios and need no rescaling; P5's "all 100 rows"
+  reads "all 200 rows".
+
+Nothing else changes: same four arms, same task, same model, same endpoints. This
+paragraph was written before the block started.
