@@ -93,6 +93,23 @@ class CursorHook(TempHome):
                                         "content": "x = 2\n"}})
         self.assertEqual(out, {"permission": "allow"})
 
+    def test_the_gate_counts_the_failures_the_ledger_row_recorded(self):
+        # One call, one id: the gate maps Cursor's `Shell` onto `Bash` and
+        # `call_id` hashes the name it is handed, so a ledger row written under
+        # the raw name gave the same call a second id - the loop guard read a
+        # history that never matched and never denied. `postToolUseFailure` is
+        # the event that carries the failure signal.
+        for _ in range(2):
+            self.call({"hook_event_name": "postToolUseFailure",
+                       "cwd": self.repo, "conversation_id": "s",
+                       "tool_name": "Shell",
+                       "tool_input": {"command": "pytest -q"}})
+        out = self.call({"hook_event_name": "preToolUse", "cwd": self.repo,
+                         "conversation_id": "s", "tool_name": "Shell",
+                         "tool_input": {"command": "pytest -q"}})
+        self.assertEqual(out["permission"], "deny")
+        self.assertTrue(out["agent_message"])
+
     # ---- used marks (what the status line turns green on) -------------------
     def kinds(self, session="s"):
         path = os.path.join(self.home, ".cache", "tezgah", "sessions",
@@ -192,11 +209,20 @@ class CursorHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertTrue(out["reason"])
 
-    def test_stop_passes_a_verified_done_claim(self):
+    def test_stop_refuses_a_done_claim_whose_check_reported_no_outcome(self):
+        # Cursor hands this hook no exit code on a successful call - only
+        # `postToolUseFailure` carries a failure - so a shell check is recorded
+        # as one that RAN. The Stop rule is the one every host runs: a "done"
+        # the session cannot evidence does not end the turn, and the honest
+        # spelling passes on the same evidence.
         self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
                    "conversation_id": "s", "tool_name": "Shell",
                    "tool_input": {"command": "pytest -q"}})
         self.response("Done. All tests pass.")
+        out = self.stop()
+        self.assertEqual(out.get("decision"), "block")
+        self.assertTrue(out["reason"])
+        self.response("Doğrulanmadı.")
         self.assertEqual(self.stop(), {})
 
     def test_stop_passes_a_claim_free_answer(self):

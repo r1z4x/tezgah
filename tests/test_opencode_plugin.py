@@ -10,11 +10,17 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 import support
 from support import TempHome
+
+# The Python half writes the same ledger; importing its id function is what makes
+# a separator or a canonical-form drift between the two halves fail here.
+sys.path.insert(0, os.path.join(support.REPO, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
 
 NODE = shutil.which("node")
 # The marker the detector must catch, assembled at runtime: the gate denies a
@@ -54,13 +60,29 @@ class OpenCodePlugin(TempHome):
         self.assertTrue(res["ok"], res)
         return res
 
+    def evidence_path(self, session="s1"):
+        """Where Python reads this session's ledger, computed by Python itself:
+        a path the plugin chooses on its own would hide a fork between the two
+        writers instead of failing here."""
+        return os.path.join(self.home, ".cache", "tezgah", "evidence",
+                            ti._slug(session) + ".jsonl")
+
     def ledger(self, session="s1"):
-        path = os.path.join(self.home, ".cache", "tezgah", "evidence",
-                            support.slug(session) + ".jsonl")
+        path = self.evidence_path(session)
         if not os.path.exists(path):
             return []
         with open(path) as fh:
             return [json.loads(line) for line in fh if line.strip()]
+
+    def ledger_rows_on_disk(self):
+        """Every row the plugin wrote under `evidence/`, whatever it named the
+        file - the filename itself is pinned by its own test."""
+        d = os.path.join(self.home, ".cache", "tezgah", "evidence")
+        rows = []
+        for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            with open(os.path.join(d, name)) as fh:
+                rows += [json.loads(line) for line in fh if line.strip()]
+        return rows
 
     def kinds(self, session="s1"):
         return [entry["kind"] for entry in self.ledger(session)]
@@ -218,12 +240,17 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("task", {"subagent_type": "general"}))
 
     # ---- evidence ledger ---------------------------------------------------
-    def after(self, tool, args, exit=None, session="s1", directory=None):
+    def after(self, tool, args, exit=None, session="s1", directory=None,
+              result=None):
+        """`result` is the tool result text, when the host carries one."""
         metadata = {} if exit is None else {"exit": exit}
+        output = {"metadata": metadata}
+        if result is not None:
+            output["output"] = result
         return self.drive([{"hook": "tool.execute.after",
                             "input": {"tool": tool, "args": args,
                                       "sessionID": session},
-                            "output": {"metadata": metadata}}], directory)[0]
+                            "output": output}], directory)[0]
 
     def test_bash_check_records_verify_ok(self):
         self.after("bash", {"command": "pytest -q"}, exit=0)
@@ -244,6 +271,84 @@ class OpenCodePlugin(TempHome):
     def test_edit_records_edit(self):
         self.after("edit", {"filePath": "/tmp/x.py"})
         self.assertIn("edit", self.kinds())
+
+    def test_a_row_carries_the_action_identity_and_workspace(self):
+        # The plugin writes the same JSONL the Python gate writes, so its rows
+        # need the contract's fields or an opencode session is under-counted.
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        row = self.ledger()[0]
+        self.assertEqual(len(row["id"]), 12, row)
+        self.assertTrue(all(c in "0123456789abcdef" for c in row["id"]), row)
+        self.assertEqual(row["workspace"], self.roots)
+
+    def test_the_id_is_the_hash_the_python_writer_computes(self):
+        # sha1(tool + " " + canonical)[:12], the frozen formula, computed by the
+        # Python half itself: an id that drifts here is an opencode row the
+        # metrics cannot join. The doubled space is collapsed on both sides, so
+        # the same call re-typed is the same action.
+        self.after("bash", {"command": "pytest  -q"}, exit=0)
+        self.assertEqual(self.ledger()[0]["id"],
+                         ti.call_id("bash", {"command": "pytest  -q"}))
+
+    def test_the_same_call_hashes_the_same_and_a_different_one_does_not(self):
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        self.after("bash", {"command": "ruff check ."}, exit=0)
+        ids = [row["id"] for row in self.ledger()]
+        self.assertEqual(ids[0], ids[1], ids)
+        self.assertNotEqual(ids[0], ids[2], ids)
+
+    def test_a_write_row_hashes_its_args_as_key_sorted_compact_json(self):
+        self.after("write", {"filePath": "/tmp/x.py", "content": "x = 1"})
+        self.after("write", {"content": "x = 1", "filePath": "/tmp/x.py"})
+        ids = [row["id"] for row in self.ledger()]
+        self.assertEqual(ids[0], ids[1], ids)
+        self.assertEqual(
+            ids[0],
+            ti.call_id("write", {"content": "x = 1", "filePath": "/tmp/x.py"}))
+
+    def test_a_float_argument_hashes_as_python_hashes_it(self):
+        # The two runtimes print a number differently (`1`/`1.0`, `1e-07`/`1e-7`)
+        # and the id is a hash of that text: an argument printed the other way
+        # is one action with two ids, and the row joins no Python metric.
+        # Python's json.dumps is the reference.
+        args = [{"filePath": "/tmp/x.py", "content": "x", "ratio": ratio}
+                for ratio in (1, 0.5, -2.5, 1e-4, 1e-5, 1e-07, 1e16)]
+        for one in args:
+            self.after("write", one)
+        rows = self.ledger_rows_on_disk()
+        self.assertEqual([row["id"] for row in rows],
+                         [ti.call_id("write", one) for one in args])
+
+    def test_a_shell_tool_name_the_python_half_knows_still_records_a_row(self):
+        # BASH_TOOLS has to mirror hooks/tezgah_integrity.BASH_TOOLS. A name
+        # missing from this half takes the JSON-hash branch and records no row,
+        # so the call leaves the ledger and the metrics altogether.
+        self.after("exec_command", {"command": "pytest  -q"}, exit=0)
+        rows = self.ledger_rows_on_disk()
+        self.assertEqual([row["kind"] for row in rows], ["verify_ok"], rows)
+        self.assertEqual(rows[0]["id"],
+                         ti.call_id("exec_command", {"command": "pytest  -q"}))
+
+    def test_the_ledger_file_is_the_one_python_reads(self):
+        # The stem is Python's: the punctuation-collapsed session id cut to 40
+        # chars, then sha1(raw id)[:12]. Two ids that collapse alike must not
+        # share a file, or one session's failures become another's denials.
+        for session in ("abc-123", "abc_123"):
+            self.after("bash", {"command": "ls"}, session=session)
+            self.assertTrue(os.path.exists(self.evidence_path(session)), session)
+        self.assertNotEqual(self.evidence_path("abc-123"),
+                            self.evidence_path("abc_123"))
+
+    def test_result_size_is_recorded_when_the_host_carries_it(self):
+        self.after("bash", {"command": "ls"}, result="a\nbb\n")
+        self.assertEqual(self.ledger()[0]["out_bytes"], 5)
+
+    def test_a_row_without_a_result_fabricates_nothing(self):
+        self.after("bash", {"command": "pytest -q"})
+        row = self.ledger()[0]
+        self.assertNotIn("exit", row)
+        self.assertNotIn("out_bytes", row)
 
     def test_outside_root_records_nothing(self):
         self.after("bash", {"command": "ls"}, directory=self.home)

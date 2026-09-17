@@ -20,6 +20,13 @@
 //   - tool.execute.after: record which tezgah tools a session used so
 //     `tezgah-status` can show it.
 //
+// Known gap: the PreToolUse half of the loop guard (rule 4 of
+// hooks/tezgah_gate.py - refuse a third identical call whose previous attempts
+// failed) is not ported here, although this plugin writes the very rows that
+// guard reads. An opencode session gets the action identity and the metrics but
+// not the ceiling, so a call a host with a PreToolUse gate refuses on its third
+// attempt runs here.
+//
 // Every path fails open: if anything here throws unexpectedly, the tool runs.
 // Hook names a given opencode build does not know are skipped by the runtime
 // (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
@@ -126,7 +133,12 @@ const HEREDOC = /<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?/
 const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
   "apply_patch", "str_replace_editor", "create_file", "str_replace",
   "edit_file", "write_file", "search_replace"])
-const BASH_TOOLS = new Set(["bash", "shell", "command"])
+// Mirrors hooks/tezgah_integrity.py BASH_TOOLS. A shell tool missing from this
+// set takes the wrong branch twice: its command is hashed as a JSON object and
+// its row is never written, so one call would carry two identities and the
+// metrics would lose the call entirely.
+const BASH_TOOLS = new Set(["bash", "shell", "command", "exec_command",
+  "run_command", "powershell"])
 
 function blankHeredocs(text) {
   const lines = String(text || "").split("\n")
@@ -207,20 +219,81 @@ async function shortcutEdit(args) {
     "skip is genuinely intended."
 }
 
+// The same action seen twice has to hash the same, or the ledger cannot tell a
+// re-run from a different call. Objects are serialized as compact JSON with
+// sorted keys, so the host's payload order cannot move the id and the string
+// matches Python's json.dumps(sort_keys=True, separators=(",", ":")).
+// A number needs its own form, because the id hashes Python's json.dumps text:
+// an integral value prints as "1.0" there and "1" here, a small one as "1e-07"
+// there and "1e-7" here, and an integral value at 2^53 or above in Python's
+// float form ("1e+21"). The Python half coerces an integral float below 2^53 to
+// an int, so that range is printed here in full digits; everything else is
+// rendered in Python's repr shape - fixed while the exponent stays inside
+// [-4, 15], scientific with a two-digit exponent outside it. One case is out of
+// reach for both: an integer argument at or above 2^53 written as digits keeps
+// its digits in Python and has already lost its intness by the time JavaScript
+// parses it. A number printed the other way would give one call two ids.
+function pyNumber(n) {
+  if (Number.isInteger(n) && Math.abs(n) < 2 ** 53) return BigInt(n).toString()
+  const m = n.toExponential().match(/^(-?)(\d)(?:\.(\d+))?e([+-]?\d+)$/)
+  const digits = m[2] + (m[3] || "")
+  const e = Number(m[4])
+  if (e >= -4 && e <= 15) {
+    const point = e + 1
+    if (point <= 0) return m[1] + "0." + "0".repeat(-point) + digits
+    return m[1] + digits.slice(0, point) + "." + (digits.slice(point) || "0")
+  }
+  return m[1] + m[2] + (m[3] ? "." + m[3] : "") + "e" +
+    (e < 0 ? "-" : "+") + String(Math.abs(e)).padStart(2, "0")
+}
+
+function stable(value) {
+  if (Array.isArray(value)) return "[" + value.map(stable).join(",") + "]"
+  if (value && typeof value === "object") {
+    return "{" + Object.keys(value).sort().map(
+      (k) => JSON.stringify(k) + ":" + stable(value[k])).join(",") + "}"
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return pyNumber(value)
+  return JSON.stringify(value === undefined ? null : value)
+}
+
+// The action's identity, frozen with the Python writer (hooks/tezgah_integrity
+// call_id) so one call hashes the same on both halves:
+// sha1(tool + " " + canonical)[:12]. Shell tools have one canonical argument -
+// the command every other check in this file reads, whitespace collapsed so a
+// re-typed call is the same call; everything else is the args object as compact
+// key-sorted JSON (Python: json.dumps(sort_keys=True, separators=(",", ":"))).
+function canonicalArgs(tool, args) {
+  const t = String(tool || "").toLowerCase()
+  if (BASH_TOOLS.has(t)) {
+    return String(args?.command || args?.cmd || "").replace(/\s+/g, " ").trim()
+  }
+  return stable(args || {})
+}
+
+function actionID(tool, args) {
+  return createHash("sha1")
+    .update(String(tool || "").toLowerCase() + " " + canonicalArgs(tool, args))
+    .digest("hex").slice(0, 12)
+}
+
 // Evidence ledger, the same JSONL the Python gate and Stop hook read. Written
 // per tool call so a "done/tested" claim can be checked against what ran.
 // The bash tool returns `metadata.exit` (the process exit code), so a check's
 // real outcome is available: exit 0 -> verify_ok, non-zero -> verify_fail, and
 // `verify` only when the code is absent (aborted/spawn failure).
-async function recordEvidence(sessionID, tool, args, metadata) {
+// The row carries the contract's fields - id, exit, out_bytes, workspace - so
+// an opencode session is not second-class in the metrics. A field the host did
+// not report stays out of the row: an absent exit is not an exit of 0.
+async function recordEvidence(sessionID, tool, args, result, workspace) {
   if (!sessionID) return
   const t = String(tool || "").toLowerCase()
+  const exit = result?.metadata?.exit
   let kind = null
   if (WRITE_TOOLS.has(t)) kind = "edit"
   else if (BASH_TOOLS.has(t)) {
     if (!verifyCommand(args?.command || args?.cmd || "")) kind = "run"
     else {
-      const exit = metadata?.exit
       kind = typeof exit === "number"
         ? (exit === 0 ? "verify_ok" : "verify_fail") : "verify"
     }
@@ -228,11 +301,19 @@ async function recordEvidence(sessionID, tool, args, metadata) {
   if (!kind) return
   const detail = String(
     args?.command || args?.filePath || args?.file_path || "").slice(0, 200)
+  const out = typeof result?.output === "string" ? result.output
+    : (typeof result?.metadata?.output === "string" ? result.metadata.output : null)
+  const row = {
+    kind, ts: Math.floor(Date.now() / 1000), detail,
+    id: actionID(tool, args), workspace: workspace || null,
+  }
+  if (typeof exit === "number") row.exit = exit
+  if (out !== null) row.out_bytes = Buffer.byteLength(out)
   try {
     const dir = join(cacheDir(), "evidence")
     await mkdir(dir, { recursive: true })
-    await appendFile(join(dir, slug(sessionID) + ".jsonl"),
-      JSON.stringify({ kind, ts: Math.floor(Date.now() / 1000), detail }) + "\n")
+    await appendFile(join(dir, ledgerStem(sessionID) + ".jsonl"),
+      JSON.stringify(row) + "\n")
   } catch {}
 }
 
@@ -282,6 +363,19 @@ function off(name) {
 
 function slug(p) {
   return p.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+}
+
+// The evidence ledger's filename stem, frozen with the Python reader
+// (hooks/tezgah_integrity._slug): the punctuation-collapsed session id cut to
+// 40 characters, then the first 12 hex of sha1 over the raw id. Two ids
+// differing only in punctuation collapse to the same prefix, and without the
+// hash suffix this writer would append one session's rows to another session's
+// ledger - the file the loop guard and the counters then read. The plain
+// `slug()` above still names the used-marks and index files, as before.
+function ledgerStem(sessionID) {
+  const raw = String(sessionID == null ? "" : sessionID) || "nosession"
+  return slug(raw).slice(0, 40) + "-" +
+    createHash("sha1").update(raw, "utf8").digest("hex").slice(0, 12)
 }
 
 // The nearest enclosing path that has a codebase-memory index db.
@@ -602,13 +696,14 @@ export const Tezgah = async ({ directory }) => {
 
     "tool.execute.after": async (input, output) => {
       try {
-        if (!(await rootFor(dir))) return
+        const workspace = await rootFor(dir)
+        if (!workspace) return
         const tool = String(input?.tool || "").toLowerCase()
         const args = input?.args || output?.args || {}
         const kind = await classify(tool, args)
         if (kind) await record(input?.sessionID || input?.sessionId, kind)
         await recordEvidence(input?.sessionID || input?.sessionId, tool, args,
-                             output?.metadata)
+                             output, workspace)
       } catch {}
     },
 

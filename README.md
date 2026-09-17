@@ -148,7 +148,7 @@ cost evidence, which is a separate question from enforcement.
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate |
 | **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them |
-| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message |
+| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message; the plugin writes the ledger rows but does **not** carry the loop guard, so an identical call past the ceiling is refused only on the hosts with a PreToolUse gate |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
@@ -168,9 +168,26 @@ file does not already carry. The reply-level half - the Stop rule - runs where
 the host hands over the final message: Claude, Codex, omp (`session_stop`) and
 Cursor, which reports the reply on `afterAgentResponse` and takes the decision at
 `stop`. Its ledger is shared, so the newest check wins: a later failure blocks a
-"tests pass" claim even if an earlier run was green. opencode has no
-end-of-turn surface to block, so it records the evidence and the reply claim
-stays unenforced there.
+"tests pass" claim even if an earlier run was green. Each row carries the action
+it belongs to (`id`, a digest of the tool and its canonical arguments), the
+workspace, and whichever of `exit`, `out_bytes` and `fail_class` the host
+actually reported - a field a host cannot report is absent, never zeroed, so a
+reader can tell "it failed" from "nobody said" - so a
+run can be reconstructed rather than guessed at; the same identity feeds the
+loop guard, which refuses a third identical call whose previous attempts exited
+non-zero. `tezgah-status --counters <cwd> <session>` reports four trace figures
+next to the deny counts: `steps` counts the session's work events - the `run`,
+`edit` and `verify*` rows, so a denial, a nudge or a claim is not a step;
+`tool_error_rate` is the share of non-zero exits over the rows that carry an
+`exit` at all, i.e. the rows whose host reported an outcome (absent when none
+did); `claims` counts Stop evaluations - one row per user turn and reply text,
+so a host that re-runs its Stop handler cannot double-count a turn - and
+`false_completion` is the share of those whose stop was refused. A check counts
+as support only when the host reported exit 0, the command was not masked by a
+pipe, and - where the host supplies a result size - that size is non-zero; rows
+written before this rule existed are still accepted, so upgrading never blocks
+an open session on its own history. opencode has no end-of-turn surface to
+block, so it records the evidence and the reply claim stays unenforced there.
 
 ### App analysis
 

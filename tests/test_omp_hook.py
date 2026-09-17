@@ -192,6 +192,22 @@ class OmpHook(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIsNone(out)  # an empty answer, not an empty object
 
+    def test_the_gate_counts_the_failures_the_ledger_row_recorded(self):
+        # One call, one id: `call_id` hashes tool+args and the gate and the row
+        # both read the payload's `tool`/`input`, so a failure the ledger
+        # recorded is the one the loop guard counts when the same call comes
+        # back through PreToolUse.
+        repo = self.make_repo()
+        for _ in range(2):
+            self.event({"event": "post_tool_use", "cwd": repo,
+                        "session_id": "s-loop", "tool": "bash",
+                        "input": {"command": "pytest -q"}, "failed": True})
+        out, proc = self.event({"event": "pre_tool_use", "cwd": repo,
+                                "session_id": "s-loop", "tool": "bash",
+                                "input": {"command": "pytest -q"}})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out["deny"])
+
     def test_post_tool_use_records_evidence_and_marks_the_used_kind(self):
         repo = self.make_repo()
         self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",

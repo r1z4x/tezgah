@@ -47,6 +47,22 @@ from tezgah_paths import cache_dir, off  # noqa: E402
 ALLOW = {"permission": "allow"}
 GRAPH = ("search_graph", "trace_path", "search_code", "get_architecture",
          "detect_changes", "codebase-memory", "codebase_memory")
+# Cursor tool names -> the shared gate's vocabulary. Keyed lowercase so a build
+# that spells a tool either way maps to the same name; the write tools
+# (`Write` and the other edit spellings) pass through unchanged, as the gate
+# knows them already.
+GATE_TOOLS = {"shell": "Bash", "read": "Read", "grep": "Grep"}
+
+
+def gate_name(name):
+    """The tool name the gate denies under and the ledger row records.
+
+    `call_id` hashes the name it is handed, so mapping Cursor's `Shell` onto the
+    gate's `Bash` on the PreToolUse side alone gives one call two ids: the
+    PostToolUse row keeps the raw name, the loop guard reads a history that never
+    matches, and it never denies. Both halves map through here."""
+    return GATE_TOOLS.get(str(name or "").lower(), name)
+
 
 REINFORCE = ("tezgah contract active: keep using the code graph "
              "(search_graph/trace_path) for structure and consult for a "
@@ -172,8 +188,11 @@ def main():
     elif event == "postToolUse":
         if kind:
             record(session_id, kind)
-        note_tool(session_id, payload.get("tool_name", ""),
-                  payload.get("tool_input") or {})
+        # failed=None: this event carries no failure signal, so the row records a
+        # check that ran - never a fabricated exit 0. The name and the input go
+        # through the same mapping the gate saw, so one call hashes to one id.
+        note_tool(session_id, gate_name(payload.get("tool_name", "")),
+                  gate_input(payload.get("tool_input") or {}), failed=None)
         out = {}
         if (kind in ("cbm", "consult") and under(cwd) and not quiet
                 and first_time(session_id, "graph")):
@@ -181,8 +200,8 @@ def main():
     elif event == "postToolUseFailure":
         if kind:
             record(session_id, kind)
-        note_tool(session_id, payload.get("tool_name", ""),
-                  payload.get("tool_input") or {}, failed=True)
+        note_tool(session_id, gate_name(payload.get("tool_name", "")),
+                  gate_input(payload.get("tool_input") or {}), failed=True)
         out = {"additional_context": RECOVERY} if under(cwd) and not quiet else {}
     elif event in ("afterShellExecution", "afterMCPExecution", "afterFileEdit"):
         if kind:
@@ -191,9 +210,13 @@ def main():
             note(session_id, "edit",
                  payload.get("file_path") or payload.get("path") or "")
         elif event == "afterShellExecution":
-            note_tool(session_id, "shell",
+            # the command rides the event, not tool_input; the name is mapped so
+            # this observer's row lands on the same id as the gated call, and
+            # failed=None because the event carries no outcome
+            note_tool(session_id, gate_name("shell"),
                       {"command": payload.get("command")
-                       or (payload.get("tool_input") or {}).get("command", "")})
+                       or (payload.get("tool_input") or {}).get("command", "")},
+                      failed=None)
         out = {}
     elif event == "beforeMCPExecution":
         if kind:
@@ -224,9 +247,8 @@ def main():
         out = {}
     elif event == "preToolUse":
         tool = payload.get("tool_name", "")
-        gate_tool = {"Shell": "Bash", "Read": "Read", "Grep": "Grep"}.get(tool, tool)
         inp = payload.get("tool_input") or {}
-        reason = decision(gate_tool, gate_input(inp), cwd, session_id)
+        reason = decision(gate_name(tool), gate_input(inp), cwd, session_id)
         out = ({"permission": "deny", "agent_message": reason}
                if reason else dict(ALLOW))
     elif event == "afterAgentResponse":

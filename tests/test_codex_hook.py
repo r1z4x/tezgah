@@ -91,6 +91,42 @@ class CodexEvidence(TempHome):
         self.assertEqual(self.kinds(), ["run"])
 
 
+class CodexLoopGuardIdentity(TempHome):
+    """One call, one id: the gate maps Codex's shell name (`exec_command`) onto
+    the gate's `Bash`, and `call_id` hashes the name it is handed. While the
+    PostToolUse row kept the raw name the two halves hashed differently, so the
+    loop guard read a history that never matched the call it was gating and
+    never denied. The deny below only happens if both halves name the call the
+    same way."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.session = "s-loop"
+
+    def failed_attempt(self):
+        proc = run([support.CODEX_HOOK],
+                   {"hook_event_name": "PostToolUse", "cwd": self.repo,
+                    "session_id": self.session, "tool_name": "exec_command",
+                    "tool_input": {"command": "pytest -q"},
+                    "tool_response": {"exit_code": 1, "output": "1 failed"}},
+                   env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_the_gate_counts_the_failures_the_row_recorded(self):
+        self.failed_attempt()
+        self.failed_attempt()
+        out, proc = run_json([support.CODEX_HOOK], {
+            "hook_event_name": "PreToolUse", "cwd": self.repo,
+            "session_id": self.session, "tool_name": "exec_command",
+            "tool_input": {"command": "pytest -q"}}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        hso = out["hookSpecificOutput"]
+        self.assertEqual(hso["permissionDecision"], "deny")
+        self.assertTrue(hso["permissionDecisionReason"])
+
+
 class CodexHookThroughTheInstalledLink(TempHome):
     """tezgah-setup wires codex to ~/.config/tezgah/bin/tezgah-codex-hook, a
     symlink. The hook derived ROOT from the unresolved link path, so every event
