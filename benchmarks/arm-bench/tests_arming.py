@@ -10,6 +10,7 @@ block, so they are the host's rule rather than this file's.
 
     python3 benchmarks/arm-bench/tests_arming.py
 """
+import json
 import sys
 import tempfile
 import unittest
@@ -78,6 +79,89 @@ class SessionRows(unittest.TestCase):
 
     def test_a_host_without_a_session_reader_is_minus_one(self):
         self.assertEqual(bench.session_rows(self.env(), self.cwd, "opencode"), -1)
+
+
+class StopFires(unittest.TestCase):
+    """Stop-rule refusals are read from the run's own ledger, not inferred."""
+
+    def setUp(self):
+        self.agent = Path(tempfile.mkdtemp(prefix="arming-agent-"))
+        self.cwd = Path.home() / "Projects" / "tezgah"
+        self.session_id = uuid.uuid4().hex
+        self.ledger_dir = Path(tempfile.mkdtemp(prefix="arming-ledger-"))
+        # the real evidence directory is where the running harness writes; a
+        # test must not put rows into it, so `_path` is redirected
+        patcher = mock.patch.object(
+            bench, "ledger_path",
+            lambda session_id: str(self.ledger_dir / (session_id + ".jsonl")))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        directory = bench.omp_session_dir(self.cwd, self.agent)
+        directory.mkdir(parents=True)
+        (directory / f"2026-01-01T00-00-00-000Z_{self.session_id}.jsonl").write_text(
+            "{}", encoding="utf-8")
+
+    def env(self):
+        return {"PI_CODING_AGENT_DIR": str(self.agent)}
+
+    def ledger(self, rows: list[dict]):
+        path = self.ledger_dir / (self.session_id + ".jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    def test_a_session_with_no_decision_is_zero_fires_not_unknown(self):
+        self.ledger([{"kind": "edit", "detail": "src/money.py"}])
+        self.assertEqual(bench.stop_fires(self.env(), self.cwd, "omp"), 0)
+
+    def test_a_blocked_stop_is_counted_and_an_allowed_claim_is_not(self):
+        self.ledger([{"kind": "claim", "detail": "blocked: A check failed in this session"},
+                     {"kind": "claim", "detail": "ok"},
+                     {"kind": "claim", "detail": "blocked: no check ran"}])
+        self.assertEqual(bench.stop_fires(self.env(), self.cwd, "omp"), 2)
+
+    def test_no_session_is_minus_one_never_zero_fires(self):
+        self.assertEqual(bench.stop_fires({"PI_CODING_AGENT_DIR": str(AGENT)},
+                                          self.cwd, "omp"), -1)
+        self.assertEqual(bench.stop_fires(self.env(), self.cwd, "opencode"), -1)
+
+
+class RouteOfDiff(unittest.TestCase):
+    """The route column: which of the task's declared routes a diff took."""
+
+    META = {"routes": {"call-site": ["src/pricing.py"], "helper": ["src/money.py"]}}
+
+    def route(self, *changed: str) -> str:
+        return bench.route_of(list(changed), self.META)
+
+    def test_the_call_site_alone_is_the_right_route(self):
+        self.assertEqual(self.route("src/pricing.py"), "call-site")
+
+    def test_the_shared_helper_alone_is_the_wrong_route(self):
+        self.assertEqual(self.route("src/money.py"), "helper")
+
+    def test_rewriting_both_is_its_own_value(self):
+        self.assertEqual(self.route("src/money.py", "src/pricing.py"), "both")
+
+    def test_an_edit_off_both_routes_is_other_not_a_route(self):
+        # an e01 run that rewrites the test suite is neither route
+        self.assertEqual(self.route("tests/test_pricing.py", "README.md"), "other")
+
+    def test_a_run_that_edited_nothing_is_none(self):
+        self.assertEqual(self.route(), "none")
+
+    def test_a_task_without_declared_routes_reports_no_route(self):
+        # most tasks have one obvious fix; the field must not invent a value
+        self.assertIsNone(bench.route_of(["src/anything.py"], {}))
+
+    def test_a_declared_route_may_be_a_directory(self):
+        self.assertEqual(bench.route_of(["src/money.py"],
+                                        {"routes": {"helper": ["src/"]}}), "helper")
+
+    def test_the_shipped_e01_task_declares_the_two_routes(self):
+        meta = bench.load_json(bench.task_dir("e01-silent-one-liner") / "meta.json")
+        self.assertEqual(sorted(meta["routes"]), ["call-site", "helper"])
+        self.assertEqual(bench.route_of(["src/money.py"], meta), "helper")
+        self.assertEqual(bench.route_of(["src/pricing.py"], meta), "call-site")
 
 
 if __name__ == "__main__":

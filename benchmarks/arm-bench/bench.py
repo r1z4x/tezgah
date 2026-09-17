@@ -13,6 +13,7 @@ carries the exact model, host version, command and fixture hash it ran with.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import math
@@ -81,6 +82,33 @@ def hash_tree(root: Path) -> dict[str, str]:
 def changed_files(run_dir: Path, fixture: Path) -> list[str]:
     before, after = hash_tree(fixture), hash_tree(run_dir)
     return sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+
+
+def route_of(changed: list[str], meta: dict) -> str | None:
+    """Which of the task's declared routes the run's diff took.
+
+    A task declares its routes in `meta.json` as name -> file patterns, so the
+    benchmark reads the task's own geometry instead of hardcoding a path per
+    task. The value is one route's name when exactly one matched, `both` when
+    more than one did, `other` when the run edited files but touched no route,
+    and `none` when it edited nothing at all. A task that declares no routes
+    gets None: the field never invents a classification. Pure over
+    `changed_files`, so stored rows can be re-scored without re-running them.
+    """
+    routes = meta.get("routes") or {}
+    if not routes:
+        return None
+    if not changed:
+        return "none"
+
+    def matches(path: str, pattern: str) -> bool:
+        return fnmatch.fnmatch(path, pattern) or path.startswith(pattern.rstrip("/") + "/")
+
+    hit = [name for name, patterns in routes.items()
+           if any(matches(f, p) for f in changed for p in patterns)]
+    if not hit:
+        return "other"
+    return hit[0] if len(hit) == 1 else "both"
 
 
 def copy_tree(src: Path, dst: Path) -> None:
@@ -157,6 +185,7 @@ def grade(task: Path, run_dir: Path, stdout: Path | None = None) -> dict:
         "pass": not reasons,
         "checks": checks,
         "changed_files": changed,
+        "route": route_of(changed, meta),
         "collateral": stray,
         "reasons": reasons,
     }
@@ -322,6 +351,30 @@ def omp_session_dir(cwd, agent_dir) -> Path:
     return Path(agent_dir) / "sessions" / name
 
 
+def session_ledgers(env: dict, cwd, host: str) -> list[Path]:
+    """This run's own session ledger files, newest session first, or [].
+
+    The ledger is written by the harness *installed* for the host, which need not
+    be this copy of the repository: the block runs the installed hook while
+    `bench.py` runs from the archive. `_path` names the file this copy would
+    write; a copy from before the session-id hash (plan 012) names it
+    `<session-id>.jsonl`. Both names are this session's ledger, so both count."""
+    if host != "omp":
+        return []
+    agent_dir = env.get("PI_CODING_AGENT_DIR") or str(Path.home() / ".omp" / "agent")
+    sessions = sorted(omp_session_dir(cwd, agent_dir).glob("*.jsonl"),
+                      key=lambda path: path.stat().st_mtime)
+    if not sessions:
+        return []
+    session_id = sessions[-1].stem.rsplit("_", 1)[-1]
+    if not session_id:
+        return []
+    ledger = Path(ledger_path(session_id))
+    # distinct: under the pre-plan-012 naming both spellings are one file, and a
+    # double count would inflate both the arming proof and the fires
+    return list(dict.fromkeys([ledger, ledger.with_name(session_id + ".jsonl")]))
+
+
 def session_rows(env: dict, cwd, host: str) -> int:
     """Ledger rows this run's own session wrote - the arming proof.
 
@@ -337,26 +390,12 @@ def session_rows(env: dict, cwd, host: str) -> int:
     the session could not be resolved, never "nothing": "unknown" and "nothing"
     are different answers. Hosts other than omp are -1 until they get the same
     treatment; every arm of the mechanical-off block is omp.
-
-    The ledger is written by the harness *installed* for the host, which need not
-    be this copy of the repository: the block runs the installed hook while
-    `bench.py` runs from the archive. `_path` names the file this copy would
-    write; a copy from before the session-id hash (plan 012) names it
-    `<session-id>.jsonl`. Both names are this session's ledger, so both count."""
-    if host != "omp":
-        return -1
-    agent_dir = env.get("PI_CODING_AGENT_DIR") or str(Path.home() / ".omp" / "agent")
-    sessions = sorted(omp_session_dir(cwd, agent_dir).glob("*.jsonl"),
-                      key=lambda path: path.stat().st_mtime)
-    if not sessions:
-        return -1
-    session_id = sessions[-1].stem.rsplit("_", 1)[-1]
-    if not session_id:
-        return -1
-    ledger = Path(ledger_path(session_id))
+    """
     rows = 0
-    for name in {ledger.name, session_id + ".jsonl"}:
-        path = ledger.with_name(name)
+    ledgers = session_ledgers(env, cwd, host)
+    if not ledgers:
+        return -1
+    for path in ledgers:
         if not path.exists():
             continue
         try:
@@ -365,6 +404,40 @@ def session_rows(env: dict, cwd, host: str) -> int:
         except OSError:
             return -1
     return rows
+
+
+def stop_fires(env: dict, cwd, host: str) -> int:
+    """Stop-rule refusals this run's own session recorded, or -1 if unknown.
+
+    The question E4c could not answer - did the Stop rule fire - is answerable
+    from the run's own ledger because the Stop rule writes one `claim` row per
+    decision and marks a refusal `blocked: ...`. Counted per row so an arm's
+    fires need no separate pass. 0 means the session was found and refused
+    nothing, -1 means unknown (no session, or a host without a ledger reader) -
+    but read those two apart only when the arm can write the rows at all: an
+    installed harness too old to write `claim` rows is also a 0."""
+    fires = 0
+    ledgers = session_ledgers(env, cwd, host)
+    if not ledgers:
+        return -1
+    for path in ledgers:
+        if not path.exists():
+            continue
+        try:
+            with path.open(errors="replace") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if (entry.get("kind") == "claim"
+                            and str(entry.get("detail") or "").startswith("blocked")):
+                        fires += 1
+        except OSError:
+            return -1
+    return fires
 
 
 def host_version(host: str) -> str:
@@ -520,7 +593,9 @@ def cmd_run(args) -> int:
         (run_dir.parent / "stderr.log").write_text(stderr, encoding="utf-8")
 
         if timed_out:
-            result = {"pass": False, "checks": [], "changed_files": changed_files(run_dir, fixture_of(task)),
+            changed = changed_files(run_dir, fixture_of(task))
+            result = {"pass": False, "checks": [], "changed_files": changed,
+                      "route": route_of(changed, meta),
                       "collateral": [], "reasons": [f"timeout after {args.timeout}s"]}
         else:
             result = grade(task, run_dir, run_dir.parent / "stdout.log")
@@ -531,9 +606,11 @@ def cmd_run(args) -> int:
             "pass": result["pass"], "reasons": result["reasons"],
             "checks": [{"name": c["name"], "passed": c["passed"]} for c in result["checks"]],
             "changed_files": result["changed_files"], "collateral": result["collateral"],
+            "route": result["route"],
             "wall_s": wall, "rc": rc, "timed_out": timed_out,
             "final_message": extract_final_message(stdout),
             "session_rows": session_rows(env, run_dir, arm["host"]),
+            "stop_fires": stop_fires(env, run_dir, arm["host"]),
             "usage": usage, "usage_note": None if usage else "no usage record found in stdout",
             "model": args.model, "host_version": host_version(arm["host"]),
             "arm_cmd": cmd, "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
