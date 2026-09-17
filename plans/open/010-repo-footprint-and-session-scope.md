@@ -34,32 +34,51 @@ files/health inside a project session.
   wall-clock `future.result(timeout=deadline)`.
 
 ## Acceptance
-- [ ] A session start in a git repo under a root leaves `git status --porcelain`
+- [x] A session start in a git repo under a root leaves `git status --porcelain`
       empty: the generated agent dirs are ignored via `.git/info/exclude`, and
       `.gitignore` is byte-identical before and after. Pinned in
       `tests/test_agents.py` and reproduced live in a scratch repo.
-- [ ] `sync_root` returns `None` when nothing changed, so a steady-state session
+- [x] `sync_root` returns `None` when nothing changed, so a steady-state session
       brief carries no "Subagents (this repo, generated)" line at all; a write or
-      a removal still reports. Pinned in `tests/test_agents.py`.
-- [ ] No injected text tells the model to install, upgrade, restart or debug
+      a removal still reports, and `tezgah-setup --agents` still answers its user
+      with "current". Pinned in `tests/test_agents.py`.
+- [x] No injected text tells the model to install, upgrade, restart or debug
       tezgah mid-session (NO_CBM, the omp hook-failure notice), and the always-on
       core carries **Session scope** so a missing capability is reported in one
       line instead of investigated. `output-styles/tezgah.md` and the benchmark
-      README budget block match the instrument.
-- [ ] `bin/codegen --timeout N` bounds the whole request: a server that accepts
-      and never answers makes it exit 2 in ~N seconds (test drives a local
-      stalling HTTP server; no network).
-- [ ] `python3 -m compileall -q hooks hosts bin statusline.py`,
-      `python3 -m unittest discover -s tests` and `ruff check .` all pass.
+      README budget block match the instrument (core 5377 -> 5987 chars).
+- [x] `bin/codegen --timeout N` bounds the whole request: a server that accepts
+      and never answers makes it exit 2 in ~2s. The pre-fix call was still
+      running after 12s against the same server.
+- [x] `python3 -m compileall -q hooks hosts bin statusline.py`,
+      `python3 -m unittest discover -s tests` (436 tests) and `ruff check .` all
+      pass on the committed tip, re-run from a detached worktree.
 
 ## State
-Both behaviours reproduced here before any edit: the scratch-repo run above, and
-`/tmp/ctx1.txt` from `bin/tezgah-context session_start`. The second opinion could
-not run - the OpenRouter key returns 403 (credit limit) and there is no DeepSeek
-key - so the design rests on the observed evidence, not on a consult.
+Landed on `plan/010-repo-footprint-and-session-scope`, tip `cbe2bae`:
+`801dcfa` exclude instead of .gitignore + silent steady state, `ed11e20` the
+Session scope rule and the dropped install directives, `99c1ad8` codegen's
+end-to-end deadline, `08b77cc` the re-measured README bands, `cbe2bae` the
+independent review's findings. Live verification on the committed tip: first
+session start prints `4 agent(s) written`, the second prints nothing,
+`tezgah-context session_start` carries 0 lines about tezgah's own files and the
+new scope rule, `.gitignore` stays `node_modules/`, `git status` clean.
+
+Two incidents worth recording: the second opinion could not run (OpenRouter key
+returns 403, no DeepSeek key), and a concurrent session in this shared checkout
+switched branches mid-task and stashed the in-progress half of `cbe2bae` - it was
+recovered from `stash@{0}`, and the remaining work was done in a throwaway
+worktree so it could not be swept again.
+
+Not done, by decision: no push and no PR (outward-facing, awaiting the user), and
+the two upstream items the session report raised are external - the
+codebase-memory-mcp daemon lock is an upstream bug (the graph answers fine in
+this session), and the `idx✓` mark reports index freshness, not daemon health,
+so it stays as documented rather than paying a health probe on every redraw.
 
 ## Next
-Implement on `plan/010-repo-footprint-and-session-scope`: move the ignore block
-to `.git/info/exclude`, make the agents note change-only, add the Session scope
-rule, drop the install directives, give codegen a total deadline, then run the
-three checks and re-run both reproductions.
+Push the branch and open the PR (or leave it local), then run
+`tezgah-setup --install` on this machine: the always-on core changed, so
+`~/.omp/agent/RULES.md` and the Claude output-style copy only pick up the
+Session scope rule from that install.
+
