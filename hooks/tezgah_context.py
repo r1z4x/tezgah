@@ -6,6 +6,7 @@ calls context_for() here; the text is identical on Claude, Codex, Cursor,
 opencode, dsh and omp because it is built once. Stdlib only.
 """
 import glob
+import hashlib
 import json
 import os
 import re
@@ -242,6 +243,26 @@ def open_plans(root):
             "open plan work happens on its `plan/NNN-slug` branch." % "\n".join(lines))
 
 
+def _lesson_lines(root):
+    """The lesson lines as injected: one per line, markdown bullets stripped.
+
+    One reader for the injected block and for the per-turn stamp, so the digest
+    can only move when the text the model was shown moves."""
+    try:
+        with open(os.path.join(root, ".tezgah", "lessons.md")) as fh:
+            raw = fh.read().splitlines()
+    except OSError:
+        return []
+    out = []
+    for ln in raw:
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        # a ledger written with markdown bullets must not render as "- - ..."
+        out.append(re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", s))
+    return out
+
+
 def lessons(root):
     """The most recent lessons from .tezgah/lessons.md as a context block, or "".
 
@@ -249,18 +270,7 @@ def lessons(root):
     block stays bounded no matter how long the ledger grows; blank lines and
     `#` headings are skipped so the file can carry a human header."""
     max_lines = 5
-    try:
-        with open(os.path.join(root, ".tezgah", "lessons.md")) as fh:
-            raw = fh.read().splitlines()
-    except OSError:
-        return ""
-    lines = []
-    for ln in raw:
-        s = ln.strip()
-        if not s or s.startswith("#"):
-            continue
-        # a ledger written with markdown bullets must not render as "- - ..."
-        lines.append(re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", s))
+    lines = _lesson_lines(root)
     if not lines:
         return ""
     recent = lines[-max_lines:]
@@ -270,6 +280,118 @@ def lessons(root):
             + "\n".join("- " + ln[:200] for ln in recent) + more + "\n"
             "These are standing constraints: check the spec and the change "
             "against each line before you finish.")
+
+
+# --- the per-turn state stamp: what moved since the last turn ---------------
+# The standing constraints ride every turn (PROMPT_REMINDER) and a long one gets
+# a re-statement; what no surface could say is which fact moved. So the state the
+# blocks are built from gets a small comparable stamp - HEAD, the open-plan
+# filenames, a digest of the lesson lines as injected - written once per turn,
+# and the next turn pays one line naming the difference instead of re-reading the
+# whole re-statement. A stamp that cannot be compared is not an error: the turn
+# falls back to the full re-statement it always carried.
+
+
+def _plan_ids(root):
+    """The open-plan filenames, sorted: the comparable half of the plans block."""
+    return sorted(os.path.basename(p) for p in
+                  glob.glob(os.path.join(root, "plans", "open", "*.md")))
+
+
+def _lessons_state(root):
+    """(count, digest) over the injected lesson lines; (0, "-") with no ledger."""
+    lines = _lesson_lines(root)
+    if not lines:
+        return [0, "-"]
+    return [len(lines),
+            hashlib.sha1("\n".join(lines).encode()).hexdigest()[:8]]
+
+
+def state_stamp(root):
+    """The comparable state of the repo this turn is about."""
+    return {"head": git(root, "rev-parse", "HEAD") or "nogit",
+            "plans": _plan_ids(root),
+            "lessons": _lessons_state(root)}
+
+
+def _stamp_path(session_id):
+    return os.path.join(cache_dir(), "turns", slug(str(session_id)) + ".json")
+
+
+def read_stamp(session_id):
+    """The stamp this session's previous turn wrote, or None when there is none."""
+    if not session_id:
+        return None
+    try:
+        with open(_stamp_path(session_id)) as fh:
+            got = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return got if isinstance(got, dict) and got.get("root") else None
+
+
+def write_stamp(session_id, root, stamp):
+    """Remember this turn's stamp. Best effort: a host may sandbox hook writes."""
+    if not session_id:
+        return
+    try:
+        os.makedirs(os.path.join(cache_dir(), "turns"), exist_ok=True)
+        with open(_stamp_path(session_id), "w") as fh:
+            json.dump(dict(stamp, root=root), fh)
+    except OSError:
+        pass
+
+
+def state_delta(root, previous, stamp=None):
+    """One line naming what moved into this turn, or "" when nothing is
+    comparable: no previous stamp, a stamp taken in another repo, or no change.
+
+    The delta half of C1. The full re-statement is the fallback, and it stays
+    cheap because this is what the model was missing from it."""
+    if not isinstance(previous, dict) or previous.get("root") != root:
+        return ""
+    now = stamp if stamp is not None else state_stamp(root)
+    moved = []
+    was_head = str(previous.get("head") or "-")
+    if was_head != str(now["head"]):
+        moved.append("HEAD %s -> %s" % (was_head[:7], str(now["head"])[:7]))
+    was_plans = list(previous.get("plans") or [])
+    if was_plans != now["plans"]:
+        added = [p for p in now["plans"] if p not in was_plans]
+        gone = [p for p in was_plans if p not in now["plans"]]
+        moved.append("open plans %d -> %d%s%s" % (
+            len(was_plans), len(now["plans"]),
+            " (+%s)" % ", ".join(added[:3]) if added else "",
+            " (-%s)" % ", ".join(gone[:3]) if gone else ""))
+    was_lessons = list(previous.get("lessons") or [0, "-"])
+    if was_lessons != now["lessons"]:
+        note = ("" if was_lessons[0] != now["lessons"][0] else
+                " (an older line changed: digest %s -> %s)"
+                % (was_lessons[1], now["lessons"][1]))
+        moved.append("lessons %s -> %s%s"
+                     % (was_lessons[0], now["lessons"][0], note))
+    if not moved:
+        return ""
+    return ("State since your last turn: " + "; ".join(moved)
+            + ". Re-read the file before relying on an old value.")
+
+
+def constraint_notice(cwd, session_id):
+    """The text a long turn's drift notice should carry.
+
+    The delta when this session has a stamp comparable to the turn it is in (the
+    state moved since the turn began, which is the one thing a re-statement
+    cannot say), else the full re-statement of the standing constraints - the
+    gate's own `constraints_line`, unchanged, so there is one copy of that text.
+
+    Wiring, and it is one line: `tezgah_gate.drift_reason` calls
+    `constraints_line(cwd)` today; its replacement is
+    `constraint_notice(cwd, session_id)`."""
+    line = state_delta(repo_root(cwd), read_stamp(session_id))
+    if line:
+        return line
+    from tezgah_gate import constraints_line  # lazy: the fallback's own text
+    return constraints_line(cwd)
 
 
 def classify_prompt(text):
@@ -423,6 +545,96 @@ def session_of(payload):
             or p.get("parent_conversation_id"))
 
 
+# --- the byte budget: bloat as a measured decision ---------------------------
+# Every block below is individually capped (lessons 5, plans 3), but the sum was
+# bounded by nothing and no decision about it was recorded, so growth showed up
+# as a feeling. Each budget sits at ~1.5x the largest text that event was
+# measured to build in this repository - session_start 7830 B, post_compact
+# 7830 B, subagent_start 2436 B, user_prompt 4004 B with all four conditional
+# rules armed - so it never fires on a healthy repo and always fires before a
+# pathological one (a lessons ledger or an armed set that grew past its cap)
+# reaches the model. A budget in bytes, not tokens: this file has no tokenizer
+# and a wrong estimate would be worse than a bound.
+CONTEXT_BUDGET = {"session_start": 12000, "post_compact": 12000,
+                  "subagent_start": 4000, "user_prompt": 6000}
+DEFAULT_BUDGET = 12000
+# The blocks in the order they are given up when the budget is exceeded, lowest
+# value first: text another surface already carries (the plan table lives in the
+# plan-status skill, the lessons file is on disk, the generated-subagent note is
+# a one-time fact), then the tooling-availability lines, then the live state
+# lines, the delta, and the skill pointer last. A key absent from this tuple is
+# never dropped: the always-on core and the per-turn reminder ARE the rules, and
+# a budget that can spend them turns bloat into rule loss.
+DROP_ORDER = ("lessons", "plans", "subagents", "consult", "research",
+              "research_broken", "graph", "offnote", "orchestrate", "index",
+              "delta", "pointer")
+
+
+def _drop_note(event, limit, dropped, size):
+    """One line naming what the budget gave up, and the order it went in: a drop
+    is a decision, so the turn carries it instead of losing it in silence. When
+    even that was not enough the note says so and who is left, rather than
+    reporting a trim that never reached the limit."""
+    note = ("(Context budget for %s: dropped %s - lowest value first; the "
+            "dropped text is still on disk and this drop is logged to %s"
+            % (event, ", ".join("%s (%d B)" % d for d in dropped),
+               os.path.join(cache_dir(), "context-drops.log")))
+    if size > limit:
+        note += ("; still %d B against the %d B budget, because what remains is "
+                 "the always-on core and that is never dropped" % (size, limit))
+    return note + ")"
+
+
+def log_drop(event, limit, dropped):
+    """Record the budget decision: what went, from what, at what size. Truncated
+    the way classify.log is, so the log cannot grow without bound itself."""
+    path = os.path.join(cache_dir(), "context-drops.log")
+    try:
+        with open(path, "a") as fh:
+            fh.write("%d event=%s limit=%d dropped=%s\n"
+                     % (int(time.time()), event, limit,
+                        ",".join("%s:%d" % d for d in dropped)))
+        if os.path.getsize(path) > 65536:
+            with open(path) as fh:
+                tail = fh.readlines()[-200:]
+            with open(path, "w") as fh:
+                fh.writelines(tail)
+    except OSError:
+        pass
+
+
+def budgeted(event, parts):
+    """Join this event's (key, text) blocks under the event's byte budget.
+
+    Over budget, whole blocks are given up in DROP_ORDER (lowest value first)
+    until the blocks fit. The note that says what went is appended after that
+    count rather than inside it: it exists only when a drop happened, and the
+    sentence explaining a trim must not be able to force another one - so a
+    trimmed turn returns at most `limit` bytes of blocks plus the ~250 B note.
+    `parts` is consumed; callers build it for one event. Every droppable key gone
+    and the blocks still over (the protected core alone is bigger than the limit)
+    is reported by the note, not hidden."""
+    limit = CONTEXT_BUDGET.get(event, DEFAULT_BUDGET)
+    dropped = []
+
+    def content():
+        return "\n\n".join(t for _key, t in parts if t)
+
+    for key in DROP_ORDER:
+        if len(content().encode()) <= limit:
+            break
+        for i, (k, text) in enumerate(parts):
+            if k == key and text:
+                dropped.append((k, len(text.encode())))
+                del parts[i]
+                break
+    text = content()
+    if not dropped:
+        return text
+    log_drop(event, limit, dropped)
+    return text + "\n" + _drop_note(event, limit, dropped, len(text.encode()))
+
+
 def context_for(event, cwd, payload=None, with_core=True):
     """The context block for a normalized event, or None when out of scope.
 
@@ -452,14 +664,15 @@ def context_for(event, cwd, payload=None, with_core=True):
         # is stored - note_turn keys the row on it so one submission cannot write
         # two markers and hide the failures the guard had just counted.
         prompt = prompt_text(payload)
-        note_turn(session_of(payload), prompt, workspace=root_for(cwd))
+        session_id = session_of(payload)
+        note_turn(session_id, prompt, workspace=root_for(cwd))
         # per-turn nudge: openers decay over long sessions. Kept short because
         # it is paid every turn, and on Claude the output style already carries
         # the same rules on every response. The conditional rules ride along
         # only on the turn whose prompt matches their task class.
         if off("reminder-off"):
             return None
-        text = render(PROMPT_REMINDER.strip())
+        parts = [("reminder", render(PROMPT_REMINDER.strip()))]
         if prompt:
             _always, conditional, _dis = core_split(cwd)
             matched = classify_prompt(prompt)
@@ -467,70 +680,97 @@ def context_for(event, cwd, payload=None, with_core=True):
                      if k in conditional and k in matched]
             audit_classification(matched, len(prompt))
             if armed:
-                text += "\n\n" + render("\n\n".join(armed))
+                parts.append(("armed", render("\n\n".join(armed))))
         else:
             audit_classification(set(), 0)
-        return text + ("\n(off this session: %s)" % ", ".join(disabled)
-                       if disabled else "")
+        # C1 and C3 ride this turn because it is the only channel a live state
+        # fact has on a per-prompt hook: the delta names what moved since the
+        # session's previous turn (the full re-statement is the fallback, see
+        # state_delta/constraint_notice), and the glance says whether the graph
+        # is behind that move - a comparison that used to end in a status glyph
+        # the model never reads.
+        stamp = state_stamp(root)
+        delta = state_delta(root, read_stamp(session_id), stamp)
+        write_stamp(session_id, root, stamp)
+        if delta:
+            parts.append(("delta", delta))
+        stale = index_notice(cwd)
+        if stale:
+            parts.append(("index", stale))
+        if disabled:
+            parts.append(("offnote", "(off this session: %s)"
+                          % ", ".join(disabled)))
+        return budgeted(event, parts)
+
     # session_start / post_compact / subagent_start: the compact always-on core
     # plus live index/consult state. The deep orchestration/exec detail moved
     # out of the every-session payload into the tezgah-contract skill, which
     # the last line tells the model to load on demand.
-    parts = [subagent_core(core) if event == "subagent_start" else core] \
-        if with_core else []
+    parts = ([("brief", subagent_core(core))] if event == "subagent_start"
+             else [("core", core)]) if with_core else []
     _, marks = repo_marks(cwd)
     if ".no-cbm" in marks:
-        parts.append("Graph: disabled for this repo (.no-cbm), so use grep/find "
-                     "and say the answer came from text search.")
+        parts.append(("graph", "Graph: disabled for this repo (.no-cbm), so use "
+                               "grep/find and say the answer came from text "
+                               "search."))
     elif cbm_bin():
         # SubagentStart fires once per delegated agent: a fan-out would race
         # indexers on the same repo, so only the parent session triggers one.
         status = (autoindex(root) if event != "subagent_start"
                   else "index handled by the parent session")
-        parts.append("Graph index: %s (project %s)." % (status, slug(root)))
+        parts.append(("graph", "Graph index: %s (project %s)."
+                      % (status, slug(root))))
     else:
-        parts.append("Graph: codebase-memory-mcp is not installed, so use "
-                     "grep/find and say the answer came from text search; never "
-                     "claim the index answered.")
+        parts.append(("graph", "Graph: codebase-memory-mcp is not installed, so "
+                               "use grep/find and say the answer came from text "
+                               "search; never claim the index answered."))
     if not off("consult-off") and not have_consult_key():
-        parts.append("Consult: no provider key (OpenRouter or DeepSeek), so the "
-                     "second opinion cannot run; on a call that needed it, say it "
-                     "was skipped and why.")
+        parts.append(("consult",
+                      "Consult: no provider key (OpenRouter or DeepSeek), so the "
+                      "second opinion cannot run; on a call that needed it, say "
+                      "it was skipped and why."))
     if not off("research-off") and not orx_bin():
-        parts.append("Research: orx (OpenResearch) is not installed, so route "
-                     "research to a host subagent and say the tooling is "
-                     "unavailable; do not improvise its protocol.")
+        parts.append(("research",
+                      "Research: orx (OpenResearch) is not installed, so route "
+                      "research to a host subagent and say the tooling is "
+                      "unavailable; do not improvise its protocol."))
     if event == "session_start":
         note = sync_agents(root)
         if note:
-            parts.append("Subagents (this repo, generated): %s" % note)
+            parts.append(("subagents",
+                          "Subagents (this repo, generated): %s" % note))
     if event in ("session_start", "post_compact"):
         plans = open_plans(root)
         if plans:
-            parts.append(plans)
+            parts.append(("plans", plans))
         if ".no-lessons" not in marks:
             past = lessons(root)
             if past:
-                parts.append(past)
+                parts.append(("lessons", past))
         broken = tezgah_research.failing(root) if not off("research-off") else []
         if broken:
             line_slug, err = broken[0]
-            parts.append("Research: %s has %d problem(s), first: %s - run "
-                         "`%s check` before reporting a result"
-                         % (line_slug, len(broken), err, tool("tezgah-research")))
+            parts.append(("research_broken",
+                          "Research: %s has %d problem(s), first: %s - run "
+                          "`%s check` before reporting a result"
+                          % (line_slug, len(broken), err,
+                             tool("tezgah-research"))))
     if disabled:
-        parts.append(off_note)
+        parts.append(("offnote", off_note))
         if "orchestrate-off" in disabled:
-            parts.append("Orchestration is off (orchestrate-off): do not "
-                         "delegate to subagents; do the work in this thread.")
+            parts.append(("orchestrate",
+                          "Orchestration is off (orchestrate-off): do not "
+                          "delegate to subagents; do the work in this thread."))
     if event == "subagent_start":
-        parts.append("You are a subagent: execute the briefing and report "
-                     "evidence back to the router; do not orchestrate or spawn "
-                     "subagents. Full rules: the `tezgah-contract` skill.")
+        parts.append(("pointer",
+                      "You are a subagent: execute the briefing and report "
+                      "evidence back to the router; do not orchestrate or spawn "
+                      "subagents. Full rules: the `tezgah-contract` skill."))
     else:
-        parts.append("Deep orchestration, codegen, consult detail and the exact "
-                     "kill switches: load the `tezgah-contract` skill.")
-    return render("\n\n".join(p.strip() for p in parts))
+        parts.append(("pointer",
+                      "Deep orchestration, codegen, consult detail and the exact "
+                      "kill switches: load the `tezgah-contract` skill."))
+    return budgeted(event, [(key, render(text.strip())) for key, text in parts])
 
 
 # A tool name that only appears as an ARGUMENT is not a use of that tool: the
@@ -735,6 +975,34 @@ def _index_mark(cwd, base):
     except OSError:
         pass
     return "✓"
+
+
+def index_notice(cwd):
+    """One line when the graph's stamp is behind HEAD, else "".
+
+    The comparison already existed and ended in a status glyph (`index_mark` ->
+    "↻"), which is a surface the model does not read, so the turn that decides
+    from the graph was told nothing. Same comparison, moved onto the turn.
+    Reuses index_mark: the HEAD fork it guards is already cached for the process,
+    so a turn that renders both pays for one. A session start already says this
+    in its own graph line, so this is the mid-session turn's copy."""
+    base, _marks = repo_marks(cwd)
+    if not base or index_mark(cwd, base) != "\u21bb":
+        return ""
+    from tezgah_gate import index_slug  # lazy: keep hook import cost minimal
+    slug = index_slug(cwd, base)
+    try:
+        with open(os.path.join(cache_dir(), slug)) as fh:
+            stamped = fh.read().strip()
+    except OSError:
+        return ""
+    head = git(repo_root(cwd), "rev-parse", "HEAD")
+    if not head or not stamped:
+        return ""
+    return ("Graph index: the graph is indexed at %s, HEAD is %s - the index is "
+            "behind, so a graph answer may describe code that has moved since. "
+            "Re-index before trusting one, or say the answer came from text "
+            "search." % (stamped[:7], head[:7]))
 
 
 def plan_mark(cwd, base):

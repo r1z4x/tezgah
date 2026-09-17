@@ -533,6 +533,295 @@ class LessonsLedger(TempHome):
         self.assertNotIn("a lesson that must not leak", self.session(repo))
 
 
+class ChildCall(TempHome):
+    """A hook call in a child process.
+
+    Both the paths tezgah_paths derives from HOME and the module constants below
+    it (the byte budget) are read at import time, so a test that has to change
+    one cannot be an in-process call: it runs the call in a child whose HOME is
+    the temp one, the way GitSpawnBudget already does."""
+
+    def child(self, body, extra=None):
+        proc = subprocess.run([sys.executable, "-c", body], capture_output=True,
+                              text=True, env=self.env(extra=extra))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+
+class ContextBudget(ChildCall):
+    """C2: context_for returns under a per-event byte budget and logs what it
+    dropped and why that block. Every block is individually capped (lessons 5,
+    plans 3); the sum was bounded by nothing, and a trim that left no trace
+    would be a silent redefinition of what the session was armed with."""
+
+    LESSON = "a lesson line that is long enough to be worth dropping"
+
+    def repo_with_state(self):
+        repo = self.make_repo()
+        path = os.path.join(repo, ".tezgah", "lessons.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(self.LESSON + "\n")
+        self.touch(os.path.join(repo, "plans", "open", "001-something.md"))
+        return repo
+
+    def session_start_text(self, repo, limit=None):
+        """The session-start text for `repo`, the budget patched to `limit`."""
+        patch = ("tc.CONTEXT_BUDGET['session_start'] = %d\n" % limit
+                 if limit is not None else "")
+        return self.child("import json, tezgah_context as tc\n" + patch
+                          + "print(json.dumps(tc.context_for"
+                            "('session_start', %r)))\n" % repo)
+
+    def budget(self, event):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        return tc.CONTEXT_BUDGET[event]
+
+    def test_one_byte_over_budget_gives_up_the_lowest_value_block_first(self):
+        repo = self.repo_with_state()
+        whole = self.session_start_text(repo)
+        out = self.session_start_text(repo, limit=len(whole.encode()) - 1)
+        # exactly one block was given up, and it is the lowest-value one
+        self.assertIn("dropped lessons (", out)
+        self.assertIn("lowest value first", out)
+        self.assertNotIn(self.LESSON, out)
+        # ...while every block that outranks lessons is still there
+        self.assertIn("Open plans in this repo", out)
+        self.assertIn("codebase-memory-mcp is not installed", out)
+        self.assertIn("tezgah-contract` skill", out)
+
+    def test_a_limit_below_the_core_is_reported_not_silently_missed(self):
+        out = self.session_start_text(self.repo_with_state(), limit=3000)
+        self.assertIn("still", out)
+        self.assertIn("the always-on core and that is never dropped", out)
+
+    def test_the_drop_is_logged_with_what_went_and_at_what_size(self):
+        repo = self.repo_with_state()
+        limit = len(self.session_start_text(repo).encode()) - 1
+        self.session_start_text(repo, limit=limit)
+        log = os.path.join(self.home, ".cache", "tezgah", "context-drops.log")
+        with open(log) as fh:
+            rows = [r for r in fh.read().splitlines() if r]
+        self.assertTrue(rows, "no drop row was written")
+        self.assertIn("event=session_start", rows[-1])
+        self.assertIn("limit=%d" % limit, rows[-1])
+        self.assertIn("dropped=lessons:", rows[-1])
+
+    def test_a_subagent_brief_fits_the_smaller_subagent_budget(self):
+        # the brief is a third of the core; a payload that paid the full core
+        # here would blow the budget and drop real state instead
+        out = self.child("import json, tezgah_context as tc\n"
+                         "print(json.dumps(tc.context_for('subagent_start', %r,"
+                         " {'prompt': 'x'})))\n" % self.repo_with_state())
+        self.assertIn("Full text in the `tezgah-contract` skill", out)
+        self.assertNotIn("Context budget", out)
+
+    def test_a_healthy_repo_pays_no_drop_and_stays_under_its_budget(self):
+        repo = self.repo_with_state()
+        out = self.session_start_text(repo)
+        self.assertNotIn("Context budget", out)
+        self.assertLess(len(out.encode()), self.budget("session_start"))
+        # every conditional rule armed at once is the largest prompt text the
+        # classifier can build, so it is the case the prompt budget must hold
+        prompt = ("design decision and root cause, migration schema change, "
+                  "literature review hypothesis benchmark, who calls it, "
+                  "düzgün çalışsın")
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": repo, "payload": {"prompt": prompt}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("Context budget", out)
+        self.assertLess(len(out.encode()), self.budget("user_prompt"))
+
+
+class StateDelta(ChildCall):
+    """C1: the standing constraints are re-stated every turn and a long turn
+    re-states them again without being able to say what moved. The per-turn
+    state stamp (HEAD, open plans, lessons digest) turns that into one delta
+    line, and the full re-statement stays for a turn with nothing comparable."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self.touch(os.path.join(self.repo, "f"))
+        self.commit("first")
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", self.repo] + list(args),
+                              capture_output=True, text=True, check=True).stdout
+
+    def head(self):
+        return self.git("rev-parse", "HEAD").strip()
+
+    def commit(self, message):
+        self.git("add", ".")
+        self.git("-c", "user.email=a@b", "-c", "user.name=t", "commit", "-qm",
+                 message)
+
+    def turn(self, session="s1"):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"session_id": session,
+                                          "prompt": "add a docstring"}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_the_first_turn_keeps_the_re_statement_and_has_no_delta(self):
+        out = self.turn()
+        self.assertIn("harness-reminder", out)
+        self.assertNotIn("State since your last turn", out)
+
+    def test_a_head_move_is_named_on_the_next_turn(self):
+        was = self.head()
+        self.turn()
+        self.touch(os.path.join(self.repo, "g"))
+        self.commit("second")
+        out = self.turn()
+        self.assertIn("State since your last turn: HEAD %s -> %s"
+                      % (was[:7], self.head()[:7]), out)
+
+    def test_an_unchanged_turn_carries_no_delta(self):
+        # the delta is a difference, not another re-statement: a turn that
+        # changed nothing says nothing
+        self.turn()
+        self.assertNotIn("State since your last turn", self.turn())
+
+    def test_a_new_lesson_is_named_with_its_count(self):
+        self.turn()
+        path = os.path.join(self.repo, ".tezgah", "lessons.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("always clamp the padding\n")
+        self.assertIn("lessons 0 -> 1", self.turn())
+
+    def test_a_new_plan_is_named(self):
+        self.turn()
+        self.touch(os.path.join(self.repo, "plans", "open", "042-thing.md"))
+        self.assertIn("open plans 0 -> 1 (+042-thing.md)", self.turn())
+
+    def test_the_stamp_is_per_session(self):
+        self.turn("s1")
+        self.assertNotIn("State since your last turn", self.turn("s2"))
+
+    def test_a_stamp_from_another_repo_is_not_comparable(self):
+        # the fallback, not a wrong delta: an unusable stamp must not be read as
+        # "the state moved"
+        self.turn()
+        turns = os.path.join(self.home, ".cache", "tezgah", "turns")
+        path = os.path.join(turns, os.listdir(turns)[0])
+        with open(path) as fh:
+            stamp = json.load(fh)
+        stamp["root"] = "/somewhere/else"
+        with open(path, "w") as fh:
+            json.dump(stamp, fh)
+        self.touch(os.path.join(self.repo, "g"))
+        self.commit("second")
+        self.assertNotIn("State since your last turn", self.turn())
+
+
+class ConstraintNotice(ChildCall):
+    """The gate's drift notice (`constraints_line`) re-states every standing
+    rule it can see. With a comparable stamp it carries the delta instead; the
+    full re-statement is what it falls back to, so the notice can never end up
+    saying less than it does today."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self.touch(os.path.join(self.repo, "f"))
+        subprocess.run(["git", "-C", self.repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", self.repo, "-c", "user.email=a@b",
+                        "-c", "user.name=t", "commit", "-qm", "first"], check=True)
+
+    def turn(self):
+        return self.child(
+            "import json, tezgah_context as tc\n"
+            "print(json.dumps(tc.context_for('user_prompt', %r,"
+            " {'session_id': 's1', 'prompt': 'x'})))\n" % self.repo)
+
+    def notice(self):
+        return self.child("import json, tezgah_context as tc\n"
+                          "print(json.dumps(tc.constraint_notice(%r, 's1')))\n"
+                          % self.repo)
+
+    def test_without_a_comparable_stamp_it_re_states_the_constraints(self):
+        out = self.notice()
+        self.assertIn("**Turkish, BLUF.**", out)
+        self.assertIn("**Ponytail (minimal code).**", out)
+        self.assertIn("On-demand rules", out)
+
+    def test_with_a_moved_state_it_carries_the_delta(self):
+        self.turn()
+        subprocess.run(["git", "-C", self.repo, "-c", "user.email=a@b",
+                        "-c", "user.name=t", "commit", "-q", "--allow-empty",
+                        "-m", "second"], check=True)
+        out = self.notice()
+        self.assertIn("State since your last turn: HEAD ", out)
+        self.assertNotIn("**Turkish, BLUF.**", out)
+
+
+class StaleIndexNotice(TempHome):
+    """C3: a graph stamp behind HEAD used to end in a `↻` glyph on the status
+    line, which the model does not read, so the turn that decides from the graph
+    was told nothing. The same comparison now reaches the turn."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        # a real executable so cbm_bin() is truthy without a real index daemon
+        self.envv = self.env(extra={"TEZGAH_CBM_BIN": sys.executable})
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self.touch(os.path.join(self.repo, "f"))
+        subprocess.run(["git", "-C", self.repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", self.repo, "-c", "user.email=a@b",
+                        "-c", "user.name=t", "commit", "-qm", "first"], check=True)
+        slug = support.slug(os.path.realpath(self.repo))
+        db_dir = os.path.join(self.home, ".cache", "codebase-memory-mcp")
+        os.makedirs(db_dir, exist_ok=True)
+        open(os.path.join(db_dir, slug + ".db"), "w").close()
+        self.stamp_path = os.path.join(self.home, ".cache", "tezgah", slug)
+
+    def head(self):
+        return subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+
+    def stamp(self, sha):
+        self.touch(self.stamp_path)
+        with open(self.stamp_path, "w") as fh:
+            fh.write(sha)
+
+    def turn(self):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"session_id": "s",
+                                          "prompt": "add a docstring"}},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_a_stamp_behind_head_is_injected_into_the_turn(self):
+        self.stamp("deadbeef" * 5)
+        out = self.turn()
+        self.assertIn("Graph index: the graph is indexed at deadbee, HEAD is %s"
+                      % self.head()[:7], out)
+        self.assertIn("the index is behind", out)
+
+    def test_a_fresh_stamp_adds_no_line(self):
+        self.stamp(self.head())
+        self.assertNotIn("Graph index:", self.turn())
+
+    def test_no_stamp_at_all_is_not_a_stale_stamp(self):
+        out = self.turn()
+        self.assertNotIn("Graph index:", out)
+
+
 class HealthSegments(TempHome):
     """health_segments() is the structured source the colored renderers use."""
 
