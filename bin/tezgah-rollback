@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""tezgah-rollback <snapshot-id> [--force] - put a file back as it was.
+
+Tezgah never rolls back on its own: a hook that undoes work can cause more
+damage than the failure it answers, so the decision stays with the user. This
+command is the only caller of tezgah_snapshot.restore - the snapshot store holds
+pre-write bytes, and this is how one reaches them.
+
+The pre-state is found by the id printed on the `snapshot` ledger row (the row
+carries the path and the sha256 it captured). Exit codes: 0 restored, 1 refused
+(unknown id, or the file moved on - add --force), 2 usage; refusals and usage go
+to stderr.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_snapshot import SnapshotError, restore  # noqa: E402
+
+USAGE = "usage: tezgah-rollback <snapshot-id> [--force]"
+
+
+def main(argv):
+    for arg in argv:
+        if arg.startswith("-") and arg != "--force":
+            print("tezgah-rollback: unknown option %s\n%s" % (arg, USAGE),
+                  file=sys.stderr)
+            return 2
+    ids = [a for a in argv if not a.startswith("-")]
+    if len(ids) != 1 or not ids[0].strip():
+        print(USAGE, file=sys.stderr)
+        return 2
+    try:
+        paths = restore(ids[0], force="--force" in argv)
+    except SnapshotError as exc:
+        print("tezgah-rollback: %s" % exc, file=sys.stderr)
+        return 1
+    for path in paths:
+        print("restored %s" % path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
