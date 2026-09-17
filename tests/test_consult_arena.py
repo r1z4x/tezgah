@@ -6,6 +6,7 @@ endpoint was actually asked and on the footer, not on the prose in between.
 """
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -189,6 +190,64 @@ class StdinPacket(ArenaCase):
         self.assertEqual(p.returncode, 1, p.stdout)
         self.assertEqual([], Fake.seen)
         self.assertIn("Usage:", p.stderr)
+
+
+class Stall(threading.Thread):
+    """Accepts, sends headers, then sends no body at all.
+
+    urllib wraps OSError around the request only, so the read that times out
+    here surfaces as a bare TimeoutError rather than as a URLError.
+    """
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.sock = socket.socket()
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(8)
+        self.port = self.sock.getsockname()[1]
+        self.stop = threading.Event()
+        self.conns = []
+
+    def run(self):
+        while not self.stop.is_set():
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            self.conns.append(conn)
+            try:
+                conn.recv(65536)
+                conn.sendall(b"HTTP/1.1 200 OK\r\n"
+                             b"Content-Type: application/json\r\n"
+                             b"Transfer-Encoding: chunked\r\n\r\n")
+            except OSError:
+                pass
+
+    def close(self):
+        self.stop.set()
+        for conn in self.conns:
+            try:
+                conn.close()
+            except OSError:
+                pass
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+class StalledBody(ArenaCase):
+    def test_a_stalled_read_is_classed_timeout_and_names_the_timeout_lever(self):
+        stall = Stall()
+        stall.start()
+        self.addCleanup(stall.close)
+        self.env["CONSULT_URL"] = ("http://127.0.0.1:%d/v1/chat/completions"
+                                   % stall.port)
+        p = self.consult("q?", "--models", "a,b", "--timeout", "1")
+        self.assertEqual(p.returncode, 3, p.stdout)
+        self.assertIn("failed: a (timeout), b (timeout)", p.stdout)
+        self.assertIn("retry: raise --timeout", p.stdout)
 
 
 if __name__ == "__main__":

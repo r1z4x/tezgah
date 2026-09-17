@@ -455,5 +455,5 @@ anything to fix it: the user arms tezgah's optional tools, not the session.
 There is no consult provider key on this machine (no OPENROUTER_API_KEY /
 DEEPSEEK_API_KEY and no ~/.config/openrouter/key or ~/.config/deepseek/key), so
 the consult second opinion cannot run. Do not tell the user to run it and do not
-claim external verification happened; on a non-trivial call, say the second
+claim external verification happened; on a call that needed it, say the second
 opinion was skipped and why.

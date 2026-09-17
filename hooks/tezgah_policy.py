@@ -388,7 +388,7 @@ NO_CONSULT = """
 There is no consult provider key on this machine (no OPENROUTER_API_KEY /
 DEEPSEEK_API_KEY and no ~/.config/openrouter/key or ~/.config/deepseek/key), so
 the consult second opinion cannot run. Do not tell the user to run it and do not
-claim external verification happened; on a non-trivial call, say the second
+claim external verification happened; on a call that needed it, say the second
 opinion was skipped and why.
 """
 
@@ -580,7 +580,7 @@ CONDITIONAL_KEYS = ("spec", "consult", "research", "cbm")
 # host without a per-turn hook still knows the rule exists and where the full
 # text lives.
 POINTERS = """
-**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a non-trivial or hard-to-reverse decision. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".
+**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".
 """
 
 # The compact per-turn form. Keeps the <harness-reminder> envelope the hosts and
