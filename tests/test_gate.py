@@ -230,27 +230,95 @@ class Gate(TempHome):
         self.assertIn("Loop guard", reason)
         self.assertIn("attempt 3", reason)
 
-    def test_the_ceiling_is_the_third_attempt_for_every_fail_class(self):
-        # one ceiling, whatever the host's error text classified as: the first
-        # two attempts pass (a failing check the agent is still fixing has to be
-        # re-runnable), the third identical call is refused. A class-gated
-        # ceiling refused the second attempt for a permanent/"assertion" failure
-        # and for every host that reports no error text at all.
-        for session, error in (("ceil-none", None),
-                               ("ceil-perm", "bash: pytest: command not found"),
-                               ("ceil-transient", "Command timed out after 2m")):
-            self.seed_failure("pytest -q", session, error=error)
+    def test_the_failure_class_scopes_the_loop_allowance(self):
+        # a transient failure (timeout, connection, rate limit, 5xx) can clear on
+        # its own, so the identical call gets one more attempt than a permanent
+        # one; a permanent failure and a host that reports no error text at all
+        # keep the base allowance. The class is observable only where the host
+        # sends the error as text (Claude's PostToolUseFailure `error`).
+        transient = "ceil-transient"
+        for n in (1, 2):
+            self.seed_failure("pytest -q", transient,
+                              error="Command timed out after 2m")
             self.assertIsNone(
-                self.decide("Bash", {"command": "pytest -q"}, session_id=session),
-                error)
-            self.seed_failure("pytest -q", session, error=error)
+                self.decide("Bash", {"command": "pytest -q"},
+                            session_id=transient),
+                "transient attempt %d of 3 must pass" % (n + 1))
+        self.seed_failure("pytest -q", transient,
+                          error="Command timed out after 2m")
+        reason = self.decide("Bash", {"command": "pytest -q"},
+                             session_id=transient)
+        self.assertIsNotNone(reason)
+        self.assertIn("attempt 4", reason)
+        self.assertIn("transient", reason)
+        self.assertIn("allows 3 identical attempts", reason)
+        for session, error, note in (
+                ("ceil-perm", "E   AssertionError: 1 != 2", "bad argument"),
+                ("ceil-none", None, "no error text")):
+            for _ in range(2):
+                self.seed_failure("pytest -q", session, error=error)
             reason = self.decide("Bash", {"command": "pytest -q"},
                                  session_id=session)
-            self.assertIsNotNone(reason, error)
+            self.assertIsNotNone(reason, session)
             self.assertIn("attempt 3", reason)
-        # the class still travels with the reason, as a metric on the row
-        self.assertIn("transient", self.decide(
-            "Bash", {"command": "pytest -q"}, session_id="ceil-transient"))
+            self.assertIn("allows 2 identical attempts", reason)
+            self.assertIn(note, reason)
+
+    def test_a_fourth_identical_call_is_refused_whatever_the_outcome(self):
+        # the half `loop` cannot see: it needs a failure, so a call that returns
+        # 0 every time and never moves the work forward passes it forever. Three
+        # runs are allowed - the edit/test loop reaches two, a session's third
+        # `git status` passes - and the fourth is the ceiling.
+        for n in range(3):
+            reason = self.decide("Bash", {"command": "git status"},
+                                 session_id="spin")
+            self.assertIsNone(reason, "attempt %d of 3 must pass" % (n + 1))
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "spin", "tool": "Bash",
+                      "input": {"command": "git status"}, "failed": False,
+                      "cwd": self.repo}, env=self.envv)
+        reason = self.decide("Bash", {"command": "git status"}, session_id="spin")
+        self.assertIsNotNone(reason)
+        self.assertIn("Retry ceiling", reason)
+        self.assertIn("attempt 4", reason)
+        # both repeat reasons are distinguishable, and a changed call is not a
+        # repeat
+        self.assertNotIn("Loop guard", reason)
+        self.assertIsNone(
+            self.decide("Bash", {"command": "git status --short"},
+                        session_id="spin"))
+
+    def test_the_two_repeat_reasons_are_distinguishable(self):
+        # the failure-scoped guard is the narrower rule; its reason must not read
+        # as the ceiling above it
+        self.seed_failure("pytest -q", "distinct", times=2)
+        reason = self.decide("Bash", {"command": "pytest -q"},
+                             session_id="distinct")
+        self.assertIn("Loop guard", reason)
+        self.assertNotIn("Retry ceiling", reason)
+
+    def test_the_session_ceiling_is_not_a_loop_guard(self):
+        # a call that ran three times, none of them a failure: `loop` says
+        # nothing, the session ceiling is the rule that fires
+        for _ in range(3):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "ceiling", "tool": "Bash",
+                      "input": {"command": "pytest -q"}, "failed": False,
+                      "cwd": self.repo}, env=self.envv)
+        reason = self.decide("Bash", {"command": "pytest -q"},
+                             session_id="ceiling")
+        self.assertIn("past the ceiling of 3 attempts whatever their outcome",
+                      reason)
+
+    def test_the_session_ceiling_respects_verify_off(self):
+        for _ in range(3):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "spin-off", "tool": "Bash",
+                      "input": {"command": "git status"}, "failed": False,
+                      "cwd": self.repo}, env=self.envv)
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.assertIsNone(
+            self.decide("Bash", {"command": "git status"}, session_id="spin-off"))
 
     def test_a_denial_does_not_disarm_the_ceiling(self):
         # the real sequence: fail, deny, identical call. The refusal writes its
@@ -391,6 +459,77 @@ class Gate(TempHome):
         self.assertIsNone(self.decide("Write", {
             "file_path": "migrations/0002_add_col.py",
             "content": "def upgrade():\n    op.add_column('t', sa.Column('c'))\n"}))
+
+    def test_the_refusal_names_the_effect_class_not_the_pattern(self):
+        # what an action IS, not which regex caught it: one class per command,
+        # and the deny says which
+        for command, klass in (
+                ("git push --force origin main", "destructive"),
+                ("git branch -D main", "destructive"),
+                ("git push origin --delete feature", "destructive"),
+                ("rm -rf ../sibling", "destructive"),
+                ("alembic upgrade head", "schema"),
+                ("python3 manage.py migrate", "schema"),
+                ("vercel deploy --prod", "deploy"),
+                ("terraform apply -auto-approve", "deploy"),
+                ("npm publish --access public", "publish"),
+                ("docker push registry/img:tag", "publish"),
+                ("gh release create v1.2.0", "publish"),
+                ("git push heroku main", "outward"),
+                ("git push origin production", "outward")):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("`%s` effect" % klass, reason)
+            self.assertNotIn("force-push to a shared branch", reason)
+
+    def test_the_refusal_records_the_effect_class_as_a_consent_row(self):
+        # "who was asked to confirm what" is a query over rows: kind consent, the
+        # class in the detail, the action in the id - not a string match on a
+        # deny message a later reword would silently break
+        self.decide("Bash", {"command": "git push --force origin main"},
+                    session_id="asked")
+        self.decide("Bash", {"command": "npm publish"}, session_id="asked")
+        rows = [r for r in self.rows("asked") if r["kind"] == "consent"]
+        self.assertEqual([r["detail"] for r in rows],
+                         ["destructive", "publish"])
+        self.assertEqual(rows[0]["workspace"], self.roots)
+        for r in rows:
+            self.assertEqual(len(r["id"]), 12)
+            self.assertEqual(r["kind"], "consent")
+        self.assertNotEqual(rows[0]["id"], rows[1]["id"])
+        # the row names the refused action: its id is the denial's id
+        denials = [r for r in self.rows("asked") if r["kind"] == "deny"]
+        self.assertEqual([r["id"] for r in denials], [r["id"] for r in rows])
+        self.assertEqual(
+            [r["detail"].split(":", 1)[0] for r in denials], ["consent", "consent"])
+
+    def test_the_consent_row_is_what_spends_the_one_shot(self):
+        # the classification row IS the mark, so the ask cannot be answered and
+        # the row fall out of step: one refusal, one row, one pass
+        command = "npm publish --access public"
+        self.assertIsNotNone(self.decide("Bash", {"command": command},
+                                         session_id="oneshot"))
+        rows = [r for r in self.rows("oneshot") if r["kind"] == "consent"]
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id="oneshot"))
+        self.assertEqual(len([r for r in self.rows("oneshot")
+                              if r["kind"] == "consent"]), 1)
+
+    def test_an_action_that_is_not_irreversible_still_passes(self):
+        # the classifier must not widen the rule: an ordinary push, a rollback-
+        # free read and a release *check* are not effect actions
+        for command in ("git push origin main", "git push -u origin feature",
+                        "npm run publish:check", "gh release list",
+                        "git branch -m old new", "kubectl get pods"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def rows(self, session_id):
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "events", "session": session_id},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
 
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):

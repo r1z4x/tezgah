@@ -9,15 +9,17 @@ Rules, all only inside a tezgah root:
      toward the graph once, then every later search passes.
   3. a git/gh command that writes an artifact carrying an AI/model credit
      (Co-Authored-By, "Generated with", a robot emoji, ...) is refused.
-  4. an identical call that already failed enough times in this session is
-     refused (hooks/tezgah_integrity.prior_calls), under the `verify-off` kill
-     switch the integrity rule shares. This is the mechanical half of the
-     taxonomy's "repeated identical call" mode; a repeat that did NOT fail is
-     deliberately out of its scope (see loop_reason).
-  5. an irreversible or outward-facing command - a force-push to a non-scratch
-     branch, a branch delete, `rm -rf` outside the run directory, a migration, a
-     deploy or a publish - is refused ONCE per action per session, so the ask
-     the gate cannot make reaches the user before the action runs (consent).
+  4. an identical call that already failed enough times in the current user turn
+     is refused (`loop`), its allowance scoped by the failure class where the
+     host reports the error text; an identical call attempted more than
+     RETRY_CEILING times in the session is refused whatever its outcomes were
+     (`retry`). Both read hooks/tezgah_integrity.prior_calls and both are under
+     the `verify-off` kill switch the integrity rule shares.
+  5. an irreversible or outward-facing command is refused ONCE per action per
+     session, naming its effect class (destructive, schema, deploy, publish or
+     outward) rather than the pattern it matched, and writing that class to the
+     ledger as a `consent` row, so the ask the gate cannot make reaches the user
+     before the action runs (consent).
   6. a command that would write a credential into a file (a redirect, `tee`,
      `git add` or a curl trace next to a `name=value` / bearer token) is
      refused (secret).
@@ -103,7 +105,7 @@ MIGRATION = re.compile(
     r"python\d?\s+-m\s+django\s+migrate\b|"
     r"(?:bin/)?rails\s+db:(?:migrate|rollback|reset|schema:load)\b"
     r")", re.I)
-# A deploy, plus the outward-facing publish/upload half of the same clause.
+# A deploy: putting code in front of users, by the runners that name it.
 DEPLOY = re.compile(
     r"(?:^|[|;&]\s*|\s)(?:"
     r"(?:vercel|netlify|fly|flyctl|railway|render|wrangler|firebase|gcloud|eb)\b"
@@ -112,12 +114,19 @@ DEPLOY = re.compile(
     r"terraform\s+(?:apply|destroy)\b|"
     r"helm\s+(?:install|upgrade|uninstall)\b|"
     r"kubectl\s+(?:apply|delete|rollout|scale)\b|"
-    r"ansible-playbook\b|"
+    r"ansible-playbook\b"
+    r")", re.I)
+# Shipping an artifact outward: a registry, a release, an image.
+PUBLISH = re.compile(
+    r"(?:^|[|;&]\s*|\s)(?:"
     r"(?:npm|yarn|pnpm|bun)\s+publish\b|"
     r"twine\s+upload\b|docker\s+push\b|"
-    r"gh\s+release\s+create\b|"
-    r"git\s+push\s+\S*\s*(?:heroku|production|prod)\b"
+    r"gh\s+release\s+create\b"
     r")", re.I)
+# A push to a target that is live rather than a branch under review.
+OUTWARD = re.compile(
+    r"(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*push\s+\S*\s*"
+    r"(?:heroku|production|prod)\b", re.I)
 
 # --- secret: a credential on its way into a file ----------------------------
 # Only the two shapes the contract names: a bearer header, or a `name=value`
@@ -145,13 +154,24 @@ SECRET_SINK = re.compile(
 # quoted `;` does not split.
 SEGMENT = re.compile(r"\|\||&&|[;&\n]")
 
+# The classes a refused command's effect belongs to, and what each one is. The
+# refusal names the class and this clause, never the pattern that matched: the
+# agent has to see what it is about to do, not which regex caught it.
+EFFECTS = {
+    "destructive": "this one rewrites or drops history, a branch or files "
+                   "outside the run directory",
+    "schema": "this one changes the shape of a database",
+    "deploy": "this one puts code in front of users",
+    "publish": "this one ships an artifact to a registry or a release",
+    "outward": "this one pushes to a live target rather than a branch under "
+               "review",
+}
+
 CONSENT_DENY = (
-    "Consent gate: this is an irreversible or outward-facing action "
-    "(force-push to a shared branch, a branch delete, `rm -rf` outside the run "
-    "directory, a database migration, a deploy or a publish). The contract "
-    "requires an explicit ask first, so put the exact command and what it "
-    "cannot undo in front of the user. Once this refusal is in the transcript, "
-    "the same command passes on the next attempt.")
+    "Consent gate (`%s` effect): %s. The contract requires an explicit ask "
+    "before an irreversible or outward-facing action, so put the exact command "
+    "and what it cannot undo in front of the user. Once this refusal is in the "
+    "transcript, the same command passes on the next attempt.")
 
 SECRET_DENY = (
     "Credential write denied: this command would land a credential in a file "
@@ -248,12 +268,40 @@ def nudge_reason(slug):
             "session." % slug)
 
 
-# The attempt a repeat is refused on: two identical failures are the retry the
-# agent may still be fixing, the third is the loop the contract bans ("three
-# attempts on one failure is the ceiling"). One ceiling for every fail_class -
-# the class is a metric on the row, not a second policy that would refuse a
-# legitimate fix-and-re-run on the second try.
+# The attempt a repeat is refused on, per failure class. Two identical failures
+# are the retry the agent may still be fixing while it changes the code between
+# them; the third is the loop the contract bans ("three attempts on one failure
+# is the ceiling"). The class scopes that allowance where the host's error text
+# carries one (tezgah_integrity.fail_class): a transient failure - a timeout, a
+# connection error, a rate limit, a 5xx - can clear on its own, so the identical
+# call gets one more try, while an assertion or a bad argument cannot change by
+# re-running it. A host that reports no error text yields no class and the base
+# allowance applies.
 LOOP_CEILING = 2
+CLASS_CEILING = {"transient": LOOP_CEILING + 1}
+CLASS_NOTE = {
+    "transient": "the failure it names can clear on its own, so this class gets "
+                 "one more identical attempt than a permanent one",
+    "permanent": "an assertion or a bad argument does not change by re-running "
+                 "it",
+}
+NO_CLASS_NOTE = ("the host reported no error text for it, so the class is "
+                 "unknown and the base allowance applies")
+
+# The other half of the repeat rule, session-wide and blind to the outcome: a
+# call the gate has seen run three times may not run a fourth, whatever those
+# runs returned. It is deliberately above LOOP_CEILING - the loop guard counts
+# only the attempts that failed, in the current turn, so a call that keeps
+# "succeeding" without moving the work forward is its blind spot - and it is set
+# above the common work loop (edit, test, edit, test reaches two identical test
+# runs, and a session's third `git status` still passes) so only a genuine spin
+# reaches it.
+RETRY_CEILING = 3
+
+
+def loop_ceiling(klass):
+    """The identical attempts `loop` allows for this failure class."""
+    return CLASS_CEILING.get(klass, LOOP_CEILING)
 
 
 def loop_reason(tool, inp, session_id):
@@ -273,36 +321,67 @@ def loop_reason(tool, inp, session_id):
     digest = call_id(tool, inp)
     if not digest:
         return None
-    attempts, last_exit, klass = prior_calls(session_id, digest)
-    if last_exit != 1 or attempts < LOOP_CEILING:
+    turn, _, last_exit, klass = prior_calls(session_id, digest)
+    ceiling = loop_ceiling(klass)
+    if last_exit != 1 or turn < ceiling:
         return None
     return ("Loop guard denied: this is attempt %d of an identical call whose "
-            "%d previous attempt%s exited 1%s. Repeating an identical failing "
-            "command is not a retry - change the approach (fix what the error "
-            "names, or run something else) or stop and report what is still "
-            "unknown." % (attempts + 1, attempts, "" if attempts == 1 else "s",
-                          " (a %s failure)" % klass if klass else ""))
+            "%d previous attempt%s exited 1%s. This class allows %d identical "
+            "attempt%s, because %s. Repeating an identical failing command is "
+            "not a retry - change the approach (fix what the error names, or run "
+            "something else) or stop and report what is still unknown."
+            % (turn + 1, turn, "" if turn == 1 else "s",
+               " (a %s failure)" % klass if klass else "",
+               ceiling, "" if ceiling == 1 else "s",
+               CLASS_NOTE.get(klass, NO_CLASS_NOTE)))
+
+
+def retry_reason(tool, inp, session_id):
+    """A deny reason when this exact call has already been attempted more than
+    RETRY_CEILING times in this session, whatever those attempts returned.
+
+    `loop` needs a failure to fire, so the call that runs ten times and returns 0
+    each time - the spin that never reaches a decision - passes it forever. This
+    is that half: the count is every attempt of the id that ran in the session,
+    outcome-blind, and the user's turn does not reset it. A refused call never
+    ran, so the gate's own denials are not attempts and cannot walk a call up to
+    the ceiling by themselves."""
+    if not session_id:
+        return None
+    digest = call_id(tool, inp)
+    if not digest:
+        return None
+    attempts = prior_calls(session_id, digest)[1]
+    if attempts < RETRY_CEILING:
+        return None
+    return ("Retry ceiling denied: this is attempt %d of an identical call in "
+            "this session, past the ceiling of %d attempts whatever their "
+            "outcome. An unchanged repeat is not a retry - change the arguments "
+            "or the target, or stop and report what is still unknown. (The "
+            "`loop` guard is the narrower rule: the identical attempts that "
+            "FAILED, counted per user turn.)" % (attempts + 1, RETRY_CEILING))
 
 
 # How much of the ledger tail the one-shot consent check reads before a matched
 # command may be repeated, the same bound the loop guard reads its attempts from.
-# It is read only after a rule has matched, so a normal call pays nothing.
+# It is read only after a class has matched, so a normal call pays nothing.
 CONSENT_TAIL = 200
 
 
-def refused_before(session_id, rule, digest):
-    """True when this session's ledger already holds this rule's refusal of this
-    exact action, i.e. the one-shot mark is spent.
+def asked_before(session_id, digest):
+    """True when this exact action was already put in front of the user once, so
+    the one-shot mark is spent.
 
-    The `deny` row the gate itself writes is the mark: the refusal the user reads
-    and the thing that lets the repeat through are one row, so nothing new is
-    written and there is no second mark to fall out of step with the ledger. The
-    window is the ledger tail like the loop guard's, so an action refused more
-    than `CONSENT_TAIL` rows ago can be refused once more."""
+    The `consent` row the refusal writes is the mark (see effect_class), and it
+    is read here by kind and id alone: the row also carries the effect class in
+    its detail, so "who was asked to confirm what" is a query over these rows -
+    each one names an action and its class - rather than a string match on a
+    deny message that a later reword would silently break. The window is the
+    ledger tail like the loop guard's, so an action refused more than
+    `CONSENT_TAIL` rows ago can be asked about once more."""
     if not (session_id and digest):
         return False
-    return any(row.get("kind") == "deny" and row.get("id") == digest
-               and str(row.get("detail") or "").startswith(rule + ":")
+    return any(row.get("kind") == "consent" and row.get("id") == digest
                for row in events(session_id, tail=CONSENT_TAIL))
 
 
@@ -342,17 +421,26 @@ def rm_outside(masked, raw, cwd, base):
     return False
 
 
-def consent_command(command, cwd, base):
-    """A deny reason when this command is irreversible or outward-facing.
+def effect_class(command, cwd, base):
+    """The effect class of an irreversible or outward-facing command, or None.
+
+    `destructive` rewrites or drops history, a branch or files outside the run
+    directory; `schema` changes the shape of a database; `deploy` puts code in
+    front of users; `publish` ships an artifact to a registry or a release;
+    `outward` pushes to a live target rather than a branch under review. A
+    command carries the first class that matches, so the refusal says what the
+    action is instead of listing the patterns it hit and the ledger row records
+    the class rather than a rule name.
 
     One call is all the gate sees and it cannot ask, so the ask becomes a refusal
     the user reads: the identical command passes on its second attempt because
-    the `consent` deny row is the mark (refused_before). That is the least
-    friction that still stops an agent spending someone else's branch, database
-    or deployment unasked. Tradeoff: a user who did ask pays one round-trip, and
-    an agent that ignores the reason twice can still proceed - in front of a user
-    who has now seen the refusal. A session whose ledger cannot be written
-    refuses every time, so there the ask has to happen outside the agent."""
+    the `consent` row the refusal writes is the mark (asked_before). That is the
+    least friction that still stops an agent spending someone else's branch,
+    database or deployment unasked. Tradeoff: a user who did ask pays one
+    round-trip, and an agent that ignores the reason twice can still proceed - in
+    front of a user who has now seen the refusal. A session whose ledger cannot
+    be written refuses every time, so there the ask has to happen outside the
+    agent."""
     c = str(command or "")
     if not c:
         return None
@@ -360,11 +448,24 @@ def consent_command(command, cwd, base):
     for m in GIT_PUSH.finditer(masked):
         seg = m.group(1)
         if FORCE_FLAG.search(seg) and not SCRATCH.search(seg):
-            return CONSENT_DENY
-    if (BRANCH_DELETE.search(masked) or MIGRATION.search(masked)
-            or DEPLOY.search(masked) or rm_outside(masked, c, cwd, base)):
-        return CONSENT_DENY
+            return "destructive"
+    if BRANCH_DELETE.search(masked) or rm_outside(masked, c, cwd, base):
+        return "destructive"
+    if MIGRATION.search(masked):
+        return "schema"
+    if DEPLOY.search(masked):
+        return "deploy"
+    if PUBLISH.search(masked):
+        return "publish"
+    if OUTWARD.search(masked):
+        return "outward"
     return None
+
+
+def consent_reason(klass):
+    """The refusal for one effect class: the class, what it means, and what to
+    ask - never the list of patterns the command happened to match."""
+    return CONSENT_DENY % (klass, EFFECTS[klass])
 
 
 def secret_command(command):
@@ -430,28 +531,37 @@ def decision(tool, inp, cwd, session_id=None):
     if t in WRITE_TOOLS and attribution_edit(inp):
         return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
     # Consent: an irreversible or outward-facing command, refused once per action
-    # per session so the ask reaches the user (see consent_command for the design
-    # and its tradeoff). The second identical attempt falls through every other
+    # per session so the ask reaches the user (see effect_class for the design
+    # and its tradeoff). The row this writes is both the classification and the
+    # one-shot mark, and the second identical attempt falls through every other
     # rule, so a user who asked is not looped.
     if t in BASH_TOOLS:
-        reason = consent_command(inp.get("command"), cwd, base)
-        if reason and not refused_before(session_id, "consent",
-                                         call_id(tool, inp)):
-            return _deny(session_id, "consent", reason, tool, inp, base)
+        digest = call_id(tool, inp)
+        klass = effect_class(inp.get("command"), cwd, base)
+        if klass and not asked_before(session_id, digest):
+            note(session_id, "consent", klass, id=digest, workspace=base)
+            return _deny(session_id, "consent", consent_reason(klass), tool, inp,
+                         base)
         # A credential on its way into a file. No escape hatch: the deny text
         # names the rephrase (a name, a length, a fingerprint), so the write can
         # be replaced rather than repeated.
         reason = secret_command(inp.get("command"))
         if reason:
             return _deny(session_id, "secret", reason, tool, inp, base)
-    # Loop guard, under the same kill switch as the other integrity denials and
-    # after every argument-shaped rule: a call another rule would have refused
-    # has to be counted as that rule, not as a repeat. It reads the ledger tail,
-    # which is the only file I/O this path is allowed.
+    # Repeat guards, under the same kill switch as the other integrity denials
+    # and after every argument-shaped rule: a call another rule would have
+    # refused has to be counted as that rule, not as a repeat. `loop` is the
+    # failure-scoped half (identical attempts that failed, per user turn), `retry`
+    # the session-wide ceiling above it (every attempt of the call, whatever it
+    # returned). Both read the ledger tail, which is the only file I/O this path
+    # is allowed.
     if not off("verify-off") and t in BASH_TOOLS + WRITE_TOOLS:
         reason = loop_reason(tool, inp, session_id)
         if reason:
             return _deny(session_id, "loop", reason, tool, inp, base)
+        reason = retry_reason(tool, inp, session_id)
+        if reason:
+            return _deny(session_id, "retry", reason, tool, inp, base)
     if searched_identifier(tool, inp):
         slug = index_slug(cwd, base)
         if slug and first_nudge(session_id):
