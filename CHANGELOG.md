@@ -49,8 +49,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   full-contract skill carries the same section, and its two "no code graph" /
   "no consult key" variants are now labelled appendixes that apply only on a
   machine that lacks them.
+- `bin/consult` gains a second stage: after the independent parallel answers it
+  spends one more call on a referee that names where the panel disagreed, what
+  every answer assumed, what would change the recommendation and what evidence
+  it still wants, instead of leaving the caller to diff two answers alone.
+  `--judge` picks the referee model, `--no-referee` keeps the old one-shot
+  behaviour, the footer classes each failure (`http-500`, `empty`, `timeout`,
+  ...) and names the single variable to change on a retry, a dead referee is
+  disclosed as an unjudged panel rather than hidden, and the question - a packet
+  is often several KB - can be piped in with `consult -` instead of argued
+  through argv.
 
 ### Changed
+
+- The consult rule is checkable and de-anchored: it names five triggers instead
+  of "non-trivial", requires the raw artifact and the acceptance criteria rather
+  than the author's own summary or conclusion, and requires reading the
+  referee's named fields back rather than a paraphrase, which is where the
+  minority view gets dropped. The reviewer body carries the same raw-artifact
+  rule. The spec rule asks for one genuinely different option beyond A/B/A+B,
+  the smallest reversible experiment that separates them, and the evidence that
+  would flip the choice. The armed-by-task-class band grows 758 bytes, to 2,989,
+  and the always-on pointer line grows 45 characters, taking the core band to
+  6,032 - the cost of the rule being visible in every session rather than only
+  when it is armed.
 
 - The status line colors the whole `name✓` chip by state (green in force, yellow
   on demand, red off, dim when a mark carries no state) instead of the glyph

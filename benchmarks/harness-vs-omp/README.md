@@ -157,19 +157,19 @@ verbatim at the commit that last ran it:
 
 ```
 context budget (always-on text; ~tokens = chars/4):
-     core contract (always-on, per session) ~ 1.5k tok    5987 chars
+     core contract (always-on, per session) ~ 1.5k tok    6032 chars
      per-turn reminder                  ~ 0.2k tok     961 chars
      skill metadata (9)                 ~ 1.3k tok    5207 chars
      subagent metadata (5)              ~ 0.2k tok     891 chars
-     conditional rules (armed by task class) ~ 0.6k tok    2231 chars
-     full contract (on demand)          ~ 6.0k tok  (only when the skill is read)
+     conditional rules (armed by task class) ~ 0.7k tok    2989 chars
+     full contract (on demand)          ~ 6.4k tok  (only when the skill is read)
      MCP tool schemas                   run --mcp-schemas to measure
 ```
 
 The core band is the one to watch: it grew from the 3,214 characters quoted in
-the first revision of this file to **5,377**, and the cost side of that +67% is
+the first revision of this file to **6,032**, and the cost side of that +88% is
 borne by every session. The always-on bands total ~2.9k tokens before the first
-turn; the conditional rules add ~0.6k only on the turn that arms them, and the
+turn; the conditional rules add ~0.7k only on the turn that arms them, and the
 largest single band after the core is the skill metadata. MCP tool schemas are
 the host's size to report and are the one band this instrument cannot see.
 

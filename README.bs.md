@@ -341,9 +341,9 @@ koji je ranija revizija citirala manji core band od onoga koji instalira.
 
 | Opseg | Šta košta |
 |---|---|
-| Početak sesije | always-on ugovor (invarijante plus pokazivač od jedne linije po pravilu na zahtjev): na ovoj mašini i skupu vještina, ~1.5k tokena teksta ugovora i ~1.3k metapodataka vještina, pri čemu uslovna pravila (spec, consult, research, graph) dodaju ~0.6k samo na potezu čiji se prompt poklopi |
+| Početak sesije | always-on ugovor (invarijante plus pokazivač od jedne linije po pravilu na zahtjev): na ovoj mašini i skupu vještina, ~1.5k tokena teksta ugovora i ~1.3k metapodataka vještina, pri čemu uslovna pravila (spec, consult, research, graph) dodaju ~0.7k samo na potezu čiji se prompt poklopi |
 | Po potezu | kratki podsjetnik (~0.2k tokena) plus naoružano pravilo kada se poklopi; hookovi su odvojeni Python procesi, pa je ~19 ms pokretanja interpretera osnova - potez dodaje ~31 ms, početak sesije dodaje ~50-81 ms, poziv alata kroz kapiju (Bash/Grep/Task) ~24-25 ms. opencode nema hook u vrijeme prompta, pa plaća nulu |
-| Na zahtjev | puna `tezgah-contract` vještina (~6.0k tokena), plaća se samo kada je zadatak učita |
+| Na zahtjev | puna `tezgah-contract` vještina (~6.4k tokena), plaća se samo kada je zadatak učita |
 | MCP šeme | najveći opseg, i onaj koji nijedan statički izvještaj ne vidi: samo graf server deklariše 15 alata / 24,508 bajtova (~6.1k tokena), jaše na svakom zahtjevu osim ako host dohvati šeme na zahtjev. `tezgah-setup --mcp-schemas` to mjeri |
 | Disk | instalacija traje ~58 ms, i svaka datoteka koju tezgah prepisuje čuva se jednom kao `<file>.tezgah-bak` |
 

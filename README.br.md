@@ -340,9 +340,9 @@ revisão anterior citou uma faixa de core menor do que a que instala.
 
 | Faixa | O que custa |
 |---|---|
-| Início de sessão | o contrato always-on (as invariantes mais um ponteiro de uma linha por regra sob demanda): nesta máquina e conjunto de skills, ~1.5k tokens de texto de contrato e ~1.3k de metadados de skill, com as regras condicionais (spec, consult, research, graph) acrescentando ~0.6k apenas no turno cujo prompt casa |
+| Início de sessão | o contrato always-on (as invariantes mais um ponteiro de uma linha por regra sob demanda): nesta máquina e conjunto de skills, ~1.5k tokens de texto de contrato e ~1.3k de metadados de skill, com as regras condicionais (spec, consult, research, graph) acrescentando ~0.7k apenas no turno cujo prompt casa |
 | Por turno | um lembrete curto (~0.2k tokens) mais a regra armada quando ela casa; hooks são processos Python separados, então o início do interpretador de ~19 ms é a base - um turno acrescenta ~31 ms, o início de sessão acrescenta ~50-81 ms, uma chamada de ferramenta com portão (Bash/Grep/Task) ~24-25 ms. O opencode não tem hook em tempo de prompt, então paga zero |
-| Sob demanda | a skill completa `tezgah-contract` (~6.0k tokens), paga só quando uma tarefa a carrega |
+| Sob demanda | a skill completa `tezgah-contract` (~6.4k tokens), paga só quando uma tarefa a carrega |
 | Esquemas MCP | a maior faixa, e a que nenhum relatório estático vê: só o servidor de grafo declara 15 ferramentas / 24,508 bytes (~6.1k tokens), pegando carona em cada requisição a menos que o host busque esquemas sob demanda. `tezgah-setup --mcp-schemas` mede isso |
 | Disco | a instalação leva ~58 ms, e cada arquivo que o tezgah reescreve é mantido uma vez como `<file>.tezgah-bak` |
 

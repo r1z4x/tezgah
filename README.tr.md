@@ -341,9 +341,9 @@ bütçeyi yazdırır — buraya kopyalanmış bir rakama güvenmek yerine onu or
 
 | Bant | Maliyeti |
 |---|---|
-| Oturum başlangıcı | her zaman açık sözleşme (invariantlar artı isteğe bağlı kural başına tek satırlık bir işaretçi): bu makinede ve yetenek setinde ~1.5k token sözleşme metni ve ~1.3k yetenek üst verisi; koşullu kurallar (spec, consult, research, graph) yalnızca istemi eşleşen turda ~0.6k ekler |
+| Oturum başlangıcı | her zaman açık sözleşme (invariantlar artı isteğe bağlı kural başına tek satırlık bir işaretçi): bu makinede ve yetenek setinde ~1.5k token sözleşme metni ve ~1.3k yetenek üst verisi; koşullu kurallar (spec, consult, research, graph) yalnızca istemi eşleşen turda ~0.7k ekler |
 | Tur başına | kısa bir hatırlatıcı (~0.2k token) artı eşleştiğinde devreye alınan kural; kancalar ayrı Python süreçleridir, bu nedenle ~19 ms yorumlayıcı başlangıcı temeldir — bir tur ~31 ms ekler, oturum başlangıcı ~50-81 ms, geçitli bir araç çağrısı (Bash/Grep/Task) ~24-25 ms ekler. opencode'un istem zamanı kancası yoktur, bu nedenle sıfır öder |
-| İsteğe bağlı | tam `tezgah-contract` yeteneği (~6.0k token), yalnızca bir görev onu yüklediğinde ödenir |
+| İsteğe bağlı | tam `tezgah-contract` yeteneği (~6.4k token), yalnızca bir görev onu yüklediğinde ödenir |
 | MCP şemaları | en büyük bant ve hiçbir statik raporun görmediği bant: tek başına graph sunucusu 15 araç / 24,508 bayt (~6.1k token) bildirir ve barındırıcı şemaları isteğe bağlı getirmediği sürece her isteğe biner. `tezgah-setup --mcp-schemas` bunu ölçer |
 | Disk | kurulum ~58 ms sürer ve tezgah'ın yeniden yazdığı her dosya bir kez `<file>.tezgah-bak` olarak saklanır |
 

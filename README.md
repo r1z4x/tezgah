@@ -87,10 +87,15 @@ same text.
   `analyze-app` covers a browser (Playwright MCP), an iOS Simulator or Android
   emulator (Mobile MCP), and optional web diagnostics (Chrome DevTools MCP); a
   screenshot is an explicit, on-demand action for what the tree cannot answer.
-- **External second opinion.** Before a non-trivial or hard-to-reverse call,
-  `~/.config/tezgah/bin/consult` asks independent models through OpenRouter (or the DeepSeek API
-  with `--provider deepseek`) in parallel, and the agent reports where they
-  agreed or disagreed.
+- **External second opinion.** `~/.config/tezgah/bin/consult` asks independent
+  models in parallel (OpenRouter by default, `--provider deepseek` for the
+  DeepSeek API), then spends one more call on a referee that names where the
+  panel disagreed, what all of them assumed, what would change the
+  recommendation and what evidence it still wants. Each failure is classed with
+  the one variable to change on a retry, a dead referee is disclosed as an
+  unjudged panel, and a packet too long for argv goes in with `consult -`. The
+  agent reports where the models disagreed and verifies their claims against the
+  code.
 - **Research via OpenResearch.** When the router judges a task is research — a
   literature review, forming and testing hypotheses, running experiments, a
   research artifact — it drives the work through alphaXiv's OpenResearch (`orx`)
@@ -371,9 +376,9 @@ revision came to quote a core band smaller than the one it installs.
 
 | Band | What it costs |
 |---|---|
-| Session start | the always-on contract (the invariants plus a one-line pointer per on-demand rule): on this machine and skill set, ~1.5k tokens of contract text and ~1.3k of skill metadata, with the conditional rules (spec, consult, research, graph) adding ~0.6k only on the turn whose prompt matches |
+| Session start | the always-on contract (the invariants plus a one-line pointer per on-demand rule): on this machine and skill set, ~1.5k tokens of contract text and ~1.3k of skill metadata, with the conditional rules (spec, consult, research, graph) adding ~0.7k only on the turn whose prompt matches |
 | Per turn | a short reminder (~0.2k tokens) plus the armed rule when it matches; hooks are separate Python processes, so the ~19 ms interpreter start is the base - a turn adds ~31 ms, session start adds ~50-81 ms, a gated tool call (Bash/Grep/Task) ~24-25 ms. opencode has no prompt-time hook, so it pays zero |
-| On demand | the full `tezgah-contract` skill (~6.0k tokens), paid only when a task loads it |
+| On demand | the full `tezgah-contract` skill (~6.4k tokens), paid only when a task loads it |
 | MCP schemas | the largest band, and the one no static report sees: the graph server alone declares 15 tools / 24,508 bytes (~6.1k tokens), riding every request unless the host fetches schemas on demand. `tezgah-setup --mcp-schemas` measures it |
 | Disk | installation takes ~58 ms, and every file tezgah rewrites is kept once as `<file>.tezgah-bak` |
 
