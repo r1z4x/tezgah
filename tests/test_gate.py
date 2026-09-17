@@ -434,21 +434,30 @@ class Gate(TempHome):
             self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
     def test_rm_rf_outside_the_run_directory_denies(self):
-        for command in ("rm -rf /tmp/scratch",
+        for command in ("rm -rf /opt/data",
                         'rm -rf "%s"' % os.path.join(self.home, "elsewhere"),
                         "rm -rf ~/Downloads/junk",
                         "rm -rf ../sibling-artifact",
                         "rm -rf $BUILD_DIR",
-                        "rm -rf ."):
+                        "rm -rf .",
+                        # the temp root itself is not scratch, a path that only
+                        # escapes through it is not under it, and one scratch
+                        # target does not license a second one
+                        "rm -rf /tmp",
+                        "rm -rf /tmp/../etc",
+                        "rm -rf /tmp/scratch /opt/data"):
             reason = self.decide("Bash", {"command": command})
             self.assertIsNotNone(reason, command)
             self.assertIn("Consent", reason)
 
     def test_a_delete_inside_the_run_directory_passes(self):
         # both flags are required (`rm -f` / `rm -r` alone are not this rule's),
-        # and a path under the run directory is the agent's own workspace
+        # a path under the run directory is the agent's own workspace, and a path
+        # under a temp root is scratch: the ask would protect nothing there
         for command in ("rm -rf build", "rm -rf node_modules && npm ci",
-                        'rm -rf "./dist"', "rm -f /tmp/scratch", "rm -r /tmp/x"):
+                        'rm -rf "./dist"', "rm -f /tmp/scratch", "rm -r /tmp/x",
+                        "rm -rf /tmp/scratch",
+                        "rm -rf /tmp/tezgah-fixture/nested"):
             self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
     def test_a_migration_or_a_deploy_denies(self):
@@ -710,6 +719,21 @@ class Gate(TempHome):
                             session_id="untainted")
         self.assertIn("Consent gate", plain)
         self.assertNotIn("Sink rule", plain)
+
+    def test_a_scratch_delete_after_an_untrusted_read_is_still_refused(self):
+        # the temp-root floor skips the ask, not the effect: the taint rule reads
+        # the conservative class, so an injection cannot make its first move a
+        # `rm -rf` in the temp root and land it unasked
+        session = "tainted-scratch"
+        self.read_untrusted(session)
+        reason = self.decide("Bash", {"command": "rm -rf /tmp/tezgah-fixture"},
+                             session_id=session)
+        self.assertIsNotNone(reason)
+        self.assertIn("Sink rule", reason)
+        # the same command in a turn that read nothing is scratch: no ask
+        self.assertIsNone(self.decide("Bash",
+                                      {"command": "rm -rf /tmp/tezgah-fixture"},
+                                      session_id="clean-scratch"))
 
     def test_an_approval_written_before_the_read_does_not_cover_it(self):
         # The half that gives the sink rule teeth: a grant the user wrote before

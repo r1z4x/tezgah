@@ -27,7 +27,10 @@ Rules, all only inside a tezgah root:
      it, and the next identical command is asked about again. A command may
      declare `tezgah:effect=<class>` for an effect no pattern here can see; a
      declaration is taken only when it is at least as severe as the class the
-     command text derives, so it can raise that class and never lower it.
+     command text derives, so it can raise that class and never lower it. The
+     one effect with a floor under the user: a `rm -rf` whose every target is
+     under a temp root (SCRATCH_ROOTS) is scratch, not an effect - nothing there
+     is worth an ask, so the session cleans up its own fixtures without one.
   6. a command that would write a credential into a file (a redirect, `tee`,
      `git add` or a curl trace next to a `name=value` / bearer token) is
      refused (secret).
@@ -140,6 +143,15 @@ BRANCH_DELETE = re.compile(
 RM = re.compile(r"(?:^|[|;&]\s*|\s)rm\s+((?:-\S+\s+)*)([^|;&]*)")
 RM_RECURSIVE = re.compile(r"-[A-Za-z]*r[A-Za-z]*\b|--recursive\b", re.I)
 RM_FORCE = re.compile(r"-[A-Za-z]*f[A-Za-z]*\b|--force\b")
+# The temp roots. A `rm -rf` under one is scratch, not an irreversible effect:
+# the directory exists to be thrown away, so the user's ask would protect
+# nothing, and a session cleaning up its own fixtures should not need one. The
+# root itself is NOT scratch (deleting all of /tmp is not a cleanup) and neither
+# is a path that only starts with the same letters - both sides are realpath'd
+# before the test, so `/tmp/../etc` escapes. TMPDIR first: on macOS the OS sets
+# it per user, and /tmp is the shared fallback.
+SCRATCH_ROOTS = tuple({os.path.realpath(os.environ.get("TMPDIR") or "/tmp"),
+                       os.path.realpath("/tmp")})
 # Applying a migration, by the runners that name it. ponytail: a hand-written
 # `psql -c "ALTER TABLE ..."` is not caught - reading SQL intent is not a regex.
 MIGRATION = re.compile(
@@ -527,7 +539,7 @@ def consent_mark(session_id, digest):
     return None
 
 
-def rm_outside(masked, raw, cwd, base):
+def rm_outside(masked, raw, cwd, base, scratch_ok=True):
     """True when this line recursively force-deletes a path outside the run
     directory (`cwd`, the directory the command runs in).
 
@@ -536,9 +548,12 @@ def rm_outside(masked, raw, cwd, base):
     the same offset, so a quoted path still resolves. The run directory itself
     counts as outside: deleting where the command runs is not a delete inside it.
     A target this cannot resolve (`$VAR`, `~`, a URL) counts as outside too; the
-    conservative direction is the one that stops to ask. ponytail: a target
-    behind a `cd` in the same line resolves against `cwd`, not against the `cd`,
-    so that case can pass - it fails open, never closed."""
+    conservative direction is the one that stops to ask. With `scratch_ok` a
+    target UNDER a temp root (SCRATCH_ROOTS) is neither - that is the session's
+    own scratch, so it is held to no ask; the conservative reader passes
+    scratch_ok=False and keeps it as an effect (the taint rule's half). ponytail:
+    a target behind a `cd` in the same line resolves against `cwd`, not against
+    the `cd`, so that case can pass - it fails open, never closed."""
     root = os.path.realpath(cwd or base)
     for m in RM.finditer(masked):
         # The args come from the raw text at the offset the masked match proved is
@@ -558,12 +573,18 @@ def rm_outside(masked, raw, cwd, base):
                 return True
             p = os.path.realpath(tok if os.path.isabs(tok)
                                  else os.path.join(root, tok))
-            if p == root or not p.startswith(root + os.sep):
+            if p == root:
                 return True
+            if p.startswith(root + os.sep):
+                continue
+            if scratch_ok and any(p.startswith(s + os.sep)
+                                  for s in SCRATCH_ROOTS):
+                continue
+            return True
     return False
 
 
-def effect_class(command, cwd, base):
+def effect_class(command, cwd, base, scratch_ok=True):
     """The effect class of an irreversible or outward-facing command, or None.
 
     `destructive` rewrites or drops history, a branch or files outside the run
@@ -593,7 +614,8 @@ def effect_class(command, cwd, base):
         seg = m.group(1)
         if FORCE_FLAG.search(seg) and not SCRATCH.search(seg):
             return "destructive"
-    if BRANCH_DELETE.search(masked) or rm_outside(masked, c, cwd, base):
+    if BRANCH_DELETE.search(masked) or rm_outside(masked, c, cwd, base,
+                                                  scratch_ok):
         return "destructive"
     if MIGRATION.search(masked):
         return "schema"
@@ -616,7 +638,7 @@ def declared_effect(command):
     return klass if klass in EFFECTS else None
 
 
-def consent_effect(command, cwd, base):
+def consent_effect(command, cwd, base, scratch_ok=True):
     """The class to hold this command to, and the declaration it ignored.
 
     A command may declare `tezgah:effect=<class>`, which is how an effect no
@@ -628,7 +650,7 @@ def consent_effect(command, cwd, base):
     declaration can tighten the rule and never loosen it.
 
     Returns (class or None, the declaration that was refused or None)."""
-    derived = effect_class(command, cwd, base)
+    derived = effect_class(command, cwd, base, scratch_ok)
     declared = declared_effect(command)
     if declared is None:
         return derived, None
@@ -1018,7 +1040,14 @@ def decision(tool, inp, cwd, session_id=None):
     # approval.
     if t in BASH_TOOLS:
         digest = call_id(tool, inp)
-        klass, ignored = consent_effect(inp.get("command"), cwd, base)
+        # Two readings of one command. The taint rule wants the conservative one
+        # (scratch_ok=False): a delete is an effect whatever it targets, so a
+        # scratch `rm -rf` cannot be an injection's silent first step. The ask is
+        # skipped when every effect the command has is scratch - the temp root
+        # exists to be thrown away, so the user's approval would protect nothing.
+        klass, ignored = consent_effect(inp.get("command"), cwd, base,
+                                        scratch_ok=False)
+        asking, asked_ignored = consent_effect(inp.get("command"), cwd, base)
         mark = consent_mark(session_id, digest) if klass else None
         if klass:
             channel, reason = sink_check(session_id, digest, klass=klass)
@@ -1027,13 +1056,13 @@ def decision(tool, inp, cwd, session_id=None):
                     note(session_id, "consent", klass, id=digest, workspace=base)
                 return _deny(session_id, "sink", reason, tool, inp, base,
                              extra="untrusted channel: %s" % channel)
-            if mark != "grant":
+            if asking and mark != "grant":
                 if mark is None:
-                    note(session_id, "consent", klass, id=digest, workspace=base)
-                extra = ("declared `%s` ignored, `%s` stands" % (ignored, klass)
-                         if ignored else None)
+                    note(session_id, "consent", asking, id=digest, workspace=base)
+                extra = ("declared `%s` ignored, `%s` stands"
+                         % (asked_ignored, asking) if asked_ignored else None)
                 return _deny(session_id, "consent",
-                             consent_reason(klass, ignored, digest,
+                             consent_reason(asking, asked_ignored, digest,
                                             asked=mark == "ask"),
                              tool, inp, base, extra=extra)
         # A credential on its way into a file. No escape hatch: the deny text

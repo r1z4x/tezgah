@@ -191,7 +191,12 @@ pattern can see the effect; the declaration holds only at or above the class the
 command text derives, so it can tighten the rule and never loosen it - a
 downgrade is ignored and named in the refusal and the deny row. The declaration
 is read off the raw command, so a trailing `# tezgah:effect=deploy` counts, and a
-command that merely quotes the form is held to it too.
+command that merely quotes the form is held to it too. One floor sits under the
+user: a `rm -rf` whose every target is under a temp root (`$TMPDIR` or `/tmp`) is
+scratch, so a session clearing its own fixtures is not held to an ask - the temp
+root itself, an unresolved `$VAR`/`~` target and anything that escapes it still
+are, and the untrusted-content rule reads the class conservatively so an effect
+after a fetched page is refused whether or not its target is scratch.
 
 ### App analysis
 

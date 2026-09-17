@@ -261,6 +261,15 @@ class OpenCodePlugin(TempHome):
                         "rm -rf ./build", "rm -f x", "ls -la", "git status"):
             self.allowed(self.before("bash", {"command": command}))
 
+    def test_a_delete_under_a_temp_root_is_scratch(self):
+        # the Python gate's SCRATCH_ROOTS floor, mirrored: the session's own
+        # fixtures cost no round trip, while the temp root itself and a path that
+        # escapes it are still asked about
+        self.allowed(self.before("bash",
+                                 {"command": "rm -rf /tmp/tezgah-fixture"}))
+        self.denied(self.before("bash", {"command": "rm -rf /tmp"}))
+        self.denied(self.before("bash", {"command": "rm -rf /tmp/../etc"}))
+
     def test_prose_that_names_an_irreversible_command_passes(self):
         # the masked text, so quoting the command is not running it
         for command in ('grep -rn "rm -rf /" docs/',

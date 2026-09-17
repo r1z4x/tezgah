@@ -831,6 +831,14 @@ function realPath(p) {
   }
 }
 
+// The temp roots (SCRATCH_ROOTS in the Python gate): a `rm -rf` under one is
+// scratch, not an irreversible effect - the directory exists to be thrown away,
+// so the user's ask would protect nothing and a session clearing its own
+// fixtures is held to none. The root itself is NOT scratch (deleting all of
+// /tmp is not a cleanup) and neither is a path that only escapes through it:
+// both sides are realpath'd before the test, so `/tmp/../etc` escapes.
+const SCRATCH_ROOTS = [realPath(tmpdir()), realPath("/tmp")]
+
 // True when this line recursively force-deletes a path outside the run directory
 // (`cwd`, the directory the command runs in). The `rm` is found on the masked
 // text - a message that names the command deletes nothing - while the flags and
@@ -838,8 +846,9 @@ function realPath(p) {
 // resolves. The run directory itself counts as outside: deleting where the
 // command runs is not a delete inside it. A target this cannot resolve (`$VAR`,
 // `~`, a URL) counts as outside too; the conservative direction is the one that
-// stops to ask. ponytail: a target behind a `cd` in the same line resolves
-// against `cwd`, not against the `cd`, so that case can pass - it fails open.
+// stops to ask. A target UNDER a temp root is neither: that is the session's own
+// scratch. ponytail: a target behind a `cd` in the same line resolves against
+// `cwd`, not against the `cd`, so that case can pass - it fails open.
 function rmOutside(masked, raw, cwd, base) {
   const root = realPath(cwd || base)
   for (const m of masked.matchAll(RM)) {
@@ -855,7 +864,10 @@ function rmOutside(masked, raw, cwd, base) {
       if (!tok) continue
       if (tok.includes("$") || tok.includes("~") || tok.includes("://")) return true
       const p = realPath(isAbsolute(tok) ? tok : resolve(root, tok))
-      if (p === root || !p.startsWith(root + sep)) return true
+      if (p === root) return true
+      if (p.startsWith(root + sep)) continue
+      if (SCRATCH_ROOTS.some((s) => p.startsWith(s + sep))) continue
+      return true
     }
   }
   return false

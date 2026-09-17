@@ -34,6 +34,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A `rm -rf` under a temp root no longer needs the user's approval.** The
+  consent rule asked about any recursive force delete outside the run directory,
+  including the session's own fixtures in `$TMPDIR`/`/tmp` - where nothing is
+  irreversible and the ask protected nothing, so clearing scratch cost a round
+  trip through `bin/tezgah-consent`. Every target is now resolved and tested
+  against `SCRATCH_ROOTS` (`hooks/tezgah_gate.py`): a path under one is scratch
+  and passes, while the temp root itself (`rm -rf /tmp`), a path that escapes it
+  (`/tmp/../etc`), an unresolved `$VAR`/`~` target, and any second target outside
+  it still ask. Only the ask is skipped: the untrusted-content rule reads the
+  class conservatively, so a scratch delete in a turn that read a fetched page or
+  an MCP answer is still refused. opencode's own gate
+  (`hosts/opencode/plugins/tezgah.js`) mirrors the floor. Accepted risk, named:
+  `/tmp` is shared per-user space, so this
+  also lets a delete reach another process's disposable state there.
+
 - **`tezgah-setup --report` no longer claims the local plugin manifest is
   present.** The row read "present and consistent" while its predicate also
   passes on an absent pair - the manifest is the maintainer's untracked file, so
