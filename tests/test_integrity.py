@@ -245,9 +245,14 @@ class LedgerTail(unittest.TestCase):
         self.append({"kind": "run", "id": "dup", "exit": 1,
                      "fail_class": "transient"})
         self.append({"kind": "run", "id": "other", "exit": 1})
-        self.assertEqual(ti.prior_calls("s", "dup", tail=3), (2, 1, "transient"))
-        self.assertEqual(ti.prior_calls("s", "dup", tail=1), (0, None, None))
-        self.assertEqual(ti.prior_calls("s", "absent", tail=3), (0, None, None))
+        # (turn attempts, session attempts, newest exit, its class): the two
+        # repeat ceilings read the same rows, one per user turn and one per
+        # session, so both counts come from this one scan
+        self.assertEqual(ti.prior_calls("s", "dup", tail=3),
+                         (2, 2, 1, "transient"))
+        self.assertEqual(ti.prior_calls("s", "dup", tail=1), (0, 0, None, None))
+        self.assertEqual(ti.prior_calls("s", "absent", tail=3),
+                         (0, 0, None, None))
 
     def test_a_refusal_or_a_nudge_is_not_an_attempt(self):
         # the gate's own deny row and the nudge row carry the same id with no
@@ -257,18 +262,20 @@ class LedgerTail(unittest.TestCase):
         self.append({"kind": "run", "id": "dup", "exit": 1})
         self.append({"kind": "deny", "id": "dup", "detail": "loop: denied"})
         self.append({"kind": "nudge", "id": "dup", "detail": "proj"})
-        self.assertEqual(ti.prior_calls("s", "dup", tail=4), (2, 1, None))
+        self.assertEqual(ti.prior_calls("s", "dup", tail=4), (2, 2, 1, None))
 
     def test_the_newest_turn_bounds_the_attempts(self):
         # reset per user turn: a failure the user then asked to retry is not this
-        # turn's spent ceiling
+        # turn's spent ceiling. The session count is deliberately NOT reset - it
+        # is the ceiling above the guard, and a turn marker is not evidence the
+        # agent changed the call.
         self.append({"kind": "run", "id": "dup", "exit": 1})
         self.append({"kind": "run", "id": "dup", "exit": 1})
         self.append({"kind": "turn", "detail": "abc"})
         self.append({"kind": "run", "id": "dup", "exit": 1})
-        self.assertEqual(ti.prior_calls("s", "dup", tail=4), (1, 1, None))
+        self.assertEqual(ti.prior_calls("s", "dup", tail=4), (1, 3, 1, None))
         self.append({"kind": "turn", "detail": "def"})
-        self.assertEqual(ti.prior_calls("s", "dup", tail=5), (0, None, None))
+        self.assertEqual(ti.prior_calls("s", "dup", tail=5), (0, 3, None, None))
 
 
 class TurnMarker(unittest.TestCase):

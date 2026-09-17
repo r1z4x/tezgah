@@ -108,10 +108,14 @@ BASH_TOOLS = ("bash", "shell", "command", "exec_command", "run_command",
 
 
 # The host's error text, classified for the ledger's fail_class field. The loop
-# guard does not read it - one ceiling for every class - so it exists to say what
-# kind of failure a trace carried: a timeout or a rate limit is a different
-# incident from a bad flag or a missing file. The hosts that report an error
-# report it as prose, not as a code, so the class comes from the text.
+# guard reads it to scope its retry allowance (a transient failure gets one more
+# identical attempt than a permanent one): a timeout or a rate limit is a
+# different incident from a bad flag or a missing file.
+# The class exists only where the host reports the failure as prose, which today
+# is Claude's PostToolUseFailure `error` field - omp sends `isError`, Codex a
+# failure flag and Cursor a per-event one, all booleans, and opencode's port
+# writes the process exit code and no text. Everywhere else the class is None and
+# the base allowance applies: an unobservable class is not invented.
 TRANSIENT_ERROR = re.compile(
     r"timed? ?out|timeout|deadline exceeded|connection (?:reset|refused|aborted)|"
     r"temporarily unavailable|rate ?limit|\b(?:429|502|503|504|529)\b|"
@@ -132,9 +136,10 @@ def fail_class(error):
     """How the host's error text classifies: "transient", "permanent",
     "unknown", or None when the host reported no error at all.
 
-    A metric on the row, not a policy: the loop guard counts the same three
-    attempts whatever the class, and the class only says what kind of failure
-    the trace carried."""
+    The class is read by the loop guard, which allows one more identical attempt
+    to a transient failure than to a permanent one, and it says what kind of
+    failure the trace carried. Only a host that reports its error as text can
+    supply it; the others yield None, never a guessed class."""
     text = str(error or "").strip()
     if not text:
         return None
@@ -302,24 +307,36 @@ def _turn_start(rows):
 
 
 def prior_calls(session_id, digest, tail=200):
-    """(attempts already made, the newest attempt's exit, its fail_class) for
-    this action identity, in this user turn, over the ledger tail only.
+    """(attempts in the current user turn, attempts in the whole tail, the newest
+    attempt's exit, its fail_class) for this action identity, over the ledger
+    tail only.
 
     Only rows that carry an `exit` are attempts: the gate's own `deny` row and
     the nudge row carry the same `id` with no outcome, so counting them would
     leave the refusal itself as the newest row, read as "no failure" and disarm
-    the ceiling on every second repeat.
+    the ceiling on every second repeat. A call the gate refused never ran, so it
+    is not an attempt either.
+
+    The two counts come from the one scan because both repeat ceilings read the
+    same rows: the loop guard counts the identical attempts that failed in this
+    user turn, the session ceiling counts every attempt of the call whatever its
+    outcome. The exit and the class are the turn's newest attempt's - the loop
+    guard's reading, which is what scopes its allowance.
 
     The window is a real ceiling, not an optimisation detail: an attempt older
     than the last `tail` rows is invisible, so a loop that spans more than that
     many calls is not counted. 200 is roughly a long turn's worth of events; a
     session that wants more pays for it on every gated call."""
     rows = events(session_id, tail=tail)
-    rows = rows[_turn_start(rows):]
-    rows = [e for e in rows if e.get("id") == digest and "exit" in e]
     if not rows:
-        return 0, None, None
-    return len(rows), rows[-1].get("exit"), rows[-1].get("fail_class")
+        return 0, 0, None, None
+    made = [e for e in rows if e.get("id") == digest and "exit" in e]
+    turn = [e for e in rows[_turn_start(rows):]
+            if e.get("id") == digest and "exit" in e]
+    if not turn:
+        return 0, len(made), None, None
+    return (len(turn), len(made), turn[-1].get("exit"),
+            turn[-1].get("fail_class"))
 
 
 def note_turn(session_id, prompt, workspace=None):
