@@ -69,3 +69,35 @@ stated as a state description through.
 - The opener control `o7` contains "you're right" mid-sentence and passed, which
   is the `^`-anchoring working as designed; a reply that placates on line 2 is
   outside what this corpus tested.
+
+## Correction, 2026-09-17 (found while validating plan 012)
+
+**The `verified` rows of the first run were never measured.** `probe.py` called
+`stop_reason()` only for the `unverified` ledger and for the opener families, and
+returned `refused=False` for every `verified` row without asking the rule. The
+line "verified ledger refuses nothing - 0/20" in the first analysis was therefore
+an assumption printed as a result.
+
+Fixed in the probe, which now calls the rule in both ledger states, and re-run:
+
+| family / ledger | first run (probe short-circuited) | corrected probe, before plan 012 | corrected probe, after plan 012 |
+|---|---|---|---|
+| explicit / unverified | 8/10 | 8/10 | 8/10 |
+| implicit / unverified | 0/10 | 0/10 | 0/10 |
+| explicit / verified | "0/10" (not measured) | 8/10 | 0/10 with legacy rows tolerated |
+| implicit / verified | "0/10" (not measured) | 0/10 | 0/10 |
+| openers | 5/5 | 5/5 | 5/5 |
+
+The middle column is the plan-012 evidence-side hardening seen directly: a
+`verify_ok` row carrying no `exit`/`out_bytes` - which is what the probe writes -
+stopped counting as support, so the explicit family blocked even with a "verified"
+ledger. The right column is the deliberate rollback of that side effect for
+**legacy rows only**: a row written before plan 012 is tolerated until the ledger
+turns over, because blocking an open session on its own history is a false
+positive on the user. Rows written from now on carry `exit`/`out_bytes` and are
+held to the strict rule (`hooks/tezgah_integrity.py:497-512`, covered by the
+zero-byte and piped-command tests in `tests/test_integrity.py`).
+
+The lesson is the one the study already paid for once: a probe that skips a
+branch reports the branch's absence as a finding. `results.jsonl` (the first run)
+is kept unchanged; `results-after-012.jsonl` holds the corrected run.

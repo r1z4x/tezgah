@@ -69,3 +69,18 @@ on this machine). Adding rules must not move those numbers materially.
 Consent gate for irreversible actions (measured frequency first), context
 summarisation, untrusted-input labelling on the context side, token metrics.
 See the study's synthesis for why each is deferred.
+
+## Evidence (landed 2026-09-17)
+
+| claim | how it was checked | result |
+|---|---|---|
+| full suite | `python3 -m unittest discover -s tests` | 458 tests, OK (was 430 before the new tests) |
+| loop guard denies the third identical failure | real hook pair, two `PostToolUseFailure` rows then a `PreToolUse` call whose command differs only in whitespace | `permissionDecision: deny` - "attempt 3 of an identical call whose 2 previous attempts exited 1"; the changed command passes; the deny row carries the same `id` and `workspace` |
+| ledger identity | the smoke's rows | `{"kind":"verify_fail","id":"2c4914aeb4d1","exit":1,"out_bytes":18,"workspace":...}` |
+| metrics surface | `bin/tezgah-status --counters <cwd> <session>` on a live session | `steps 241`, `tool_error_rate 0.0`, `claims 0`, `false_completion 0` |
+| latency stays in budget | `benchmarks/hook-latency/measure.py --n 20` before and after | pretooluse 42.40 -> 42.68, posttooluse 41.61 -> 43.22, stop 41.66 -> 43.79 ms (medians; all inside the +5 ms bar) |
+| quiet tool did not go blind | `probe.py` corrected and re-run (see the study's E2 analysis) | the probe had never measured the `verified` rows; the hardening made them block 8/10, and legacy rows are tolerated so an open session is not blocked on its own history |
+
+Not done here and named rather than implied: no block has been re-run with the
+controls verifiably armed (E4 is void), so the *effect* of any of this on work
+quality is still unmeasured.

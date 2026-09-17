@@ -6,16 +6,21 @@ hooks through a node harness with a throwaway HOME, so a drift between the two
 implementations fails here instead of silently in a session. Skips when node is
 missing, matching the other node-dependent checks.
 """
-import hashlib
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 import support
 from support import TempHome
+
+# The Python half writes the same ledger; importing its id function is what makes
+# a separator or a canonical-form drift between the two halves fail here.
+sys.path.insert(0, os.path.join(support.REPO, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
 
 NODE = shutil.which("node")
 # The marker the detector must catch, assembled at runtime: the gate denies a
@@ -261,11 +266,13 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(row["workspace"], self.roots)
 
     def test_the_id_is_the_hash_the_python_writer_computes(self):
-        # sha1(tool + " " + canonical)[:12], the frozen formula. The doubled
-        # space is collapsed, so the same call re-typed is the same action.
+        # sha1(tool + " " + canonical)[:12], the frozen formula, computed by the
+        # Python half itself: an id that drifts here is an opencode row the
+        # metrics cannot join. The doubled space is collapsed on both sides, so
+        # the same call re-typed is the same action.
         self.after("bash", {"command": "pytest  -q"}, exit=0)
-        want = hashlib.sha1(b"bash pytest -q").hexdigest()[:12]
-        self.assertEqual(self.ledger()[0]["id"], want)
+        self.assertEqual(self.ledger()[0]["id"],
+                         ti.call_id("bash", {"command": "pytest  -q"}))
 
     def test_the_same_call_hashes_the_same_and_a_different_one_does_not(self):
         self.after("bash", {"command": "pytest -q"}, exit=0)
@@ -280,8 +287,9 @@ class OpenCodePlugin(TempHome):
         self.after("write", {"content": "x = 1", "filePath": "/tmp/x.py"})
         ids = [row["id"] for row in self.ledger()]
         self.assertEqual(ids[0], ids[1], ids)
-        want = hashlib.sha1(b'write {"content":"x = 1","filePath":"/tmp/x.py"}')
-        self.assertEqual(ids[0], want.hexdigest()[:12], ids)
+        self.assertEqual(
+            ids[0],
+            ti.call_id("write", {"content": "x = 1", "filePath": "/tmp/x.py"}))
 
     def test_result_size_is_recorded_when_the_host_carries_it(self):
         self.after("bash", {"command": "ls"}, result="a\nbb\n")

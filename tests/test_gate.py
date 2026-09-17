@@ -200,6 +200,81 @@ class Gate(TempHome):
     def test_skip_env_mention_in_a_read_passes(self):
         self.assertIsNone(self.decide("Bash", {"command": 'grep -rn "SKIP=" .'}))
 
+    # ---- loop guard: an identical call that already failed -----------------
+    def seed_failure(self, command, session_id, times=1, error=None):
+        """The rows a real PostToolUse hook writes after a failed call."""
+        for _ in range(times):
+            out, proc = run_json(
+                [support.PROBE_INTEGRITY],
+                {"fn": "note_tool", "session": session_id, "tool": "Bash",
+                 "input": {"command": command}, "failed": True, "error": error,
+                 "cwd": self.repo}, env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_an_identical_failed_call_is_denied_after_the_ceiling(self):
+        self.seed_failure("pytest -q", "loop", times=2)
+        reason = self.decide("Bash", {"command": "pytest -q"}, session_id="loop")
+        self.assertIsNotNone(reason)
+        self.assertIn("Loop guard", reason)
+        self.assertIn("attempt 3", reason)
+
+    def test_one_permanent_failure_spends_the_single_attempt(self):
+        # retrying a failure that cannot change identically is the loop rule's
+        # target, so one row is already the ceiling
+        self.seed_failure("pytest -q", "loop")
+        self.assertIsNotNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
+
+    def test_a_transient_failure_allows_the_second_attempt(self):
+        self.seed_failure("pytest -q", "loop", error="Command timed out after 2m")
+        self.assertIsNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
+        self.seed_failure("pytest -q", "loop", error="Command timed out after 2m")
+        reason = self.decide("Bash", {"command": "pytest -q"}, session_id="loop")
+        self.assertIsNotNone(reason)
+        self.assertIn("attempt 3", reason)
+        self.assertIn("transient", reason)
+
+    def test_a_changed_command_is_not_the_same_call(self):
+        # the id is the collapsed command: a retry the agent already fixed is a
+        # different action, not a repeat
+        self.seed_failure("pytest tests/a.py", "loop", times=2)
+        self.assertIsNone(self.decide("Bash", {"command": "pytest tests/b.py"},
+                                      session_id="loop"))
+
+    def test_a_prior_success_is_not_a_failure(self):
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": "loop", "tool": "Bash",
+                  "input": {"command": "pytest -q"}, "failed": False,
+                  "cwd": self.repo}, env=self.envv)
+        self.assertIsNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
+
+    def test_loop_guard_respects_verify_off(self):
+        self.seed_failure("pytest -q", "loop", times=2)
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.assertIsNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
+
+    # ---- ledger rows the gate writes ---------------------------------------
+    def test_a_denial_records_the_call_identity_and_the_workspace(self):
+        # the PreToolUse writer carries the same id and workspace a PostToolUse
+        # row does, so a refusal is attributable to an action, not to a rule
+        self.decide("Bash", {"command": "git commit -m x --no-verify"},
+                    session_id="rows")
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "events", "session": "rows"}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        row = out[-1]
+        self.assertEqual(row["kind"], "deny")
+        self.assertEqual(row["workspace"], self.roots)
+        self.assertEqual(len(row["id"]), 12)
+
+    def test_loop_guard_needs_a_session_ledger(self):
+        # an id with no prior row is not a repeat: a fresh session passes
+        self.assertIsNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="fresh"))
+
     # ---- kill switch -------------------------------------------------------
     def test_pretooluse_off_kills_denials(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "pretooluse-off"))

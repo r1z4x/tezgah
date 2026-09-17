@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The tool gate, shared by every host that can block a tool call.
 
-Two rules, both only inside a tezgah root:
+Rules, all only inside a tezgah root:
   1. a grep-only explorer subagent is refused, with the graph tools named as the
      replacement;
   2. the FIRST identifier-shaped search of a session (Grep tool, or grep/rg run
@@ -9,13 +9,16 @@ Two rules, both only inside a tezgah root:
      toward the graph once, then every later search passes.
   3. a git/gh command that writes an artifact carrying an AI/model credit
      (Co-Authored-By, "Generated with", a robot emoji, ...) is refused.
+  4. an identical call that already failed enough times in this session is
+     refused (hooks/tezgah_integrity.prior_calls), under the `verify-off` kill
+     switch the integrity rule shares.
 Adapters translate the returned reason into their own permission envelope.
 """
 import os
 import re
 
-from tezgah_integrity import (BASH_TOOLS, WRITE_TOOLS, note, shortcut_command,
-                             shortcut_edit)
+from tezgah_integrity import (BASH_TOOLS, WRITE_TOOLS, call_id, note,
+                              prior_calls, shortcut_command, shortcut_edit)
 from tezgah_paths import cache_dir, off, root_for
 
 DB_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codebase-memory-mcp")
@@ -144,10 +147,41 @@ def nudge_reason(slug):
             "session." % slug)
 
 
-def _deny(session_id, rule, reason):
+def loop_reason(tool, inp, session_id):
+    """A deny reason when this exact call already failed often enough, else None.
+
+    The ledger tail is the only state this reads: rows carrying the same id with
+    a newest exit of 1 have spent one attempt (two when that failure classified
+    as transient). Past that ceiling the identical retry cannot work - the agent
+    has to change the approach or stop, which is the contract's loop rule
+    ("never repeat an identical failing command") given a mechanical half.
+    A call that never failed, or that failed differently, is not this rule's."""
+    if not session_id:
+        return None
+    digest = call_id(tool, inp)
+    if not digest:
+        return None
+    attempts, last_exit, klass = prior_calls(session_id, digest)
+    if last_exit != 1 or attempts < (2 if klass == "transient" else 1):
+        return None
+    return ("Loop guard denied: this is attempt %d of an identical call whose "
+            "%d previous attempt%s exited 1%s. Repeating an identical failing "
+            "command is not a retry - change the approach (fix what the error "
+            "names, or run something else) or stop and report what is still "
+            "unknown." % (attempts + 1, attempts, "" if attempts == 1 else "s",
+                          " (a transient failure)" if klass == "transient"
+                          else ""))
+
+
+def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None):
     """Record a refusal before returning it: a deny nobody counts is a rule
-    whose effect can never be argued about (hooks/tezgah_integrity.counters)."""
-    note(session_id, "deny", "%s: %s" % (rule, str(reason)[:80]))
+    whose effect can never be argued about (hooks/tezgah_integrity.counters).
+
+    The row carries the refused call's id and workspace, so the ledger says
+    which action was stopped and where - the same two facts a PostToolUse row
+    carries."""
+    note(session_id, "deny", "%s: %s" % (rule, str(reason)[:80]),
+         id=call_id(tool, inp), workspace=workspace)
     return reason
 
 
@@ -161,7 +195,7 @@ def decision(tool, inp, cwd, session_id=None):
     t = str(tool or "").lower()
     sub = inp.get("subagent_type") or (inp.get("args") or {}).get("subagent_type")
     if t in ("agent", "task", "subagent") and explored(sub):
-        return _deny(session_id, "explorer", EXPLORE_DENY)
+        return _deny(session_id, "explorer", EXPLORE_DENY, tool, inp, base)
     # anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
     # failure disappears. This is the mechanical half of the integrity rule; the
     # reply-level half is the Stop hook in hooks/projects-stop.py (Claude),
@@ -173,18 +207,27 @@ def decision(tool, inp, cwd, session_id=None):
         if t in BASH_TOOLS:
             reason = shortcut_command(inp.get("command"))
             if reason:
-                return _deny(session_id, "shortcut", reason)
+                return _deny(session_id, "shortcut", reason, tool, inp, base)
         if t in WRITE_TOOLS:
             reason = shortcut_edit(inp)
             if reason:
-                return _deny(session_id, "shortcut", reason)
+                return _deny(session_id, "shortcut", reason, tool, inp, base)
     if t in BASH_TOOLS and attribution(inp.get("command")):
-        return _deny(session_id, "attribution", ATTRIB_DENY)
+        return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
     if t in WRITE_TOOLS and attribution_edit(inp):
-        return _deny(session_id, "attribution", ATTRIB_DENY)
+        return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
+    # Loop guard, under the same kill switch as the other integrity denials and
+    # after every argument-shaped rule: a call another rule would have refused
+    # has to be counted as that rule, not as a repeat. It reads the ledger tail,
+    # which is the only file I/O this path is allowed.
+    if not off("verify-off") and t in BASH_TOOLS + WRITE_TOOLS:
+        reason = loop_reason(tool, inp, session_id)
+        if reason:
+            return _deny(session_id, "loop", reason, tool, inp, base)
     if searched_identifier(tool, inp):
         slug = index_slug(cwd, base)
         if slug and first_nudge(session_id):
-            note(session_id, "nudge", slug)
+            note(session_id, "nudge", slug, id=call_id(tool, inp),
+                 workspace=base)
             return nudge_reason(slug)
     return None

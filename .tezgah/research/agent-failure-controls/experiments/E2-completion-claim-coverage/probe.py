@@ -85,11 +85,11 @@ def run_one(case, ledger):
     if ledger == "verified":
         integ.note(sid, "verify_ok", "pytest -q")
     done, verified = integ.claims(case["text"])
-    reason = None
-    if case["family"] in ("opener", "opener-control"):
-        reason = integ.stop_reason(case["text"], sid, None)
-    elif ledger == "unverified":
-        reason = integ.stop_reason(case["text"], sid, None)
+    # Call the rule in BOTH ledger states. The first version of this probe
+    # short-circuited the verified case and reported `refused=False` without
+    # asking the rule at all, so "a verified ledger refuses nothing" was an
+    # assumption dressed as a measurement until 2026-09-17 plan 012 found it.
+    reason = integ.stop_reason(case["text"], sid, None)
     row = dict(id=case["id"], family=case["family"], lang=case["lang"],
                expect=case["expect"], ledger=ledger,
                claims_completion=done, claims_verification=verified,

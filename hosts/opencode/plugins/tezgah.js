@@ -220,11 +220,12 @@ function stable(value) {
   return JSON.stringify(value === undefined ? null : value)
 }
 
-// The action's identity, frozen with the Python writer (hooks/tezgah_integrity)
-// so one call hashes the same on both halves: sha1(tool + " " + canonical)[:12].
-// Shell tools have one canonical argument - the command every other check in
-// this file reads, whitespace collapsed so a re-typed call is the same call;
-// everything else is the args object as compact key-sorted JSON.
+// The action's identity, frozen with the Python writer (hooks/tezgah_integrity
+// call_id) so one call hashes the same on both halves:
+// sha1(tool + " " + canonical)[:12]. Shell tools have one canonical argument -
+// the command every other check in this file reads, whitespace collapsed so a
+// re-typed call is the same call; everything else is the args object as compact
+// key-sorted JSON (Python: json.dumps(sort_keys=True, separators=(",", ":"))).
 function canonicalArgs(tool, args) {
   const t = String(tool || "").toLowerCase()
   if (BASH_TOOLS.has(t)) {

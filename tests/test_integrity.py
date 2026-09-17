@@ -3,15 +3,32 @@
 The pure detectors run in-process; the ledger and the two Claude hooks run in a
 subprocess with a throwaway HOME so the real cache is never touched.
 """
+import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 import support
 from support import TempHome, run_json
 
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
+
+
+class FailClass(unittest.TestCase):
+    """The error text a host reports, classified for the loop guard's ceiling."""
+
+    def test_error_text_maps_to_the_four_values(self):
+        for text, want in (("Command timed out after 2m", "transient"),
+                           ("connection reset by peer", "transient"),
+                           ("bash: foo: command not found", "permanent"),
+                           ("exit status 127", "permanent"),
+                           ("something odd happened", "unknown"),
+                           ("", None), (None, None)):
+            self.assertEqual(ti.fail_class(text), want, text)
 
 
 class ShortcutCommand(unittest.TestCase):
@@ -139,6 +156,78 @@ class ShortcutEdit(unittest.TestCase):
             new_string="def t():\n    pass"))
 
 
+class LedgerTail(unittest.TestCase):
+    """events(tail=...) and prior_calls read only the end of the ledger.
+
+    The gate runs them on every gated call while the file grows with the
+    session, so the whole file must stay unread; _path is patched so the real
+    cache is never touched."""
+
+    ROWS = 5000
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.path = os.path.join(self.dir, "s.jsonl")
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: self.path
+        with open(self.path, "w") as fh:
+            for i in range(self.ROWS):
+                fh.write(json.dumps({"kind": "run", "ts": i, "id": "a%d" % i,
+                                     "detail": "x" * 40}) + "\n")
+
+    def append(self, row):
+        with open(self.path, "a") as fh:
+            fh.write(json.dumps(row) + "\n")
+
+    def test_tail_returns_the_last_rows_oldest_first(self):
+        rows = ti.events("s", tail=2)
+        self.assertEqual([r["id"] for r in rows], ["a4998", "a4999"])
+
+    def test_tail_never_reads_the_whole_file(self):
+        read = []
+
+        class Counting:
+            def __init__(self, fh):
+                self.fh, self.n = fh, 0
+
+            def read(self, size=-1):
+                data = self.fh.read(size)
+                self.n += len(data)
+                return data
+
+            def __getattr__(self, name):
+                return getattr(self.fh, name)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return self.fh.__exit__(*exc)
+
+        def counting(path, *args, **kwargs):
+            fh = Counting(real_open(path, *args, **kwargs))
+            read.append(fh)
+            return fh
+
+        real_open = open
+        with mock.patch("builtins.open", counting):
+            rows = ti.events("s", tail=2)
+        self.assertEqual([r["id"] for r in rows], ["a4998", "a4999"])
+        size = os.path.getsize(self.path)
+        self.assertLess(sum(f.n for f in read), size // 10,
+                        "the tail read pulled in the whole file")
+
+    def test_prior_calls_count_matches_in_the_tail(self):
+        self.append({"kind": "run", "id": "dup", "exit": 0})
+        self.append({"kind": "run", "id": "dup", "exit": 1,
+                     "fail_class": "transient"})
+        self.append({"kind": "run", "id": "other", "exit": 1})
+        self.assertEqual(ti.prior_calls("s", "dup", tail=3), (2, 1, "transient"))
+        self.assertEqual(ti.prior_calls("s", "dup", tail=1), (0, None, None))
+        self.assertEqual(ti.prior_calls("s", "absent", tail=3), (0, None, None))
+
+
 class StopHook(TempHome):
     def setUp(self):
         super().setUp()
@@ -146,10 +235,23 @@ class StopHook(TempHome):
         self.envv = self.env()
         self.session = "s-stop"
 
-    def seed(self, tool, inp, failed=False):
-        run_json([support.PROBE_INTEGRITY],
-                 {"fn": "note_tool", "session": self.session, "tool": tool,
-                  "input": inp, "failed": failed}, env=self.envv)
+    def seed(self, tool, inp, failed=False, **extra):
+        payload = {"fn": "note_tool", "session": self.session, "tool": tool,
+                   "input": inp, "failed": failed}
+        payload.update(extra)
+        run_json([support.PROBE_INTEGRITY], payload, env=self.envv)
+
+    def counts(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "counters", "session": self.session},
+                          env=self.envv)
+        return out
+
+    def kinds(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "kinds", "session": self.session},
+                          env=self.envv)
+        return out
 
     def stop(self, text, **extra):
         payload = {"hook_event_name": "Stop", "cwd": self.repo,
@@ -209,6 +311,44 @@ class StopHook(TempHome):
     def test_plain_answer_passes(self):
         self.assertIsNone(self.stop("Toplam 5 dosya incelendi."))
 
+    def test_a_check_that_returned_nothing_is_not_support(self):
+        # exit 0 with an empty result is the silent-failure case: the check ran
+        # and reported nothing, which is not evidence that it passed
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"}, out_bytes=0)
+        out = self.stop("Done. All tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+
+    def test_a_piped_check_records_as_ran_not_passed(self):
+        # a pipe's status belongs to its last stage, so `pytest | tail` says
+        # nothing about pytest
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q | tail -1"})
+        self.assertEqual(self.kinds(), ["edit", "verify"])
+        out = self.stop("Done. All tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+
+    def test_a_blocked_stop_is_recorded_as_a_false_completion(self):
+        self.seed("Edit", {"file_path": "x.py"})
+        self.stop("Done. All tests pass.")
+        counts = self.counts()
+        self.assertEqual(counts["claims"], 1)
+        self.assertEqual(counts["false_completion"], 1)
+
+    def test_an_allowed_claim_is_recorded_too(self):
+        # without the allowed rows the false-completion rate has no denominator
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.assertIsNone(self.stop("Done. All tests pass."))
+        counts = self.counts()
+        self.assertEqual(counts["claims"], 1)
+        self.assertEqual(counts["false_completion"], 0)
+
+    def test_a_reply_without_a_claim_records_nothing(self):
+        self.seed("Edit", {"file_path": "x.py"})
+        self.assertIsNone(self.stop("Toplam 5 dosya incelendi."))
+        self.assertEqual(self.counts()["claims"], 0)
+
     def test_stop_hook_active_passes(self):
         self.seed("Bash", {"command": "ls"})
         self.assertIsNone(self.stop("Done.", stop_hook_active=True))
@@ -233,11 +373,12 @@ class PostToolUse(TempHome):
         self.envv = self.env()
         self.session = "s-ptu"
 
-    def run_hook(self, event, tool, inp):
-        out, proc = run_json([support.POSTTOOLUSE],
-                             {"hook_event_name": event, "cwd": self.repo,
-                              "session_id": self.session, "tool_name": tool,
-                              "tool_input": inp}, env=self.envv)
+    def run_hook(self, event, tool, inp, **extra):
+        payload = {"hook_event_name": event, "cwd": self.repo,
+                   "session_id": self.session, "tool_name": tool,
+                   "tool_input": inp}
+        payload.update(extra)
+        out, proc = run_json([support.POSTTOOLUSE], payload, env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
 
@@ -246,6 +387,69 @@ class PostToolUse(TempHome):
                           {"fn": "kinds", "session": self.session},
                           env=self.envv)
         return out
+
+    def rows(self, tail=None):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": self.session, "tail": tail},
+                          env=self.envv)
+        return out
+
+    def write_row(self, kind, detail):
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note", "session": self.session, "kind": kind,
+                  "detail": detail}, env=self.envv)
+
+    def test_the_same_call_gets_the_same_id(self):
+        # the digest is the collapsed command, so re-typing the spacing is the
+        # same action and a different command is not
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"})
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest  -q"})
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest tests/"})
+        first, second, third = self.rows()
+        self.assertEqual(first["id"], second["id"])
+        self.assertNotEqual(first["id"], third["id"])
+        self.assertEqual(len(first["id"]), 12)
+
+    def test_a_row_carries_the_outcome_the_result_size_and_the_workspace(self):
+        result = "11 passed in 0.2s"
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"},
+                      tool_response=result)
+        self.run_hook("PostToolUseFailure", "Bash", {"command": "pytest -q"},
+                      error="Command timed out after 2m")
+        ok, bad = self.rows()
+        self.assertEqual((ok["exit"], ok["out_bytes"], ok.get("fail_class")),
+                         (0, len(result), None))
+        self.assertEqual(ok["workspace"], self.roots)
+        self.assertEqual((bad["exit"], bad.get("out_bytes"), bad["fail_class"]),
+                         (1, None, "transient"))
+        self.assertNotIn("[exit=0]", ok["detail"])
+
+    def test_a_structured_result_is_measured_and_not_stored(self):
+        # most tools answer with an object; the ledger keeps its size and never
+        # the result itself
+        result = {"stdout": "x" * 10, "stderr": ""}
+        self.run_hook("PostToolUse", "Bash", {"command": "ls"},
+                      tool_response=result)
+        row = self.rows()[-1]
+        self.assertEqual(row["out_bytes"], len(json.dumps(result)))
+        self.assertNotIn("stdout", json.dumps(row))
+
+    def test_a_piped_check_is_recorded_as_ran(self):
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q | tail -1"})
+        self.assertEqual(self.kinds(), ["verify"])
+
+    def test_counters_report_the_trace_metrics(self):
+        # steps, the error rate over the rows whose outcome the host reported,
+        # the claims, and how many of them a stop refused
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"})
+        self.run_hook("PostToolUseFailure", "Bash", {"command": "ls"})
+        self.write_row("claim", "blocked: This turn claims done/tested/passing")
+        self.write_row("claim", "ok")
+        counts = self.counters()
+        self.assertEqual(counts["steps"], 4)
+        self.assertEqual(counts["tool_error_rate"], 0.5)
+        self.assertEqual(counts["claims"], 2)
+        self.assertEqual(counts["false_completion"], 1)
 
     def test_bash_check_records_verify_ok(self):
         self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"})

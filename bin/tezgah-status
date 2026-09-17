@@ -48,7 +48,8 @@ def main():
             print(json.dumps(counts, sort_keys=True))
             return 0
         print("session %s: %d events" % (session or "(none)", counts["events"]))
-        for key in ("denies", "nudges", "fanout", "consult", "codegen",
+        for key in ("steps", "tool_error_rate", "claims", "false_completion",
+                    "denies", "nudges", "fanout", "consult", "codegen",
                     "codegen_failed"):
             value = counts[key]
             if key == "denies":
