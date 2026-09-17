@@ -49,7 +49,7 @@
       "id": "H7",
       "statement": "An enforced control changes the outcome of the work only where the model's unprompted default violates it; on tasks the model solves anyway the arms cannot separate, so a null block is a statement about the task set.",
       "status": "supported",
-      "evidence": "experiments/E4-mechanical-off-effect/results.jsonl (e02, e03: 5/5 in every arm including bare)"
+      "evidence": "to_human/blocks/E4-mechanical-off-effect/results.jsonl (e02, e03: 5/5 in every arm including bare)"
     }
   ],
   "sessions": [

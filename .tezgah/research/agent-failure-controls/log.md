@@ -67,8 +67,15 @@ evidence that drove it.
   difference between the arms. Two of the three tasks were passed 5/5 by every
   arm including the bare anchor; the only task that moved did so by one run.
   All six failures were the same mistake with the same completion claim, spread
-  across the arms. Evidence: `experiments/E4-mechanical-off-effect/results.jsonl`,
+  across the arms. Evidence: `to_human/blocks/E4-mechanical-off-effect/results.jsonl`,
   `analysis.md`.
+- 2026-09-17 correction: the E4 block was filed under `to_human/blocks/`
+  (bd68a36) after its run, so every evidence pointer that still said
+  `experiments/E4-mechanical-off-effect/` was stale - `claims.jsonl` (C10,
+  C11), `state.json` (H7) and the log line above now name the real
+  location, and the block's own protocol keeps the pre-move command.
+  `tezgah-research check` grew the rule that found it: a claim's proof must
+  name a path this line has.
 - 2026-09-17 lesson: a task must be piloted for ARM-level separation (k=1 per
   arm) before a block is spent on it. `bench.py selftest` proves a task separates
   fixture from gold, which is a different property, and E4 paid for the

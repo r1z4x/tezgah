@@ -57,3 +57,8 @@ orx exp run 326eb400-9e41-4d11-a920-ebc98127fea4 --backend local
 python3 .tezgah/research/agent-failure-controls/experiments/E4-mechanical-off-effect/report.py \
   .tezgah/research/agent-failure-controls/experiments/E4-mechanical-off-effect
 ```
+
+The paths in that command are the ones the run used; the block was filed
+under `to_human/blocks/` afterwards (bd68a36), which is also where its
+results live. The command is kept as the record, not rewritten.
+
