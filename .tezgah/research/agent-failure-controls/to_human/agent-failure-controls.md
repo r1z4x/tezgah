@@ -89,6 +89,7 @@ section 4 is made of.
 | E1 gate coverage | 7/7 write-time controls refused, 0/12 trajectory-time cases refused; no mismatches | `experiments/E1-write-path-coverage/results.jsonl` |
 | E2 Stop rule | explicit completion claims 8/10 refused, implicit state descriptions 0/10, verified ledger 0/20, placating openers 5/5 with 0/2 mid-sentence controls refused | `experiments/E2-completion-claim-coverage/results.jsonl` |
 | E3 injection | `session_start` 6,716 B (98 lines, ~1,679 tokens by the repo's 4:1 convention); one conditional rule adds 414-766 B; a plain prompt arms none; the lessons block is byte-identical at 200 and 400 ledger lines | `experiments/E3-context-budget/results.jsonl`, `results-exploratory.jsonl` |
+| E4 effect (block) | 60 runs, four arms, k=5: full 13/15, Stop+shortcut off 14/15, whole gate off 13/15, no harness 14/15 - every Wilson interval overlaps and the largest gap is one run, in the direction opposite to the hypothesis. Two of three tasks were passed 5/5 by every arm; all six failures were the same one-line mistake with a completion claim, spread across the arms | `to_human/blocks/E4-mechanical-off-effect/results.jsonl`, `analysis.md` |
 
 Two readings follow directly, and the sections build on them:
 
@@ -1457,6 +1458,7 @@ orx paper 2608.23623
 | group sections as standalone sources | `to_human/sections/A-..G-.md` |
 | the independent review | `to_human/review.md` |
 | protocols, raw results, analysis | `experiments/E1-*/`, `E2-*/`, `E3-*/` |
+| the effect block (run record, no pre-committed protocol) | `to_human/blocks/E4-mechanical-off-effect/` |
 | literature notes and index | `literature/*.md`, `literature/INDEX.md` |
 | claims with falsifiers | `claims.jsonl` |
 | decision timeline | `log.md` |

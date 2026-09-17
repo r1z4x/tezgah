@@ -1,5 +1,13 @@
 # E4 protocol - note on pre-registration
 
+**This block lives under `to_human/blocks/` rather than `experiments/`, and that
+placement is the record.** `tezgah-research check` requires every directory under
+`experiments/` to carry a `protocol.md` committed before its `results.jsonl`.
+This block has no such protocol: the run was registered as an orx node (question,
+arms, task set, repeat count, endpoints - all in commit `0ee1036` and the node
+description), but the file below was written afterwards. Rather than commit it
+first to satisfy the checker, it is filed here as a run record.
+
 **This file was written after the run.** It is committed together with the
 results in one commit, and it exists so a reader can see exactly what was
 registered before the run and what was not. It is not a prediction made in
