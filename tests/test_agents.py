@@ -117,10 +117,12 @@ class Generation(AgentsBase):
         self.assertIn('sandbox_mode = "read-only"', ex)
         self.assertNotIn("ToolSearch(", ex)
 
-    def test_idempotent_second_run_writes_nothing(self):
+    def test_idempotent_second_run_writes_nothing_and_says_nothing(self):
         self.sync()
         before = self.read(CLAUDE, "tezgah-explorer.md")
-        self.assertIn("current", self.sync())
+        # no "N agent(s) current" line: a steady-state session must not be told
+        # about tezgah's own files in this repo
+        self.assertIsNone(self.sync())
         self.assertEqual(self.read(CLAUDE, "tezgah-explorer.md"), before)
 
     def test_agent_bodies_use_absolute_cli_paths(self):
@@ -157,29 +159,54 @@ class OpencodeConfig(AgentsBase):
         return os.path.join(self.home, "nope")
 
 
-class Gitignore(AgentsBase):
-    """Generated agent dirs are machine-specific, so they are ignored via one
-    managed block that survives a re-run and is stripped on uninstall."""
+class Exclude(AgentsBase):
+    """Generated agent dirs are machine-specific, so they are ignored through the
+    clone's own `info/exclude`: a session must hand the repo back with nothing
+    modified, and `.gitignore` is tracked, so it is never written."""
+
+    def setUp(self):
+        super().setUp()
+        subprocess.run(["git", "init", "-q", self.repo], check=True,
+                       capture_output=True)
 
     def gi(self):
-        with open(os.path.join(self.repo, ".gitignore")) as fh:
+        path = os.path.join(self.repo, ".gitignore")
+        if not os.path.exists(path):
+            return None
+        with open(path) as fh:
             return fh.read()
 
-    def test_block_added_and_appended_to_existing_content(self):
+    def ex(self):
+        with open(os.path.join(self.repo, ".git", "info", "exclude")) as fh:
+            return fh.read()
+
+    def status(self):
+        return subprocess.run(["git", "-C", self.repo, "status", "--porcelain"],
+                              capture_output=True, text=True).stdout
+
+    def test_a_tracked_gitignore_comes_back_untouched(self):
+        # the reported defect: a repo unrelated to tezgah was left dirty with
+        # ` M .gitignore` after a session start
         with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
             fh.write("node_modules/\n")
         self.sync()
-        text = self.gi()
-        self.assertIn("node_modules/", text)
-        self.assertIn("/.claude/agents/", text)
-        self.assertIn("/.opencode/agents/", text)
-        self.assertIn("/.codex/agents/", text)
+        self.assertEqual(self.gi(), "node_modules/\n")
+
+    def test_generated_files_are_not_untracked_noise(self):
+        self.sync()
+        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        status = self.status()
+        for noise in (".claude", ".codex", ".opencode", ".gitignore"):
+            self.assertNotIn(noise, status, status)
+        text = self.ex()
+        for d in ("/.claude/agents/", "/.opencode/agents/", "/.codex/agents/"):
+            self.assertIn(d, text)
 
     def test_block_is_idempotent(self):
         self.sync()
-        once = self.gi()
+        once = self.ex()
         self.sync()
-        self.assertEqual(self.gi(), once)
+        self.assertEqual(self.ex(), once)
         self.assertEqual(once.count("# tezgah: generated agents"), 1)
 
     def test_block_unions_and_never_drops_a_dir(self):
@@ -188,43 +215,70 @@ class Gitignore(AgentsBase):
         self.sync()
         self.config({"hosts": ["opencode"]})
         self.sync()
-        text = self.gi()
+        text = self.ex()
         for d in ("/.claude/agents/", "/.opencode/agents/", "/.codex/agents/"):
             self.assertIn(d, text)
 
     def test_a_block_that_sits_mid_file_stays_where_it_is(self):
-        # this repo's committed .gitignore has the block before other entries;
-        # rebuilding the file around it moved it to the end and dirtied the tree
-        # on the first session start of a fresh checkout
-        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
-            fh.write("node_modules/\n\n"
+        # rebuilding the file around the block used to move it to the end and
+        # dirty the tree with a pure move
+        path = os.path.join(self.repo, ".git", "info", "exclude")
+        with open(path, "w") as fh:
+            fh.write("*.orig\n\n"
                      "# tezgah: generated agents (managed; removed by "
                      "tezgah-setup --uninstall)\n"
                      "/.claude/agents/\n"
                      "# tezgah: end generated agents\n\n"
                      "dist/\n")
         self.sync()
-        text = self.gi()
+        text = self.ex()
         self.assertLess(text.index("# tezgah: end generated agents"),
                         text.index("dist/"))
-        once = self.gi()
+        self.assertIn("*.orig", text)
+        once = self.ex()
         self.sync()
-        self.assertEqual(self.gi(), once)
+        self.assertEqual(self.ex(), once)
 
-    def test_cleanup_strips_block_but_keeps_user_content(self):
-        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
-            fh.write("node_modules/\n")
+    def test_cleanup_strips_the_block_but_keeps_every_other_line(self):
+        path = os.path.join(self.repo, ".git", "info", "exclude")
+        with open(path, "a") as fh:
+            fh.write("*.orig\n")
         self.sync()
         out, proc = run_json([support.PROBE_AGENTS], {"fn": "cleanup"},
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertGreater(out, 0)
+        text = self.ex()
+        self.assertIn("*.orig", text)
+        self.assertNotIn("# tezgah: generated agents", text)
+
+    def test_cleanup_still_clears_a_gitignore_an_older_install_edited(self):
+        # installs before this change recorded the repo's .gitignore; --uninstall
+        # must still take tezgah's block out of it
+        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
+            fh.write("node_modules/\n")
+        self.sync()
+        state = os.path.join(self.home, ".config", "tezgah", "agents.state.json")
+        with open(state) as fh:
+            data = json.load(fh)
+        for paths in data.values():
+            paths.append(os.path.join(self.repo, ".gitignore"))
+        with open(state, "w") as fh:
+            json.dump(data, fh)
+        with open(os.path.join(self.repo, ".gitignore"), "a") as fh:
+            fh.write("\n# tezgah: generated agents (managed; removed by "
+                     "tezgah-setup --uninstall)\n/.claude/agents/\n"
+                     "# tezgah: end generated agents\n")
+        run_json([support.PROBE_AGENTS], {"fn": "cleanup"}, env=self.env())
         self.assertEqual(self.gi(), "node_modules/\n")
 
-    def test_cleanup_removes_a_gitignore_it_created_alone(self):
+    def test_no_exclude_outside_a_git_repo(self):
+        shutil.rmtree(os.path.join(self.repo, ".git"))
+        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
+            fh.write("node_modules/\n")
         self.sync()
-        run_json([support.PROBE_AGENTS], {"fn": "cleanup"}, env=self.env())
-        self.assertFalse(os.path.exists(os.path.join(self.repo, ".gitignore")))
+        self.assertEqual(self.gi(), "node_modules/\n")
+        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
 
 
 class OpencodePlugin(AgentsBase):
