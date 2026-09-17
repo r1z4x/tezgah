@@ -19,6 +19,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   research rule, the `research` skill and the generated `tezgah-researcher` agent
   all point at it, so a research line reaches the domain knowledge on all six
   hosts rather than only where an external clone happened to be installed.
+- **Two opencode wiring gaps the first live host turn exposed.** The generated
+  router now names tezgah's own on-demand skills in the always-on section
+  (`research (tezgah's own)`), because a library a session is never told about is
+  one it answers from memory instead: on a research prompt `opencode run` globbed
+  the project, found nothing, and reported estimates. And the installer grants
+  `external_directory` read for the two directories tezgah installs
+  (`<checkout>/skills/**` and `~/.config/tezgah/bin/**`) - a skill body and
+  tezgah's own CLIs live outside the session's project, and opencode auto-rejects
+  a permission prompt nobody can answer in a non-interactive run (the same turn's
+  attempt to open `skills/ai-research/` was denied). A user's explicit global
+  `external_directory` action is left alone, and `--uninstall` removes the grants.
 - `tezgah-research check` refuses a claim whose proof names a path the line does
   not have - the fabricated-evidence failure - and the `research` skill gains the
   1-5 review anchors with their grade mapping, the claim-type/evidence table, the

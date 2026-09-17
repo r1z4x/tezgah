@@ -142,6 +142,36 @@ class Install(SetupBase):
         cur = self.read_json(self.path(".cursor", "cli-config.json"))
         self.assertIn("tezgah-statusline", cur["statusLine"]["command"])
 
+    def test_opencode_grants_reads_of_tezgahs_own_directories(self):
+        """A skill body and tezgah's CLIs sit outside the session's project, and
+        opencode auto-rejects an out-of-project read when nobody can answer the
+        prompt - measured on a live `opencode run`, which tried to open
+        `skills/ai-research/` and was denied. The two directories tezgah installs
+        are granted, and an explicit global choice is left alone."""
+        self.setup("--install", "--hosts", "opencode")
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        external = oc["permission"]["external_directory"]
+        self.assertEqual(
+            sorted(external),
+            sorted([os.path.join(REPO, "skills", "**"),
+                    os.path.join(self.path(".config", "tezgah", "bin"), "**")]))
+        self.assertEqual(sorted(external.values()), ["allow", "allow"])
+        self.assertEqual(oc["permission"]["skill"], "deny")
+
+        self.write_json(self.path(".config", "opencode", "opencode.json"),
+                        {"$schema": "https://opencode.ai/config.json",
+                         "permission": {"external_directory": "ask"}})
+        self.setup("--install", "--hosts", "opencode")
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertEqual(oc["permission"]["external_directory"], "ask")
+
+    def test_opencode_grants_are_removed_by_uninstall(self):
+        self.setup("--install", "--hosts", "opencode")
+        self.setup("--uninstall", "--hosts", "opencode")
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertNotIn("external_directory", oc.get("permission") or {})
+        self.assertNotIn("permission", oc)
+
     def test_reinstall_is_idempotent(self):
         self.setup("--install", "--hosts", ALL)
         self.setup("--install", "--hosts", ALL)

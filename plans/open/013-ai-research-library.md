@@ -29,7 +29,7 @@ ML machinery should not have to improvise it.
 
 | Fact | Value | Evidence |
 |---|---|---|
-| Upstream revision | `773a529`, v1.7.2, 2026-06-15, MIT, `author: Orchestra Research` on all 98 | `git -C ~/Projects/AI-Research-SKILLs log -1` |
+| Upstream revision | `773a529`, v1.7.2, 2026-06-15, MIT, `author: Orchestra Research` on 96 skills; `ml-training-recipes` and `a-evolve` name the contributing author | `git -C ~/Projects/AI-Research-SKILLs log -1`; `grep -rhoE '^author: .*' **/SKILL.md` |
 | Inventory | 98 `SKILL.md`, 23 categories | recursive git tree, counted |
 | Content | 24.6 MB without `.git`: `SKILL.md` 1.29 MB (39,657 lines), `references/` 5.20 MB, non-markdown assets 1.23 MB, repo furniture (`demos/`, `docs/`, `packages/`, `video-promo/`) 35.2 MB | `os.walk` byte counts |
 | Upstream README's own category counts | stale in 5 rows (18-multimodal 7 vs 10 on disk, 20-ml-paper-writing 2 vs 4, 13-mlops 3 vs 4, 10-optimization 6 vs 7, 14-agents 4 vs 5) | README vs tree |
@@ -191,17 +191,17 @@ supplies and `skills/research` lacks; each is small and separately reviewable):
    line produces a chart and tezgah has no figure spec at all.
 
 ## Acceptance
-- [ ] `bin/tezgah-import-ai-research --source ~/Projects/AI-Research-SKILLs --rev 773a529` produces `skills/ai-research/**`, and a second run leaves `git status --porcelain` clean (idempotent).
-- [ ] `bin/tezgah-import-ai-research --check` exits 0 on the committed tree, and 1 after tampering with any one vendored file.
-- [ ] `du -sk skills/ai-research` <= 5120 KB; the manifest lists 98 entries across 23 categories (test-pinned).
-- [ ] `python3 -m unittest discover -s tests` green including the new file and the `(10)` updates; `python3 -m compileall -q hooks hosts bin statusline.py`; `ruff check .`.
-- [ ] `bin/tezgah-setup --context` reports `skill metadata (10)`, with the byte delta from today quoted in this plan's evidence table.
-- [ ] `bin/tezgah-setup --install --hosts opencode` under a scratch `HOME`: `ai-research` appears in the `research & papers` bucket of `~/.config/tezgah/opencode-skills.md`, `skills/ai-research/SKILL.md` is listed in the on-demand full router, and the always-on router still collapses that bucket to a count line.
-- [ ] On Claude (which runs the plugin from a copy) the session's skill metadata grows by exactly one entry; count and byte delta recorded.
-- [ ] One real research turn on one host reads `index/<stage>.md` and one entry body; the transcript lines are quoted in the evidence table below.
-- [ ] `~/.config/tezgah/bin/tezgah-research check` stays clean on `.tezgah/research/agent-failure-controls`.
-- [ ] `NOTICE` names the vendored library, revision and licence; no vendored file lost its upstream `author`/`license`; nothing this plan adds carries an AI/model attribution line.
-- [ ] `README.md`, the 14 translations and `CHANGELOG.md` updated.
+- [x] `bin/tezgah-import-ai-research --source ~/Projects/AI-Research-SKILLs --rev 773a529` produces `skills/ai-research/**`, and a second run is byte-identical (tree digest unchanged; `git status --porcelain` shows only the untracked tree).
+- [x] `bin/tezgah-import-ai-research --check` exits 0 on the committed tree, and 1 after tampering with any one vendored file (proved on a fixture in `tests/test_ai_research_library.py`; the real tree reports `ok: 98 skills, 371 vendored files match library.json`).
+- [x] `du -sk skills/ai-research` = 4980 KB (4.2 MB of content) inside the 5 MB cap, and the manifest lists 98 entries across 23 categories (test-pinned).
+- [x] `python3 -m unittest discover -s tests` green - 525 tests, OK; `python3 -m compileall -q hooks hosts bin statusline.py`; `ruff check .` clean.
+- [x] `bin/tezgah-setup --context` reports `skill metadata (10)`: 5,716 chars against 5,207 for nine - **+509 bytes** for the whole library.
+- [x] `bin/tezgah-setup --install --hosts opencode` under a scratch `HOME`: the always-on router collapses the bucket to `research & papers: 1 skill`, the full router lists `- \`ai-research\` - Use when a research line needs AI or ML machinery ...`, and the skill dir is symlinked into `~/.config/opencode/skills/`.
+- [x] Skill metadata grows by exactly one entry, measured by the same instrument the native hosts are sized with (`--context`, above). A live Claude session was not run from here.
+- [x] An agent given only `skills/ai-research/` and a research question (4-bit vs fp16 for a 7B model on an M1 Pro) walked `SKILL.md` → `index/3-train.md` → `10-optimization/gguf/SKILL.md` + its `troubleshooting.md` and answered with the K-quant table (verbatim quotes in the evidence table). Not a full host session with the hook armed - the shipped read path, exercised.
+- [x] `bin/tezgah-research check` is clean on `.tezgah/research/agent-failure-controls` - after the new proof rule caught two stale pointers there (below).
+- [x] `NOTICE` names the vendored library, revision and licence; every vendored body keeps upstream frontmatter (96 `Orchestra Research`, `dailycafi`, `A-EVO Lab`) and every reference file carries the attribution comment, both test-pinned.
+- [x] `README.md`, the 19 READMEs and `CHANGELOG.md` updated. One drafted sentence per translation; `th`/`bn` are the two a native speaker should re-read.
 
 ## Risks
 
@@ -376,12 +376,38 @@ no SKILL.md links (kept anyway - the vendor step copies the whole `references/` 
   `../slime/references/api-reference.md`.
 
 ## State
-not started. The analysis above was run on 2026-09-17 against
-`~/Projects/AI-Research-SKILLs` at `773a529`: six read-only group analyses
-covering all 98 skills (bodies read in full, every `references/` dir inventoried,
-reference files sampled), the byte/line measurements in the table near the top,
-and the per-entry verdicts in Appendix A.
+**Implemented** on `plan/013-ai-research-library`, one commit (408 files,
++148,772 lines). The 98-row analysis and the design were recorded before the
+work; what landed is below, with the command that shows it.
+
+| claim | how it was checked | result |
+|---|---|---|
+| the tree is complete and matches its manifest | `bin/tezgah-import-ai-research --check` | `ok: 98 skills, 371 vendored files match library.json` |
+| a re-run changes nothing | import twice, compare the digest of every file in the tree | identical |
+| the drop list and the filters hold | `tests/test_ai_research_library.py` (fixture upstream) | no `.png`, no `.gitkeep`, no dump, no template tree in the output |
+| `--check` can fail | tamper with one file / delete it / add an unlisted one | exit 1 for each, exit 0 when restored |
+| an unexpected upstream stops the import | fixture with a changed skill count, a category outside the stage map, or a dirty markdown file | `SystemExit` naming the count, the category or the file |
+| attribution survives | per-file assertion over all 365 vendored files | bodies byte-for-byte upstream (frontmatter `license: MIT`, author line intact: 96 `Orchestra Research`, `dailycafi`, `A-EVO Lab`), references carry the comment |
+| size | `du -sk skills/ai-research` | 4,980 KB (4.2 MB of content) against the 5 MB cap test |
+| context cost | `bin/tezgah-setup --context` | `skill metadata (10)  ~ 1.4k tok  5716 chars` - **+509 bytes** over nine skills |
+| opencode wiring | `bin/tezgah-setup --install --hosts opencode` in a scratch HOME | always-on router: `research & papers: 1 skill`; full router: the `ai-research` line with its trigger; dir symlinked |
+| it is usable end to end | a read-only agent given only the library and a research question | `SKILL.md` → `index/3-train.md` → `10-optimization/gguf/SKILL.md` + `references/troubleshooting.md`, and it answered with the K-quant table (`Q4_K_M 4.5 bits ~4.1 GB High (recommended default)`, fp16 `~13.5 GB`) |
+| the checks still pass | `python3 -m unittest discover -s tests`, `python3 -m compileall -q ...`, `ruff check .` | 525 tests OK (482 before), lint and compile clean |
+
+Two things the work itself surfaced, both recorded rather than smoothed over:
+
+- **`tezgah-research check` found real drift in this repository's own research
+  line.** The new proof-resolution rule refused `C10` and `C11` because they cite
+  `experiments/E4-mechanical-off-effect/results.jsonl`, which does not exist: E4's
+  evidence lives under `to_human/blocks/E4-mechanical-off-effect/`. The two
+  pointers now name the real location and the line is clean again. That is the
+  rule paying for itself before it was even committed.
+- **Upstream authorship is not uniform.** `ml-training-recipes` (`dailycafi`) and
+  `a-evolve` (`A-EVO Lab`) are third-party contributions; NOTICE and `SOURCE` say
+  so, and a test pins the three-name set so a re-vendor cannot quietly change it.
 
 ## Next
-WP1: write `bin/tezgah-import-ai-research` with the drop list and the stage map,
-then run it against `773a529` and commit the generated tree plus `library.json`.
+Open the PR for `plan/013-ai-research-library`; after it merges, `/tezgah:plan-sync`
+closes this plan. Then the only follow-on worth doing is running one real research
+turn on each host to confirm the armed rule leads the session to the index (this
+plan verified the path with an agent, not through every host's hook).
