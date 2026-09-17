@@ -1,7 +1,7 @@
 ---
 id: 014
 title: Record a claim under a lock, not by hand
-status: open
+status: done
 branch: plan/014-claim-append-lock
 pr:
 created: 2026-09-17
@@ -94,3 +94,6 @@ Merge. Open and deliberately not taken here: `SITED` does not extract a bare
 filename, so a claim whose `proof` cites one is never resolved (found by the
 enforcement audit, which also confirmed the checker cannot see a note's evidence
 class or its content).
+
+merged to main as `0e2dd1d` on 2026-09-17; the independent review and the two
+documentation corrections are in the commits it brings.
