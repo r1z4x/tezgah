@@ -1266,7 +1266,6 @@ which records 38 fetched in the main retrieval loop and those two plus
 reported, not hidden.
 
 ## Group G — The ten priority controls (source: `sections/G-priority-controls.md`)
-### G. Priority controls (1-10)
 
 ### 1. Immutable per-work identity (task/operation/workspace/target) — `Her iş için immutable taskId, operationId, workspaceId, targetId kullanın.`
 - **Today**: absent — tezgah has no run or action id today. The evidence ledger line carries only `{"kind", "ts", "detail"}` (hooks/tezgah_integrity.py:121-122); the only identity in the harness is a session slug (`_slug`, hooks/tezgah_integrity.py:105-106) used as a filename (hooks/tezgah_integrity.py:109-110). Check run: `grep -rn 'operation_?id|op_?id|workspace_?id|target_?id|action_?id|task_?id'` over the repo returns `task_ids()`/`task_id` in the benchmark (benchmarks/arm-bench/bench.py:43,50,264,265,280,348,359; benchmarks/arm-bench/pilot.py:68) and one `taskId` in a literature note (literature/2609.14744.md:1338) — the benchmark hits name fixture directories and run directories, not a per-action id.
