@@ -77,7 +77,7 @@ skills that cross-reference by relative path (`miles` →
 | `hooks/tezgah_agents.py` `_researcher_body` | one sentence pointing the fallback researcher at the same path |
 | `skills/research/SKILL.md` | new section `## Domain execution (the shipped library)` |
 | `NOTICE` | new entry: vendored (not adapted), revision, MIT, per-file attribution |
-| `README.md` + 14 translations | the research bullet gains the library; no new CLI row, no new kill-switch row |
+| `README.md` + the translations | the research bullet gains the library; no new CLI row, no new kill-switch row. The switcher now lists six languages plus Turkish: English, 简体中文, Deutsch, Español, Français, 日本語, Português (Brasil), Türkçe - the other eleven READMEs were reduced away by a later commit on this branch |
 | `CHANGELOG.md` | `### Added` under Unreleased |
 
 **No new kill switch.** The library is only reachable through the research flow,
@@ -201,7 +201,7 @@ supplies and `skills/research` lacks; each is small and separately reviewable):
 - [x] **A real host ran it.** `opencode run` in an isolated `HOME` with this branch installed, on a research prompt: it read `skills/research/SKILL.md`, then `skills/ai-research/index/3-train.md` and `4-measure.md`, then `10-optimization/bitsandbytes/SKILL.md` with its `references/quantization-formats.md`, and answered with the vendored numbers (45.9% → 45.2% MMLU, perplexity 5.12 → 5.18, 14 GB → 3.5 GB), naming the file it read, with zero permission rejections. The first attempt failed in two ways that are now fixed (below).
 - [x] `bin/tezgah-research check` is clean on `.tezgah/research/agent-failure-controls` - after the new proof rule caught stale pointers there (below).
 - [x] `NOTICE` names the vendored library, revision and licence; every vendored body keeps upstream frontmatter (96 `Orchestra Research`, `dailycafi`, `A-EVO Lab`) and every reference file carries the attribution comment, both test-pinned.
-- [x] `README.md`, the 19 READMEs and `CHANGELOG.md` updated. Each translation's added line uses that file's own term for "skill" (the Thai line said สกิล where the file says ทักษะ, and was corrected); no native proofread was performed.
+- [x] `README.md`, the translations (reduced to six languages plus Turkish, seven files) and `CHANGELOG.md` updated. The line each translation carries about the library was re-read by an independent model through `consult --online`: French, Spanish, Italian and Brazilian Portuguese dropped their unnatural "vendored" loan word and Chinese its inline English term (the Italian and Thai files were later reduced away with the rest). The review covered all 18 before the reduction; Gemini answered off-topic on both packets, which is recorded rather than hidden.
 
 ## Risks
 
@@ -397,6 +397,18 @@ work; what landed is below, with the command that shows it.
 | every evidence pointer resolves | a sweep of `experiments/`, `to_human/blocks/` and `literature/` paths in the line, not just the two the check named | four stale pointers (claims ×2, `state.json` H7, the E4 log line) all corrected; the block's protocol annotated, not rewritten; the move recorded in `log.md` |
 | the checks still pass | `python3 -m unittest discover -s tests`, `python3 -m compileall -q ...`, `ruff check .` | 527 tests OK (482 before), lint and compile clean |
 
+### Live turns, host by host
+
+| host | result |
+|---|---|
+| opencode | ✅ read `skills/research/SKILL.md` → `ai-research/index/3-train.md` + `4-measure.md` → `bitsandbytes/SKILL.md` + `references/quantization-formats.md`, answered the vendored numbers (45.9% → 45.2% MMLU, 5.12 → 5.18 perplexity, 14 GB → 3.5 GB), 0 permission rejections - after the two fixes below |
+| codex | ✅ read `ai-research/index/3-train.md` → `gguf/SKILL.md` → `references/troubleshooting.md` through the host's own symlinked skill dir, answered the K-quant table with line references, and flagged that the sizes are library figures rather than M1 Pro measurements |
+| omp | ✅ (on the second attempt) loaded the skill through its native `skill://ai-research/10-optimization/gguf/SKILL.md` and answered; the first clean attempt was blocked by the OpenRouter credit wall, not by tezgah |
+| claude | ❌ not authenticated in a non-interactive run (`Not logged in · Please run /login`); the plugin's own SessionStart hooks did load and exit 0 |
+| cursor | ❌ `cursor-agent -p` needs an interactive sign-in (`Press any key to sign in...`); its skill dir was linked correctly |
+
+**How to run a clean live turn** (the recipe that made the omp rerun work, for whoever checks the two hosts above): a scratch `HOME`, the host's own auth file symlinked in (opencode `~/.local/share/opencode/auth.json`, codex `~/.codex/auth.json`, cursor `~/.cursor/cli-config.json`), `bin/tezgah-setup --install --hosts <host>`, a scratch git repo inside `$HOME/Projects` so tezgah is armed, then the host's print mode on the research prompt. omp needs one extra flag after the OpenRouter key ran down to ~64.9k affordable tokens: `--config <overlay.yml>` with `modelRoles.default: deepseek/deepseek-chat`, because its default request asks for 65,536 output tokens and a 402 is what you get instead. Copying the real `~/.omp/agent` wholesale also drags the user's session DB in, which is why the first omp attempt answered a conversation that was already open.
+
 Four things the work itself surfaced, all recorded rather than smoothed over:
 
 - **`tezgah-research check` found real drift in this repository's own research
@@ -424,8 +436,9 @@ Four things the work itself surfaced, all recorded rather than smoothed over:
   used. No native proofread was performed.
 
 ## Next
-Open the PR for `plan/013-ai-research-library`; after it merges, `/tezgah:plan-sync`
-closes this plan. The live turn was run on opencode, the host whose skill
-discovery is the most fragile (generated router + `permission.skill = deny`);
-Claude, Codex, Cursor and omp receive the skill as native metadata and were not
-run live - if one of them is to be checked, that is the follow-on.
+PR [#21](https://github.com/r1z4x/tezgah/pull/21) is open for
+`plan/013-ai-research-library`; after it merges, `/tezgah:plan-sync` closes this
+plan. Two host checks remain, both blocked by the host's own auth rather than by
+tezgah - Claude's `-p` mode wants an interactive login (`Not logged in · Please
+run /login`) and `cursor-agent -p` wants a sign-in - and the live-turn recipe
+above is what makes either one a ten-minute repeat.
