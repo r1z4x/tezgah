@@ -91,7 +91,16 @@ def writable_dir(path):
     writable state dir instead of failing on the first write."""
     try:
         os.makedirs(path, exist_ok=True)
-        probe = os.path.join(path, ".tezgah-write-probe")
+        # The probe name is unique per call (pid + random). A fixed name made two
+        # concurrent probes share one file: the sibling's remove deleted it under
+        # the first probe, whose remove then failed and read the dir as
+        # unwritable - which sent that session's whole ledger to the temp
+        # fallback. Unique names leave no shared state, so every OSError here is
+        # a real denial. (O_CREAT|O_EXCL would still need a unique name to tell
+        # "a sibling holds the probe" from "the dir is not writable"; with one,
+        # EEXIST cannot arise and no errno needs special-casing.)
+        probe = os.path.join(path, ".tezgah-write-probe-%d-%s"
+                             % (os.getpid(), os.urandom(6).hex()))
         with open(probe, "w") as fh:
             fh.write("")
         os.remove(probe)
@@ -100,16 +109,35 @@ def writable_dir(path):
         return False
 
 
+# The dir cache_dir() resolved, and the pair of candidate paths it resolved.
+# A session that starts resolved to the temp fallback and a later probe that
+# succeeds must not move its state: the ledger, the session store and the nudge
+# marks are all keyed on this answer, so a change mid-session splits one
+# session's evidence across two files. Keyed on the candidates so a caller that
+# repoints CACHE (tests) still gets a fresh answer.
+_CHOSEN_FOR = None
+_CHOSEN_DIR = None
+
+
 def cache_dir():
     """A writable tezgah state dir: the global cache, else the temp fallback.
 
     The global cache is preferred so state persists across sessions; sandboxed
     hosts (dsh workspace-write) fall back to temp rather than dropping the
-    nudge/gate state on the floor."""
-    for d in (CACHE, FALLBACK_CACHE):
-        if writable_dir(d):
-            return d
-    return CACHE
+    nudge/gate state on the floor.
+
+    Memoised: the answer is fixed for the life of the process once the candidates
+    are fixed, so every writer and reader in one session agrees on one dir. A
+    later probe that fails does not move a session's state to the other file."""
+    global _CHOSEN_FOR, _CHOSEN_DIR
+    candidates = (CACHE, FALLBACK_CACHE)
+    if _CHOSEN_FOR == candidates:
+        return _CHOSEN_DIR
+    chosen = next((d for d in candidates if writable_dir(d)), CACHE)
+    # dir before key, so a concurrent caller reads either both old (it computes
+    # the same answer) or both new; never a stored-nowhere None
+    _CHOSEN_DIR, _CHOSEN_FOR = chosen, candidates
+    return chosen
 
 
 def ai_research_dir():
