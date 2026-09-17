@@ -159,8 +159,16 @@ SITED = re.compile(
 
 
 def _cited(proof):
-    """The path-like tokens in a claim's free-text proof."""
-    text = proof if isinstance(proof, str) else " ".join(str(p) for p in proof or [])
+    """The path-like tokens in a claim's free-text proof. Total: a proof that is
+    neither a string nor an iterable of them - a JSON number or boolean, which a
+    hand-written row can carry - is read as its own string form, where reading
+    its items would raise."""
+    if isinstance(proof, str):
+        text = proof
+    elif hasattr(proof, "__iter__"):
+        text = " ".join(str(p) for p in proof)
+    else:
+        text = str(proof or "")
     return sorted(set(SITED.findall(text)))
 
 

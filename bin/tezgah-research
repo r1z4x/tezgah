@@ -115,7 +115,10 @@ def cmd_claim(args):
     known = tr.slugs(repo)
     if slug not in known:
         return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
-    body = sys.stdin.read()
+    try:
+        body = sys.stdin.read()
+    except UnicodeDecodeError:
+        return misuse("stdin is not valid UTF-8")
     if not body.strip():
         return misuse("claim needs one JSON object on stdin")
     try:

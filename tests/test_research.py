@@ -784,23 +784,41 @@ class ClaimAppend(Workspace):
         self.assertEqual(sorted(row["id"] for row in rows),
                          sorted(claim["id"] for claim in claims))
 
-    def test_a_held_lock_refuses_the_claim(self):
-        if fcntl is None:
-            self.skipTest("fcntl is unavailable")
-        repo = self.repo()
+    def held_lock(self, repo):
+        """A line whose claims.jsonl this process holds exclusively, with what
+        the file held when the lock was taken."""
         path = self.evidence(repo)
         before = read(path)
         holder = open(path, "a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
-        # LOCK_WAIT is read by the process that appends: the CLI keeps its own
-        # bound, so this waits out one default - a refusal, not an unlocked write
+        return path, before
+
+    def test_a_held_lock_refuses_in_process(self):
+        # the wait bound belongs to the process that appends, so it is patched
+        # here and the append path is called directly: this covers the bound
+        if fcntl is None:
+            self.skipTest("fcntl is unavailable")
+        repo = self.repo()
+        path, before = self.held_lock(repo)
         saved = tr.LOCK_WAIT
         tr.LOCK_WAIT = 0.05
         try:
-            proc = self.cli(repo, "claim", "q", payload=self.valid())
+            _, problems = tr.append_claim(repo, "q", self.valid())
         finally:
             tr.LOCK_WAIT = saved
+        self.assertTrue(problems, problems)
+        self.assertIn("claims.jsonl", " ".join(problems), problems)
+        self.assertEqual(read(path), before)
+
+    def test_a_held_lock_refuses_the_claim(self):
+        # end to end through the CLI, whose own interpreter keeps its default
+        # bound: this case costs about one second by design, not by accident
+        if fcntl is None:
+            self.skipTest("fcntl is unavailable")
+        repo = self.repo()
+        path, before = self.held_lock(repo)
+        proc = self.cli(repo, "claim", "q", payload=self.valid())
         self.assertEqual(proc.returncode, 1, proc.stderr)
         self.assertIn("FAIL q: ", proc.stdout)
         self.assertIn("claims.jsonl", proc.stdout)
