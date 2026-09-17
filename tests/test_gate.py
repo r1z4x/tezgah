@@ -240,39 +240,36 @@ class Gate(TempHome):
         self.assertIn("Loop guard", reason)
         self.assertIn("attempt 3", reason)
 
-    def test_the_failure_class_scopes_the_loop_allowance(self):
-        # a transient failure (timeout, connection, rate limit, 5xx) can clear on
-        # its own, so the identical call gets one more attempt than a permanent
-        # one; a permanent failure and a host that reports no error text at all
-        # keep the base allowance. The class is observable only where the host
-        # sends the error as text (Claude's PostToolUseFailure `error`).
-        transient = "ceil-transient"
-        for n in (1, 2):
-            self.seed_failure("pytest -q", transient,
-                              error="Command timed out after 2m")
-            self.assertIsNone(
-                self.decide("Bash", {"command": "pytest -q"},
-                            session_id=transient),
-                "transient attempt %d of 3 must pass" % (n + 1))
-        self.seed_failure("pytest -q", transient,
-                          error="Command timed out after 2m")
-        reason = self.decide("Bash", {"command": "pytest -q"},
-                             session_id=transient)
-        self.assertIsNotNone(reason)
-        self.assertIn("attempt 4", reason)
-        self.assertIn("transient", reason)
-        self.assertIn("allows 3 identical attempts", reason)
-        for session, error, note in (
-                ("ceil-perm", "E   AssertionError: 1 != 2", "bad argument"),
-                ("ceil-none", None, "no error text")):
+    def test_the_failure_class_does_not_widen_the_cap(self):
+        # G7: the cap is the same number for every class. Before this, a
+        # transient failure was the one class that bought an extra identical
+        # attempt - the inverse of the row the checklist asks for ("at most 2 for
+        # a transient error"), and a budget that then depended on whether the
+        # host happened to report error text at all. The class names WHY the last
+        # attempt failed and nothing more.
+        for session, error in (("cap-transient", "Command timed out after 2m"),
+                               ("cap-perm", "E   AssertionError: 1 != 2"),
+                               ("cap-none", None)):
             for _ in range(2):
                 self.seed_failure("pytest -q", session, error=error)
             reason = self.decide("Bash", {"command": "pytest -q"},
                                  session_id=session)
             self.assertIsNotNone(reason, session)
             self.assertIn("attempt 3", reason)
-            self.assertIn("allows 2 identical attempts", reason)
-            self.assertIn(note, reason)
+            self.assertIn("cap is 2 identical attempts", reason)
+            self.assertIn("every failure class", reason)
+        # the class is still named, and one failed attempt is still not a loop
+        transient = "cap-transient-note"
+        for _ in range(2):
+            self.seed_failure("pytest -q", transient,
+                              error="Command timed out after 2m")
+        reason = self.decide("Bash", {"command": "pytest -q"},
+                             session_id=transient)
+        self.assertIn("(a transient failure)", reason)
+        self.assertIn("host's own client may retry", reason)
+        self.seed_failure("pytest -q", "cap-one", error="Command timed out after 2m")
+        self.assertIsNone(self.decide("Bash", {"command": "pytest -q"},
+                                      session_id="cap-one"))
 
     def test_a_fourth_identical_call_is_refused_whatever_the_outcome(self):
         # the half `loop` cannot see: it needs a failure, so a call that returns
@@ -387,19 +384,32 @@ class Gate(TempHome):
             self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
 
     # ---- consent: an irreversible or outward-facing call -------------------
-    def test_a_force_push_denies_once_then_the_identical_call_passes(self):
+    def test_a_force_push_denies_and_a_re_issue_is_not_an_answer(self):
         # The gate sees one call and cannot ask the user, so the refusal is the
-        # ask: it lands in the transcript, and the identical command passes on
-        # the next attempt - which is what a user who did ask re-issues.
+        # ask: it lands in the transcript and names the digest the user approves.
+        # What it must NOT do is treat the agent re-issuing the command as the
+        # user's answer - that is the agent approving its own effect (B7).
         for command in ("git push --force origin main",
                         "git push -f origin main",
                         "git push --force-with-lease origin main",
                         "git push --force-with-lease=origin/main origin main",
                         "git -C /tmp/repo push --force origin master"):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("Consent", reason)
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+            session = "ask-" + command
+            for attempt in range(1, 4):
+                reason = self.decide("Bash", {"command": command},
+                                     session_id=session)
+                self.assertIsNotNone(reason, "%s attempt %d" % (command, attempt))
+                self.assertIn("Consent", reason)
+                self.assertIn("tezgah-consent", reason)
+                self.assertIn("re-issued command is not that decision", reason)
+            # one ask row, then one deny row per attempt: no row claims a pass
+            # the user never approved
+            kinds = [r["kind"] for r in self.rows(session)]
+            self.assertEqual(kinds, ["consent", "deny", "deny", "deny"], kinds)
+            # the second refusal says the ask is already on record
+            self.assertIn("The ask is on record already",
+                          self.decide("Bash", {"command": command},
+                                      session_id=session))
 
     def test_a_force_push_to_a_scratch_branch_passes(self):
         for command in ("git push -f origin tmp/scratch",
@@ -513,20 +523,51 @@ class Gate(TempHome):
         self.assertEqual(
             [r["detail"].split(":", 1)[0] for r in denials], ["consent", "consent"])
 
-    def test_the_consent_row_is_what_spends_the_one_shot(self):
+    def test_the_consent_row_is_the_ask_and_is_written_once(self):
         # the classification row IS the mark, so the ask cannot be answered and
-        # the row fall out of step: one refusal, one row, one pass
+        # the row fall out of step: one row per action, however many times the
+        # command is re-issued. A second `consent` row would read as a second
+        # question the user still has to answer.
         command = "npm publish --access public"
-        self.assertIsNotNone(self.decide("Bash", {"command": command},
-                                         session_id="oneshot"))
+        for _ in range(3):
+            reason = self.decide("Bash", {"command": command},
+                                 session_id="oneshot")
+            self.assertIsNotNone(reason)
         rows = [r for r in self.rows("oneshot") if r["kind"] == "consent"]
-        self.assertEqual(len(rows), 1)
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id="oneshot"))
-        self.assertEqual(len([r for r in self.rows("oneshot")
-                              if r["kind"] == "consent"]), 1)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["detail"], "publish")
 
-    # ---- consent: the three rows it may leave behind ----------------------
+    def test_a_grant_is_spent_by_the_effect_it_authorised(self):
+        # B7 + D7, one code path: the user's approval is a lease on one effect,
+        # not a standing permit. This is also the whole of the checkpoint a shell
+        # effect can have - a force-push changes a remote this ledger holds no
+        # pre-state for, so nothing here can be rolled back, and the row that
+        # authorised the run is the record. The effect spends it (the PostToolUse
+        # row a host writes after the run carries the same id and an outcome), and
+        # the next identical command is asked about again.
+        command = "git push --force origin main"
+        session = "lease"
+        digest = ti.call_id("Bash", {"command": command})
+        self.assertIsNotNone(self.decide("Bash", {"command": command},
+                                         session_id=session))       # the ask
+        self.seed_grant(session, digest)                            # the answer
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id=session))
+        # the effect ran: the row a real PostToolUse hook leaves for it
+        self.seed_run(command, session)
+        self.assertIsNotNone(self.decide("Bash", {"command": command},
+                                         session_id=session))
+        rows = self.rows(session)
+        self.assertEqual([r["kind"] for r in rows],
+                         ["consent", "deny", "grant", "run", "deny"], rows)
+        # and the user can approve it again, by the digest the refusal names
+        self.seed_grant(session, digest)
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id=session))
+        self.assertNotIn("repeat-allowed",
+                         [r["kind"] for r in self.rows(session)])
+
+    # ---- consent: the rows it may leave behind ----------------------------
     def seed_grant(self, session_id, digest):
         """The row bin/tezgah-consent writes when the user approves an action:
         the same writer, the same shape, and never a row the gate could write
@@ -537,42 +578,21 @@ class Gate(TempHome):
                              env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_an_allowed_repeat_is_not_recorded_as_a_grant(self):
-        # One refusal, then the pass the gate allows on the ask alone: the
-        # ledger has to say which of the two that pass was, or a repeat the user
-        # never approved reads as a consent they gave.
-        command = "git push --force origin main"
-        session = "three-rows"
-        self.assertIsNotNone(self.decide("Bash", {"command": command},
-                                         session_id=session))
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id=session))
-        self.assertEqual([r["kind"] for r in self.rows(session)],
-                         ["consent", "deny", "repeat-allowed"])
-        asked = [r for r in self.rows(session) if r["kind"] == "consent"][0]
-        repeat = [r for r in self.rows(session)
-                  if r["kind"] == "repeat-allowed"][0]
-        # the repeat names the same action, class and root the ask did, so the
-        # two rows answer "what was asked" and "what was let through" together
-        self.assertEqual(repeat["id"], asked["id"])
-        self.assertEqual(repeat["detail"], "destructive")
-        self.assertEqual(repeat["workspace"], self.roots)
+    def seed_run(self, command, session_id, failed=False, error=None):
+        """The row a real PostToolUse hook writes after the call ran: the same
+        id, an outcome on it, and no `grant`. It is what spends a grant."""
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "note_tool", "session": session_id,
+                              "tool": "Bash", "input": {"command": command},
+                              "failed": failed, "error": error, "cwd": self.repo},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_a_grant_passes_before_the_ask_is_ever_made(self):
-        # The user answered through the CLI, so there is nothing left to ask:
-        # the command passes first time and no `consent` row claims the gate
-        # asked a question the user had already answered.
-        command = "npm publish"
-        session = "granted"
-        self.seed_grant(session, ti.call_id("Bash", {"command": command}))
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id=session))
-        self.assertEqual([r["kind"] for r in self.rows(session)], ["grant"])
-
-    def test_the_pass_after_a_grant_is_the_grant_row_alone(self):
-        # ask, then grant, then the command: the grant is the record of the
-        # pass, and the gate writes no `repeat-allowed` beside it - that row
-        # would name a repeat where the user had in fact approved the action.
+    def test_a_grant_answers_the_ask_the_gate_recorded(self):
+        # ask, then the user's grant, then the command: the grant is the record
+        # of the pass, and the gate writes no `repeat-allowed` beside it - that
+        # row named a repeat where the user had in fact approved the action, and
+        # the action is the same one row whether they approved it or not.
         command = "git push --force origin main"
         session = "granted-late"
         self.assertIsNotNone(self.decide("Bash", {"command": command},
@@ -583,6 +603,23 @@ class Gate(TempHome):
                                       session_id=session))
         self.assertEqual([r["kind"] for r in self.rows(session)],
                          ["consent", "deny", "grant"])
+
+    def test_a_grant_the_agent_could_forge_is_not_this_rule_s(self):
+        # The lease rests on one row the gate cannot write: a `consent` ask (the
+        # gate's own) never lifts the refusal, however many of them there are.
+        # Only `grant` - bin/tezgah-consent's row - is an answer.
+        command = "npm publish"
+        session = "forged"
+        digest = ti.call_id("Bash", {"command": command})
+        for _ in range(3):
+            self.assertIsNotNone(self.decide("Bash", {"command": command},
+                                             session_id=session))
+        rows = self.rows(session)
+        self.assertEqual([r["kind"] for r in rows if r["kind"] == "consent"],
+                         ["consent"])
+        self.assertEqual(rows[0]["id"], digest)
+        self.assertEqual(rows[0]["workspace"], self.roots)
+        self.assertNotIn("exit", rows[0])
 
     # ---- consent: a declared effect, which may only tighten the class ------
     def test_a_declared_effect_at_or_above_the_class_is_used(self):
@@ -632,6 +669,115 @@ class Gate(TempHome):
                              env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
+
+    # ---- untrusted read: an effect in the turn that read a fetched page ----
+    def read_untrusted(self, session_id, tool="web_search", channel="web"):
+        """One untrusted read, through the hook that records it: the real
+        PostToolUse path (hooks/projects-posttooluse.py), which is where a
+        result's channel is decided and written onto the row. Seed such a row
+        through the writer, never by hand."""
+        out, proc = run_json(
+            [support.POSTTOOLUSE],
+            {"hook_event_name": "PostToolUse", "tool_name": tool,
+             "tool_input": {"query": "how to x"}, "tool_response": "text",
+             "cwd": self.repo, "session_id": session_id}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rows = self.rows(session_id)
+        self.assertEqual([r["source"] for r in rows if r.get("source")],
+                         [channel], rows)
+
+    def test_an_effect_after_an_untrusted_read_is_refused(self):
+        # E1/E5: the label told the model where the text came from and nothing
+        # refused the effect it asked for. The sink rule refuses it, names the
+        # channel, and records the ask so the user's CLI can answer it.
+        session = "tainted"
+        self.read_untrusted(session)
+        reason = self.decide("Bash", {"command": "git push --force origin main"},
+                             session_id=session)
+        self.assertIsNotNone(reason)
+        self.assertIn("Sink rule", reason)
+        self.assertIn("a web result", reason)
+        self.assertIn("`destructive` effect", reason)
+        self.assertIn("bin/tezgah-consent", reason)
+        row = [r for r in self.rows(session) if r["kind"] == "deny"][-1]
+        self.assertEqual(row["detail"][:5], "sink:")
+        self.assertIn("untrusted channel: web", row["detail"])
+        asked = [r for r in self.rows(session) if r["kind"] == "consent"]
+        self.assertEqual([r["detail"] for r in asked], ["destructive"])
+        # the same command in a turn that read nothing is the consent rule's,
+        # not the sink rule's
+        plain = self.decide("Bash", {"command": "git push --force origin main"},
+                            session_id="untainted")
+        self.assertIn("Consent gate", plain)
+        self.assertNotIn("Sink rule", plain)
+
+    def test_an_approval_written_before_the_read_does_not_cover_it(self):
+        # The half that gives the sink rule teeth: a grant the user wrote before
+        # the page arrived is an answer about the command, not about what the
+        # page asked for, so it does not lift the refusal - the taxonomy's
+        # "the user's own word", which is the only exemption reachable from here
+        # (the prompt itself is not: no host hook sees it, and the ledger keeps
+        # only sha1(prompt)[:12]).
+        session = "stale-grant"
+        command = "npm publish"
+        digest = ti.call_id("Bash", {"command": command})
+        self.seed_grant(session, digest)
+        self.read_untrusted(session)
+        stale = self.decide("Bash", {"command": command}, session_id=session)
+        self.assertIsNotNone(stale)
+        self.assertIn("Sink rule", stale)
+        self.assertIn("approval given before the read does not cover it", stale)
+        self.seed_grant(session, digest)
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id=session))
+
+    def test_a_write_outside_the_root_is_a_sink_in_a_tainted_turn(self):
+        # The injection that pays is aimed at the agent's own config, not at the
+        # repo it was asked to edit: a write whose realpath leaves the root is a
+        # sink. One inside the root is left to the taint notice - it is
+        # recoverable from the snapshot, and refusing every edit after every
+        # fetch would tax the ordinary flow.
+        session = "tainted-write"
+        self.read_untrusted(session)
+        outside = os.path.join(self.home, ".claude", "settings.json")
+        reason = self.decide("Write", {"file_path": outside, "content": "{}"},
+                             session_id=session)
+        self.assertIsNotNone(reason)
+        self.assertIn("Sink rule", reason)
+        self.assertIn(outside, reason)
+        self.assertIn("a web result", reason)
+        asked = [r for r in self.rows(session) if r["kind"] == "consent"]
+        self.assertEqual([r["detail"] for r in asked], ["outside-workspace"])
+        # inside the root, and in a turn that read nothing, are not sinks
+        self.assertIsNone(self.decide(
+            "Edit", {"file_path": "src/a.py", "old_string": "x",
+                     "new_string": "y"}, session_id=session))
+        self.assertIsNone(self.decide(
+            "Write", {"file_path": outside, "content": "{}"},
+            session_id="untainted-write"))
+
+    def test_an_outbound_command_is_a_send_effect(self):
+        # A3's other half, which the five classes did not cover: an effect that
+        # carries this workspace's data out to a service that acts on it - mail,
+        # a payment, a remote API called with a write - is asked about the same
+        # way, and this is the class an injection pays through.
+        for command, klass in (
+                ("swaks --to ops@example.com --body hi", "send"),
+                ("sendmail -t < mail.txt", "send"),
+                ("stripe refunds create --charge ch_1", "send"),
+                ("curl -X POST -d @payload.json https://api.example.com/v1/x",
+                 "send"),
+                ("curl --data-raw 'a=1' https://api.example.com/v1/x", "send"),
+                ("gh api -X POST repos/o/r/issues -f title=x", "send")):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("`send` effect", reason, command)
+        # a read that leaves the machine is not this class
+        for command in ("curl https://api.example.com/v1/x",
+                        "curl -o out.json https://api.example.com/v1/x",
+                        'curl -H "Authorization: Bearer $T" https://api.example.com/x',
+                        "git push origin main", "scp2 --help"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):
