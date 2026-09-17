@@ -1990,9 +1990,15 @@ def sync():
                 shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) \
                     else os.remove(path)
         for f in files:
+            src = os.path.join(HERE, f)
+            if not os.path.isfile(src):
+                # ls-files lists a path deleted in the working tree until the
+                # deletion is staged; copying it would crash the sync (measured
+                # when the README translations were reduced).
+                continue
             dst = os.path.join(t, f)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(os.path.join(HERE, f), dst)
+            shutil.copy2(src, dst)
         print("%s synced %s (%d files)" % (OK, t, len(files)))
     print("\nrestart Claude Code: hooks are read once per session.")
     return 0
