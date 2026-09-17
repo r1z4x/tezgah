@@ -10,8 +10,11 @@ roots.
 Codex cannot put a custom item in its TUI footer (`tui.status_line` is a closed
 built-in enum), so the status segment rides `systemMessage`, which Codex
 surfaces in the UI: once at SessionStart and once per turn at Stop. PostToolUse
-only records evidence. PreToolUse translates Codex's tool names into the
-shared gate's vocabulary (hooks/tezgah_gate.py) and emits the deny envelope.
+records evidence and, when the result came from outside the user and this
+workspace or the call is an effect made after one did, hands the model that
+provenance as `additionalContext` with the result. PreToolUse translates Codex's
+tool names into the shared gate's vocabulary (hooks/tezgah_gate.py) and emits the
+deny envelope.
 Stop blocks a done/tested claim with no successful check behind it, the same
 rule Claude's Stop hook enforces (hooks/tezgah_integrity.py).
 """
@@ -26,6 +29,7 @@ from tezgah_context import (  # noqa: E402
 from tezgah_gate import decision  # noqa: E402
 from tezgah_integrity import note_tool, stop_reason  # noqa: E402
 from tezgah_paths import off, root_for  # noqa: E402
+from tezgah_untrusted import marks  # noqa: E402
 
 EVENTS = {
     "SessionStart": "session_start",
@@ -120,11 +124,25 @@ def main():
             }}))
         return
     if event == "PostToolUse":
+        tool = gate_name(payload.get("tool_name", ""))
+        inp = payload.get("tool_input") or {}
         record(session_id, classify(payload))
+        # read before this call's row lands: `source` on the row is the taint's
+        # own mark, and `marks` answers about the turn the call arrived in. Like
+        # every other tezgah surface but the status line, both halves are armed
+        # only inside a configured root.
+        source, notice = (marks(tool, inp, session_id)
+                          if root_for(cwd) else (None, None))
         # the same name the PreToolUse gate saw: one call has to hash to one id
-        note_tool(session_id, gate_name(payload.get("tool_name", "")),
-                  payload.get("tool_input") or {},
-                  failed=verify_outcome(payload))
+        note_tool(session_id, tool, inp,
+                  failed=verify_outcome(payload), source=source)
+        if notice:
+            # Codex's PostToolUse output carries `additionalContext` with the
+            # result - the field is part of its own hook output schema
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": notice,
+            }}))
         return
     if event == "SubagentStart":
         record(session_id, "orch")

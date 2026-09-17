@@ -239,6 +239,70 @@ class CursorHook(TempHome):
         self.assertEqual(self.stop(cwd=self.home, conversation_id="s2"), {})
 
 
+class CursorProvenance(TempHome):
+    """The untrusted-content half on Cursor. Its postToolUse output carries
+    `additional_context` ("extra context injected into the conversation after the
+    tool result"), the field this hook already uses for the once-per-session
+    code-graph reinforcement - so the two share the field instead of replacing
+    each other. Cursor names an MCP tool by its server (`mcp_server_name`), which
+    the adapter translates into the shared vocabulary's `mcp__<server>__<tool>`
+    before the provenance test reads the name."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.conv = "c-untrusted"
+
+    def call(self, tool, inp, conv=None, event="postToolUse", **extra):
+        payload = {"hook_event_name": event, "cwd": self.repo,
+                   "conversation_id": conv or self.conv, "tool_name": tool,
+                   "tool_input": inp}
+        payload.update(extra)
+        out, proc = run_json([support.CURSOR_HOOK], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out or {}
+
+    def context(self, tool, inp, **kw):
+        return self.call(tool, inp, **kw).get("additional_context", "")
+
+    def rows(self, conv=None):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": conv or self.conv},
+                          env=self.envv)
+        return out
+
+    def test_an_mcp_result_is_labelled_through_the_server_name(self):
+        text = self.context("get_file", {"path": "x"}, mcp_server_name="github")
+        self.assertIn("untrusted content", text)
+        self.assertIn("an MCP server", text)
+
+    def test_a_write_after_an_mcp_result_carries_the_channel(self):
+        self.call("get_file", {"path": "x"}, mcp_server_name="github")
+        out = self.call("Write", {"file_path": "/tmp/x"})
+        self.assertIn("already read an MCP server", out["additional_context"])
+        self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
+                         [("external", "mcp"), ("edit", "mcp")])
+        # one notice per read: the next write of the same turn is not marked
+        self.assertEqual(self.call("Write", {"file_path": "/tmp/y"}), {})
+
+    def test_the_notice_does_not_crowd_out_the_code_graph_reinforcement(self):
+        # A graph call is an MCP call too, so the same result earns both lines;
+        # one must not overwrite the other.
+        text = self.context("search_graph", {"query": "x"},
+                            mcp_server_name="codebase-memory-mcp")
+        self.assertIn("untrusted content", text)
+        self.assertIn("tezgah contract active", text)
+
+    def test_an_ordinary_call_is_silent(self):
+        self.assertEqual(self.call("Shell", {"command": "pytest -q"}), {})
+
+    def test_outside_a_root_nothing_is_shown(self):
+        self.assertEqual(
+            self.context("get_file", {"path": "x"}, mcp_server_name="github",
+                         cwd=self.home), "")
+
+
 class CursorHookThroughTheInstalledLink(TempHome):
     """tezgah-setup wires cursor to ~/.config/tezgah/bin/tezgah-cursor-hook, a
     symlink; the hook must find the repo from the link path."""
