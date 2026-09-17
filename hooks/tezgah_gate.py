@@ -855,9 +855,31 @@ DRIFT_STEPS = 25
 DRIFT_TAIL = 200
 DRIFT_DENY = (
     "Long turn (%d work rows in, past the %d this notice waits for): the "
-    "constraints this session was armed with are still in force - %s. This is a "
+    "constraints this session was armed with are still in force. %s This is a "
     "re-statement, not a violation report: re-issue this call unchanged and "
     "carry on.")
+
+
+def drift_text(cwd, session_id):
+    """The body of the drift notice: the delta since this turn began where the
+    context module can produce one, else the standing constraints themselves.
+
+    A long turn's actual failure is often that a value moved under it - HEAD, a
+    lessons count, the plan set - and a re-statement cannot say that: it repeats
+    what the session was armed with rather than what changed since. So the newer
+    half wins where it is available: `tezgah_context.constraint_notice` folds the
+    per-turn stamp the prompt path writes into one line ("state since your last
+    turn: ..."), and it hands back this module's own `constraints_line` verbatim
+    when it has no stamp for this session, so a session it cannot speak about
+    reads exactly as before. Imported inside the call (only the call that crosses
+    DRIFT_STEPS pays for it) and guarded twice over: a checkout without the
+    helper, or a stamp it cannot read, falls back to the re-statement, because a
+    crash here would take the whole gate with it - no host wraps decision()."""
+    try:
+        from tezgah_context import constraint_notice
+        return constraint_notice(cwd, session_id)
+    except Exception:
+        return constraints_line(cwd)
 
 
 def constraints_line(cwd):
@@ -881,12 +903,13 @@ def drift_reason(session_id, cwd):
     What this deliberately is NOT: a detector of the rule the user meant. A
     PreToolUse payload carries the tool call, not the prompt - no host hook sees
     the text the user typed - so "which rule is being forgotten" would be a guess
-    about intent wearing a check's clothes. Re-stating the standing constraints
-    is the honest half, and it is the whole of what this does. The host gives a
-    PreToolUse hook no non-blocking way to reach the model either (the reason
-    string is the only channel), so the notice arrives as a refusal whose reason
-    is the re-statement, and the mark is written here - before the deny - so the
-    identical call passes on the next attempt."""
+    about intent wearing a check's clothes. Re-stating the standing constraints,
+    or the delta since the turn began where the context module has one, is the
+    honest half, and it is the whole of what this does (see drift_text). The host
+    gives a PreToolUse hook no non-blocking way to reach the model either (the
+    reason string is the only channel), so the notice arrives as a refusal whose
+    reason is the re-statement, and the mark is written here - before the deny -
+    so the identical call passes on the next attempt."""
     if not session_id:
         return None
     rows = events(session_id, tail=DRIFT_TAIL)
@@ -897,9 +920,7 @@ def drift_reason(session_id, cwd):
     if steps < DRIFT_STEPS:
         return None
     note(session_id, "drift", str(steps), workspace=root_for(cwd))
-    # POINTERS ends in its own full stop; the template supplies the next
-    # sentence's, so the joined text would otherwise read ".."
-    return DRIFT_DENY % (steps, DRIFT_STEPS, constraints_line(cwd).rstrip("."))
+    return DRIFT_DENY % (steps, DRIFT_STEPS, drift_text(cwd, session_id))
 
 
 def effectful(t, inp):
