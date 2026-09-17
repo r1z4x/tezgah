@@ -1,11 +1,8 @@
 <p align="center">
   <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
   <a href="README.tr.md">Türkçe</a>
 </p>
 
@@ -286,8 +283,8 @@ mi görünüyor? Bu, iddia edilmek yerine `benchmarks/arm-bench/` içinde ölç�
 varlığından haberdar olmadığı gizli denetimler, barındırıcının kendi kullanım kaydından
 alınan maliyet ve başarısızlık olarak puanlanan yan düzenlemeler. `PREREGISTRATION.md` bir
 çalıştırmadan önce uç noktaları sabitler ve `python3 bench.py report` bunları yazdırır;
-çalıştırma kimlikleriyle birlikte tam çalışma `docs/research/2026-09-16-tezgah-quality.md`
-dosyasındadır. Aşağıdaki her rakam bir çalıştırma günlüğüdür.
+çalıştırma kimlikleriyle birlikte tam çalışma OpenResearch projesi
+`tezgah-harness-research` içindedir. Aşağıdaki her rakam bir çalıştırma günlüğüdür.
 
 | Blok | Çalıştırma | Neyi kesinleştirdi |
 |---|---|---|

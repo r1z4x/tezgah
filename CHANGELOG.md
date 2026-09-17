@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Three README translations are gone, and the benchmark paragraph now points
+  somewhere a reader can reach.** Brazilian Portuguese, Chinese and Japanese are
+  removed, leaving English, German, Spanish, French and Turkish, and every
+  remaining language switcher dropped the three links. The benchmark section no
+  longer cites `docs/research/2026-09-16-tezgah-quality.md` - a local note that
+  was never in the repository, so the published README pointed at a file nobody
+  could open - and names the OpenResearch project `tezgah-harness-research`
+  instead. The local notes themselves and the prepared `opencode-bare` fixture's
+  `node_modules` left the working tree with them; the study is archived outside
+  the repository, and that benchmark arm needs its dependencies installed again
+  before it can run.
+
 - **The public repository no longer carries the local state.** `.tezgah/` (the
   lessons ledger and the research lines) and `.claude-plugin/` (the plugin
   manifest, whose marketplace path is a personal one) are gitignored and

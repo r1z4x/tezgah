@@ -1,11 +1,8 @@
 <p align="center">
   <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
   <a href="README.tr.md">Türkçe</a>
 </p>
 
@@ -355,7 +352,8 @@ Does this contract improve the work, or does it only look like it should? That i
 in `benchmarks/arm-bench/`, not asserted: hidden checks the agent never sees the check for,
 cost from the host's own usage record, and collateral edits scored as failures.
 `PREREGISTRATION.md` fixes the endpoints before a run and `python3 bench.py report` prints
-them; the full study, with the run ids, is `docs/research/2026-09-16-tezgah-quality.md`.
+them; the full study, with the run ids, is the OpenResearch project
+`tezgah-harness-research`.
 Every figure below is a run log.
 
 | Block | Runs | What it settled |

@@ -1,11 +1,8 @@
 <p align="center">
   <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
   <a href="README.tr.md">Türkçe</a>
 </p>
 
@@ -288,8 +285,8 @@ C'est mesuré dans `benchmarks/arm-bench/`, pas affirmé : des contrôles caché
 ne voit jamais le test, le coût tiré du propre relevé d'usage de l'hôte, et les
 modifications collatérales comptées comme des échecs. `PREREGISTRATION.md` fixe les critères
 d'évaluation avant une exécution et `python3 bench.py report` les imprime ; l'étude
-complète, avec les identifiants d'exécution, est
-`docs/research/2026-09-16-tezgah-quality.md`. Chaque chiffre ci-dessous est un journal
+complète, avec les identifiants d'exécution, est le projet OpenResearch
+`tezgah-harness-research`. Chaque chiffre ci-dessous est un journal
 d'exécution.
 
 | Bloc | Exécutions | Ce qu'elle a établi |

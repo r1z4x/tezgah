@@ -1,11 +1,8 @@
 <p align="center">
   <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
   <a href="README.tr.md">Türkçe</a>
 </p>
 
@@ -288,7 +285,7 @@ Verbessert dieser Vertrag die Arbeit, oder sieht es nur so aus, als sollte er? D
 die Prüfung nie sieht, Kosten aus dem eigenen Nutzungsprotokoll des Hosts, und
 Kollateral-Edits, die als Fehler gewertet werden. `PREREGISTRATION.md` legt die Endpunkte
 vor einem Lauf fest und `python3 bench.py report` druckt sie; die vollständige Studie mit
-den Lauf-IDs ist `docs/research/2026-09-16-tezgah-quality.md`. Jede Zahl unten ist ein
+den Lauf-IDs ist das OpenResearch-Projekt `tezgah-harness-research`. Jede Zahl unten ist ein
 Laufprotokoll.
 
 | Block | Läufe | Was er geklärt hat |
