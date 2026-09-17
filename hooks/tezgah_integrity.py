@@ -653,12 +653,15 @@ def stop_reason(text, session_id, edited_hint=None):
 
     The verdict is recorded either way, as a `claim` row: a blocked stop leaves
     no trace otherwise, and the false-completion rate (counters) needs both the
-    refusals and the claims that were allowed through. One row per reply per
-    turn: an identical row for the same key is skipped."""
+    refusals and the claims that were allowed through. `detail` carries the
+    reason class - `blocked: no verify_ok`, `blocked: check failed`,
+    `blocked: placating opener`, or `ok` - so which branch refused a turn is
+    readable without parsing the block text. One row per reply per turn: an
+    identical row for the same key is skipped."""
     rows = events(session_id)
-    reason = _stop_block(text, session_id, edited_hint, rows=rows)
+    cls, reason = _stop_block(text, session_id, edited_hint, rows=rows)
     if reason:
-        detail = "blocked: %s" % str(reason)[:80]
+        detail = "blocked: %s" % cls
     elif any(claims(text)):
         detail = "ok"
     else:
@@ -671,7 +674,9 @@ def stop_reason(text, session_id, edited_hint=None):
 
 
 def _stop_block(text, session_id, edited_hint=None, rows=None):
-    """stop_reason's decision, without the ledger side effect.
+    """stop_reason's decision as (reason class, block text), without the ledger
+    side effect. The class names the branch that refused the turn; the text is
+    what the host shows the model.
 
     Blocks only on evidence that is checkable: a placating opener, or a
     completion/verification claim whose newest check did not pass. An explicit
@@ -681,14 +686,15 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
     claim key), so the Stop path reads the file once per turn."""
     t = str(text or "")
     if SYCOPHANT.search(t):
-        return ("Reply opens with placation, which the tezgah contract bans. "
+        return ("placating opener",
+                "Reply opens with placation, which the tezgah contract bans. "
                 "State the fact and the fix in one plain sentence - never "
                 "\"haklısın\" / \"you're right\" / \"detaylı bakmadım\" / an "
                 "apology. If the user is right, fix it; if wrong, show the "
                 "evidence.")
     done, verified = claims(t)
     if not (done or verified) or NEGATED.search(t):
-        return None
+        return (None, None)
     rows = events(session_id) if rows is None else rows
     ev = {str(entry.get("kind")) for entry in rows}
     if edited_hint:
@@ -696,15 +702,17 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
     # the newest check decides: "the tests pass" is false when a later run
     # failed, even though an earlier one succeeded
     if _last_verify(rows) == "fail":
-        return ("A check failed in this session and the reply claims success. "
+        return ("check failed",
+                "A check failed in this session and the reply claims success. "
                 "Report the failure with its exact error line, or fix it and "
                 "re-run; do not describe a failed check as passing.")
     if any(passing_check(entry) for entry in rows):
-        return None
+        return (None, None)
     worked = ev & {"edit", "verify", "verify_fail", "run"}
     if not worked:
-        return None
-    return ("This turn claims done/tested/passing but no check ran successfully "
+        return (None, None)
+    return ("no verify_ok",
+            "This turn claims done/tested/passing but no check ran successfully "
             "in this session (nothing recorded as verify_ok with a real result "
             "and an unmasked command). Run the real check and report its output, "
             "or mark the claim \"doğrulanmadı\". Do not describe a check you did "
