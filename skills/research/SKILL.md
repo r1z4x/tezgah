@@ -66,7 +66,8 @@ Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 ```
 
 `claim` reads that object from stdin and appends it as one line: exit 0,
-`claim <id> recorded`; exit 1 with one `FAIL <slug>: <problem>` line per problem
+`claim <id> recorded` (just `claim recorded` when the object carries no `id`);
+exit 1 with one `FAIL <slug>: <problem>` line per problem
 and nothing written - including when `claims.jsonl` cannot be locked within a
 second; exit 2 when the slug is missing or unknown, or stdin is not one JSON
 object. Record a claim with the command, never by editing the file: a hand edit

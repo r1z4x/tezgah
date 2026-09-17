@@ -115,8 +115,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   written before this change are tolerated so an open session is never blocked on
   its own history. Hook medians moved by less than 1 ms against the committed
   baseline (`benchmarks/hook-latency/plan012-after.json`).
-- The research workspace: `bin/tezgah-research` (`init`, `check`, `status`) and
-  the `research` skill. A research line lives in `<repo>/.tezgah/research/<slug>/`
+- The research workspace: `bin/tezgah-research` (`init`, `check`, `status`; the
+  locked `claim` append is a later entry above) and the `research` skill. A
+  research line lives in `<repo>/.tezgah/research/<slug>/`
   and holds the question and locked evaluation, the decision log, the findings,
   the claims with their falsification criteria, provenance and evidence, and one
   directory per experiment whose `protocol.md` is committed before its

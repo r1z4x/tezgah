@@ -59,16 +59,38 @@ repository content).
       nothing in a file this plan changes.
 
 ## State
-Implemented and verified on the branch. Two defects were found reviewing the
-first drafts and fixed before the checks ran: a platform without `fcntl` reported
-the refusal as another writer holding the file, and an append merged into a last
-line that had no trailing newline - the one corruption this plan exists to
-prevent. A third was fixed in the CLI: an `OSError` from the append (a line
-directory that disappears, a read-only directory) printed a traceback instead of
-a refusal.
+Implemented, independently reviewed, and verified on the branch.
+
+Defects found and fixed before the first check run: a platform without `fcntl`
+reported the refusal as another writer holding the file; an append merged into a
+last line with no trailing newline, the one corruption this plan exists to
+prevent; and an `OSError` from the append printed a traceback instead of a
+refusal.
+
+The independent review of the diff raised no critical or major finding and three
+that mattered:
+
+- `_cited` was not total, so a claim whose `proof` is a truthy non-iterable (a
+  JSON number or boolean) raised `TypeError` instead of being refused - and the
+  same line crashed the pre-existing `check` on a hand-written row, so the fix
+  repairs the checker too.
+- stdin that is not UTF-8 escaped as a traceback with exit 1 rather than the
+  documented misuse exit 2.
+- the held-lock test mutated `LOCK_WAIT` in the parent, which the child process
+  never reads: the case passed for the wrong reason. It now asserts the bound
+  in-process with the constant patched, and keeps the end-to-end CLI case.
+
+A separate read-only pass over the documentation found two more: the
+`Unreleased` changelog entry for the research workspace still listed three
+commands, and the skill documented only `claim <id> recorded` where the command
+prints `claim recorded` for an id-less claim. Both corrected.
+
+Verification on this tree: `compileall` ok; **712 tests OK**; `ruff check .`
+reports five errors, all in `benchmarks/arm-bench/analyze_e4[cd].py`,
+`analyze_e5.py` and `tests/test_snapshot.py`, none of which this plan touches.
 
 ## Next
-The independent review of the diff, then merge. Open and deliberately not taken
-here: `SITED` does not extract a bare filename, so a claim whose `proof` cites
-one is never resolved (found by the enforcement audit, which also confirmed the
-checker cannot see a note's evidence class or its content).
+Merge. Open and deliberately not taken here: `SITED` does not extract a bare
+filename, so a claim whose `proof` cites one is never resolved (found by the
+enforcement audit, which also confirmed the checker cannot see a note's evidence
+class or its content).
