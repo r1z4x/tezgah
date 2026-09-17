@@ -280,6 +280,21 @@ class Exclude(AgentsBase):
         self.assertEqual(self.gi(), "node_modules/\n")
         self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
 
+    def test_the_exclude_write_can_be_opted_out(self):
+        self.sync(extra={"TEZGAH_NO_EXCLUDE": "1"})
+        self.assertNotIn("# tezgah: generated agents", self.ex())
+        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+
+    def test_an_unwritable_exclude_does_not_fail_the_session(self):
+        # the module promises every write fails open: the exclude write runs
+        # inside sync_root, so an unwritable .git/info used to abort the sync
+        # before it reported, and the CLI exited 1 with a traceback
+        os.chmod(os.path.join(self.repo, ".git", "info"), 0o555)
+        self.addCleanup(os.chmod, os.path.join(self.repo, ".git", "info"), 0o755)
+        note = self.sync()
+        self.assertIn("written", note)
+        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+
 
 class OpencodePlugin(AgentsBase):
     """The plugin config hook must arm the agents in the same opencode session.
@@ -464,6 +479,16 @@ class ContextWiring(AgentsBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("agent(s)", proc.stdout)
         self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+
+    def test_the_agents_flag_reports_a_steady_state(self):
+        # the command answers a user, so it says "current" instead of the
+        # "outside a root, or no capability" line the silent hook path shares
+        self.sync()
+        setup = os.path.join(support.REPO, "bin", "tezgah-setup")
+        proc = subprocess.run([sys.executable, setup, "--agents", self.repo],
+                              capture_output=True, text=True, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("4 agent(s) current", proc.stdout)
 
 
 if __name__ == "__main__":

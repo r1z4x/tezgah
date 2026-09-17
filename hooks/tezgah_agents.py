@@ -342,13 +342,22 @@ def _is_managed(text):
 
 
 def _write_if_changed(path, text):
+    """True when the file changed. Fails open, as the module promises: a hook
+    must never fail a session because a file could not be written."""
     if _read(path) == text:
         return False
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tezgah-tmp"
-    with open(tmp, "w") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.remove(tmp)      # os.replace onto a directory leaves it behind
+        except OSError:
+            pass
+        return False
     return True
 
 
@@ -427,11 +436,14 @@ def _exclude_path(root):
     A plain checkout answers from the directory listing, so a session start
     keeps its two git forks; a linked worktree or submodule (`.git` is a file)
     asks git, which resolves the path through the common dir - the file git
-    actually reads, not a per-worktree path it ignores."""
+    actually reads, not a per-worktree path it ignores. GIT_DIR/GIT_WORK_TREE
+    move the repository out from under that listing, so a set environment means
+    only git can answer."""
     dot = os.path.join(root, ".git")
-    if os.path.isdir(dot):
+    if (os.path.isdir(dot) and not os.environ.get("GIT_DIR")
+            and not os.environ.get("GIT_WORK_TREE")):
         return os.path.join(dot, "info", "exclude")
-    if not os.path.exists(dot):
+    if not os.path.exists(dot) and not os.environ.get("GIT_DIR"):
         return None
     try:
         out = subprocess.run(("git", "-C", root, "rev-parse", "--git-path",
@@ -473,8 +485,14 @@ def ensure_exclude(root, dirs):
     return path
 
 
-def sync_root(root):
-    """Generate/refresh this repo's agents. Returns a one-line status, or None."""
+def sync_root(root, report_steady=False):
+    """Generate/refresh this repo's agents.
+
+    Returns a one-line status - a write, a removal, or, only when
+    `report_steady`, "N agent(s) current". A steady state returns None by
+    default because the session hook injects this line: a session that changed
+    nothing was being told about tezgah's own files in the repo. The explicit
+    CLI asks for the steady line, since it is answering a user's command."""
     if off("agents-off"):
         return None
     if not root_for(root):
@@ -552,6 +570,8 @@ def sync_root(root):
                 % (len(names), ", %d removed" % removed if removed else ""))
     if removed:
         return "%d stale agent file(s) removed" % removed
+    if report_steady and names and (md_dir or oc_dir or codex_dir):
+        return "%d agent(s) current" % len(names)
     return None
 
 

@@ -87,7 +87,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   older install edited.
 - The session brief stays silent when the generated agent set is already
   current. `sync_root` returned "N agent(s) current" on every session start, so
-  every project session was told about tezgah's own files in it.
+  every project session was told about tezgah's own files in it. The explicit
+  `tezgah-setup --agents` still reports the steady state, because it answers a
+  user's command rather than injecting context.
+- `hooks/tezgah_agents.py` writes now fail open as its own docstring promised: a
+  read-only `.git`, a path that is a directory, or a full disk costs the
+  generated file instead of raising out of the session-start hook.
 - `bin/codegen --timeout` now bounds the WHOLE request instead of one socket
   operation, the way `bin/consult` already did: a response that trickles bytes
   resets urllib's per-recv clock and used to hold the process open indefinitely

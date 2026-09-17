@@ -29,6 +29,7 @@ EXIT CODES, and they are the contract:
      A half-written file that happens to parse is the failure this guards
      against: it looks like an answer and is not one.
   1  the caller misused the tool (bad arguments)
+  130 the request was interrupted (Ctrl-C): stop, do not fall back
 """
 import ast
 import concurrent.futures
@@ -231,6 +232,14 @@ def main():
 
 try:
     main()
+except KeyboardInterrupt:
+    # Ctrl-C while a stalled request is in flight: main() unwinds, but the
+    # request thread is non-daemon and interpreter shutdown joins it, so the
+    # process would hang until the response ends. Leave immediately instead.
+    print("codegen: interrupted", file=sys.stderr)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(130)
 except Insufficient as exc:
     # Exit 2 is the whole point: the caller falls back to the main model rather
     # than applying something this script could not vouch for.
