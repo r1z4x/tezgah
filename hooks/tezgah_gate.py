@@ -23,14 +23,29 @@ Rules, all only inside a tezgah root:
   6. a command that would write a credential into a file (a redirect, `tee`,
      `git add` or a curl trace next to a `name=value` / bearer token) is
      refused (secret).
+  7. a write to a file another session wrote inside RACE_WINDOW_MIN is refused
+     (`race`), naming the other session and the file, because the failure it
+     closes - one session overwriting another's work from a stale read - leaves
+     no trace in either transcript.
+  8. when the current user turn has run past DRIFT_STEPS work rows, the next
+     effectful call gets the standing constraints re-stated once (`drift`), in
+     the gate's reason string, which is the only channel a PreToolUse hook has.
 Adapters translate the returned reason into their own permission envelope.
 """
 import os
 import re
 
-from tezgah_integrity import (BASH_TOOLS, WRITE_TOOLS, call_id, events, mask,
-                              note, prior_calls, shortcut_command, shortcut_edit)
+from tezgah_integrity import (BASH_TOOLS, STEP_KINDS, WRITE_TOOLS, _turn_start,
+                              call_id, events, mask, note, prior_calls,
+                              shortcut_command, shortcut_edit)
 from tezgah_paths import cache_dir, off, root_for
+
+try:  # The race rule reads the write history through tezgah_integrity; that
+    # reader is newer than some checkouts of the module, and a missing name must
+    # cost the rule, never the session (this import runs on every gated call).
+    from tezgah_integrity import writers_elsewhere
+except ImportError:  # pragma: no cover - only on an integrity module without it
+    writers_elsewhere = None
 
 DB_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codebase-memory-mcp")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{2,}$")
@@ -487,6 +502,149 @@ def secret_command(command):
     return None
 
 
+# --- concurrent write: another session wrote this file minutes ago -----------
+# What this closes: two sessions on one file - a parent and the subagent it
+# delegated to, or two worktrees of the same repo. Each reads before the other
+# writes, so the second edit lands on a stale read, and the first session's work
+# is gone with nothing in either transcript saying so. That is why the collision
+# REFUSES instead of annotating: a silent overwrite is the failure, and a note
+# the agent may read past leaves the overwrite exactly where it was. One re-read
+# is the whole cost of the refusal.
+#
+# Why ten minutes: the ledger holds no lock, so the window is the only release -
+# a session that crashed or was closed mid-edit never says it is finished. Ten
+# minutes outlives a slow read-edit-check cycle on one file plus a long tool call
+# between the two writes, which is the collision this catches; a shorter window
+# let the second write through in the minute that matters. Wider and the refusal
+# lands on edits whose other author is long gone, which trains the agent to
+# re-issue without reading.
+RACE_WINDOW_MIN = 10
+# The decision itself, named rather than left as a literal inside the check:
+# a foreign write REFUSES (True). See above - a notice does not close a silent
+# overwrite, so this rule cannot be a soft one.
+RACE_REFUSE = True
+RACE_DENY = (
+    "Concurrent write refused: session %s wrote this file within the last %d "
+    "minutes, so the copy of %s in your context may already be stale. Re-read "
+    "the file and re-apply your change to what is on disk now; if both sessions "
+    "are editing it, say so and let one of them own the file rather than "
+    "overwriting the other's work.")
+# The file a write call names, per host dialect, plus the apply_patch headers for
+# the dialect whose paths live in the body. Matched verbatim against the ledger
+# row's `detail`, which the PostToolUse hook writes from the same field: the
+# ledger keeps no cwd, so normalizing here would compare `a.py` against
+# `./sub/../a.py` and disagree with the reader on the far side. A second session
+# that spells the path differently therefore escapes this rule.
+WRITE_PATH = ("file_path", "filePath", "path")
+PATCH_FILE = re.compile(r"(?m)^\*\*\* (?:Update|Add|Delete) File: (\S.*?)\s*$")
+
+
+def write_paths(inp):
+    """Every file this call writes: the tool's own path field, else the paths an
+    apply_patch body names per hunk."""
+    if not isinstance(inp, dict):
+        return []
+    for key in WRITE_PATH:
+        value = inp.get(key)
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+    return [m.group(1) for m in PATCH_FILE.finditer(str(inp.get("patch") or ""))]
+
+
+def race_reason(inp, session_id):
+    """A deny reason when another session wrote one of this call's files inside
+    RACE_WINDOW_MIN, else None.
+
+    `writers_elsewhere` is the ledger reader in tezgah_integrity, and its import
+    is guarded: an integrity module without it costs this rule, never the
+    session. ponytail: the PostToolUse writer records no path for an apply_patch
+    row (`detail` comes from file_path), so a foreign patch write stays
+    invisible to the reader even though this side reads the patch's own paths -
+    the gap is the writer's, and closing it means the ledger row changes shape."""
+    if writers_elsewhere is None or not session_id:
+        return None
+    for path in write_paths(inp):
+        others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN)
+        if others:
+            return RACE_DENY % (", ".join(str(s) for s in others[:3]),
+                                RACE_WINDOW_MIN, path)
+    return None
+
+
+# --- constraint drift: a long turn loses the rules it started with ----------
+# The re-statement that keeps the rules alive rides the user prompt
+# (tezgah_context.context_for writes PROMPT_REMINDER on every turn), so the
+# stretch nothing covers is one turn that runs long: by step 25 the prompt that
+# armed the rules is dozens of tool results back and has stopped steering. The
+# threshold counts work rows in the CURRENT user turn - the same rows counters()
+# counts, a run/an edit/a check - which a normal turn reaches a handful of, and
+# the mark is per turn: one re-statement in a turn that drifted is useful, the
+# same one in every short turn is noise the agent learns to skip.
+DRIFT_STEPS = 25
+# How far back the count reads: past it a very long turn's count saturates at the
+# window (the notice fires once per turn regardless), the same 200-row bound the
+# repeat guards read.
+DRIFT_TAIL = 200
+DRIFT_DENY = (
+    "Long turn (%d work rows in, past the %d this notice waits for): the "
+    "constraints this session was armed with are still in force - %s. This is a "
+    "re-statement, not a violation report: re-issue this call unchanged and "
+    "carry on.")
+
+
+def constraints_line(cwd):
+    """The standing constraints as one line, from tezgah_policy's own text.
+
+    `subagent_core` is the tested short form of every always-on rule (its bold
+    label plus its opening clause, under the same kill-switch filtering), and
+    POINTERS is the on-demand rules' own one-liner, so the notice can neither
+    name a rule that is off nor miss one that is on: it is a re-statement, never
+    a second copy of the contract. Imported inside the call because only the
+    call that crosses DRIFT_STEPS pays for it."""
+    from tezgah_context import core_for, subagent_core
+    from tezgah_policy import POINTERS
+    return " ".join((subagent_core(core_for(cwd)[0]) + " " + POINTERS).split())
+
+
+def drift_reason(session_id, cwd):
+    """A one-shot re-statement of the standing constraints when this user turn
+    has run past DRIFT_STEPS work rows, else None.
+
+    What this deliberately is NOT: a detector of the rule the user meant. A
+    PreToolUse payload carries the tool call, not the prompt - no host hook sees
+    the text the user typed - so "which rule is being forgotten" would be a guess
+    about intent wearing a check's clothes. Re-stating the standing constraints
+    is the honest half, and it is the whole of what this does. The host gives a
+    PreToolUse hook no non-blocking way to reach the model either (the reason
+    string is the only channel), so the notice arrives as a refusal whose reason
+    is the re-statement, and the mark is written here - before the deny - so the
+    identical call passes on the next attempt."""
+    if not session_id:
+        return None
+    rows = events(session_id, tail=DRIFT_TAIL)
+    rows = rows[_turn_start(rows):]
+    if any(row.get("kind") == "drift" for row in rows):
+        return None
+    steps = sum(1 for row in rows if row.get("kind") in STEP_KINDS)
+    if steps < DRIFT_STEPS:
+        return None
+    note(session_id, "drift", str(steps), workspace=root_for(cwd))
+    # POINTERS ends in its own full stop; the template supplies the next
+    # sentence's, so the joined text would otherwise read ".."
+    return DRIFT_DENY % (steps, DRIFT_STEPS, constraints_line(cwd).rstrip("."))
+
+
+def effectful(t, inp):
+    """True when this call is one the constraints are about: a write tool, or a
+    git/gh command that lands an artifact. A read changes nothing, so the notice
+    spent on it would be spent where no rule applies."""
+    if t in WRITE_TOOLS:
+        return True
+    if t in BASH_TOOLS:
+        return bool(WRITE_CMD.search(mask(str(inp.get("command") or ""))))
+    return False
+
+
 def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None):
     """Record a refusal before returning it: a deny nobody counts is a rule
     whose effect can never be argued about (hooks/tezgah_integrity.counters).
@@ -530,6 +688,14 @@ def decision(tool, inp, cwd, session_id=None):
         return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
     if t in WRITE_TOOLS and attribution_edit(inp):
         return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
+    # Concurrent write: another session wrote one of this call's files inside
+    # RACE_WINDOW_MIN (the constant carries why it refuses). Ahead of the repeat
+    # guards, so a colliding write is counted as this rule and not as a repeat of
+    # one.
+    if t in WRITE_TOOLS and RACE_REFUSE:
+        reason = race_reason(inp, session_id)
+        if reason:
+            return _deny(session_id, "race", reason, tool, inp, base)
     # Consent: an irreversible or outward-facing command, refused once per action
     # per session so the ask reaches the user (see effect_class for the design
     # and its tradeoff). The row this writes is both the classification and the
@@ -568,4 +734,13 @@ def decision(tool, inp, cwd, session_id=None):
             note(session_id, "nudge", slug, id=call_id(tool, inp),
                  workspace=base)
             return nudge_reason(slug)
+    # Constraint drift, last: a re-statement yields to every refusal above (a
+    # refusal's reason is the same channel), and `verify-off` does not drop it -
+    # the rules it re-states are not the verify rule. The switch that governs it
+    # is the per-turn reminder's own, because this is that reminder's mid-turn
+    # half.
+    if not off("reminder-off") and effectful(t, inp):
+        reason = drift_reason(session_id, cwd)
+        if reason:
+            return _deny(session_id, "drift", reason, tool, inp, base)
     return None
