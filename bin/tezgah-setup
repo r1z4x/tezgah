@@ -340,6 +340,7 @@ def install_common(new_roots, hosts):
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
             ("tezgah-agents", os.path.join(HERE, "bin", "tezgah-agents")),
             ("tezgah-context", os.path.join(HERE, "bin", "tezgah-context")),
+            ("tezgah-capture", os.path.join(HERE, "bin", "tezgah-capture")),
             ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
             ("tezgah-setup", os.path.join(HERE, "bin", "tezgah-setup")),
             ("tezgah-research", os.path.join(HERE, "bin", "tezgah-research")),

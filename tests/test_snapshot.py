@@ -1,11 +1,13 @@
-"""hooks/tezgah_snapshot.py and bin/tezgah-rollback: pre-write snapshots and the
-explicit rollback that consumes them.
+"""hooks/tezgah_snapshot.py, bin/tezgah-capture and bin/tezgah-rollback:
+pre-write snapshots, the host-facing capture CLI, and the explicit rollback that
+consumes one.
 
 capture/restore run in-process with tezgah_paths.CACHE pointed at a temp dir, so
-the real ~/.cache is never read or written; the CLI runs in a subprocess with a
+the real ~/.cache is never read or written; both CLIs run in a subprocess with a
 throwaway HOME, as every other bin/ test here does.
 """
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -21,6 +23,7 @@ import tezgah_paths as tp  # noqa: E402
 import tezgah_snapshot as ts  # noqa: E402
 
 ROLLBACK = os.path.join(support.REPO, "bin", "tezgah-rollback")
+CAPTURE = os.path.join(support.REPO, "bin", "tezgah-capture")
 
 
 class Snap(TempHome):
@@ -35,7 +38,7 @@ class Snap(TempHome):
         self.repo = self.make_repo("proj")
         self.addCleanup(setattr, tp, "CACHE", tp.CACHE)
         tp.CACHE = os.path.join(self.home, ".cache", "tezgah")
-        env = mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.repo})
+        env = mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.roots})
         env.start()
         self.addCleanup(env.stop)
 
@@ -129,7 +132,7 @@ class CaptureStore(Snap):
         self.assertEqual(row["detail"], path)
         self.assertEqual(row["hash"], hashlib.sha256(text.encode()).hexdigest())
         self.assertEqual(row["out_bytes"], len(text))
-        self.assertEqual(row["workspace"], self.repo)
+        self.assertEqual(row["workspace"], self.roots)
         self.assertIsInstance(row["ts"], int)
         self.assertEqual(self.read(self.blob(sid)), text)
 
@@ -276,6 +279,69 @@ class RollbackCli(Snap):
             out = self.rollback(*args)
             self.assertEqual(out.returncode, 2, args)
             self.assertIn("usage:", out.stderr)
+
+
+class CaptureCli(Snap):
+    """bin/tezgah-capture: the path a host that is not Python reaches capture by.
+
+    What is under test is that a shell invocation lands the same row the
+    in-process call lands, so the JS side of the ledger cannot drift from the
+    Python side: opencode has no way to call the function."""
+
+    def cli(self, *args):
+        return subprocess.run(
+            [sys.executable, CAPTURE] + list(args), capture_output=True,
+            text=True, env=support.base_env(self.home, [self.roots]))
+
+    def payload(self, **over):
+        data = {"tool": "Edit", "input": {"file_path": "a.py"},
+                "cwd": self.repo, "session_id": self.session}
+        data.update(over)
+        return json.dumps(data)
+
+    def test_the_cli_row_is_the_row_the_in_process_capture_writes(self):
+        self.write("a.py", "x = 1\n")
+        inline = ts.capture("Edit", {"file_path": "a.py"}, self.repo, self.session)
+        out = self.cli(self.payload())
+        self.assertEqual(out.returncode, 0, out.stderr)
+        cli_id = out.stdout.strip()
+        self.assertTrue(cli_id)
+        rows = self.rows("snapshot")
+        self.assertEqual([r["id"] for r in rows], [inline, cli_id])
+        keys = lambda row: {k: v for k, v in row.items() if k not in ("id", "ts")}
+        self.assertEqual(keys(rows[0]), keys(rows[1]))
+        self.assertEqual(self.read(self.blob(inline)),
+                         self.read(self.blob(cli_id)))
+
+    def test_nothing_to_capture_prints_nothing_and_exits_zero(self):
+        # a read tool, and a file that does not exist yet: both are normal, so
+        # the caller gets silence rather than a failure it has to special-case
+        for payload in (self.payload(tool="Read"),
+                        self.payload(input={"file_path": "new.py"}),
+                        self.payload(input={"file_path": "gone.py"})):
+            out = self.cli(payload)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertEqual(out.stdout, "")
+        self.assertEqual(self.store(), [])
+
+    def test_cwd_resolves_a_relative_path_and_defaults_to_the_working_dir(self):
+        path = self.write("sub/b.py", "b\n")
+        out = self.cli(json.dumps({"tool": "Edit", "session_id": self.session,
+                                   "input": {"file_path": "sub/b.py"},
+                                   "cwd": self.repo}))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(self.rows("snapshot")[0]["detail"], path)
+
+    def test_misuse_exits_two_and_captures_nothing(self):
+        self.write("a.py", "x\n")
+        for args in ((), ("" ,), ("not json",), ("[1]",), ("{}",),
+                     (json.dumps({"tool": "Edit", "session_id": ""}),),
+                     (json.dumps("Edit"),), (self.payload(), "extra")):
+            out = self.cli(*args)
+            self.assertEqual(out.returncode, 2, args)
+            self.assertIn("usage:", out.stderr)
+        self.assertEqual(self.store(), [])
+        self.assertEqual(self.rows(), [])
 
 
 if __name__ == "__main__":
