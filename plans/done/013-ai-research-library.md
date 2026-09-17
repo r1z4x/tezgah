@@ -1,9 +1,9 @@
 ---
 id: 013
 title: Convert the AI-research-SKILLs library into a shipped tezgah skill
-status: open
+status: done
 branch: plan/013-ai-research-library
-pr:
+pr: 21
 created: 2026-09-17
 updated: 2026-09-17
 ---
@@ -435,10 +435,10 @@ Four things the work itself surfaced, all recorded rather than smoothed over:
   README says ทักษะ where the added line said สกิล; each file's own term is now
   used. No native proofread was performed.
 
+merged PR #21 on 2026-09-17T17:57:02Z.
+
 ## Next
-PR [#21](https://github.com/r1z4x/tezgah/pull/21) is open for
-`plan/013-ai-research-library`; after it merges, `/tezgah:plan-sync` closes this
-plan. Two host checks remain, both blocked by the host's own auth rather than by
-tezgah - Claude's `-p` mode wants an interactive login (`Not logged in · Please
-run /login`) and `cursor-agent -p` wants a sign-in - and the live-turn recipe
-above is what makes either one a ten-minute repeat.
+Merged in PR [#21](https://github.com/r1z4x/tezgah/pull/21); nothing outstanding on
+this plan. Two host checks remain as follow-ups, both blocked by the host's own
+auth - Claude's `-p` mode wants an interactive login, `cursor-agent -p` wants a
+sign-in - and the live-turn recipe above makes either one a ten-minute repeat.
