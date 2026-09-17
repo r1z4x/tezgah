@@ -3,6 +3,5 @@
 <!-- status:start -->
 | id | title | status | branch | pr | next |
 |---|---|---|---|---|---|
-| 010 | Stop touching the user's repo and nagging about tezgah itself | open | plan/010-repo-footprint-and-session-scope |  | Implement on plan/010-repo-footprint-and-session-scope: move |
-| 012 | Ledger identity, trace metrics and the loop guard | done | plan/012-ledger-identity-metrics-and-loop-guard |  | Merged. Next: a block with the controls verifiably armed (E4 is void) |
+| 013 | Convert the AI-research-SKILLs library into a shipped tezgah skill | open | plan/013-ai-research-library |  | WP1: write bin/tezgah-import-ai-research with the drop list  |
 <!-- status:end -->
