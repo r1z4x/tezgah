@@ -89,7 +89,9 @@ def _evict(keep=None):
     gate is waiting on."""
     keep = CAP if keep is None else keep
     try:
-        entries = sorted((os.path.getmtime(p), p) for p in _dirs())
+        # ns rather than the float mtime: two captures inside one tick must not
+        # evict an arbitrary one of the pair
+        entries = sorted((os.stat(p).st_mtime_ns, p) for p in _dirs())
     except OSError:
         return
     for _, path in entries[:-keep]:
@@ -97,10 +99,17 @@ def _evict(keep=None):
 
 
 def _hash_file(path):
-    """sha256 of a file's bytes, or None when it is not there / not readable."""
+    """sha256 of a file's bytes, or None when it is not there / not readable.
+
+    Read in blocks: this hashes the file as it is NOW, which a capture cannot
+    bound - the copy was capped at MAX_BYTES, but the file it came from may have
+    grown since."""
     try:
+        digest = hashlib.sha256()
         with open(path, "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(block)
+        return digest.hexdigest()
     except OSError:
         return None
 
