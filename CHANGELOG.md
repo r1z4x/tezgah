@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-18
+
 ### Changed
 
 - **The benchmark moved to its own branch.** `benchmarks/` - the arms, the
@@ -312,4 +314,5 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.10.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.10.0
 [0.9.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.9.0
