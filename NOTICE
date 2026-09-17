@@ -9,3 +9,17 @@ skills/research    - MIT, Orchestra Research. Adapts the orchestration layer of
                      ara-rigor-reviewer and ara-research-manager skills):
                      https://github.com/orchestra-research/AI-research-SKILLs
                      Nothing is copied verbatim.
+
+skills/ai-research - MIT, Orchestra Research. VENDORED from the same library at
+                     revision 773a52944ba4747a18bd4ae9ade53fff041adcbc
+                     (2026-06-15): 98 skills in 23 categories, each with its
+                     markdown references, in the upstream layout. The bodies are
+                     byte-for-byte upstream, frontmatter included - 96 keep
+                     Orchestra Research's `author` line, two
+                     (`ml-training-recipes`, `a-evolve`) keep the contributing
+                     author's - and a markdown file with no frontmatter carries
+                     one attribution comment.
+                     Three machine-scraped reference dumps and the LaTeX template
+                     trees are not copied, and every drop is named in
+                     skills/ai-research/SOURCE. `bin/tezgah-import-ai-research
+                     --check` verifies the tree against its manifest.

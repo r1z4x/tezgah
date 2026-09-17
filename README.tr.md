@@ -1,23 +1,12 @@
 <p align="center">
   <a href="README.md">English</a> |
   <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
   <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.no.md">Norsk</a> |
   <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a>
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 # Tezgah
@@ -94,6 +83,9 @@ beş ayrı kopyası yoktur.
   işi alphaXiv'in OpenResearch'ü (`orx`) üzerinden yürütür ve protokolü doğaçlama yapmak yerine
   önce `orx` kılavuzunu yükler. Düz kod keşfi kod grafiğinde kalır. `orx` bulunmadığında,
   yönlendirici bunu belirtir ve bir barındırıcı alt ajanına (subagent) geri döner.
+  Deneyin ihtiyaç duyduğu alan bilgisi de birlikte gelir: vendor edilen
+  `AI-research-SKILLs` kütüphanesi (98 yetenek, 23 kategori, MIT) `ai-research` yeteneği
+  olarak kurulur ve aşama indeksinden tek tek okunur.
 - **Doğrulama altında dürüstlük.** Çıktı görülmediği sürece hiçbir şeyin yapıldığı, test edildiği veya
   düzeltildiği rapor edilmez. Başarısız olan bir test, tam hatasıyla birlikte başarısız olarak
   rapor edilir ve atlanan bir kontrol açıkça belirtilir.
@@ -341,9 +333,9 @@ bütçeyi yazdırır — buraya kopyalanmış bir rakama güvenmek yerine onu or
 
 | Bant | Maliyeti |
 |---|---|
-| Oturum başlangıcı | her zaman açık sözleşme (invariantlar artı isteğe bağlı kural başına tek satırlık bir işaretçi): bu makinede ve yetenek setinde ~1.5k token sözleşme metni ve ~1.3k yetenek üst verisi; koşullu kurallar (spec, consult, research, graph) yalnızca istemi eşleşen turda ~0.7k ekler |
+| Oturum başlangıcı | her zaman açık sözleşme (invariantlar artı isteğe bağlı kural başına tek satırlık bir işaretçi): bu makinede ve yetenek setinde ~1.5k token sözleşme metni ve ~1.4k yetenek üst verisi; koşullu kurallar (spec, consult, research, graph) yalnızca istemi eşleşen turda ~0.7k ekler |
 | Tur başına | kısa bir hatırlatıcı (~0.2k token) artı eşleştiğinde devreye alınan kural; kancalar ayrı Python süreçleridir, bu nedenle ~19 ms yorumlayıcı başlangıcı temeldir — bir tur ~31 ms ekler, oturum başlangıcı ~50-81 ms, geçitli bir araç çağrısı (Bash/Grep/Task) ~24-25 ms ekler. opencode'un istem zamanı kancası yoktur, bu nedenle sıfır öder |
-| İsteğe bağlı | tam `tezgah-contract` yeteneği (~6.4k token), yalnızca bir görev onu yüklediğinde ödenir |
+| İsteğe bağlı | tam `tezgah-contract` yeteneği (~6.6k token), yalnızca bir görev onu yüklediğinde ödenir |
 | MCP şemaları | en büyük bant ve hiçbir statik raporun görmediği bant: tek başına graph sunucusu 15 araç / 24,508 bayt (~6.1k token) bildirir ve barındırıcı şemaları isteğe bağlı getirmediği sürece her isteğe biner. `tezgah-setup --mcp-schemas` bunu ölçer |
 | Disk | kurulum ~58 ms sürer ve tezgah'ın yeniden yazdığı her dosya bir kez `<file>.tezgah-bak` olarak saklanır |
 

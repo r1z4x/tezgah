@@ -6,8 +6,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The README translations are reduced to six languages plus Turkish** -
+  English, 简体中文, Deutsch, Español, Français, 日本語, Português (Brasil), Türkçe -
+  and every remaining file's language switcher lists exactly that set. The
+  eleven dropped translations (বাংলা, Bosanski, Dansk, Italiano, 한국어, Norsk, Polski,
+  Русский, ไทย, Українська, 繁體中文) stay in git history; English is still the
+  source of truth. The one sentence each translation carries about the shipped
+  library was re-read through `consult --online`: the French, Spanish, Italian
+  and Brazilian Portuguese lines no longer carry a "vendored" loan word, and the
+  Chinese line says 仓库内置的 rather than an inline English term.
+- A copy of the plugin (the tree Claude Code actually runs) now syncs past a
+  path that is deleted in the working tree but not yet staged in the index;
+  `ls-files` still lists it, and copying it crashed `--sync` and `--install`
+  (hit while the README translations were reduced).
+
 ### Added
 
+- **The domain library ships with tezgah, as one skill.** `skills/ai-research/`
+  carries Orchestra Research's `AI-research-SKILLs` (98 skills, 23 categories,
+  MIT, revision `773a529`) in the upstream layout, reached as the single
+  `ai-research` skill - one metadata entry on every host instead of 98 - with a
+  generated stage index (`index/1-frame.md` … `index/6-write.md`) and the flags
+  that mark thin or stale bodies. `bin/tezgah-import-ai-research` regenerates the
+  tree from a pinned checkout and `--check` verifies every digest without one;
+  `SOURCE` names the revision, the drop list and the one modification. The
+  research rule, the `research` skill and the generated `tezgah-researcher` agent
+  all point at it, so a research line reaches the domain knowledge on all six
+  hosts rather than only where an external clone happened to be installed.
+- **Two opencode wiring gaps the first live host turn exposed.** The generated
+  router now names tezgah's own on-demand skills in the always-on section
+  (`research (tezgah's own)`), because a library a session is never told about is
+  one it answers from memory instead: on a research prompt `opencode run` globbed
+  the project, found nothing, and reported estimates. And the installer grants
+  `external_directory` read for the two directories tezgah installs
+  (`<checkout>/skills/**` and `~/.config/tezgah/bin/**`) - a skill body and
+  tezgah's own CLIs live outside the session's project, and opencode auto-rejects
+  a permission prompt nobody can answer in a non-interactive run (the same turn's
+  attempt to open `skills/ai-research/` was denied). A user's explicit global
+  `external_directory` action is left alone, and `--uninstall` removes the grants.
+- `tezgah-research check` refuses a claim whose proof names a path the line does
+  not have - the fabricated-evidence failure - and the `research` skill gains the
+  1-5 review anchors with their grade mapping, the claim-type/evidence table, the
+  finding record, the citation-verification rule, the evidence-fidelity rules
+  (exact numbers, derived views labelled, a source on every row), the deeper
+  ideation moves (hidden constraints, kill criteria) and the figure rules.
 - **Ledger action identity, trace metrics and the loop guard** (plan 012). Every
   evidence row now carries `id` (a digest of the tool and its canonical
   arguments) and `workspace`, plus whichever of `exit`, `out_bytes` and

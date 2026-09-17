@@ -1,23 +1,12 @@
 <p align="center">
   <a href="README.md">English</a> |
   <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
   <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.no.md">Norsk</a> |
   <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a>
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 # Tezgah
@@ -97,6 +86,9 @@ copie en cinq exemplaires du même texte.
   et charge d'abord le manuel `orx`, au lieu d'improviser le protocole. La simple
   découverte de code reste sur le graphe de code. Lorsque `orx` est absent, le routeur le signale
   et se rabat sur un sous-agent de l'hôte.
+  Le savoir métier dont une expérience a besoin est embarqué : la bibliothèque
+  `AI-research-SKILLs` intégrée au dépôt (98 skills, 23 catégories, MIT) arrive comme skill
+  `ai-research`, et se lit entrée par entrée depuis son index par étape.
 - **Honnêteté sous vérification.** Rien n'est signalé comme terminé, testé ou corrigé
   à moins que le résultat n'ait été vu. Un test qui échoue est signalé comme tel avec son
   erreur exacte, et une vérification ignorée est déclarée clairement.
@@ -344,9 +336,9 @@ en direct - lisez-le là plutôt que de faire confiance à un chiffre copié ici
 
 | Bande | Ce qu'elle coûte |
 |---|---|
-| Démarrage de session | le contrat toujours actif (les invariants plus un pointeur d'une ligne par règle à la demande) : sur cette machine et ce jeu de compétences, ~1.5k tokens de texte de contrat et ~1.3k de métadonnées de compétences, les règles conditionnelles (spec, consult, research, graph) n'ajoutant ~0.7k que sur le tour dont le prompt correspond |
+| Démarrage de session | le contrat toujours actif (les invariants plus un pointeur d'une ligne par règle à la demande) : sur cette machine et ce jeu de compétences, ~1.5k tokens de texte de contrat et ~1.4k de métadonnées de compétences, les règles conditionnelles (spec, consult, research, graph) n'ajoutant ~0.7k que sur le tour dont le prompt correspond |
 | Par tour | un court rappel (~0.2k tokens) plus la règle armée quand elle correspond ; les hooks sont des processus Python distincts, donc le démarrage de l'interpréteur de ~19 ms est la base - un tour ajoute ~31 ms, le démarrage de session ajoute ~50-81 ms, un appel d'outil contrôlé (Bash/Grep/Task) ~24-25 ms. opencode n'a pas de hook au moment du prompt, il ne paie donc rien |
-| À la demande | la compétence complète `tezgah-contract` (~6.4k tokens), payée seulement quand une tâche la charge |
+| À la demande | la compétence complète `tezgah-contract` (~6.6k tokens), payée seulement quand une tâche la charge |
 | Schémas MCP | la plus grande bande, et celle qu'aucun rapport statique ne voit : le serveur de graphe à lui seul déclare 15 outils / 24,508 octets (~6.1k tokens), embarqués dans chaque requête sauf si l'hôte récupère les schémas à la demande. `tezgah-setup --mcp-schemas` le mesure |
 | Disque | l'installation prend ~58 ms, et chaque fichier que tezgah réécrit est conservé une fois sous `<file>.tezgah-bak` |
 

@@ -26,8 +26,8 @@ import os
 import re
 import subprocess
 
-from tezgah_paths import (CONFIG_DIR, cbm_bin, have_consult_key, host_installed,
-                          off, orx_bin, root_for, tool)
+from tezgah_paths import (CONFIG_DIR, ai_research_dir, cbm_bin, have_consult_key,
+                          host_installed, off, orx_bin, root_for, tool)
 
 MARKER = "# tezgah: managed by tezgah-agents; do not edit"
 STATE = os.path.join(CONFIG_DIR, "agents.state.json")
@@ -160,8 +160,11 @@ def _researcher_body(_host):
         "graph-first explorer). If `%s` is missing, say the research tooling is\n"
         "unavailable and fall back to a bounded host subagent. Report commands run\n"
         "and observed output; never claim a result you did not see.\n\n"
+        "The domain library ships with tezgah at `%s`: read `index/<stage>.md`\n"
+        "there, then the one entry the work needs, when the experiment needs ML\n"
+        "machinery. Its flags mark thin or superseded bodies.\n\n"
         "You may use: the `%s` CLI, read, grep and glob. Nothing else."
-        % (orx, orx, orx, orx))
+        % (orx, orx, orx, ai_research_dir(), orx))
 
 
 def _verifier_body(_host):

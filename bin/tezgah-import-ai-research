@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+"""tezgah-import-ai-research - vendor the AI-research-SKILLs library into tezgah.
+
+Dev-time only: `bin/tezgah-setup` never links this into ~/.config/tezgah/bin. The
+generated tree is committed and reviewed like any other file, and `--check`
+re-derives every digest from `library.json`, so CI verifies it without the
+upstream clone being present.
+
+  bin/tezgah-import-ai-research --source ~/Projects/AI-Research-SKILLs --rev 773a529
+  bin/tezgah-import-ai-research --check
+
+A vendored path is its provenance, so the upstream layout is kept verbatim:
+`<category>/<skill>/SKILL.md` beside its `references/`. What is dropped, and why,
+is DROP_FILES and DROP_DIRS; everything that is not markdown is dropped by the
+`*.md` filter, so no PDF, LaTeX class, image or `.gitkeep` reaches the repo. A
+vendored file with no YAML frontmatter gets one attribution comment; upstream's
+own frontmatter (author, license) is left untouched, because MIT attribution is
+the point of keeping it.
+
+`skills/ai-research/SKILL.md` is hand-written and is not in the manifest: it is
+the entry point, not vendored content. `library.json` is the manifest itself.
+
+Exit codes: 0 ok, 1 drift or an upstream surprise, 2 misuse.
+"""
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+OUT = os.path.join(HERE, "skills", "ai-research")
+UPSTREAM = "https://github.com/orchestra-research/AI-research-SKILLs"
+UPSTREAM_NAME = "AI-research-SKILLs"
+LICENCE = "MIT"
+# A changing upstream must be reviewed, not absorbed: a re-run that finds a
+# different shape stops here until the drop list and the stage map are looked at.
+EXPECTED_CATEGORIES, EXPECTED_SKILLS = 23, 98
+
+# Three machine-scraped reference dumps. They are concatenated official docs with
+# `URL:` headers, not guides, and the entry's own SKILL.md already distils them.
+DROP_FILES = (
+    "03-fine-tuning/unsloth/references/llms-full.md",
+    "03-fine-tuning/unsloth/references/llms-txt.md",
+    "08-distributed-training/deepspeed/references/tutorials.md",
+)
+# LaTeX class/bst/bib trees plus example PDFs, re-downloadable from each venue.
+DROP_DIRS = (
+    "20-ml-paper-writing/ml-paper-writing/templates",
+    "20-ml-paper-writing/systems-paper-writing/templates",
+)
+# Bodies that name an API the upstream library has since moved. Recorded, not
+# edited: the vendored text stays verbatim, the index line carries the warning.
+STALE_API = {
+    "01-model-architecture/rwkv": "pins pytorch-lightning==1.9.5",
+    "10-optimization/awq": "upstream says AutoAWQ is deprecated",
+    "14-agents/langchain": "uses removed chain/memory APIs",
+    "16-prompt-engineering/dspy": "pre-2.5 module names",
+    "16-prompt-engineering/guidance": "models.Anthropic shape",
+    "16-prompt-engineering/outlines": "outlines.models.* moved in 1.0",
+}
+# The research-line stage each category answers to. A session reads one file.
+STAGES = (
+    ("1-frame", "Frame the question and run the loop",
+     ("0-autoresearch-skill", "21-research-ideation",
+      "22-agent-native-research-artifact")),
+    ("2-data", "Data, retrieval and tokenization",
+     ("02-tokenization", "05-data-processing", "15-rag")),
+    ("3-train", "Model, training, post-training and optimization",
+     ("01-model-architecture", "03-fine-tuning", "06-post-training",
+      "08-distributed-training", "10-optimization", "19-emerging-techniques")),
+    ("4-measure", "Measurement, safety and interpretability",
+     ("04-mechanistic-interpretability", "07-safety-alignment", "11-evaluation",
+      "17-observability")),
+    ("5-run", "Compute, serving and tracking",
+     ("09-infrastructure", "12-inference-serving", "13-mlops")),
+    ("6-write", "Agents, structured output, media and writing",
+     ("14-agents", "16-prompt-engineering", "18-multimodal",
+      "20-ml-paper-writing")),
+)
+GENERATED_MARKS = ("automatically generated from official documentation",
+                   "Quick reference patterns will be added")
+ATTRIBUTION = "<!-- vendored from orchestra-research/%s@%s %s; %s (c) Orchestra Research -->"
+
+CATEGORY_RE = re.compile(r"^(0-|[0-9]{2}-)")
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(65536), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def frontmatter(text):
+    """The scalar fields of a leading YAML block, values unwrapped onto one line."""
+    m = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return {}
+    fields = {}
+    for line in m.group(1).split("\n"):
+        hit = re.match(r"^([a-z_]+):\s*(.*)$", line)
+        if hit and hit.group(2):
+            fields[hit.group(1)] = hit.group(2).strip()
+    return fields
+
+
+def one_line(text, limit=200):
+    flat = re.sub(r"\s+", " ", text).replace("|", "/").strip()
+    if len(flat) <= limit:
+        return flat
+    cut = flat[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(",;:") + " ..."
+
+
+def first_sentence(text, limit=180):
+    flat = re.sub(r"\s+", " ", text).replace("|", "/").strip()
+    hit = re.search(r"^(.{20,}?[.!?])(\s|$)", flat)
+    return one_line(hit.group(1) if hit else flat, limit)
+
+
+def git(source, *args):
+    proc = subprocess.run(("git", "-C", source) + args, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit("tezgah-import-ai-research: git %s failed: %s"
+                         % (" ".join(args), proc.stderr.strip() or proc.returncode))
+    return proc.stdout.strip()
+
+
+def discover(source):
+    """[(category, skill, abs_dir)] for every skill the upstream tree ships.
+
+    One category (`0-autoresearch-skill`) is one skill: its SKILL.md sits directly
+    in the category directory instead of in a named child."""
+    out = []
+    for category in sorted(os.listdir(source)):
+        cpath = os.path.join(source, category)
+        if not CATEGORY_RE.match(category) or not os.path.isdir(cpath):
+            continue
+        if os.path.isfile(os.path.join(cpath, "SKILL.md")):
+            out.append((category, category, cpath))
+            continue
+        for skill in sorted(os.listdir(cpath)):
+            path = os.path.join(cpath, skill)
+            if os.path.isfile(os.path.join(path, "SKILL.md")):
+                out.append((category, skill, path))
+    return out
+
+
+def rel_of(category, skill):
+    return category if skill == category else "%s/%s" % (category, skill)
+
+
+def kept_files(source, rel):
+    """The files this vendoring keeps from one skill dir, as relative paths."""
+    base = os.path.join(source, rel)
+    drops = {p for p in DROP_FILES if p.startswith(rel + "/")}
+    keep = []
+    for root, dirs, files in os.walk(base):
+        dirs.sort()
+        for name in sorted(files):
+            full = os.path.join(root, name)
+            relfile = os.path.relpath(full, source)
+            if not name.endswith(".md") or relfile in drops:
+                continue
+            if any(relfile.startswith(d + "/") for d in DROP_DIRS):
+                continue
+            keep.append(relfile)
+    return keep
+
+
+def dangling(text, rel, kept, library):
+    """Links to a reference the vendored library does not ship - recorded, never
+    hidden. A prefixed mention (`20-ml-paper-writing`'s `references/x.md`) counts
+    as resolved when that file ships anywhere in the library."""
+    out = []
+    for ref in sorted(set(re.findall(r"references/[\w.-]+\.md", text))):
+        if "%s/%s" % (rel, ref) in kept:
+            continue
+        if any(path.endswith("/" + ref) for path in library):
+            continue
+        out.append(ref)
+    return out
+
+
+def build(source, rev):
+    """(manifest, {relative path: text}) - the whole vendored tree, in memory."""
+    skills = discover(source)
+    categories = sorted({c for c, _, _ in skills})
+    if (len(categories), len(skills)) != (EXPECTED_CATEGORIES, EXPECTED_SKILLS):
+        raise SystemExit(
+            "tezgah-import-ai-research: upstream@%s has %d categories / %d skills, "
+            "expected %d / %d - review the drop list and the stage map before "
+            "vendoring a new shape" % (rev, len(categories), len(skills),
+                                       EXPECTED_CATEGORIES, EXPECTED_SKILLS))
+    dirty = [p for p in git(source, "status", "--porcelain", "--untracked-files=all").splitlines()
+             if p.split(maxsplit=1)[-1].endswith(".md")]
+    if dirty:
+        raise SystemExit("tezgah-import-ai-research: the source tree has uncommitted "
+                         "markdown (%s) - vendor a clean revision" % ", ".join(dirty[:3]))
+
+    kept_by_skill = {rel_of(c, s): kept_files(source, rel_of(c, s)) for c, s, _ in skills}
+    library = [p for paths in kept_by_skill.values() for p in paths]
+
+    files, rows = {}, []
+    for category, skill, path in skills:
+        rel = rel_of(category, skill)
+        with open(os.path.join(path, "SKILL.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        fields = frontmatter(text)
+        kept = kept_by_skill[rel]
+        body_texts = {}
+        for relfile in kept:
+            with open(os.path.join(source, relfile), encoding="utf-8") as fh:
+                raw = fh.read()
+            if not frontmatter(raw):
+                raw = ATTRIBUTION % (UPSTREAM_NAME, rev, relfile, LICENCE) + "\n" + raw
+            body_texts[relfile] = raw
+        entry = {
+            "category": category,
+            "dir": skill,
+            "name": fields.get("name", skill),
+            "purpose": first_sentence(fields.get("description", "")),
+            "files": [],
+            "generated": any(mark in text for mark in GENERATED_MARKS),
+            "stale_api": STALE_API.get(rel, ""),
+            "dangling_links": dangling(text, rel, set(kept), library),
+            "orphan_refs": sorted({f for f in kept if f.endswith(".md")
+                                   and "references/" in f
+                                   and os.path.basename(f) not in text}),
+            "upstream_path": rel,
+        }
+        for relfile, body in sorted(body_texts.items()):
+            files[relfile] = body
+            entry["files"].append({"path": relfile, "bytes": len(body.encode()),
+                                   "sha256": hashlib.sha256(body.encode()).hexdigest()})
+        entry["bytes"] = sum(f["bytes"] for f in entry["files"])
+        rows.append(entry)
+
+    generated = {}
+    for stage, title, cats in STAGES:
+        header = [
+            "<!-- generated by bin/tezgah-import-ai-research; do not edit -->",
+            "",
+            "# %s. %s" % (stage, title),
+            "",
+            "Vendored from [%s](%s) at `%s` (%s). Read the row you need, then the"
+            % (UPSTREAM_NAME, UPSTREAM, rev, LICENCE),
+            "file it names; the body sits beside it. Flags: **generated** - upstream",
+            "built the body from scraped docs, so it is thin; **stale-api** - the body",
+            "names an API the library has since moved; **dead-links: N** - the body",
+            "links N reference files upstream does not ship.",
+            "",
+            "| entry | file | what it covers | flags |",
+            "|---|---|---|---|",
+        ]
+        lines = list(header)
+        for category, skill, _ in skills:
+            if category not in cats:
+                continue
+            entry = next(r for r in rows if r["category"] == category and r["dir"] == skill)
+            flags = []
+            if entry["generated"]:
+                flags.append("generated")
+            if entry["stale_api"]:
+                flags.append("stale-api")
+            if entry["dangling_links"]:
+                flags.append("dead-links: %d" % len(entry["dangling_links"]))
+            lines.append("| `%s` | `%s/SKILL.md` | %s | %s |"
+                         % (entry["dir"], entry["upstream_path"], entry["purpose"],
+                            ", ".join(flags)))
+        generated["index/%s.md" % stage] = "\n".join(lines) + "\n"
+
+    counts = {"categories": len(categories), "skills": len(rows),
+              "files": len(files), "bytes": sum(r["bytes"] for r in rows)}
+    mapped = {c for _stage, _title, group in STAGES for c in group}
+    orphaned = sorted({r["category"] for r in rows} - mapped)
+    if orphaned:
+        raise SystemExit("tezgah-import-ai-research: %s is not in the stage map - an "
+                         "entry no index file lists is an entry no session finds; add "
+                         "it to STAGES before vendoring" % ", ".join(orphaned))
+    manifest = {
+        "upstream": {"name": UPSTREAM_NAME, "url": UPSTREAM, "rev": rev,
+                     "date": git(source, "log", "-1", "--format=%cs", rev),
+                     "license": LICENCE},
+        "counts": counts,
+        "drop": {"files": list(DROP_FILES), "dirs": list(DROP_DIRS)},
+        "stale_api": dict(STALE_API),
+        "stages": {stage: sorted(r["upstream_path"] for r in rows if r["category"] in cats)
+                   for stage, _, cats in STAGES},
+        "skills": sorted(rows, key=lambda r: r["upstream_path"]),
+        "generated": sorted(generated),
+    }
+    for path, text in generated.items():
+        manifest.setdefault("index", []).append(
+            {"path": path, "bytes": len(text.encode()),
+             "sha256": hashlib.sha256(text.encode()).hexdigest()})
+    return manifest, files, generated
+
+
+def source_text(manifest, rev):
+    up = manifest["upstream"]
+    return (
+        "# Source\n\n"
+        "Vendored from %s at `%s` (%s), %s licence. Every body keeps its upstream\n"
+        "frontmatter, `author` line included: 96 name Orchestra Research, and two\n"
+        "(`10-optimization/ml-training-recipes`, `14-agents/a-evolve`) name the\n"
+        "contributing author of that entry. Checkout for a re-vendor:\n"
+        "`git clone %s && git -C %s checkout %s`.\n\n"
+        "## What is vendored\n\n"
+        "Every skill's `SKILL.md` and every markdown file beside it, in the upstream\n"
+        "layout, because a vendored path is its provenance. %d skills across %d\n"
+        "categories, %d files, %d bytes.\n\n"
+        "## What is not, and why\n\n"
+        "Files: %s - machine-scraped reference dumps, which the entry's own\n"
+        "`SKILL.md` already distils.\n\n"
+        "Directories: %s - LaTeX class/bst/bib trees and example PDFs,\n"
+        "re-downloadable from each venue.\n\n"
+        "Everything else that is not markdown (PDFs, images, `.gitkeep`, scripts)\n"
+        "is dropped by the importer's `*.md` filter, and `demos/`, `docs/`,\n"
+        "`packages/`, `video-promo/` are upstream's repo furniture, not content.\n\n"
+        "## The only modification\n\n"
+        "A markdown file that carries no YAML frontmatter gets one attribution\n"
+        "comment on its first line. `SKILL.md` files are byte-for-byte upstream,\n"
+        "frontmatter included. `skills/ai-research/SKILL.md` is tezgah's own and is\n"
+        "not part of the manifest.\n\n"
+        "## Re-vendoring\n\n"
+        "`bin/tezgah-import-ai-research --source <clone> --rev <sha>`, then commit\n"
+        "the diff. `--check` verifies the committed tree against `library.json`\n"
+        "without the clone, and is what CI runs.\n"
+        % (up["url"], up["rev"], up["date"], up["license"], UPSTREAM, "<clone>", rev,
+           manifest["counts"]["skills"], manifest["counts"]["categories"],
+           manifest["counts"]["files"], manifest["counts"]["bytes"],
+           ", ".join("`%s`" % f for f in DROP_FILES),
+           ", ".join("`%s`" % d for d in DROP_DIRS)))
+
+
+def cmd_import(source, rev, out):
+    manifest, files, generated = build(source, rev)
+    texts = dict(files)
+    texts.update(generated)
+    texts["SOURCE"] = source_text(manifest, rev)
+    library = json.dumps(manifest, indent=1, sort_keys=True) + "\n"
+
+    # SKILL.md is tezgah's own prose, not generated: the import refreshes what it
+    # builds and must not take the entry point with it.
+    entry = os.path.join(out, "SKILL.md")
+    kept = None
+    if os.path.isfile(entry):
+        with open(entry, encoding="utf-8") as fh:
+            kept = fh.read()
+
+    shutil.rmtree(out, ignore_errors=True)
+    for rel, text in sorted(texts.items()):
+        path = os.path.join(out, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    with open(os.path.join(out, "library.json"), "w", encoding="utf-8") as fh:
+        fh.write(library)
+    if kept is not None:
+        with open(entry, "w", encoding="utf-8") as fh:
+            fh.write(kept)
+    else:
+        print("tezgah-import-ai-research: %s has no SKILL.md - the entry point is "
+              "hand-written; write it before committing" % out)
+    print("wrote %s: %d skills, %d files, %.1f MB"
+          % (out, manifest["counts"]["skills"], manifest["counts"]["files"],
+             manifest["counts"]["bytes"] / 1e6))
+    return 0
+
+
+def cmd_check(out):
+    """Verify the committed tree against the manifest. Needs no clone."""
+    manifest_path = os.path.join(out, "library.json")
+    if not os.path.isfile(manifest_path):
+        print("tezgah-import-ai-research: no manifest at %s" % manifest_path,
+              file=sys.stderr)
+        return 1
+    with open(manifest_path, encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    expected = {f["path"]: f["sha256"] for s in manifest["skills"] for f in s["files"]}
+    expected.update({f["path"]: f["sha256"] for f in manifest.get("index", [])})
+    problems = []
+    for rel, digest in sorted(expected.items()):
+        path = os.path.join(out, rel)
+        if not os.path.isfile(path):
+            problems.append("missing %s" % rel)
+        elif sha256(path) != digest:
+            problems.append("changed %s" % rel)
+    for root, dirs, names in os.walk(out):
+        dirs.sort()
+        for name in sorted(names):
+            rel = os.path.relpath(os.path.join(root, name), out)
+            # library.json is the manifest itself, SKILL.md is tezgah's own entry
+            # point, and SOURCE is prose derived from the manifest (a test pins
+            # that it names the manifest's revision); none is vendored upstream
+            # content, so none carries a digest.
+            if rel in ("library.json", "SKILL.md", "SOURCE") or rel in expected:
+                continue
+            problems.append("unlisted %s" % rel)
+    if problems:
+        for line in problems[:10]:
+            print("tezgah-import-ai-research: %s" % line, file=sys.stderr)
+        if len(problems) > 10:
+            print("tezgah-import-ai-research: ... %d more" % (len(problems) - 10),
+                  file=sys.stderr)
+        return 1
+    print("ok: %d skills, %d vendored files match library.json"
+          % (manifest["counts"]["skills"], len(expected)))
+    return 0
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(add_help=True, description=__doc__.split("\n")[0])
+    parser.add_argument("--source", help="a checkout of the upstream library")
+    parser.add_argument("--rev", help="the commit to vendor; must be a clean checkout")
+    parser.add_argument("--out", default=OUT, help="target directory")
+    parser.add_argument("--check", action="store_true",
+                        help="verify an existing tree against its manifest")
+    args = parser.parse_args(argv[1:])
+    if args.check:
+        if args.source or args.rev:
+            parser.error("--check takes no --source/--rev")
+        return cmd_check(args.out)
+    if not args.source or not args.rev:
+        parser.error("--source and --rev are required")
+    head = git(args.source, "rev-parse", "HEAD")
+    if not head.startswith(args.rev):
+        parser.error("--rev %s is not HEAD of %s (%s)" % (args.rev, args.source, head[:9]))
+    return cmd_import(args.source, head, args.out)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

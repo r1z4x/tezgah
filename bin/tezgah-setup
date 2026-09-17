@@ -69,7 +69,11 @@ OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
                "treat every line as a standing constraint on the work.")
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "no-ai-slop",
-          "analyze-app", "plan-add", "plan-status", "plan-sync", "research"]
+          "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
+          "ai-research"]
+# Shipped by tezgah, reached only from a research task: the always-on router
+# collapses it to its bucket's count line like every other on-demand bucket.
+RESEARCH_SKILLS = frozenset(("ai-research",))
 # opencode context hygiene tezgah arms: prune clears old tool results from the
 # prompt (stops a long session re-sending every output each step) and the
 # watcher ignore keeps fs-events out of noisy trees. Both merge; a user's
@@ -578,6 +582,8 @@ def skill_description(path):
 
 
 def skill_category(name, path=""):
+    if name in RESEARCH_SKILLS:
+        return "research & papers"
     if name in SKILLS:
         return "tezgah core"
     if name.startswith("deepscientist-") or name == "orx" or name.startswith("orx-"):
@@ -653,14 +659,24 @@ def skill_router_texts():
     the skills a coding session needs and collapses the research/marketing
     buckets to a pointer at the full file, read only when that task class comes
     up. Same shape as the contract: the common case always-on, the rest on
-    demand."""
+    demand. tezgah's own on-demand skills are the exception: they are named
+    always-on, because a library the session is never told about is one it
+    answers from memory instead - measured with a live opencode turn that read
+    nothing and answered anyway."""
     groups = skill_groups()
     always = _router_head()
     for cat in ROUTER_ORDER:
         if cat in ROUTER_ALWAYS and groups[cat]:
             always += _router_section(cat, groups[cat])
-    collapsed = [(c, len(groups[c])) for c in ROUTER_ORDER
-                 if c not in ROUTER_ALWAYS and groups[c]]
+    own = {name for cat in ROUTER_ORDER if cat not in ROUTER_ALWAYS
+           for name, _path in groups[cat] if name in RESEARCH_SKILLS}
+    if own:
+        always += _router_section("research (tezgah's own)",
+                                  [row for cat in ROUTER_ORDER
+                                   for row in groups[cat] if row[0] in own])
+    collapsed = [(c, len([r for r in groups[c] if r[0] not in own]))
+                 for c in ROUTER_ORDER if c not in ROUTER_ALWAYS and groups[c]]
+    collapsed = [(c, n) for c, n in collapsed if n]
     if collapsed:
         always += [
             "## Other skill buckets (on demand)",
@@ -670,7 +686,8 @@ def skill_router_texts():
             % SKILL_ROUTER_FULL,
             "",
         ]
-        always += ["- %s: %d skills" % (cat, n) for cat, n in collapsed]
+        always += ["- %s: %d skill%s" % (cat, n, "" if n == 1 else "s")
+                   for cat, n in collapsed]
         always.append("")
     full = _router_head()
     for cat in ROUTER_ORDER:
@@ -715,6 +732,22 @@ def install_opencode():
     # Deny every skill so opencode stops injecting ~80 name+description blocks
     # into the system prompt; the generated router replaces them.
     cfg.setdefault("permission", {})["skill"] = "deny"
+    # A skill body and tezgah's own CLIs live OUTSIDE the session's project (the
+    # checkout is at a fixed path, the project is wherever the user works), and
+    # opencode asks before reading or running anything out there. In a
+    # non-interactive run there is nobody to answer that prompt, so the call is
+    # auto-rejected and the session answers from memory instead - measured: a live
+    # `opencode run` tried to open `skills/ai-research/` and was denied. Grant the
+    # two directories tezgah installs for exactly this. A user who set the
+    # shorthand action (`"external_directory": "ask"`) keeps it: an explicit
+    # global choice is not ours to overwrite.
+    grants = [os.path.join(HERE, "skills", "**"), os.path.join(tp.CONFIG_DIR, "bin", "**")]
+    external = cfg["permission"].get("external_directory")
+    if isinstance(external, dict):
+        for grant in grants:
+            external.setdefault(grant, "allow")
+    elif external is None:
+        cfg["permission"]["external_directory"] = {g: "allow" for g in grants}
     # Context hygiene: prune replaces old tool results in the prompt with
     # "[Old tool result content cleared]" so a long session stops re-sending
     # every output on every step. setdefault keeps a user's explicit choice.
@@ -1264,6 +1297,20 @@ def unwire_opencode_config():
             if not perm:
                 c.pop("permission", None)
             changed = True
+        perm = c.get("permission")
+        external = perm.get("external_directory") if isinstance(perm, dict) else None
+        if isinstance(external, dict):
+            kept = {k: v for k, v in external.items()
+                    if k not in (os.path.join(HERE, "skills", "**"),
+                                 os.path.join(tp.CONFIG_DIR, "bin", "**"))}
+            if kept != external:
+                if kept:
+                    perm["external_directory"] = kept
+                else:
+                    perm.pop("external_directory")
+                    if not perm:
+                        c.pop("permission", None)
+                changed = True
         comp = c.get("compaction")
         if isinstance(comp, dict) and comp.get("prune") is True:
             c.pop("compaction", None)
@@ -1943,9 +1990,15 @@ def sync():
                 shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) \
                     else os.remove(path)
         for f in files:
+            src = os.path.join(HERE, f)
+            if not os.path.isfile(src):
+                # ls-files lists a path deleted in the working tree until the
+                # deletion is staged; copying it would crash the sync (measured
+                # when the README translations were reduced).
+                continue
             dst = os.path.join(t, f)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(os.path.join(HERE, f), dst)
+            shutil.copy2(src, dst)
         print("%s synced %s (%d files)" % (OK, t, len(files)))
     print("\nrestart Claude Code: hooks are read once per session.")
     return 0

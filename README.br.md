@@ -1,23 +1,12 @@
 <p align="center">
   <a href="README.md">English</a> |
   <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
   <a href="README.de.md">Deutsch</a> |
   <a href="README.es.md">Español</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
   <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.no.md">Norsk</a> |
   <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a>
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 # Tezgah
@@ -97,6 +86,9 @@ mesmo texto.
   e carrega o manual do `orx` primeiro, em vez de improvisar o protocolo. A descoberta de código
   simples permanece no grafo de código. Quando o `orx` está ausente, o roteador informa
   isso e recorre a um subagente do host.
+  O conhecimento de domínio de que um experimento precisa vem junto: a biblioteca
+  `AI-research-SKILLs` integrada (98 skills, 23 categorias, MIT) chega como a skill
+  `ai-research` e é lida entrada por entrada a partir do seu índice por estágio.
 - **Honestidade sob verificação.** Nada é relatado como concluído, testado ou corrigido
   a menos que a saída tenha sido vista. Um teste que falha é relatado como falho com seu
   erro exato, e uma verificação ignorada é declarada claramente.
@@ -340,9 +332,9 @@ revisão anterior citou uma faixa de core menor do que a que instala.
 
 | Faixa | O que custa |
 |---|---|
-| Início de sessão | o contrato always-on (as invariantes mais um ponteiro de uma linha por regra sob demanda): nesta máquina e conjunto de skills, ~1.5k tokens de texto de contrato e ~1.3k de metadados de skill, com as regras condicionais (spec, consult, research, graph) acrescentando ~0.7k apenas no turno cujo prompt casa |
+| Início de sessão | o contrato always-on (as invariantes mais um ponteiro de uma linha por regra sob demanda): nesta máquina e conjunto de skills, ~1.5k tokens de texto de contrato e ~1.4k de metadados de skill, com as regras condicionais (spec, consult, research, graph) acrescentando ~0.7k apenas no turno cujo prompt casa |
 | Por turno | um lembrete curto (~0.2k tokens) mais a regra armada quando ela casa; hooks são processos Python separados, então o início do interpretador de ~19 ms é a base - um turno acrescenta ~31 ms, o início de sessão acrescenta ~50-81 ms, uma chamada de ferramenta com portão (Bash/Grep/Task) ~24-25 ms. O opencode não tem hook em tempo de prompt, então paga zero |
-| Sob demanda | a skill completa `tezgah-contract` (~6.4k tokens), paga só quando uma tarefa a carrega |
+| Sob demanda | a skill completa `tezgah-contract` (~6.6k tokens), paga só quando uma tarefa a carrega |
 | Esquemas MCP | a maior faixa, e a que nenhum relatório estático vê: só o servidor de grafo declara 15 ferramentas / 24,508 bytes (~6.1k tokens), pegando carona em cada requisição a menos que o host busque esquemas sob demanda. `tezgah-setup --mcp-schemas` mede isso |
 | Disco | a instalação leva ~58 ms, e cada arquivo que o tezgah reescreve é mantido uma vez como `<file>.tezgah-bak` |
 
