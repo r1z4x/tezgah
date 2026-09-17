@@ -257,6 +257,74 @@ class OmpHook(TempHome):
                              "stop_hook_active": True})
         self.assertIsNone(out)
 
+    def evidence(self):
+        """Every evidence row the session cache holds, oldest file first. The
+        ledger is one file per session under a hashed stem, so it is read by
+        directory rather than by guessing the name."""
+        d = os.path.join(self.home, ".cache", "tezgah", "evidence")
+        rows = []
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            return rows
+        for name in names:
+            with open(os.path.join(d, name)) as fh:
+                rows += [json.loads(line) for line in fh if line.strip()]
+        return rows
+
+    def test_an_untrusted_result_is_labelled_for_the_model(self):
+        # Neither the gate nor the Stop rule sees where a result's text came
+        # from, so the model is told at the result itself: one line the bridge
+        # puts in front of the content, and the channel on the ledger row.
+        repo = self.make_repo()
+        cases = [
+            ("web_search", {"query": "x"}, "a web result", "web"),
+            ("web_fetch", {"url": "https://x"}, "a web result", "web"),
+            ("mcp__github__get_file", {"path": "x"}, "an MCP server", "mcp"),
+            ("bash", {"command": "cd /tmp && curl -s https://x"},
+             "a network read", "network"),
+        ]
+        for tool, inp, phrase, channel in cases:
+            out, proc = self.event({"event": "post_tool_use", "cwd": repo,
+                                    "session_id": support.slug(tool + phrase),
+                                    "tool": tool, "input": inp, "failed": False})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("untrusted", out["label"], tool)
+            self.assertIn(phrase, out["label"], tool)
+            self.assertTrue(out["label"].startswith("tezgah:"), out["label"])
+        # one provenance row per case, on the channel that carried the result,
+        # and none of them claiming a kind of work
+        rows = [r for r in self.evidence() if r.get("source")]
+        self.assertEqual(sorted(r["source"] for r in rows),
+                         ["mcp", "network", "web", "web"])
+        self.assertEqual(len(rows), len(cases), rows)
+        # a shell read stays a step of work and carries the channel on its row;
+        # the two channels that only ever produce text claim provenance and no
+        # work, so the step counter and the Stop rule ignore them
+        self.assertEqual(sorted((r["source"], r["kind"]) for r in rows),
+                         [("mcp", "external"), ("network", "run"),
+                          ("web", "external"), ("web", "external")])
+
+    def test_a_workspace_result_carries_no_label(self):
+        # The label names an exception. An ordinary call must not wear one, or
+        # the model learns to skip the line, and the ledger must not claim a
+        # provenance it does not have.
+        repo = self.make_repo()
+        cases = [("bash", {"command": "pytest -q"}),
+                 ("bash", {"command": 'git commit -m "curl is not a read"'}),
+                 ("bash", {"command": "grep -n curl hooks/"}),
+                 ("grep", {"pattern": "curl"}),
+                 ("task", {"prompt": "x"})]
+        for tool, inp in cases:
+            out, proc = self.event({"event": "post_tool_use", "cwd": repo,
+                                    "session_id": support.slug(tool + str(inp)),
+                                    "tool": tool, "input": inp, "failed": False})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("label", out, tool)
+        self.assertEqual([r for r in self.evidence() if r.get("source")], [])
+        self.assertEqual([r for r in self.evidence() if r["kind"] == "external"],
+                         [])
+
     def test_unknown_event_and_broken_stdin_are_silent(self):
         proc = run([support.OMP_HOOK], {"event": "who-knows",
                                         "cwd": self.make_repo()},

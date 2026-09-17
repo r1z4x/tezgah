@@ -28,12 +28,14 @@ function draw(ctx: any, line: string): void {
   } catch { /* a host that refuses the widget keeps the message instead */ }
 }
 
-// Tools whose result can move the status line's used marks or the evidence the
-// Stop rule reads. read/grep/glob are absent on purpose: a read-heavy turn
-// would otherwise spawn python per call for nothing.
+// Tools whose result can move the status line's used marks, carry the evidence
+// the Stop rule reads, or arrive from outside the user and the workspace.
+// read/grep/glob are absent on purpose: a read-heavy turn would otherwise spawn
+// python per call for nothing. The three web tools are here because their result
+// is exactly the one the untrusted-content label exists for.
 const WATCHED = ["bash", "shell", "command", "edit", "write", "multiedit",
   "notebookedit", "apply_patch", "edit_file", "write_file", "search_replace",
-  "task", "agent", "spawn_agent"];
+  "task", "agent", "spawn_agent", "web_search", "web_fetch", "browser"];
 
 // The gate is only consulted for the tools the shared rule knows: the refusal
 // of the grep-only explorer (task/agent), the anti-shortcut and attribution
@@ -41,6 +43,22 @@ const WATCHED = ["bash", "shell", "command", "edit", "write", "multiedit",
 const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
   "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
   "search_replace"];
+
+// The provenance label omp puts in front of a result that came from outside the
+// user and the workspace. The handler's return value replaces the tool result
+// (extensionRunner.emitToolResult reads `content`/`details`/`isError` off it and
+// the tool call hands that back as the result), so the line is read with the
+// content it applies to, in the same turn - not as a side message. An unknown
+// content shape is left alone rather than replaced by a label alone, which would
+// throw the result away.
+function labelled(content: any, label: string): any {
+  const part = { type: "text", text: label };
+  if (Array.isArray(content)) return [part, ...content];
+  if (typeof content === "string") {
+    return [part, { type: "text", text: content }];
+  }
+  return undefined;
+}
 
 // The hook's failure is the one state the bridge can see and the hook cannot
 // report: python3 missing, the checkout moved, the hook crashed or ran past the
@@ -212,6 +230,13 @@ export default function tezgahOmp(pi: any): void {
                       session_id: sessionOf(ctx) });
     if (hookError) return markBroken(ctx);
     show(ctx, res);
+    // A result that came from outside the user and the workspace is labelled in
+    // place; every other result is left exactly as the host produced it.
+    if (res.label) {
+      const content = labelled(event?.content, res.label);
+      if (content) return { content };
+    }
+    return undefined;
   });
 
   pi.on("session_stop", async (event: any, ctx: any) => {
