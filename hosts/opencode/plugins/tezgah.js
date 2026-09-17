@@ -25,7 +25,10 @@
 // failed) is not ported here, although this plugin writes the very rows that
 // guard reads. An opencode session gets the action identity and the metrics but
 // not the ceiling, so a call a host with a PreToolUse gate refuses on its third
-// attempt runs here.
+// attempt runs here. The same gap covers the two rules added beside it - rule 5
+// (consent: an irreversible or outward-facing command, refused once per action)
+// and rule 6 (secret: a credential about to be written into a file) - so an
+// opencode session runs those unasked too.
 //
 // Every path fails open: if anything here throws unexpectedly, the tool runs.
 // Hook names a given opencode build does not know are skipped by the runtime
