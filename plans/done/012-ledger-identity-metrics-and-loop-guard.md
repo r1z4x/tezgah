@@ -1,6 +1,6 @@
 # 012 - Ledger identity, trace metrics and the loop guard
 
-Status: open
+Status: done (merged to main 90344c4)
 Branch: `plan/012-ledger-identity-metrics-and-loop-guard`
 
 ## Why
