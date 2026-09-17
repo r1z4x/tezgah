@@ -54,6 +54,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=20)
     parser.add_argument("--label", default="unlabelled")
+    parser.add_argument("--out", help="also write the JSON report to this path, "
+                                     "so a committed before/after pair is a run "
+                                     "and not a copy-paste")
     args = parser.parse_args()
 
     floor = [time_once([sys.executable, "-c", "pass"], None) for _ in range(args.n)]
@@ -66,6 +69,9 @@ def main() -> int:
         print("%-12s median %6.2f ms   p95 %6.2f ms" % (name, out["hooks"][name]["median_ms"],
                                                         out["hooks"][name]["p95_ms"]))
     print("python floor  median %6.2f ms" % out["python_floor_ms"])
+    if args.out:
+        with open(args.out, "w") as fh:
+            fh.write(json.dumps(out, indent=2) + "\n")
     print(json.dumps(out))
     return 0
 

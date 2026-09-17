@@ -15,6 +15,7 @@ import sys
 import time
 
 import tezgah_research
+from tezgah_integrity import note_turn
 from tezgah_policy import CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER
 from tezgah_paths import (cache_dir, cbm_bin, have_consult_key, off,
                           orx_bin, root_for, roots, tool, writable_dir)
@@ -406,6 +407,20 @@ def subagent_core(core=None):
             + "\n".join(short))
 
 
+def session_of(payload):
+    """The session id a prompt payload carries, under whichever name the host
+    uses.
+
+    This is what keys the turn marker, so it has to be the same string the host
+    hands its PreToolUse hook - otherwise the marker lands in a different ledger
+    and resets nothing. Cursor's adapter reads `conversation_id` first and falls
+    back, so the order is the same here; Claude, Codex and omp send only
+    `session_id`, which the fallback covers."""
+    p = payload if isinstance(payload, dict) else {}
+    return (p.get("conversation_id") or p.get("session_id")
+            or p.get("parent_conversation_id"))
+
+
 def context_for(event, cwd, payload=None, with_core=True):
     """The context block for a normalized event, or None when out of scope.
 
@@ -428,6 +443,14 @@ def context_for(event, cwd, payload=None, with_core=True):
                 "ignore the matching section in the `tezgah-contract` skill."
                 % ", ".join(disabled)) if disabled else ""
     if event == "user_prompt":
+        # One marker per user turn, written before the reminder check: the loop
+        # guard counts an identical call's failures in the current turn only, so
+        # a repeat the user asked for again is a fresh attempt, and that reset is
+        # guard state rather than part of the reminder. Only a hash of the prompt
+        # is stored - note_turn keys the row on it so one submission cannot write
+        # two markers and hide the failures the guard had just counted.
+        prompt = prompt_text(payload)
+        note_turn(session_of(payload), prompt, workspace=root_for(cwd))
         # per-turn nudge: openers decay over long sessions. Kept short because
         # it is paid every turn, and on Claude the output style already carries
         # the same rules on every response. The conditional rules ride along
@@ -435,7 +458,6 @@ def context_for(event, cwd, payload=None, with_core=True):
         if off("reminder-off"):
             return None
         text = render(PROMPT_REMINDER.strip())
-        prompt = prompt_text(payload)
         if prompt:
             _always, conditional, _dis = core_split(cwd)
             matched = classify_prompt(prompt)

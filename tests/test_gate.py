@@ -211,6 +211,18 @@ class Gate(TempHome):
                  "cwd": self.repo}, env=self.envv)
             self.assertEqual(proc.returncode, 0, proc.stderr)
 
+    def new_turn(self, session_id, prompt="run the tests again",
+                 id_key="session_id"):
+        """One user prompt, driven through the real hook that injects the
+        context - the same path that has to write the turn marker. `id_key` is
+        the field the host names the session in (Cursor: conversation_id)."""
+        out, proc = run_json([support.AUTO_INIT],
+                             {"hook_event_name": "UserPromptSubmit",
+                              "cwd": self.repo, id_key: session_id,
+                              "prompt": prompt}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
     def test_an_identical_failed_call_is_denied_after_the_ceiling(self):
         self.seed_failure("pytest -q", "loop", times=2)
         reason = self.decide("Bash", {"command": "pytest -q"}, session_id="loop")
@@ -218,22 +230,38 @@ class Gate(TempHome):
         self.assertIn("Loop guard", reason)
         self.assertIn("attempt 3", reason)
 
-    def test_one_permanent_failure_spends_the_single_attempt(self):
-        # retrying a failure that cannot change identically is the loop rule's
-        # target, so one row is already the ceiling
-        self.seed_failure("pytest -q", "loop")
-        self.assertIsNotNone(
-            self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
+    def test_the_ceiling_is_the_third_attempt_for_every_fail_class(self):
+        # one ceiling, whatever the host's error text classified as: the first
+        # two attempts pass (a failing check the agent is still fixing has to be
+        # re-runnable), the third identical call is refused. A class-gated
+        # ceiling refused the second attempt for a permanent/"assertion" failure
+        # and for every host that reports no error text at all.
+        for session, error in (("ceil-none", None),
+                               ("ceil-perm", "bash: pytest: command not found"),
+                               ("ceil-transient", "Command timed out after 2m")):
+            self.seed_failure("pytest -q", session, error=error)
+            self.assertIsNone(
+                self.decide("Bash", {"command": "pytest -q"}, session_id=session),
+                error)
+            self.seed_failure("pytest -q", session, error=error)
+            reason = self.decide("Bash", {"command": "pytest -q"},
+                                 session_id=session)
+            self.assertIsNotNone(reason, error)
+            self.assertIn("attempt 3", reason)
+        # the class still travels with the reason, as a metric on the row
+        self.assertIn("transient", self.decide(
+            "Bash", {"command": "pytest -q"}, session_id="ceil-transient"))
 
-    def test_a_transient_failure_allows_the_second_attempt(self):
-        self.seed_failure("pytest -q", "loop", error="Command timed out after 2m")
-        self.assertIsNone(
-            self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
-        self.seed_failure("pytest -q", "loop", error="Command timed out after 2m")
-        reason = self.decide("Bash", {"command": "pytest -q"}, session_id="loop")
-        self.assertIsNotNone(reason)
-        self.assertIn("attempt 3", reason)
-        self.assertIn("transient", reason)
+    def test_a_denial_does_not_disarm_the_ceiling(self):
+        # the real sequence: fail, deny, identical call. The refusal writes its
+        # own row with the same id and no exit, so counting rows by id alone left
+        # the deny row newest, read as "no failure", and let every second repeat
+        # through - the ceiling the plan claims was never enforced.
+        self.seed_failure("pytest -q", "sticky", times=2)
+        self.assertIsNotNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="sticky"))
+        self.assertIsNotNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="sticky"))
 
     def test_a_changed_command_is_not_the_same_call(self):
         # the id is the collapsed command: a retry the agent already fixed is a
@@ -249,6 +277,30 @@ class Gate(TempHome):
                   "cwd": self.repo}, env=self.envv)
         self.assertIsNone(
             self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
+
+    def test_a_new_user_turn_resets_the_loop_guard(self):
+        # "reset per user turn": the failures were spent on a call the user then
+        # asked for again, so the marker the prompt path writes has to clear them.
+        # Both id shapes: Claude/Codex/omp name it session_id, Cursor names it
+        # conversation_id, and either way the marker has to land in the ledger
+        # the gate reads for that id.
+        for session, id_key in (("turn", "session_id"),
+                                ("c-1", "conversation_id")):
+            self.seed_failure("pytest -q", session, times=2)
+            self.assertIsNotNone(
+                self.decide("Bash", {"command": "pytest -q"},
+                            session_id=session), session)
+            self.new_turn(session, id_key=id_key)
+            self.assertIsNone(
+                self.decide("Bash", {"command": "pytest -q"},
+                            session_id=session), session)
+
+    def test_a_sibling_session_id_is_a_different_ledger(self):
+        # _slug collapsed punctuation, so "abc-123" and "abc_123" shared one
+        # file and one session's failures denied the other's call
+        self.seed_failure("pytest -q", "abc-123", times=2)
+        self.assertIsNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="abc_123"))
 
     def test_loop_guard_respects_verify_off(self):
         self.seed_failure("pytest -q", "loop", times=2)

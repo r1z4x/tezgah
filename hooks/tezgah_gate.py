@@ -147,30 +147,40 @@ def nudge_reason(slug):
             "session." % slug)
 
 
+# The attempt a repeat is refused on: two identical failures are the retry the
+# agent may still be fixing, the third is the loop the contract bans ("three
+# attempts on one failure is the ceiling"). One ceiling for every fail_class -
+# the class is a metric on the row, not a second policy that would refuse a
+# legitimate fix-and-re-run on the second try.
+LOOP_CEILING = 2
+
+
 def loop_reason(tool, inp, session_id):
     """A deny reason when this exact call already failed often enough, else None.
 
-    The ledger tail is the only state this reads: rows carrying the same id with
-    a newest exit of 1 have spent one attempt (two when that failure classified
-    as transient). Past that ceiling the identical retry cannot work - the agent
-    has to change the approach or stop, which is the contract's loop rule
-    ("never repeat an identical failing command") given a mechanical half.
-    A call that never failed, or that failed differently, is not this rule's."""
+    The ledger tail is the only state this reads, and only the outcome rows of
+    the current user turn count (tezgah_integrity.prior_calls): the guard's own
+    `deny` row carries the same id with no exit, so counting it would put the
+    refusal newest, read as "no failure" and let every second repeat through.
+
+    Past the ceiling the identical retry cannot work - the agent has to change
+    the approach or stop, which is the contract's loop rule ("never repeat an
+    identical failing command") given a mechanical half. A call that never
+    failed, or that failed differently, is not this rule's."""
     if not session_id:
         return None
     digest = call_id(tool, inp)
     if not digest:
         return None
     attempts, last_exit, klass = prior_calls(session_id, digest)
-    if last_exit != 1 or attempts < (2 if klass == "transient" else 1):
+    if last_exit != 1 or attempts < LOOP_CEILING:
         return None
     return ("Loop guard denied: this is attempt %d of an identical call whose "
             "%d previous attempt%s exited 1%s. Repeating an identical failing "
             "command is not a retry - change the approach (fix what the error "
             "names, or run something else) or stop and report what is still "
             "unknown." % (attempts + 1, attempts, "" if attempts == 1 else "s",
-                          " (a transient failure)" if klass == "transient"
-                          else ""))
+                          " (a %s failure)" % klass if klass else ""))
 
 
 def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None):

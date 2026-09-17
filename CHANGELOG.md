@@ -12,14 +12,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   evidence row now carries `id` (a digest of the tool and its canonical
   arguments), `exit`, `out_bytes`, `fail_class` and `workspace`, written by both
   the Python hooks and the opencode plugin. On top of that identity: the
-  PreToolUse gate denies a third identical call whose previous attempts exited
-  non-zero (two attempts when the last failure was transient), and
-  `tezgah-status --counters` prints `steps`, `tool_error_rate`, `claims` and
-  `false_completion`. The Stop rule now counts a `verify_ok` as support only when
-  the host reported exit 0, a non-empty result and an unmasked command; rows
+  PreToolUse gate refuses the third identical call whose previous attempts
+  failed - one ceiling for every failure class, reset per user turn, with
+  `fail_class` kept as a metric only - and `tezgah-status --counters` prints
+  `steps`, `tool_error_rate`, `claims` and `false_completion`. The opencode
+  plugin writes the rows that guard reads but has no PreToolUse half, so the
+  ceiling is not enforced there. The Stop rule now counts a `verify_ok` as
+  support only when the host reported exit 0, the command was not masked by a
+  pipe, and - when the host supplies a result size - that size is non-zero; rows
   written before this change are tolerated so an open session is never blocked on
-  its own history. Hook medians moved by less than 2.2 ms
-  (`benchmarks/hook-latency/`).
+  its own history. Hook medians moved by less than 1 ms against the committed
+  baseline (`benchmarks/hook-latency/plan012-after.json`).
 - The research workspace: `bin/tezgah-research` (`init`, `check`, `status`) and
   the `research` skill. A research line lives in `<repo>/.tezgah/research/<slug>/`
   and holds the question and locked evaluation, the decision log, the findings,

@@ -62,6 +62,17 @@ def classify(payload):
     return None
 
 
+def gate_name(name):
+    """The tool name the gate denies under and the ledger row records.
+
+    `call_id` hashes the name it is handed, so mapping Codex's `exec_command`
+    onto the gate's `Bash` on the PreToolUse side alone leaves the PostToolUse
+    row carrying a second id for the same call - the loop guard then reads a
+    history that never matches and never denies. Both halves map through here.
+    """
+    return GATE_TOOLS.get(name, name)
+
+
 def gate_reason(payload, cwd, session_id):
     """The shared gate's deny reason for a PreToolUse payload, or None. Codex
     names are mapped onto the gate's expected names; unknown names (apply_patch,
@@ -70,7 +81,7 @@ def gate_reason(payload, cwd, session_id):
     inp = payload.get("tool_input")
     if not isinstance(inp, dict):
         inp = {}
-    return decision(GATE_TOOLS.get(name, name), inp, cwd, session_id)
+    return decision(gate_name(name), inp, cwd, session_id)
 
 
 def verify_outcome(payload):
@@ -110,7 +121,8 @@ def main():
         return
     if event == "PostToolUse":
         record(session_id, classify(payload))
-        note_tool(session_id, payload.get("tool_name", ""),
+        # the same name the PreToolUse gate saw: one call has to hash to one id
+        note_tool(session_id, gate_name(payload.get("tool_name", "")),
                   payload.get("tool_input") or {},
                   failed=verify_outcome(payload))
         return

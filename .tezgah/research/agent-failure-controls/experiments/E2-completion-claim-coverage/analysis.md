@@ -89,14 +89,18 @@ Fixed in the probe, which now calls the rule in both ledger states, and re-run:
 | openers | 5/5 | 5/5 | 5/5 |
 
 The middle column is the plan-012 evidence-side hardening seen directly: a
-`verify_ok` row carrying no `exit`/`out_bytes` - which is what the probe writes -
+`verify_ok` row carrying no `exit` (nor a size) - which is what the probe writes -
 stopped counting as support, so the explicit family blocked even with a "verified"
 ledger. The right column is the deliberate rollback of that side effect for
 **legacy rows only**: a row written before plan 012 is tolerated until the ledger
 turns over, because blocking an open session on its own history is a false
-positive on the user. Rows written from now on carry `exit`/`out_bytes` and are
-held to the strict rule (`hooks/tezgah_integrity.py:497-512`, covered by the
-zero-byte and piped-command tests in `tests/test_integrity.py`).
+positive on the user. A row written from now on carries the `exit` its host
+reported - and a result size only when the host supplies one - and is held to the
+strict rule: a non-zero exit never supports a claim, the command must not be
+masked by a pipe, and **when the host supplies a result size, that size must be
+non-zero** (an absent size is not a zero size; no host reachable from the Stop
+rule reports one) (`passing_check()` in `hooks/tezgah_integrity.py`, covered by
+the zero-byte and piped-command tests in `tests/test_integrity.py`).
 
 The lesson is the one the study already paid for once: a probe that skips a
 branch reports the branch's absence as a finding. `results.jsonl` (the first run)

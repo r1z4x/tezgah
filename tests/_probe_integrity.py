@@ -20,9 +20,16 @@ if fn == "note":
             fail_class=p.get("fail_class"), workspace=p.get("workspace"))
     out = None
 elif fn == "note_tool":
+    # the argument is omitted when the test omits it, so the signature's default
+    # is what a host that passes no outcome actually gets
+    failed = {} if "failed" not in p else {"failed": p["failed"]}
     ti.note_tool(p.get("session"), p.get("tool"), p.get("input") or {},
-                 p.get("failed", False), out_bytes=p.get("out_bytes"),
+                 **failed, out_bytes=p.get("out_bytes"),
                  error=p.get("error"), cwd=p.get("cwd"))
+    out = None
+elif fn == "note_turn":
+    ti.note_turn(p.get("session"), p.get("prompt"),
+                 workspace=p.get("workspace"))
     out = None
 elif fn == "kinds":
     out = sorted(ti.kinds(p.get("session")))

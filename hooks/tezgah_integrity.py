@@ -107,10 +107,11 @@ BASH_TOOLS = ("bash", "shell", "command", "exec_command", "run_command",
               "powershell")
 
 
-# The host's error text, classified so the loop guard can tell a retry that may
-# work from one that cannot: a timeout or a rate limit is worth one more attempt,
-# a bad flag or a missing file is not. The hosts that report an error report it
-# as prose, not as a code, so the class comes from the text.
+# The host's error text, classified for the ledger's fail_class field. The loop
+# guard does not read it - one ceiling for every class - so it exists to say what
+# kind of failure a trace carried: a timeout or a rate limit is a different
+# incident from a bad flag or a missing file. The hosts that report an error
+# report it as prose, not as a code, so the class comes from the text.
 TRANSIENT_ERROR = re.compile(
     r"timed? ?out|timeout|deadline exceeded|connection (?:reset|refused|aborted)|"
     r"temporarily unavailable|rate ?limit|\b(?:429|502|503|504|529)\b|"
@@ -131,8 +132,9 @@ def fail_class(error):
     """How the host's error text classifies: "transient", "permanent",
     "unknown", or None when the host reported no error at all.
 
-    The loop guard spends a retry on a transient class and none on a permanent
-    one, so the two have to be told apart from the text alone."""
+    A metric on the row, not a policy: the loop guard counts the same three
+    attempts whatever the class, and the class only says what kind of failure
+    the trace carried."""
     text = str(error or "").strip()
     if not text:
         return None
@@ -141,6 +143,26 @@ def fail_class(error):
     if PERMANENT_ERROR.search(text):
         return "permanent"
     return "unknown"
+
+
+def _canon_args(value):
+    """`value` with the integral floats that JS cannot tell from ints coerced to
+    int, recursively.
+
+    Both writers have to produce the same string for one call, and opencode's
+    half is a JS port: JS has a single number type, so `JSON.stringify(1.0)` is
+    "1" and a value that came through `JSON.parse` can never be turned back into
+    "1.0". Python prints "1.0", so without this a float-valued argument forks one
+    action into two ids and the loop guard silently never fires on that host.
+    Only floats a JS number reproduces exactly are coerced: a large integral
+    float keeps Python's exponent form, which is what JS prints for it too."""
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and abs(value) < 2 ** 53 else value
+    if isinstance(value, dict):
+        return {k: _canon_args(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canon_args(v) for v in value]
+    return value
 
 
 def call_id(tool, inp):
@@ -160,8 +182,8 @@ def call_id(tool, inp):
                             or (inp or {}).get("cmd") or "").split())
     else:
         try:
-            args = json.dumps(inp or {}, sort_keys=True, separators=(",", ":"),
-                              ensure_ascii=False)
+            args = json.dumps(_canon_args(inp or {}), sort_keys=True,
+                              separators=(",", ":"), ensure_ascii=False)
         except (TypeError, ValueError):
             return None
     return hashlib.sha1(("%s %s" % (name, args)).encode("utf-8", "replace")
@@ -169,7 +191,18 @@ def call_id(tool, inp):
 
 
 def _slug(session_id):
-    return re.sub(r"[^A-Za-z0-9]+", "-", str(session_id or "nosession")).strip("-")
+    """The ledger filename stem for a session id: a readable prefix plus a hash
+    of the raw id.
+
+    The prefix alone collided - anything non-alphanumeric collapses to "-", so
+    `abc-123` and `abc_123` shared one file, and the loop guard would spend
+    another session's failures as this one's denials while counters blended the
+    two traces. The hash is over the raw id, so the prefix stays legible without
+    deciding identity."""
+    raw = str(session_id or "nosession")
+    stem = re.sub(r"[^A-Za-z0-9]+", "-", raw).strip("-")[:40]
+    return "%s-%s" % (stem, hashlib.sha1(raw.encode("utf-8", "replace")
+                                         ).hexdigest()[:12])
 
 
 def _path(session_id):
@@ -255,28 +288,74 @@ def events(session_id, tail=None):
         return []
 
 
+def _turn_start(rows):
+    """The index of the first row of the current user turn: everything after the
+    newest `turn` marker, or 0 when the ledger carries none.
+
+    A turn marker is written once per user prompt (tezgah_context's prompt
+    path), which is what makes a repeat the user explicitly asked for on a later
+    turn a fresh attempt instead of the previous turn's spent ceiling."""
+    for i in range(len(rows) - 1, -1, -1):
+        if rows[i].get("kind") == "turn":
+            return i + 1
+    return 0
+
+
 def prior_calls(session_id, digest, tail=200):
     """(attempts already made, the newest attempt's exit, its fail_class) for
-    this action identity, over the ledger tail only.
+    this action identity, in this user turn, over the ledger tail only.
 
-    The loop guard's ceiling depends on whether the last failure was transient,
-    so the class travels with the count: reading the file a second time for it
-    would double the only file I/O the PreToolUse path may do.
+    Only rows that carry an `exit` are attempts: the gate's own `deny` row and
+    the nudge row carry the same `id` with no outcome, so counting them would
+    leave the refusal itself as the newest row, read as "no failure" and disarm
+    the ceiling on every second repeat.
 
     The window is a real ceiling, not an optimisation detail: an attempt older
     than the last `tail` rows is invisible, so a loop that spans more than that
     many calls is not counted. 200 is roughly a long turn's worth of events; a
     session that wants more pays for it on every gated call."""
-    rows = [e for e in events(session_id, tail=tail) if e.get("id") == digest]
+    rows = events(session_id, tail=tail)
+    rows = rows[_turn_start(rows):]
+    rows = [e for e in rows if e.get("id") == digest and "exit" in e]
     if not rows:
         return 0, None, None
     return len(rows), rows[-1].get("exit"), rows[-1].get("fail_class")
+
+
+def note_turn(session_id, prompt, workspace=None):
+    """Write the user-turn marker the loop guard resets on, at most once per
+    submission.
+
+    Called from the prompt path (tezgah_context.context_for), the one place every
+    host's prompt goes through. "One turn" here means one marker: a host that
+    hands the same submission to the hook twice - a retry, a resume, a second
+    event carrying the same prompt - would otherwise write a second marker, and
+    the newer marker hides the failures the guard had just counted, which is the
+    reset disarming itself. The check is one tail read (<=8 KB) plus one
+    ~90-byte append. A repeat of the same prompt after any ledger activity is a
+    real new turn and writes its own marker.
+
+    ponytail: the same prompt re-sent as the very next thing, with no ledger row
+    written in between, resets nothing - that direction can only deny too much,
+    never too little."""
+    key = hashlib.sha1(str(prompt or "").encode("utf-8", "replace")
+                       ).hexdigest()[:12]
+    rows = events(session_id, tail=1)
+    if rows and rows[-1].get("kind") == "turn" and rows[-1].get("detail") == key:
+        return
+    note(session_id, "turn", key, workspace=workspace)
 
 
 # Appended to a non-verify event's detail when the host reported its outcome, so
 # a failed run is countable without a new kind (kinds are pinned by tests and by
 # the Stop rule, detail is free text nothing parses).
 FAILED_MARK = "[exit!=0]"
+
+
+# The rows that are one step of work: a command that ran, an edit, a check.
+# deny/nudge/claim/turn rows are the machinery around the work, so counting them
+# would let the headline number grow with the guard's own activity.
+STEP_KINDS = ("run", "edit", "verify", "verify_ok", "verify_fail")
 
 
 def counters(session_id):
@@ -286,9 +365,12 @@ def counters(session_id):
     This is the instrumentation the contract's own mechanisms need before
     anyone can claim they help: a rule that never fires is indistinguishable
     from a rule that is wrong. `tool_error_rate` is over the rows whose outcome
-    the host actually reported (exit 0 or 1) - a host that reports none would
-    otherwise read as a perfect success rate - and `false_completion` counts the
-    claim rows a stop refused, so the rate is false_completion / claims."""
+    the host actually reported - every row with an `exit`, whatever code it
+    carries, because a host that reports none would otherwise read as a perfect
+    success rate while opencode's real process codes (2, 127, 130) count in
+    neither half. `steps` counts the work rows only (STEP_KINDS); and
+    `false_completion` counts the claim rows a stop refused, so the rate is
+    false_completion / claims."""
     out = {"events": 0, "denies": {}, "nudges": 0, "kinds": {},
            "consult": 0, "codegen": 0, "codegen_failed": 0, "fanout": 0,
            "steps": 0, "tool_error_rate": None, "claims": 0,
@@ -299,9 +381,11 @@ def counters(session_id):
         kind = str(entry.get("kind") or "")
         detail = str(entry.get("detail") or "")
         out["kinds"][kind] = out["kinds"].get(kind, 0) + 1
-        if entry.get("exit") in (0, 1):
+        if kind in STEP_KINDS:
+            out["steps"] += 1
+        if entry.get("exit") is not None:
             decided += 1
-            if entry.get("exit") == 1:
+            if entry.get("exit"):
                 errors += 1
         if kind == "deny":
             rule = detail.split(":", 1)[0].strip() or "other"
@@ -318,7 +402,6 @@ def counters(session_id):
             out["codegen"] += 1
             if detail.endswith(FAILED_MARK):
                 out["codegen_failed"] += 1
-    out["steps"] = out["events"]
     if decided:
         out["tool_error_rate"] = round(errors / decided, 4)
     out["fanout"] = sum(out["kinds"].get(k, 0)
@@ -460,9 +543,15 @@ def classify(tool, inp):
     return None
 
 
-def note_tool(session_id, tool, inp, failed=False, out_bytes=None, error=None,
+def note_tool(session_id, tool, inp, failed=None, out_bytes=None, error=None,
               cwd=None):
     """Record the evidence kind for one tool call (host PostToolUse hooks).
+
+    `failed=None` is the default because a host that passes no argument reported
+    no outcome at all - Cursor's postToolUse/afterShellExecution calls carry no
+    failure signal. A `failed=False` default wrote a fabricated `exit: 0` for
+    them, so every shell call there - a failing `pytest` included - landed as
+    `verify_ok` and the Stop rule let the claim through.
 
     `failed=None` means the host reported no outcome: the call is recorded as a
     check that RAN (`verify`), never as one that passed - a ledger that says
@@ -542,27 +631,54 @@ def last_verify(session_id):
     return _last_verify(events(session_id))
 
 
+def _claim_key(rows, text):
+    """The identity of one reply inside one user turn: sha1 of the turn marker
+    and the reply text.
+
+    The Stop handler runs again when a host treats a block as a follow-up
+    (Cursor) and a model may re-emit the same text; without this key one turn's
+    claim row was written twice and the false-completion rate inflated. The
+    marker is the number of `turn` rows the ledger holds, so the same reply in a
+    later turn is a new claim and not a duplicate. A host that writes no turn
+    row (no prompt hook) falls back to the session, which under-counts a
+    repeated identical reply there rather than double-counting it."""
+    turn = sum(1 for entry in rows if entry.get("kind") == "turn")
+    return hashlib.sha1(("%d %s" % (turn, str(text or ""))).encode(
+        "utf-8", "replace")).hexdigest()[:12]
+
+
 def stop_reason(text, session_id, edited_hint=None):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
 
     The verdict is recorded either way, as a `claim` row: a blocked stop leaves
     no trace otherwise, and the false-completion rate (counters) needs both the
-    refusals and the claims that were allowed through."""
-    reason = _stop_block(text, session_id, edited_hint)
+    refusals and the claims that were allowed through. One row per reply per
+    turn: an identical row for the same key is skipped."""
+    rows = events(session_id)
+    reason = _stop_block(text, session_id, edited_hint, rows=rows)
     if reason:
-        note(session_id, "claim", "blocked: %s" % str(reason)[:80])
+        detail = "blocked: %s" % str(reason)[:80]
     elif any(claims(text)):
-        note(session_id, "claim", "ok")
+        detail = "ok"
+    else:
+        return None
+    key = _claim_key(rows, text)
+    if not any(entry.get("kind") == "claim" and entry.get("id") == key
+               for entry in rows):
+        note(session_id, "claim", detail, id=key)
     return reason
 
 
-def _stop_block(text, session_id, edited_hint=None):
+def _stop_block(text, session_id, edited_hint=None, rows=None):
     """stop_reason's decision, without the ledger side effect.
 
     Blocks only on evidence that is checkable: a placating opener, or a
     completion/verification claim whose newest check did not pass. An explicit
-    'doğrulanmadı' clears it, so honest uncertainty is always allowed."""
+    'doğrulanmadı' clears it, so honest uncertainty is always allowed.
+
+    `rows` is the ledger the caller already read (`stop_reason` needs it for the
+    claim key), so the Stop path reads the file once per turn."""
     t = str(text or "")
     if SYCOPHANT.search(t):
         return ("Reply opens with placation, which the tezgah contract bans. "
@@ -573,7 +689,7 @@ def _stop_block(text, session_id, edited_hint=None):
     done, verified = claims(t)
     if not (done or verified) or NEGATED.search(t):
         return None
-    rows = events(session_id)
+    rows = events(session_id) if rows is None else rows
     ev = {str(entry.get("kind")) for entry in rows}
     if edited_hint:
         ev = ev | set(edited_hint)

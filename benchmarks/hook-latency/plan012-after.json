@@ -1,0 +1,14 @@
+{
+  "label": "plan012-after",
+  "measured": "2026-09-17, after the plan-012 hook changes and the opencode plugin change",
+  "command": "python3 benchmarks/hook-latency/measure.py --n 20 --label plan012-after --out benchmarks/hook-latency/plan012-after.json",
+  "n": 20,
+  "python_floor_ms": 20.88,
+  "hooks": {
+    "pretooluse": {"median_ms": 43.31, "p95_ms": 46.70},
+    "posttooluse": {"median_ms": 42.59, "p95_ms": 44.58},
+    "stop": {"median_ms": 42.13, "p95_ms": 43.53}
+  },
+  "acceptance": "each hook's median after the change stays within +5 ms of baseline-plan012.json (pretooluse 42.40, posttooluse 41.61, stop 41.66 ms)",
+  "note": "the three deltas are +0.91, +0.98 and +0.47 ms, all inside the +5 ms bar. The opencode plugin is a JavaScript file the Python hooks do not load, so it cannot move these three figures; the payloads are the harness's own small ones, so a cost that scales with a tool result's size would not show here."
+}
