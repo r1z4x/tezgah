@@ -16,36 +16,56 @@ as ceremony for a stateless CLI and both named the same cheapest win: one
 referee call after the independent round.
 
 ## Acceptance
-- [ ] `bin/consult` makes one referee call after the panel and prints the named
+- [x] `bin/consult` makes one referee call after the panel and prints the named
       digest fields (`recommendation`, `key disagreements`, `uncertainties`,
       `what would change my mind`, `requested evidence`); `--no-referee` skips it.
-- [ ] `consult -` reads the packet from stdin, and so does a redirect with no
+- [x] `consult -` reads the packet from stdin, and so does a redirect with no
       question argument.
-- [ ] The footer names a failure class per model and prints one retry line
+- [x] The footer names a failure class per model and prints one retry line
       naming the single variable to change; it stays silent when nothing failed.
-- [ ] The CONSULT block carries checkable triage thresholds, the de-anchoring
+- [x] The CONSULT block carries checkable triage thresholds, the de-anchoring
       rule, and the field names; the verifier and reviewer bodies carry the
       raw-artifact rule.
-- [ ] The SPEC block asks for one genuinely different option beyond A/B/A+B,
+- [x] The SPEC block asks for one genuinely different option beyond A/B/A+B,
       the cheapest reversible test, and the evidence that would flip the choice.
-- [ ] `python3 -m compileall -q hooks bin statusline.py`,
+- [x] `python3 -m compileall -q hooks bin statusline.py`,
       `python3 -m unittest discover -s tests` and `ruff check .` pass.
 
 ## State
-Analysis done (source read for both repos, cross-model second opinion recorded).
-Branch based on `main`, not on plan 010: 010 carries 154 lines of unrelated
-`hooks/tezgah_agents.py` plumbing and a rewritten `tests/test_providers.py`, and
-another session is editing `CHANGELOG.md` in the shared checkout, so this work
-runs in a separate worktree. New tests go in their own file to keep 010's
-`tests/test_providers.py` untouched.
+Landed on the branch in three commits (`plan: add 011`, `feat: consult judges
+the panel with one referee call`, `docs: the consult and spec rules carry triage,
+de-anchoring and option space`). Evidence, all observed: 438 tests pass,
+`ruff check .` clean, `compileall` clean; `tests/test_consult_arena.py` drives the
+new behaviour against a local fake endpoint (8 cases, 8 pass). One live run
+against the real providers printed the panel, then `## referee
+(google/gemini-2.5-pro)` with all five headings, and correctly reported "there
+are no key disagreements" when the two models happened to agree - it did not
+invent one.
 
-Not adopted, with reasons: multi-round stateful debate (stateless HTTP client,
-3x cost, both consulted models called it ceremony), the context/compaction
-checkpoint protocol (it exists because their arena runs inside the orchestrator's
-own context; ours returns one bounded blob), the Claude-Code-CLI turn-budget
-rules (we do not call that CLI), the 13-mode taxonomy, a separate `groundcheck`
-fact gate (already covered by consult's verify-against-code, the reviewer's
-confirmed/refuted/unverified, and the integrity gate).
+The armed-by-task-class band grew 758 bytes (2,231 -> 2,989); the benchmark
+README quotes the re-measured report.
+
+`~/.config/tezgah/bin/consult` symlinks to the main checkout, so the live tool
+picks this up only once this branch is on `main`.
+
+## Not adopted, with reasons
+- Multi-round stateful debate (independent -> critique -> revise -> blind judge):
+  the client is stateless HTTP, the cost triples, and both consulted models
+  called it ceremony for this use case. One referee call captures the
+  cross-examination that was actually missing.
+- The context/compaction checkpoint protocol: it exists because their arena runs
+  inside the orchestrator's own context; ours returns one bounded blob. Only the
+  stdin/redirect half was worth taking.
+- The Claude-Code-CLI turn-budget and `error_max_turns` rules: we do not call
+  that CLI, and the general principle (a dead call is not a result) is already
+  the integrity and loop-discipline rule.
+- The 13-mode taxonomy: our mode space is consult-inline vs reviewer-subagent.
+- A separate `groundcheck` fact gate: already covered by consult's
+  verify-against-code, the reviewer's confirmed/refuted/unverified, and the
+  integrity gate.
+- Their skill-packaging layout: `hosts/*` plus `tezgah_agents.py` render to more
+  hosts than their plain markdown does.
 
 ## Next
-Implement the referee stage in `bin/consult`.
+Open the PR (`plan/011-consult-arena-rules` -> `main`) once the independent
+review of the diff is clean.
