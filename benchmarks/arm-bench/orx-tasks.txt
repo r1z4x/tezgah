@@ -1,5 +1,2 @@
-c04-turkish-explain-readonly
-h02-half-up-money-contract
-h05-review-sweep
-g02-conflicting-ask
-t05-no-collateral
+e01-silent-one-liner
+e05-three-call-sites
