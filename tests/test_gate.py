@@ -12,6 +12,7 @@ from support import TempHome, run_json
 
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402  (call_id only: the digest a grant carries)
+import tezgah_gate as tg  # noqa: E402  (rm_outside's floor, read in process)
 
 
 class Gate(TempHome):
@@ -434,10 +435,13 @@ class Gate(TempHome):
             self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
     def test_rm_rf_outside_the_run_directory_denies(self):
+        # Every target is outside the run directory AND outside a temp root. A
+        # path built from self.home would not be: the sandbox itself lives under
+        # TMPDIR, so on Linux CI it sat inside the floor this rule carves out
+        # (macOS hid that - the sandbox is under /var/folders there).
         for command in ("rm -rf /opt/data",
-                        'rm -rf "%s"' % os.path.join(self.home, "elsewhere"),
+                        "rm -rf /etc/tezgah-elsewhere",
                         "rm -rf ~/Downloads/junk",
-                        "rm -rf ../sibling-artifact",
                         "rm -rf $BUILD_DIR",
                         "rm -rf .",
                         # the temp root itself is not scratch, a path that only
@@ -496,7 +500,7 @@ class Gate(TempHome):
                 ("git push --force origin main", "destructive"),
                 ("git branch -D main", "destructive"),
                 ("git push origin --delete feature", "destructive"),
-                ("rm -rf ../sibling", "destructive"),
+                ("rm -rf /opt/tezgah-sibling", "destructive"),
                 ("alembic upgrade head", "schema"),
                 ("python3 manage.py migrate", "schema"),
                 ("vercel deploy --prod", "deploy"),
@@ -1089,6 +1093,44 @@ class Gate(TempHome):
         self.assertIn("search_graph", first)
         self.assertIsNone(
             self.decide("Grep", {"pattern": "some_identifier"}, session_id="sb"))
+
+
+class RmOutsideFloor(unittest.TestCase):
+    """`rm_outside`'s scratch floor, read in process.
+
+    A gate test that builds its targets from the sandbox cannot see this floor:
+    the sandbox lives under TMPDIR, so on Linux every path it can name is
+    scratch and the floor swallows the case. Absolute targets against an
+    explicit run directory are the same answer on every platform."""
+
+    def outside(self, target, cwd="/srv/app", scratch_ok=True):
+        command = "rm -rf %s" % target
+        return tg.rm_outside(tg.mask(command), command, cwd, cwd, scratch_ok)
+
+    def test_a_target_under_a_temp_root_is_scratch(self):
+        for target in ("/tmp/x", "/tmp/tezgah-fixture/nested", "/tmp/a/b/c"):
+            self.assertFalse(self.outside(target), target)
+
+    def test_a_target_outside_the_temp_root_is_an_effect(self):
+        for target in ("/srv/other", "../sibling", "/etc/x", "/opt/data",
+                       "/tmp/../etc", "/tmp", "$VAR/x", "~/Downloads/x"):
+            self.assertTrue(self.outside(target), target)
+
+    def test_the_run_directory_itself_is_always_an_effect(self):
+        # even when it sits under a temp root: deleting where the command runs
+        # is not a delete inside it, and a repo checked out in /tmp is work
+        for cwd in ("/srv/app", "/tmp/app"):
+            self.assertTrue(self.outside(cwd, cwd=cwd), cwd)
+            self.assertTrue(self.outside(".", cwd=cwd), cwd)
+
+    def test_a_target_inside_the_run_directory_is_not_this_rule(self):
+        for target in ("build", "./dist", "/srv/app/sub"):
+            self.assertFalse(self.outside(target), target)
+
+    def test_the_conservative_reader_keeps_scratch_as_an_effect(self):
+        # the taint rule's half: a scratch delete is still an effect there, which
+        # is what stops an injection making its first move a `rm -rf` in /tmp
+        self.assertTrue(self.outside("/tmp/x", scratch_ok=False))
 
 
 if __name__ == "__main__":
