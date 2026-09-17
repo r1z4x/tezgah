@@ -167,8 +167,9 @@ def _researcher_body(_host):
 def _verifier_body(_host):
     consult = tool("consult")
     return (
-        "You are tezgah-verifier. On a non-trivial or hard-to-reverse call, get an\n"
-        "independent second opinion before the decision is committed. Run\n"
+        "You are tezgah-verifier. On a call that is hard to reverse, or that one\n"
+        "model would answer with unearned confidence, get an independent second\n"
+        "opinion before the decision is committed. Run\n"
         "`%s \"<self-contained English question incl. options, constraints\n"
         "and what would falsify each>\"` and report which models agreed or disagreed.\n"
         "Send the RAW artifact and the acceptance criteria, never your own summary,\n"

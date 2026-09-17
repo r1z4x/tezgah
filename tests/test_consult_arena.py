@@ -16,6 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONSULT = os.path.join(REPO, "bin", "consult")
 REFEREE = "You are the referee"
+# The fields the contract tells the agent to read back. Kept as data so a test
+# can fail when the tool's referee prompt stops asking for one of them.
+FIELDS = ("recommendation", "key disagreements", "unchecked assumptions",
+          "what would change my mind", "requested evidence")
 DIGEST = ("1. Recommendation - pick A.\n"
           "2. Key disagreements - a says X, b says Y.\n"
           "3. Unchecked assumptions - neither checked Z.\n"
@@ -107,6 +111,20 @@ class RefereeStage(ArenaCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(Fake.seen[2]["model"], "b")
 
+    def test_the_env_names_the_referee_model_too(self):
+        Fake.answers = {"a": "x", "b": "y"}
+        self.env["CONSULT_JUDGE"] = "b"
+        p = self.consult("q?", "--models", "a,b")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(Fake.seen[2]["model"], "b")
+
+    def test_the_referee_is_asked_for_every_field_the_rule_names(self):
+        Fake.answers = {"a": "x"}
+        self.consult("q?", "--models", "a")
+        prompt = Fake.seen[-1]["messages"][0]["content"].lower()
+        for field in FIELDS:
+            self.assertIn(field, prompt)
+
     def test_no_referee_stops_after_the_panel(self):
         Fake.answers = {"a": "x", "b": "y"}
         p = self.consult("q?", "--models", "a,b", "--no-referee")
@@ -129,6 +147,23 @@ class Failures(ArenaCase):
         self.assertIn("failed: bad (http-500)", p.stdout)
         self.assertIn("retry: ", p.stdout)
 
+    def test_an_empty_reply_is_classed_empty(self):
+        # 200 with a null content field is a refusal, not an answer.
+        Fake.answers = {"a": "fine", "b": None}
+        p = self.consult("q?", "--models", "a,b")
+        self.assertIn("failed: b (empty)", p.stdout)
+
+    def test_a_scheme_less_endpoint_is_reported_not_raised(self):
+        # CONSULT_URL is caller-supplied now, and Request() raises ValueError
+        # for a URL with no scheme: caught inside ask() it is one more failure
+        # class, uncaught it killed the run with a traceback.
+        self.env["CONSULT_URL"] = "localhost/v1/chat/completions"
+        Fake.answers = {"a": "x", "b": "y"}
+        p = self.consult("q?", "--models", "a,b")
+        self.assertNotIn("Traceback", p.stderr)
+        self.assertEqual(p.returncode, 3, p.stdout)
+        self.assertIn("(malformed-reply)", p.stdout)
+
     def test_a_dead_referee_is_disclosed_and_leaves_the_panel_standing(self):
         Fake.answers = {"a": "the only answer"}
         Fake.referee = 503
@@ -136,6 +171,7 @@ class Failures(ArenaCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("referee: FAILED (http-503)", p.stdout)
         self.assertIn("unjudged", p.stdout)
+        self.assertIn("failed: referee (http-503)", p.stdout)
         self.assertIn("retry: ", p.stdout)
 
 
@@ -146,11 +182,13 @@ class StdinPacket(ArenaCase):
         self.assertEqual(Fake.seen[0]["messages"][1]["content"],
                          "a long packet\nline two")
 
-    def test_a_redirected_packet_needs_no_question_argument(self):
-        p = self.consult("--models", "a", stdin="redirected packet")
-        self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual(Fake.seen[0]["messages"][1]["content"],
-                         "redirected packet")
+    def test_a_missing_question_stays_a_usage_error_not_a_stdin_read(self):
+        # Reading stdin for an absent argument would turn a stray open pipe into
+        # a paid prompt where the caller expected the misuse error.
+        p = self.consult("--models", "a", stdin="stray pipe contents")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertEqual([], Fake.seen)
+        self.assertIn("Usage:", p.stderr)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 
 Usage:
   consult "question"                     independent answers, then one referee
-  consult -                              read the question (packet) from stdin
+  consult -                              read the question from redirected stdin
   consult "question" --no-referee        panel only, no cross-examination
   consult "question" --judge MODEL       referee model (default: first that answered)
   consult "question" --provider deepseek ask the DeepSeek API instead of OpenRouter
@@ -108,6 +108,11 @@ def classify(exc):
     """A failure class, named so the footer can point at ONE variable."""
     if isinstance(exc, urllib.error.HTTPError):
         return "http-%d" % exc.code
+    if isinstance(exc, TimeoutError):
+        # A stalled response, as distinct from the wall-clock deadline below:
+        # urllib wraps OSError around the request only, not around getresponse
+        # or the body read, so a slow stream surfaces here rather than there.
+        return "timeout"
     if isinstance(exc, urllib.error.URLError):
         return "network"
     if isinstance(exc, (ValueError, KeyError, IndexError, TypeError)):
@@ -126,11 +131,15 @@ def ask(provider, model, question, key, timeout, system):
             {"role": "user", "content": question},
         ],
     }).encode()
-    req = urllib.request.Request(endpoint(provider), data=body, headers={
-        "Authorization": "Bearer " + key,
-        "Content-Type": "application/json",
-    })
     try:
+        # The construction is inside the try on purpose: Request() parses the
+        # URL and raises ValueError for a scheme-less one (e.g. a CONSULT_URL
+        # of "localhost"), which would otherwise escape this worker as an
+        # uncaught exception and kill the run with a traceback.
+        req = urllib.request.Request(endpoint(provider), data=body, headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+        })
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.load(resp)
         answer = data["choices"][0]["message"]["content"]
@@ -227,10 +236,12 @@ def main():
                  "--provider openrouter")
     if models is None:
         models = defaults(provider)
-    if question is None or question == "-":
+    if question == "-":
         # A packet is often several KB, and argv has a length limit (and some
         # endpoints stall before the request starts on a long argument), so a
-        # redirected packet is read from stdin instead.
+        # redirected packet is read from stdin instead. Deliberately explicit:
+        # reading stdin for a missing argument would turn a stray open pipe
+        # into a paid prompt where the caller expected the usage error.
         question = "" if sys.stdin.isatty() else sys.stdin.read().strip()
     if not question:
         sys.exit(__doc__.strip())
@@ -279,6 +290,7 @@ def main():
         if jerr:
             print("ERROR: %s" % jerr)
             classes.append(jcls)
+            failed.append("referee (%s)" % jcls)
         else:
             print(verdict)
         print()

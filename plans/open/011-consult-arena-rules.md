@@ -17,10 +17,11 @@ referee call after the independent round.
 
 ## Acceptance
 - [x] `bin/consult` makes one referee call after the panel and prints the named
-      digest fields (`recommendation`, `key disagreements`, `uncertainties`,
-      `what would change my mind`, `requested evidence`); `--no-referee` skips it.
-- [x] `consult -` reads the packet from stdin, and so does a redirect with no
-      question argument.
+      digest fields (`recommendation`, `key disagreements`, `unchecked
+      assumptions`, `what would change my mind`, `requested evidence`);
+      `--no-referee` skips it.
+- [x] `consult -` reads the packet from redirected stdin; a missing question
+      argument stays a usage error rather than becoming a paid prompt.
 - [x] The footer names a failure class per model and prints one retry line
       naming the single variable to change; it stays silent when nothing failed.
 - [x] The CONSULT block carries checkable triage thresholds, the de-anchoring

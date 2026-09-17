@@ -159,8 +159,9 @@ notice it. Never author your own acceptance material.
 
 ### Decision quality, which is the router's actual job
 State the decision and the evidence behind it in one line each. Run
-`~/.config/tezgah/bin/consult` before a non-trivial or hard-to-reverse call and report
-where the models disagreed. When a check was skipped, say which one. Report
+`~/.config/tezgah/bin/consult` before a call that is hard to reverse or that
+one model would answer with unearned confidence - the five triggers in the
+consult rule below - and report where the models disagreed. When a check was skipped, say which one. Report
 which subtasks ran in parallel and which serial, and what each cost.
 
 
@@ -375,8 +376,9 @@ and never your conclusion or self-assessment: a reviewer handed the author's
 framing finds measurably fewer defects, and a verdict you supply is a verdict
 you did not get. Give the artifact, the acceptance criteria and an adversarial
 frame ("assume the author was careful but missed something"). For a packet
-longer than a few lines, pipe it in (`~/.config/tezgah/bin/consult - <
-packet.md`) instead of pasting it into argv: argv has a length limit, and some
+longer than a few lines, pipe it in
+(`~/.config/tezgah/bin/consult - < packet.md`) instead of pasting it into argv:
+argv has a length limit, and some
 endpoints stall on a long argument before the request even starts.
 
 It queries independent models in parallel (default Gemini + Grok; `--models` or

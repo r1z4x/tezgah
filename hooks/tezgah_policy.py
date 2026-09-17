@@ -284,8 +284,9 @@ notice it. Never author your own acceptance material.
 
 ### Decision quality, which is the router's actual job
 State the decision and the evidence behind it in one line each. Run
-`{CONSULT_BIN}` before a non-trivial or hard-to-reverse call and report
-where the models disagreed. When a check was skipped, say which one. Report
+`{CONSULT_BIN}` before a call that is hard to reverse or that one model would
+answer with unearned confidence - the five triggers in the consult rule below -
+and report where the models disagreed. When a check was skipped, say which one. Report
 which subtasks ran in parallel and which serial, and what each cost.
 """
 
