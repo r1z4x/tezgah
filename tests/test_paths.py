@@ -1,9 +1,16 @@
 """hooks/tezgah_paths.py: roots precedence, root_for boundaries, kill switches."""
 import os
+import shutil
+import sys
+import threading
 import unittest
+from unittest import mock
 
 import support
 from support import TempHome, run_json
+
+sys.path.insert(0, support.HOOKS)
+import tezgah_paths as tp  # noqa: E402
 
 
 class RootsPrecedence(TempHome):
@@ -100,6 +107,81 @@ class CacheDirFallback(TempHome):
         out, proc = run_json([support.PROBE_PATHS, "cache_dir"], env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(out, fallback)
+
+
+class ConcurrentProbe(TempHome):
+    """Probes of one dir that overlap in time must all see it writable.
+
+    The interleaving is forced, not left to luck: the module's `open` is wrapped
+    so every probe holds the file it has just created in the probed dir until its
+    siblings have created theirs too - all creates before any remove, the order
+    in which a probe that reuses one filename loses that file to a sibling and
+    reads the dir as unwritable, moving one session's ledger to the temp
+    fallback. The hook keys on the directory, so it assumes nothing about how a
+    probe names its file.
+
+    `writable_dir` is the unit under test: cache_dir() folds its result into a
+    memo, which would hide a per-round race after the first round."""
+
+    PROBES = 8
+    ROUNDS = 5
+
+    def setUp(self):
+        super().setUp()
+        self.cache = os.path.join(self.home, ".cache", "tezgah")
+        self.fallback = os.path.join(self.home, "fallback")
+        os.makedirs(self.cache)
+        patch = mock.patch.multiple(tp, CACHE=self.cache,
+                                    FALLBACK_CACHE=self.fallback)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def probe_together(self, call, count):
+        """One round of `count` probes held at their create; (got, errors)."""
+        both = threading.Barrier(count)
+        real_open = open
+
+        def hooked(path, *a, **kw):
+            fh = real_open(path, *a, **kw)
+            if os.path.dirname(str(path)) == self.cache:
+                # the file exists now; hold here so no probe removes before a
+                # sibling has created its own
+                both.wait(timeout=10)
+            return fh
+
+        got, errors = [], []
+
+        def run():
+            try:
+                got.append(call())
+            except Exception as exc:  # a probe that raises is a failure too
+                errors.append(exc)
+
+        with mock.patch.object(tp, "open", hooked, create=True):
+            threads = [threading.Thread(target=run) for _ in range(count)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(20)
+        return got, errors
+
+    def test_overlapping_probes_all_see_the_dir_writable(self):
+        for round_no in range(self.ROUNDS):
+            got, errors = self.probe_together(
+                lambda: tp.writable_dir(self.cache), self.PROBES)
+            self.assertEqual(errors, [], "round %d" % round_no)
+            self.assertEqual(got, [True] * self.PROBES, "round %d" % round_no)
+
+    def test_overlapping_probes_all_pick_the_global_cache(self):
+        got, errors = self.probe_together(tp.cache_dir, 4)
+        self.assertEqual(errors, [])
+        self.assertEqual(got, [self.cache] * 4)
+
+    def test_the_answer_does_not_move_when_a_later_probe_fails(self):
+        self.assertEqual(tp.cache_dir(), self.cache)
+        shutil.rmtree(self.cache)
+        open(self.cache, "w").close()  # writable at first call, denied after
+        self.assertEqual(tp.cache_dir(), self.cache)
 
 
 class ConsultKey(TempHome):
