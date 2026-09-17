@@ -69,7 +69,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   minority view gets dropped. The reviewer body carries the same raw-artifact
   rule. The spec rule asks for one genuinely different option beyond A/B/A+B,
   the smallest reversible experiment that separates them, and the evidence that
-  would flip the choice. The armed-by-task-class band grows 758 bytes, to 2,989.
+  would flip the choice. The armed-by-task-class band grows 758 bytes, to 2,989,
+  and the always-on pointer line grows 45 characters, taking the core band to
+  6,032 - the cost of the rule being visible in every session rather than only
+  when it is armed.
 
 - The status line colors the whole `name✓` chip by state (green in force, yellow
   on demand, red off, dim when a mark carries no state) instead of the glyph

@@ -46,6 +46,11 @@ invent one.
 The armed-by-task-class band grew 758 bytes (2,231 -> 2,989); the benchmark
 README quotes the re-measured report, as do README.md and the 19 translations.
 
+The branch was then rebased onto `main` once plan 010 merged (its review had
+already flagged the stale base): the core band moved to 6,032 characters -
+010's 5,987 plus 45 from the pointer-line wording - so the whole band material
+was re-measured against the merged tree and the README cost rows follow it.
+
 An independent review of the diff (tezgah-reviewer, read-only) reported three
 minor defects and six suggestions; all are fixed in `fix: answer the independent
 review's three findings`. The real ones: a scheme-less `CONSULT_URL` escaped the
@@ -53,9 +58,12 @@ worker as a traceback and exited 1 where the all-failed path owes 3; a stalled
 body read classed as `error` rather than `timeout`, so the retry line named the
 wrong lever; a missing question argument silently read stdin instead of printing
 the usage error, turning a stray pipe into a paid prompt; and two more copies of
-the consult rule still said "non-trivial or hard-to-reverse". Four cases were
-added for the field list, the `empty` class, the `CONSULT_JUDGE` default and the
-scheme-less endpoint: 12 in the file, 442 in the suite.
+the consult rule still said "non-trivial or hard-to-reverse". A second round
+confirmed every fix and found a fourth copy in `POINTERS`, which rides the
+always-on core of every session - fixed with its `output-styles` mirror and the
+two no-key notices. Four cases were added for the field list, the `empty` class,
+the `CONSULT_JUDGE` default and the scheme-less endpoint, plus one that stalls a
+server to pin the timeout class: 13 in the file, 449 in the suite.
 
 `~/.config/tezgah/bin/consult` symlinks to the main checkout, so the live tool
 picks this up only once this branch is on `main`.
