@@ -308,7 +308,8 @@ class CaptureCli(Snap):
         self.assertTrue(cli_id)
         rows = self.rows("snapshot")
         self.assertEqual([r["id"] for r in rows], [inline, cli_id])
-        keys = lambda row: {k: v for k, v in row.items() if k not in ("id", "ts")}
+        def keys(row):
+            return {k: v for k, v in row.items() if k not in ("id", "ts")}
         self.assertEqual(keys(rows[0]), keys(rows[1]))
         self.assertEqual(self.read(self.blob(inline)),
                          self.read(self.blob(cli_id)))
