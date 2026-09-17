@@ -1,5 +1,28 @@
 # E4 analysis - does the mechanical half change the work?
 
+> **VOID - the mechanical controls were never armed in this block.** Measured
+> after the run, twice and independently: every run directory was materialised
+> under the *system* temp directory (`/var/folders/.../T/armbench-<task>-<rand>/repo`),
+> which is outside the configured tezgah root, so `tezgah_paths.root_for(cwd)`
+> returned `None` and the omp hook returned early from `session_start`,
+> `pre_tool_use`, `post_tool_use` and `stop` alike. No gate, no Stop rule, no
+> ledger - in **any** arm, including the "full harness" one. The only thing that
+> differed between the arms was the contract text in the agent directory.
+>
+> Evidence: (1) the archived run tree's `bench.py` has no `run_dir_for` at all,
+> while the current one defines it and documents this exact failure ("A fixture
+> materialised under the system temp directory therefore ran the tezgah arms with
+> the gate inert"); (2) an omp session record from inside the block window
+> (`~/.omp/agent/sessions/-tmp-armbench-e03-three-item-request-p68qb59f-repo/`)
+> carries `cwd=/var/folders/...` and contains no tezgah string at all, while a
+> control run made inside the root received the tezgah reminder and wrote a
+> ledger.
+>
+> Everything below is therefore a measurement of **contract text against
+> nothing**, not of the mechanical controls. It is kept because the per-task
+> saturation finding and the failure pattern are real, and because deleting a
+> void block is how the same mistake gets made twice.
+
 - Node `326eb400-9e41-4d11-a920-ebc98127fea4` ("Mechanical-off round"), run
   `05e9ec76-4efd-48da-8836-775797f2e746`, commit `0ee1036`.
 - 4 arms x 3 tasks x k=5 = 60 runs, 6 in parallel, model

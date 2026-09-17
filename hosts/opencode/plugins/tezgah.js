@@ -207,20 +207,55 @@ async function shortcutEdit(args) {
     "skip is genuinely intended."
 }
 
+// The same action seen twice has to hash the same, or the ledger cannot tell a
+// re-run from a different call. Objects are serialized as compact JSON with
+// sorted keys, so the host's payload order cannot move the id and the string
+// matches Python's json.dumps(sort_keys=True, separators=(",", ":")).
+function stable(value) {
+  if (Array.isArray(value)) return "[" + value.map(stable).join(",") + "]"
+  if (value && typeof value === "object") {
+    return "{" + Object.keys(value).sort().map(
+      (k) => JSON.stringify(k) + ":" + stable(value[k])).join(",") + "}"
+  }
+  return JSON.stringify(value === undefined ? null : value)
+}
+
+// The action's identity, frozen with the Python writer (hooks/tezgah_integrity)
+// so one call hashes the same on both halves: sha1(tool + " " + canonical)[:12].
+// Shell tools have one canonical argument - the command every other check in
+// this file reads, whitespace collapsed so a re-typed call is the same call;
+// everything else is the args object as compact key-sorted JSON.
+function canonicalArgs(tool, args) {
+  const t = String(tool || "").toLowerCase()
+  if (BASH_TOOLS.has(t)) {
+    return String(args?.command || args?.cmd || "").replace(/\s+/g, " ").trim()
+  }
+  return stable(args || {})
+}
+
+function actionID(tool, args) {
+  return createHash("sha1")
+    .update(String(tool || "").toLowerCase() + " " + canonicalArgs(tool, args))
+    .digest("hex").slice(0, 12)
+}
+
 // Evidence ledger, the same JSONL the Python gate and Stop hook read. Written
 // per tool call so a "done/tested" claim can be checked against what ran.
 // The bash tool returns `metadata.exit` (the process exit code), so a check's
 // real outcome is available: exit 0 -> verify_ok, non-zero -> verify_fail, and
 // `verify` only when the code is absent (aborted/spawn failure).
-async function recordEvidence(sessionID, tool, args, metadata) {
+// The row carries the contract's fields - id, exit, out_bytes, workspace - so
+// an opencode session is not second-class in the metrics. A field the host did
+// not report stays out of the row: an absent exit is not an exit of 0.
+async function recordEvidence(sessionID, tool, args, result, workspace) {
   if (!sessionID) return
   const t = String(tool || "").toLowerCase()
+  const exit = result?.metadata?.exit
   let kind = null
   if (WRITE_TOOLS.has(t)) kind = "edit"
   else if (BASH_TOOLS.has(t)) {
     if (!verifyCommand(args?.command || args?.cmd || "")) kind = "run"
     else {
-      const exit = metadata?.exit
       kind = typeof exit === "number"
         ? (exit === 0 ? "verify_ok" : "verify_fail") : "verify"
     }
@@ -228,11 +263,19 @@ async function recordEvidence(sessionID, tool, args, metadata) {
   if (!kind) return
   const detail = String(
     args?.command || args?.filePath || args?.file_path || "").slice(0, 200)
+  const out = typeof result?.output === "string" ? result.output
+    : (typeof result?.metadata?.output === "string" ? result.metadata.output : null)
+  const row = {
+    kind, ts: Math.floor(Date.now() / 1000), detail,
+    id: actionID(tool, args), workspace: workspace || null,
+  }
+  if (typeof exit === "number") row.exit = exit
+  if (out !== null) row.out_bytes = Buffer.byteLength(out)
   try {
     const dir = join(cacheDir(), "evidence")
     await mkdir(dir, { recursive: true })
     await appendFile(join(dir, slug(sessionID) + ".jsonl"),
-      JSON.stringify({ kind, ts: Math.floor(Date.now() / 1000), detail }) + "\n")
+      JSON.stringify(row) + "\n")
   } catch {}
 }
 
@@ -602,13 +645,14 @@ export const Tezgah = async ({ directory }) => {
 
     "tool.execute.after": async (input, output) => {
       try {
-        if (!(await rootFor(dir))) return
+        const workspace = await rootFor(dir)
+        if (!workspace) return
         const tool = String(input?.tool || "").toLowerCase()
         const args = input?.args || output?.args || {}
         const kind = await classify(tool, args)
         if (kind) await record(input?.sessionID || input?.sessionId, kind)
         await recordEvidence(input?.sessionID || input?.sessionId, tool, args,
-                             output?.metadata)
+                             output, workspace)
       } catch {}
     },
 

@@ -6,6 +6,7 @@ hooks through a node harness with a throwaway HOME, so a drift between the two
 implementations fails here instead of silently in a session. Skips when node is
 missing, matching the other node-dependent checks.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -218,12 +219,17 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("task", {"subagent_type": "general"}))
 
     # ---- evidence ledger ---------------------------------------------------
-    def after(self, tool, args, exit=None, session="s1", directory=None):
+    def after(self, tool, args, exit=None, session="s1", directory=None,
+              result=None):
+        """`result` is the tool result text, when the host carries one."""
         metadata = {} if exit is None else {"exit": exit}
+        output = {"metadata": metadata}
+        if result is not None:
+            output["output"] = result
         return self.drive([{"hook": "tool.execute.after",
                             "input": {"tool": tool, "args": args,
                                       "sessionID": session},
-                            "output": {"metadata": metadata}}], directory)[0]
+                            "output": output}], directory)[0]
 
     def test_bash_check_records_verify_ok(self):
         self.after("bash", {"command": "pytest -q"}, exit=0)
@@ -244,6 +250,48 @@ class OpenCodePlugin(TempHome):
     def test_edit_records_edit(self):
         self.after("edit", {"filePath": "/tmp/x.py"})
         self.assertIn("edit", self.kinds())
+
+    def test_a_row_carries_the_action_identity_and_workspace(self):
+        # The plugin writes the same JSONL the Python gate writes, so its rows
+        # need the contract's fields or an opencode session is under-counted.
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        row = self.ledger()[0]
+        self.assertEqual(len(row["id"]), 12, row)
+        self.assertTrue(all(c in "0123456789abcdef" for c in row["id"]), row)
+        self.assertEqual(row["workspace"], self.roots)
+
+    def test_the_id_is_the_hash_the_python_writer_computes(self):
+        # sha1(tool + " " + canonical)[:12], the frozen formula. The doubled
+        # space is collapsed, so the same call re-typed is the same action.
+        self.after("bash", {"command": "pytest  -q"}, exit=0)
+        want = hashlib.sha1(b"bash pytest -q").hexdigest()[:12]
+        self.assertEqual(self.ledger()[0]["id"], want)
+
+    def test_the_same_call_hashes_the_same_and_a_different_one_does_not(self):
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        self.after("bash", {"command": "ruff check ."}, exit=0)
+        ids = [row["id"] for row in self.ledger()]
+        self.assertEqual(ids[0], ids[1], ids)
+        self.assertNotEqual(ids[0], ids[2], ids)
+
+    def test_a_write_row_hashes_its_args_as_key_sorted_compact_json(self):
+        self.after("write", {"filePath": "/tmp/x.py", "content": "x = 1"})
+        self.after("write", {"content": "x = 1", "filePath": "/tmp/x.py"})
+        ids = [row["id"] for row in self.ledger()]
+        self.assertEqual(ids[0], ids[1], ids)
+        want = hashlib.sha1(b'write {"content":"x = 1","filePath":"/tmp/x.py"}')
+        self.assertEqual(ids[0], want.hexdigest()[:12], ids)
+
+    def test_result_size_is_recorded_when_the_host_carries_it(self):
+        self.after("bash", {"command": "ls"}, result="a\nbb\n")
+        self.assertEqual(self.ledger()[0]["out_bytes"], 5)
+
+    def test_a_row_without_a_result_fabricates_nothing(self):
+        self.after("bash", {"command": "pytest -q"})
+        row = self.ledger()[0]
+        self.assertNotIn("exit", row)
+        self.assertNotIn("out_bytes", row)
 
     def test_outside_root_records_nothing(self):
         self.after("bash", {"command": "ls"}, directory=self.home)

@@ -47,8 +47,12 @@ on this machine). Adding rules must not move those numbers materially.
 - PreToolUse may read **only the ledger tail** (last 200 lines), never the whole
   file. No new subprocess, no network, no lock on the read path.
 - PostToolUse adds a sha1 over a short string and a few fields; nothing else.
-- Acceptance: median gated tool call < 35 ms over 20 calls on this machine, and
-  a written measurement committed next to it.
+- Acceptance is **relative**, because the baseline is already high:
+  `python3 benchmarks/hook-latency/measure.py` on this machine before any change
+  measured pretooluse 42.40 ms, posttooluse 41.61 ms, stop 41.66 ms (medians,
+  n=20) against a 20.05 ms interpreter floor. Each hook's median must stay within
+  **+5 ms** of those figures, and the after-number is committed next to the
+  before-number.
 
 ## Acceptance
 
