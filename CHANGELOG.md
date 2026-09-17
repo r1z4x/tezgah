@@ -62,8 +62,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed - one ceiling for every failure class, reset per user turn, with
   `fail_class` kept as a metric only - and `tezgah-status --counters` prints
   `steps`, `tool_error_rate`, `claims` and `false_completion`. The opencode
-  plugin writes the rows that guard reads but has no PreToolUse half, so the
-  ceiling is not enforced there. The Stop rule now counts a `verify_ok` as
+  plugin writes the rows that guard reads and enforces the same ceilings from its
+  own before-hook. The Stop rule now counts a `verify_ok` as
   support only when the host reported exit 0, the command was not masked by a
   pipe, and - when the host supplies a result size - that size is non-zero; rows
   written before this change are tolerated so an open session is never blocked on
