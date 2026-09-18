@@ -64,6 +64,24 @@ page without guessing and a script can assert the layer is intact. A test keeps
 the index and the directory in step: a page cannot be added without an entry, and
 an entry cannot name a file that is not there.
 
+## The same layer as one file
+
+`HANDBOOK.md`, in the repository root, is every page above in the order this
+router lists them, their cross-references turned into links inside the one
+document - the file to hand to someone who is not in this checkout, or to paste
+somewhere a relative link cannot reach. This router is deliberately not part of
+it: this file is about the layer, the handbook carries it.
+
+It is generated, never edited:
+
+```sh
+bin/tezgah-docs --bundle > HANDBOOK.md
+```
+
+`tests/test_docs.py` fails while the committed copy is stale, so a page edited
+without regenerating it fails the suite instead of leaving two versions of the
+same claim in the tree.
+
 ## The private layer
 
 `docs/research/` is gitignored: local research notes, kept out of the published

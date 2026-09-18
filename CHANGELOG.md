@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`HANDBOOK.md`: the docs layer as one file.** The ten pages under `docs/`,
+  joined in the router's order by `bin/tezgah-docs --bundle`, with their
+  cross-references turned into anchors inside the one document and each page's
+  headings demoted under a single title - the file to hand to someone outside the
+  checkout, or to paste where a relative link cannot reach. It is generated and
+  cannot drift quietly: `docs/README.md` names the command that rewrites it, and
+  `tests/test_docs.py` fails while the committed copy is stale.
+
 - **`docs/`: the engineering layer, with a router an agent can reach.** Ten pages
   - architecture, hosts, contract, gate, evidence, status-line, skills, testing,
   operations, glossary - each opening with what it is and who reads it, ending

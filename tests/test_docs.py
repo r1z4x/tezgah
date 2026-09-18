@@ -3,6 +3,8 @@
 The layer is only reachable if its index is true, so these tests pin the index
 against the directory rather than pinning any page's prose: a page that exists
 without an entry, or an entry that names a file nobody wrote, fails here.
+HANDBOOK.md, the same layer as one file, is pinned against the generator by the
+same reasoning: nothing else would notice it going stale.
 """
 import json
 import os
@@ -113,6 +115,19 @@ class DocsLayer(unittest.TestCase):
         missing = subprocess.run([sys.executable, CLI, "zzz-nothing-matches"],
                                  capture_output=True, text=True, timeout=60)
         self.assertEqual(missing.returncode, 1)
+
+    def test_the_handbook_is_the_pages_and_is_current(self):
+        # HANDBOOK.md is the layer in one file, and the only copy of it that
+        # leaves this checkout: a page edited without regenerating it leaves the
+        # shared copy claiming what the pages no longer say.
+        proc = subprocess.run([sys.executable, CLI, "--bundle"],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(os.path.join(support.REPO, "HANDBOOK.md"),
+                  encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), proc.stdout,
+                             "HANDBOOK.md is stale: bin/tezgah-docs --bundle "
+                             "> HANDBOOK.md")
 
 
 if __name__ == "__main__":
