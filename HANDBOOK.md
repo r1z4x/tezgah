@@ -643,7 +643,7 @@ the texts at `:716-726` and `:783-786` — run the checks, or say the test is fa
 
 #### Attribution — an AI/model credit on its way into an artifact
 
-Trigger, shell: a write command (`WRITE_CMD` `hooks/tezgah_gate.py:141-147` — `git commit|merge|tag|notes`, `gh api`,
+Trigger, shell: a write command (`WRITE_CMD` `hooks/tezgah_gate.py:148-153` — `git commit|merge|tag|notes`, `gh api`,
 `gh pr|issue|release create|edit|comment|review|merge|close`) carrying a credit form (`ATTRIB` `hooks/tezgah_gate.py:119-121` — `co-authored-by:`, `generated with`, `made with`,
 `built by`, `assisted by`, `authored by`, `noreply@anthropic`, a robot emoji). Trigger, edit/write: one of the content fields `EDIT_TEXT` (`hooks/tezgah_gate.py:136-137`)
 containing a line that *starts* with a credit (`ATTRIB_LINE` `hooks/tezgah_gate.py:132-134`). Told: remove it and re-run; naming a tool in order to use it is fine, crediting it
@@ -675,7 +675,7 @@ Trigger: `effect_class` returns one of six classes for the command's masked text
 | `deploy` | a deploy runner (`DEPLOY` `hooks/tezgah_gate.py:194-203`) |
 | `publish` | a registry/release/image push (`PUBLISH` `hooks/tezgah_gate.py:205-210`) |
 | `outward` | a `git push` to `heroku`/`production`/`prod` (`OUTWARD` `hooks/tezgah_gate.py:212-214`) |
-| `send` | mail, a payment API, `nc`/`ncat`/`scp`/`rsync`, or a `curl`/`gh api` with a write method or a body (`SEND` `hooks/tezgah_gate.py:226-240`) |
+| `send` | mail, a payment API, `nc`/`ncat`/`scp`/`rsync`, a `curl`/`gh api` with a write method or a body, or a `gh pr`/`gh issue` write — the same effect as a `gh api` write, reached through a subcommand instead of through the raw API (`SEND` `hooks/tezgah_gate.py:236-249`, `GH_SUBCOMMANDS` `hooks/tezgah_gate.py:147`) |
 
 Told: the class and what it means, the action's digest, and `bin/tezgah-consent <digest>` (`CONSENT_DENY` `hooks/tezgah_gate.py:297-309`, `consent_reason` `hooks/tezgah_gate.py:690-704`) — never the
 pattern that matched. Standing until the user's own `grant`; a re-issue adds nothing (`ASK_STANDS_NOTE` `hooks/tezgah_gate.py:311-313`). A command may declare

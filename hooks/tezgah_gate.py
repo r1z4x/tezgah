@@ -138,12 +138,18 @@ EDIT_TEXT = ("content", "new_string", "newString", "new_str", "file_text",
 # the write subcommand may sit behind git's global options: `git -c k=v commit`,
 # `git -C dir commit`, `git --no-pager commit`. `gh api` writes comments/reviews,
 # and `gh pr merge` lands a commit, so both count as writes.
+# The `gh` subcommands that write to the remote, in one place because two rules
+# read them: this one counts them as a write command, SEND counts them as data
+# leaving for a service that acts on it. `release` is in this list and not in
+# SEND's, because `gh release create` is PUBLISH's class and PUBLISH is checked
+# first (`effect_class`): a release ships an artifact, a PR or an issue is a
+# message posted to a service under the workspace's name.
+GH_SUBCOMMANDS = r"(?:create|edit|comment|review|merge|close)"
 WRITE_CMD = re.compile(
     r"(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*"
     r"(?:commit|merge|tag|notes)\b|"
     r"(?:^|[|;&]\s*|\s)gh\s+api\b|"
-    r"(?:^|[|;&]\s*|\s)gh\s+(?:pr|issue|release)\s+"
-    r"(?:create|edit|comment|review|merge|close)\b",
+    r"(?:^|[|;&]\s*|\s)gh\s+(?:pr|issue|release)\s+" + GH_SUBCOMMANDS + r"\b",
     re.I)
 
 # --- consent: an irreversible or outward-facing command ---------------------
@@ -214,12 +220,16 @@ OUTWARD = re.compile(
     r"(?:heroku|production|prod)\b", re.I)
 # Carrying this workspace's data out to a service that acts on it: outbound
 # mail, a payment, a remote API called with a write method or a body, a copy to
-# another host. The write is what makes it this rule's - a `curl` that only
-# reads a page is the read the untrusted label covers, not an effect. Matched on
-# the masked text like the rest, so a command merely quoted in a message is not
-# one. ponytail: `nc`/`scp`/`rsync` are matched by shape, so `nc --version` is
-# refused once like any other connection tool; the direction is the safe one and
-# the refusal is one-shot and expires (the user's approval lifts it). A raw SQL
+# another host, and a `gh pr`/`gh issue` write - a PR opened or merged under the
+# workspace's name is the same effect reached through a subcommand instead of
+# through `gh api`, and the gate asks about the one spelling and not the other
+# until this alternative is here. The write is what makes it this rule's - a
+# `curl` that only reads a page is the read the untrusted label covers, not an
+# effect. Matched on the masked text like the rest, so a command merely quoted in
+# a message is not one. ponytail: `nc`/`scp`/`rsync` are matched by shape, so
+# `nc --version` is refused once like any other connection tool; the direction is
+# the safe one and the refusal is one-shot and expires (the user's approval lifts
+# it). A raw SQL
 # `UPDATE` typed into `psql -c` is NOT caught - the statement sits in a quoted
 # string, which mask() blanks, and reading SQL intent is not a regex (the ceiling
 # MIGRATION already declares).
@@ -235,7 +245,8 @@ SEND = re.compile(
     r"--request\s*(?:POST|PUT|PATCH|DELETE)|--data\b|--data-\S+|--json\b|"
     r"--form\b|-F\s|-d\s|-T\s|--upload-file\b)|"
     r"gh\s+api\b[^|;&]*(?:-X\s*(?:POST|PUT|PATCH|DELETE)|"
-    r"--method\s*(?:POST|PUT|PATCH|DELETE))"
+    r"--method\s*(?:POST|PUT|PATCH|DELETE))|"
+    r"gh\s+(?:pr|issue)\s+" + GH_SUBCOMMANDS + r"\b"
     r")", re.I | re.M)
 
 # --- secret: a credential on its way into a file ----------------------------

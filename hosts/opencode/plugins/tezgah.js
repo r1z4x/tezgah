@@ -18,9 +18,10 @@
 //     way into a file, and the two repeat ceilings (loop per user turn, retry
 //     per session). One class of that rule is not derived here: an outbound
 //     `send` (mail, a payment, a remote API called with a write, a copy to
-//     another host) has no pattern in this file at all - a command that looks
-//     like one is put to the core through the same gate CLI, so the SEND pattern
-//     stays in exactly one place and this host cannot drift from it.
+//     another host, a `gh pr`/`gh issue` write) has no pattern in this file at
+//     all - a command that looks like one is put to the core through the same
+//     gate CLI, so the SEND pattern stays in exactly one place and this host
+//     cannot drift from it.
 //   - a write is put to the core itself, through bin/tezgah-gate: the active
 //     task's phase and path allowlist is a rule of hooks/tezgah_gate.py, and
 //     this host asks for its answer rather than keeping a JS copy of it (the
@@ -165,7 +166,7 @@ const OUTWARD =
 // costs one spawn and the core's answer, a miss costs the ask that does not
 // happen, which is the failure this pre-filter exists to avoid.
 const SEND_CANDIDATE =
-  /(?:^|[|;&(]\s*)(?:sendmail|msmtp|mutt|mailx|swaks|mail\s|aws\s+ses\b|stripe\b|paypal\b|nc\b|ncat\b|scp\b|rsync\b|curl\b|gh\s+api\b)/i
+  /(?:^|[|;&(]\s*)(?:sendmail|msmtp|mutt|mailx|swaks|mail\s|aws\s+ses\b|stripe\b|paypal\b|nc\b|ncat\b|scp\b|rsync\b|curl\b|gh\s+api\b|gh\s+(?:pr|issue)\s+(?:create|edit|comment|review|merge|close)\b)/i
 // The classes a refused command's effect belongs to, and what each one is. The
 // refusal names the class and this clause, never the pattern that matched: the
 // agent has to see what it is about to do, not which regex caught it.

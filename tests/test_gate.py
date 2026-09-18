@@ -796,16 +796,32 @@ class Gate(TempHome):
                 ("curl -X POST -d @payload.json https://api.example.com/v1/x",
                  "send"),
                 ("curl --data-raw 'a=1' https://api.example.com/v1/x", "send"),
-                ("gh api -X POST repos/o/r/issues -f title=x", "send")):
+                ("gh api -X POST repos/o/r/issues -f title=x", "send"),
+                # a remote write reached through a subcommand instead of
+                # through `gh api`: the same effect spelled two ways, and one
+                # spelling was unasked until GH_SUBCOMMANDS reached SEND
+                ("gh pr create --base main --head x --title t", "send"),
+                ("gh pr edit 18 --body-file /tmp/p.md", "send"),
+                ("gh pr merge 7 --merge", "send"),
+                ("git push -q -u origin feat && gh issue comment 3 -b hi",
+                 "send")):
             reason = self.decide("Bash", {"command": command})
             self.assertIsNotNone(reason, command)
             self.assertIn("`send` effect", reason, command)
-        # a read that leaves the machine is not this class
+        # a read that leaves the machine is not this class, and neither is a gh
+        # subcommand that only reads the remote
         for command in ("curl https://api.example.com/v1/x",
                         "curl -o out.json https://api.example.com/v1/x",
                         'curl -H "Authorization: Bearer $T" https://api.example.com/x',
-                        "git push origin main", "scp2 --help"):
+                        "git push origin main", "scp2 --help",
+                        "gh pr view 18", "gh pr list", "gh pr diff 18",
+                        "gh pr checks 18", "gh issue list", "gh repo view"):
             self.assertIsNone(self.decide("Bash", {"command": command}), command)
+        # and the class PUBLISH owns is still PUBLISH's: SEND reads the same
+        # subcommand list with `release` left out, and `effect_class` checks
+        # PUBLISH first, so a release cannot be relabelled by this rule
+        publish = self.decide("Bash", {"command": "gh release create v1 --target main"})
+        self.assertIn("`publish` effect", publish)
 
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):

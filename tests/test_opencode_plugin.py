@@ -291,22 +291,28 @@ class OpenCodePlugin(TempHome):
         # This port keeps no SEND pattern - the class lives in
         # hooks/tezgah_gate.py - so a command that looks like an outbound send is
         # asked of the core through bin/tezgah-gate, and the core's refusal is the
-        # one that reaches the agent, verbatim.
+        # one that reaches the agent, verbatim. A `gh pr` write is the same
+        # effect as a `gh api` write and reaches the core the same way.
         log = os.path.join(self.home, "gate.log")
         self.spy_gate(log)
-        args = {"command": "mail -s hi someone@example.com"}
-        self.assertEqual(self.denied(self.before("bash", args)), SPY_REASON)
+        sent = [{"command": "mail -s hi someone@example.com"},
+                {"command": "gh pr create --base main --head x --title t"},
+                {"command": "gh pr merge 7 --merge"}]
+        for args in sent:
+            self.assertEqual(self.denied(self.before("bash", args)), SPY_REASON)
         self.assertEqual([c["payload"]["input"] for c in self.spy_calls(log)],
-                         [args])
+                         sent)
 
     def test_the_send_prefilter_is_the_whole_bound_on_a_spawn(self):
         # A spawn per bash call would tax every command in the session for a
-        # class of rule that fires once. A read, and an irreversible command this
-        # file's own table already derives, both stay on this side - and the spy
-        # is written first, so a spawn would be recorded rather than missing.
+        # class of rule that fires once. A read, a gh subcommand that only reads
+        # the remote, and an irreversible command this file's own table already
+        # derives, all stay on this side - and the spy is written first, so a
+        # spawn would be recorded rather than missing.
         log = os.path.join(self.home, "gate.log")
         self.spy_gate(log)
         self.allowed(self.before("bash", {"command": "ls -la"}))
+        self.allowed(self.before("bash", {"command": "gh pr view 18"}))
         self.denied(self.before("bash", {"command": "rm -rf ~/data"}))
         self.assertEqual(self.spy_calls(log), [])
 
