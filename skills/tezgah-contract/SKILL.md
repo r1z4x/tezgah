@@ -47,8 +47,24 @@ Each one removes its own rule from the injected text, not just a status mark. In
 `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`, `consult-off`,
 `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`, `verify-off`
 (the integrity rule: its prompt text, the shortcut denials and the Stop gate),
-`pretooluse-off` (the whole gate); per repo: `.no-ponytail`, `.no-cbm`,
-`.no-lessons`.
+`task-off` (the active task's phase and allowlist), `pretooluse-off` (the whole
+gate); per repo: `.no-ponytail`, `.no-cbm`, `.no-lessons`.
+
+## Task record: the active plan's phase and its path allowlist (auto-armed, tezgah roots only)
+
+The user can make one open plan the session's active task, and two optional
+frontmatter keys are the whole record: `phase:` (`discovery`, `implementation`
+or `verification` - at most one open plan carries it) activates the plan, and
+`allowed_paths:` is the `- glob` list its writes have to stay inside. Rule 10 of
+the tool gate reads it, so a write in `discovery`, or one outside the globs, is
+refused before it lands with the phase or the file named and the command that
+lifts it; an absent or empty allowlist is no scope asked for rather than
+"nothing allowed", and no active task means no requirement at all. The record is
+the user's own - `~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`
+writes it and the agent never runs it, so `stop` or a hand edit takes the
+boundary away. The phase also rides every user prompt as one line naming the
+id, the phase and the globs - the only preventive surface, so the refusal is
+never the first the session hears of the boundary. Off: `task-off`.
 
 ## Code discovery: prefer the indexed graph over blind search
 

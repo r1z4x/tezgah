@@ -58,6 +58,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   like the other two hook scripts.** Both manifests invoke every hook as `python3
   "<path>"`, so no wiring was broken; only the file mode was wrong.
 
+### Added
+
+- **An open plan can be the session's active task, and the gate enforces it.**
+  The record is the plan file itself - no `task.json`, no second file: two
+  optional frontmatter keys, `phase:` (`discovery`, `implementation` or
+  `verification`) and `allowed_paths:` (a `- glob` list relative to the repo
+  root), and at most one open plan carries a phase because `start` clears it
+  from the others. Rule 10 of the tool gate (`hooks/tezgah_gate.py`) refuses a
+  write in `discovery`, or one outside the globs, naming the phase or the file
+  plus the command that lifts it; a path that resolves outside the repo root
+  never matches a `**` pattern. `bin/tezgah-task start|phase|allow|stop|status`
+  is the only writer and the user runs it - the agent never does - so what the
+  gate refuses on is a boundary the user set in advance, and `task-off` removes
+  the rule. Where the record is missing, unreadable or out of phase vocabulary
+  the rule fails open, and an empty allowlist reads as "any path in the repo"
+  rather than "nothing allowed": a gate that refused every write until a record
+  appeared would have the whole session as its blast radius. The phase also
+  rides every user turn as one line (`hooks/tezgah_context.py`), so a session
+  meets the boundary before a write meets the refusal. opencode does not mirror
+  the rule: its plugin puts each write to `bin/tezgah-gate check`, which prints
+  the core's own decision and nothing else, because the JS mirror is documented
+  as incomplete and divergent.
+
 ## [0.10.0] - 2026-09-18
 
 ### Changed

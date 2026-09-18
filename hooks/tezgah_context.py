@@ -21,6 +21,13 @@ from tezgah_policy import CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER
 from tezgah_paths import (ai_research_dir, cache_dir, cbm_bin, have_consult_key,
                           off, orx_bin, root_for, roots, tool, writable_dir)
 
+try:  # The task record is the active plan's frontmatter (see tezgah_task), read
+    # once per user prompt for the phase line. The module is newer than some
+    # checkouts, and a missing one costs the line, never the turn.
+    import tezgah_task
+except ImportError:  # pragma: no cover - only where the module has not landed
+    tezgah_task = None
+
 # A prompt that matches one of these arms the matching conditional rule for that
 # turn only. Kept as (key, compiled regex) so the arming is one pass and the
 # patterns are reviewable. Word-ish boundaries keep "deploy" from firing inside
@@ -241,6 +248,21 @@ def open_plans(root):
     return ("## Open plans in this repo (plans/open)\n%s\n"
             "Run the plan-status skill for the full table before starting work; "
             "open plan work happens on its `plan/NNN-slug` branch." % "\n".join(lines))
+
+
+def task_line(task):
+    """The active task, one line: what it is, its phase, and what it may write.
+
+    The only preventive surface the phase has. The gate reads the same record
+    and refuses a write the phase or the allowlist excludes, but a refusal
+    costs a turn - so the phase rides every user turn, and the refusal is never
+    the first the session hears of it. One line because it is paid every turn;
+    the allowlist is the globs as written, and for the rest the line names the
+    CLI the user runs, not a syntax the model has to recall."""
+    paths = ", ".join(task.get("allowed_paths") or []) or "any path in the repo"
+    return ("Active task %s is in phase `%s`; writes allowed on: %s. Advance it "
+            "with `%s phase P`." % (task.get("id"), task.get("phase"), paths,
+                                    tool("tezgah-task")))
 
 
 def _lesson_lines(root):
@@ -562,12 +584,14 @@ DEFAULT_BUDGET = 12000
 # value first: text another surface already carries (the plan table lives in the
 # plan-status skill, the lessons file is on disk, the generated-subagent note is
 # a one-time fact), then the tooling-availability lines, then the live state
-# lines, the delta, and the skill pointer last. A key absent from this tuple is
+# lines - the stale-graph glance, then the active task's phase, which outlives
+# the glance because a phase is what stops a refused write before it happens -
+# then the delta, and the skill pointer last. A key absent from this tuple is
 # never dropped: the always-on core and the per-turn reminder ARE the rules, and
 # a budget that can spend them turns bloat into rule loss.
 DROP_ORDER = ("lessons", "plans", "subagents", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate", "index",
-              "delta", "pointer")
+              "task", "delta", "pointer")
 
 
 def _drop_note(event, limit, dropped, size):
@@ -694,6 +718,12 @@ def context_for(event, cwd, payload=None, with_core=True):
         write_stamp(session_id, root, stamp)
         if delta:
             parts.append(("delta", delta))
+        # The active task's phase, on the turn the work happens in. The gate
+        # would refuse a write the phase forbids, but only after the call and at
+        # the cost of a turn; this line is the one surface that can stop it.
+        task = tezgah_task.active(cwd, root_for(cwd)) if tezgah_task else None
+        if task:
+            parts.append(("task", task_line(task)))
         stale = index_notice(cwd)
         if stale:
             parts.append(("index", stale))

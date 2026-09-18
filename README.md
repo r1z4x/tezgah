@@ -64,6 +64,16 @@ same text.
   then reuse an existing helper, then stdlib, then a native platform feature,
   then an installed dependency, then one line. No unrequested abstractions.
   Validation, error handling, and security are never simplified away.
+- **An active task the gate enforces.** The user can point one open plan at the
+  gate: its `phase:` (`discovery`, `implementation`, `verification`) and its
+  `allowed_paths:` globs are what each write is checked against, so a write in a
+  read-only phase, or outside the files the plan names, is refused before it
+  lands - and no active task means no requirement, because the gate invents
+  nothing. The record is the user's own
+  (`~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`), the agent
+  never runs it, and an empty allowlist reads as any path in the repo rather
+  than as "nothing allowed". The phase also rides every user turn as one line,
+  so the refusal is never the first the session hears of the boundary.
 - **Code-graph-first discovery.** "Where is X", "who calls Y", "what breaks if
   Z changes" go to the `codebase-memory-mcp` graph (`search_graph`,
   `trace_path`, `search_code`), not to grep. Grep stays right for literal text,
@@ -137,7 +147,7 @@ cost evidence, which is a separate question from enforcement.
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate |
 | **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them |
-| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message; the plugin enforces the whole gate itself - attribution, explorer, the grep nudge, consent, secret and the loop/retry ceilings - so no rule is missing there |
+| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message; the plugin enforces the gate itself - attribution, explorer, the grep nudge, consent, secret and the loop/retry ceilings - and puts every write to the core through `~/.config/tezgah/bin/tezgah-gate check`, so the active-task rule and any rule added later arrive from the core rather than from a second implementation |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
@@ -310,6 +320,8 @@ knowing:
 | `bin/tezgah-setup --status [PATH]` | Print the armed/used checklist |
 | `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status\|claim` | Runs and checks a research line: state, findings, claims, and the protocol-before-results rule |
+| `bin/tezgah-task start\|phase\|allow\|stop\|status` | The active task: one plan's `phase:` and its `allowed_paths:` globs, which the gate then enforces on every write |
+| `bin/tezgah-gate check` | The gate's own decision for one call on stdin - what a host whose plugin is not Python asks instead of mirroring a rule |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
 | `/tezgah:plan-add` | Turn a piece of work into a tracked plan |
 | `/tezgah:plan-status` | Summarize open plans and pick the next one |
@@ -339,7 +351,8 @@ text injected into the session, so the rule actually stops:
 | `research-off` | routing research tasks to OpenResearch |
 | `orchestrate-off` | subagent delegation (adds a do-not-delegate line) |
 | `reminder-off` | the per-turn reminder text |
-| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, loop, grep nudge) |
+| `task-off` | the active task's phase and allowlist |
+| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, loop, grep nudge, task) |
 
 Per repo, `.no-ponytail`, `.no-cbm` and `.no-lessons` turn off the minimal-code
 rule, the code-graph rule (and its auto-index), and the lessons ledger
@@ -402,7 +415,7 @@ revision came to quote a core band smaller than the one it installs.
 | Band | What it costs |
 |---|---|
 | Session start | the always-on contract (the invariants plus a one-line pointer per on-demand rule): on this machine and skill set, ~1.5k tokens of contract text and ~1.4k of skill metadata, with the conditional rules (spec, consult, research, graph) adding ~0.7k only on the turn whose prompt matches |
-| Per turn | a short reminder (~0.2k tokens) plus the armed rule when it matches; hooks are separate Python processes, so the ~19 ms interpreter start is the base - a turn adds ~31 ms, session start adds ~50-81 ms, a gated tool call (Bash/Grep/Task) ~24-25 ms. opencode has no prompt-time hook, so it pays zero |
+| Per turn | a short reminder (~0.2k tokens) plus the armed rule when it matches, and one line naming the active task while one is set; hooks are separate Python processes, so the ~19 ms interpreter start is the base - a turn adds ~31 ms, session start adds ~50-81 ms, a gated tool call (Bash/Grep/Task) ~24-25 ms. opencode has no prompt-time hook, so it pays zero |
 | On demand | the full `tezgah-contract` skill (~6.6k tokens), paid only when a task loads it |
 | MCP schemas | the largest band, and the one no static report sees: the graph server alone declares 15 tools / 24,508 bytes (~6.1k tokens), riding every request unless the host fetches schemas on demand. `tezgah-setup --mcp-schemas` measures it |
 | Disk | installation takes ~58 ms, and every file tezgah rewrites is kept once as `<file>.tezgah-bak` |

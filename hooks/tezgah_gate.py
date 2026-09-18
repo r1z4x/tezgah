@@ -47,6 +47,13 @@ Rules, all only inside a tezgah root:
      and a write whose realpath leaves the rule's own root (`sink`). See
      sink_check for why the taxonomy's version of this rule (the target was not
      named in the user's prompt) cannot be decided here.
+ 10. a write while an active task is set - a plan file under plans/open whose
+     frontmatter carries a valid `phase` - is refused when that phase is one
+     that only reads, or when the file is outside the task's `allowed_paths`
+     (`task`). The record is the user's own, written by bin/tezgah-task and
+     never by the agent, so the refusal leans on a decision the user made rather
+     than one this gate inferred: no active task means no requirement, and the
+     rule invents nothing. The `task-off` kill switch removes it.
 Adapters translate the returned reason into their own permission envelope.
 """
 import os
@@ -55,7 +62,7 @@ import re
 from tezgah_integrity import (BASH_TOOLS, STEP_KINDS, WRITE_TOOLS, _turn_start,
                               call_id, events, mask, note, prior_calls,
                               shortcut_command, shortcut_edit)
-from tezgah_paths import cache_dir, off, root_for
+from tezgah_paths import cache_dir, off, root_for, tool
 
 try:  # The race rule reads the write history through tezgah_integrity; that
     # reader is newer than some checkouts of the module, and a missing name must
@@ -80,6 +87,13 @@ try:  # The two readers the untrusted sink rule needs (see sink_check): the
     from tezgah_untrusted import turn_channel
 except ImportError:  # pragma: no cover - only on a checkout without them
     UNTRUSTED_CHANNEL, turn_channel = {}, None
+
+try:  # The task rule reads the user's own per-task record (a plan file's
+    # frontmatter) through tezgah_task. That module is newer than some checkouts,
+    # and a missing module costs the rule, never the session.
+    import tezgah_task
+except ImportError:  # pragma: no cover - only where the module has not landed
+    tezgah_task = None
 
 DB_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codebase-memory-mcp")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{2,}$")
@@ -861,6 +875,66 @@ def race_reason(inp, session_id):
     return None
 
 
+# --- task scope: the user's own phase and path allowlist --------------------
+# What this closes: a session that has been told what it is working on - the
+# user activated a plan file under plans/open, so the work has a phase and the
+# files it may touch - and then writes anyway. Two shapes cost the user real
+# work: a write in `discovery`, where the whole point of the phase is to read
+# before deciding, and a write outside the plan's own allowlist, which is how a
+# bounded task quietly becomes an unbounded one. Both are the user's own
+# decisions, which is why this rule may refuse at all: the record is written by
+# bin/tezgah-task, by hand, and never by the agent - a rule the agent could
+# satisfy by editing its own record would be a nudge wearing a gate's clothes.
+#
+# The direction is fail-open wherever the record is missing, unreadable or out
+# of phase vocabulary (tezgah_task.active returns None for those), because a
+# refusal has to rest on an ask the user actually made: a rule that refused
+# every write until a record appeared would be the fail-closed trap the design
+# report names, with the whole session as its blast radius. Nothing is named
+# that the user did not name either: an empty allowlist is no scope asked for
+# rather than "nothing is allowed", so the phase is the whole requirement there.
+TASK_PHASE_DENY = (
+    "Task gate: the active task %s is in phase `%s`, and this call writes. "
+    "Writes are allowed in %s. Advance it with `%s phase implementation` once "
+    "the work has reached that point, or do the reading this phase asks for.")
+TASK_SCOPE_DENY = (
+    "Task gate: %s is outside the paths the active task %s allows (%s). Widen "
+    "the task with `%s allow <glob>` if the file really belongs to it, or leave "
+    "it alone and say why it looked in scope.")
+
+
+def task_reason(inp, cwd, base):
+    """A deny reason when the active task's phase or allowlist excludes this
+    write, else None. No active task -> None: this rule never invents a
+    requirement the user did not set.
+
+    The record is read through tezgah_task, whose import is guarded: a checkout
+    without that module costs this rule, never the session. The paths are the
+    ones write_paths already extracts, so an apply_patch body is checked hunk by
+    hunk like every other write rule's here. A path that resolves outside the
+    repo root is refused by `relative` before any pattern is tried - a `**`
+    allowlist must not reach out of the repo - and the refusal names the file as
+    the call spelled it, because the agent has to recognize its own argument."""
+    if tezgah_task is None:
+        return None
+    task = tezgah_task.active(cwd, base)
+    if not task:
+        return None
+    if task["phase"] not in tezgah_task.WRITE_PHASES:
+        return TASK_PHASE_DENY % (task["id"], task["phase"],
+                                  " or ".join(tezgah_task.WRITE_PHASES),
+                                  tool("tezgah-task"))
+    patterns = task["allowed_paths"]
+    if not patterns:
+        return None
+    for path in write_paths(inp):
+        rel = tezgah_task.relative(path, cwd, base)
+        if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
+            return TASK_SCOPE_DENY % (path, task["id"], ", ".join(patterns),
+                                      tool("tezgah-task"))
+    return None
+
+
 # --- constraint drift: a long turn loses the rules it started with ----------
 # The re-statement that keeps the rules alive rides the user prompt
 # (tezgah_context.context_for writes PROMPT_REMINDER on every turn), so the
@@ -1012,6 +1086,14 @@ def decision(tool, inp, cwd, session_id=None):
         reason = race_reason(inp, session_id)
         if reason:
             return _deny(session_id, "race", reason, tool, inp, base)
+    # Task scope: the user's own record for this work - its phase and the files
+    # its allowlist names (see task_reason). Ahead of the sink rule, because an
+    # active task refuses a write for a reason the user set rather than one the
+    # turn's reads produced, and that reason is the one to name first.
+    if t in WRITE_TOOLS and not off("task-off"):
+        reason = task_reason(inp, cwd, base)
+        if reason:
+            return _deny(session_id, "task", reason, tool, inp, base)
     # The untrusted sink for a write: a file outside the rule's root, in a turn
     # that read content tezgah cannot vouch for, waits for the user's own
     # approval written after that read (see sink_check). Inside the root the

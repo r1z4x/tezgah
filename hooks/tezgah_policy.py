@@ -577,8 +577,8 @@ when the user asks for it, or when the repo IS the tezgah checkout.
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`,
 `verify-off` (the integrity rule: its prompt text, the shortcut denials and the
-Stop gate), `pretooluse-off` (the whole gate); per-repo `.no-ponytail`,
-`.no-cbm`, `.no-lessons`.
+Stop gate), `task-off` (the active task's phase and allowlist), `pretooluse-off`
+(the whole gate); per-repo `.no-ponytail`, `.no-cbm`, `.no-lessons`.
 """
 
 # Rules that are NOT paid every session. They are armed by task class at prompt
