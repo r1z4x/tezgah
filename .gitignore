@@ -20,6 +20,11 @@ __pycache__/
 /benchmarks/arm-bench/arms/orx-*/*
 !/benchmarks/arm-bench/arms/orx-*/RULES.md
 !/benchmarks/arm-bench/arms/orx-*/PROVENANCE.md
+# omp-task-rule ships no RULES.md of its own: its treatment is a one-line hook path
+# change inside the copied agent dir, so PROVENANCE.md is the whole recipe.
+!/benchmarks/arm-bench/arms/omp-task-rule/
+/benchmarks/arm-bench/arms/omp-task-rule/*
+!/benchmarks/arm-bench/arms/omp-task-rule/PROVENANCE.md
 
 # arm-bench: run directories are throwaway fixtures
 /benchmarks/arm-bench/.runs/
