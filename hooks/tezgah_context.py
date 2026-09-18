@@ -257,12 +257,16 @@ def task_line(task):
     and refuses a write the phase or the allowlist excludes, but a refusal
     costs a turn - so the phase rides every user turn, and the refusal is never
     the first the session hears of it. One line because it is paid every turn;
-    the allowlist is the globs as written, and for the rest the line names the
-    CLI the user runs, not a syntax the model has to recall."""
+    the allowlist is the globs as written, and the phase is stated as the user's
+    to move rather than as a command to run: the line used to print the CLI the
+    user types, and E7b watched the session run that command five times in a row
+    against a gate that refuses it every time. A line that names an act the gate
+    refuses is an invitation to a loop."""
     paths = ", ".join(task.get("allowed_paths") or []) or "any path in the repo"
-    return ("Active task %s is in phase `%s`; writes allowed on: %s. Advance it "
-            "with `%s phase P`." % (task.get("id"), task.get("phase"), paths,
-                                    tool("tezgah-task")))
+    return ("Active task %s is in phase `%s`; writes allowed on: %s. The phase "
+            "belongs to the user - ask them for the one this work needs, and "
+            "do not move it yourself." % (task.get("id"), task.get("phase"),
+                                          paths))
 
 
 def _lesson_lines(root):

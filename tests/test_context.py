@@ -855,14 +855,18 @@ class ActiveTaskLine(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
 
-    def test_the_line_names_the_phase_the_scope_and_the_command(self):
+    def test_the_line_names_the_phase_and_the_scope_not_a_command(self):
         repo = self.make_repo()
         self.plan(repo, phase="implementation", allow=["hooks/**", "tests/**"])
         out = self.turn(repo)
         self.assertIn("Active task 001 is in phase `implementation`", out)
         self.assertIn("hooks/**, tests/**", out)
-        self.assertIn("tezgah-task", out)
-        self.assertIn("phase P`", out)
+        # The line used to end with the command that moves the phase, and E7b
+        # watched the armed arm run that command five times in a row against a
+        # gate that refuses it every time. It names the user now, not an act the
+        # gate will refuse.
+        self.assertIn("belongs to the user", out)
+        self.assertNotIn("Advance it with", out)
         # the per-turn channel is a prompt hook: a session start already carries
         # the plans block, and a second copy of the phase there would be paid by
         # every session, including the ones with no task
