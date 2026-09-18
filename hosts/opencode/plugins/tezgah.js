@@ -156,10 +156,20 @@ const EFFECTS = {
   outward: "this one pushes to a live target rather than a branch under review",
 }
 const CONSENT_DENY =
-  "Consent gate (`%s` effect): %s. The contract requires an explicit ask " +
-  "before an irreversible or outward-facing action, so put the exact command " +
-  "and what it cannot undo in front of the user. Once this refusal is in the " +
-  "transcript, the same command passes on the next attempt."
+  "Consent gate (`%s` effect): %s. The contract requires the user's own " +
+  "decision before an irreversible or outward-facing action, and a re-issued " +
+  "command is not that decision: the ledger holds no approval for this action, " +
+  "so this keeps refusing. Put the exact command and what it cannot undo in " +
+  "front of the user; `bin/tezgah-consent %s` writes their approval - `--last` " +
+  "answers the newest ask - and the command passes once. No checkpoint can be " +
+  "taken for a shell effect (a force-push, a migration or a deploy changes a " +
+  "remote or a live system this ledger holds no pre-state for), so their " +
+  "approval is the whole record on the rollback side."
+// Appended when this gate's own refusal is on record already: the second refusal
+// reads as "still waiting for the user", not as a fresh ask.
+const ASK_STANDS_NOTE =
+  " The ask is on record already (`consent`, this action's id); what is " +
+  "missing is the user's own answer, and a repeat is not it."
 // The classes from the one that cannot be walked back at all to the one a
 // reviewer can still catch. It is the order "at least as severe" is read in (see
 // consentEffect), which is what keeps a declared effect a way to raise a
@@ -701,26 +711,33 @@ function retryReason(tool, args, rows) {
 }
 
 // Which consent record this action already carries: "grant" when
-// bin/tezgah-consent recorded the user's own approval of it, "ask" when only the
-// gate's refusal is on record, null when neither is
-// (hooks/tezgah_gate.consent_mark).
+// bin/tezgah-consent recorded the user's own approval and the effect has not
+// spent it yet, "ask" when only the gate's refusal is on record, null when
+// neither is (hooks/tezgah_gate.consent_mark).
 //
-// Three rows, three facts, never one row conflating them: the gate writes
-// `consent` (it asked) and `repeat-allowed` (it let a repeat through on that ask
-// alone) and never `grant` - a grant is the user's, written by the CLI, so the
-// approval cannot be forged by the rule it constrains. Read by kind and id alone,
-// so "who was asked to confirm what, and who allowed the repeat" is a query over
-// rows rather than a match on a deny message a later reword would silently break.
+// A grant is a lease on ONE effect, not a standing permit: the row the effect
+// leaves behind - the same id carrying an outcome - is what proves it ran, so the
+// next identical command goes back to the user instead of running on the first
+// approval forever (hooks/tezgah_gate.unspent_grant). Two rows, two facts, never
+// one row conflating them: the gate writes `consent` (it asked) and never
+// `grant` - a grant is the user's, written by the CLI, so the approval cannot be
+// forged by the rule it constrains. Read by kind and id alone, so "who was asked
+// to confirm what, and who answered" is a query over rows rather than a match on
+// a deny message a later reword would silently break.
 async function consentMark(sessionID, digest) {
   if (!sessionID || !digest) return null
   const rows = await ledgerTail(sessionID, LEDGER_TAIL)
-  if (rows.some((row) => row.kind === "grant" && row.id === digest)) return "grant"
+  const at = rows.map((row) => row.kind === "grant" && row.id === digest)
+    .lastIndexOf(true)
+  const spent = at !== -1
+    && rows.slice(at + 1).some((row) => row.id === digest
+                                && row.exit !== undefined)
+  if (at !== -1 && !spent) return "grant"
   if (rows.some((row) => row.kind === "consent" && row.id === digest)) return "ask"
   return null
 }
 
-// A consent row: the gate's own two facts, `consent` (it asked) or
-// `repeat-allowed` (it let a repeat through on that ask alone). `detail` is the
+// A consent row: the gate's own fact, `consent` (it asked). `detail` is the
 // effect class and `id` the action digest, so both are read back by kind and id.
 // The gate writes no `grant` - that row belongs to the user.
 async function noteConsentRow(sessionID, kind, klass, digest, workspace) {
@@ -749,11 +766,11 @@ async function noteDeny(sessionID, rule, reason, tool, args, workspace, extra) {
 // Consent, then secret: the two shell rules that need the ledger. The class is
 // the one the command text derives, raised by a `tezgah:effect=` declaration that
 // is at least as severe and never lowered by one that is not (consentEffect);
-// what the ledger then holds is one row per fact - `consent` for the ask,
-// `repeat-allowed` when the pass rests on that ask alone, and, written by
-// bin/tezgah-consent and never here, the user's own `grant`. An action already
-// asked about falls through to the secret scan exactly as it does in the Python
-// gate. Both stay armed under `verify-off`: that kill switch removes the shortcut
+// what the ledger then holds is one row per fact - `consent` for the ask, and,
+// written by bin/tezgah-consent and never here, the user's own `grant`. An
+// action already asked about falls through to the secret scan exactly as it does
+// in the Python gate. Both stay armed under `verify-off`: that kill switch
+// removes the shortcut
 // and repeat rules, not the consent the user owes.
 async function shellRules(tool, args, sessionID, base, dir) {
   const cmd = String(args.command || args.cmd || "")
@@ -762,17 +779,23 @@ async function shellRules(tool, args, sessionID, base, dir) {
   const mark = klass ? await consentMark(sessionID, digest) : null
   if (klass && mark === null) {
     await noteConsentRow(sessionID, "consent", klass, digest, base)
-    const reason = consentReason(klass, ignored)
+    const reason = consentReason(klass, ignored, false, digest)
     await noteDeny(sessionID, "consent", reason, tool, args, base,
                    ignored ? "declared `" + ignored + "` ignored, `" + klass +
                              "` stands" : null)
     return reason
   }
   if (klass && mark === "ask") {
-    // The pass rests on the gate's own refusal and nothing else - the ask went
-    // out and no approval came back - so the row says exactly that. A `grant`
-    // here would claim a consent the user never gave.
-    await noteConsentRow(sessionID, "repeat-allowed", klass, digest, base)
+    // The ask is on record and no approval came back, so a bare re-issue is
+    // refused again rather than passing on its own earlier refusal - the Python
+    // gate does the same (hooks/tezgah_gate.decision). No second `consent` row:
+    // one question, asked once. A `grant` here would claim a consent the user
+    // never gave.
+    const reason = consentReason(klass, ignored, true, digest)
+    await noteDeny(sessionID, "consent", reason, tool, args, base,
+                   ignored ? "declared `" + ignored + "` ignored, `" + klass +
+                             "` stands" : null)
+    return reason
   }
   const reason = secretCommand(cmd)
   if (reason) await noteDeny(sessionID, "secret", reason, tool, args, base)
@@ -883,15 +906,14 @@ function rmOutside(masked, raw, cwd, base) {
 //
 // One call is all the gate sees and it cannot ask, so the ask becomes a refusal
 // the user reads. What the ledger then says is the point: the `consent` row
-// records the ask, `repeat-allowed` records a pass that rests on nothing but that
-// ask, and a `grant` - the user's own approval, written by bin/tezgah-consent and
-// never here - records a pass the user authorised before the command ran (see
-// consentMark). That is the least friction that still stops an agent spending
-// someone else's branch, database or deployment unasked. Tradeoff: a user who did
-// ask pays one round-trip, and an agent that ignores the reason twice can still
-// proceed - in front of a user who has now seen the refusal. A session whose
-// ledger cannot be written refuses every time, so there the ask has to happen
-// outside the agent.
+// records the ask, and a `grant` - the user's own approval, written by
+// bin/tezgah-consent and never here - records a pass the user authorised before
+// the command ran, for one effect (see consentMark). That is the least friction
+// that still stops an agent spending someone else's branch, database or
+// deployment unasked: the refusal stands until the user answers, and a bare
+// re-issue is refused again rather than passing on its own earlier refusal. A
+// session whose ledger cannot be written refuses every time, so there the ask has
+// to happen outside the agent.
 function effectClass(command, cwd, base) {
   const c = String(command || "")
   if (!c) return null
@@ -942,8 +964,13 @@ function consentEffect(command, cwd, base) {
 // never the list of patterns the command happened to match. An ignored
 // declaration is named with it, so an attempt to talk the class down reaches the
 // user instead of failing silently.
-function consentReason(klass, ignored) {
-  let reason = CONSENT_DENY.replace("%s", klass).replace("%s", EFFECTS[klass])
+function consentReason(klass, ignored, asked, digest) {
+  let reason = CONSENT_DENY.replace("%s", klass)
+    .replace("%s", EFFECTS[klass])
+    .replace("%s", digest || "?")
+  if (asked) {
+    reason += ASK_STANDS_NOTE
+  }
   if (ignored) {
     reason += DOWNGRADE_NOTE.replace("%s", ignored).replace("%s", klass)
   }

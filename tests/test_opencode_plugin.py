@@ -254,7 +254,11 @@ class OpenCodePlugin(TempHome):
                 ("git push heroku main", "outward")):
             error = self.denied(self.before("bash", {"command": command}))
             self.assertIn("Consent gate (`%s` effect)" % klass, error, command)
-            self.assertIn("passes on the next attempt", error, command)
+            # the refusal has to name the thing the user approves, and the CLI
+            # that writes their answer - the same content the Python gate's
+            # refusal carries
+            self.assertIn("bin/tezgah-consent", error, command)
+            self.assertIn(ti.call_id("bash", {"command": command}), error, command)
 
     def test_consent_leaves_what_it_does_not_own(self):
         for command in ("git push origin main", "git push --force origin tmp/x",
@@ -276,16 +280,21 @@ class OpenCodePlugin(TempHome):
                         'echo "git push --force origin main" >> notes.md'):
             self.allowed(self.before("bash", {"command": command}))
 
-    def test_the_second_identical_attempt_passes_and_a_different_one_does_not(self):
-        # The refusal IS the ask - the user reads it in the transcript - so the
-        # repeat of the same command passes, while another irreversible one is
-        # still refused. A rule that never let the second attempt through would
-        # block the user who did ask.
+    def test_a_repeat_of_an_unapproved_command_is_refused_again(self):
+        # The refusal is the ask, not an approval: the gate never writes a grant,
+        # so a bare re-issue meets the same refusal and another irreversible
+        # command is refused too. Letting the repeat through would hand the first
+        # refusal the power of a grant the user never gave - the Python gate
+        # refuses it as well (hooks/tezgah_gate.py:decision).
         command = {"command": "git push --force origin main"}
         self.denied(self.before("bash", command))
-        self.allowed(self.before("bash", command))
+        self.denied(self.before("bash", command))
         self.denied(self.before("bash",
                                 {"command": "git push --force origin other"}))
+        # one ask per action, not per attempt: the repeat left no second row
+        asked = [r for r in self.ledger() if r["kind"] == "consent"]
+        mine = [r for r in asked if r["id"] == ti.call_id("bash", command)]
+        self.assertEqual(len(mine), 1, asked)
 
     def test_the_one_shot_mark_is_a_consent_row_the_python_reader_uses(self):
         # The mark is the `consent` row kind - class in the detail, the call's id
@@ -321,19 +330,36 @@ class OpenCodePlugin(TempHome):
             fh.write(json.dumps({"kind": "grant", "detail": "cli",
                                  "id": digest}) + "\n")
 
-    def test_an_allowed_repeat_is_not_recorded_as_a_grant(self):
-        # The same three rows the Python gate leaves: the ask, the refusal, and a
-        # pass that says it rests on the ask alone. A `grant` here would record a
-        # consent the user never gave.
+    def test_a_repeat_writes_no_second_ask_and_no_pass_row(self):
+        # One question, asked once: the two rows the Python gate leaves are the
+        # ask and the refusal, and the second refusal adds a refusal of its own -
+        # never a `consent` (a second question the user would have to answer) and
+        # never a `grant` (a consent the user never gave).
         command = {"command": "git push --force origin main"}
         self.denied(self.before("bash", command))
-        self.allowed(self.before("bash", command))
+        again = self.denied(self.before("bash", command))
+        # the second refusal reads as "still waiting for the user" - the reason
+        # carries the clause, the row keeps only its first 80 characters
+        self.assertIn("ask is on record already", again)
         rows = self.ledger()
-        self.assertEqual([r["kind"] for r in rows],
-                         ["consent", "deny", "repeat-allowed"], rows)
-        self.assertEqual(rows[2]["detail"], "destructive")
-        self.assertEqual(rows[2]["id"], ti.call_id("bash", command))
-        self.assertEqual(rows[2]["workspace"], self.roots)
+        self.assertEqual([r["kind"] for r in rows], ["consent", "deny", "deny"], rows)
+        self.assertEqual(rows[0]["detail"], "destructive")
+        self.assertEqual(rows[0]["id"], ti.call_id("bash", command))
+        self.assertEqual(rows[0]["workspace"], self.roots)
+
+    def test_a_grant_is_spent_by_the_effect_it_authorised(self):
+        # The grant is a lease on ONE effect: the row the effect leaves behind
+        # (same id, an outcome on it) spends it, so the next identical command
+        # goes back to the user instead of running on one approval forever.
+        command = {"command": "npm publish"}
+        digest = ti.call_id("bash", command)
+        self.seed_grant(digest)
+        self.allowed(self.before("bash", command))
+        path = self.evidence_path("s1")
+        with open(path, "a") as fh:
+            fh.write(json.dumps({"kind": "verify_ok", "detail": "npm publish",
+                                 "id": digest, "exit": 0}) + "\n")
+        self.denied(self.before("bash", command))
 
     def test_a_grant_passes_before_the_ask_is_ever_made(self):
         # the CLI answered, so the command passes first time with no ask row
