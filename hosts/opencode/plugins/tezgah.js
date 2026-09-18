@@ -16,7 +16,11 @@
 //     for an unasked irreversible or outward-facing shell command (refused once
 //     per action, so the ask reaches the user), secret for a credential on its
 //     way into a file, and the two repeat ceilings (loop per user turn, retry
-//     per session).
+//     per session). One class of that rule is not derived here: an outbound
+//     `send` (mail, a payment, a remote API called with a write, a copy to
+//     another host) has no pattern in this file at all - a command that looks
+//     like one is put to the core through the same gate CLI, so the SEND pattern
+//     stays in exactly one place and this host cannot drift from it.
 //   - a write is put to the core itself, through bin/tezgah-gate: the active
 //     task's phase and path allowlist is a rule of hooks/tezgah_gate.py, and
 //     this host asks for its answer rather than keeping a JS copy of it (the
@@ -153,6 +157,15 @@ const PUBLISH =
 // A push to a target that is live rather than a branch under review.
 const OUTWARD =
   /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*push\s+\S*\s*(?:heroku|production|prod)\b/i
+// A command that could be carrying data out to a service that acts on it: mail,
+// a payment, a remote API called with a write, a copy to another host. This is
+// a PRE-FILTER and not the rule - the rule is hooks/tezgah_gate.py's SEND
+// pattern, and a command this sees is put to the core through bin/tezgah-gate
+// (see the header). So it is deliberately looser than the pattern: a match here
+// costs one spawn and the core's answer, a miss costs the ask that does not
+// happen, which is the failure this pre-filter exists to avoid.
+const SEND_CANDIDATE =
+  /(?:^|[|;&(]\s*)(?:sendmail|msmtp|mutt|mailx|swaks|mail\s|aws\s+ses\b|stripe\b|paypal\b|nc\b|ncat\b|scp\b|rsync\b|curl\b|gh\s+api\b)/i
 // The classes a refused command's effect belongs to, and what each one is. The
 // refusal names the class and this clause, never the pattern that matched: the
 // agent has to see what it is about to do, not which regex caught it.
@@ -163,6 +176,11 @@ const EFFECTS = {
   deploy: "this one puts code in front of users",
   publish: "this one ships an artifact to a registry or a release",
   outward: "this one pushes to a live target rather than a branch under review",
+  // No pattern of its own here (SEND_CANDIDATE asks the core instead), but the
+  // class has to be named: the refusal quotes this clause, and a declaration
+  // reads this table to know which classes exist.
+  send: "this one carries data out to a service that acts on it - mail, a " +
+    "payment, a remote API called with a write, a copy to another host",
 }
 const CONSENT_DENY =
   "Consent gate (`%s` effect): %s. The contract requires the user's own " +
@@ -183,7 +201,7 @@ const ASK_STANDS_NOTE =
 // reviewer can still catch. It is the order "at least as severe" is read in (see
 // consentEffect), which is what keeps a declared effect a way to raise a
 // command's class and never a way to lower it.
-const EFFECT_RANK = ["outward", "publish", "deploy", "schema", "destructive"]
+const EFFECT_RANK = ["send", "outward", "publish", "deploy", "schema", "destructive"]
 // The class a command declares for itself. Read off the RAW text, not the masked
 // text: the natural place for the declaration is a trailing `#` comment, and
 // maskText blanks comments. ponytail: a command that merely quotes the form - a
@@ -818,6 +836,16 @@ async function shellRules(tool, args, sessionID, base, dir) {
                    ignored ? "declared `" + ignored + "` ignored, `" + klass +
                              "` stands" : null)
     return reason
+  }
+  if (klass === null && SEND_CANDIDATE.test(cmd)) {
+    // The one class this file does not derive, asked of the core that owns the
+    // SEND pattern: bin/tezgah-gate runs hooks/tezgah_gate.decision, whose
+    // refusal is used here verbatim, and that side writes its own `consent` and
+    // `deny` rows - so this half writes none. An empty answer (a CLI that is not
+    // installed, or a command the core lets through) falls through to the
+    // credential scan exactly as before.
+    const fromCore = await gateReason(tool, args, dir, sessionID)
+    if (fromCore) return fromCore
   }
   const reason = secretCommand(cmd)
   if (reason) await noteDeny(sessionID, "secret", reason, tool, args, base)

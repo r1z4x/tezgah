@@ -287,6 +287,29 @@ class OpenCodePlugin(TempHome):
                         "rm -rf ./build", "rm -f x", "ls -la", "git status"):
             self.allowed(self.before("bash", {"command": command}))
 
+    def test_a_send_candidate_is_put_to_the_core(self):
+        # This port keeps no SEND pattern - the class lives in
+        # hooks/tezgah_gate.py - so a command that looks like an outbound send is
+        # asked of the core through bin/tezgah-gate, and the core's refusal is the
+        # one that reaches the agent, verbatim.
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        args = {"command": "mail -s hi someone@example.com"}
+        self.assertEqual(self.denied(self.before("bash", args)), SPY_REASON)
+        self.assertEqual([c["payload"]["input"] for c in self.spy_calls(log)],
+                         [args])
+
+    def test_the_send_prefilter_is_the_whole_bound_on_a_spawn(self):
+        # A spawn per bash call would tax every command in the session for a
+        # class of rule that fires once. A read, and an irreversible command this
+        # file's own table already derives, both stay on this side - and the spy
+        # is written first, so a spawn would be recorded rather than missing.
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        self.allowed(self.before("bash", {"command": "ls -la"}))
+        self.denied(self.before("bash", {"command": "rm -rf ~/data"}))
+        self.assertEqual(self.spy_calls(log), [])
+
     def test_a_delete_under_a_temp_root_is_scratch(self):
         # the Python gate's SCRATCH_ROOTS floor, mirrored: the session's own
         # fixtures cost no round trip, while the temp root itself and a path that
@@ -400,6 +423,17 @@ class OpenCodePlugin(TempHome):
             error = self.denied(self.before("bash", {"command": command}))
             self.assertIn("`%s` effect" % klass, error, command)
             self.assertNotIn("declared", error, command)
+
+    def test_a_declared_send_is_a_class_this_host_can_rank(self):
+        # The declaration path reads EFFECTS, so a class the table lacks is
+        # dropped without a word - a `tezgah:effect=send` used to be no
+        # declaration at all. `send` is in the table and ranks first, as in the
+        # Python gate's EFFECT_RANK, and the command here matches no pattern of
+        # this file's, so the class can only have come from the declaration.
+        error = self.denied(self.before("bash", {
+            "command": "./charge-customers.sh  # tezgah:effect=send"}))
+        self.assertIn("`send` effect", error)
+        self.assertNotIn("declared", error)
 
     def test_a_declared_effect_below_the_class_is_ignored(self):
         # a declaration that can lower a class is a bypass of the rule reading
