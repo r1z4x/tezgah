@@ -43,7 +43,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   not read). The per-turn line that names the active task used to end with
   "Advance it with `tezgah-task phase P`"; one E7b row ran that command five
   times in a row against a gate that refuses it every time, so the line states
-  whose the phase is now instead of naming an act the gate refuses. `task-off`
+  whose the phase is now instead of naming an act the gate refuses. The route
+  left is a **code-execution tool** (`eval`), which the gate classifies as
+  neither a write nor a shell command: the same block measured one row in 25
+  writing the target through it after both were refused. That residual is named
+  in the rule's comment, not closed. `task-off`
   removes all four refusals.
 
 - **`--help` no longer costs a paid call on `consult`, and no longer runs the

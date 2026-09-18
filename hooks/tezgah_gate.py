@@ -62,8 +62,11 @@ Rules, all only inside a tezgah root:
      refusal names a command now. The phase covers the shell too, because the
      write tools are not the only way to change a file: with them refused, the
      armed arm wrote the target with a heredoc redirect in 3 of 25 runs, so a
-     reading phase refuses a shell command that writes. The `task-off` kill
-     switch removes all four.
+     reading phase refuses a shell command that writes. A code-execution tool is
+     a third route the phase does not cover: the same block measured one row in
+     25 writing the target through `eval` after the write tools and the shell
+     were both refused, and that one is named rather than closed. The `task-off`
+     kill switch removes all four.
 Adapters translate the returned reason into their own permission envelope.
 """
 import os
@@ -941,7 +944,10 @@ TASK_CHANGE = re.compile(
 # ponytail: a write inside a string the shell parses later (`python3 -c
 # "open('x','w')"`) is not read - telling a read from a write there needs the
 # mode argument, not the call - so the table holds the shapes an agent reaches
-# for, and the phase still refuses the ones it holds.
+# for, and the phase still refuses the ones it holds. A code-execution tool is
+# not this rule's at all, and E7c measured what that costs: one row in 25 wrote
+# the target through `eval` after both the write tools and the shell were
+# refused, so the residual is named here rather than closed.
 SHELL_WRITE = re.compile(
     r">>?(?!\s*/dev/null)(?![&=])|"
     r"\|\s*tee\b|"
