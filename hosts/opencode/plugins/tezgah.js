@@ -21,7 +21,10 @@
 //     task's phase and path allowlist is a rule of hooks/tezgah_gate.py, and
 //     this host asks for its answer rather than keeping a JS copy of it (the
 //     rule-by-rule port below is documented as incomplete and divergent, which
-//     is exactly why a new rule never enters through it).
+//     is exactly why a new rule never enters through it). The same ask covers
+//     the record's shell route - a bash command that would move the phase or
+//     the allowlist - through the same CLI and the same rule, asked only on a
+//     command that names the task CLI (see TASK_CLI for the bound).
 //   - the same hook keeps the pre-write bytes of what a write tool is about to
 //     change, through bin/tezgah-capture, on the allow path only: opencode is
 //     the one host whose plugin cannot call tezgah_snapshot.capture in process.
@@ -276,6 +279,19 @@ const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
 // metrics would lose the call entirely.
 const BASH_TOOLS = new Set(["bash", "shell", "command", "exec_command",
   "run_command", "powershell"])
+// The core's task rule has a shell half no write tool takes: a command that
+// moves the active task's own record (`hooks/tezgah_gate.TASK_CHANGE`), which is
+// how an agent moves the phase or the allowlist it is being held to instead of
+// retyping the record file. The rule, and the masking that lets a command merely
+// naming the CLI through, are the core's, so its answer is asked for and used
+// verbatim; what stays here is only the pre-test that decides whether asking is
+// worth a spawn. A spawn per bash call would tax every command in the session
+// for a rule about one, so the core is asked when the raw command names the CLI
+// and carries an argument - loose on purpose in that direction, because a
+// commit message or a comment that mentions the CLI costs one spawn whose answer
+// comes back empty, while a pre-test tight enough to miss nothing would be the
+// second implementation this host exists not to keep.
+const TASK_CLI = /\btezgah-task\b\s+\S/
 // Mirrors hooks/tezgah_integrity.py READ_TOOLS: known calls that do no step of
 // work and that no rule reads a row for. A name missing from this set is not
 // silently dropped - it records as `unknown`, which would fill the trace with
@@ -1312,6 +1328,19 @@ export const Tezgah = async ({ directory }) => {
           }
         } else if (shortcuts && BASH_TOOLS.has(tool)) {
           deny = shortcutCommand(args.command || args.cmd || "")
+        }
+        // The record's shell route, asked of the core (TASK_CLI carries why the
+        // pre-test is here and why it is the whole bound): a command that names
+        // the task CLI may be moving the phase or the allowlist this session is
+        // held to, and the refusal is the core's own text - the same one a write
+        // to the record gets. The core masks the command, so one that only
+        // mentions the CLI comes back empty and falls through to the rules
+        // below. Asked ahead of the shell rules for the same reason the Python
+        // gate orders it there (hooks/tezgah_gate.decision): a call another rule
+        // would refuse is counted as that rule and never as a repeat.
+        if (!deny && BASH_TOOLS.has(tool) &&
+            TASK_CLI.test(String(args.command || args.cmd || ""))) {
+          deny = await gateReason(tool, args, dir, sessionID)
         }
         // Consent and the credential sink, then the two repeat ceilings, then
         // the nudge: the Python gate's own order (hooks/tezgah_gate.decision),

@@ -42,11 +42,16 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
    GPT/Codex/Gemini/Cursor/Copilot credit.
 8. Report the file path and the table row.
-9. Hand it to `tezgah-task` - the user's command, never the agent's:
+9. Hand it to `tezgah-task` - the user's command, never the session's:
    `~/.config/tezgah/bin/tezgah-task start NNN --phase discovery [--allow '<glob>' ...]`
    writes `phase:` (and `allowed_paths:` with `--allow`) into this file and
    clears the phase from every other open plan, and the gate then allows a write
-   only from `implementation` on and only inside those globs.
+   only from `implementation` on and only inside those globs. Moving the phase
+   later is the user's action too: when a write is refused for its phase or its
+   path, ask the user to change the task - do not run this command, and do not
+   retype the frontmatter - because the gate refuses a session's own edit to the
+   record and a session's own call to the CLI, which is what keeps the boundary
+   the user set. The refusal names no command; the ask is the way through it.
 
 ## Format
 

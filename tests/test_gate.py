@@ -1162,7 +1162,20 @@ class TaskGate(TempHome):
         self.assertIn("discovery", reason)
         self.assertIn("implementation", reason)
         self.assertIn("verification", reason)
-        self.assertIn("phase implementation", reason)
+
+    def test_neither_refusal_names_a_command_to_run(self):
+        # What E7 measured, and the reason this test exists: the refusals used to
+        # end with the command that lifts them, and the armed arm then removed or
+        # disabled the gate in 25 of 25 runs and obeyed it in none. A refusal is a
+        # boundary or it is an instruction; it cannot be both.
+        self.plan(phase="discovery")
+        phase_reason = self.write_path("hooks/x.py")
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        scope_reason = self.write_path("src/y.py")
+        self.assertIsNotNone(scope_reason)
+        for reason in (phase_reason, scope_reason):
+            for command in ("tezgah-task", "tezgah-consent", "bin/tezgah"):
+                self.assertNotIn(command, reason, reason)
 
     def test_both_write_phases_allow_a_write_inside_the_allowlist(self):
         for phase in ("implementation", "verification"):
@@ -1217,6 +1230,40 @@ class TaskGate(TempHome):
         self.assertIsNotNone(reason)
         self.assertIn("src/other.py", reason)
 
+    # ---- the record is the user's, by both routes --------------------------
+    def test_the_active_record_is_not_the_sessions_to_write(self):
+        # The file route: the record is a file in the repo, so an agent that may
+        # write files could retype the phase instead of running the CLI. Refused
+        # even in a phase that writes and even when the allowlist covers plans/,
+        # because a scope that can widen itself is not a scope.
+        path = self.plan(phase="implementation", allowed=("plans/**",))
+        for target in (path, "plans/open/017-gate-rule.md"):
+            reason = self.write_path(target)
+            self.assertIsNotNone(reason, target)
+            self.assertIn("record", reason)
+
+    def test_the_task_cli_is_not_the_sessions_to_run(self):
+        # The command route, and the one E7 watched the armed arm take 24 times.
+        self.plan(phase="discovery")
+        for command in ("bin/tezgah-task phase implementation",
+                        "python3 /opt/tezgah/bin/tezgah-task phase verification",
+                        "tezgah-task allow '**'",
+                        "cd /x && bin/tezgah-task stop",
+                        "bin/tezgah-task start 001 --phase implementation"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIsNotNone(reason, command)
+            self.assertIn("record", reason)
+
+    def test_naming_the_cli_in_prose_is_not_running_it(self):
+        # the masked text again: a search, a read or a commit message that names
+        # the CLI is not the CLI changing the record
+        for command in ('grep -rn "tezgah-task phase" docs/',
+                        'git commit -m "the phase is tezgah-task phase impl"',
+                        "cat bin/tezgah-task",
+                        "bin/tezgah-task --help"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
+
     # ---- kill switch ------------------------------------------------------
     def test_task_off_removes_the_rule(self):
         self.plan(phase="discovery")
@@ -1224,6 +1271,10 @@ class TaskGate(TempHome):
         self.assertIsNone(self.write_path("hooks/tezgah_gate.py"))
         self.plan(phase="implementation", allowed=("hooks/**",))
         self.assertIsNone(self.write_path("src/a.py"))
+        # and the two refusals that close the ways around it
+        self.assertIsNone(self.write_path("plans/open/017-gate-rule.md"))
+        self.assertIsNone(self.decide({"command": "bin/tezgah-task stop"},
+                                      tool="Bash"))
 
 
 class RmOutsideFloor(unittest.TestCase):

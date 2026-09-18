@@ -47,8 +47,9 @@ Each one removes its own rule from the injected text, not just a status mark. In
 `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`, `consult-off`,
 `research-off`, `ponytail-auto.off`, `spec-off`, `reminder-off`, `verify-off`
 (the integrity rule: its prompt text, the shortcut denials and the Stop gate),
-`task-off` (the active task's phase and allowlist), `pretooluse-off` (the whole
-gate); per repo: `.no-ponytail`, `.no-cbm`, `.no-lessons`.
+`task-off` (all three refusals of the task rule: the phase, the allowlist and
+the record), `pretooluse-off` (the whole gate); per repo: `.no-ponytail`,
+`.no-cbm`, `.no-lessons`.
 
 ## Task record: the active plan's phase and its path allowlist (auto-armed, tezgah roots only)
 
@@ -56,15 +57,22 @@ The user can make one open plan the session's active task, and two optional
 frontmatter keys are the whole record: `phase:` (`discovery`, `implementation`
 or `verification` - at most one open plan carries it) activates the plan, and
 `allowed_paths:` is the `- glob` list its writes have to stay inside. Rule 10 of
-the tool gate reads it, so a write in `discovery`, or one outside the globs, is
-refused before it lands with the phase or the file named and the command that
-lifts it; an absent or empty allowlist is no scope asked for rather than
-"nothing allowed", and no active task means no requirement at all. The record is
-the user's own - `~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`
-writes it and the agent never runs it, so `stop` or a hand edit takes the
-boundary away. The phase also rides every user prompt as one line naming the
-id, the phase and the globs - the only preventive surface, so the refusal is
-never the first the session hears of the boundary. Off: `task-off`.
+the tool gate reads it and refuses three things before they land: a write while
+the phase is `discovery` (writes belong to `implementation` or `verification`)
+or one outside the globs; a write whose target is the record itself, refused
+whatever the phase and the globs say; and a shell command that would move the
+record through the CLI. None of the three names the command that lifts it: the
+phase and the allowlist are the user's to change, so the way out of a refusal is
+to ask them, or to do the reading this phase asks for and say what the write was
+for. An absent or empty allowlist is no scope asked for rather than "nothing
+allowed", and no active task means no requirement at all. The record is the
+user's own - `~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`
+writes it and the agent never runs it, which is why the rule refuses a session's
+own write to the record and a session's own call to the CLI that would change
+it, not just the write the phase or the globs block. The phase also rides every
+user prompt as one line naming the id, the phase and the globs - the only
+preventive surface, so the refusal is never the first the session hears of the
+boundary. Off: `task-off`, which removes all three refusals.
 
 ## Code discovery: prefer the indexed graph over blind search
 

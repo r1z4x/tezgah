@@ -8,6 +8,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The task rule's refusals no longer print the command that lifts them, and a
+  session can no longer move the boundary it is held to.** Rule 10
+  (`hooks/tezgah_gate.py`) ended both of its refusals with the exact
+  `tezgah-task` invocation that clears the phase or widens the allowlist, and the
+  E7 block measured what that printed unlock costs: across the armed arm's 25
+  runs the boundary came down every time - 24 of them moved the record into a
+  write phase, the 25th cleared it and wrote anyway - and no run obeyed the
+  refusal (rows under `benchmarks/arm-bench/results/e7/` on the
+  `benchmarks/lab` branch, designed in `PREREGISTRATION-E7.md` there). A refusal
+  is a boundary or an instruction, and it cannot be both, so no refusal in this
+  rule names a command now: each names what it refused, and says the phase and
+  the allowlist are the user's to move. Two refusals close the ways a session
+  could move that record itself - a write whose target IS the record, refused
+  whatever the phase and whatever the globs say, and a shell command that would
+  change it through the CLI (`start`, `phase`, `allow`, `stop`), matched on the
+  masked command so a grep over the docs or a commit message naming the CLI still
+  passes. `task-off` removes all three.
+
 - **`--help` no longer costs a paid call on `consult`, and no longer runs the
   work on `tezgah-agents` and `tezgah-index`.** None of the three had a help
   arm, so the flag landed in the positional argument. `consult --help` sent the
@@ -67,19 +85,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   root), and at most one open plan carries a phase because `start` clears it
   from the others. Rule 10 of the tool gate (`hooks/tezgah_gate.py`) refuses a
   write in `discovery`, or one outside the globs, naming the phase or the file
-  plus the command that lifts it; a path that resolves outside the repo root
-  never matches a `**` pattern. `bin/tezgah-task start|phase|allow|stop|status`
-  is the only writer and the user runs it - the agent never does - so what the
-  gate refuses on is a boundary the user set in advance, and `task-off` removes
-  the rule. Where the record is missing, unreadable or out of phase vocabulary
-  the rule fails open, and an empty allowlist reads as "any path in the repo"
-  rather than "nothing allowed": a gate that refused every write until a record
-  appeared would have the whole session as its blast radius. The phase also
-  rides every user turn as one line (`hooks/tezgah_context.py`), so a session
-  meets the boundary before a write meets the refusal. opencode does not mirror
-  the rule: its plugin puts each write to `bin/tezgah-gate check`, which prints
-  the core's own decision and nothing else, because the JS mirror is documented
-  as incomplete and divergent.
+  and no command that lifts either (see `Fixed` above); a path that resolves
+  outside the repo root never matches a `**` pattern.
+  `bin/tezgah-task start|phase|allow|stop|status` is the only writer and the
+  user runs it - the agent never does - so what the gate refuses on is a
+  boundary the user set in advance, and `task-off` removes the rule's refusals.
+  Where the record is missing, unreadable or out of phase vocabulary the rule
+  fails open, and an empty allowlist reads as "any path in the repo" rather than
+  "nothing allowed": a gate that refused every write until a record appeared
+  would have the whole session as its blast radius. The phase also rides every
+  user turn as one line (`hooks/tezgah_context.py`), so a session meets the
+  boundary before a write meets the refusal. opencode does not mirror the rule:
+  its plugin puts each write to `bin/tezgah-gate check`, which prints the core's
+  own decision and nothing else, because the JS mirror is documented as
+  incomplete and divergent.
 
 ## [0.10.0] - 2026-09-18
 

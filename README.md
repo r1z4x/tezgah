@@ -69,7 +69,12 @@ same text.
   `allowed_paths:` globs are what each write is checked against, so a write in a
   read-only phase, or outside the files the plan names, is refused before it
   lands - and no active task means no requirement, because the gate invents
-  nothing. The record is the user's own
+  nothing. Two more refusals close the ways a session could move that boundary
+  instead of respecting it: a write whose target is the record itself, refused
+  whatever the phase and the globs say, and a shell command that would change the
+  record through the CLI. None of the three prints the command that lifts it, so
+  a refusal is the ask and not the instruction: the phase and the globs are the
+  user's to change. The record is the user's own
   (`~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`), the agent
   never runs it, and an empty allowlist reads as any path in the repo rather
   than as "nothing allowed". The phase also rides every user turn as one line,
@@ -320,7 +325,7 @@ knowing:
 | `bin/tezgah-setup --status [PATH]` | Print the armed/used checklist |
 | `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status\|claim` | Runs and checks a research line: state, findings, claims, and the protocol-before-results rule |
-| `bin/tezgah-task start\|phase\|allow\|stop\|status` | The active task: one plan's `phase:` and its `allowed_paths:` globs, which the gate then enforces on every write |
+| `bin/tezgah-task start\|phase\|allow\|stop\|status` | The active task: one plan's `phase:` and its `allowed_paths:` globs, which the gate then enforces on every write - and the call itself, when a session makes it |
 | `bin/tezgah-gate check` | The gate's own decision for one call on stdin - what a host whose plugin is not Python asks instead of mirroring a rule |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
 | `/tezgah:plan-add` | Turn a piece of work into a tracked plan |
@@ -351,7 +356,7 @@ text injected into the session, so the rule actually stops:
 | `research-off` | routing research tasks to OpenResearch |
 | `orchestrate-off` | subagent delegation (adds a do-not-delegate line) |
 | `reminder-off` | the per-turn reminder text |
-| `task-off` | the active task's phase and allowlist |
+| `task-off` | the task rule's three refusals: the phase, the allowlist and the record |
 | `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, loop, grep nudge, task) |
 
 Per repo, `.no-ponytail`, `.no-cbm` and `.no-lessons` turn off the minimal-code
