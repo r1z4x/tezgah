@@ -1,6 +1,6 @@
 """hooks/tezgah_gate.py: the attribution, explore, shortcut, consent and secret
-refusals, the first-grep nudge, the concurrent-write refusal and the long-turn
-re-statement."""
+refusals, the first-grep nudge, the concurrent-write refusal, the long-turn
+re-statement and the task-phase refusal."""
 import json
 import os
 import sys
@@ -1093,6 +1093,242 @@ class Gate(TempHome):
         self.assertIn("search_graph", first)
         self.assertIsNone(
             self.decide("Grep", {"pattern": "some_identifier"}, session_id="sb"))
+
+
+class TaskGate(TempHome):
+    """The task rule: the user's own phase and allowlist, read from a plan file.
+
+    Every case here seeds a real plan file under the repo's plans/open - the
+    file bin/tezgah-task writes - and never a stubbed tezgah_task: what the rule
+    is worth is that it reads what the user actually wrote, so a mock would only
+    prove the mock."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.probe = support.PROBE_GATE
+
+    def decide(self, inp, tool="Write", cwd=None, session_id="task-s"):
+        out, proc = run_json([self.probe],
+                             {"tool": tool, "input": inp,
+                              "cwd": cwd or self.repo, "session_id": session_id},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def write_path(self, path):
+        return self.decide({"file_path": path})
+
+    def plan(self, phase=None, allowed=("hooks/**",), name="017-gate-rule.md",
+             task_id="017"):
+        """A plan file in the shape bin/tezgah-task leaves one: frontmatter
+        (id, the optional phase and allowlist), then the body."""
+        path = os.path.join(self.repo, "plans", "open", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        lines = ["---", "id: %s" % task_id, "title: the task rule",
+                 "status: open"]
+        if phase:
+            lines.append("phase: %s" % phase)
+        if allowed is not None:
+            lines.append("allowed_paths:")
+            lines += ["  - %s" % pattern for pattern in allowed]
+        with open(path, "w") as fh:
+            fh.write("\n".join(lines + ["---", "", "Body."]) + "\n")
+        return path
+
+    # ---- no record, no requirement ----------------------------------------
+    def test_a_write_passes_with_no_active_task(self):
+        # a plan that merely exists is not an activation - `phase:` is the key -
+        # and with nothing active the rule refuses nothing at all
+        self.assertIsNone(self.write_path(os.path.join(self.repo, "src/a.py")))
+        self.plan(phase=None)
+        self.assertIsNone(self.write_path(os.path.join(self.repo, "src/a.py")))
+
+    def test_with_no_active_task_even_an_outside_path_passes(self):
+        # the refusal has to come from the user's own record: with none, a scope
+        # this rule invented - a repo boundary or an allowlist - would tax work
+        # nobody bounded
+        self.assertIsNone(
+            self.write_path(os.path.join(self.home, "elsewhere.py")))
+
+    # ---- the phase --------------------------------------------------------
+    def test_a_reading_phase_refuses_a_write_inside_the_allowlist(self):
+        # the phase dominates: discovery refuses even the path the task allows,
+        # and it names the phase it is in and both phases that write
+        self.plan(phase="discovery")
+        reason = self.write_path(os.path.join(self.repo, "hooks/tezgah_gate.py"))
+        self.assertIsNotNone(reason)
+        self.assertIn("discovery", reason)
+        self.assertIn("implementation", reason)
+        self.assertIn("verification", reason)
+
+    def test_neither_refusal_names_a_command_to_run(self):
+        # What E7 measured, and the reason this test exists: the refusals used to
+        # end with the command that lifts them, and the armed arm then removed or
+        # disabled the gate in 25 of 25 runs and obeyed it in none. A refusal is a
+        # boundary or it is an instruction; it cannot be both.
+        self.plan(phase="discovery")
+        phase_reason = self.write_path("hooks/x.py")
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        scope_reason = self.write_path("src/y.py")
+        self.assertIsNotNone(scope_reason)
+        for reason in (phase_reason, scope_reason):
+            for command in ("tezgah-task", "tezgah-consent", "bin/tezgah"):
+                self.assertNotIn(command, reason, reason)
+
+    def test_both_write_phases_allow_a_write_inside_the_allowlist(self):
+        for phase in ("implementation", "verification"):
+            self.plan(phase=phase)
+            self.assertIsNone(
+                self.write_path(os.path.join(self.repo, "hooks/tezgah_gate.py")),
+                phase)
+
+    # ---- the shell is a write route too ------------------------------------
+    def test_a_reading_phase_refuses_a_shell_write(self):
+        # The route E7b measured: with the write tools refused (twelve `edit` and
+        # six `write` calls), the armed arm wrote the target with a heredoc
+        # redirect instead in 3 of 25 runs. The phase is the requirement, so it
+        # covers the shell as well - and names no command, like the other two.
+        self.plan(phase="discovery")
+        for command in ("cat > app/api.py <<'EOF'\nx\nEOF",
+                        "cat >> app/api.py <<'PYEOF'\nx\nPYEOF",
+                        "echo x >> hooks/tezgah_gate.py",
+                        "sed -i '' 's/a/b/' app/api.py",
+                        "perl -pi -e 's/a/b/' app/api.py",
+                        "printf 'x' | tee app/api.py",
+                        "cp app/api.py app/other.py",
+                        "git checkout -- app/api.py",
+                        "git apply patch.diff"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIsNotNone(reason, command)
+            self.assertIn("discovery", reason, command)
+            self.assertNotIn("tezgah-task", reason, command)
+
+    def test_a_reading_phase_leaves_reading_alone(self):
+        # the table reads redirects, not commands: a check, a search and a test
+        # run are what a reading phase is for, and a discarded redirect (or the
+        # `2>&1` a runner writes) is not a write to a file
+        self.plan(phase="discovery")
+        for command in ("python3 -m unittest discover -s tests",
+                        "git status --short",
+                        "grep -rn 'ROUTES' app/",
+                        "python3 -m unittest discover -s tests 2>&1 | tail -20",
+                        "uvx ruff check . > /dev/null 2>&1",
+                        "cat app/api.py",
+                        "sed -n '1,5p' app/api.py",
+                        "grep -i routes app/api.py",
+                        "git log --oneline -5"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
+
+    def test_a_write_phase_leaves_the_shell_alone(self):
+        # a shell line's targets are not read, so the allowlist cannot be held
+        # against them; the reading phases are the requirement, and in a phase
+        # that writes the shell is not this rule's
+        self.plan(phase="implementation", allowed=("app/**",))
+        self.assertIsNone(
+            self.decide({"command": "cat > src/x.py <<'EOF'\nx\nEOF"},
+                        tool="Bash"))
+
+    def test_the_shell_half_goes_with_the_same_switch(self):
+        self.plan(phase="discovery")
+        command = {"command": "cat > app/api.py <<'EOF'\nx\nEOF"}
+        self.assertIsNotNone(self.decide(command, tool="Bash"))
+        self.touch(os.path.join(self.home, ".config", "tezgah", "task-off"))
+        self.assertIsNone(self.decide(command, tool="Bash"))
+
+    # ---- the allowlist ----------------------------------------------------
+    def test_a_path_outside_the_allowlist_refuses_and_names_what_it_knows(self):
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        reason = self.write_path("src/a.py")
+        self.assertIsNotNone(reason)
+        self.assertIn("src/a.py", reason)
+        self.assertIn("017", reason)
+        self.assertIn("hooks/**", reason)
+        self.assertIn("allow", reason)
+
+    def test_the_allowlist_is_what_a_write_phase_allows(self):
+        self.plan(phase="implementation",
+                  allowed=("hooks/**", "tests/test_gate.py"))
+        for rel in ("hooks/tezgah_gate.py", "hooks/deep/nested/x.py",
+                    "tests/test_gate.py"):
+            self.assertIsNone(self.write_path(rel), rel)
+
+    def test_a_path_outside_the_repo_root_refuses_however_wide_the_allowlist(self):
+        # `**` is a pattern inside the repo, not a licence to leave it: both a
+        # traversal and a plain path above the root are refused
+        self.plan(phase="implementation", allowed=("**",))
+        self.assertIsNone(self.write_path(os.path.join(self.repo, "any.py")))
+        for outside in (os.path.join(self.home, "outside.py"),
+                        os.path.join(self.repo, "..", "..", "escaped.py")):
+            reason = self.write_path(outside)
+            self.assertIsNotNone(reason, outside)
+            self.assertIn(os.path.basename(outside), reason)
+
+    def test_an_absent_allowlist_gates_on_the_phase_alone(self):
+        # the key is optional, so its absence is no scope asked for rather than
+        # "nothing is allowed"; the phase is then the whole requirement
+        self.plan(phase="implementation", allowed=None)
+        self.assertIsNone(self.write_path("src/a.py"))
+        self.plan(phase="discovery", allowed=None)
+        self.assertIsNotNone(self.write_path("src/a.py"))
+
+    def test_every_hunk_of_a_patch_is_checked(self):
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        reason = self.decide(
+            {"patch": "*** Begin Patch\n"
+                      "*** Update File: hooks/tezgah_gate.py\n@@\n-a\n+b\n"
+                      "*** Update File: src/other.py\n@@\n-c\n+d\n"
+                      "*** End Patch"}, tool="apply_patch")
+        self.assertIsNotNone(reason)
+        self.assertIn("src/other.py", reason)
+
+    # ---- the record is the user's, by both routes --------------------------
+    def test_the_active_record_is_not_the_sessions_to_write(self):
+        # The file route: the record is a file in the repo, so an agent that may
+        # write files could retype the phase instead of running the CLI. Refused
+        # even in a phase that writes and even when the allowlist covers plans/,
+        # because a scope that can widen itself is not a scope.
+        path = self.plan(phase="implementation", allowed=("plans/**",))
+        for target in (path, "plans/open/017-gate-rule.md"):
+            reason = self.write_path(target)
+            self.assertIsNotNone(reason, target)
+            self.assertIn("record", reason)
+
+    def test_the_task_cli_is_not_the_sessions_to_run(self):
+        # The command route, and the one E7 watched the armed arm take 24 times.
+        self.plan(phase="discovery")
+        for command in ("bin/tezgah-task phase implementation",
+                        "python3 /opt/tezgah/bin/tezgah-task phase verification",
+                        "tezgah-task allow '**'",
+                        "cd /x && bin/tezgah-task stop",
+                        "bin/tezgah-task start 001 --phase implementation"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIsNotNone(reason, command)
+            self.assertIn("record", reason)
+
+    def test_naming_the_cli_in_prose_is_not_running_it(self):
+        # the masked text again: a search, a read or a commit message that names
+        # the CLI is not the CLI changing the record
+        for command in ('grep -rn "tezgah-task phase" docs/',
+                        'git commit -m "the phase is tezgah-task phase impl"',
+                        "cat bin/tezgah-task",
+                        "bin/tezgah-task --help"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
+
+    # ---- kill switch ------------------------------------------------------
+    def test_task_off_removes_the_rule(self):
+        self.plan(phase="discovery")
+        self.touch(os.path.join(self.home, ".config", "tezgah", "task-off"))
+        self.assertIsNone(self.write_path("hooks/tezgah_gate.py"))
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        self.assertIsNone(self.write_path("src/a.py"))
+        # and the two refusals that close the ways around it
+        self.assertIsNone(self.write_path("plans/open/017-gate-rule.md"))
+        self.assertIsNone(self.decide({"command": "bin/tezgah-task stop"},
+                                      tool="Bash"))
 
 
 class RmOutsideFloor(unittest.TestCase):

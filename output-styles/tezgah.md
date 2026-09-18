@@ -114,8 +114,8 @@ when the user asks for it, or when the repo IS the tezgah checkout.
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`,
 `reminder-off`, `verify-off` (the integrity rule: its prompt text, the shortcut
-denials and the Stop gate), `pretooluse-off` (the whole gate); per-repo
-`.no-ponytail`, `.no-adhd`, `.no-cbm`, `.no-lessons`. The ponytail intensity
-level is not a switch: `tezgah-pony lite|full|ultra`.
+denials and the Stop gate), `task-off` (the task rule), `pretooluse-off` (the
+whole gate); per-repo `.no-ponytail`, `.no-adhd`, `.no-cbm`, `.no-lessons`. The
+ponytail intensity level is not a switch: `tezgah-pony lite|full|ultra`.
 
 **On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. The code graph for "who calls X" and "what breaks if Z changes".

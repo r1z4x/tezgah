@@ -48,10 +48,39 @@ Each one removes its own rule from the injected text, not just a status mark. In
 `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`, `reminder-off`,
 `verify-off`
 (the integrity rule: its prompt text, the shortcut denials and the Stop gate),
-`pretooluse-off` (the whole gate); per repo: `.no-ponytail`, `.no-adhd`,
-`.no-cbm`, `.no-lessons`. The ponytail intensity level is not a switch:
-`tezgah-pony lite|full|ultra` (or `/tezgah:ponytail` on Claude) sets it and a
-bare call shows it.
+`task-off` (all four refusals of the task rule: the phase, the allowlist, the
+record and a shell write), `pretooluse-off` (the whole gate); per repo:
+`.no-ponytail`, `.no-adhd`, `.no-cbm`, `.no-lessons`. The ponytail intensity
+level is not a switch: `tezgah-pony lite|full|ultra` (or `/tezgah:ponytail` on
+Claude) sets it and a bare call shows it.
+
+## Task record: the active plan's phase and its path allowlist (auto-armed, tezgah roots only)
+
+The user can make one open plan the session's active task, and two optional
+frontmatter keys are the whole record: `phase:` (`discovery`, `implementation`
+or `verification` - at most one open plan carries it) activates the plan, and
+`allowed_paths:` is the `- glob` list its writes have to stay inside. Rule 10 of
+the tool gate reads it and refuses four things before they land: a write while
+the phase is `discovery` (writes belong to `implementation` or `verification`)
+or one outside the globs; a shell command that writes a file while the phase only
+reads - the shell is a write route like any other, and E7b measured it as the one
+an agent takes once the write tools are refused - matched over redirects, `tee`,
+the in-place editors, `cp`/`mv`, `patch` and `git apply|restore|checkout --`, so
+a `> /dev/null` and a quoted `>` are not writes and the allowlist is not
+consulted (a shell line's targets are not read); a write whose target is the
+record itself, refused whatever the phase and the globs say; and a shell command
+that would move the record through the CLI. None of the four names the command
+that lifts it: the phase and the allowlist are the user's to change, so the way
+out of a refusal is to ask them, or to do the reading this phase asks for and
+say what the write was for. An absent or empty allowlist is no scope asked for rather than "nothing
+allowed", and no active task means no requirement at all. The record is the
+user's own - `~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`
+writes it and the agent never runs it, which is why the rule refuses a session's
+own write to the record and a session's own call to the CLI that would change
+it, not just the write the phase or the globs block. The phase also rides every
+user prompt as one line naming the id, the phase and the globs - the only
+preventive surface, so the refusal is never the first the session hears of the
+boundary. Off: `task-off`, which removes all four refusals.
 
 ## Code discovery: prefer the indexed graph over blind search
 

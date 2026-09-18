@@ -17,6 +17,14 @@
 //     per action, so the ask reaches the user), secret for a credential on its
 //     way into a file, and the two repeat ceilings (loop per user turn, retry
 //     per session).
+//   - a write is put to the core itself, through bin/tezgah-gate: the active
+//     task's phase and path allowlist is a rule of hooks/tezgah_gate.py, and
+//     this host asks for its answer rather than keeping a JS copy of it (the
+//     rule-by-rule port below is documented as incomplete and divergent, which
+//     is exactly why a new rule never enters through it). The same ask covers
+//     the record's shell route - a bash command that would move the phase or
+//     the allowlist - through the same CLI and the same rule, asked only on a
+//     command that names the task CLI (see TASK_CLI for the bound).
 //   - the same hook keeps the pre-write bytes of what a write tool is about to
 //     change, through bin/tezgah-capture, on the allow path only: opencode is
 //     the one host whose plugin cannot call tezgah_snapshot.capture in process.
@@ -83,6 +91,7 @@ const AGENTS_BIN = join(CONFIG, "bin", "tezgah-agents")
 const SETUP_BIN = join(CONFIG, "bin", "tezgah-setup")
 const CONTEXT_BIN = join(CONFIG, "bin", "tezgah-context")
 const CAPTURE_BIN = join(CONFIG, "bin", "tezgah-capture")
+const GATE_BIN = join(CONFIG, "bin", "tezgah-gate")
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
 const EXPLORE_DENY =
   "A grep-only explorer subagent is not allowed in this tree. Use a " +
@@ -280,6 +289,19 @@ const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
 // metrics would lose the call entirely.
 const BASH_TOOLS = new Set(["bash", "shell", "command", "exec_command",
   "run_command", "powershell"])
+// The core's task rule has a shell half no write tool takes: a command that
+// moves the active task's own record (`hooks/tezgah_gate.TASK_CHANGE`), which is
+// how an agent moves the phase or the allowlist it is being held to instead of
+// retyping the record file. The rule, and the masking that lets a command merely
+// naming the CLI through, are the core's, so its answer is asked for and used
+// verbatim; what stays here is only the pre-test that decides whether asking is
+// worth a spawn. A spawn per bash call would tax every command in the session
+// for a rule about one, so the core is asked when the raw command names the CLI
+// and carries an argument - loose on purpose in that direction, because a
+// commit message or a comment that mentions the CLI costs one spawn whose answer
+// comes back empty, while a pre-test tight enough to miss nothing would be the
+// second implementation this host exists not to keep.
+const TASK_CLI = /\btezgah-task\b\s+\S/
 // Mirrors hooks/tezgah_integrity.py READ_TOOLS: known calls that do no step of
 // work and that no rule reads a row for. A name missing from this set is not
 // silently dropped - it records as `unknown`, which would fill the trace with
@@ -1214,6 +1236,35 @@ function builderText(event, directory, payload) {
   })
 }
 
+// The core's own decision for one write, through bin/tezgah-gate: the rule
+// that reads the active task (its phase and path allowlist,
+// hooks/tezgah_gate.task_reason) lives in Python, and the CLI is how a host
+// that cannot import it asks for the answer. The payload is the one the CLI's
+// usage names, as a single JSON object on stdin, and its stdout is the refusal
+// verbatim. Same idiom as builderText above, and the same fail-open rule: a
+// missing CLI, a non-zero exit or a broken pipe all yield "", and the caller
+// then enforces its own rules unchanged - a binary that is not there must never
+// break the tool call it guards.
+function gateReason(tool, args, dir, sessionID) {
+  return new Promise((resolve) => {
+    let out = ""
+    let child
+    try {
+      child = spawn("python3", [GATE_BIN, "check"],
+                    { stdio: ["pipe", "pipe", "ignore"] })
+    } catch {
+      return resolve("")
+    }
+    child.stdout.on("data", (d) => (out += d))
+    child.on("error", () => resolve(""))
+    child.on("close", (code) => resolve(code === 0 ? out.trim() : ""))
+    try {
+      child.stdin.end(JSON.stringify({
+        tool, input: args, cwd: dir, session_id: sessionID || null }))
+    } catch {}
+  })
+}
+
 // The pre-write bytes of what a write tool is about to change, taken through
 // bin/tezgah-capture: the CLI the snapshot slice added for the one host that
 // cannot call tezgah_snapshot.capture in process (every other host calls it
@@ -1308,10 +1359,36 @@ export const Tezgah = async ({ directory }) => {
           deny = ATTRIB_DENY
         } else if (tool === "task" && /explore/i.test(sub)) {
           deny = EXPLORE_DENY
+        } else if (WRITE_TOOLS.has(tool)) {
+          // This file's own write rule first, then the core. The Python gate
+          // refuses a shortcut edit before it reaches the task rule
+          // (hooks/tezgah_gate.decision: shortcut, attribution, race, task), and
+          // a host that picked the other order would name a different reason for
+          // the same call. The core is asked (bin/tezgah-gate) for the active
+          // task's phase and allowlist - a rule this mirror does not carry - and
+          // its answer is used verbatim. One spawn per write is the whole bound:
+          // writes are rare, and the JS mirror of the gate is documented as
+          // incomplete and divergent, so a new rule enters this host by being
+          // asked for here rather than by being copied into it.
+          deny = shortcuts ? await shortcutEdit(args) : null
+          if (!deny) {
+            deny = await gateReason(tool, args, dir, sessionID)
+          }
         } else if (shortcuts && BASH_TOOLS.has(tool)) {
           deny = shortcutCommand(args.command || args.cmd || "")
-        } else if (shortcuts && WRITE_TOOLS.has(tool)) {
-          deny = await shortcutEdit(args)
+        }
+        // The record's shell route, asked of the core (TASK_CLI carries why the
+        // pre-test is here and why it is the whole bound): a command that names
+        // the task CLI may be moving the phase or the allowlist this session is
+        // held to, and the refusal is the core's own text - the same one a write
+        // to the record gets. The core masks the command, so one that only
+        // mentions the CLI comes back empty and falls through to the rules
+        // below. Asked ahead of the shell rules for the same reason the Python
+        // gate orders it there (hooks/tezgah_gate.decision): a call another rule
+        // would refuse is counted as that rule and never as a repeat.
+        if (!deny && BASH_TOOLS.has(tool) &&
+            TASK_CLI.test(String(args.command || args.cmd || ""))) {
+          deny = await gateReason(tool, args, dir, sessionID)
         }
         // Consent and the credential sink, then the two repeat ceilings, then
         // the nudge: the Python gate's own order (hooks/tezgah_gate.decision),

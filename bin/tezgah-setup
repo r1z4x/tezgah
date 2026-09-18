@@ -370,6 +370,8 @@ def install_common(new_roots, hosts):
             ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
             ("tezgah-setup", os.path.join(HERE, "bin", "tezgah-setup")),
             ("tezgah-research", os.path.join(HERE, "bin", "tezgah-research")),
+            ("tezgah-task", os.path.join(HERE, "bin", "tezgah-task")),
+            ("tezgah-gate", os.path.join(HERE, "bin", "tezgah-gate")),
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),

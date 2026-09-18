@@ -47,6 +47,26 @@ Rules, all only inside a tezgah root:
      and a write whose realpath leaves the rule's own root (`sink`). See
      sink_check for why the taxonomy's version of this rule (the target was not
      named in the user's prompt) cannot be decided here.
+ 10. a write while an active task is set - a plan file under plans/open whose
+     frontmatter carries a valid `phase` - is refused when that phase is one
+     that only reads, or when the file is outside the task's `allowed_paths`
+     (`task`). The record is the user's own, written by bin/tezgah-task and
+     never by the agent, so the refusal leans on a decision the user made rather
+     than one this gate inferred: no active task means no requirement, and the
+     rule invents nothing. Two further refusals close the ways a session could
+     move the boundary instead of respecting it: a write whose target IS that
+     record, and a shell command that would change it through the CLI. Both were
+     measured open before they were closed - with the refusal naming the command
+     that lifts it, an armed arm removed or disabled the gate in 25 of 25 runs
+     and obeyed it in none (benchmarks/lab, PREREGISTRATION-E7.md) - and neither
+     refusal names a command now. The phase covers the shell too, because the
+     write tools are not the only way to change a file: with them refused, the
+     armed arm wrote the target with a heredoc redirect in 3 of 25 runs, so a
+     reading phase refuses a shell command that writes. A code-execution tool is
+     a third route the phase does not cover: the same block measured one row in
+     25 writing the target through `eval` after the write tools and the shell
+     were both refused, and that one is named rather than closed. The `task-off`
+     kill switch removes all four.
 Adapters translate the returned reason into their own permission envelope.
 """
 import os
@@ -80,6 +100,13 @@ try:  # The two readers the untrusted sink rule needs (see sink_check): the
     from tezgah_untrusted import turn_channel
 except ImportError:  # pragma: no cover - only on a checkout without them
     UNTRUSTED_CHANNEL, turn_channel = {}, None
+
+try:  # The task rule reads the user's own per-task record (a plan file's
+    # frontmatter) through tezgah_task. That module is newer than some checkouts,
+    # and a missing module costs the rule, never the session.
+    import tezgah_task
+except ImportError:  # pragma: no cover - only where the module has not landed
+    tezgah_task = None
 
 DB_DIR = os.path.join(os.path.expanduser("~"), ".cache", "codebase-memory-mcp")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{2,}$")
@@ -861,6 +888,153 @@ def race_reason(inp, session_id):
     return None
 
 
+# --- task scope: the user's own phase and path allowlist --------------------
+# What this closes: a session that has been told what it is working on - the
+# user activated a plan file under plans/open, so the work has a phase and the
+# files it may touch - and then writes anyway. Two shapes cost the user real
+# work: a write in `discovery`, where the whole point of the phase is to read
+# before deciding, and a write outside the plan's own allowlist, which is how a
+# bounded task quietly becomes an unbounded one. Both are the user's own
+# decisions, which is why this rule may refuse at all: the record is written by
+# bin/tezgah-task, by hand, and never by the agent - a rule the agent could
+# satisfy by editing its own record would be a nudge wearing a gate's clothes.
+#
+# The direction is fail-open wherever the record is missing, unreadable or out
+# of phase vocabulary (tezgah_task.active returns None for those), because a
+# refusal has to rest on an ask the user actually made: a rule that refused
+# every write until a record appeared would be the fail-closed trap the design
+# report names, with the whole session as its blast radius. Nothing is named
+# that the user did not name either: an empty allowlist is no scope asked for
+# rather than "nothing is allowed", so the phase is the whole requirement there.
+TASK_PHASE_DENY = (
+    "Task gate: the active task %s is in phase `%s`, and this call writes. "
+    "Writes belong to %s. The phase is the user's to move: ask them, or do the "
+    "reading this phase asks for and say what the write was for.")
+TASK_SCOPE_DENY = (
+    "Task gate: %s is outside the paths the active task %s allows (%s). The "
+    "allowlist is the user's to widen: ask them, or leave the file alone and say "
+    "why it looked in scope.")
+# The two refusals above deliberately name no command. They used to end with the
+# one that lifts them, and the E7 block measured what that costs: with the unlock
+# printed in the refusal, the armed arm removed or disabled the gate in 25 of 25
+# runs and obeyed it in none (benchmarks/lab, PREREGISTRATION-E7.md). A refusal
+# is a boundary or it is an instruction; it cannot be both.
+TASK_RECORD_DENY = (
+    "Task gate: %s is the active task's own record. The phase and the allowlist "
+    "live in that file, so a session that edits it is editing the boundary it is "
+    "being held to. Ask the user to change the task; the record is theirs.")
+TASK_UNLOCK_DENY = (
+    "Task gate: this command changes the active task's own record. The phase and "
+    "the allowlist are the user's, and a session that can move them is held to "
+    "nothing. Ask the user to change the task instead.")
+# A shell command that changes the record. Matched on the masked text, so a
+# command that merely names the CLI - a grep over the docs, a commit message -
+# is not refused. The token is the CLI's own name, so any path to it counts.
+TASK_CHANGE = re.compile(
+    r"(?:^|[|;&(]\s*|\s)(?:python3\s+)?\S*tezgah-task\s+"
+    r"(?:start|phase|allow|stop)\b")
+# The shapes that make a shell command a write, for the phase rule below. The
+# tools are not the only way to change a file, and E7b measured the other one:
+# with `edit` and `write` refused twelve and six times, the armed arm wrote the
+# target with `cat > app/api.py <<'EOF'` instead in 3 of 25 runs - every one of
+# them a redirect. The table is the secret rule's sink list plus the in-place
+# editors and the copiers, because the shape reached for after the first one is
+# refused is the next one here. Masked text is read, so a quoted `>` is not a
+# redirect, and `> /dev/null` is not a write to a file.
+# ponytail: a write inside a string the shell parses later (`python3 -c
+# "open('x','w')"`) is not read - telling a read from a write there needs the
+# mode argument, not the call - so the table holds the shapes an agent reaches
+# for, and the phase still refuses the ones it holds. A code-execution tool is
+# not this rule's at all, and E7c measured what that costs: one row in 25 wrote
+# the target through `eval` after both the write tools and the shell were
+# refused, so the residual is named here rather than closed.
+SHELL_WRITE = re.compile(
+    r">>?(?!\s*/dev/null)(?![&=])|"
+    r"\|\s*tee\b|"
+    r"(?<![\w-])(?:sed|perl)\s+(?:-\S+\s+)*(?:-[A-Za-z]*i[A-Za-z]*)(?![A-Za-z])|"
+    r"(?<![\w-])truncate\s|"
+    r"\bdd\s+[^|;&]*\bof=|"
+    r"(?<![\w-])(?:cp|mv)\s|"
+    r"(?<![\w-])patch\s|"
+    r"(?<![\w-])git\s+(?:apply\b|restore\b|checkout\s+--)")
+TASK_SHELL_DENY = (
+    "Task gate: the active task %s is in phase `%s`, and this command writes a "
+    "file. The shell is a write route like any other, so the phase covers it. "
+    "The phase is the user's to move: ask them, or do the reading this phase "
+    "asks for and say what the write was for.")
+
+
+def task_shell_reason(inp, cwd, base):
+    """A deny reason when the active task's phase only reads and this shell
+    command writes a file, else None.
+
+    The route to the hole the phase rule closes, and the one E7b measured: with
+    the write tools refused, the armed arm wrote the target with a heredoc
+    redirect in 3 of 25 runs. A phase that excludes writes has to exclude them
+    however they are made. The allowlist is not consulted here - a shell line's
+    targets are not read (see SHELL_WRITE), so the reading phases are the whole
+    requirement, and the same fail-open holds: no record, no requirement."""
+    if tezgah_task is None:
+        return None
+    task = tezgah_task.active(cwd, base)
+    if not task or task["phase"] in tezgah_task.WRITE_PHASES:
+        return None
+    if not SHELL_WRITE.search(mask(str(inp.get("command") or ""))):
+        return None
+    return TASK_SHELL_DENY % (task["id"], task["phase"])
+
+
+def task_record_reason(inp, cwd, base):
+    """A deny reason when this write's target IS the active task's record.
+
+    The other route to the same hole as TASK_UNLOCK_DENY, and the one a write
+    tool takes: the record is a file in the repo, so an agent that may write
+    files can retype the phase instead of running the CLI. Refused whatever the
+    phase and whatever the allowlist says - the record is not inside its own
+    scope, because a scope that can widen itself is not one."""
+    if tezgah_task is None:
+        return None
+    task = tezgah_task.active(cwd, base)
+    if not task:
+        return None
+    record = os.path.relpath(task["path"],
+                             tezgah_task.repo_root(cwd, base)).replace(os.sep, "/")
+    for path in write_paths(inp):
+        if tezgah_task.relative(path, cwd, base) == record:
+            return TASK_RECORD_DENY % path
+    return None
+
+
+def task_reason(inp, cwd, base):
+    """A deny reason when the active task's phase or allowlist excludes this
+    write, else None. No active task -> None: this rule never invents a
+    requirement the user did not set.
+
+    The record is read through tezgah_task, whose import is guarded: a checkout
+    without that module costs this rule, never the session. The paths are the
+    ones write_paths already extracts, so an apply_patch body is checked hunk by
+    hunk like every other write rule's here. A path that resolves outside the
+    repo root is refused by `relative` before any pattern is tried - a `**`
+    allowlist must not reach out of the repo - and the refusal names the file as
+    the call spelled it, because the agent has to recognize its own argument."""
+    if tezgah_task is None:
+        return None
+    task = tezgah_task.active(cwd, base)
+    if not task:
+        return None
+    if task["phase"] not in tezgah_task.WRITE_PHASES:
+        return TASK_PHASE_DENY % (task["id"], task["phase"],
+                                  " or ".join(tezgah_task.WRITE_PHASES))
+    patterns = task["allowed_paths"]
+    if not patterns:
+        return None
+    for path in write_paths(inp):
+        rel = tezgah_task.relative(path, cwd, base)
+        if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
+            return TASK_SCOPE_DENY % (path, task["id"], ", ".join(patterns))
+    return None
+
+
 # --- constraint drift: a long turn loses the rules it started with ----------
 # The re-statement that keeps the rules alive rides the user prompt
 # (tezgah_context.context_for writes PROMPT_REMINDER on every turn), so the
@@ -1012,6 +1186,29 @@ def decision(tool, inp, cwd, session_id=None):
         reason = race_reason(inp, session_id)
         if reason:
             return _deny(session_id, "race", reason, tool, inp, base)
+    # Task scope: the user's own record for this work - its phase and the files
+    # its allowlist names (see task_reason). Ahead of the sink rule, because an
+    # active task refuses a write for a reason the user set rather than one the
+    # turn's reads produced, and that reason is the one to name first. The
+    # record itself is refused first of all, and a shell that would change it
+    # through the CLI is refused with it: a boundary the agent can move is not a
+    # boundary, and both routes to moving this one were measured open (E7).
+    if not off("task-off"):
+        if t in WRITE_TOOLS:
+            reason = task_record_reason(inp, cwd, base)
+            if reason:
+                return _deny(session_id, "task", reason, tool, inp, base)
+        if t in BASH_TOOLS and TASK_CHANGE.search(
+                mask(str(inp.get("command") or ""))):
+            return _deny(session_id, "task", TASK_UNLOCK_DENY, tool, inp, base)
+        if t in BASH_TOOLS:
+            reason = task_shell_reason(inp, cwd, base)
+            if reason:
+                return _deny(session_id, "task", reason, tool, inp, base)
+        if t in WRITE_TOOLS:
+            reason = task_reason(inp, cwd, base)
+            if reason:
+                return _deny(session_id, "task", reason, tool, inp, base)
     # The untrusted sink for a write: a file outside the rule's root, in a turn
     # that read content tezgah cannot vouch for, waits for the user's own
     # approval written after that read (see sink_check). Inside the root the

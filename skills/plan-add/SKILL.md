@@ -42,6 +42,16 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
    GPT/Codex/Gemini/Cursor/Copilot credit.
 8. Report the file path and the table row.
+9. Hand it to `tezgah-task` - the user's command, never the session's:
+   `~/.config/tezgah/bin/tezgah-task start NNN --phase discovery [--allow '<glob>' ...]`
+   writes `phase:` (and `allowed_paths:` with `--allow`) into this file and
+   clears the phase from every other open plan, and the gate then allows a write
+   only from `implementation` on and only inside those globs. Moving the phase
+   later is the user's action too: when a write is refused for its phase or its
+   path, ask the user to change the task - do not run this command, and do not
+   retype the frontmatter - because the gate refuses a session's own edit to the
+   record and a session's own call to the CLI, which is what keeps the boundary
+   the user set. The refusal names no command; the ask is the way through it.
 
 ## Format
 
@@ -56,6 +66,9 @@ branch: plan/001-slug
 pr:
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
+phase:                 # optional; tezgah-task writes it (step 9)
+allowed_paths:         # optional; `- glob` lines tezgah-task writes with --allow
+  - <glob>
 ---
 ## Goal
 <1-3 sentences>
@@ -67,6 +80,13 @@ updated: YYYY-MM-DD
 <single next action, or "BLOCKED: <reason>">
 ```
 
+Both keys are optional and absent from a plan this skill writes: `tezgah-task`
+sets them when the user starts the task (step 9). `phase:` - `discovery`,
+`implementation` or `verification`, at most one open plan carrying it - is the
+activation key the gate reads, and `allowed_paths:` is the scope its writes have
+to stay inside, one glob per `- ` line; empty or absent means any path in the
+repo.
+
 ## README template (write verbatim when plans/ is missing)
 
 ```
@@ -77,6 +97,7 @@ Small self-contained edits do not get a plan.
 
 - `open/`  status open or blocked. `done/` status done or discarded.
 - File: `NNN-slug.md`, frontmatter id/title/status/branch/pr/created/updated,
+  plus the optional `phase` and `allowed_paths` while the plan is the active task,
   sections Goal, Acceptance (checkboxes), State (evidence), Next (one action or BLOCKED).
 - Work for a plan happens on branch `plan/NNN-slug`; a merged PR (or a branch merged
   into main) is the done signal read by `/tezgah:plan-sync`.

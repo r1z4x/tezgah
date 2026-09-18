@@ -855,6 +855,120 @@ class StaleIndexNotice(TempHome):
         self.assertNotIn("Graph index:", out)
 
 
+class ActiveTaskLine(TempHome):
+    """The active task's phase rides every user turn. The gate reads the same
+    record and refuses a write the phase or the allowlist excludes, but only
+    after the call, and a refusal costs a turn - so the line that prevents it
+    has to be in the turn the write is decided in, and it has to follow the plan
+    file, which the user edits with the CLI between turns."""
+
+    def plan(self, repo, name="001-thing.md", phase=None, allow=None):
+        lines = ["---", "id: %s" % name[:3], "title: a plan worth a phase",
+                 "status: open"]
+        if phase is not None:
+            lines.append("phase: %s" % phase)
+        if allow is not None:
+            lines.append("allowed_paths:")
+            lines += ["  - %s" % glob for glob in allow]
+        lines += ["created: 2026-09-18", "updated: 2026-09-18", "---",
+                  "## Goal", "the thing worth doing", ""]
+        path = os.path.join(repo, "plans", "open", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("\n".join(lines))
+        return path
+
+    def turn(self, repo, session="s1"):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": repo,
+                              "payload": {"session_id": session,
+                                          "prompt": "add a docstring"}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_the_line_names_the_phase_and_the_scope_not_a_command(self):
+        repo = self.make_repo()
+        self.plan(repo, phase="implementation", allow=["hooks/**", "tests/**"])
+        out = self.turn(repo)
+        self.assertIn("Active task 001 is in phase `implementation`", out)
+        self.assertIn("hooks/**, tests/**", out)
+        # The line used to end with the command that moves the phase, and E7b
+        # watched the armed arm run that command five times in a row against a
+        # gate that refuses it every time. It names the user now, not an act the
+        # gate will refuse.
+        self.assertIn("belongs to the user", out)
+        self.assertNotIn("Advance it with", out)
+        # the per-turn channel is a prompt hook: a session start already carries
+        # the plans block, and a second copy of the phase there would be paid by
+        # every session, including the ones with no task
+        start, proc = run_json([support.PROBE_CONTEXT],
+                               {"fn": "context_for", "event": "session_start",
+                                "cwd": repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("Active task", start)
+
+    def test_an_empty_allowlist_says_the_whole_repo(self):
+        repo = self.make_repo()
+        self.plan(repo, phase="verification", allow=[])
+        self.assertIn("any path in the repo", self.turn(repo))
+
+    def test_no_active_plan_means_no_line(self):
+        repo = self.make_repo()
+        self.assertNotIn("Active task", self.turn(repo))
+        # a plan without a phase is not an active task either: the phase is what
+        # activates it, so a plan-status file must not look like a task
+        self.plan(repo)
+        self.assertNotIn("Active task", self.turn(repo))
+
+    def test_a_phase_outside_the_three_is_ignored_not_guessed(self):
+        # fail open: a typo in the frontmatter must not arm a phase the user
+        # never set, and must not refuse anything either
+        repo = self.make_repo()
+        self.plan(repo, phase="implementing")
+        self.assertNotIn("Active task", self.turn(repo))
+
+    def test_a_phase_change_is_visible_in_the_next_turn(self):
+        repo = self.make_repo()
+        path = self.plan(repo, phase="discovery")
+        self.assertIn("`discovery`", self.turn(repo))
+        with open(path) as fh:
+            text = fh.read()
+        with open(path, "w") as fh:
+            fh.write(text.replace("phase: discovery", "phase: implementation"))
+        out = self.turn(repo)
+        self.assertIn("`implementation`", out)
+        self.assertNotIn("`discovery`", out)
+
+    # the largest prompt the classifier can build: all four conditional rules
+    # armed at once
+    PROMPT = ("design decision and root cause, migration schema change, "
+              "literature review hypothesis benchmark, who calls it, "
+              "düzgün çalışsın")
+    ARMED = ("**Spec before building.**", "**Consult before irreversible.**",
+             "**Research: route it to OpenResearch.**",
+             "**Code discovery: graph first.**")
+
+    def test_the_turn_that_pays_the_most_still_fits_its_budget(self):
+        # the line is paid on every user turn, so the turn that decides the
+        # prompt budget is the largest one: every conditional rule armed, beside
+        # an active task
+        repo = self.make_repo()
+        self.plan(repo, phase="implementation", allow=["hooks/**", "tests/**"])
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": repo, "payload": {"prompt": self.PROMPT}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for label in self.ARMED:
+            self.assertIn(label, out)
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        self.assertNotIn("Context budget", out)
+        self.assertLess(len(out.encode()), tc.CONTEXT_BUDGET["user_prompt"])
+
+
 class HealthSegments(TempHome):
     """health_segments() is the structured source the colored renderers use."""
 

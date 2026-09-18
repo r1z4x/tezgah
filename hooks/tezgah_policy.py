@@ -631,9 +631,9 @@ when the user asks for it, or when the repo IS the tezgah checkout.
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`,
 `reminder-off`, `verify-off` (the integrity rule: its prompt text, the shortcut
-denials and the Stop gate), `pretooluse-off` (the whole gate); per-repo
-`.no-ponytail`, `.no-adhd`, `.no-cbm`, `.no-lessons`. The ponytail intensity
-level is not a switch: `tezgah-pony lite|full|ultra`.
+denials and the Stop gate), `task-off` (the task rule), `pretooluse-off` (the
+whole gate); per-repo `.no-ponytail`, `.no-adhd`, `.no-cbm`, `.no-lessons`. The
+ponytail intensity level is not a switch: `tezgah-pony lite|full|ultra`.
 """
 
 # Rules that are NOT paid every session. They are armed by task class at prompt

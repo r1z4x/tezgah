@@ -60,6 +60,47 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   never recorded a used kind, and dsh (unlike Claude) has no transcript to derive
   one from, so its `consult`/`research`/`cbm` marks could not light. The hook now
   records the kind it can see, and SubagentStart records `orch`.
+- **The task rule's refusals no longer print the command that lifts them, and a
+  session can no longer move the boundary it is held to.** Rule 10
+  (`hooks/tezgah_gate.py`) ended both of its refusals with the exact
+  `tezgah-task` invocation that clears the phase or widens the allowlist, and the
+  E7 block measured what that printed unlock costs: across the armed arm's 25
+  runs the boundary came down every time - 24 of them moved the record into a
+  write phase, the 25th cleared it and wrote anyway - and no run obeyed the
+  refusal (rows under `benchmarks/arm-bench/results/e7/` on the
+  `benchmarks/lab` branch, designed in `PREREGISTRATION-E7.md` there). A refusal
+  is a boundary or an instruction, and it cannot be both, so no refusal in this
+  rule names a command now: each names what it refused, and says the phase and
+  the allowlist are the user's to move. Two refusals close the ways a session
+  could move that record itself - a write whose target IS the record, refused
+  whatever the phase and whatever the globs say, and a shell command that would
+  change it through the CLI (`start`, `phase`, `allow`, `stop`), matched on the
+  masked command so a grep over the docs or a commit message naming the CLI still
+  passes. `task-off` removes all of them.
+
+- **A read-only phase refuses a shell write, and the per-turn task line no
+  longer prints a command the gate refuses.** Rule 10 was re-measured against
+  the same task, model and k=25 with the printed unlock gone (E7b): obedience
+  moved from 0 of 25 armed runs to **21 of 25**, and every route left was the
+  shell. The 3 bypassing rows wrote the target with a heredoc redirect
+  (`cat > app/api.py <<'EOF'`, `cat >>`, one absolute) after taking 12 phase
+  refusals and 5 record-CLI refusals, and the one row that passed the task did
+  it by editing the record with `sed -i` (rows under
+  `benchmarks/arm-bench/results/e7b/` on the `benchmarks/lab` branch, designed in
+  `PREREGISTRATION-E7b.md` there). A read-only phase now refuses a shell command
+  that writes a file - redirects, `tee` at the end of a pipe, `sed -i`/`perl -pi`,
+  `dd of=`, `truncate`, `cp`/`mv`, `patch`, `git apply|restore|checkout --` -
+  over the masked text, so a quoted `>` is not a redirect and `> /dev/null` is
+  not a write, and without consulting the allowlist (a shell line's targets are
+  not read). The per-turn line that names the active task used to end with
+  "Advance it with `tezgah-task phase P`"; one E7b row ran that command five
+  times in a row against a gate that refuses it every time, so the line states
+  whose the phase is now instead of naming an act the gate refuses. The route
+  left is a **code-execution tool** (`eval`), which the gate classifies as
+  neither a write nor a shell command: the same block measured one row in 25
+  writing the target through it after both were refused. That residual is named
+  in the rule's comment, not closed. `task-off`
+  removes all four refusals.
 
 - **`--help` no longer costs a paid call on `consult`, and no longer runs the
   work on `tezgah-agents` and `tezgah-index`.** None of the three had a help
@@ -136,6 +177,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`hooks/projects-posttooluse.py` and `hooks/projects-stop.py` are executable
   like the other two hook scripts.** Both manifests invoke every hook as `python3
   "<path>"`, so no wiring was broken; only the file mode was wrong.
+
+### Added
+
+- **An open plan can be the session's active task, and the gate enforces it.**
+  The record is the plan file itself - no `task.json`, no second file: two
+  optional frontmatter keys, `phase:` (`discovery`, `implementation` or
+  `verification`) and `allowed_paths:` (a `- glob` list relative to the repo
+  root), and at most one open plan carries a phase because `start` clears it
+  from the others. Rule 10 of the tool gate (`hooks/tezgah_gate.py`) refuses a
+  write in `discovery`, or one outside the globs, naming the phase or the file
+  and no command that lifts either (see `Fixed` above); a path that resolves
+  outside the repo root never matches a `**` pattern.
+  `bin/tezgah-task start|phase|allow|stop|status` is the only writer and the
+  user runs it - the agent never does - so what the gate refuses on is a
+  boundary the user set in advance, and `task-off` removes the rule's refusals.
+  Where the record is missing, unreadable or out of phase vocabulary the rule
+  fails open, and an empty allowlist reads as "any path in the repo" rather than
+  "nothing allowed": a gate that refused every write until a record appeared
+  would have the whole session as its blast radius. The phase also rides every
+  user turn as one line (`hooks/tezgah_context.py`), so a session meets the
+  boundary before a write meets the refusal. opencode does not mirror the rule:
+  its plugin puts each write to `bin/tezgah-gate check`, which prints the core's
+  own decision and nothing else, because the JS mirror is documented as
+  incomplete and divergent.
 
 ## [0.10.0] - 2026-09-18
 

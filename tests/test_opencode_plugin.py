@@ -27,6 +27,28 @@ NODE = shutil.which("node")
 # The marker the detector must catch, assembled at runtime: the gate denies a
 # file that adds the literal marker, so the test source must not carry it whole.
 SKIP_MARK = "@pytest.mark." + "skip"
+# A stand-in for bin/tezgah-gate: it records the argv and the payload it was
+# handed and then refuses. What the plugin passes the core is only observable at
+# the spawn, and a spy that always refuses is what tells a read tool that never
+# asked from a read the core allowed.
+SPY_REASON = "Task gate: the active task 001 is in phase `discovery`."
+
+
+def spy_script(reason):
+    """A stand-in for bin/tezgah-gate: it records the argv and the payload it
+    was handed, then answers with `reason` - empty for a core that refuses
+    nothing, which is how a call the core lets through is told from one it never
+    asked about."""
+    return ("#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            "with open(os.environ['TEZGAH_GATE_LOG'], 'a') as fh:\n"
+            "    fh.write(json.dumps({'argv': sys.argv[1:],\n"
+            "                         'payload': json.loads(sys.stdin.read() or '{}')})"
+            " + '\\n')\n"
+            "print(%r)\n" % reason)
+
+
+SPY_GATE = spy_script(SPY_REASON)
 
 
 class OpenCodePlugin(TempHome):
@@ -433,6 +455,192 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("edit", {"file_path": target, "old_string":
                                           "x = 1", "new_string": "x = 2"}))
         self.assertEqual(self.kinds(), [])
+
+    # ---- the core's own decision for a write (the active task) -------------
+    def active_task(self, phase, allowed=(), name="001-x.md"):
+        """The plan file the task record lives in (§1): `phase` is the key that
+        activates it, and the allowlist is read only beside one."""
+        path = os.path.join(self.repo, "plans", "open", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        lines = ["---", "id: 1", "title: x", "phase: %s" % phase]
+        if allowed:
+            lines.append("allowed_paths:")
+            lines += ["  - %s" % g for g in allowed]
+        lines += ["---", ""]
+        with open(path, "w") as fh:
+            fh.write("\n".join(lines))
+        return path
+
+    def gate_bin(self):
+        """bin/tezgah-gate under this HOME, linked the way tezgah-setup links it.
+        Guarded on lexists: a link made before the CLI landed is dangling, and
+        os.path.exists - what support.linked checks - says nothing about it."""
+        link = os.path.join(self.home, ".config", "tezgah", "bin", "tezgah-gate")
+        if not os.path.lexists(link):
+            support.linked(
+                os.path.join(support.REPO, "bin", "tezgah-gate"), self.home)
+        return link
+
+    def gate(self, tool, args, session="s1"):
+        """What bin/tezgah-gate prints for the payload the plugin hands it: the
+        core's own answer, asked once more here so the plugin's refusal can only
+        match it by having put the same question to the same rule."""
+        proc = subprocess.run(
+            ["python3", self.gate_bin(), "check"],
+            input=json.dumps({"tool": tool, "input": args, "cwd": self.repo,
+                              "session_id": session}),
+            capture_output=True, text=True, env=self.envv, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    def spy_gate(self, log, script=SPY_GATE):
+        """A tezgah-gate that records every call and answers with `script`'s
+        reason (the default refuses; an empty one refuses nothing)."""
+        path = os.path.join(self.home, ".config", "tezgah", "bin", "tezgah-gate")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(script)
+        os.chmod(path, 0o755)
+        self.envv = self.env(extra={"TEZGAH_GATE_LOG": log})
+        return path
+
+    def spy_calls(self, log):
+        if not os.path.exists(log):
+            return []
+        with open(log) as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
+    def test_a_write_is_refused_with_the_cores_own_reason(self):
+        # The phase and path allowlist are hooks/tezgah_gate.task_reason, and a
+        # host that cannot import the core asks bin/tezgah-gate for the answer.
+        # The refusal here has to be that text verbatim - a JS paraphrase of the
+        # rule would be the second implementation this host is documented not to
+        # keep.
+        self.gate_bin()
+        self.active_task("discovery")
+        target = os.path.join(self.repo, "src", "a.py")
+        args = {"file_path": target, "old_string": "x = 1", "new_string": "x = 2"}
+        expected = self.gate("edit", args)
+        self.assertIn("`discovery`", expected)   # the rule, not an empty answer
+        self.assertEqual(self.denied(self.before("edit", args)), expected)
+
+    def test_a_write_the_active_task_allows_passes(self):
+        # The phase and the allowlist are read, not turned into "any write is
+        # refused once a task exists": same shape, a phase that writes and a path
+        # the allowlist covers. The CLI's own answer is empty here, so the pass
+        # is the core's decision and not this host's silence.
+        self.gate_bin()
+        self.active_task("verification", allowed=["src/**"])
+        args = {"file_path": os.path.join(self.repo, "src", "a.py"),
+                "old_string": "x = 1", "new_string": "x = 2"}
+        self.assertEqual(self.gate("edit", args), "")
+        self.allowed(self.before("edit", args))
+
+    def test_the_write_path_asks_the_core_once_and_a_read_never_does(self):
+        # One spawn per write is the bound, and only for the tools the rule is
+        # about: the spy is armed to refuse, so a read that reached it would fail
+        # the allow below.
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        self.allowed(self.before("read",
+                                 {"path": os.path.join(self.repo, "src", "a.py")}))
+        self.allowed(self.before("bash", {"command": "git status"}))
+        self.assertEqual(self.spy_calls(log), [])
+
+        args = {"file_path": os.path.join(self.repo, "src", "a.py"),
+                "old_string": "x = 1", "new_string": "x = 2"}
+        error = self.denied(self.before("edit", args))
+        self.assertEqual(error, SPY_REASON)
+        self.assertEqual(self.spy_calls(log), [{
+            "argv": ["check"],
+            "payload": {"tool": "edit", "input": args, "cwd": self.repo,
+                        "session_id": "s1"}}])
+
+    def test_a_core_that_cannot_be_asked_does_not_block_the_write(self):
+        # The CLI is not linked and python3 is not on PATH, so the spawn itself
+        # fails: the write still passes, exactly as a capture that cannot run
+        # does. A rule that cannot be reached must never break the call it
+        # guards.
+        self.envv = self.env(extra={"PATH": os.path.join(self.home, "no-path")})
+        self.active_task("discovery")
+        self.allowed(self.before("edit", {
+            "file_path": os.path.join(self.repo, "src", "a.py"),
+            "old_string": "x = 1", "new_string": "x = 2"}))
+
+    def test_the_mirror_refuses_a_shortcut_before_the_core_is_asked(self):
+        # Precedence is part of parity, not a detail of this file: the Python
+        # gate refuses a shortcut edit before it reaches the task rule
+        # (hooks/tezgah_gate.decision: shortcut, attribution, race, task), so a
+        # call that is both has to name the same reason on both hosts. The spy
+        # would refuse this write too, so an order that asked the core first
+        # would report its reason - and the empty log is the second half of the
+        # claim: this host already had the answer for this call.
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        error = self.denied(self.before("edit", {
+            "filePath": "tests/test_x.py",
+            "old_string": "def t():\n    pass",
+            "new_string": SKIP_MARK + "\ndef t():\n    pass"}))
+        self.assertIn("Test disable denied", error)
+        self.assertNotEqual(error, SPY_REASON)
+        self.assertEqual(self.spy_calls(log), [])
+
+    # ---- the core's own decision for the task record (the shell route) -----
+    def test_a_shell_command_that_moves_the_record_is_refused_with_the_cores_own_reason(self):
+        # The write rule closes one route to the record; this is the other one,
+        # and the one the E7 block measured open: an agent on this host can run
+        # the task CLI through its bash tool and move the phase or the allowlist
+        # it is being held to. The rule is hooks/tezgah_gate.TASK_CHANGE, so the
+        # refusal has to be the core's own answer, asked exactly once for the
+        # call it is about - a JS paraphrase of the rule would be the second
+        # implementation this host is documented not to keep.
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        args = {"command": "bin/tezgah-task stop"}
+        self.assertEqual(self.denied(self.before("bash", args)), SPY_REASON)
+        self.assertEqual(self.spy_calls(log), [{
+            "argv": ["check"],
+            "payload": {"tool": "bash", "input": args, "cwd": self.repo,
+                        "session_id": "s1"}}])
+
+    def test_a_shell_command_that_does_not_name_the_cli_never_asks_the_core(self):
+        # One ask per naming command is the whole bound: the pre-test is what
+        # keeps a rule about the record from taxing every command in a session
+        # with a spawn. `cat bin/tezgah-task` names the CLI's file and runs
+        # nothing, so it is not this rule's, and the spy armed to refuse would
+        # fail the allow below if the pre-test had asked it.
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        for command in ("ls -la", "cat bin/tezgah-task", "git status",
+                        "python3 bin/tezgah-gate check < p.json"):
+            self.allowed(self.before("bash", {"command": command}))
+        self.assertEqual(self.spy_calls(log), [])
+
+    def test_a_mention_of_the_cli_costs_one_ask_and_still_passes(self):
+        # The pre-test is loose on purpose - the name in the raw command with an
+        # argument, no attempt to read the shell - and this is what that costs: a
+        # command that only mentions the CLI in prose still pays the spawn, and
+        # the core's masking is what lets it through. So the looseness can add an
+        # ask and never a refusal, and the ask carries the command the core needs
+        # to decide it.
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log, script=spy_script(""))
+        args = {"command": 'git commit -m "tezgah-task stop in the refusal"'}
+        self.allowed(self.before("bash", args))
+        self.assertEqual(self.spy_calls(log), [{
+            "argv": ["check"],
+            "payload": {"tool": "bash", "input": args, "cwd": self.repo,
+                        "session_id": "s1"}}])
+
+    def test_the_shell_route_is_the_cores_rule_on_both_hosts(self):
+        # Asked of the real CLI, not a spy: the text this host refuses a
+        # record-moving command with has to be the text the Python gate refuses
+        # the same payload with, character for character.
+        self.gate_bin()
+        args = {"command": "python3 bin/tezgah-task phase verification"}
+        expected = self.gate("bash", args)
+        self.assertIn("active task's own record", expected)
+        self.assertEqual(self.denied(self.before("bash", args)), expected)
 
     # ---- secret: a credential on its way into a file -----------------------
     def test_secret_denies_a_credential_written_to_a_file(self):
