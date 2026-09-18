@@ -1184,6 +1184,60 @@ class TaskGate(TempHome):
                 self.write_path(os.path.join(self.repo, "hooks/tezgah_gate.py")),
                 phase)
 
+    # ---- the shell is a write route too ------------------------------------
+    def test_a_reading_phase_refuses_a_shell_write(self):
+        # The route E7b measured: with the write tools refused (twelve `edit` and
+        # six `write` calls), the armed arm wrote the target with a heredoc
+        # redirect instead in 3 of 25 runs. The phase is the requirement, so it
+        # covers the shell as well - and names no command, like the other two.
+        self.plan(phase="discovery")
+        for command in ("cat > app/api.py <<'EOF'\nx\nEOF",
+                        "cat >> app/api.py <<'PYEOF'\nx\nPYEOF",
+                        "echo x >> hooks/tezgah_gate.py",
+                        "sed -i '' 's/a/b/' app/api.py",
+                        "perl -pi -e 's/a/b/' app/api.py",
+                        "printf 'x' | tee app/api.py",
+                        "cp app/api.py app/other.py",
+                        "git checkout -- app/api.py",
+                        "git apply patch.diff"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIsNotNone(reason, command)
+            self.assertIn("discovery", reason, command)
+            self.assertNotIn("tezgah-task", reason, command)
+
+    def test_a_reading_phase_leaves_reading_alone(self):
+        # the table reads redirects, not commands: a check, a search and a test
+        # run are what a reading phase is for, and a discarded redirect (or the
+        # `2>&1` a runner writes) is not a write to a file
+        self.plan(phase="discovery")
+        for command in ("python3 -m unittest discover -s tests",
+                        "git status --short",
+                        "grep -rn 'ROUTES' app/",
+                        "python3 -m unittest discover -s tests 2>&1 | tail -20",
+                        "uvx ruff check . > /dev/null 2>&1",
+                        "cat app/api.py",
+                        "sed -n '1,5p' app/api.py",
+                        "grep -i routes app/api.py",
+                        "git log --oneline -5"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
+
+    def test_a_write_phase_leaves_the_shell_alone(self):
+        # a shell line's targets are not read, so the allowlist cannot be held
+        # against them; the reading phases are the requirement, and in a phase
+        # that writes the shell is not this rule's
+        self.plan(phase="implementation", allowed=("app/**",))
+        self.assertIsNone(
+            self.decide({"command": "cat > src/x.py <<'EOF'\nx\nEOF"},
+                        tool="Bash"))
+
+    def test_the_shell_half_goes_with_the_same_switch(self):
+        self.plan(phase="discovery")
+        command = {"command": "cat > app/api.py <<'EOF'\nx\nEOF"}
+        self.assertIsNotNone(self.decide(command, tool="Bash"))
+        self.touch(os.path.join(self.home, ".config", "tezgah", "task-off"))
+        self.assertIsNone(self.decide(command, tool="Bash"))
+
     # ---- the allowlist ----------------------------------------------------
     def test_a_path_outside_the_allowlist_refuses_and_names_what_it_knows(self):
         self.plan(phase="implementation", allowed=("hooks/**",))

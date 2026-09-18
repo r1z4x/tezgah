@@ -59,7 +59,11 @@ Rules, all only inside a tezgah root:
      measured open before they were closed - with the refusal naming the command
      that lifts it, an armed arm removed or disabled the gate in 25 of 25 runs
      and obeyed it in none (benchmarks/lab, PREREGISTRATION-E7.md) - and neither
-     refusal names a command now. The `task-off` kill switch removes all three.
+     refusal names a command now. The phase covers the shell too, because the
+     write tools are not the only way to change a file: with them refused, the
+     armed arm wrote the target with a heredoc redirect in 3 of 25 runs, so a
+     reading phase refuses a shell command that writes. The `task-off` kill
+     switch removes all four.
 Adapters translate the returned reason into their own permission envelope.
 """
 import os
@@ -926,6 +930,52 @@ TASK_UNLOCK_DENY = (
 TASK_CHANGE = re.compile(
     r"(?:^|[|;&(]\s*|\s)(?:python3\s+)?\S*tezgah-task\s+"
     r"(?:start|phase|allow|stop)\b")
+# The shapes that make a shell command a write, for the phase rule below. The
+# tools are not the only way to change a file, and E7b measured the other one:
+# with `edit` and `write` refused twelve and six times, the armed arm wrote the
+# target with `cat > app/api.py <<'EOF'` instead in 3 of 25 runs - every one of
+# them a redirect. The table is the secret rule's sink list plus the in-place
+# editors and the copiers, because the shape reached for after the first one is
+# refused is the next one here. Masked text is read, so a quoted `>` is not a
+# redirect, and `> /dev/null` is not a write to a file.
+# ponytail: a write inside a string the shell parses later (`python3 -c
+# "open('x','w')"`) is not read - telling a read from a write there needs the
+# mode argument, not the call - so the table holds the shapes an agent reaches
+# for, and the phase still refuses the ones it holds.
+SHELL_WRITE = re.compile(
+    r">>?(?!\s*/dev/null)(?![&=])|"
+    r"\|\s*tee\b|"
+    r"(?<![\w-])(?:sed|perl)\s+(?:-\S+\s+)*(?:-[A-Za-z]*i[A-Za-z]*)(?![A-Za-z])|"
+    r"(?<![\w-])truncate\s|"
+    r"\bdd\s+[^|;&]*\bof=|"
+    r"(?<![\w-])(?:cp|mv)\s|"
+    r"(?<![\w-])patch\s|"
+    r"(?<![\w-])git\s+(?:apply\b|restore\b|checkout\s+--)")
+TASK_SHELL_DENY = (
+    "Task gate: the active task %s is in phase `%s`, and this command writes a "
+    "file. The shell is a write route like any other, so the phase covers it. "
+    "The phase is the user's to move: ask them, or do the reading this phase "
+    "asks for and say what the write was for.")
+
+
+def task_shell_reason(inp, cwd, base):
+    """A deny reason when the active task's phase only reads and this shell
+    command writes a file, else None.
+
+    The route to the hole the phase rule closes, and the one E7b measured: with
+    the write tools refused, the armed arm wrote the target with a heredoc
+    redirect in 3 of 25 runs. A phase that excludes writes has to exclude them
+    however they are made. The allowlist is not consulted here - a shell line's
+    targets are not read (see SHELL_WRITE), so the reading phases are the whole
+    requirement, and the same fail-open holds: no record, no requirement."""
+    if tezgah_task is None:
+        return None
+    task = tezgah_task.active(cwd, base)
+    if not task or task["phase"] in tezgah_task.WRITE_PHASES:
+        return None
+    if not SHELL_WRITE.search(mask(str(inp.get("command") or ""))):
+        return None
+    return TASK_SHELL_DENY % (task["id"], task["phase"])
 
 
 def task_record_reason(inp, cwd, base):
@@ -1145,6 +1195,10 @@ def decision(tool, inp, cwd, session_id=None):
         if t in BASH_TOOLS and TASK_CHANGE.search(
                 mask(str(inp.get("command") or ""))):
             return _deny(session_id, "task", TASK_UNLOCK_DENY, tool, inp, base)
+        if t in BASH_TOOLS:
+            reason = task_shell_reason(inp, cwd, base)
+            if reason:
+                return _deny(session_id, "task", reason, tool, inp, base)
         if t in WRITE_TOOLS:
             reason = task_reason(inp, cwd, base)
             if reason:
