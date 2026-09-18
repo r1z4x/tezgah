@@ -71,7 +71,7 @@ Trigger: `effect_class` returns one of six classes for the command's masked text
 
 | Class | Matched by |
 |---|---|
-| `destructive` | a `git push` carrying `-f`/`--force*` whose segment is not scratch (`:613-616`, `GIT_PUSH` `hooks/tezgah_gate.py:180-181`, `FORCE_FLAG` `hooks/tezgah_gate.py:182-183`, `SCRATCH` `hooks/tezgah_gate.py:157-158`); `git branch -D`/`--delete`, `git push --delete`/`-d` (`BRANCH_DELETE` `hooks/tezgah_gate.py:161-165`); a recursive force `rm` outside the run directory (`rm_outside` `hooks/tezgah_gate.py:569-611`, `RM` `hooks/tezgah_gate.py:170`, `RM_RECURSIVE` `hooks/tezgah_gate.py:171`, `RM_FORCE` `hooks/tezgah_gate.py:172`) |
+| `destructive` | a `git push` carrying `-f`/`--force*` whose segment is not scratch (`hooks/tezgah_gate.py:640-643`, `GIT_PUSH` `hooks/tezgah_gate.py:180-181`, `FORCE_FLAG` `hooks/tezgah_gate.py:182-183`, `SCRATCH` `hooks/tezgah_gate.py:157-158`); `git branch -D`/`--delete`, `git push --delete`/`-d` (`BRANCH_DELETE` `hooks/tezgah_gate.py:161-165`); a recursive force `rm` outside the run directory (`rm_outside` `hooks/tezgah_gate.py:569-611`, `RM` `hooks/tezgah_gate.py:170`, `RM_RECURSIVE` `hooks/tezgah_gate.py:171`, `RM_FORCE` `hooks/tezgah_gate.py:172`) |
 | `schema` | a migration runner (`MIGRATION` `hooks/tezgah_gate.py:184-192`) |
 | `deploy` | a deploy runner (`DEPLOY` `hooks/tezgah_gate.py:194-203`) |
 | `publish` | a registry/release/image push (`PUBLISH` `hooks/tezgah_gate.py:205-210`) |
@@ -190,7 +190,7 @@ names the action's digest and the CLI that answers it (`consent_reason` `hooks/t
   `hooks/tezgah_gate.py:360`; `searched_identifier` `hooks/tezgah_gate.py:392`, `index_slug` `hooks/tezgah_gate.py:380`, `first_nudge` `hooks/tezgah_gate.py:392`, `nudge_reason` `hooks/tezgah_gate.py:409`; `LOOP_ATTEMPTS` `hooks/tezgah_gate.py:430`, `loop_reason` `hooks/tezgah_gate.py:452`,
   `RETRY_CEILING` `hooks/tezgah_gate.py:449`, `retry_reason` `hooks/tezgah_gate.py:483`; `unspent_grant` `hooks/tezgah_gate.py:515`, `consent_mark` `hooks/tezgah_gate.py:544`, `rm_outside` `hooks/tezgah_gate.py:569`, `effect_class` `hooks/tezgah_gate.py:614`, `declared_effect`
   `hooks/tezgah_gate.py:660`, `consent_effect` `hooks/tezgah_gate.py:668`, `consent_reason` `hooks/tezgah_gate.py:690`, `outside_paths` `hooks/tezgah_gate.py:753`, `sink_check` `hooks/tezgah_gate.py:772`, `secret_command` `hooks/tezgah_gate.py:803`, `race_reason` `hooks/tezgah_gate.py:871`,
-  `drift_reason` `hooks/tezgah_gate.py:1095`, `effectful` `hooks/tezgah_gate.py:1122`, `_deny` `hooks/tezgah_gate.py:1133`; the `capture` call `:1110-1113`
+  `drift_reason` `hooks/tezgah_gate.py:1095`, `effectful` `hooks/tezgah_gate.py:1122`, `_deny` `hooks/tezgah_gate.py:1133`; the `capture` call `hooks/tezgah_gate.py:1307-1309`
 - `hooks/projects-pretooluse.py` — the Claude and dsh envelope; `hooks/tezgah_paths.py` — `off`, `root_for`, `cache_dir`
 - `hooks/tezgah_integrity.py` — `BASH_TOOLS`/`WRITE_TOOLS` `:110-114`; `NEUTER`/`SKIP_ENV`/`NO_VERIFY`/`GITISH` `:56-63`; `SKIP_TEST` `:65-70`; `TEST_PATH`
   `:75-78`; `call_id` `:190`; `_path` `:230`, `note` `:364`, `events` `:452`, `writers_elsewhere` `:514`, `mask` `:703`, `shortcut_command` `:709`,

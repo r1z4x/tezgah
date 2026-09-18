@@ -25,8 +25,8 @@ host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 `context_for(event, …)` is the one dispatcher (`hooks/tezgah_context.py:712`):
 `session_start`/`post_compact` build core plus live state, `user_prompt` builds
 the reminder plus whatever was armed, `subagent_start` builds a short brief
-(`hooks/tezgah_context.py:755`). Outside every configured root it returns `None`
-(`hooks/tezgah_context.py:695-696`). A host whose static always-on file already
+(`hooks/tezgah_context.py:789`). Outside every configured root it returns `None`
+(`hooks/tezgah_context.py:723-724`). A host whose static always-on file already
 carries the core passes `with_core=False` so the session does not pay for the
 contract twice (`hooks/tezgah_context.py:717-722`); a delegated agent gets
 `subagent_core()`, which keeps every always-on label and its opening clause and
@@ -81,7 +81,7 @@ applied, and it also returns the names of the switches that fired.
 — `spec`, `consult`, `research`, `cbm` — and `classify_prompt()` returns the keys
 a prompt matches (`hooks/tezgah_context.py:466-469`). On that turn only, the
 matching paragraphs are appended after the reminder
-(`hooks/tezgah_context.py:721-729`); a session that never asks such a question
+(`hooks/tezgah_context.py:750-757`); a session that never asks such a question
 pays the one-line pointer instead. The patterns carry Turkish stems because the
 user writes Turkish, and a plain prompt arms nothing. The same prompt arms the
 same rules on every host (`tests/test_context.py:1145-1166`) and each advisory
@@ -111,7 +111,7 @@ happens in `core_split()`.
 | `verify-off` | `**Integrity: evidence…**` | `hooks/tezgah_context.py:526-528` |
 | `consult-off` | `**Consult before irreversible.**` | `hooks/tezgah_context.py:532-534` |
 | `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py:535-537` |
-| `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py:538-539` disables it, `:805-809` injects "Orchestration is off", and the skill-ignore note is `hooks/tezgah_context.py:730-732` |
+| `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py:538-539` disables it, `hooks/tezgah_context.py:841-843` injects "Orchestration is off", and the skill-ignore note is `hooks/tezgah_context.py:730-732` |
 | `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:780-782` returns `None` |
 | `pretooluse-off` | the gate's denials, not a rule | [gate.md](gate.md) |
 | `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:516-519` |

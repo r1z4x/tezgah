@@ -79,13 +79,13 @@ directories into the host's own skill directory - Codex
 plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/rizacan-local/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
-`:2001-2052`, `bin/tezgah-setup:2057-2060`). On Claude the plugin name prefixes the skill name -
+`bin/tezgah-setup:2003-2054`, `bin/tezgah-setup:2057-2060`). On Claude the plugin name prefixes the skill name -
 `Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:27-29]).
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
 directory ([bin/tezgah-setup:76-82]), and it is used for every host row
-([bin/tezgah-setup:1794-1795], `:1810`, `:1836`, `:1867`, `:1923`). It was
+([bin/tezgah-setup:1796-1797], `bin/tezgah-setup:1812`, `bin/tezgah-setup:1838`, `bin/tezgah-setup:1869`, `bin/tezgah-setup:1925`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
 it ([tests/test_skills.py:54-69]).

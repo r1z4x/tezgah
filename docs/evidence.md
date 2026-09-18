@@ -92,7 +92,7 @@ branch and before the evidence triggers. The block text is the string at `:1206-
 model to report the failure with its exact error line, or fix it and re-run.
 
 **The escape hatches, and the deny that answers each.** The gate refuses these before they run, under
-the same `verify-off` switch (`hooks/tezgah_gate.py:994-1002`), as rule `shortcut`:
+the same `verify-off` switch (`hooks/tezgah_gate.py:1168-1176`), as rule `shortcut`:
 
 - `--no-verify` on a git/commit/push-style command (`NO_VERIFY` `:62`, `GITISH` `:63`) —
   `shortcut_command` `:716-719`.
