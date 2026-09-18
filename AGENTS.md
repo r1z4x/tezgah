@@ -4,6 +4,14 @@ Repository notes for coding agents. The always-on tezgah contract (Turkish BLUF
 replies, ponytail, code-graph-first) is injected by the harness; this file only
 records how to check this repo.
 
+## Docs
+
+`docs/README.md` is the router for how this thing works: architecture, hosts,
+contract, gate, evidence, status line, skills, testing, operations, glossary.
+Reach a page with `bin/tezgah-docs <words>` (it reads `docs/index.json`) instead
+of grepping the tree; a page that is not in the index is not reachable, and
+`tests/test_docs.py` keeps the two in step.
+
 ## Checks (run before every commit)
 
 ```sh

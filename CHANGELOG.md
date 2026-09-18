@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`docs/`: the engineering layer, with a router an agent can reach.** Ten pages
+  - architecture, hosts, contract, gate, evidence, status-line, skills, testing,
+  operations, glossary - each opening with what it is and who reads it, ending
+  with the files it documents, and citing `path:line` for every non-obvious
+  claim. `docs/README.md` is the router, `docs/index.json` the machine-readable
+  index, and `bin/tezgah-docs` answers a query with the page(s) that own it, so a
+  session reaches the internals in one hop instead of reading 55 files. The
+  glossary is the only place a term is defined. `tests/test_docs.py` pins the
+  layer: every page has an index entry, every entry resolves, every relative
+  anchor a page links to exists, and every page carries a citation.
+
 - **The act-on-it output shape is a rule of its own (`tezgah-adhd off`,
   `.no-adhd`).**
   `skills/i-have-adhd` (MIT, vendored and adapted) is armed beside ponytail:
@@ -31,6 +42,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   has to remember. The default removes the file and adds no characters.
 
 ### Fixed
+
+- **The `research` mark could never light up on Claude, and a bare mention could
+  light `consult`.** The transcript half resolved a Bash call with a substring
+  test for one tool name; it now calls the same `shell_kind` tokenizer every
+  other host uses, so an `orx` run marks `research` and a command that merely
+  quotes the word marks nothing.
+- **The opencode gate let a repeat of an unapproved irreversible command
+  through.** Its JavaScript half still carried the pre-lease model: the first
+  refusal counted as the approval, a `repeat-allowed` row was written, and a
+  `grant` was never spent - so one approval authorised unlimited repeats. It now
+  matches the Python gate (commit 3a45a1f, "a lease instead of a repeat"): a
+  repeat is refused again with the ask-stands clause, and a grant is spent by the
+  outcome row that follows it. Its refusal also names the action's digest and
+  `bin/tezgah-consent`, which the JavaScript text had left out.
+- **dsh's status line had no used marks at all.** The shared PostToolUse hook
+  never recorded a used kind, and dsh (unlike Claude) has no transcript to derive
+  one from, so its `consult`/`research`/`cbm` marks could not light. The hook now
+  records the kind it can see, and SubagentStart records `orch`.
 
 - **`--help` no longer costs a paid call on `consult`, and no longer runs the
   work on `tezgah-agents` and `tezgah-index`.** None of the three had a help

@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""tezgah-docs [QUERY] - reach the docs/ page that answers a question.
+
+Reads docs/index.json and prints the matching page paths, so an agent picks a
+page instead of guessing and a script can assert the layer is intact.
+
+  tezgah-docs                 every page, one line each
+  tezgah-docs <words...>      the pages matching every word of the query
+  tezgah-docs --json [QUERY]  the matching entries as JSON
+  tezgah-docs --read QUERY    print the first matching page in full
+
+Matching is word-based and case-insensitive against an entry's title, its
+questions, its sources and its path; every word must match, so a second word
+narrows. Exit codes: 0 with matches, 1 with none, 2 usage.
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+INDEX = os.path.join(HERE, "docs", "index.json")
+
+
+def entries():
+    """The index entries, or [] when the index is missing or malformed."""
+    try:
+        with open(INDEX) as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    pages = data.get("pages")
+    if not isinstance(pages, list):
+        return []
+    return [p for p in pages if isinstance(p, dict) and p.get("path")]
+
+
+def blob(entry):
+    """Everything a query is matched against, lowercased."""
+    parts = [str(entry.get("path") or ""), str(entry.get("title") or "")]
+    parts += [str(a) for a in (entry.get("answers") or [])]
+    parts += [str(s) for s in (entry.get("sources") or [])]
+    return " ".join(parts).lower()
+
+
+def matches(query):
+    """The entries every word of `query` appears in; [] for an empty query."""
+    words = query.lower().split()
+    if not words:
+        return []
+    return [e for e in entries() if all(w in blob(e) for w in words)]
+
+
+def main(argv):
+    if "-h" in argv or "--help" in argv:
+        print(__doc__.strip())
+        return 0
+    flags = {a for a in argv if a.startswith("--")}
+    unknown = sorted(f for f in flags if f not in ("--json", "--read"))
+    if unknown:
+        sys.stderr.write("tezgah-docs: unknown option(s): %s (try --help)\n"
+                         % ", ".join(unknown))
+        return 2
+    query = " ".join(a for a in argv if not a.startswith("--")).strip()
+    found = matches(query) if query else entries()
+    if not found:
+        sys.stderr.write("tezgah-docs: nothing matches %r - the bare call lists "
+                         "every page\n" % query)
+        return 1
+    if "--json" in flags:
+        print(json.dumps(found, indent=2, sort_keys=True))
+        return 0
+    if "--read" in flags:
+        try:
+            with open(os.path.join(HERE, found[0]["path"])) as fh:
+                sys.stdout.write(fh.read())
+        except OSError as exc:
+            sys.stderr.write("tezgah-docs: %s\n" % exc)
+            return 1
+        return 0
+    for entry in found:
+        print("%s  %s" % (entry["path"], entry.get("title") or ""))
+        answers = "; ".join(entry.get("answers") or [])
+        if answers:
+            print("    answers: %s" % answers)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

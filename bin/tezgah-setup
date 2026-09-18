@@ -360,6 +360,7 @@ def install_common(new_roots, hosts):
             ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
             ("tezgah-pony", os.path.join(HERE, "bin", "tezgah-pony")),
             ("tezgah-adhd", os.path.join(HERE, "bin", "tezgah-adhd")),
+            ("tezgah-docs", os.path.join(HERE, "bin", "tezgah-docs")),
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
             ("tezgah-consent", os.path.join(HERE, "bin", "tezgah-consent")),
             ("tezgah-rollback", os.path.join(HERE, "bin", "tezgah-rollback")),
