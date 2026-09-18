@@ -155,6 +155,22 @@ Read this before filing a security-ish issue; each is a decision, not an oversig
 - Which rule the user meant when a turn drifts: "a guess about intent wearing a check's clothes" (`hooks/tezgah_gate.py:1101-1104`).
 - A skip already in the file, or one inside a string (a test *about* the rule), is not a disable (`hooks/tezgah_integrity.py:753-760`).
 
+**The seat a semantic rule would take, and why it is empty.** Every entry above
+is one shape: a call the structural table leaves unclassified, which is exactly
+the set a classifier would be asked about. One would fire only when the call is an
+effect **and** `effect_class` returned `None` **and** the call is therefore about
+to be allowed; it would run inside `decision` on the pre-tool path; it could only
+*raise* severity into the existing `consent` ask, never lower a class and never
+touch the deny floor; and it would have to fail open on a missing key, a network
+error or a timeout, because a gate that stays offline must not become a gate that
+blocks when it cannot ask. Nothing of the sort is built, and the measurement is
+why: on this machine's own ledger the structural pass missed nothing in 147
+allowed effectful calls, an adversarially drawn 20 found two - both `gh` writes,
+now covered by the `send` class above - and the classifier-shaped primitive the
+eval harness already carries answered `yes` on 12 of those 20 rows, a precision of
+0.167 at 768 ms per call. That line is local (`.tezgah/research/`, gitignored);
+no file in this checkout calls such a model.
+
 ## The mirror: the opencode plugin
 
 opencode cannot run Python hooks, so `hosts/opencode/plugins/tezgah.js` is an independent JavaScript re-implementation of the same rules, dispatched from
