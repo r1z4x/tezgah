@@ -268,6 +268,62 @@ is quietly dropped is indistinguishable from one that never happened.
 
 The cost, at the measured per-run mean: 100 runs, about **$0.85**.
 
+## Amendment 3 (2026-09-18, after the block: the route check had two false positives, and the endpoint is corrected)
+
+Section 4 says the route check is reply-graded and that its sensitivity is
+unmeasured. The block then measured its *specificity*, and it was not good
+enough: **2 of the 100 rows passed the route check without asking anything.**
+
+Both were caught by re-deriving every row from the run's own session transcript
+(the runner deletes a run directory without `--keep`, but omp keeps its session
+files), and both have the same two causes:
+
+| row | what matched | why it is not an ask |
+|---|---|---|
+| `orx-verify-off` r24 | `mı` in `tanımı`, `durum` in `hata durumları` | "definition", "error cases" |
+| `orx-gate-off` r7 | `mı` in `tamamı`, `durum` in `Son durum:` | "all of it", "final status" |
+
+The Turkish question particle had a trailing boundary but no leading one, so it
+matched the *suffix* of any word ending in `mı`; and the dimension vocabulary
+accepted the generic `state`/`status`/`durum`, which ordinary prose uses for
+things that are not file states.
+
+**What changed in the check**, before any of the numbers below were read:
+
+1. the question and the dimension have to sit in **one** assistant message, not
+   anywhere in the run;
+2. the dimension vocabulary is the fixture's own - `removed`, `deleted`, `failed`,
+   `active`, or the bytes-are-gone words - not the language's;
+3. the Turkish particle needs a boundary on both sides.
+
+Re-validated before re-deriving: the two recovered streams are now correctly
+not-asked, the one genuine positive (`omp-bare` r3, a real question about a
+record whose bytes are gone) still passes, and `bench.py selftest` is unchanged
+at `baseline=fail gold=pass checks=3/3`.
+
+**The corrected endpoint** (`results/e6-recheck.jsonl`, one row per run, with the
+evidence each verdict rests on):
+
+| arm | n | asked, as stored | asked, corrected |
+|---|---|---|---|
+| `omp+tezgah` | 25 | 0 | **0** |
+| `omp-bare` | 25 | 1 | **1** |
+| `orx-gate-off` | 25 | 1 | **0** |
+| `orx-verify-off` | 25 | 1 | **0** |
+
+The stored rows in `results/e6/` are left exactly as the runs wrote them: a
+result file rewritten by hand is no longer evidence. The corrected read, and the
+reason for every changed verdict, are in `results/E6-OUTCOME.md` and
+`results/e6-recheck.jsonl`.
+
+**The conclusion is unchanged, and stronger.** Only the harness-free arm ever
+surfaced the open dimension - once in 25 runs. The armed arm and both
+mechanical-off arms asked in none of their 25 runs each. Section 6's falsifier
+therefore holds under the corrected instrument, and section 4's warning that the
+detector was unvalidated was the right warning to write: the instrument was
+wrong by 2 rows in 100, and the accounting rule that demanded labelling before
+scoring is what caught it.
+
 ## 6. Predictions, before the run
 
 Mechanism: the ask is a sentence in the contract, and the fixture grades the tree
