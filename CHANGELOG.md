@@ -24,7 +24,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whatever the phase and whatever the globs say, and a shell command that would
   change it through the CLI (`start`, `phase`, `allow`, `stop`), matched on the
   masked command so a grep over the docs or a commit message naming the CLI still
-  passes. `task-off` removes all three.
+  passes. `task-off` removes all of them.
+
+- **A read-only phase refuses a shell write, and the per-turn task line no
+  longer prints a command the gate refuses.** Rule 10 was re-measured against
+  the same task, model and k=25 with the printed unlock gone (E7b): obedience
+  moved from 0 of 25 armed runs to **21 of 25**, and every route left was the
+  shell. The 3 bypassing rows wrote the target with a heredoc redirect
+  (`cat > app/api.py <<'EOF'`, `cat >>`, one absolute) after taking 12 phase
+  refusals and 5 record-CLI refusals, and the one row that passed the task did
+  it by editing the record with `sed -i` (rows under
+  `benchmarks/arm-bench/results/e7b/` on the `benchmarks/lab` branch, designed in
+  `PREREGISTRATION-E7b.md` there). A read-only phase now refuses a shell command
+  that writes a file - redirects, `tee` at the end of a pipe, `sed -i`/`perl -pi`,
+  `dd of=`, `truncate`, `cp`/`mv`, `patch`, `git apply|restore|checkout --` -
+  over the masked text, so a quoted `>` is not a redirect and `> /dev/null` is
+  not a write, and without consulting the allowlist (a shell line's targets are
+  not read). The per-turn line that names the active task used to end with
+  "Advance it with `tezgah-task phase P`"; one E7b row ran that command five
+  times in a row against a gate that refuses it every time, so the line states
+  whose the phase is now instead of naming an act the gate refuses. `task-off`
+  removes all four refusals.
 
 - **`--help` no longer costs a paid call on `consult`, and no longer runs the
   work on `tezgah-agents` and `tezgah-index`.** None of the three had a help

@@ -68,11 +68,14 @@ same text.
   gate: its `phase:` (`discovery`, `implementation`, `verification`) and its
   `allowed_paths:` globs are what each write is checked against, so a write in a
   read-only phase, or outside the files the plan names, is refused before it
-  lands - and no active task means no requirement, because the gate invents
-  nothing. Two more refusals close the ways a session could move that boundary
-  instead of respecting it: a write whose target is the record itself, refused
-  whatever the phase and the globs say, and a shell command that would change the
-  record through the CLI. None of the three prints the command that lifts it, so
+  lands - and a shell command that writes a file is refused in a read-only phase
+  too, because the shell is a write route like any other and the E7b block
+  measured it as the route an agent takes once the write tools are refused. Two
+  more refusals close the ways a session could move that boundary instead of
+  respecting it: a write whose target is the record itself, refused whatever the
+  phase and the globs say, and a shell command that would change the record
+  through the CLI. No active task means no requirement, because the gate invents
+  nothing. None of the four prints the command that lifts it, so
   a refusal is the ask and not the instruction: the phase and the globs are the
   user's to change. The record is the user's own
   (`~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`), the agent
@@ -356,7 +359,7 @@ text injected into the session, so the rule actually stops:
 | `research-off` | routing research tasks to OpenResearch |
 | `orchestrate-off` | subagent delegation (adds a do-not-delegate line) |
 | `reminder-off` | the per-turn reminder text |
-| `task-off` | the task rule's three refusals: the phase, the allowlist and the record |
+| `task-off` | the task rule's four refusals: the phase, the allowlist, the record and a shell write |
 | `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, loop, grep nudge, task) |
 
 Per repo, `.no-ponytail`, `.no-cbm` and `.no-lessons` turn off the minimal-code
