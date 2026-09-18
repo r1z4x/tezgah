@@ -22,7 +22,8 @@ import sys
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "hooks"))
 from tezgah_context import (LEGEND, TOOL_USE_MEASURES, color_default,
-                            health_segments, render_line, skill_read_kind,
+                            health_segments, render_line, shell_kind,
+                            skill_read_kind,
                             used as used_kinds)  # noqa: E402
 
 HOME = os.path.expanduser("~")
@@ -95,9 +96,13 @@ def claude_used():
                 used.add("cbm")
             elif name in ("Task", "Agent"):
                 used.add("orch")
-            elif name == "Bash" and "consult" in \
-                    (b.get("input") or {}).get("command", ""):
-                used.add("consult")
+            elif name == "Bash":
+                # The shared tokenizer, not a substring: the same call the other
+                # hosts make, so an `orx` run marks `research` and a command that
+                # merely mentions the word does not mark anything.
+                kind = shell_kind((b.get("input") or {}).get("command"))
+                if kind:
+                    used.add(kind)
     return used
 
 
