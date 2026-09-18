@@ -49,7 +49,7 @@ nothing about a host's event names or output envelope.
 
 | Module | Owns | Point at |
 |---|---|---|
-| `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `context_for` `hooks/tezgah_context.py:684` |
+| `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `context_for` `hooks/tezgah_context.py:712` |
 | `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `CORE` `:485`, `CONDITIONAL_KEYS` `:643` |
 | `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings, [consent](#consent) | `hooks/tezgah_gate.py:2-27`, `decision` `:976` |
 | `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-23`, `note_tool` `:974`, `stop_reason` `:1145` |
@@ -77,10 +77,10 @@ the same split in another language: the TypeScript extension is "only the
 bridge" and substitutes the absolute path of
 the Python half (`hosts/omp/tezgah-hook.ts.in:3-6`), whose `handle()` dispatches
 every event (`hosts/omp/hook.py:109`). Cursor (`hosts/cursor/hook.py:2-23`) and
-opencode (`hosts/opencode/plugins/tezgah.js:1-30`) follow the same rule; opencode
+opencode (`hosts/opencode/plugins/tezgah.js:1-42`) follow the same rule; opencode
 is the one host whose plugin cannot call the core in process, so it shells out
 through `bin/tezgah-context` and `bin/tezgah-capture` instead of copying it
-(`hosts/opencode/plugins/tezgah.js:5-8,21-22`).
+(`hosts/opencode/plugins/tezgah.js:5-8,33-34`).
 
 #### `bin/` — the CLIs and the installer
 
@@ -110,18 +110,18 @@ One session, in order. Each step names the file that handles the event on Claude
 (the reference adapter) and the core function it calls.
 
 1. **SessionStart** — `hooks/projects-auto-init.py` (`hooks/hooks.json:2-4`) calls
-   `context_for("session_start", …)` (`hooks/tezgah_context.py:684`), which builds
-   the always-on CORE (`hooks/tezgah_context.py:530`) plus this repo's live state:
+   `context_for("session_start", …)` (`hooks/tezgah_context.py:712`), which builds
+   the always-on CORE (`hooks/tezgah_context.py:556`) plus this repo's live state:
    the graph index status and the detached index spawn (`hooks/tezgah_context.py:179`),
    the open plans, the lessons ledger, and the active kill switches. Outside a
    configured root it returns `None` and the session is untouched
-   (`hooks/tezgah_context.py:695-696`).
+   (`hooks/tezgah_context.py:723-724`).
 2. **UserPromptSubmit** — the same file, `context_for("user_prompt", …)`
    (`hooks/tezgah_context.py:705`): a turn marker for the loop guard, the per-turn
    reminder, the conditional paragraph(s) this prompt arms
-   (`classify_prompt`, `hooks/tezgah_context.py:440`), one line naming what moved
-   since the previous turn (`hooks/tezgah_context.py:388`), and the stale-index
-   notice (`hooks/tezgah_context.py:1026`).
+   (`classify_prompt`, `hooks/tezgah_context.py:466`), one line naming what moved
+   since the previous turn (`hooks/tezgah_context.py:414`), and the stale-index
+   notice (`hooks/tezgah_context.py:1060`).
 3. **PreToolUse** — `hooks/projects-pretooluse.py:24` calls `decision` and emits
    the deny envelope (`hooks/projects-pretooluse.py:25-30`). The gate is the same
    object on every host: `hosts/omp/hook.py:118`, `hosts/codex/hook.py:89`.
@@ -136,36 +136,36 @@ One session, in order. Each step names the file that handles the event on Claude
 
 `SubagentStart` and `PostCompact` reuse steps 1 and 2 with their own event key;
 on `subagent_start` the payload is the short brief, not the whole CORE
-(`hooks/tezgah_context.py:550`).
+(`hooks/tezgah_context.py:576`).
 
 ### The two-tier text model
 
 | Tier | What it is | Assembled at | Paid |
 |---|---|---|---|
-| Always-on CORE | the rules every session carries: reply language, integrity, loop discipline, consent, attribution, scope | `hooks/tezgah_policy.py:485`, injected by `hooks/tezgah_context.py:530` | once per session |
+| Always-on CORE | the rules every session carries: reply language, integrity, loop discipline, consent, attribution, scope | `hooks/tezgah_policy.py:485`, injected by `hooks/tezgah_context.py:556` | once per session |
 | Conditional paragraphs | spec, consult, research, graph — armed by task class, for that turn only | `hooks/tezgah_policy.py:643`, armed at `hooks/tezgah_context.py:725-730` | the turns whose prompt matches |
-| Pointer line | one line per conditional rule, so a host that never sees the paragraph still knows the rule exists | `hooks/tezgah_policy.py:648`, appended at `hooks/tezgah_context.py:530-537` | once per session |
+| Pointer line | one line per conditional rule, so a host that never sees the paragraph still knows the rule exists | `hooks/tezgah_policy.py:648`, appended at `hooks/tezgah_context.py:562` | once per session |
 | Per-turn reminder | the compact `<harness-reminder>` envelope | `hooks/tezgah_policy.py:654`, injected at `hooks/tezgah_context.py:721` | every user turn |
 | On-demand full contract | the deep detail — orchestration, codegen, the exact kill switches — as a skill, not a hook payload | `skills/tezgah-contract/SKILL.md`, whose joined text is `CONTRACT` `hooks/tezgah_policy.py:673` | only when loaded |
 
 A host that carries the CORE in a static file does not pay for it twice: omp's
 managed `RULES.md` already holds it (`bin/tezgah-setup:1023-1025`), so its session hook
 passes `with_core=False` and injects only the live state
-(`hosts/omp/hook.py:123-128`, `hooks/tezgah_context.py:684-690`). opencode's
+(`hosts/omp/hook.py:123-128`, `hooks/tezgah_context.py:712-721`). opencode's
 always-on file is written from the same policy by the installer
 (`bin/tezgah-setup:556-560`). The
 sum of every block is bounded per event, and when the bound is crossed the
 lowest-value blocks are dropped in a fixed order rather than the rules
-(`hooks/tezgah_context.py:604-616`, `budgeted` `:652`).
+(`hooks/tezgah_context.py:642-644`, `budgeted` `:652`).
 
 ### State: where it lives, who writes it
 
 | Store | Path | Writer | Authoritative for |
 |---|---|---|---|
 | Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py:230-231`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py:974`) | what a session actually ran, and therefore the Stop verdict |
-| Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py:942-945`) | `record` (`hooks/tezgah_context.py:931`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript |
+| Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py:942-945`) | `record` (`hooks/tezgah_context.py:965`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript |
 | Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py:56-61`) | `capture` on the write path (`hooks/tezgah_snapshot.py:190`) | the pre-write bytes; the rollback source |
-| Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py:360-361`) | `write_stamp` (`hooks/tezgah_context.py:376`) | the comparison behind the one-line delta, nothing else |
+| Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py:360-361`) | `write_stamp` (`hooks/tezgah_context.py:402`) | the comparison behind the one-line delta, nothing else |
 | Installed config dir | `~/.config/tezgah` (`hooks/tezgah_paths.py:21-25`) | the installer and the user | which roots are armed, which kill switches are on |
 | Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:1978-1986`) | `tezgah-setup --sync` (`bin/tezgah-setup:2001`) | what Claude Code actually executes — a copy, never this checkout |
 
@@ -182,8 +182,8 @@ checkout is the source from which the plugin copy is made.
   Host-specific copies exist only where a host cannot load Python, and those are
   generated from the policy, not hand-kept (`bin/tezgah-setup:556-560`).
 - **The root boundary.** Every hook is inert outside a configured root:
-  `context_for` returns `None` (`hooks/tezgah_context.py:695`), the gate only acts
-  inside one (`hooks/tezgah_gate.py:3-4`), and the status line is the single
+  `context_for` returns `None` (`hooks/tezgah_context.py:723`), the gate only acts
+  inside one (`hooks/tezgah_gate.py:4`), and the status line is the single
   deliberate exception, because a globally loaded rules file must still show that
   it is armed (`hosts/omp/hook.py:32-34`).
 - **No cross-host drift.** A host shares the core, never a copy of it. Adding a
@@ -231,16 +231,16 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 
 | Host | Hook events it fires | Always-on contract | Per-turn reminder | Status surface, how drawn | Measures |
 |---|---|---|---|---|---|
-| claude | SessionStart, SubagentStart, PostCompact, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop - `hooks/hooks.json:2-26` | both: SessionStart hook context (`hooks/projects-auto-init.py:1-6`) and the static `output-styles/tezgah.md` mirror (`README.md:477-479`) | UserPromptSubmit -> `additionalContext` (`hooks/hooks.json:12-14`, `hooks/projects-auto-init.py:34-40`) | `statusLine` command in `~/.claude/settings.json` (`bin/tezgah-setup:421-435`), ANSI, forwards Orca first (`statusline.py:29,39-49`) | all six: the transcript parse covers the two skill reads, `cbm`, `orch` and both shell kinds, `consult` and `research` (`statusline.py:58-107`, `observable=None` at `:112`) |
-| codex | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, PostCompact, Stop (`bin/tezgah-setup:443-445`; named in `hosts/codex/hook.py:5-6`) | hook: the normalized events inject `context_for` (`hosts/codex/hook.py:172-175`) | UserPromptSubmit -> `additionalContext` (`hosts/codex/hook.py:172-175`) | no custom footer item (`tui.status_line` is a closed enum) - the line rides `systemMessage`, plain, at SessionStart and Stop (`hosts/codex/hook.py:10-12,150-166,176-180`) | four tool-use (`TOOL_USE_MEASURES` at `hosts/codex/hook.py:163,177`) |
+| claude | SessionStart, SubagentStart, PostCompact, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop - `hooks/hooks.json:2-26` | both: SessionStart hook context (`hooks/projects-auto-init.py:1-6`) and the static `output-styles/tezgah.md` mirror (`README.md:499-500`) | UserPromptSubmit -> `additionalContext` (`hooks/hooks.json:12-14`, `hooks/projects-auto-init.py:34-40`) | `statusLine` command in `~/.claude/settings.json` (`bin/tezgah-setup:423-437`), ANSI, forwards Orca first (`statusline.py:29,39-49`) | all six: the transcript parse covers the two skill reads, `cbm`, `orch` and both shell kinds, `consult` and `research` (`statusline.py:58-107`, `observable=None` at `:112`) |
+| codex | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, PostCompact, Stop (`bin/tezgah-setup:443-445`; named in `hosts/codex/hook.py:6-7`) | hook: the normalized events inject `context_for` (`hosts/codex/hook.py:172-175`) | UserPromptSubmit -> `additionalContext` (`hosts/codex/hook.py:172-175`) | no custom footer item (`tui.status_line` is a closed enum) - the line rides `systemMessage`, plain, at SessionStart and Stop (`hosts/codex/hook.py:10-12,150-166,176-180`) | four tool-use (`TOOL_USE_MEASURES` at `hosts/codex/hook.py:163,177`) |
 | cursor | 13 events: sessionStart, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, beforeSubmitPrompt, stop, beforeMCPExecution, afterShellExecution, afterMCPExecution, afterFileEdit, afterAgentResponse (`bin/tezgah-setup:814-831`) | hook: sessionStart -> `additional_context` (`hosts/cursor/hook.py:202-204`) | beforeSubmitPrompt -> `additional_context` plus `{"continue": true}` (`hosts/cursor/hook.py:298-303`) | `statusLine` in `~/.cursor/cli-config.json` -> `tezgah-statusline --cursor` (`bin/tezgah-setup:856-859`), ANSI (`statusline.py:116-117`) | four tool-use (`statusline.py:112`) |
-| opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1248-1445`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:727-760`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:1383-1428`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:792-802`) | all six: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1145-1165`) |
+| opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1327-1554`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:729-762`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:1488-1533`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:792-802`) | all six: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1195-1223`) |
 | dsh | SessionStart, SubagentStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop (`hosts/dsh/hooks.json:2-19`) | hook: the same Claude-family scripts, named by `configPath` (`bin/tezgah-setup:906-908`) | UserPromptSubmit, through the bridge (`hosts/dsh/hooks.json:9-11`) | web-profile plugin: authenticated `GET /api/tezgah.status` -> `tezgah-status` (`hosts/dsh/statusline/lib/index.js:14,39-60`) | four tool-use: the route passes `--observable=consult,research,cbm,orch` (`hosts/dsh/statusline/lib/index.js:18,47-48`) |
-| omp | session_start, session_switch, turn_end, before_agent_start, tool_call, tool_result, session_stop (`hosts/omp/tezgah-hook.ts.in:164,198-199,201,221,235,259`) | both: static `RULES.md` (`bin/tezgah-setup:1019-1026`) and a session payload carrying only what a static file cannot know (`hosts/omp/hook.py:123-131`) | before_agent_start returns a hidden message (`hosts/omp/tezgah-hook.ts.in:201-218`) | extension draws `ctx.ui.setWidget` below the editor, `setStatus` as fallback (`hosts/omp/tezgah-hook.ts.in:20-27`); ANSI line from `hosts/omp/hook.py:85-107` | all six: the embedded runner filters skill reads before asking python (`hosts/omp/tezgah-hook.ts.in:40-53`) and no `observable` is passed (`hosts/omp/hook.py:94-96`) |
+| omp | session_start, session_switch, turn_end, before_agent_start, tool_call, tool_result, session_stop (`hosts/omp/tezgah-hook.ts.in:164,198-199,201,221,235,259`) | both: static `RULES.md` (`bin/tezgah-setup:1021-1028`) and a session payload carrying only what a static file cannot know (`hosts/omp/hook.py:123-131`) | before_agent_start returns a hidden message (`hosts/omp/tezgah-hook.ts.in:201-218`) | extension draws `ctx.ui.setWidget` below the editor, `setStatus` as fallback (`hosts/omp/tezgah-hook.ts.in:20-27`); ANSI line from `hosts/omp/hook.py:85-107` | all six: the embedded runner filters skill reads before asking python (`hosts/omp/tezgah-hook.ts.in:40-53`) and no `observable` is passed (`hosts/omp/hook.py:94-96`) |
 
 The middle four marks (`consult`, `research`, `cbm`, `orch`) are tool-use marks:
 any adapter that sees its host's tool calls can light them by calling
-`record()` (`hooks/tezgah_context.py:931-948`). CLI-side, `tezgah-status` reads
+`record()` (`hooks/tezgah_context.py:965-981`). CLI-side, `tezgah-status` reads
 the same core and takes the session id as an argument or `TEZGAH_SESSION`
 (`bin/tezgah-status:18-20`).
 
@@ -251,43 +251,43 @@ except claude, whose skills arrive with the plugin. `install_common` writes the
 shared config, contract hash and the CLI symlinks every host shell can call
 (`bin/tezgah-setup:346-378`).
 
-- **claude** - `install_claude` (`bin/tezgah-setup:387-397`): `~/.claude/statusline.py`,
+- **claude** - `install_claude` (`bin/tezgah-setup:389-399`): `~/.claude/statusline.py`,
   `~/.claude/workflows/{cbm-map,cbm-review,cbm-impact}.js`, the
   `~/.claude/bin/{consult,codegen,tezgah-render-table}` links, and two keys in
-  `~/.claude/settings.json` - `statusLine` (`:421-435`) and the attribution
-  off-switch (`:400-418`). Its hook manifest is the plugin's own
+  `~/.claude/settings.json` - `statusLine` (`bin/tezgah-setup:423-437`) and the attribution
+  off-switch (`bin/tezgah-setup:402-420`). Its hook manifest is the plugin's own
   `hooks/hooks.json`; no `hooks.json` is written into `~/.claude`. Claude runs a
   **copy** of the checkout under `~/.claude/plugins/cache`, refreshed by
-  `--sync` (`:1978-2052`).
-- **codex** - `install_codex` (`bin/tezgah-setup:438-462`): `$CODEX_HOME/hooks.json`
+  `--sync` (`bin/tezgah-setup:1980-2054`).
+- **codex** - `install_codex` (`bin/tezgah-setup:440-465`): `$CODEX_HOME/hooks.json`
   (one group per event, PreToolUse carrying `CODEX_PRETOOL_MATCHER` at `:112-113`),
   `skills/*` symlinks, `~/.codex/bin/consult`, and `mcp_servers.*` tables in
-  `config.toml` (`ensure_toml_mcp`, `:469-500`).
-- **cursor** - `install_cursor` (`bin/tezgah-setup:805-859`): `~/.cursor/hooks.json`
+  `config.toml` (`ensure_toml_mcp`, `bin/tezgah-setup:472-502`).
+- **cursor** - `install_cursor` (`bin/tezgah-setup:807-863`): `~/.cursor/hooks.json`
   (tezgah entries replaced, a user's Orca entries merged), `skills/*` symlinks,
   `mcp.json` servers, and `cli-config.json` `statusLine`.
-- **opencode** - `install_opencode` (`bin/tezgah-setup:727-802`): the plugin under
+- **opencode** - `install_opencode` (`bin/tezgah-setup:729-804`): the plugin under
   both `plugins/` and `plugin/` (version drift), `skills/*` symlinks, the
-  generated `~/.config/tezgah/opencode-contract.md` (`:526-560`) and
-  `opencode-skills.md` + `.full.md` (`:681-723`), then `opencode.json`
+  generated `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:528-563`) and
+  `opencode-skills.md` + `.full.md` (`bin/tezgah-setup:684-726`), then `opencode.json`
   (`instructions`, `mcp`, `permission.skill=deny`, `compaction.prune`,
   `watcher.ignore`, the two `external_directory` grants) and `tui.json` +
   `tui-plugins/tezgah-tui.tsx`.
-- **dsh** - `install_dsh` (`bin/tezgah-setup:963-970`): `~/.dsh/skills/*` symlinks,
-  a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `:891-925`) that
+- **dsh** - `install_dsh` (`bin/tezgah-setup:965-973`): `~/.dsh/skills/*` symlinks,
+  a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:893-927`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
   rows and the two `llm-pi-ai` routes, plus `~/.local/bin/dsh` ->
-  `bin/tezgah-dsh`. `install_dsh_statusline` (`:940-960`) links the statusline
+  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:942-962`) links the statusline
   package into the **web profile** and adds its row to
   `~/.dsh/profiles/web/cordis.patch.yml`.
-- **omp** - `install_omp` (`bin/tezgah-setup:1019-1066`): `~/.omp/agent/RULES.md`
+- **omp** - `install_omp` (`bin/tezgah-setup:1021-1067`): `~/.omp/agent/RULES.md`
   (managed block), `skills/*` symlinks, `agents/tezgah-*.md`, `mcp.json`
   (`$schema`, `mcpServers`), and `hooks/pre/tezgah-hook.ts` rendered from
   `hosts/omp/tezgah-hook.ts.in` with the python path substituted for `@HOOK@`.
 
 An adapter is responsible for its host's **envelope** and its **surface**: it
 translates the host's event and tool names into the shared vocabulary (one call
-has to hash to one id - `hosts/codex/hook.py:70-79`, `hosts/cursor/hook.py:61-68`),
+has to hash to one id - `hosts/codex/hook.py:70-79`, `hosts/cursor/hook.py:62-69`),
 draws the line, and returns the host's own output shape. The contract text, the
 gate decision, the evidence ledger, the untrusted-content marks and the segment
 builder stay in the shared core under `hooks/` (`hosts/omp/hook.py:1-11`,
@@ -296,14 +296,14 @@ builder stay in the shared core under `hooks/` (`hosts/omp/hook.py:1-11`,
 ### The observability rule
 
 A skill read is observable only where the host gives a channel that does not cost
-a process per read: Claude parses its transcript (`statusline.py:57-103`),
-opencode classifies in process (`hosts/opencode/plugins/tezgah.js:1111-1145`),
+a process per read: Claude parses its transcript (`statusline.py:58-107`),
+opencode classifies in process (`hosts/opencode/plugins/tezgah.js:1195-1223`),
 omp filters in its embedded runner before it asks python
 (`hosts/omp/tezgah-hook.ts.in:40-53`). On codex, cursor and dsh a read is not
 observable at that price, so their surfaces pass the four tool-use measures as
 `observable` and the two skill marks render dim (`info`, no glyph) instead of
-claiming the skill was never opened (`hooks/tezgah_context.py:1105-1113`, and the
-`observable` branch at `:1162-1165`). Callers that pass `TOOL_USE_MEASURES`:
+claiming the skill was never opened (`hooks/tezgah_context.py:1141-1147`, and the
+`observable` branch at `hooks/tezgah_context.py:1198-1199`). Callers that pass `TOOL_USE_MEASURES`:
 `statusline.py:112`, `hosts/codex/hook.py:163,177`,
 `hosts/dsh/statusline/lib/index.js:18`. A kill switch is observable everywhere
 and still renders `off` (`hooks/tezgah_context.py:1162-1163`).
@@ -320,18 +320,18 @@ In order, each step verified by the one below it:
 2. The hook adapter(s) under `hosts/<host>/` (an `install_*`-independent
    directory like `hosts/codex/hook.py`, `hosts/cursor/hook.py`) plus, for a
    TS/JS host, the bridge file with a substituted python path
-   (`hosts/omp/tezgah-hook.ts.in` rendered at `bin/tezgah-setup:1056-1066`).
+   (`hosts/omp/tezgah-hook.ts.in` rendered at `bin/tezgah-setup:1058-1067`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
-   (`bin/tezgah-setup:1068-1070`), and `uninstall_<host>()` removing only
-   tezgah-managed links and blocks (`bin/tezgah-setup:1381-1446`).
+   (`bin/tezgah-setup:1070-1072`), and `uninstall_<host>()` removing only
+   tezgah-managed links and blocks (`bin/tezgah-setup:1383-1483`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
-   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:1939-1941`); the
-   `--report` output is that list (`:1716-1748`). Give the row a home-qualified
+   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:1941-1943`); the
+   `--report` output is that list (`bin/tezgah-setup:1718-1750`). Give the row a home-qualified
    label if the host's dir can be relocated (`host_checks_codex`, `:1784-1785`).
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
-   not fork git for a cosmetic glyph (`hooks/tezgah_context.py:1145-1150`).
+   not fork git for a cosmetic glyph (`hooks/tezgah_context.py:1150-1151`).
 6. Tests, in two tiers: a per-host class in `tests/test_setup.py` pinning the
    report rows and the written files (e.g. `OmpHost:776-847`,
    `CodexHome:507-534`, `CursorMatcher:536-554`, `DshStatusline:688-763`), and an
@@ -350,31 +350,31 @@ In order, each step verified by the one below it:
   accepts SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart,
   SubagentStop and Stop, and silently drops anything else - which is why
   `configPath` names `hosts/dsh/hooks.json` and not the Claude manifest
-  (`bin/tezgah-setup:899-901`). Its status route goes through `tezgah-status`
+  (`bin/tezgah-setup:901-903`). Its status route goes through `tezgah-status`
   with the four tool-use measures (`hosts/dsh/statusline/lib/index.js:18`), it
   declares `TEZGAH_CALL_OUTCOME=none` because the bridge drops the outcome field
   (`hosts/dsh/hooks.json:16`, `hooks/projects-posttooluse.py:86-95`), and its
   statusline row lives in the web profile because the plugin injects the
-  web-only `connection` service (`bin/tezgah-setup:928-937`).
+  web-only `connection` service (`bin/tezgah-setup:930-935`).
 - **opencode has no session-start hook**, so its always-on file must carry the
   pointer every hook host appends, and the per-session index, agent and contract
-  refreshes ride the first `chat.message` instead (`bin/tezgah-setup:544-553`,
-  `hosts/opencode/plugins/tezgah.js:1414-1426`). It denies the native `skill`
+  refreshes ride the first `chat.message` instead (`bin/tezgah-setup:546-555`,
+  `hosts/opencode/plugins/tezgah.js:1520-1531`). It denies the native `skill`
   tool - the generated router replaces the injected skill list
-  (`bin/tezgah-setup:759-761`) - and `permission.ask` may never be emitted by a
+  (`bin/tezgah-setup:761-763`) - and `permission.ask` may never be emitted by a
   given build, which is why `tool.execute.before` stays the enforcing half
-  (`hosts/opencode/plugins/tezgah.js:10-12`).
+  (`hosts/opencode/plugins/tezgah.js:11-14`).
 - **Cursor only runs a PreToolUse hook for the tool types its matcher names**, so
   the matcher must list the write spellings or the gate's edit branches are
   unreachable there (`hosts/cursor/hook.py:34-40`,
   `bin/tezgah-setup:114-116`).
-- **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:1978-1993`),
+- **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:1980-1994`),
   so a change is not live until `--sync` or a refresh
-  (`refresh_plugin_copy`, `:2055-2072`).
+  (`refresh_plugin_copy`, `bin/tezgah-setup:2057-2063`).
 - **omp spawns the MCP `command` as one executable** and takes the rest in
-  `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1041-1045`),
+  `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1043-1045`),
   and `setStatus` strips ANSI, so only the widget path keeps the per-mark colors
-  (`hosts/omp/tezgah-hook.ts.in:11-15`).
+  (`hosts/omp/tezgah-hook.ts.in:12-15`).
 
 ### Source of truth
 
@@ -405,7 +405,7 @@ surface is [hosts.md](page-hosts).
 Every string is a module constant in `hooks/tezgah_policy.py`, so that every
 host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 (`{ROOT}`, `{CONSULT_BIN}`, `{ORX_BIN}`, …) are filled at injection time by
-`render()` (`hooks/tezgah_context.py:82-93`).
+`render()` (`hooks/tezgah_context.py:89-100`).
 
 ### The four surfaces
 
@@ -416,20 +416,20 @@ host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 | per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:654-670`) | every user prompt |
 | on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:673-675`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
 
-`context_for(event, …)` is the one dispatcher (`hooks/tezgah_context.py:684`):
+`context_for(event, …)` is the one dispatcher (`hooks/tezgah_context.py:712`):
 `session_start`/`post_compact` build core plus live state, `user_prompt` builds
 the reminder plus whatever was armed, `subagent_start` builds a short brief
 (`hooks/tezgah_context.py:755`). Outside every configured root it returns `None`
 (`hooks/tezgah_context.py:695-696`). A host whose static always-on file already
 carries the core passes `with_core=False` so the session does not pay for the
-contract twice (`hooks/tezgah_context.py:689-694`); a delegated agent gets
+contract twice (`hooks/tezgah_context.py:717-722`); a delegated agent gets
 `subagent_core()`, which keeps every always-on label and its opening clause and
-points at the skill (`hooks/tezgah_context.py:550-577`).
+points at the skill (`hooks/tezgah_context.py:576-603`).
 
 ### Composition order of the always-on core
 
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
-the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:63-79`).
+the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:70-86`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
 `**Turkish, BLUF.**` :488, `**Ponytail (minimal code).**` :497, `**Output shape:
 ADHD-friendly.**` :508, `**Deliver the whole ask; never the shortcut.**` :518,
@@ -442,81 +442,81 @@ attribution, ever, on any host.**` :602, `**Irreversible or outward-facing
 actions need an explicit ask first.**` :612, `**Session scope: the user's repo,
 not tezgah.**` :621, `**Kill switches:**` :630.
 
-`always_on_core()` (`hooks/tezgah_context.py:539-547`) drops the four
+`always_on_core()` (`hooks/tezgah_context.py:565-573`) drops the four
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:648-650`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, the code graph. That is what a host with
 no prompt-time hook writes into a static file: opencode's
-`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:526-561`) and omp's
-managed `RULES.md` (`bin/tezgah-setup:1023-1025`). Claude applies
+`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:528-563`) and omp's
+managed `RULES.md` (`bin/tezgah-setup:1025-1027`). Claude applies
 `output-styles/tezgah.md` as a plugin output style instead
 (`output-styles/tezgah.md:11-12`); Codex and Cursor receive the same core from
 their session-start hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:203`). `core_for()`
-(`hooks/tezgah_context.py:530-537`) is that text with the kill-switch filtering
+(`hooks/tezgah_context.py:556-562`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
 ### What each always-on rule is for
 
 - **Turkish, BLUF.** Every user-facing reply is Turkish even when the prompt is English, outcome first; code, commits, docs and subagent prompts stay English.
-- **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py:91-103`).
-- **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement (`CHANGELOG.md:29-32`, `plans/done/001-act-on-it-rule-and-level-switch.md:33-35`).
+- **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py:103-110`).
+- **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement (`CHANGELOG.md:37-40`, `plans/done/001-act-on-it-rule-and-level-switch.md:33-35`).
 - **Deliver the whole ask; never the shortcut.** The request is a floor: no cheaper stand-in, no silent scope cut, no token gesture reported as done.
 - **Integrity: evidence, or "doğrulanmadı".** A done/tested claim holds only if the check ran in this session and its output was seen; the mechanical half is enforced by [gate.md](page-gate).
 - **Loop discipline.** Never repeat an identical failing command; three attempts is the ceiling, then report what is still unknown.
 - **Lessons ledger: stop repeating mistakes.** `.tezgah/lessons.md` lines are standing constraints; the recent ones are injected at session start.
 - **No AI attribution, ever, on any host.** Nothing persisted or published may name a model, vendor or "AI" as author, co-author, generator or helper.
-- **Irreversible or outward-facing actions need an explicit ask first.** The one invariant: it stays armed whatever the classifier decides (`tests/test_context.py:1063-1074`), because the classifier is advisory.
+- **Irreversible or outward-facing actions need an explicit ask first.** The one invariant: it stays armed whatever the classifier decides (`tests/test_context.py:1177-1187`), because the classifier is advisory.
 - **Session scope: the user's repo, not tezgah.** The session never maintains tezgah itself; a missing capability is one line plus the documented fallback.
 - **Kill switches.** The switch list itself, so a session can tell the user how to disarm a rule it is asked to ignore; pinned against the shipped skill by `tests/test_skills.py:99-109`.
 
 ### Arming the conditional paragraphs, and the per-turn reminder
 
-`PROMPT_HINTS` (`hooks/tezgah_context.py:35-54`) is one compiled pattern per key
+`PROMPT_HINTS` (`hooks/tezgah_context.py:42-58`) is one compiled pattern per key
 — `spec`, `consult`, `research`, `cbm` — and `classify_prompt()` returns the keys
-a prompt matches (`hooks/tezgah_context.py:440-443`). On that turn only, the
+a prompt matches (`hooks/tezgah_context.py:466-469`). On that turn only, the
 matching paragraphs are appended after the reminder
 (`hooks/tezgah_context.py:721-729`); a session that never asks such a question
 pays the one-line pointer instead. The patterns carry Turkish stems because the
 user writes Turkish, and a plain prompt arms nothing. The same prompt arms the
-same rules on every host (`tests/test_context.py:1031-1052`) and each advisory
-rule keeps a pointer line in the always-on text (`tests/test_context.py:1054-1061`).
+same rules on every host (`tests/test_context.py:1145-1166`) and each advisory
+rule keeps a pointer line in the always-on text (`tests/test_context.py:1168-1175`).
 
 `PROMPT_REMINDER` is the compact restatement of the invariants, about a third of
 the long form and still inside the `<harness-reminder>` envelope the hosts and
 tests look for (`hooks/tezgah_policy.py:652-653`), with its `{PONY_LEVEL}` slot naming a non-default ponytail level
-(`hooks/tezgah_context.py:96-103`). The session-start text ends with the pointer
+(`hooks/tezgah_context.py:103-110`). The session-start text ends with the pointer
 telling the model to load `tezgah-contract` for the deep detail
-(`hooks/tezgah_context.py:805-818`), whose two appendixes apply only on a machine
+(`hooks/tezgah_context.py:839`), whose two appendixes apply only on a machine
 missing the code graph or every consult key (`hooks/tezgah_policy.py:424-442`).
 
 ### How a rule is disarmed
 
 A kill switch removes the rule's text, not just a status mark
-(`hooks/tezgah_context.py:533-534`). `off()` checks `~/.config/tezgah` and the
+(`hooks/tezgah_context.py:559-560`). `off()` checks `~/.config/tezgah` and the
 legacy `~/.claude` (`hooks/tezgah_paths.py:43-45`, `:218-220`); the drop itself
 happens in `core_split()`.
 
 | Switch file | Rule it removes | Where the drop is implemented |
 |---|---|---|
-| `exec-mode.off` | `**Turkish, BLUF.**` | `hooks/tezgah_context.py:487-489` |
-| `ponytail-auto.off` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:490-493` |
-| `adhd-off` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:494-496` |
-| `spec-off` | `**Spec before building.**` | `hooks/tezgah_context.py:497-499` |
-| `verify-off` | `**Integrity: evidence…**` | `hooks/tezgah_context.py:500-502` |
-| `consult-off` | `**Consult before irreversible.**` | `hooks/tezgah_context.py:506-508` |
-| `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py:509-511` |
-| `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py:512-513` disables it, `:805-809` injects "Orchestration is off", and the skill-ignore note is `:700-704` |
-| `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:719-720` returns `None` |
+| `exec-mode.off` | `**Turkish, BLUF.**` | `hooks/tezgah_context.py:513-515` |
+| `ponytail-auto.off` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:516-519` |
+| `adhd-off` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:520-522` |
+| `spec-off` | `**Spec before building.**` | `hooks/tezgah_context.py:523-525` |
+| `verify-off` | `**Integrity: evidence…**` | `hooks/tezgah_context.py:526-528` |
+| `consult-off` | `**Consult before irreversible.**` | `hooks/tezgah_context.py:532-534` |
+| `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py:535-537` |
+| `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py:538-539` disables it, `:805-809` injects "Orchestration is off", and the skill-ignore note is `hooks/tezgah_context.py:730-732` |
+| `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:780-782` returns `None` |
 | `pretooluse-off` | the gate's denials, not a rule | [gate.md](page-gate) |
-| `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:490-493` |
-| `.no-adhd` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:494-496` |
-| `.no-cbm` | `**Code discovery: graph first.**` | `hooks/tezgah_context.py:514-516` |
-| `.no-lessons` | `**Lessons ledger: stop repeating mistakes.**` | `hooks/tezgah_context.py:503-505`, and the lessons block is not injected (`:792-794`) |
+| `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:516-519` |
+| `.no-adhd` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:520-522` |
+| `.no-cbm` | `**Code discovery: graph first.**` | `hooks/tezgah_context.py:540-542` |
+| `.no-lessons` | `**Lessons ledger: stop repeating mistakes.**` | `hooks/tezgah_context.py:529-531`, and the lessons block is not injected (`hooks/tezgah_context.py:826-829`) |
 
 The last four are per-repo [marks](#per-repo-mark), read by
 `repo_marks()`, walking up to the enclosing [root](#root)
-(`hooks/tezgah_context.py:967-980`). Every switch that fired is named back to the
-session at start (`:805-818`) and per turn (`:747-748`), with the instruction to
+(`hooks/tezgah_context.py:1001-1014`). Every switch that fired is named back to the
+session at start (`hooks/tezgah_context.py:839`) and per turn (`hooks/tezgah_context.py:780-782`), with the instruction to
 ignore the matching section in `tezgah-contract` — that skill is loaded
 separately and would otherwise re-arm the rule. `tezgah-adhd off` writes the same
 channel as the file (`bin/tezgah-adhd:19`); the ponytail *level* is not a switch.
@@ -530,11 +530,11 @@ they survive every other switch being off.
 1. Write the full text as a constant in `hooks/tezgah_policy.py`.
 2. If not every session should pay it, add the key to `CONDITIONAL_KEYS`
    (`hooks/tezgah_policy.py:643`), a pattern to `PROMPT_HINTS`
-   (`hooks/tezgah_context.py:35-54`) and a line to `POINTERS`
+   (`hooks/tezgah_context.py:42-58`) and a line to `POINTERS`
    (`hooks/tezgah_policy.py:648-650`); the two halves are asserted together
-   (`tests/test_context.py:1054-1061`).
+   (`tests/test_context.py:1168-1175`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
-   pair to `CORE_RULES` (`hooks/tezgah_context.py:63-79`). The label is the
+   pair to `CORE_RULES` (`hooks/tezgah_context.py:70-86`). The label is the
    contract: `core_split()` matches paragraphs by it and `subagent_core()` builds
    the brief from it, so a label edit fails loudly instead of silently dropping
    a rule.
@@ -545,9 +545,9 @@ they survive every other switch being off.
    always-on — a warm interpreter serves a stale `CORE`.
 6. Last step, the tests that pin it: add the label to `KillSwitchEnforcement`
    (`tests/test_context.py:364-380`) and, for a conditional rule, to the
-   `ArmingConformance` label map (`:1012-1015`); then run the mirror pair —
+   `ArmingConformance` label map (`tests/test_context.py:1126-1129`); then run the mirror pair —
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
-   (`tests/test_context.py:1116-1124`) and
+   (`tests/test_context.py:1230-1238`) and
    `ContractParity.test_every_rule_and_heading_in_the_contract_reaches_the_skill`
    (`tests/test_setup.py:604-618`).
 
@@ -555,7 +555,7 @@ they survive every other switch being off.
 
 | Copy A | Copy B | Test that fails when only one changed |
 |---|---|---|
-| `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:1116` |
+| `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:1230` |
 | `policy.CONTRACT` (`hooks/tezgah_policy.py:673`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:604` |
 
 The second pair is also hashed as one source for the generated opencode contract
@@ -563,27 +563,27 @@ The second pair is also hashed as one source for the generated opencode contract
 changed; `ContractParity` is what notices that only one of them did, which is the
 drift that actually happens (`tests/test_setup.py:593-596`). `tezgah-setup
 --refresh` re-renders the generated artifacts in a running session when that hash
-is stale (`bin/tezgah-setup:564-579`, `:2277-2280`).
+is stale (`bin/tezgah-setup:566-581`, `bin/tezgah-setup:2279-2281`).
 
 ### When the injected text grows too large
 
 Each event has a byte budget: `session_start` and `post_compact` 12000,
 `user_prompt` 6000, `subagent_start` 4000, anything else 12000
-(`hooks/tezgah_context.py:604-606`). Each sits at about 1.5× the largest text
+(`hooks/tezgah_context.py:630-631`). Each sits at about 1.5× the largest text
 that event was measured to build in this repository, so it never fires on a
 healthy repo and fires before a pathological one reaches the model; it is a byte
-count, not a token estimate (`hooks/tezgah_context.py:594-603`).
+count, not a token estimate (`hooks/tezgah_context.py:620-629`).
 
 Over budget, `budgeted()` gives up whole blocks in `DROP_ORDER`, lowest value
 first — the lessons and their neighbours before the tooling-availability lines,
 the live graph and state lines, the delta, and the skill pointer last
-(`hooks/tezgah_context.py:614-616`, `:652-681`). Any key absent from that tuple is
+(`hooks/tezgah_context.py:642-644`, `hooks/tezgah_context.py:680-709`). Any key absent from that tuple is
 never dropped: the core, the reminder and the armed paragraphs are the rules, and
 a budget able to spend them would turn bloat into rule loss. The note naming what
 went is appended after the count, so the sentence explaining the trim cannot force
 another one, and it says so when what remains is still over the limit
-(`:621-631`); the drop is logged to `~/.cache/tezgah/context-drops.log`, truncated
-to its last 200 lines (`:634-650`).
+(`hooks/tezgah_context.py:647-659`); the drop is logged to `~/.cache/tezgah/context-drops.log`, truncated
+to its last 200 lines (`hooks/tezgah_context.py:662-677`).
 
 ### Source of truth
 
@@ -606,8 +606,8 @@ report, and for the session that has just met a refusal in its transcript. [arch
 ### Where it sits in the call path
 
 One function decides every refusal: `decision(tool, inp, cwd, session_id)` returns a reason string or `None`, and nothing else
-(`hooks/tezgah_gate.py:976-1115`). It answers only inside a tezgah [root](#root): outside one `root_for` returns nothing and every call passes
-(`:980-982`). The `pretooluse-off` kill switch drops the whole gate (`:978-979`).
+(`hooks/tezgah_gate.py:1150-1312`). It answers only inside a tezgah [root](#root): outside one `root_for` returns nothing and every call passes
+(`hooks/tezgah_gate.py:1154-1156`). The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py:1152-1153`).
 
 Each host's pre-tool hook calls it and wraps the string in that host's own deny envelope — opencode's is its `tool.execute.before`, which throws
 `new Error(deny)`; a `None` prints no envelope at all.
@@ -616,10 +616,10 @@ Each host's pre-tool hook calls it and wraps the string in that host's own deny 
 |---|---|---|
 | claude, dsh | `hooks/projects-pretooluse.py:24-30` (`hosts/dsh/hooks.json:13`) | `hookSpecificOutput.permissionDecision: "deny"` |
 | codex, cursor, omp | `hosts/codex/hook.py:118-125`, `hosts/cursor/hook.py:279-281`, `hosts/omp/hook.py:117-120` | that host's own envelope — [hosts.md](page-hosts) |
-| opencode | `hosts/opencode/plugins/tezgah.js:1293` | `new Error(deny)` thrown at `:1348` |
+| opencode | `hosts/opencode/plugins/tezgah.js:1372` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:1453` |
 
 Every refusal is also recorded before it is returned: `_deny` appends a ledger row `deny` whose `detail` is `"<rule>: <reason, first 80 chars>"`, plus any
-`extra` (`hooks/tezgah_gate.py:959-974`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
+`extra` (`hooks/tezgah_gate.py:1133-1147`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
 
 ### The rules, in the order `decision` checks them
 
@@ -628,8 +628,8 @@ identical call; *standing*, only changing the call does.
 
 #### Explorer — the grep-only subagent
 
-Trigger: tool `agent`/`task`/`subagent` whose `subagent_type` is `explore` or `explorer`, case-insensitively (`:985-986`, `explored` `:333-335`). Told: use
-the general-purpose agent and name `search_graph`, `trace_path`, `search_code` in its prompt (`EXPLORE_DENY` `:302-306`). Standing: no mark, every such
+Trigger: tool `agent`/`task`/`subagent` whose `subagent_type` is `explore` or `explorer`, case-insensitively (`hooks/tezgah_gate.py:1158-1159`, `explored` `hooks/tezgah_gate.py:360-362`). Told: use
+the general-purpose agent and name `search_graph`, `trace_path`, `search_code` in its prompt (`EXPLORE_DENY` `hooks/tezgah_gate.py:329-333`). Standing: no mark, every such
 request is refused.
 
 #### Shortcut — a check made unable to fail, or a test disabled
@@ -639,144 +639,144 @@ Trigger, shell: `--no-verify`, or `SKIP=`/`HUSKY_SKIP_HOOKS=`/`HUSKY=0`, next to
 introduced into a test file — the path must match `tests?/`, `test_*`, `*_test`, `*.test.*` (`TEST_PATH` `:75-78`), the marker must survive `mask()` so one
 inside a string or comment does not count, and `_added` compares against the file's own text on disk for a `Write` (`:753-787`, `SKIP_TEST` `:65-70`). Told:
 the texts at `:716-726` and `:783-786` — run the checks, or say the test is failing; ask the user first if the skip is intended. Standing, with one switch:
-`verify-off` removes this check (`hooks/tezgah_gate.py:994-1002`).
+`verify-off` removes this check (`hooks/tezgah_gate.py:1168-1176`).
 
 #### Attribution — an AI/model credit on its way into an artifact
 
-Trigger, shell: a write command (`WRITE_CMD` `:114-120` — `git commit|merge|tag|notes`, `gh api`,
-`gh pr|issue|release create|edit|comment|review|merge|close`) carrying a credit form (`ATTRIB` `:92-94` — `co-authored-by:`, `generated with`, `made with`,
-`built by`, `assisted by`, `authored by`, `noreply@anthropic`, a robot emoji). Trigger, edit/write: one of the content fields `EDIT_TEXT` (`:109-110`)
-containing a line that *starts* with a credit (`ATTRIB_LINE` `:105-107`). Told: remove it and re-run; naming a tool in order to use it is fine, crediting it
-as author is not (`ATTRIB_DENY` `:308-312`). Standing. The line anchor is why prose that merely names the banned forms passes (`:95-102`).
+Trigger, shell: a write command (`WRITE_CMD` `hooks/tezgah_gate.py:141-147` — `git commit|merge|tag|notes`, `gh api`,
+`gh pr|issue|release create|edit|comment|review|merge|close`) carrying a credit form (`ATTRIB` `hooks/tezgah_gate.py:119-121` — `co-authored-by:`, `generated with`, `made with`,
+`built by`, `assisted by`, `authored by`, `noreply@anthropic`, a robot emoji). Trigger, edit/write: one of the content fields `EDIT_TEXT` (`hooks/tezgah_gate.py:136-137`)
+containing a line that *starts* with a credit (`ATTRIB_LINE` `hooks/tezgah_gate.py:132-134`). Told: remove it and re-run; naming a tool in order to use it is fine, crediting it
+as author is not (`ATTRIB_DENY` `hooks/tezgah_gate.py:335-339`). Standing. The line anchor is why prose that merely names the banned forms passes (`hooks/tezgah_gate.py:122-131`).
 
 #### Race — another session wrote this file minutes ago
 
-Trigger: a write tool whose path, or `apply_patch` header, another session recorded a write of inside `RACE_WINDOW_MIN = 10` minutes (`:811`, `race_reason`
-`:844-861`, reader `writers_elsewhere` `hooks/tezgah_integrity.py:514`). Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
-`:816-822`). Standing (`RACE_REFUSE = True` `:815`) — a notice would not close a silent overwrite — and it lifts only by time.
+Trigger: a write tool whose path, or `apply_patch` header, another session recorded a write of inside `RACE_WINDOW_MIN = 10` minutes (`hooks/tezgah_gate.py:838`, `race_reason`
+`hooks/tezgah_gate.py:871-888`, reader `writers_elsewhere` `hooks/tezgah_integrity.py:514`). Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
+`hooks/tezgah_gate.py:843-852`). Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py:842`) — a notice would not close a silent overwrite — and it lifts only by time.
 
 #### Untrusted sink — an effect in a turn that read what tezgah cannot vouch for
 
 Trigger: this user turn has a read row carrying a `source` (web, mcp, network), and the call is an effect — a *tool* write whose realpath leaves the rule's
-root (`outside_paths` `:726-741`) or a shell command of any effect class (`:1053`; a shell redirect out of the root is not this rule's, see below). Told: put
-it in front of the user; content is not the user, so an approval given before the read does not cover it (`UNTRUSTED_DENY` `:712-720`). Lifts only on an
-unspent user `grant` newer than the read (`sink_check` `:745-772`). The refusal leaves the same `consent` ask row the rule below uses, labelled
-`outside-workspace` when the realpath is what makes the call a sink (`SINK_WRITE` `:723`, `:1026`), so `bin/tezgah-consent` answers it identically. A write
+root (`outside_paths` `hooks/tezgah_gate.py:753-769`) or a shell command of any effect class (`hooks/tezgah_gate.py:1245-1247`; a shell redirect out of the root is not this rule's, see below). Told: put
+it in front of the user; content is not the user, so an approval given before the read does not cover it (`UNTRUSTED_DENY` `hooks/tezgah_gate.py:739-748`). Lifts only on an
+unspent user `grant` newer than the read (`sink_check` `hooks/tezgah_gate.py:772-800`). The refusal leaves the same `consent` ask row the rule below uses, labelled
+`outside-workspace` when the realpath is what makes the call a sink (`SINK_WRITE` `hooks/tezgah_gate.py:750`, `hooks/tezgah_gate.py:1223`), so `bin/tezgah-consent` answers it identically. A write
 *inside* the root is not this rule's sink.
 
 #### Consent — an irreversible or outward-facing command
 
-Trigger: `effect_class` returns one of six classes for the command's masked text (`:587-630`, first match wins, in the order below).
+Trigger: `effect_class` returns one of six classes for the command's masked text (`hooks/tezgah_gate.py:614-657`, first match wins, in the order below).
 
 | Class | Matched by |
 |---|---|
-| `destructive` | a `git push` carrying `-f`/`--force*` whose segment is not scratch (`:613-616`, `GIT_PUSH` `:126-127`, `FORCE_FLAG` `:128-129`, `SCRATCH` `:130-131`); `git branch -D`/`--delete`, `git push --delete`/`-d` (`BRANCH_DELETE` `:134-138`); a recursive force `rm` outside the run directory (`rm_outside` `:542-584`, `RM` `:143`, `RM_RECURSIVE` `:144`, `RM_FORCE` `:145`) |
-| `schema` | a migration runner (`MIGRATION` `:157-165`) |
-| `deploy` | a deploy runner (`DEPLOY` `:167-176`) |
-| `publish` | a registry/release/image push (`PUBLISH` `:178-183`) |
-| `outward` | a `git push` to `heroku`/`production`/`prod` (`OUTWARD` `:185-187`) |
-| `send` | mail, a payment API, `nc`/`ncat`/`scp`/`rsync`, or a `curl`/`gh api` with a write method or a body (`SEND` `:199-212`) |
+| `destructive` | a `git push` carrying `-f`/`--force*` whose segment is not scratch (`:613-616`, `GIT_PUSH` `hooks/tezgah_gate.py:180-181`, `FORCE_FLAG` `hooks/tezgah_gate.py:182-183`, `SCRATCH` `hooks/tezgah_gate.py:157-158`); `git branch -D`/`--delete`, `git push --delete`/`-d` (`BRANCH_DELETE` `hooks/tezgah_gate.py:161-165`); a recursive force `rm` outside the run directory (`rm_outside` `hooks/tezgah_gate.py:569-611`, `RM` `hooks/tezgah_gate.py:170`, `RM_RECURSIVE` `hooks/tezgah_gate.py:171`, `RM_FORCE` `hooks/tezgah_gate.py:172`) |
+| `schema` | a migration runner (`MIGRATION` `hooks/tezgah_gate.py:184-192`) |
+| `deploy` | a deploy runner (`DEPLOY` `hooks/tezgah_gate.py:194-203`) |
+| `publish` | a registry/release/image push (`PUBLISH` `hooks/tezgah_gate.py:205-210`) |
+| `outward` | a `git push` to `heroku`/`production`/`prod` (`OUTWARD` `hooks/tezgah_gate.py:212-214`) |
+| `send` | mail, a payment API, `nc`/`ncat`/`scp`/`rsync`, or a `curl`/`gh api` with a write method or a body (`SEND` `hooks/tezgah_gate.py:226-240`) |
 
-Told: the class and what it means, the action's digest, and `bin/tezgah-consent <digest>` (`CONSENT_DENY` `:270-279`, `consent_reason` `:663-678`) — never the
-pattern that matched. Standing until the user's own `grant`; a re-issue adds nothing (`ASK_STANDS_NOTE` `:284-286`). A command may declare
-`tezgah:effect=<class>` (`DECLARED_EFFECT` `:268`) for an effect no pattern sees; a declaration can only raise the class along `EFFECT_RANK` (`:261`), and a
-lowering one is named in the refusal (`consent_effect` `:641-661`, `DOWNGRADE_NOTE` `:291-293`). A `rm -rf` whose every target is under a temp root is scratch
-and asks nobody (`SCRATCH_ROOTS` `:153-154`, `scratch_ok=True` at `:1050`; the sink half still counts it, `:1048-1049`).
+Told: the class and what it means, the action's digest, and `bin/tezgah-consent <digest>` (`CONSENT_DENY` `hooks/tezgah_gate.py:297-309`, `consent_reason` `hooks/tezgah_gate.py:690-704`) — never the
+pattern that matched. Standing until the user's own `grant`; a re-issue adds nothing (`ASK_STANDS_NOTE` `hooks/tezgah_gate.py:311-313`). A command may declare
+`tezgah:effect=<class>` (`DECLARED_EFFECT` `hooks/tezgah_gate.py:295`) for an effect no pattern sees; a declaration can only raise the class along `EFFECT_RANK` (`hooks/tezgah_gate.py:288`), and a
+lowering one is named in the refusal (`consent_effect` `hooks/tezgah_gate.py:668-687`, `DOWNGRADE_NOTE` `hooks/tezgah_gate.py:318-320`). A `rm -rf` whose every target is under a temp root is scratch
+and asks nobody (`SCRATCH_ROOTS` `hooks/tezgah_gate.py:180-181`, `scratch_ok=True` at `hooks/tezgah_gate.py:1247`; the sink half still counts it, `hooks/tezgah_gate.py:1245-1246`).
 
 #### Migration — the `schema` class of the rule above
 
 Trigger: `alembic`/`flyway`/`goose`/`dbmate`/`sqitch` plus an upgrade/down/rollback word, `knex|prisma|sequelize|typeorm ...migrat...`, `manage.py migrate`,
-`rails db:migrate|rollback|reset|schema:load` (`MIGRATION` `hooks/tezgah_gate.py:157-165`, matched at `:620`). Told: the `schema` clause and the consent path.
+`rails db:migrate|rollback|reset|schema:load` (`MIGRATION` `hooks/tezgah_gate.py:184-192`, matched at `hooks/tezgah_gate.py:647`). Told: the `schema` clause and the consent path.
 Standing until the user's grant.
 
 #### Secret — a credential on its way into a file
 
-Trigger: one simple command (split on `&&`, `||`, `;`, newline — `SEGMENT` `:238`) carrying both a token (`SECRET_TOKEN` `:221-224` — an
-`Authorization: Bearer` header, or a `name=value` assignment for `api_key`/`token`/`secret`/`password`/...) and a sink (`SECRET_SINK` `:229-231` — `>`/`>>`,
-`| tee`, a curl `--trace`, or `git add`); `secret_command` `:776-792`. Told: record the name, length or a fingerprint instead, and pass the value through the
-tool's environment (`SECRET_DENY` `:295-300`). Standing, no escape hatch.
+Trigger: one simple command (split on `&&`, `||`, `;`, newline — `SEGMENT` `hooks/tezgah_gate.py:265`) carrying both a token (`SECRET_TOKEN` `hooks/tezgah_gate.py:248-251` — an
+`Authorization: Bearer` header, or a `name=value` assignment for `api_key`/`token`/`secret`/`password`/...) and a sink (`SECRET_SINK` `hooks/tezgah_gate.py:256-258` — `>`/`>>`,
+`| tee`, a curl `--trace`, or `git add`); `secret_command` `hooks/tezgah_gate.py:803-819`. Told: record the name, length or a fingerprint instead, and pass the value through the
+tool's environment (`SECRET_DENY` `hooks/tezgah_gate.py:322-327`). Standing, no escape hatch.
 
 #### Loop — the identical attempt that already failed twice
 
-Trigger: the same call (same `call_id`) failed `LOOP_ATTEMPTS = 2` times already in the current user turn (`:403`, `loop_reason` `:425-453`). Told: attempt N
-of an identical call, the failure class read from the ledger, "change the approach or stop" (`:445-453`). Standing while the ledger tail still shows those
-failures. Under `verify-off` (`:1081`).
+Trigger: the same call (same `call_id`) failed `LOOP_ATTEMPTS = 2` times already in the current user turn (`hooks/tezgah_gate.py:430`, `loop_reason` `hooks/tezgah_gate.py:452-481`). Told: attempt N
+of an identical call, the failure class read from the ledger, "change the approach or stop" (`hooks/tezgah_gate.py:472-481`). Standing while the ledger tail still shows those
+failures. Under `verify-off` (`hooks/tezgah_gate.py:1278`).
 
 #### Retry — the session-wide ceiling
 
-Trigger: the same call has been attempted more than `RETRY_CEILING = 3` times in the session, whatever those attempts returned (`:422`, `retry_reason`
-`:456-479`). Told: an unchanged repeat is not a retry (`:474-479`). Standing. Under `verify-off` (`:1081`). Both guards read only the ledger tail.
+Trigger: the same call has been attempted more than `RETRY_CEILING = 3` times in the session, whatever those attempts returned (`hooks/tezgah_gate.py:449`, `retry_reason`
+`hooks/tezgah_gate.py:483-505`). Told: an unchanged repeat is not a retry (`hooks/tezgah_gate.py:501-506`). Standing. Under `verify-off` (`hooks/tezgah_gate.py:1278`). Both guards read only the ledger tail.
 
 #### Nudge — the first identifier-shaped search of a session
 
-Trigger: a `Grep` whose pattern, or a `grep`/`rg` argument (`BASH_SEARCH` `:88`), matches `IDENT` (`^[A-Za-z_][A-Za-z0-9_]{2,}$`, `:85`), in a repo whose
-codebase-memory db exists (`searched_identifier` `:338-350`, `index_slug` `:353-362`). Told: the index slug and the graph tools (`nudge_reason` `:382-386`).
-Once-only: the mark in `cache_dir()/nudged/<session>` is written *before* the refusal, so re-issuing the search passes (`first_nudge` `:365-379`).
+Trigger: a `Grep` whose pattern, or a `grep`/`rg` argument (`BASH_SEARCH` `hooks/tezgah_gate.py:115`), matches `IDENT` (`^[A-Za-z_][A-Za-z0-9_]{2,}$`, `hooks/tezgah_gate.py:112`), in a repo whose
+codebase-memory db exists (`searched_identifier` `hooks/tezgah_gate.py:392-377`, `index_slug` `hooks/tezgah_gate.py:380-389`). Told: the index slug and the graph tools (`nudge_reason` `hooks/tezgah_gate.py:409-414`).
+Once-only: the mark in `cache_dir()/nudged/<session>` is written *before* the refusal, so re-issuing the search passes (`first_nudge` `hooks/tezgah_gate.py:392-407`).
 
 #### Drift — a long turn loses the rules it started with
 
-Trigger: 25 work rows (`DRIFT_STEPS` `:873`) in the current user turn and an effectful call — a write tool, or a git/gh artifact command (`effectful`
-`:948-956`). Told: the standing constraints re-stated, or the delta since the turn began; "re-issue this call unchanged" (`DRIFT_DENY` `:878-883`,
-`drift_reason` `:921-946`). Once per turn: the `drift` mark is written before the refusal. Governed by `reminder-off`, not `verify-off` (`:1099`).
+Trigger: 25 work rows (`DRIFT_STEPS` `hooks/tezgah_gate.py:1047`) in the current user turn and an effectful call — a write tool, or a git/gh artifact command (`effectful`
+`hooks/tezgah_gate.py:1122-1130`). Told: the standing constraints re-stated, or the delta since the turn began; "re-issue this call unchanged" (`DRIFT_DENY` `hooks/tezgah_gate.py:1052-1057`,
+`drift_reason` `hooks/tezgah_gate.py:1095-1119`). Once per turn: the `drift` mark is written before the refusal. Governed by `reminder-off`, not `verify-off` (`hooks/tezgah_gate.py:1296`).
 
 ### The consent path
 
 The gate cannot ask a question mid-call, so the refusal *is* the ask: it records `consent` (the class as `detail`, the action's digest as `id`, the workspace)
-and returns the reason that names the digest (`hooks/tezgah_gate.py:1059-1067`). It never writes a `grant` — `consent_mark` reads by kind and id and treats
-only the CLI's row as an answer (`:517-539`) — so a re-issued command meets the refusal again, marked "the ask is on record already".
+and returns the reason that names the digest (`hooks/tezgah_gate.py:1256-1264`). It never writes a `grant` — `consent_mark` reads by kind and id and treats
+only the CLI's row as an answer (`hooks/tezgah_gate.py:544-566`) — so a re-issued command meets the refusal again, marked "the ask is on record already".
 
 The user answers with `bin/tezgah-consent <digest>` or `--last` (the newest ask no grant answers — `open_ask` `bin/tezgah-consent:42-51`, dispatch `:90-96`).
 The row written is `{"kind": "grant", "detail": "cli", "id": <digest>}` at `bin/tezgah-consent:109`, into the same session ledger the gate reads:
 `cache_dir()/evidence/<slug>.jsonl` (`hooks/tezgah_integrity.py:230-231`). The session is named by `TEZGAH_SESSION` where the host sets it, else every ledger
 is searched newest-first (`bin/tezgah-consent:62-66`).
 
-The window: both the ask and the grant are read from the last `CONSENT_TAIL = 200` rows (`hooks/tezgah_gate.py:485`). The grant is a one-shot lease, not a
+The window: both the ask and the grant are read from the last `CONSENT_TAIL = 200` rows (`hooks/tezgah_gate.py:512`). The grant is a one-shot lease, not a
 standing permit: `unspent_grant` counts it spent as soon as an outcome row (`exit`) with the same id follows it, so the next identical command is asked about
-again (`:488-514`).
+again (`hooks/tezgah_gate.py:515-541`).
 
 ### What the gate deliberately does not catch
 
 Read this before filing a security-ish issue; each is a decision, not an oversight.
 
-- A hand-written migration — `psql -c "ALTER TABLE ..."`. "reading SQL intent is not a regex" (`:155-156`).
-- A raw SQL `UPDATE` through `psql -c`: the statement sits in a quoted string that `mask()` blanks (`:193-197`, `hooks/tezgah_integrity.py:703-706`).
-- A shell write outside the root (`echo x > ../y`): "the class table is the shell's sink list" (`:709-711`).
+- A hand-written migration — `psql -c "ALTER TABLE ..."`. "reading SQL intent is not a regex" (`hooks/tezgah_gate.py:182-183`).
+- A raw SQL `UPDATE` through `psql -c`: the statement sits in a quoted string that `mask()` blanks (`hooks/tezgah_gate.py:222-225`, `hooks/tezgah_integrity.py:703-706`).
+- A shell write outside the root (`echo x > ../y`): "the class table is the shell's sink list" (`hooks/tezgah_gate.py:736-738`).
 - An effect whose target was not named in the user's prompt — the taxonomy's own version. A PreToolUse payload carries the call, never the prompt text, and
-  the prompt path stores only `sha1(prompt)[:12]` (`:687-700`).
+  the prompt path stores only `sha1(prompt)[:12]` (`hooks/tezgah_gate.py:717-721`).
 - A write inside the root after a fetch: left to the taint notice that `hooks/tezgah_untrusted.py` rides the first effect with, because it is recoverable from
-  the snapshot (`:702-709`).
-- `grep -A 3 foo`: a flag with its own value shifts the token, so the search passes unnudged (`:86-87`).
-- A path behind a `cd` in the same line resolves against `cwd`, not the `cd`: "it fails open, never closed" (`:555-556`).
-- A foreign `apply_patch` write: the PostToolUse writer records no path for that row (`:850-853`); and a second session that spells the path differently
-  escapes the rule, because the ledger keeps no `cwd` (`:827-828`).
+  the snapshot (`hooks/tezgah_gate.py:732-738`).
+- `grep -A 3 foo`: a flag with its own value shifts the token, so the search passes unnudged (`hooks/tezgah_gate.py:113-114`).
+- A path behind a `cd` in the same line resolves against `cwd`, not the `cd`: "it fails open, never closed" (`hooks/tezgah_gate.py:582-583`).
+- A foreign `apply_patch` write: the PostToolUse writer records no path for that row (`hooks/tezgah_gate.py:877-880`); and a second session that spells the path differently
+  escapes the rule, because the ledger keeps no `cwd` (`hooks/tezgah_gate.py:1122-854`).
 - `nc --version`: connection tools are matched by shape, so it is refused once like any other connection tool — "the direction is the safe one and the refusal
-  is one-shot" (`:193-195`).
-- Which rule the user meant when a turn drifts: "a guess about intent wearing a check's clothes" (`:925-928`).
+  is one-shot" (`hooks/tezgah_gate.py:220-222`).
+- Which rule the user meant when a turn drifts: "a guess about intent wearing a check's clothes" (`hooks/tezgah_gate.py:1101-1104`).
 - A skip already in the file, or one inside a string (a test *about* the rule), is not a disable (`hooks/tezgah_integrity.py:753-760`).
 
 ### The mirror: the opencode plugin
 
 opencode cannot run Python hooks, so `hosts/opencode/plugins/tezgah.js` is an independent JavaScript re-implementation of the same rules, dispatched from
-`tool.execute.before` (`:1293`, exported `:1241`) in the gate's own order (`:1307-1326`); its shortcut constants restate the same regexes (`NEUTER` `:247`,
-`SKIP_ENV` `:248`, `NO_VERIFY` `:249`, `GITISH` `:250`, `SKIP_TEST` `:251`). What keeps the two halves honest is a test, not a shared module:
+`tool.execute.before` (hosts/opencode/plugins/tezgah.js:1372, exported `hosts/opencode/plugins/tezgah.js:1320`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:1386-1431`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:274`,
+`SKIP_ENV` hosts/opencode/plugins/tezgah.js:275, `NO_VERIFY` `hosts/opencode/plugins/tezgah.js:276`, `GITISH` `hosts/opencode/plugins/tezgah.js:277`, `SKIP_TEST` `hosts/opencode/plugins/tezgah.js:278`). What keeps the two halves honest is a test, not a shared module:
 `tests/test_opencode_plugin.py` drives the plugin's hooks through a node harness with a throwaway HOME, and imports the Python `tezgah_integrity.call_id` so a
-separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `:21-24`, `:574-615`).
+separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `:21-24`, `tests/test_opencode_plugin.py:807-845`).
 
 The two halves agree on the consent rule. A repeat of an irreversible or
 outward-facing command the user has not approved is refused again, carrying the ask-stands note rather than a second question
-(`hosts/opencode/plugins/tezgah.js:788-798`, `hooks/tezgah_gate.py:1059-1067`); a grant is a lease on one effect, spent by
+(`hosts/opencode/plugins/tezgah.js:828-838`, `hooks/tezgah_gate.py:1256-1264`); a grant is a lease on one effect, spent by
 the outcome row that follows it, so the next identical command is asked about again instead of passing on the first approval
-(`unspent_grant` `hooks/tezgah_gate.py:488-514`, `consentMark` `hosts/opencode/plugins/tezgah.js:727-738`); and the refusal
-names the action's digest and the CLI that answers it (`consent_reason` `hooks/tezgah_gate.py:663-680`, `ASK_STANDS_NOTE`
-`:284-286`). Each half's repeat path is pinned in its own suite (`tests/test_opencode_plugin.py:283-297`, `:333-348`;
+(`unspent_grant` `hooks/tezgah_gate.py:515-541`, `consentMark` `hosts/opencode/plugins/tezgah.js:767-778`); and the refusal
+names the action's digest and the CLI that answers it (`consent_reason` `hooks/tezgah_gate.py:690-680`, `ASK_STANDS_NOTE`
+`hooks/tezgah_gate.py:311-313`). Each half's repeat path is pinned in its own suite (`tests/test_opencode_plugin.py:328-343`, `tests/test_opencode_plugin.py:378-393`;
 `tests/test_gate.py:539-586`).
 
 ### Adding a rule
 
-1. Write the check inside `decision` (`hooks/tezgah_gate.py:976-1115`). A rule is a function returning a `str` reason or `None`; keep an argument-shaped rule
-   above the repeat guards (`:1074-1080`) and the drift notice last (`:1094-1098`), and put its constants beside its own section.
-2. Return through `_deny(session_id, "<rule>", reason, tool, inp, base)` so the ledger counts the refusal (`:959-974`); gate it on the kill switch it belongs
-   to (`off(...)`), the way the shortcut and repeat rules use `verify-off` (`:994`, `:1081`).
+1. Write the check inside `decision` (`hooks/tezgah_gate.py:1150-1312`). A rule is a function returning a `str` reason or `None`; keep an argument-shaped rule
+   above the repeat guards (`hooks/tezgah_gate.py:1271-1277`) and the drift notice last (`hooks/tezgah_gate.py:1291-1295`), and put its constants beside its own section.
+2. Return through `_deny(session_id, "<rule>", reason, tool, inp, base)` so the ledger counts the refusal (`hooks/tezgah_gate.py:1133-1147`); gate it on the kill switch it belongs
+   to (`off(...)`), the way the shortcut and repeat rules use `verify-off` (`hooks/tezgah_gate.py:1168`, `hooks/tezgah_gate.py:1278`).
 3. Extend `tests/test_gate.py`. It drives the real function through `tests/_probe_gate.py` (`tests/support.py:20`), which also carries the `capture_log` stub
    standing in for `tezgah_gate.capture` on the allow path (`tests/_probe_gate.py:20-30`). Only if the refusal envelope changes, touch
    `tests/test_claude_adapters.py:42-51` and the codex/cursor/omp hook tests.
@@ -785,11 +785,11 @@ names the action's digest and the CLI that answers it (`consent_reason` `hooks/t
 
 ### Source of truth
 
-- `hooks/tezgah_gate.py` — `decision` `:976-1115`; every rule constant and refusal text `:84-312`; `attribution`/`attribution_edit` `:315-331`; `explored`
-  `:333`; `searched_identifier` `:338`, `index_slug` `:353`, `first_nudge` `:365`, `nudge_reason` `:382`; `LOOP_ATTEMPTS` `:403`, `loop_reason` `:425`,
-  `RETRY_CEILING` `:422`, `retry_reason` `:456`; `unspent_grant` `:488`, `consent_mark` `:517`, `rm_outside` `:542`, `effect_class` `:587`, `declared_effect`
-  `:633`, `consent_effect` `:641`, `consent_reason` `:663`, `outside_paths` `:726`, `sink_check` `:745`, `secret_command` `:776`, `race_reason` `:844`,
-  `drift_reason` `:921`, `effectful` `:948`, `_deny` `:959`; the `capture` call `:1110-1113`
+- `hooks/tezgah_gate.py` — `decision` `hooks/tezgah_gate.py:1150-1312`; every rule constant and refusal text `hooks/tezgah_gate.py:111-339`; `attribution`/`attribution_edit` `hooks/tezgah_gate.py:342-357`; `explored`
+  `hooks/tezgah_gate.py:360`; `searched_identifier` `hooks/tezgah_gate.py:392`, `index_slug` `hooks/tezgah_gate.py:380`, `first_nudge` `hooks/tezgah_gate.py:392`, `nudge_reason` `hooks/tezgah_gate.py:409`; `LOOP_ATTEMPTS` `hooks/tezgah_gate.py:430`, `loop_reason` `hooks/tezgah_gate.py:452`,
+  `RETRY_CEILING` `hooks/tezgah_gate.py:449`, `retry_reason` `hooks/tezgah_gate.py:483`; `unspent_grant` `hooks/tezgah_gate.py:515`, `consent_mark` `hooks/tezgah_gate.py:544`, `rm_outside` `hooks/tezgah_gate.py:569`, `effect_class` `hooks/tezgah_gate.py:614`, `declared_effect`
+  `hooks/tezgah_gate.py:660`, `consent_effect` `hooks/tezgah_gate.py:668`, `consent_reason` `hooks/tezgah_gate.py:690`, `outside_paths` `hooks/tezgah_gate.py:753`, `sink_check` `hooks/tezgah_gate.py:772`, `secret_command` `hooks/tezgah_gate.py:803`, `race_reason` `hooks/tezgah_gate.py:871`,
+  `drift_reason` `hooks/tezgah_gate.py:1095`, `effectful` `hooks/tezgah_gate.py:1122`, `_deny` `hooks/tezgah_gate.py:1133`; the `capture` call `:1110-1113`
 - `hooks/projects-pretooluse.py` — the Claude and dsh envelope; `hooks/tezgah_paths.py` — `off`, `root_for`, `cache_dir`
 - `hooks/tezgah_integrity.py` — `BASH_TOOLS`/`WRITE_TOOLS` `:110-114`; `NEUTER`/`SKIP_ENV`/`NO_VERIFY`/`GITISH` `:56-63`; `SKIP_TEST` `:65-70`; `TEST_PATH`
   `:75-78`; `call_id` `:190`; `_path` `:230`, `note` `:364`, `events` `:452`, `writers_elsewhere` `:514`, `mask` `:703`, `shortcut_command` `:709`,
@@ -845,7 +845,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail` | `note_tool` `:974-1042` | the Stop rule's `worked` set `:1226`; `counters.steps` `:639-640`; `last_verify`/`partial_state` |
 | `external`, `unknown` | `note_tool` `:1014-1031` | the sink rule, via `source`; nothing counts them as work |
 | `claim` | `stop_reason` `:1157-1168` | `counters` `:650-653` |
-| `deny`, `nudge` | the [gate](page-gate)'s `_deny` `hooks/tezgah_gate.py:959`, first-nudge `:1091-1093` | `counters` `:646-649` |
+| `deny`, `nudge` | the [gate](page-gate)'s `_deny` `hooks/tezgah_gate.py:1133`, first-nudge `:1091-1093` | `counters` `:646-649` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:183-185`, `:262-265` | `_snapshot_hash` `:920-931`; no counter |
 
 **The verify kinds are a tri-state, and an unread outcome is never a pass.** `note_tool`
@@ -913,8 +913,8 @@ is. Every denial is itself a `deny` row.
 
 ### The session store for the status marks
 
-`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:931-946`) and read
-by `used()` (`:950-963`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
+`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:965-981`) and read
+by `used()` (`hooks/tezgah_context.py:984-998`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
 and the kinds are the used-tool marks [status-line.md](page-status-line) lights up (`cbm`, `consult`,
 `research`). It is separate from the [ledger](#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all
@@ -963,7 +963,7 @@ fetched page *caused* the write is not something a hook can see (`:14-17`). One 
 the effect's own row then carries the channel, so the taint is a transition rather than a repeat.
 
 The taint is enforced at the sink: while an untrusted read is live, an effect is refused unless the
-user's own approval was written *after* the read (`sink_check` `hooks/tezgah_gate.py:745-777`; deny
+user's own approval was written *after* the read (`sink_check` `hooks/tezgah_gate.py:772-801`; deny
 rule `sink` at `:1015-1029` for a write outside the root, `:1057-1058` for a shell effect class). The
 label reaches the model on the four Python hosts: Claude and dsh through
 `hooks/projects-posttooluse.py:80-83`, Codex (`hosts/codex/hook.py:135-136`), Cursor
@@ -1018,12 +1018,12 @@ cannot explain. As this repository prints it:
 ### Shape: segments, groups, separator
 
 One mark is one segment — `{"key", "state", "glyph", "text", "group"}` — built
-host-neutrally by `health_segments()` (hooks/tezgah_context.py:1116-1181).
+host-neutrally by `health_segments()` (hooks/tezgah_context.py:1150-1215).
 `render_line()` joins segments with one space inside a group and `  ·  ` between
-groups (1203-1210). The group is *data on each segment*: a renderer building its
+groups (hooks/tezgah_context.py:1237-1243). The group is *data on each segment*: a renderer building its
 own line from `--json` separates on `seg.group` and matches `render_line()`
-without a second copy of the partition (1124-1128) — opencode and dsh do exactly
-that (hosts/opencode/tui/tezgah-tui.tsx:74-79,
+without a second copy of the partition (hooks/tezgah_context.py:1159-1162) — opencode and dsh do exactly
+that (hosts/opencode/tui/tezgah-tui.tsx:76-79,
 hosts/dsh/statusline/lib/client.js:86-90).
 
 | group | members | why together |
@@ -1034,10 +1034,10 @@ hosts/dsh/statusline/lib/client.js:86-90).
 | 3 | `plans` | a per-repo fact, its own group |
 
 Groups 0 and 1 come from `_GROUP` (hooks/tezgah_context.py:1081-1082); `idx` and
-`plans` carry 2 and 3 where they are appended (1172-1180). Outside every
+`plans` carry 2 and 3 where they are appended (hooks/tezgah_context.py:1209-1214). Outside every
 [root](#root) the checklist still prints — tezgah loads globally on
 opencode, so the indicator must not go silent — and only the per-repo extras are
-omitted (hooks/tezgah_context.py:1130-1132, tests/test_statusline.py:11-12,43-48).
+omitted (hooks/tezgah_context.py:1164-1166, tests/test_statusline.py:11-12,tests/test_statusline.py:45-50).
 
 ### States
 
@@ -1054,13 +1054,13 @@ omitted (hooks/tezgah_context.py:1130-1132, tests/test_statusline.py:11-12,43-48
 Glyphs are `GLYPHS`, colors `COLORS` (green 32, yellow 33, red 31, dim 2; 1083-1088).
 The whole `text`+`glyph` chip is colored, and the glyph is drawn in every state:
 color is additive, never the only carrier of the state — the accessibility rule
-(`_seg_text()`, 1191-1201). `idx` is the one exception: its glyph *is* the index's
-state, mapped back by `IDX_STATE` (1089).
+(`_seg_text()`, hooks/tezgah_context.py:1225-1234). `idx` is the one exception: its glyph *is* the index's
+state, mapped back by `IDX_STATE` (hooks/tezgah_context.py:1123).
 
 ### Per mark
 
 Flips come from the flag table (hooks/tezgah_context.py:1150-1159) and the
-resolution after it (1161-1169): `off` is decided first and always wins, then a
+resolution after it (hooks/tezgah_context.py:1195-1203): `off` is decided first and always wins, then a
 measure the surface cannot see, then armed-and-used or armed-not-used.
 
 | mark | goes `on` when | goes `off` when |
@@ -1080,24 +1080,24 @@ a missing key or binary reads the same red as a kill switch (`have_consult_key()
 (1153,1166). The per-repo `idx`: ✓ indexed, ↻ indexed but HEAD moved since the
 stamp, ✗ not indexed yet, – n/a (outside a root, codebase-memory-mcp absent, or
 `.no-cbm`); its probe forks git twice, so it is memoised per `(cwd, base)`
-(`index_mark()`, 987-1024) and `idx_override` lets a redraw send the glyph back
-instead of forking (1145-1147). `plans` is `plans N` plus `(M blk)` when M open
+(`index_mark()`, hooks/tezgah_context.py:1021-1033) and `idx_override` lets a redraw send the glyph back
+instead of forking (hooks/tezgah_context.py:1179-1181). `plans` is `plans N` plus `(M blk)` when M open
 plan files carry `status: blocked` in their first 400 bytes — `ready` with a
-blocked plan, else `info` (`plan_mark()`, 1054-1078).
+blocked plan, else `info` (`plan_mark()`, hooks/tezgah_context.py:1088-1107).
 
 #### The two skill-read marks, and `--observable=`
 
 `pony` and `adhd` mean "the full skill text reached the session" — the only signal
 separating a real rule read from the always-on summary. They are earned by a read
 of `skills/<name>/SKILL.md`, matched on the path suffix, so any other read costs
-nothing (`SKILL_MARKS`, `skill_read_kind()`, hooks/tezgah_context.py:111-134).
+nothing (`SKILL_MARKS`, `skill_read_kind()`, hooks/tezgah_context.py:hooks/tezgah_context.py:118-141).
 
 A read is not observable at an acceptable price everywhere: it needs Claude's
 transcript, opencode's in-process classification, or omp's extension filter before
-python is asked (118-122). A surface that cannot see one must not say "the skill
+python is asked (hooks/tezgah_context.py:125-129). A surface that cannot see one must not say "the skill
 was never opened", so it declares what it can see and those marks render `info`
-(dim, no glyph) instead of `ready` (`observable`, 1138-1143; the set constant
-`TOOL_USE_MEASURES`, 1113). The `--observable=` flag carries it on the CLI
+(dim, no glyph) instead of `ready` (`observable`, hooks/tezgah_context.py:1172-1177; the set constant
+`TOOL_USE_MEASURES`, hooks/tezgah_context.py:1147). The `--observable=` flag carries it on the CLI
 (bin/tezgah-status:12-16,37-38,69-72). Two callers pass the tool-use set: Cursor's
 status line (statusline.py:109-114) and Codex, which renders the line plain into
 `systemMessage` (hosts/codex/hook.py:163-165,177-179); dsh passes the literal flag
@@ -1107,17 +1107,17 @@ string (hosts/dsh/statusline/lib/index.js:18,47-48).
 
 A used measure is one append to the session store,
 `<cache_dir>/sessions/<slug(session_id)>.jsonl`, one `{"kind": …}` per line
-(`record()`, hooks/tezgah_context.py:931-947; `used()` reads it back, 950-964).
+(`record()`, hooks/tezgah_context.py:hooks/tezgah_context.py:965-982; `used()` reads it back, hooks/tezgah_context.py:984-999).
 `cache_dir()` is `~/.cache/tezgah` with a temp fallback for sandboxed hosts
 (hooks/tezgah_paths.py:26,31-32,122-136); a missing kind is not an event, so only
-the four kinds are ever written (hooks/tezgah_context.py:934-938).
+the four kinds are ever written (hooks/tezgah_context.py:hooks/tezgah_context.py:968-971).
 
 Writers: the shared PostToolUse hook `hooks/projects-posttooluse.py` — `cbm` from
 an MCP tool name, else the shell tokenizer's answer, which counts a tool only when
 the command really ran it (34-38,84) — plus `hooks/projects-auto-init.py:35`
 (`orch` on subagent start), hosts/codex/hook.py:130,149,
-hosts/cursor/hook.py:207,230,236,251,259, hosts/opencode/plugins/tezgah.js:1110-1118,
-1436-1437, hosts/omp/hook.py:141. Both Claude (hooks/hooks.json) and dsh
+hosts/cursor/hook.py:207,230,236,251,259, hosts/opencode/plugins/tezgah.js:1160-1167,
+hosts/opencode/plugins/tezgah.js:1541-1542, hosts/omp/hook.py:141. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
 its line has (hooks/projects-posttooluse.py:26-30).
@@ -1134,7 +1134,7 @@ Every other surface reads the store.
   `render_line(segs, color=color_default())`, and joins Orca's own status line to
   the tezgah segment with `  |  `; `TEZGAH_STATUS_LEGEND=1` appends the legend
   (31-34,40-48,116-122). ANSI is dropped under `NO_COLOR` or
-  `TEZGAH_STATUS_COLOR=0` (`color_default()`, hooks/tezgah_context.py:1184-1187).
+  `TEZGAH_STATUS_COLOR=0` (`color_default()`, hooks/tezgah_context.py:1218-1222).
 - **omp** — hosts/omp/tezgah-hook.ts.in: `draw()` prefers
   `ctx.ui.setWidget("tezgah", [line], {placement: "belowEditor"})`, which renders
   the colored string as-is; `setStatus` is the fallback for a build without
@@ -1146,7 +1146,7 @@ Every other surface reads the store.
   (`tui.json`'s `plugin` array, not the server plugin) registering an `app_bottom`
   slot, shelling out to `tezgah-status <dir> --json <sessionID>`, coloring each
   segment from the active theme and rebuilding the separator from `seg.group`
-  (24-56,74-79). Its `tezgah: status legend` command opens a dialog running
+  (24-56,hosts/opencode/tui/tezgah-tui.tsx:76-79). Its `tezgah: status legend` command opens a dialog running
   `--legend` (109-115).
 - **dsh** — hosts/dsh/statusline/lib/index.js serves `GET /api/tezgah.status`
   behind the Web UI's own authenticated fetch fence, so the browser fetches it
@@ -1179,7 +1179,7 @@ the used marks cannot light up (18-20). `--color`/`--no-color` force ANSI or pla
 `steps`, `tool_error_rate`, `claims`, `false_completion`, `denies`, `nudges`,
 `fanout`, `consult`, `codegen`, `codegen_failed` and the `kinds` seen (49-60);
 with `--json` as JSON. `tezgah-setup --status <path>` prints the plain line for a
-repo (bin/tezgah-setup:2281-2282). A wrong or missing line usually ends in one of
+repo (bin/tezgah-setup:2283-2284). A wrong or missing line usually ends in one of
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a
 sandboxed host could not write (hooks/tezgah_paths.py:27-32).
@@ -1187,10 +1187,10 @@ sandboxed host could not write (hooks/tezgah_paths.py:27-32).
 ### A mark must not claim what it cannot see
 
 A mark asserting a state the surface cannot observe is a bug in this layer, so the
-honest answer is dim, never a guess. That is why `observable` exists (1138-1143),
+honest answer is dim, never a guess. That is why `observable` exists (hooks/tezgah_context.py:1172-1177),
 why the skill-read check is documented as unavailable on Codex, Cursor and dsh
-(118-122), why omp ignores any `idx` value that is not one of its four glyphs
-(hosts/omp/hook.py:83-95), and why `off` is decided before the visibility one — a
+(hooks/tezgah_context.py:125-129), why omp ignores any `idx` value that is not one of its four glyphs
+(hosts/omp/hook.py:82-95), and why `off` is decided before the visibility one — a
 kill switch is observable everywhere (1139-1143,1162-1163). Cursor's pinned plain
 line is the regression for it (tests/test_statusline.py:15-16,33-37).
 
@@ -1244,27 +1244,27 @@ skill is simply not read.
 opencode has no prompt-time injection point tezgah can rely on for a skill list,
 so the installer writes one: `~/.config/tezgah/opencode-skills.md` always-on and
 `opencode-skills.full.md` on demand ([bin/tezgah-setup:101-104]), the first
-listed in opencode's `instructions` ([bin/tezgah-setup:745-747]). Its native
+listed in opencode's `instructions` ([bin/tezgah-setup:747-749]). Its native
 skill list and `skill` tool are switched off in the same pass -
-`permission.skill = "deny"` ([bin/tezgah-setup:761]) - so the generated file is
+`permission.skill = "deny"` ([bin/tezgah-setup:763]) - so the generated file is
 the only list that host has.
 
 The router is generated, not written: `skill_groups()` walks the installed skill
 directories in precedence order - this checkout's `skills/`, then opencode's,
 Claude's and `~/.agents/skills` - takes the first directory that defines a name,
 buckets each by `skill_category()` and returns the groups
-([bin/tezgah-setup:632-652]). Buckets are `tezgah core`, `code & host tooling`,
+([bin/tezgah-setup:634-654]). Buckets are `tezgah core`, `code & host tooling`,
 `research & papers`, `AI research & engineering`, `marketing & growth`; the first
 two are listed always-on and the rest collapse to a count line pointing at the
-full file ([bin/tezgah-setup:626-629], `:704-717`). `ai-research` is the one
+full file ([bin/tezgah-setup:628-631], `bin/tezgah-setup:706-719`). `ai-research` is the one
 exception: it stays named in the always-on file under `research (tezgah's own)`
 because a library a session is never told about is one it answers from memory -
 measured on a live opencode turn that read nothing and answered anyway
-([bin/tezgah-setup:689-692]).
+([bin/tezgah-setup:691-694]).
 
 Each line is `name - trigger - path`, and the trigger is one sentence pulled from
-the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:582-608],
-`:670-679`). **The sentence carrying the `Use when ...` trigger wins over the
+the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:584-610],
+`bin/tezgah-setup:672-681`). **The sentence carrying the `Use when ...` trigger wins over the
 opening one.** A line built from the first sentence is what shipped, and it
 stripped `tezgah-contract` and `ponytail` of every word a session matches on -
 `tezgah-contract`'s description opens with "The full tezgah working contract." -
@@ -1277,7 +1277,7 @@ trigger sentence keeps its first sentence.
 Every other host gets the same idea natively: the skills are linked into the
 directory that host reads, and the host lists `name` + `description` itself -
 which is why the installer counts that metadata as an always-on cost
-([bin/tezgah-setup:1624-1632]).
+([bin/tezgah-setup:1626-1634]).
 
 ### How a skill reaches a host
 
@@ -1285,12 +1285,12 @@ which is why the installer counts that metadata as an always-on cost
 definition of "a tezgah skill": the router, the per-host linking, the uninstall
 and the context budget all read it. Each install function links those
 directories into the host's own skill directory - Codex
-([bin/tezgah-setup:459-460]), opencode (`:732-733`), Cursor (`:840-841`), dsh
-(`:965-966`), omp (`:1027-1029`). Claude is the exception: it installs from a
+([bin/tezgah-setup:461-462]), opencode (`bin/tezgah-setup:734-735`), Cursor (`bin/tezgah-setup:842-843`), dsh
+(`bin/tezgah-setup:967-968`), omp (`bin/tezgah-setup:1029-1031`). Claude is the exception: it installs from a
 plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/rizacan-local/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
-`:2001-2052`, `:2055-2058`). On Claude the plugin name prefixes the skill name -
+`:2001-2052`, `bin/tezgah-setup:2057-2060`). On Claude the plugin name prefixes the skill name -
 `Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:27-29]).
 
 The install report checks the file, not the link. `skills_linked()` requires
@@ -1344,14 +1344,14 @@ LaTeX template trees were copied, and every drop is named in that file.
 1. Write `skills/<name>/SKILL.md` with frontmatter carrying `name` and a
    `description` whose **later** sentence begins `Use when ...` - that sentence
    is the router line, and it must carry the words a session would match on
-   ([bin/tezgah-setup:582-608]).
+   ([bin/tezgah-setup:584-610]).
 2. Add the name to `SKILLS` ([bin/tezgah-setup:71-73]). `SKILLS` drives the
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
 3. Expect `tests/test_skills.py:54-69` to fail if the two disagree, and
    `tests/test_setup.py:439-454` to fail if the generated router line lost its
    trigger words. Re-run `--install` (or opencode's `--refresh`,
-   [bin/tezgah-setup:574-578]) so the written routers pick the skill up.
+   [bin/tezgah-setup:576-580]) so the written routers pick the skill up.
 4. Quote examples in a form the tests accept: no floating `@latest` package tag
    and any pinned package spec must match the one tezgah wires
    ([tests/test_skills.py:90-97]); slash commands carry the `tezgah:` prefix
@@ -1392,7 +1392,7 @@ python3 -m unittest discover -s tests                     # stdlib test suite
 ruff check .                                              # lint; config in pyproject.toml
 ```
 
-[`AGENTS.md`](AGENTS.md) gives them in that order (`AGENTS.md:17-21`), and
+[`AGENTS.md`](AGENTS.md) gives them in that order (`AGENTS.md:22-26`), and
 [`CONTRIBUTING.md`](CONTRIBUTING.md) repeats the same three before a pull
 request (`CONTRIBUTING.md:13-19`).
 
@@ -1405,7 +1405,7 @@ request (`CONTRIBUTING.md:13-19`).
 `ruff` is not vendored: install it as a uv tool, run `uvx ruff check .` without
 installing it, or use the version CI installs from `requirements-dev.txt:3`
 (`ruff==0.16.7`). There is no other linter and no type checker
-(`AGENTS.md:23-24`).
+(`AGENTS.md:28-29`).
 
 ### Continuous integration
 
@@ -1589,31 +1589,31 @@ This is the operator's page: how to arm tezgah, prove each
 
 ### Installer flags
 
-The parser's own arguments (`bin/tezgah-setup:2247-2270`); a bare run with no
-argument prints the wizard on a terminal and the report on a pipe (`:2303-2307`).
-Lines below are of `bin/tezgah-setup`; the early branches (`:2275-2295`) return
+The parser's own arguments (`bin/tezgah-setup:2249-2272`); a bare run with no
+argument prints the wizard on a terminal and the report on a pipe (`bin/tezgah-setup:2304-2307`).
+Lines below are of `bin/tezgah-setup`; the early branches (`bin/tezgah-setup:2277-2297`) return
 before an install is considered.
 
 | Flag | What it does |
 |---|---|
-| `--install` | Arm the `--hosts` (default: every detected host): writes `~/.config/tezgah/config.json`, the contract hash, the `~/.config/tezgah/bin` symlinks and every host file, then prints the report. Installs the missing optional tools first unless `--no-deps` (`:2248`, `:2333`, `:2215-2243`). |
-| `--wizard` | Ask the install questions and write only after the final yes; the other flags supply the defaults, so `--wizard --hosts omp` asks only the rest (`:2249-2250`, `:2172-2202`). |
-| `--report` | Print what is armed, per host, and stop (`:2251-2252`, `:1716-1748`). |
-| `--refresh` | Re-render the generated opencode contract and skill router when the policy or `skills/tezgah-contract/SKILL.md` changed; prints the path it refreshed, else `contract is current` — also on a machine that was never installed, because the branch returns before it compares anything (`:2253-2254`, `:564-579`). |
-| `--uninstall` | Remove only tezgah's own wiring, per host (`:2255`, `:1489-1495`). |
-| `--adopt` | Move pre-tezgah wiring aside instead of deleting it; alone it stops there, with `--install` it runs first (`:2256`, `:1507-1573`). |
-| `--sync` | Copy this checkout over every installed Claude plugin [copy](#plugin-copy) (`:2257`, `:2001-2052`). |
-| `--status [PATH]` | Print the armed/used checklist for PATH (default cwd) and stop — the same line as `bin/tezgah-status` (`:2258`, `:2281-2283`). |
-| `--agents [PATH]` | Regenerate PATH's per-repo subagent set (default cwd); outside a [root](#root) it prints `no agents generated` (`:2259-2260`, `:2291-2294`). |
-| `--deps` | Install the missing optional tools and stop; with `--install` the install already does it (`:2261`, `:2284-2286`). |
-| `--mcp-schemas` | Measure the MCP tool-schema band by asking each registered server (`initialize` + `tools/list`) and stop (`:2262-2263`, `:1672-1704`). |
-| `--no-deps` | Skip the optional-tool install; `TEZGAH_NO_DEPS` is the same switch for CI (`:2264`, `:2321`). |
-| `--devtools` | Also wire the optional Chrome DevTools MCP (`:2265-2266`). |
-| `--dry-run` | Print what the optional-tool install would run, and run none of it (`:2267`). |
-| `--version` | Print the plugin version and exit (`:2268`, `:131-147`). |
-| `--roots R` | Set the roots for this install, `os.pathsep`-separated. Without `--install` it exits 1: `--roots only means something with --install` (`:2269`, `:2337`). |
-| `--hosts H` | Comma-separated subset of `claude,codex,opencode,cursor,dsh,omp`; an unknown name exits 1 before anything is written, and naming hosts switches off the re-detection that follows a tool install (`:2270`, `:2296-2301`, `:2215-2231`). |
-| `-h`, `--help` | Usage and the list above (`:2247`). |
+| `--install` | Arm the `--hosts` (default: every detected host): writes `~/.config/tezgah/config.json`, the contract hash, the `~/.config/tezgah/bin` symlinks and every host file, then prints the report. Installs the missing optional tools first unless `--no-deps` (`bin/tezgah-setup:2250`, `bin/tezgah-setup:2335-2336`, `bin/tezgah-setup:2217-2245`). |
+| `--wizard` | Ask the install questions and write only after the final yes; the other flags supply the defaults, so `--wizard --hosts omp` asks only the rest (`bin/tezgah-setupbin/tezgah-setupbin/tezgah-setupbin/tezgah-setupbin/tezgah-setup:2259-2256`, `bin/tezgah-setup:2174-2203`). |
+| `--report` | Print what is armed, per host, and stop (`bin/tezgah-setupbin/tezgah-setupbin/tezgah-setupbin/tezgah-setup:2259-2256`, `bin/tezgah-setup:1718-1751`). |
+| `--refresh` | Re-render the generated opencode contract and skill router when the policy or `skills/tezgah-contract/SKILL.md` changed; prints the path it refreshed, else `contract is current` — also on a machine that was never installed, because the branch returns before it compares anything (`bin/tezgah-setupbin/tezgah-setupbin/tezgah-setup:2259-2256`, `bin/tezgah-setup:566-581`). |
+| `--uninstall` | Remove only tezgah's own wiring, per host (`bin/tezgah-setupbin/tezgah-setup:2259`, `bin/tezgah-setup:1491-1497`). |
+| `--adopt` | Move pre-tezgah wiring aside instead of deleting it; alone it stops there, with `--install` it runs first (`bin/tezgah-setupbin/tezgah-setup:2260`, `bin/tezgah-setup:1509-1571`). |
+| `--sync` | Copy this checkout over every installed Claude plugin [copy](#plugin-copy) (`bin/tezgah-setup:2259`, `:2001-2052`). |
+| `--status [PATH]` | Print the armed/used checklist for PATH (default cwd) and stop — the same line as `bin/tezgah-status` (`bin/tezgah-setup:2260`, `bin/tezgah-setup:2283-2285`). |
+| `--agents [PATH]` | Regenerate PATH's per-repo subagent set (default cwd); outside a [root](#root) it prints `no agents generated` (`bin/tezgah-setupbin/tezgah-setup:2263-2262`, `bin/tezgah-setup:2293-2297`). |
+| `--deps` | Install the missing optional tools and stop; with `--install` the install already does it (`bin/tezgah-setup:2263`, `bin/tezgah-setup:2286-2288`). |
+| `--mcp-schemas` | Measure the MCP tool-schema band by asking each registered server (`initialize` + `tools/list`) and stop (`bin/tezgah-setupbin/tezgah-setup:2266-2265`, `bin/tezgah-setup:1674-1705`). |
+| `--no-deps` | Skip the optional-tool install; `TEZGAH_NO_DEPS` is the same switch for CI (`bin/tezgah-setup:2266`, `bin/tezgah-setup:2323`). |
+| `--devtools` | Also wire the optional Chrome DevTools MCP (`bin/tezgah-setupbin/tezgah-setupbin/tezgah-setup:2271-2268`). |
+| `--dry-run` | Print what the optional-tool install would run, and run none of it (`bin/tezgah-setupbin/tezgah-setup:2271`). |
+| `--version` | Print the plugin version and exit (`bin/tezgah-setupbin/tezgah-setup:2272`, `:131-147`). |
+| `--roots R` | Set the roots for this install, `os.pathsep`-separated. Without `--install` it exits 1: `--roots only means something with --install` (`bin/tezgah-setup:2271`, `:2337`). |
+| `--hosts H` | Comma-separated subset of `claude,codex,opencode,cursor,dsh,omp`; an unknown name exits 1 before anything is written, and naming hosts switches off the re-detection that follows a tool install (`bin/tezgah-setup:2272`, `:2296-2301`, `bin/tezgah-setup:2221-2228`). |
+| `-h`, `--help` | Usage and the list above (`bin/tezgah-setup:2249`). |
 
 ### A first install
 
@@ -1626,20 +1626,20 @@ cd ~/Projects/tezgah && bin/tezgah-setup --install
 [README's Install section](README.md#install). On a terminal the bare
 `bin/tezgah-setup` is the wizard: it asks which hosts, the roots, whether to
 install the missing optional tools and whether to wire the DevTools MCP, prints
-the plan, and writes only after a yes (`:2172-2202`). A pre-tezgah setup is
+the plan, and writes only after a yes (`bin/tezgah-setup:2174-2203`). A pre-tezgah setup is
 named under `predecessor wiring still present` and retired by `--adopt`
-(`:1574-1589`); narrow it with `--hosts omp`, `--roots ~/work:~/oss`, `--dry-run`.
+(`bin/tezgah-setup:1576-1588`); narrow it with `--hosts omp`, `--roots ~/work:~/oss`, `--dry-run`.
 
 A successful run prints, in order: `dependencies:`, a line per missing optional
 tool with the vendor command it runs — over the network, no sudo
 (`:1105-1147`) — or `all optional tools present` (the run is appended to
-`~/.config/tezgah/install.log`, `:1149-1191`); `installing for: <hosts>`
+`~/.config/tezgah/install.log`, `bin/tezgah-setup:1151-1191`); `installing for: <hosts>`
 (`:2227`); the common block — config and roots, the contract sha, one `ok` line
 per `~/.config/tezgah/bin` symlink, the app artifacts dir (`:346-386`);
-`openresearch (orx):`, a line per host orx has a harness for (`:1073-1095`); one
-`ok` line per link or write inside each host's block (`:387-1067` — a write that
+`openresearch (orx):`, a line per host orx has a harness for (`bin/tezgah-setup:1075-1098`); one
+`ok` line per link or write inside each host's block (`bin/tezgah-setup:389-1068` — a write that
 met a real file in the way says so instead, `:187-207`); then the report and the
-context budget table (`:1705-1748`). Its tail:
+context budget table (`bin/tezgah-setup:1707-1751`). Its tail:
 
 ```text
 omp:
@@ -1654,16 +1654,16 @@ context budget (always-on text; ~tokens = chars/4):
 prints the checkout, the roots and where they came from (`TEZGAH_ROOTS`, `config`
 or `default`), a common block (config, the code-graph binary, a provider key,
 `orx`, `npx`, the artifacts dir, `git`, the manifest, a stale-contract line), one
-block per host, then the budget (`:1716-1748`). Each block is
-`host_checks_<host>` (`:1939-1942`), and those rows are the source of truth for
-"is this host armed" (`AGENTS.md:58-59`) — not the presence of a directory, and
+block per host, then the budget (`bin/tezgah-setup:1718-1751`). Each block is
+`host_checks_<host>` (`bin/tezgah-setup:1941-1943`), and those rows are the source of truth for
+"is this host armed" (`AGENTS.md:63-64`) — not the presence of a directory, and
 not the status line. A row can read ` MISS ` too: claude's `plugin copy current`
 row fails on a machine with no copy at all, because an absent copy is not a
 current one (`:1761-1766`).
 
 `--status [PATH]` answers a different question — which rules are in force in that
 repo — as one line of marks rendered by the same code every status line uses
-(`hooks/tezgah_context.py:1116-1181`, `:1212-1226`). Mark meanings are in
+(`hooks/tezgah_context.py:1150-1215`, `hooks/tezgah_context.py:1246-1260`). Mark meanings are in
 [status-line.md](page-status-line); `bin/tezgah-status` is that checklist with
 `--json`, `--legend` and `--observable=`.
 
@@ -1679,32 +1679,32 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 
 - `--install` re-renders every host file, the opencode contract and the skill
   router, and rewrites `~/.config/tezgah/contract.sha256` (`:152-187`,
-  `:564-579`).
+  `bin/tezgah-setup:566-581`).
 - `--refresh` does that for opencode alone, without a reinstall: opencode has no
   session-start hook, so its plugin calls it once per session when the stored
   hash no longer matches the source
-  (`hosts/opencode/plugins/tezgah.js:1420-1423`).
+  (`hosts/opencode/plugins/tezgah.js:1525-1528`).
 - `--sync` copies the checkout over the Claude plugin copy, because Claude Code
   runs `~/.claude/plugins/cache/<owner>/tezgah/<version>/` and never this
-  checkout (`:1978-1999`); `--install` refreshes a stale copy itself
-  (`:2055-2062`). Then restart Claude — hooks are read once per session
+  checkout (`bin/tezgah-setup:1980-2000`); `--install` refreshes a stale copy itself
+  (`bin/tezgah-setup:2057-2063`). Then restart Claude — hooks are read once per session
   (`:2051`).
 
 From the user's side a stale copy looks like this: Claude keeps applying the old
 rules while `--report` shows ` MISS plugin copy current (hooks/tezgah_policy.py
 matches)`. That row compares a sha256 of one file rather than the version number
 both trees report, which is what lets it catch a copy that lags HEAD
-(`:1967-1999`).
+(`bin/tezgah-setup:1969-2000`).
 
 ### Uninstall and adopt
 
 `--uninstall` removes only tezgah-managed things: the `~/.config/tezgah/bin`
-links and the generated repo agent files (`:1281-1287`), and per host the skill
+links and the generated repo agent files (`bin/tezgah-setup:1283-1289`), and per host the skill
 symlinks, hook entries, managed blocks, MCP rows and status-line keys that host's
-own installer wrote (`:1381-1483`). A symlink counts as tezgah's only when it
+own installer wrote (`bin/tezgah-setup:1383-1484`). A symlink counts as tezgah's only when it
 resolves inside this checkout, so a file you put in the same place is kept
-(`:1194-1213`), and `~/.claude/settings.json` loses only the keys tezgah added
-(`:1289-1305`). Kept: every non-tezgah file, every `<file>.tezgah-bak`
+(`bin/tezgah-setup:1196-1213`), and `~/.claude/settings.json` loses only the keys tezgah added
+(`bin/tezgah-setup:1291-1306`). Kept: every non-tezgah file, every `<file>.tezgah-bak`
 (`:227-233`, `:1494`), and the Claude plugin copy — no uninstaller touches
 `~/.claude/plugins/cache`, so delete that by hand if Claude must stop loading
 tezgah (see Safety). The orx skill shims come from orx's own installer, so they
@@ -1713,10 +1713,10 @@ are never listed for removal (`:1073-1085`).
 `--adopt` moves, never deletes: `~/.codex/projects-harness`, the old codex bin
 shims that exec'd it, `~/.claude/hooks/cbm-*`, and the hook entries in
 `~/.codex/hooks.json` and `~/.claude/settings.json` that called them, all go to
-`~/.config/tezgah/adopted/<timestamp>/` (`:1507-1573`). `predecessors()` is what
-the report prints and what adopt retires (`:1574-1589`). Under the wizard adopt
+`~/.config/tezgah/adopted/<timestamp>/` (`bin/tezgah-setup:1509-1571`). `predecessors()` is what
+the report prints and what adopt retires (`bin/tezgah-setup:1576-1588`). Under the wizard adopt
 waits for the yes: a declined plan leaves the predecessor wiring exactly where it
-was (`:2311-2317`).
+was (`bin/tezgah-setup:2313-2319`).
 
 ### Health pass: `tezgah-doctor`
 
@@ -1738,13 +1738,13 @@ SQLite session/event database and codebase-memory-mcp's per-index logs
 
 | Symptom | First check | Likely cause |
 |---|---|---|
-| A host shows no status line | `bin/tezgah-setup --report --hosts claude`, then `readlink ~/.claude/statusline.py` | that host's own rows read ` MISS `: the `statusline.py` symlink or the `statusLine` key (`bin/tezgah-setup:1754-1755`). For omp the row `status line answers` runs `hosts/omp/hook.py`, so it fails whenever the Python half cannot start (`:1879-1897`). codex has no status-line row at all — its surface is hooks, skills and MCP (`:1780-1800`) |
+| A host shows no status line | `bin/tezgah-setup --report --hosts claude`, then `readlink ~/.claude/statusline.py` | that host's own rows read ` MISS `: the `statusline.py` symlink or the `statusLine` key (`bin/tezgah-setup:1754-1755`). For omp the row `status line answers` runs `hosts/omp/hook.py`, so it fails whenever the Python half cannot start (`bin/tezgah-setup:1881-1899`). codex has no status-line row at all — its surface is hooks, skills and MCP (`bin/tezgah-setup:1782-1801`) |
 | A skill is missing in one host | `ls ~/.codex/skills/*/SKILL.md` (the host's skills dir is in [hosts.md](page-hosts)) | the link was never made: that host was not in the last `--hosts`. `bin/tezgah-setup --install --hosts codex` relinks it. Claude has no skills directory — it reads the plugin copy, so the row to read there is `plugin copy current` (`bin/tezgah-setup:1761-1766`) |
 | A skill link dangles | `ls -lL ~/.omp/agent/skills/*/SKILL.md` | the link resolves to nothing: its source was renamed or removed, or the checkout moved. `skills_linked` asks for a readable `SKILL.md` precisely so this cannot read as linked (`bin/tezgah-setup:76-82`); `--install` relinks from what exists now |
-| A rule still fires after its kill switch | `ls ~/.config/tezgah/*.off`, then `bin/tezgah-context user_prompt . < /dev/null` | the switch was flipped mid-session: the rule leaves the text injected from the next turn on, but text already in the context is not retracted (`hooks/tezgah_context.py:479-536`). On opencode it reaches the per-turn reminder and not the static `opencode-contract.md`, which is rendered by `always_on_core()` with no switch or mark filtering (`:539-547`, `bin/tezgah-setup:536-539`). A per-repo `.no-*` mark does the same job as a switch file (`hooks/tezgah_paths.py:45`, `:218-220`) |
-| The status line is thinner outside the roots | `bin/tezgah-setup --status "$PWD"`, then `bin/tezgah-context session_start .` | by design, mostly: the line is global and only the per-repo `idx` and `plans` marks appear inside a root (`hooks/tezgah_context.py:1130-1132`), while the injected contract text is exactly what goes silent off-root (`bin/tezgah-context:21-22`). A line that is empty everywhere is wiring: see the first row |
+| A rule still fires after its kill switch | `ls ~/.config/tezgah/*.off`, then `bin/tezgah-context user_prompt . < /dev/null` | the switch was flipped mid-session: the rule leaves the text injected from the next turn on, but text already in the context is not retracted (`hooks/tezgah_context.py:505-563`). On opencode it reaches the per-turn reminder and not the static `opencode-contract.md`, which is rendered by `always_on_core()` with no switch or mark filtering (`hooks/tezgah_context.py:565-573`, `bin/tezgah-setup:536-539`). A per-repo `.no-*` mark does the same job as a switch file (`hooks/tezgah_paths.py:45`, `:218-220`) |
+| The status line is thinner outside the roots | `bin/tezgah-setup --status "$PWD"`, then `bin/tezgah-context session_start .` | by design, mostly: the line is global and only the per-repo `idx` and `plans` marks appear inside a root (`hooks/tezgah_context.py:1164-1166`), while the injected contract text is exactly what goes silent off-root (`bin/tezgah-context:21-22`). A line that is empty everywhere is wiring: see the first row |
 | An agent cannot see the graph tools | `bin/tezgah-setup --report` — the common row `codebase-memory-mcp on PATH` and the host's own MCP row; then `which codebase-memory-mcp` | the binary is missing (it is the user's to install; `TEZGAH_CBM_BIN` or `config.json`'s `cbm_bin` can point at it, `hooks/tezgah_paths.py:195-198`), or the host's MCP row was overwritten and `--install --hosts <host>` rewrites it. `.no-cbm` in a repo turns the code-graph rule off there (`hooks/tezgah_context.py:1157`) |
-| Claude keeps applying old rules | `bin/tezgah-setup --report --hosts claude` — the `plugin copy current` row; then `bin/tezgah-setup --sync` | the copy lags HEAD: Claude runs the copy, not the checkout. `--install` refreshes it too; restart Claude after either (`bin/tezgah-setup:2055-2062`, `:2051`) |
+| Claude keeps applying old rules | `bin/tezgah-setup --report --hosts claude` — the `plugin copy current` row; then `bin/tezgah-setup --sync` | the copy lags HEAD: Claude runs the copy, not the checkout. `--install` refreshes it too; restart Claude after either (`bin/tezgah-setupbin/tezgah-setup:2057-2063`, `:2051`) |
 
 ### Safety
 
@@ -1752,14 +1752,14 @@ Reversible and safe to repeat: every link and settings key it writes is
 idempotent and re-created by `--install`; a file it overwrote is kept once as
 `<file>.tezgah-bak` (`:227-233`); `--adopt` moves and prints the destination
 (`:1507-1513`); `--uninstall` removes only symlinks resolving into this checkout
-and tezgah's own entries (`:1194-1213`, `:1489-1495`); a bad write is undone with
+and tezgah's own entries (`bin/tezgah-setup:1196-1213`, `bin/tezgah-setup:1491-1497`); a bad write is undone with
 `bin/tezgah-rollback <snapshot-id> [--force]`, reaching the pre-write bytes
 through the id on the ledger's snapshot row (`bin/tezgah-rollback:1-13`,
 [evidence.md](page-evidence)).
 
 Not reversible, so do them deliberately: `--sync` deletes the plugin copy's
-contents (bar `.git`) and copies the checkout over it (`:2026-2049`) — it refuses
-a copy that holds this very checkout (`:2022-2025`) — and `--prune-sessions` and
+contents (bar `.git`) and copies the checkout over it (`bin/tezgah-setup:2028-2051`) — it refuses
+a copy that holds this very checkout (`bin/tezgah-setup:2024-2027`) — and `--prune-sessions` and
 `--clean` delete session rows and index logs. Two things this tool never does. It
 never force-pushes, rewrites pushed history, deletes a repo or branch, applies a
 migration to a live database, deploys, or touches a live account: those need the
@@ -1797,31 +1797,31 @@ are definitions, not rules: the rule text belongs to [contract](page-contract),
 [gate](page-gate) and [evidence](page-evidence).
 
 #### always-on
-The part of the contract every session pays for - the invariants plus the one-line [pointer](#pointer) - built by `always_on_core()` (`hooks/tezgah_context.py:539`) out of [CORE](#core) with the [conditional rules](#conditional-rule) removed; it is not the whole contract, whose long tail is the `tezgah-contract` [skill](#skill) ([contract](page-contract)).
+The part of the contract every session pays for - the invariants plus the one-line [pointer](#pointer) - built by `always_on_core()` (`hooks/tezgah_context.py:565`) out of [CORE](#core) with the [conditional rules](#conditional-rule) removed; it is not the whole contract, whose long tail is the `tezgah-contract` [skill](#skill) ([contract](page-contract)).
 
 #### budget
-The byte ceiling one injected event may spend: `CONTEXT_BUDGET` per event with `DEFAULT_BUDGET` behind it (`hooks/tezgah_context.py:604`), enforced by `budgeted()` (`hooks/tezgah_context.py:652`), which gives up whole blocks lowest value first along `DROP_ORDER` (`hooks/tezgah_context.py:614`); bytes, never tokens, because the module has no tokenizer (`hooks/tezgah_context.py:602-603`). Not the [metadata band](#metadata-band), which is the installer's measurement of the same text rather than a runtime bound.
+The byte ceiling one injected event may spend: `CONTEXT_BUDGET` per event with `DEFAULT_BUDGET` behind it (`hooks/tezgah_context.py:700`), enforced by `budgeted()` (`hooks/tezgah_context.py:680`), which gives up whole blocks lowest value first along `DROP_ORDER` (`hooks/tezgah_context.py:642`); bytes, never tokens, because the module has no tokenizer (`hooks/tezgah_context.py:628-629`). Not the [metadata band](#metadata-band), which is the installer's measurement of the same text rather than a runtime bound.
 
 #### capture
-The pre-write copy the gate takes of every file a write is about to change, `capture()` (`hooks/tezgah_snapshot.py:190`), called on the gate's allow path (`hooks/tezgah_gate.py:1112`) and capped at `CAP` snapshots and `MAX_BYTES` per file (`hooks/tezgah_snapshot.py:52-53`); a file too large or unreadable is left uncaptured and writes no row, so nothing claims a copy that is not there. Not a transaction: the copy is bytes on disk, not a rollback that runs itself.
+The pre-write copy the gate takes of every file a write is about to change, `capture()` (`hooks/tezgah_snapshot.py:190`), called on the gate's allow path (`hooks/tezgah_gate.py:1309`) and capped at `CAP` snapshots and `MAX_BYTES` per file (`hooks/tezgah_snapshot.py:52-53`); a file too large or unreadable is left uncaptured and writes no row, so nothing claims a copy that is not there. Not a transaction: the copy is bytes on disk, not a rollback that runs itself.
 
 #### claim
 A ledger [row](#row) recording the [Stop rule](#stop-rule)'s verdict on one reply, `detail` being `ok` or `blocked: <reason class>`, written by `stop_reason()` (`hooks/tezgah_integrity.py:1145`, row at `:1167`). Not a deny: nothing ran, the turn simply may not end.
 
 #### conditional rule
-A rule armed for one prompt only, when its task class matches - `spec`, `consult`, `research`, `cbm` (`hooks/tezgah_policy.py:643`) - selected by `classify_prompt()` against the prompt hints (`hooks/tezgah_context.py:440`, `:35-51`) and injected only on the turn that matched (`hooks/tezgah_context.py:722-726`). Not an [always-on](#always-on) rule, though it sits in [CORE](#core) even while unarmed.
+A rule armed for one prompt only, when its task class matches - `spec`, `consult`, `research`, `cbm` (`hooks/tezgah_policy.py:643`) - selected by `classify_prompt()` against the prompt hints (`hooks/tezgah_context.py:466`, `hooks/tezgah_context.py:42-62`) and injected only on the turn that matched (`hooks/tezgah_context.py:751-757`). Not an [always-on](#always-on) rule, though it sits in [CORE](#core) even while unarmed.
 
 #### consent
-The gate's refusal of an irreversible or outward-facing effect, recorded as a `consent` row naming the action [digest](#digest) plus its effect class; lifting it needs the user's own `grant`, which only `bin/tezgah-consent` writes (`hooks/tezgah_gate.py:517`, `bin/tezgah-consent:109`), and a grant is a one-shot lease the effect spends (`unspent_grant`, `hooks/tezgah_gate.py:488`). Not a prompt for permission: the agent cannot answer it, only the user can ([gate](page-gate)).
+The gate's refusal of an irreversible or outward-facing effect, recorded as a `consent` row naming the action [digest](#digest) plus its effect class; lifting it needs the user's own `grant`, which only `bin/tezgah-consent` writes (`hooks/tezgah_gate.py:521`, `bin/tezgah-consent:109`), and a grant is a one-shot lease the effect spends (`unspent_grant`, `hooks/tezgah_gate.py:515`). Not a prompt for permission: the agent cannot answer it, only the user can ([gate](page-gate)).
 
 #### contract
 The whole working document, `CONTRACT` as the join of every block (`hooks/tezgah_policy.py:673`), shipped on demand as `skills/tezgah-contract/SKILL.md`, with the always-on [CORE](#core) as its summary and the [pointer](#pointer) line as the way in (`hooks/tezgah_policy.py:648`). Its clauses are [contract](page-contract)'s subject.
 
 #### CORE
-The single string holding the whole always-on contract, one bold-labelled paragraph per [rule](#rule) (`hooks/tezgah_policy.py:485`), filtered against [per-repo marks](#per-repo-mark) and [kill switches](#kill-switch) by `core_split()` (`hooks/tezgah_context.py:479`). Not [contract](#contract), the on-demand join of every block.
+The single string holding the whole always-on contract, one bold-labelled paragraph per [rule](#rule) (`hooks/tezgah_policy.py:485`), filtered against [per-repo marks](#per-repo-mark) and [kill switches](#kill-switch) by `core_split()` (`hooks/tezgah_context.py:505`). Not [contract](#contract), the on-demand join of every block.
 
 #### deny
-A refusal the gate returns and records: `_deny()` writes a `deny` row carrying the rule name and the first 80 characters of the reason (`hooks/tezgah_gate.py:959`, `:972`). Not the reason text itself - the adapter renders the reason into its own envelope ([hosts](page-hosts)).
+A refusal the gate returns and records: `_deny()` writes a `deny` row carrying the rule name and the first 80 characters of the reason (`hooks/tezgah_gate.py:1133`, `:972`). Not the reason text itself - the adapter renders the reason into its own envelope ([hosts](page-hosts)).
 
 #### digest
 The identity of one tool call, `call_id()` = `sha1(tool.lower() + " " + canonical(args))[:12]` (`hooks/tezgah_integrity.py:190`); both the gate and the post-tool hook compute it here, so a [row](#row) and the call it belongs to agree, and the user approves an effect by this digest. Not a session id.
@@ -1831,13 +1831,13 @@ The identity of one tool call, `call_id()` = `sha1(tool.lower() + " " + canonica
 One JSONL file per session recording what ran, `<cache>/evidence/<slug>.jsonl` (`hooks/tezgah_integrity.py:230`), appended by `note()` (`:364`) and read by `events()` (`:452`), with its contract in the module docstring (`hooks/tezgah_integrity.py:2-24`) and every reader failing open. Not the [session store](#session-store), which holds only used-tool marks.
 
 #### false completion
-The count of [claim](#claim) rows a stop refused, `false_completion` in `counters()`, read against `claims` so the rate is meaningful (`hooks/tezgah_integrity.py:627-632`, `:653`). Not the count of [denies](#deny): a deny is the gate refusing a call, a false completion is the Stop rule refusing the end of a turn.
+The count of [claim](#claim) rows a stop refused, `false_completion` in `counters()`, read against `claims` so the rate is meaningful (`hooks/tezgah_integrity.py:627-bin/tezgah-setup:634`, `:653`). Not the count of [denies](#deny): a deny is the gate refusing a call, a false completion is the Stop rule refusing the end of a turn.
 
 #### gate
-The pre-tool refusal layer, `decision()` (`hooks/tezgah_gate.py:976`), which runs only inside a [root](#root) (`:981`) and returns a reason or nothing ([gate](page-gate)). Not the [Stop rule](#stop-rule), which runs after the reply.
+The pre-tool refusal layer, `decision()` (`hooks/tezgah_gate.py:1150`), which runs only inside a [root](#root) (`:981`) and returns a reason or nothing ([gate](page-gate)). Not the [Stop rule](#stop-rule), which runs after the reply.
 
 #### group
-The partition a status [mark](#mark) carries so a renderer separates the marks the same way: `_GROUP` maps each key to an index and `render_line()` joins groups with `  ·  ` (`hooks/tezgah_context.py:1081`, `:1203-1210`). Not a [state](#state).
+The partition a status [mark](#mark) carries so a renderer separates the marks the same way: `_GROUP` maps each key to an index and `render_line()` joins groups with `  ·  ` (`hooks/tezgah_context.py:1081`, `hooks/tezgah_context.py:1237-1243`). Not a [state](#state).
 
 #### harness
 This project's own frame for the work, tezgah being the harness that wraps a coding agent and injects the contract (`README.md:43`); the same word names the multi-agent harness chosen by the `harness` [skill](#skill) (`skills/harness/SKILL.md:4`) and the graph workflows listed under "Graph harnesses" (`hooks/tezgah_policy.py:473`). Not the [host](#host): the host is the agent, the harness is what tezgah puts around it.
@@ -1855,40 +1855,40 @@ A file whose presence removes exactly its own rule from the injected text and fr
 The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hooks/tezgah_context.py:1090`), printed by `tezgah-status --legend` (`bin/tezgah-status:46-48`). Not the marks themselves.
 
 #### mark
-One item of the armed/used checklist as a host shows it, a segment carrying `key`, `state`, `glyph`, `text` and `group` from `health_segments()` (`hooks/tezgah_context.py:1116`, `:1119-1121`), for example `pony✓` or `consult○`. Not a [kind](#kind), which is a ledger row, and not the [state](#state), which is the value one mark carries.
+One item of the armed/used checklist as a host shows it, a segment carrying `key`, `state`, `glyph`, `text` and `group` from `health_segments()` (`hooks/tezgah_context.py:1220`, `hooks/tezgah_context.py:1204-1205`), for example `pony✓` or `consult○`. Not a [kind](#kind), which is a ledger row, and not the [state](#state), which is the value one mark carries.
 
 #### metadata band
-One measured row of always-on context the installer reports in bytes: the core contract, the per-turn reminder, skill metadata, subagent metadata and the conditional rules (`context_budget()`, `bin/tezgah-setup:1612`, rows at `:1629-1634`), with the MCP tool schemas as the one band it cannot count and measures by handshake instead (`mcp_schema_report()`, `bin/tezgah-setup:1672`). Not the [budget](#budget): a band is a measurement, a budget a bound.
+One measured row of always-on context the installer reports in bytes: the core contract, the per-turn reminder, skill metadata, subagent metadata and the conditional rules (`context_budget()`, `bin/tezgah-setup:1614`, rows at `:1629-1634`), with the MCP tool schemas as the one band it cannot count and measures by handshake instead (`mcp_schema_report()`, `bin/tezgah-setup:1674`). Not the [budget](#budget): a band is a measurement, a budget a bound.
 
 #### mirror
-`output-styles/tezgah.md`, a by-hand duplicate of `always_on_core()` kept for the host path that is hookless, which a test holds to the generator (`tests/test_context.py:1109-1126`). Not generated: an edit to [CORE](#core) must be carried into it by hand (`.tezgah/lessons.md:4`).
+`output-styles/tezgah.md`, a by-hand duplicate of `always_on_core()` kept for the host path that is hookless, which a test holds to the generator (`tests/test_context.py:1223-1238`). Not generated: an edit to [CORE](#core) must be carried into it by hand (`.tezgah/lessons.md:4`).
 
 #### nudge
-The one-time hint that sends a first identifier-shaped search to the code graph, `first_nudge()` consuming a per-session mark before the grep is denied (`hooks/tezgah_gate.py:365`, `:376`) with the text naming the graph tools (`nudge_reason()`, `:382`). Not a deny: it is spent by being delivered, and the identical call passes on the retry.
+The one-time hint that sends a first identifier-shaped search to the code graph, `first_nudge()` consuming a per-session mark before the grep is denied (`hooks/tezgah_gate.py:392`, `:376`) with the text naming the graph tools (`nudge_reason()`, `:382`). Not a deny: it is spent by being delivered, and the identical call passes on the retry.
 
 #### observable measure
-A used-mark a surface is able to see at all, so it can say "armed, not used yet" without inventing it: `health_segments(observable=...)` (`hooks/tezgah_context.py:1138`) with the four tool-use measures in `TOOL_USE_MEASURES` (`:1113`), a measure outside the set rendering as `info` rather than `ready`. Which host can see a skill read is [hosts](page-hosts)'s.
+A used-mark a surface is able to see at all, so it can say "armed, not used yet" without inventing it: `health_segments(observable=...)` (`hooks/tezgah_context.py:1220`) with the four tool-use measures in `TOOL_USE_MEASURES` (`:1113`), a measure outside the set rendering as `info` rather than `ready`. Which host can see a skill read is [hosts](page-hosts)'s.
 
 #### once-only
 A mark consumed by its own first use, so the thing it protects happens once: the grep [nudge](#nudge) is written before the deny so later greps pass (`hooks/tezgah_gate.py:376`), and a consent `grant` is spent by the effect it authorised (`unspent_grant`, `:488`). Not a licence for the session: the next identical action is asked about again.
 
 #### per-repo mark
-An opt-out file in the repo tree - `.no-ponytail`, `.no-adhd`, `.no-cbm`, `.no-lessons` - collected by `repo_marks()` walking up to the enclosing root (`hooks/tezgah_context.py:967`). Not a [kill switch](#kill-switch): a mark travels with the repo, a switch with the machine.
+An opt-out file in the repo tree - `.no-ponytail`, `.no-adhd`, `.no-cbm`, `.no-lessons` - collected by `repo_marks()` walking up to the enclosing root (`hooks/tezgah_context.py:1001`). Not a [kill switch](#kill-switch): a mark travels with the repo, a switch with the machine.
 
 #### plan
 A piece of work spanning sessions, one markdown file with frontmatter under `<repo root>/plans/open/`, moved to `plans/done/` when closed, up to three of them injected by `open_plans()` (`hooks/tezgah_context.py:254`) and its work happening on a `plan/NNN-slug` branch. Not a TODO in code.
 
 #### plan table
-The status table in `plans/README.md` (`plans/README.md:3`), owned by the `plan-status` skill (`skills/plan-status/SKILL.md:1`) and the first block the [budget](#budget) gives up because it lives on disk (`hooks/tezgah_context.py:608-610`). Not the injected list of open plans.
+The status table in `plans/README.md` (`plans/README.md:3`), owned by the `plan-status` skill (`skills/plan-status/SKILL.md:1`) and the first block the [budget](#budget) gives up because it lives on disk (`hooks/tezgah_context.py:704-635`). Not the injected list of open plans.
 
 #### plugin copy
-Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:1978`) and refreshed by `sync()` against the fingerprint file (`:2001`, `:1967`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
+Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:1980`) and refreshed by `sync()` against the fingerprint file (`:2001`, `bin/tezgah-setup:1969`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
 
 #### pointer
 The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py:648`). Not a rule.
 
 #### probe
-A small side effect tezgah makes when an answer cannot be read directly: a write probe to decide whether a directory is usable (`hooks/tezgah_paths.py:87`, `:102-106`), and the cached git fork that decides whether the graph stamp is behind HEAD (`hooks/tezgah_context.py:987`). Not a check of the work.
+A small side effect tezgah makes when an answer cannot be read directly: a write probe to decide whether a directory is usable (`hooks/tezgah_paths.py:87`, `:102-106`), and the cached git fork that decides whether the graph stamp is behind HEAD (`hooks/tezgah_context.py:1050`). Not a check of the work.
 
 #### reminder
 The compact per-turn text every user turn pays for, `PROMPT_REMINDER` (`hooks/tezgah_policy.py:654`), injected as the `reminder` block (`hooks/tezgah_context.py:721`) and carrying the standing constraints rather than the long rationale. Not [CORE](#core), which is paid once per session.
@@ -1900,28 +1900,28 @@ Putting a [snapshot](#snapshot)'s bytes back, `restore()` (`hooks/tezgah_snapsho
 A directory tezgah is armed over, from `TEZGAH_ROOTS`, the config file or `~/Projects` (`hooks/tezgah_paths.py:8-14`), resolved by `roots()` longest first (`:151`) and looked up per path by `root_for()` (`:167`). Not a repository: one root may contain many repositories.
 
 #### root boundary
-The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:981`), the context builder returns nothing (`hooks/tezgah_context.py:695`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:1172-1180`). Not a repository boundary.
+The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:1154-1156`), the context builder returns nothing (`hooks/tezgah_context.py:723`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:1172-1180`). Not a repository boundary.
 
 #### row
 One line of an [evidence ledger](#evidence-ledger): `{"kind","ts","detail"}` plus whatever the writer knew of `LEDGER_FIELDS` (`id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`), written by `note_path()` (`hooks/tezgah_integrity.py:342`, `:148`) with `detail` redacted and cut to `DETAIL_MAX` (`:293`). A missing key means the writer did not know it, never null.
 
 #### rule
-One bold-labelled paragraph of the contract, the unit a [kill switch](#kill-switch) drops and a test pins: `CORE_RULES` pairs each key with the label it must start with (`hooks/tezgah_context.py:63`) and `core_split()` drops exactly the paragraph whose label matches (`:479`). Not a [skill](#skill), which the model chooses to read.
+One bold-labelled paragraph of the contract, the unit a [kill switch](#kill-switch) drops and a test pins: `CORE_RULES` pairs each key with the label it must start with (`hooks/tezgah_context.py:70`) and `core_split()` drops exactly the paragraph whose label matches (`:479`). Not a [skill](#skill), which the model chooses to read.
 
 #### session
-One host conversation, identified by the id `session_of()` reads from a payload under whichever name the host uses (`hooks/tezgah_context.py:580`), keying the [ledger](#evidence-ledger) filename (`hooks/tezgah_integrity.py:215`), the [session store](#session-store) and the per-turn markers (`note_turn()`, `:580`). Not a [turn](#turn), of which one session has many.
+One host conversation, identified by the id `session_of()` reads from a payload under whichever name the host uses (`hooks/tezgah_context.py:606`), keying the [ledger](#evidence-ledger) filename (`hooks/tezgah_integrity.py:215`), the [session store](#session-store) and the per-turn markers (`note_turn()`, `:580`). Not a [turn](#turn), of which one session has many.
 
 #### session store
-The used-tool marks one session wrote, `<cache>/sessions/<slug>.jsonl`, appended by `record()` (`hooks/tezgah_context.py:931`) and read by `used()` (`:950`) to feed the "used" half of the status marks, with a missing kind recorded nowhere at all. Not the [evidence ledger](#evidence-ledger).
+The used-tool marks one session wrote, `<cache>/sessions/<slug>.jsonl`, appended by `record()` (`hooks/tezgah_context.py:965`) and read by `used()` (`:950`) to feed the "used" half of the status marks, with a missing kind recorded nowhere at all. Not the [evidence ledger](#evidence-ledger).
 
 #### skill
 `skills/<name>/SKILL.md` - frontmatter with `name` and `description`, then instructions the model reads by choice; [skills](page-skills) owns the layer. Not a [rule](#rule), which is injected, and not a [slash command](#slash-command).
 
 #### skill read
-A read of a tezgah skill's own `SKILL.md` earning a used mark, `skill_read_kind()` matching on the path (`hooks/tezgah_context.py:115`), which is the only signal that the full rule text reached the session, and only `ponytail` and `i-have-adhd` carry a mark (`SKILL_MARKS`, `:111`). Not a general read.
+A read of a tezgah skill's own `SKILL.md` earning a used mark, `skill_read_kind()` matching on the path (`hooks/tezgah_context.py:122`), which is the only signal that the full rule text reached the session, and only `ponytail` and `i-have-adhd` carry a mark (`SKILL_MARKS`, `:111`). Not a general read.
 
 #### skill router
-The generated list that stands in for a skill index where a host has none, `~/.config/tezgah/opencode-skills.md` always-on and `.full.md` on demand (`bin/tezgah-setup:101-104`), built by `skill_router_texts()` from `skill_groups()` (`:682`, `:632`). Not a directory listing: each line is name, trigger and path ([skills](page-skills)).
+The generated list that stands in for a skill index where a host has none, `~/.config/tezgah/opencode-skills.md` always-on and `.full.md` on demand (`bin/tezgah-setup:101-104`), built by `skill_router_texts()` from `skill_groups()` (`bin/tezgah-setup:684`, `bin/tezgah-setup:634`). Not a directory listing: each line is name, trigger and path ([skills](page-skills)).
 
 #### slash command
 A file under `commands/` wired only through the Claude plugin channel and named with the plugin's prefix (`/tezgah:plan-sync`), installed by no other host ([skills](page-skills)). Not a [skill](#skill), though one feature may be both.
@@ -1933,7 +1933,7 @@ The stored pre-write bytes of one file plus its manifest, created by [capture](#
 The ledger field naming the untrusted channel a result came through - `web`, `mcp` or `network` - set only when there was one (`hooks/tezgah_integrity.py:148`, `untrusted_source()` `:853`), a missing `source` meaning the user or this workspace, which is what every reader assumes. Not a record of what the content said.
 
 #### state
-The value of one status [mark](#mark): `on`, `ready`, `off` or `info` (`hooks/tezgah_context.py:1119-1121`), drawn as `✓ ○ ✗` or nothing by `GLYPHS` (`:1083`) and mapped to a colour by `COLORS` (`:1086`), with `off` winning over the observable test because a kill switch is visible everywhere ([status-line](page-status-line)). Not a glyph, which is only how the state is drawn.
+The value of one status [mark](#mark): `on`, `ready`, `off` or `info` (`hooks/tezgah_context.py:1204-1205`), drawn as `✓ ○ ✗` or nothing by `GLYPHS` (`:1083`) and mapped to a colour by `COLORS` (`:1086`), with `off` winning over the observable test because a kill switch is visible everywhere ([status-line](page-status-line)). Not a glyph, which is only how the state is drawn.
 
 #### step kind
 One of the row kinds that count as a step of work - `run`, `edit`, `verify`, `verify_ok`, `verify_fail` (`STEP_KINDS`, `hooks/tezgah_integrity.py:613`), summed into `steps` and into the drift threshold, while `deny`, `nudge`, `claim` and `turn` are the machinery around the work (`:610-612`). Not any row.
@@ -1942,7 +1942,7 @@ One of the row kinds that count as a step of work - `run`, `edit`, `verify`, `ve
 The end-of-turn refusal, `stop_reason()` (`hooks/tezgah_integrity.py:1145`), run by the Stop hooks of Claude, Codex, Cursor and omp (`hooks/projects-stop.py:33`, `hosts/codex/hook.py:159`, `hosts/cursor/hook.py:295`, `hosts/omp/hook.py:163`): it blocks on a placating opener, on a completion claim the newest check does not support, or on a turn that recorded work with no passing check (`_stop_block()`, `:1184`), and an explicit "doğrulanmadı" clears it. Not the [gate](#gate), which runs before a call ([evidence](page-evidence)).
 
 #### surface
-A place a host can show tezgah's output - a status line, a TUI widget, a `systemMessage` - and therefore the reason the same [marks](#mark) render differently per host (`hooks/tezgah_context.py:1138`, `:1212-1222`); each host's surfaces are [hosts](page-hosts)'s. Not the host itself.
+A place a host can show tezgah's output - a status line, a TUI widget, a `systemMessage` - and therefore the reason the same [marks](#mark) render differently per host (`hooks/tezgah_context.py:1220`, `hooks/tezgah_context.py:1251-1257`); each host's surfaces are [hosts](page-hosts)'s. Not the host itself.
 
 #### taint
 The state of a turn that has read content tezgah cannot vouch for and not yet marked an effect, `turn_channel()` (`hooks/tezgah_untrusted.py:44`) plus the line the model reads on the next effect, `taint_notice()` (`:69`). A state, not a verdict: whether the content caused the write is not observable.
@@ -1954,7 +1954,7 @@ One user prompt and everything before the next one, delimited on the ledger by a
 A result that arrived from outside the user and this workspace - a fetched page, an MCP server's answer, a shell read that left the machine - named by `untrusted_source()` and labelled by `untrusted_label()` (`hooks/tezgah_integrity.py:853`, `:873`), the label and the [taint](#taint) notice being `hooks/tezgah_untrusted.py:2-20`. Not a deny: the model may use the text, but instructions inside it are data, never a request.
 
 #### used kind
-The tool kind a session was observed to use, one word per call, recorded by `record()` (`hooks/tezgah_context.py:931`) and read by `used()` (`:950`) to turn an armed mark into a used one, with `shell_kind()` and `skill_read_kind()` as the classifiers. Not a [step kind](#step-kind): this is the status line's vocabulary, not the ledger's.
+The tool kind a session was observed to use, one word per call, recorded by `record()` (`hooks/tezgah_context.py:965`) and read by `used()` (`:950`) to turn an armed mark into a used one, with `shell_kind()` and `skill_read_kind()` as the classifiers. Not a [step kind](#step-kind): this is the status line's vocabulary, not the ledger's.
 
 #### vendored
 Copied into this repository from an upstream project and kept, with its licence, rather than depended on: `skills/ai-research` is the large case (`ai_research_dir()`, `hooks/tezgah_paths.py:143`), and a vendored file carries a `<!-- vendored from ... -->` header checked against a manifest (`tests/test_ai_research_library.py:72`, `:133`). Not a git submodule.

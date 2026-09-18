@@ -13,7 +13,7 @@ python3 -m unittest discover -s tests                     # stdlib test suite
 ruff check .                                              # lint; config in pyproject.toml
 ```
 
-[`AGENTS.md`](../AGENTS.md) gives them in that order (`AGENTS.md:17-21`), and
+[`AGENTS.md`](../AGENTS.md) gives them in that order (`AGENTS.md:22-26`), and
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) repeats the same three before a pull
 request (`CONTRIBUTING.md:13-19`).
 
@@ -26,7 +26,7 @@ request (`CONTRIBUTING.md:13-19`).
 `ruff` is not vendored: install it as a uv tool, run `uvx ruff check .` without
 installing it, or use the version CI installs from `requirements-dev.txt:3`
 (`ruff==0.16.7`). There is no other linter and no type checker
-(`AGENTS.md:23-24`).
+(`AGENTS.md:28-29`).
 
 ## Continuous integration
 

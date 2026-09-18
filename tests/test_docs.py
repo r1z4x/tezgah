@@ -116,6 +116,47 @@ class DocsLayer(unittest.TestCase):
                                  capture_output=True, text=True, timeout=60)
         self.assertEqual(missing.returncode, 1)
 
+    def citation_file(self, path):
+        """The file a citation points at, or None. A page writes a repo-relative
+        path when the file is not in a conventional directory and the bare file
+        name otherwise (`test_context.py:51`, `ci.yml:8`), so a bare name is
+        looked for in the directories the layer cites from."""
+        if os.path.isfile(os.path.join(support.REPO, path)):
+            return os.path.join(support.REPO, path)
+        if "/" in path:
+            return None
+        for directory in ("tests", "hooks", "bin", "hosts", "hosts/omp",
+                          "hosts/dsh/statusline/lib", "skills", "workflows",
+                          "docs", "plans", ".github/workflows"):
+            candidate = os.path.join(support.REPO, directory, path)
+            if os.path.isfile(candidate):
+                return candidate
+        return None
+
+    def test_every_citation_points_into_a_file_that_has_that_line(self):
+        # A page's promise is `path:line`: the claim is checkable. This is the
+        # half a script can check - the file is there and the line is inside it -
+        # and it is deliberately not more than that: whether the line still shows
+        # the thing the sentence names is a judgement an audit makes, not a
+        # regex, and a test that guessed at it would fail on rewording rather
+        # than on drift.
+        for page in index()["pages"]:
+            text = read(os.path.join(support.REPO, page["path"]))
+            cites = re.findall(
+                r"([\w./-]+\.(?:py|js|ts|tsx|json|yml|toml|md)):(\d+)(?:-(\d+))?",
+                text)
+            self.assertTrue(cites, "%s cites no file" % page["path"])
+            for path, start, end in cites:
+                with self.subTest(page=page["path"], cite="%s:%s" % (path, start)):
+                    full = self.citation_file(path)
+                    self.assertIsNotNone(full, "%s is cited but missing" % path)
+                    with open(full, encoding="utf-8", errors="replace") as fh:
+                        lines = len(fh.read().splitlines())
+                    self.assertLessEqual(
+                        int(end or start), lines,
+                        "%s:%s is past the end of the file (%d lines)"
+                        % (path, end or start, lines))
+
     def test_the_handbook_is_the_pages_and_is_current(self):
         # HANDBOOK.md is the layer in one file, and the only copy of it that
         # leaves this checkout: a page edited without regenerating it leaves the

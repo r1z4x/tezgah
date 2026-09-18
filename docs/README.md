@@ -42,6 +42,11 @@ reader with one question in mind, and every non-obvious claim in it carries a
   after a change.
 - A non-obvious claim carries `path:line`. A claim nobody can point at does not
   belong on a page: delete it rather than soften it.
+- A citation is checked against HEAD by hand, not generated: the suite only
+  checks that the cited file exists and that the line is inside it
+  (`tests/test_docs.py`), because whether the line still *shows the thing the
+  sentence names* is a judgement, not a regex. The layer was audited page by page
+  on 2026-09-19 after the code moved under it.
 - Two hundred lines is the ceiling. A page that needs more is two pages.
 - The [glossary](glossary.md) is the only place a term is defined; every other
   page uses the term and links to it there.

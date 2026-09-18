@@ -42,7 +42,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail` | `note_tool` `:974-1042` | the Stop rule's `worked` set `:1226`; `counters.steps` `:639-640`; `last_verify`/`partial_state` |
 | `external`, `unknown` | `note_tool` `:1014-1031` | the sink rule, via `source`; nothing counts them as work |
 | `claim` | `stop_reason` `:1157-1168` | `counters` `:650-653` |
-| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:959`, first-nudge `:1091-1093` | `counters` `:646-649` |
+| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1133`, first-nudge `:1091-1093` | `counters` `:646-649` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:183-185`, `:262-265` | `_snapshot_hash` `:920-931`; no counter |
 
 **The verify kinds are a tri-state, and an unread outcome is never a pass.** `note_tool`
@@ -110,8 +110,8 @@ is. Every denial is itself a `deny` row.
 
 ## The session store for the status marks
 
-`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:931-946`) and read
-by `used()` (`:950-963`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
+`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:965-981`) and read
+by `used()` (`hooks/tezgah_context.py:984-998`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
 and the kinds are the used-tool marks [status-line.md](status-line.md) lights up (`cbm`, `consult`,
 `research`). It is separate from the [ledger](glossary.md#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all
@@ -160,7 +160,7 @@ fetched page *caused* the write is not something a hook can see (`:14-17`). One 
 the effect's own row then carries the channel, so the taint is a transition rather than a repeat.
 
 The taint is enforced at the sink: while an untrusted read is live, an effect is refused unless the
-user's own approval was written *after* the read (`sink_check` `hooks/tezgah_gate.py:745-777`; deny
+user's own approval was written *after* the read (`sink_check` `hooks/tezgah_gate.py:772-801`; deny
 rule `sink` at `:1015-1029` for a write outside the root, `:1057-1058` for a shell effect class). The
 label reaches the model on the four Python hosts: Claude and dsh through
 `hooks/projects-posttooluse.py:80-83`, Codex (`hosts/codex/hook.py:135-136`), Cursor

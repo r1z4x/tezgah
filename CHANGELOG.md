@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **opencode's half of the gate had no `send` class, so an outbound send ran
+  unasked there.** The JS mirror derives five effect classes and `send` was not
+  one of them: `mail`, `sendmail`, `curl -X POST`, a payment API - each refused by
+  the Python gate and allowed by opencode. The class is now named in the JS table
+  (so a `tezgah:effect=send` declaration is ranked instead of silently dropped)
+  and a command that looks like a send is put to the core through
+  `bin/tezgah-gate`, which owns the pattern - the idiom the write path already
+  uses. The pre-filter is the whole bound on a spawn per bash call, and
+  `tests/test_opencode_plugin.py` pins both halves: a candidate reaches the core,
+  while a read and a class the table already derives never do.
+
+### Changed
+
+- **the docs layer's `path:line` citations were audited against HEAD, and 414 of
+  them corrected.** The code moved under the pages and most citations pointed at
+  the wrong line - the gate page worst, at 130. Ten page-by-page audits are
+  recorded under `.tezgah/research/jev-classifier/` (local, gitignored);
+  `tests/test_docs.py` now checks the half a script can (the cited file exists and
+  the line is inside it); and the 61 citations the mechanical pass could not
+  verify are tracked in `plans/open/002-docs-citation-drift.md`.
+
 ### Added
 
 - **`HANDBOOK.md`: the docs layer as one file.** The ten pages under `docs/`,

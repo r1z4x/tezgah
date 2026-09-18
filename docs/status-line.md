@@ -10,12 +10,12 @@ cannot explain. As this repository prints it:
 ## Shape: segments, groups, separator
 
 One mark is one segment — `{"key", "state", "glyph", "text", "group"}` — built
-host-neutrally by `health_segments()` (hooks/tezgah_context.py:1116-1181).
+host-neutrally by `health_segments()` (hooks/tezgah_context.py:1150-1215).
 `render_line()` joins segments with one space inside a group and `  ·  ` between
-groups (1203-1210). The group is *data on each segment*: a renderer building its
+groups (hooks/tezgah_context.py:1237-1243). The group is *data on each segment*: a renderer building its
 own line from `--json` separates on `seg.group` and matches `render_line()`
-without a second copy of the partition (1124-1128) — opencode and dsh do exactly
-that (hosts/opencode/tui/tezgah-tui.tsx:74-79,
+without a second copy of the partition (hooks/tezgah_context.py:1159-1162) — opencode and dsh do exactly
+that (hosts/opencode/tui/tezgah-tui.tsx:76-79,
 hosts/dsh/statusline/lib/client.js:86-90).
 
 | group | members | why together |
@@ -26,10 +26,10 @@ hosts/dsh/statusline/lib/client.js:86-90).
 | 3 | `plans` | a per-repo fact, its own group |
 
 Groups 0 and 1 come from `_GROUP` (hooks/tezgah_context.py:1081-1082); `idx` and
-`plans` carry 2 and 3 where they are appended (1172-1180). Outside every
+`plans` carry 2 and 3 where they are appended (hooks/tezgah_context.py:1209-1214). Outside every
 [root](glossary.md#root) the checklist still prints — tezgah loads globally on
 opencode, so the indicator must not go silent — and only the per-repo extras are
-omitted (hooks/tezgah_context.py:1130-1132, tests/test_statusline.py:11-12,43-48).
+omitted (hooks/tezgah_context.py:1164-1166, tests/test_statusline.py:11-12,tests/test_statusline.py:45-50).
 
 ## States
 
@@ -46,13 +46,13 @@ omitted (hooks/tezgah_context.py:1130-1132, tests/test_statusline.py:11-12,43-48
 Glyphs are `GLYPHS`, colors `COLORS` (green 32, yellow 33, red 31, dim 2; 1083-1088).
 The whole `text`+`glyph` chip is colored, and the glyph is drawn in every state:
 color is additive, never the only carrier of the state — the accessibility rule
-(`_seg_text()`, 1191-1201). `idx` is the one exception: its glyph *is* the index's
-state, mapped back by `IDX_STATE` (1089).
+(`_seg_text()`, hooks/tezgah_context.py:1225-1234). `idx` is the one exception: its glyph *is* the index's
+state, mapped back by `IDX_STATE` (hooks/tezgah_context.py:1123).
 
 ## Per mark
 
 Flips come from the flag table (hooks/tezgah_context.py:1150-1159) and the
-resolution after it (1161-1169): `off` is decided first and always wins, then a
+resolution after it (hooks/tezgah_context.py:1195-1203): `off` is decided first and always wins, then a
 measure the surface cannot see, then armed-and-used or armed-not-used.
 
 | mark | goes `on` when | goes `off` when |
@@ -72,24 +72,24 @@ a missing key or binary reads the same red as a kill switch (`have_consult_key()
 (1153,1166). The per-repo `idx`: ✓ indexed, ↻ indexed but HEAD moved since the
 stamp, ✗ not indexed yet, – n/a (outside a root, codebase-memory-mcp absent, or
 `.no-cbm`); its probe forks git twice, so it is memoised per `(cwd, base)`
-(`index_mark()`, 987-1024) and `idx_override` lets a redraw send the glyph back
-instead of forking (1145-1147). `plans` is `plans N` plus `(M blk)` when M open
+(`index_mark()`, hooks/tezgah_context.py:1021-1033) and `idx_override` lets a redraw send the glyph back
+instead of forking (hooks/tezgah_context.py:1179-1181). `plans` is `plans N` plus `(M blk)` when M open
 plan files carry `status: blocked` in their first 400 bytes — `ready` with a
-blocked plan, else `info` (`plan_mark()`, 1054-1078).
+blocked plan, else `info` (`plan_mark()`, hooks/tezgah_context.py:1088-1107).
 
 ### The two skill-read marks, and `--observable=`
 
 `pony` and `adhd` mean "the full skill text reached the session" — the only signal
 separating a real rule read from the always-on summary. They are earned by a read
 of `skills/<name>/SKILL.md`, matched on the path suffix, so any other read costs
-nothing (`SKILL_MARKS`, `skill_read_kind()`, hooks/tezgah_context.py:111-134).
+nothing (`SKILL_MARKS`, `skill_read_kind()`, hooks/tezgah_context.py:hooks/tezgah_context.py:118-141).
 
 A read is not observable at an acceptable price everywhere: it needs Claude's
 transcript, opencode's in-process classification, or omp's extension filter before
-python is asked (118-122). A surface that cannot see one must not say "the skill
+python is asked (hooks/tezgah_context.py:125-129). A surface that cannot see one must not say "the skill
 was never opened", so it declares what it can see and those marks render `info`
-(dim, no glyph) instead of `ready` (`observable`, 1138-1143; the set constant
-`TOOL_USE_MEASURES`, 1113). The `--observable=` flag carries it on the CLI
+(dim, no glyph) instead of `ready` (`observable`, hooks/tezgah_context.py:1172-1177; the set constant
+`TOOL_USE_MEASURES`, hooks/tezgah_context.py:1147). The `--observable=` flag carries it on the CLI
 (bin/tezgah-status:12-16,37-38,69-72). Two callers pass the tool-use set: Cursor's
 status line (statusline.py:109-114) and Codex, which renders the line plain into
 `systemMessage` (hosts/codex/hook.py:163-165,177-179); dsh passes the literal flag
@@ -99,17 +99,17 @@ string (hosts/dsh/statusline/lib/index.js:18,47-48).
 
 A used measure is one append to the session store,
 `<cache_dir>/sessions/<slug(session_id)>.jsonl`, one `{"kind": …}` per line
-(`record()`, hooks/tezgah_context.py:931-947; `used()` reads it back, 950-964).
+(`record()`, hooks/tezgah_context.py:hooks/tezgah_context.py:965-982; `used()` reads it back, hooks/tezgah_context.py:984-999).
 `cache_dir()` is `~/.cache/tezgah` with a temp fallback for sandboxed hosts
 (hooks/tezgah_paths.py:26,31-32,122-136); a missing kind is not an event, so only
-the four kinds are ever written (hooks/tezgah_context.py:934-938).
+the four kinds are ever written (hooks/tezgah_context.py:hooks/tezgah_context.py:968-971).
 
 Writers: the shared PostToolUse hook `hooks/projects-posttooluse.py` — `cbm` from
 an MCP tool name, else the shell tokenizer's answer, which counts a tool only when
 the command really ran it (34-38,84) — plus `hooks/projects-auto-init.py:35`
 (`orch` on subagent start), hosts/codex/hook.py:130,149,
-hosts/cursor/hook.py:207,230,236,251,259, hosts/opencode/plugins/tezgah.js:1110-1118,
-1436-1437, hosts/omp/hook.py:141. Both Claude (hooks/hooks.json) and dsh
+hosts/cursor/hook.py:207,230,236,251,259, hosts/opencode/plugins/tezgah.js:1160-1167,
+hosts/opencode/plugins/tezgah.js:1541-1542, hosts/omp/hook.py:141. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
 its line has (hooks/projects-posttooluse.py:26-30).
@@ -126,7 +126,7 @@ Every other surface reads the store.
   `render_line(segs, color=color_default())`, and joins Orca's own status line to
   the tezgah segment with `  |  `; `TEZGAH_STATUS_LEGEND=1` appends the legend
   (31-34,40-48,116-122). ANSI is dropped under `NO_COLOR` or
-  `TEZGAH_STATUS_COLOR=0` (`color_default()`, hooks/tezgah_context.py:1184-1187).
+  `TEZGAH_STATUS_COLOR=0` (`color_default()`, hooks/tezgah_context.py:1218-1222).
 - **omp** — hosts/omp/tezgah-hook.ts.in: `draw()` prefers
   `ctx.ui.setWidget("tezgah", [line], {placement: "belowEditor"})`, which renders
   the colored string as-is; `setStatus` is the fallback for a build without
@@ -138,7 +138,7 @@ Every other surface reads the store.
   (`tui.json`'s `plugin` array, not the server plugin) registering an `app_bottom`
   slot, shelling out to `tezgah-status <dir> --json <sessionID>`, coloring each
   segment from the active theme and rebuilding the separator from `seg.group`
-  (24-56,74-79). Its `tezgah: status legend` command opens a dialog running
+  (24-56,hosts/opencode/tui/tezgah-tui.tsx:76-79). Its `tezgah: status legend` command opens a dialog running
   `--legend` (109-115).
 - **dsh** — hosts/dsh/statusline/lib/index.js serves `GET /api/tezgah.status`
   behind the Web UI's own authenticated fetch fence, so the browser fetches it
@@ -171,7 +171,7 @@ the used marks cannot light up (18-20). `--color`/`--no-color` force ANSI or pla
 `steps`, `tool_error_rate`, `claims`, `false_completion`, `denies`, `nudges`,
 `fanout`, `consult`, `codegen`, `codegen_failed` and the `kinds` seen (49-60);
 with `--json` as JSON. `tezgah-setup --status <path>` prints the plain line for a
-repo (bin/tezgah-setup:2281-2282). A wrong or missing line usually ends in one of
+repo (bin/tezgah-setup:2283-2284). A wrong or missing line usually ends in one of
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a
 sandboxed host could not write (hooks/tezgah_paths.py:27-32).
@@ -179,10 +179,10 @@ sandboxed host could not write (hooks/tezgah_paths.py:27-32).
 ## A mark must not claim what it cannot see
 
 A mark asserting a state the surface cannot observe is a bug in this layer, so the
-honest answer is dim, never a guess. That is why `observable` exists (1138-1143),
+honest answer is dim, never a guess. That is why `observable` exists (hooks/tezgah_context.py:1172-1177),
 why the skill-read check is documented as unavailable on Codex, Cursor and dsh
-(118-122), why omp ignores any `idx` value that is not one of its four glyphs
-(hosts/omp/hook.py:83-95), and why `off` is decided before the visibility one — a
+(hooks/tezgah_context.py:125-129), why omp ignores any `idx` value that is not one of its four glyphs
+(hosts/omp/hook.py:82-95), and why `off` is decided before the visibility one — a
 kill switch is observable everywhere (1139-1143,1162-1163). Cursor's pinned plain
 line is the regression for it (tests/test_statusline.py:15-16,33-37).
 
