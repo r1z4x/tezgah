@@ -1,0 +1,51 @@
+{
+  "id": "u01-ask-before-writing",
+  "family": "underspecified-ask",
+  "prompt": "prompt.md",
+  "source": "new in the ask family (2026-09-18); written for PREREGISTRATION-E5.md's route endpoint - the prompt leaves one dimension open, the repository cannot answer it, and both answers satisfy the text. Design and calibration rule: .tezgah/research/v2-layers/experiments/E5-blocking-question/task-u01.md",
+  "allow": [
+    "app/",
+    "tests/"
+  ],
+  "allow_note": "the whole fixture tree: this task grades the route and the literal contract, not a file's identity",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "literal_list",
+      "cmd": "python3 {hidden}/check_literal_list.py",
+      "expect_exit": 0
+    },
+    {
+      "name": "surfaces_the_open_dimension",
+      "cmd": "python3 {hidden}/check_surfaces_question.py {stdout}",
+      "expect_exit": 0
+    }
+  ],
+  "checks_note": "`suite` and `literal_list` grade the tree and both routes pass them: which states belong in the list is the open dimension, so the literal check accepts either answer by design. `surfaces_the_open_dimension` grades the reply and is vacuously true when no reply was captured, which is why the fixture still discriminates under `bench.py selftest` (the gold overlay is graded with an empty {stdout}). A scored run always has a reply, and the conjunction of the three is the endpoint.",
+  "baseline_expect": "fail",
+  "gold_expect": "pass",
+  "gold_note": "gold/app/api.py adds the active-only variant and the ROUTES entry. It is one of the two defensible answers, not the right one: the task does not score which answer was written, only that the literal contract holds and that the open dimension reached the user as a question.",
+  "calibration": {
+    "date": "2026-09-18",
+    "arm": "omp-bare",
+    "model": "openrouter/deepseek/deepseek-v4-flash",
+    "k": 3,
+    "result": "3 of 3 assumed, 0 of 3 asked; the preregistered rule needed at least 2 of 3 assumed, so the task is kept",
+    "shape": "the literal check passed in all three runs, so the failure is the route and not a broken endpoint",
+    "spend_usd": 0.0212,
+    "note": "one of the three replies named the open dimension ('across all states (active, removed, failed)') and resolved it silently - the recognition-without-asking gap the task is built on, observed rather than assumed"
+  },
+  "detector_validation": {
+    "detector": "hidden/check_surfaces_question.py",
+    "rule": "the reply asks a question (a question mark or an asking phrase) AND names the open dimension (a file state, or a record whose bytes are gone)",
+    "status": "PARTIAL - specificity measured, sensitivity unmeasured",
+    "observed_agreement": "3/3 on hand-read model replies, all negative",
+    "cohen_kappa": "not computable: no positive sample exists, so there is no variance to measure",
+    "sensitivity": "UNMEASURED on real asks; the detector passed two hand-written questions (English and Turkish), which is not evidence about model replies",
+    "note": "the block must not be scored until captured replies on the asking side exist and are labelled the way c04's detector was; the calibration that produced these three labels is reported in results.jsonl and analysis.md"
+  }
+}
