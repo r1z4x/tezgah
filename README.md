@@ -384,8 +384,9 @@ text injected into the session, so the rule actually stops:
 | `research-off` | routing research tasks to OpenResearch |
 | `orchestrate-off` | subagent delegation (adds a do-not-delegate line) |
 | `reminder-off` | the per-turn reminder text |
+| `verify-off` | the integrity rule: its prompt text, the shortcut denials, the Stop gate and the ordering rule |
 | `task-off` | the task rule's four refusals: the phase, the allowlist, the record and a shell write |
-| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, loop, grep nudge, task) |
+| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, shortcut, loop, race, sink, drift, nudge, order, task) |
 
 Per repo, `.no-ponytail`, `.no-adhd`, `.no-cbm` and `.no-lessons` turn off the
 minimal-code rule, the act-on-it output shape, the code-graph rule (and its
