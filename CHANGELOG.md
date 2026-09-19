@@ -8,6 +8,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The Stop rule's claim vocabulary missed a completion stated as a completed
+  state.** `DONE` carried the first person and a handful of English forms
+  (`yaptım`, `düzelttim`, `done`, `fixed`, `all tests pass`), so a reply that said
+  the work *was* done - `güncellendi`, `kuruldu`, `eklendi`, `düzeltildi`,
+  `uygulandı`, `yayına girdi`, `kapatıldı`, `landed`, `merged`, `wired into`,
+  `is green`, `all checks pass` - was not a claim at all and never reached the
+  `false_completion / claims` denominator the layer reads its own effect from.
+  Measured over this machine's own 161 final replies in
+  `~/.omp/agent/sessions/-Projects-tezgah` plus a hand-drawn set of 15 completions
+  in that shape: the old list caught 2 of the 15 and read 34 of the 161 replies as
+  claims; the widened list catches 13 and reads 39, with 0 of 5 control replies (a
+  question, a plan, an explicit `doğrulanmadı`) claimed. The verdict does not
+  move: a turn that recorded work is refused on its evidence whatever its wording,
+  so the list is read for the claim row's detail and nothing else. `docs/gate.md`
+  records the seat this leaves empty beside the gate's own, with the same reason
+  and one of its own.
+
 - **A passing check licensed a claim about a tree it never saw.** The Stop rule's
   refusal branch was turn-scoped while its pass branch was not, and neither
   compared a check's position against a write's, so `edit -> verify_ok -> edit`

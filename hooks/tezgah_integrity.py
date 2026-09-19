@@ -85,11 +85,24 @@ LITERALS = re.compile(
     r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|"
     r"/\*(?:.|\n)*?\*/|//[^\n]*|#[^\n]*")
 HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
-# a completion / verification claim, English and Turkish
+# a completion / verification claim, English and Turkish. The forms are the ones
+# the machine's own transcripts were measured to use (161 final replies in
+# ~/.omp/agent/sessions/-Projects-tezgah, 2026-09-19): the completed-state
+# spelling is the common one and the list this replaces missed 13 of 15
+# hand-drawn completions - "güncellendi", "Push tamam", "kuruldu", "eklendi",
+# "düzeltildi", "yayına girdi", "landed", "merged", "is green", "all checks
+# pass". Widening it does not change what is refused: a turn that recorded work
+# is refused on its evidence whatever the vocabulary says (the trigger below),
+# so this list is read for the claim row's detail - and therefore for the
+# false-completion denominator - not for the verdict.
 DONE = re.compile(
-    r"\b(done|complete[d]?|finished|implemented|fixed|shipped|wired up|"
-    r"all tests? pass|tests? (?:are )?(?:green|passing)|build (?:passes|is green)|"
-    r"yaptım|tamamladım|tamamlandı|bitirdim|ekledim|düzelttim|hallettim|"
+    r"\b(done|complete[d]?|finished|implemented|fixed|shipped|landed|merged|"
+    r"wired up|wired into|all tests? pass|all checks? pass|"
+    r"(?:tests?|checks?|suite) (?:is |are )?(?:green|passing)|"
+    r"build (?:passes|is green)|"
+    r"yaptım|tamamladım|tamamlandı|bitirdim|bitirildi|ekledim|eklendi|"
+    r"düzelttim|düzeltildi|hallettim|güncellendi|kuruldu|uygulandı|"
+    r"yayına girdi|kapatıldı|yüklendi|"
     r"tüm testler geçti|testler geçti|testler yeşil|çalışıyor)\b", re.I)
 VERIFIED = re.compile(
     r"\b(tested|verified|i ran|ran the (?:tests?|suite|build|lint|checks?)|"

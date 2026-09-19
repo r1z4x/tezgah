@@ -1009,6 +1009,17 @@ class StopHook(TempHome):
         self.assertIsNone(self.stop("Toplam 5 dosya incelendi."))
         self.assertEqual(self.counts()["claims"], 0)
 
+    def test_a_completed_state_word_is_a_claim_and_still_not_a_refusal(self):
+        # The vocabulary this machine's own transcripts measured as missing:
+        # "güncellendi" states a completion as a completed state, and the list
+        # carried only the first person ("yaptım"). It is read for the row's
+        # detail - so the false-completion denominator counts the claims that
+        # were made - and never for the verdict: a turn with no work rows and no
+        # check is allowed whatever its wording, which is why widening the list
+        # cannot block an honest turn.
+        self.assertIsNone(self.stop("Dosya güncellendi, push tamam."))
+        self.assertEqual(self.claim_rows(), ["ok"])
+
     def test_work_with_no_passing_check_is_refused_without_a_claim_word(self):
         # A1/D5/G5, the evidence-shaped half. The vocabulary list let the same
         # unfounded state through when it was stated as a description (E2
