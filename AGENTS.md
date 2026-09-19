@@ -12,11 +12,6 @@ Reach a page with `bin/tezgah-docs <words>` (it reads `docs/index.json`) instead
 of grepping the tree; a page that is not in the index is not reachable, and
 `tests/test_docs.py` keeps the two in step.
 
-`HANDBOOK.md` in the root is those ten pages as one file, for sharing outside the
-checkout. It is generated, so after any change under `docs/` run
-`bin/tezgah-docs --bundle > HANDBOOK.md` - `tests/test_docs.py` fails while the
-committed copy is stale.
-
 ## Checks (run before every commit)
 
 ```sh
