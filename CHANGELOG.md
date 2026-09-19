@@ -325,6 +325,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **the bare citations the 002 audit left open were rebased, and 81 numbers were
+  wrong.** A citation that names a symbol beside it (`note_tool` `:1068`) is
+  checkable: the range has to lie inside that symbol's body, and that is the half
+  no tool covered - `tests/test_docs.py` checks that the cited file exists and the
+  line is inside it, which a citation pointing at the wrong line passes, and a
+  bare `:N` inherits its path from the sentence, so the rebase that repaired
+  `path:line` never saw it. The audit now judges every such citation (242) and
+  reports none outside its symbol; reaching zero corrected 81 numbers across six
+  pages, the evidence page worst at 49, in the shape a moved line leaves behind
+  (`_post_write` `:961-988` -> `:1019-1065`, `stop_reason` `:1207-1232` ->
+  `:1309-1335`, `TIER_PROGRAMS` `:886` -> `:895`). Two numbers the same pass
+  caught as stale are corrected with them: `docs/evidence.md` said no `verify_ok`
+  row carried `out_bytes` (6 of 1423 do, across 1454 ledgers) and that
+  `false_completion / claims` was 0.271 over 1166 ledgers (0.224 over 1454).
+
 - **the docs layer's `path:line` citations were audited against HEAD, and 414 of
   them corrected.** The code moved under the pages and most citations pointed at
   the wrong line - the gate page worst, at 130. Ten page-by-page audits are
@@ -351,6 +366,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failing in a clean clone (12 failures) before it was re-proved passing.
 
 ### Added
+
+- **Inception Labs (Mercury) is a provider in `consult`, `codegen`, dsh and
+  opencode.** Both CLIs take `--provider inception`: the key comes from
+  `INCEPTION_API_KEY` and then `~/.config/inception/key`, the models are
+  `mercury-2.5` and `mercury-2` (consult's panel) or `mercury-2.5` (codegen's
+  default), and codegen names the token cap `max_completion_tokens` there - the
+  OpenAI default is the wrong field, so the name follows the provider. The dsh
+  home patch declares the third `llm-pi-ai` route beside OpenRouter and DeepSeek,
+  and `tezgah-setup --report` says whether each host can resolve its key: dsh
+  reads the launch env, a key file or its credential store; opencode reads the
+  env or its own auth store, because its registry owns the provider and
+  `opencode.json` carries no route block to add. `have_consult_key()`, the
+  no-key appendix and the status-line page follow.
+  Checks: `unittest discover -s tests` (test_providers, test_codegen,
+  test_paths, test_setup), `ruff check .`, `compileall`, and the composed dsh
+  profile read back with `dsh --profile headless --dump-config`.
+
+- **`bin/tezgah-docs --citations`: the half of the citation audit a script can
+  judge.** A page writes its citation either as `path:line` or as a bare `:line`
+  inherited from the sentence, and only the first form was machine-checkable, so
+  the second drifted unread - which is what the 002 plan recorded as still
+  missing. A citation that names a symbol right beside it is decidable: the range
+  must lie inside that symbol's body, which is the property the last audit
+  established by hand across ten page-by-page passes. The mode resolves the
+  symbol in the code (a name that exactly one file defines; a path-quoted
+  citation is judged against the symbol in *that* file), prints every range that
+  falls outside, and counts what it could not judge rather than guessing - 242
+  judged and 575 unjudged on this tree, with the recursion found in the resolver
+  and two cut-short spans fixed before its own output was trusted. It is a
+  report, not a gate: exit 1 with findings, 0 with none, and the pages say so.
 
 - **`order`: the first rule that asserts an ordering between two actions.** Every
   other rule in `decision` reads one call plus a ledger tail; none of them says

@@ -9,6 +9,7 @@ page instead of guessing and a script can assert the layer is intact.
   tezgah-docs --json [QUERY]  the matching entries as JSON
   tezgah-docs --read QUERY    print the first matching page in full
   tezgah-docs --bundle        every page as one document, for HANDBOOK.md
+  tezgah-docs --citations     the citations that no longer show what they name
 
 Matching is word-based and case-insensitive against an entry's title, its
 questions, its sources and its path; every word must match, so a second word
@@ -18,6 +19,7 @@ narrows. Exit codes: 0 with matches, 1 with none, 2 usage.
 cross-references turned into anchors inside the one document; HANDBOOK.md is that
 output, and tests/test_docs.py fails while it is stale.
 """
+import glob
 import json
 import os
 import re
@@ -115,13 +117,104 @@ def bundle():
     return "\n".join(out) + "\n\n" + "\n\n---\n\n".join(sections) + "\n"
 
 
+# --- the citation audit -----------------------------------------------------
+# A page's `path:line` is a promise a reader can open. `tests/test_docs.py`
+# checks the half a script can (the file exists, the line is inside it) and says
+# why it stops there: whether the line still shows the thing the sentence names
+# is a judgement about prose, and a test that guessed at it would fail on
+# rewording rather than on drift. That judgement is mechanical in one case - a
+# citation that names a symbol whose body the range must lie in - and that case
+# is where the drift actually lands, because the numbers were written against a
+# revision of the file and nothing regenerates them when lines move under them.
+# A report, not a gate: `bin/tezgah-docs --citations` prints what it can judge
+# and counts what it cannot, for a re-run after any change to a cited module.
+
+CODE_FILES = ("hooks/*.py", "bin/*", "statusline.py", "hosts/*/*.py",
+              "hosts/*/*.ts.in", "hosts/*/plugins/*.js", "tests/*.py")
+STRING = re.compile(r'"""(?:.|\n)*?"""|\'\'\'(?:.|\n)*?\'\'\'')
+TOP = re.compile(r"^(?:def|class)\s+(\w+)|^([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=")
+RUN = re.compile(r"((?:`[A-Za-z_][A-Za-z0-9_]*(?:\(\))?`\s*[/,]?\s*){1,5})$")
+CITE = re.compile(r"`([\w./-]+\.\w+):(\d+)(?:-(\d+))?`|`(:(\d+)(?:-(\d+))?)`")
+
+
+def code_symbols(path):
+    """{name: [(start, end)]} for this file's top-level defs, classes and
+    assignments. A triple-quoted body is masked first, so a line inside a
+    contract string cannot read as a definition and cut another one short."""
+    text = open(path, encoding="utf-8", errors="replace").read()
+    chars = list(text)
+    for m in STRING.finditer(text):
+        for i in range(m.start(), m.end()):
+            if chars[i] != "\n":
+                chars[i] = " "
+    lines = "".join(chars).splitlines()
+    starts = [(i, m.group(1) or m.group(2))
+              for i, line in enumerate(lines, 1) if (m := TOP.match(line))]
+    out = {}
+    for k, (start, name) in enumerate(starts):
+        end = starts[k + 1][0] - 1 if k + 1 < len(starts) else len(lines)
+        out.setdefault(name, []).append((start, end))
+    return out
+
+
+def symbols():
+    """{name: (path, [(start, end)])} over every code file, for the names
+    exactly one file defines: an ambiguous name is skipped, not guessed at."""
+    seen = {}
+    for pattern in CODE_FILES:
+        for path in sorted(glob.glob(os.path.join(HERE, pattern))):
+            if not os.path.isfile(path):
+                continue
+            for name, spans in code_symbols(path).items():
+                seen.setdefault(name, []).append(
+                    (os.path.relpath(path, HERE), spans))
+    return {name: only[0] for name, only in seen.items() if len(only) == 1}
+
+
+def citations(known):
+    """(flagged, judged, unjudged): the citations whose named symbol does not
+    contain the cited range, how many were judgeable, and how many were not.
+
+    A citation that writes its own path is judged against the symbol in that
+    file alone: a sentence naming `note_tool` beside `hooks/x.py:12` means the
+    `note_tool` in `hooks/x.py`, so a same-named symbol elsewhere is not the
+    thing being cited and the row is left unjudged rather than misjudged."""
+    flagged, judged, unjudged = [], 0, 0
+    for path in sorted(glob.glob(os.path.join(HERE, "docs", "*.md"))):
+        text = open(path, encoding="utf-8").read()
+        for m in CITE.finditer(text):
+            pre = text[:m.start()].rstrip().rstrip("(").rstrip().rstrip(",")
+            run = RUN.search(pre.rstrip()) if pre.rstrip().endswith("`") else None
+            spans, where = [], None
+            for name in re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`",
+                                   run.group(1)) if run else []:
+                hit = known.get(name)
+                if not hit:
+                    continue
+                if m.group(1) and hit[0] != m.group(1):
+                    continue
+                where, spans = hit[0], spans + hit[1]
+            if not spans:
+                unjudged += 1
+                continue
+            lo = int(m.group(2) or m.group(5))
+            hi = int(m.group(3) or m.group(6) or lo)
+            low, high = min(s for s, _ in spans), max(e for _, e in spans)
+            judged += 1
+            if lo >= low and hi <= high:
+                continue
+            flagged.append((os.path.relpath(path, HERE), m.group(0),
+                            where, low, high))
+    return flagged, judged, unjudged
+
+
 def main(argv):
     if "-h" in argv or "--help" in argv:
         print(__doc__.strip())
         return 0
     flags = {a for a in argv if a.startswith("--")}
     unknown = sorted(f for f in flags
-                     if f not in ("--json", "--read", "--bundle"))
+                     if f not in ("--json", "--read", "--bundle", "--citations"))
     if unknown:
         sys.stderr.write("tezgah-docs: unknown option(s): %s (try --help)\n"
                          % ", ".join(unknown))
@@ -129,6 +222,15 @@ def main(argv):
     if "--bundle" in flags:
         sys.stdout.write(bundle())
         return 0
+    if "--citations" in flags:
+        flagged, judged, unjudged = citations(symbols())
+        for where, token, symbol_in, low, high in flagged:
+            print("%s  %s -> the symbol it names lives at %s:%d-%d"
+                  % (where, token, symbol_in, low, high))
+        print("citations: %d judged (%d outside the symbol they name), "
+              "%d not judgeable (no single symbol named beside them)"
+              % (judged, len(flagged), unjudged))
+        return 1 if flagged else 0
     query = " ".join(a for a in argv if not a.startswith("--")).strip()
     found = matches(query) if query else entries()
     if not found:

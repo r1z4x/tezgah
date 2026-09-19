@@ -291,7 +291,7 @@ status CLI, not a rule a tool call meets.
   `drift_reason` `hooks/tezgah_gate.py:1387`, `effectful` `hooks/tezgah_gate.py:1414`, `_deny` `hooks/tezgah_gate.py:1425`; `write_paths` `hooks/tezgah_gate.py:981`, `shell_target` `hooks/tezgah_gate.py:1198`, `SHELL_AS_WRITE` `hooks/tezgah_gate.py:978`; the `capture` call `hooks/tezgah_gate.py:1645-1655` (a write tool's target, and a shell write's)
 - `hooks/projects-pretooluse.py` — the Claude and dsh envelope; `hooks/tezgah_paths.py` — `off`, `root_for`, `cache_dir`
 - `hooks/tezgah_integrity.py` — `BASH_TOOLS`/`WRITE_TOOLS` `:110-114`; `NEUTER`/`SKIP_ENV`/`NO_VERIFY`/`GITISH` `:56-63`; `SKIP_TEST` `:65-70`; `TEST_PATH`
-  `:75-78`; `call_id` `:190`; `_path` `:230`, `note` `:364`, `events` `:452`, `writers_elsewhere` `:514`, `mask` `:730`, `shortcut_command` `:736`,
-  `shortcut_edit` `:780`
+  `:75-78`; `call_id` `:190`; `_path` `:230`, `note` `:364`, `events` `:452`, `writers_elsewhere` `:514`, `mask` `:739`, `shortcut_command` `:745`,
+  `shortcut_edit` `:789`
 - `bin/tezgah-consent` — the user's half of the consent rule; `hosts/opencode/plugins/tezgah.js` — the JavaScript mirror
 - `tests/test_gate.py`, `tests/_probe_gate.py`, `tests/test_opencode_plugin.py`, `tests/test_claude_adapters.py`

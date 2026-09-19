@@ -62,7 +62,7 @@ shared config, contract hash and the CLI symlinks every host shell can call
 - **dsh** - `install_dsh` (`bin/tezgah-setup:977-985`): `~/.dsh/skills/*` symlinks,
   a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:903-939`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
-  rows and the two `llm-pi-ai` routes, plus `~/.local/bin/dsh` ->
+  rows and the three `llm-pi-ai` routes, plus `~/.local/bin/dsh` ->
   `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:954-974`) links the statusline
   package into the **web profile** and adds its row to
   `~/.dsh/profiles/web/cordis.patch.yml`.
@@ -113,7 +113,7 @@ In order, each step verified by the one below it:
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
    written, registered in `HOST_CHECKS` (`bin/tezgah-setup:1960-1962`); the
    `--report` output is that list (`bin/tezgah-setup:1730-1762`). Give the row a home-qualified
-   label if the host's dir can be relocated (`host_checks_codex`, `:1784-1785`).
+   label if the host's dir can be relocated (`host_checks_codex`, `:1818-1840`).
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must

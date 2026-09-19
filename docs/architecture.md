@@ -27,14 +27,14 @@ nothing about a host's event names or output envelope.
 | Module | Owns | Point at |
 |---|---|---|
 | `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `context_for` `hooks/tezgah_context.py:735` |
-| `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `CORE` `:486`, `CONDITIONAL_KEYS` `:644` |
-| `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings, [consent](glossary.md#consent) | `hooks/tezgah_gate.py:2-27`, `decision` `:1375` |
-| `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-23`, `note_tool` `:1068`, `stop_reason` `:1300` |
+| `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `CORE` `:487`, `CONDITIONAL_KEYS` `:645` |
+| `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings, [consent](glossary.md#consent) | `hooks/tezgah_gate.py:2-27`, `decision` `:1442` |
+| `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-23`, `note_tool` `:1077`, `stop_reason` `:1309` |
 | `tezgah_paths.py` | where tezgah is armed: [roots](glossary.md#root), kill switches, the config dir, and the writable cache dir | `hooks/tezgah_paths.py:2-14`, `cache_dir` `:122`, `root_for` `:167` |
 | `tezgah_snapshot.py` | pre-write bytes of every file a write is about to change, and the one explicit restore | `hooks/tezgah_snapshot.py:2-17`, `capture` `:190` |
 | `tezgah_untrusted.py` | the untrusted-content label on a result from outside the user and workspace, and the taint notice on the next effect | `hooks/tezgah_untrusted.py:2-19`, `marks` `:81` |
 | `tezgah_agents.py` | per-repo subagent definitions generated into each host that has an agent surface | `hooks/tezgah_agents.py:2-21`, `sync_root` `:511` |
-| `tezgah_research.py` | the in-repo research workspace and the check that a protocol predates its results | `hooks/tezgah_research.py:2-27`, `check` `:406` |
+| `tezgah_research.py` | the in-repo research workspace and the check that a protocol predates its results | `hooks/tezgah_research.py:2-27`, `check` `:422` |
 | `tezgah_index.py` | the detached graph auto-index worker (flock-guarded, bounded retry) | `hooks/tezgah_index.py:2-11`, `main` `:27` |
 
 `hooks/projects-*.py` are the Claude/dsh event entry points, not core: they hold
@@ -123,7 +123,7 @@ on `subagent_start` the payload is the short brief, not the whole CORE
 | Conditional paragraphs | spec, consult, research, graph — armed by task class, for that turn only | `hooks/tezgah_policy.py:644`, armed at `hooks/tezgah_context.py:774-780` | the turns whose prompt matches |
 | Pointer line | one line per conditional rule, so a host that never sees the paragraph still knows the rule exists | `hooks/tezgah_policy.py:649`, appended at `hooks/tezgah_context.py:574` | once per session |
 | Per-turn reminder | the compact `<harness-reminder>` envelope | `hooks/tezgah_policy.py:655`, injected at `hooks/tezgah_context.py:772` | every user turn |
-| On-demand full contract | the deep detail — orchestration, codegen, the exact kill switches — as a skill, not a hook payload | `skills/tezgah-contract/SKILL.md`, whose joined text is `CONTRACT` `hooks/tezgah_policy.py:674` | only when loaded |
+| On-demand full contract | the deep detail — orchestration, codegen, the exact kill switches — as a skill, not a hook payload | `skills/tezgah-contract/SKILL.md`, whose joined text is `CONTRACT` `hooks/tezgah_policy.py:675` | only when loaded |
 
 A host that carries the CORE in a static file does not pay for it twice: omp's
 managed `RULES.md` already holds it (`bin/tezgah-setup:1035-1037`), so its session hook

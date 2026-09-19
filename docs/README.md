@@ -46,7 +46,13 @@ reader with one question in mind, and every non-obvious claim in it carries a
   checks that the cited file exists and that the line is inside it
   (`tests/test_docs.py`), because whether the line still *shows the thing the
   sentence names* is a judgement, not a regex. The layer was audited page by page
-  on 2026-09-19 after the code moved under it.
+  on 2026-09-19 after the code moved under it. The judgement is mechanical in one
+  case, and that case is where the drift lands: a citation that names a symbol
+  (`note_tool` `:1077`) must point inside that symbol's body, so
+  `bin/tezgah-docs --citations` re-runs that half of the audit in one command and
+  counts the citations it cannot judge. It is a report, not a gate - a symbol
+  named beside a path is judged in that file, and a citation with no symbol
+  beside it is left unjudged rather than guessed at.
 - Two hundred lines is the ceiling. A page that needs more is two pages.
 - The [glossary](glossary.md) is the only place a term is defined; every other
   page uses the term and links to it there.
@@ -62,6 +68,7 @@ title, the questions it answers, its audience and its sources.
 tezgah-docs                 # every page, one line each
 tezgah-docs deny consent    # the page(s) that answer a query
 tezgah-docs --json status   # the same, for a program
+tezgah-docs --citations     # the citations that no longer show what they name
 ```
 
 `bin/tezgah-docs` reads that index and prints file paths, so an agent can pick a

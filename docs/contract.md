@@ -17,10 +17,10 @@ host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 
 | Surface | Text | Paid |
 |---|---|---|
-| always-on core | `CORE` (`hooks/tezgah_policy.py:486-638`) minus the four conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
-| conditional paragraph | one of the four keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:644`) | only on the turn whose prompt matches its task class |
-| per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:655-671`) | every user prompt |
-| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:674-676`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
+| always-on core | `CORE` (`hooks/tezgah_policy.py:487-639`) minus the four conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
+| conditional paragraph | one of the four keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:645`) | only on the turn whose prompt matches its task class |
+| per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:656-674`) | every user prompt |
+| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:675-677`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
 
 `context_for(event, …)` is the one dispatcher (`hooks/tezgah_context.py:735`):
 `session_start`/`post_compact` build core plus live state, `user_prompt` builds
@@ -52,7 +52,7 @@ actions need an explicit ask first.**` :613, `**Session scope: the user's repo,
 not tezgah.**` :622, `**Kill switches:**` :631.
 
 `always_on_core()` (`hooks/tezgah_context.py:577-585`) drops the four
-conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:649-651`):
+conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:650-655`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, the code graph. That is what a host with
 no prompt-time hook writes into a static file: opencode's
@@ -138,9 +138,9 @@ they survive every other switch being off.
 
 1. Write the full text as a constant in `hooks/tezgah_policy.py`.
 2. If not every session should pay it, add the key to `CONDITIONAL_KEYS`
-   (`hooks/tezgah_policy.py:644`), a pattern to `PROMPT_HINTS`
+   (`hooks/tezgah_policy.py:645`), a pattern to `PROMPT_HINTS`
    (`hooks/tezgah_context.py:42-58`) and a line to `POINTERS`
-   (`hooks/tezgah_policy.py:649-651`); the two halves are asserted together
+   (`hooks/tezgah_policy.py:650-655`); the two halves are asserted together
    (`tests/test_context.py:1172-1179`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
    pair to `CORE_RULES` (`hooks/tezgah_context.py:70-86`). The label is the
