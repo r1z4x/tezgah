@@ -77,6 +77,12 @@ class Doctor(unittest.TestCase):
         os.utime(path, (when, when))
         return path
 
+    def dead(self, name, size=100):
+        path = os.path.join(self.cbm, name)
+        with open(path, "w") as fh:
+            fh.write("x" * size)
+        return path
+
     def test_prune_sessions_selects_only_old_and_calls_cli(self):
         self.session("ses_old", 10)
         self.session("ses_new", 1)
@@ -129,6 +135,36 @@ class Doctor(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         rep = json.loads(proc.stdout)
         self.assertIn("vacuum", rep["cleaned"])
+
+    def test_the_dead_dbs_are_counted_and_kept_out_of_the_live_count(self):
+        # A `.db.corrupt` is a database the indexer set aside itself, so its bytes
+        # are dead - and `cbm_db_count` counts `.db` only, so the report said
+        # nothing about them while the cache held 2.1 GB of them on the machine
+        # this was written for.
+        self.dead("Users-x-old.db.corrupt", size=500)
+        self.dead("Users-y-old.db.corrupt", size=300)
+        with open(os.path.join(self.cbm, "live.db"), "w") as fh:
+            fh.write("x" * 20)
+        proc = self.doctor("--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rep = json.loads(proc.stdout)
+        self.assertEqual(rep["cbm_dead_files"], 2)
+        self.assertEqual(rep["cbm_dead_bytes"], 800)
+        self.assertEqual(rep["cbm_db_count"], 1)
+
+    def test_clean_reclaims_the_dead_dbs_and_keeps_the_live_ones(self):
+        dead = self.dead("Users-x-old.db.corrupt", size=500)
+        live = os.path.join(self.cbm, "live.db")
+        with open(live, "w") as fh:
+            fh.write("x" * 20)
+        proc = self.doctor("--clean", "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rep = json.loads(proc.stdout)
+        self.assertEqual(rep["cleaned"]["cbm_dead_removed"], 1)
+        self.assertEqual(rep["cleaned"]["cbm_dead_bytes_freed"], 500)
+        self.assertFalse(os.path.exists(dead))
+        self.assertTrue(os.path.exists(live))
+        self.assertEqual(rep["cbm_dead_files"], 0)
 
 
 if __name__ == "__main__":

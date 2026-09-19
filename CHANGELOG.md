@@ -232,6 +232,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to, no after-state, so a notebook write could not be undone and could not stale
   a check. The reader carries the key now, and a test asserts both halves - the
   reader finds the path, and the gate hands the call to capture.
+- **A generated agent was told to run a tool its own brief could not load.**
+  `GRAPH_TOOLS` - the list the ToolSearch select line is built from, and the list
+  the Codex/opencode briefs print - omitted `detect_changes`, while the reviewer
+  body says "Load detect_changes and the graph tools" and then instructs the agent
+  to run it for the blast radius. On Claude, where ToolSearch is what makes a tool
+  callable, the generated role therefore named a tool it could not select; the
+  hand-written plugin agent (`agents/tezgah-reviewer.md`) listed it, so the shipped
+  role worked and every generated one did not. The tool is in the list now, the
+  same string in the three `cbm-*` workflows and the harness skill, and
+  `tests/test_agents.py` fails if the reviewer's select line stops naming every
+  graph tool its body names.
+- **`tezgah-doctor` could not see 2.1 GB of dead databases.**
+  codebase-memory-mcp renames a database it cannot open to `*.db.corrupt`, and
+  nothing reads a renamed database - dead bytes by construction - but `cbm_db_count`
+  counts `.db` alone, so a cache holding 2.1 GB of them in 12 files reported 33
+  live databases and silence about the rest. The doctor counts and reports them on
+  their own line (`dead_dbs`), `--clean` deletes every one of them with no age
+  threshold (a re-index rebuilds what they held), and the reclaim hint fires on
+  their size as well as on the log and session counts. It also reports the hosts'
+  own state - `~/.codex`, `~/.omp`, `~/.claude`, which on this machine are 10.9 GB,
+  1.4 GB and 499 MB - and never touches it: the number is there so a reader can
+  decide, and the reported bytes are apparent file sizes, not disk blocks, so a
+  `du -sh` beside it will read smaller.
 
 ### Changed
 

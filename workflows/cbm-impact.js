@@ -14,7 +14,7 @@ if (!target) return { error: 'cbm-impact needs a target: pass a symbol, file, or
 const direction = (args && args.direction) || 'inbound'
 const MAX_MODULES = 6
 
-const CBM = `Load the graph tools first with ToolSearch("select:mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage"). trace_path gives call paths,
+const CBM = `Load the graph tools first with ToolSearch("select:mcp__codebase-memory-mcp__detect_changes,mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage"). trace_path gives call paths,
 search_graph finds symbols and edges, detect_changes gives the impact set of a ref, get_code_snippet pulls
 the exact lines, check_index_coverage tells you which files the graph does NOT know about.`
 

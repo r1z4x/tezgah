@@ -102,6 +102,24 @@ class Generation(AgentsBase):
         # the verifier may run a shell, so it is not marked read-only
         self.assertNotIn("readonly: true", self.read(CLAUDE, "tezgah-verifier.md"))
 
+    def test_every_tool_the_reviewer_brief_names_is_selectable(self):
+        # The generated reviewer says "Load detect_changes" and then tells the
+        # agent to run it for the blast radius, but the ToolSearch select line is
+        # built from GRAPH_TOOLS and detect_changes was not in it. On Claude,
+        # where ToolSearch is what makes a tool callable, the role therefore named
+        # a tool it could not select - while the hand-written plugin agent
+        # (agents/tezgah-reviewer.md) listed it, so the shipped role worked and
+        # the generated one did not.
+        self.sync()
+        rev = self.read(CLAUDE, "tezgah-reviewer.md")
+        self.assertIn("detect_changes", rev)
+        select = rev[rev.index("ToolSearch("):]
+        select = select[:select.index(")")]
+        for tool in ("detect_changes", "search_graph", "trace_path", "search_code",
+                     "get_code_snippet", "get_architecture", "query_graph",
+                     "check_index_coverage"):
+            self.assertIn(tool, select)
+
     def test_opencode_markdown_uses_native_frontmatter(self):
         self.sync()
         ex = self.read(OPENCODE, "tezgah-explorer.md")

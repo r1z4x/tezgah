@@ -10,7 +10,7 @@ description: >
 ---
 
 Repo tree is indexed by codebase-memory-mcp. Graph beats grep for structure. On Claude, load the graph tools with
-ToolSearch("select:mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage") before searching by hand. On Codex, Cursor, opencode, dsh and omp the same tools are exposed directly as MCP tools; use them as-is.
+ToolSearch("select:mcp__codebase-memory-mcp__detect_changes,mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage") before searching by hand. On Codex, Cursor, opencode, dsh and omp the same tools are exposed directly as MCP tools; use them as-is.
 
 ## Route
 

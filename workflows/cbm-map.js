@@ -14,7 +14,7 @@ const focus = (typeof args === 'string' && args) ? args : (args && args.focus) |
 const MAX_MODULES = 8
 
 const CBM = `Use the codebase-memory-mcp tools, not grep, for structure. Load them first with
-ToolSearch("select:mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage"). Useful ones: get_architecture, search_graph, search_code,
+ToolSearch("select:mcp__codebase-memory-mcp__detect_changes,mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage"). Useful ones: get_architecture, search_graph, search_code,
 trace_path, get_code_snippet, check_index_coverage, list_projects. Fall back to Read/Grep only
 for something the graph genuinely cannot answer, and say so when you do.`
 

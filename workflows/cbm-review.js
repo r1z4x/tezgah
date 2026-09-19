@@ -12,7 +12,7 @@ export const meta = {
 const target = (typeof args === 'string' && args) ? args : (args && args.target) || 'uncommitted changes vs HEAD'
 const MAX_VERIFIED = 4
 
-const CBM = `Load the graph tools first with ToolSearch("select:mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage"). detect_changes gives changed
+const CBM = `Load the graph tools first with ToolSearch("select:mcp__codebase-memory-mcp__detect_changes,mcp__codebase-memory-mcp__search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__check_index_coverage"). detect_changes gives changed
 symbols plus their transitive callers - that blast radius is the point, a diff alone hides it. trace_path,
 search_graph, search_code, get_code_snippet fill in callers and definitions. Read files for exact lines.`
 

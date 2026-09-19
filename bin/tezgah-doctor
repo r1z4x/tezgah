@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """tezgah-doctor - report and reclaim the state the armed harnesses leave behind.
 
-Two stores grow without bound and neither rotates on its own:
+Three stores grow without bound and none rotates on its own:
   - opencode's SQLite session/event database (~/.local/share/opencode/opencode.db)
   - codebase-memory-mcp's per-index log files (~/.cache/codebase-memory-mcp/logs)
+  - the index databases that tool set aside as corrupt (`*.db.corrupt`, in its
+    cache root): nothing opens a renamed database, so those bytes are dead, and a
+    long bench or index history leaves gigabytes of them. `cbm_db_count` cannot
+    see them, because the suffix is not `.db`.
+
+It also reports the hosts' own state (~/.codex, ~/.omp, ~/.claude) and never
+touches it: those stores belong to the hosts, and the number is here so a reader
+can decide, not so this tool can act.
 
 This tool is read-only by default. With --clean it deletes index logs older than
---days and vacuums the opencode database (only when opencode is not running, so
-it cannot fight a live connection). VACUUM alone cannot shrink this database -
-its pages are all live - so --prune-sessions is the action that actually
-reclaims space: it deletes old sessions through the supported opencode command
-and then vacuums. Stdlib only.
+--days, deletes every `.db.corrupt`, and vacuums the opencode database (only when
+opencode is not running, so it cannot fight a live connection). VACUUM alone
+cannot shrink that database - its pages are all live - so --prune-sessions is the
+action that actually reclaims space: it deletes old sessions through the
+supported opencode command and then vacuums. Stdlib only.
 
   tezgah-doctor                    report sizes and counts
   tezgah-doctor --json             same, machine readable
@@ -66,6 +74,38 @@ def count_files(path):
     return sum(len(files) for _root, _dirs, files in os.walk(path))
 
 
+def dead_dbs():
+    """The index databases codebase-memory-mcp renamed after finding them
+    corrupt, as (name, bytes), newest name order.
+
+    Dead by construction: nothing opens a `.db.corrupt`, so this is the one store
+    the tool can delete without asking which rows matter - a re-index rebuilds
+    whatever it held. `cbm_db_count` counts `.db` only and reported 0 of these
+    while the cache held 2.1 GB of them, which is why they are measured and
+    reported on their own line."""
+    if not os.path.isdir(CBM_CACHE):
+        return []
+    out = []
+    for name in sorted(os.listdir(CBM_CACHE)):
+        if not name.endswith(".db.corrupt"):
+            continue
+        try:
+            out.append((name, os.path.getsize(os.path.join(CBM_CACHE, name))))
+        except OSError:
+            pass
+    return out
+
+
+def host_bytes():
+    """The hosts' own state dirs, measured and never touched by this tool."""
+    return {"codex_bytes": du(os.path.join(HOME, ".codex")) if os.path.isdir(
+        os.path.join(HOME, ".codex")) else 0,
+        "omp_bytes": du(os.path.join(HOME, ".omp")) if os.path.isdir(
+        os.path.join(HOME, ".omp")) else 0,
+        "claude_bytes": du(os.path.join(HOME, ".claude")) if os.path.isdir(
+        os.path.join(HOME, ".claude")) else 0}
+
+
 def db_rows(db, table):
     if not os.path.exists(db):
         return None
@@ -109,7 +149,10 @@ def collect():
                          if os.path.isdir(CBM_CACHE) else 0),
         "cbm_log_files": count_files(CBM_LOGS),
         "cbm_log_bytes": du(CBM_LOGS) if os.path.isdir(CBM_LOGS) else 0,
+        "cbm_dead_files": len(dead_dbs()),
+        "cbm_dead_bytes": sum(size for _name, size in dead_dbs()),
         "tezgah_cache_bytes": du(TEZGAH_CACHE) if os.path.isdir(TEZGAH_CACHE) else 0,
+        **host_bytes(),
     }
 
 
@@ -129,6 +172,22 @@ def clean_logs(days):
                 continue
             size = st.st_size
             os.remove(path)
+            removed += 1
+            freed += size
+        except OSError:
+            pass
+    return removed, freed
+
+
+def clean_dead_dbs():
+    """Delete every `.db.corrupt`; return (removed, bytes freed).
+
+    No age threshold, unlike the logs: there is nothing to weigh, because the
+    indexer set the file aside itself and a re-index rebuilds what it held."""
+    removed = freed = 0
+    for name, size in dead_dbs():
+        try:
+            os.remove(os.path.join(CBM_CACHE, name))
             removed += 1
             freed += size
         except OSError:
@@ -198,8 +257,14 @@ def report(rep):
     print("codebase-memory-mcp")
     print("  cache         %s  (%d dbs)" % (human(rep["cbm_cache_bytes"]), rep["cbm_db_count"]))
     print("  index logs    %s  (%d files)" % (human(rep["cbm_log_bytes"]), rep["cbm_log_files"]))
+    print("  dead dbs      %s  (%d .db.corrupt)" % (
+        human(rep["cbm_dead_bytes"]), rep["cbm_dead_files"]))
     print("tezgah")
     print("  cache         %s" % human(rep["tezgah_cache_bytes"]))
+    print("host state (the hosts' own; this tool never touches it)")
+    for label, key in (("codex", "codex_bytes"), ("omp", "omp_bytes"),
+                       ("claude", "claude_bytes")):
+        print("  %-13s %s" % (label, human(rep[key])))
 
 
 def main():
@@ -220,6 +285,9 @@ def main():
             removed, freed = clean_logs(args.days)
             cleaned["cbm_logs_removed"] = removed
             cleaned["cbm_logs_bytes_freed"] = freed
+            dremoved, dfreed = clean_dead_dbs()
+            cleaned["cbm_dead_removed"] = dremoved
+            cleaned["cbm_dead_bytes_freed"] = dfreed
         if args.prune_sessions is not None and os.path.exists(OPENCODE_DB):
             if rep["opencode_running"]:
                 cleaned["prune_sessions"] = "skipped: opencode is running"
@@ -251,6 +319,9 @@ def main():
         if "cbm_logs_removed" in cleaned:
             print("  index logs    %d removed, %s freed" % (
                 cleaned["cbm_logs_removed"], human(cleaned["cbm_logs_bytes_freed"])))
+        if "cbm_dead_removed" in cleaned:
+            print("  dead dbs      %d removed, %s freed" % (
+                cleaned["cbm_dead_removed"], human(cleaned["cbm_dead_bytes_freed"])))
         ps = cleaned.get("prune_sessions")
         if isinstance(ps, dict):
             print("  sessions      %d deleted, %d failed" % (ps["deleted"], ps["failed"]))
@@ -261,7 +332,8 @@ def main():
             print("  vacuum        %s -> %s" % (human(v["before"]), human(v["after"])))
         elif v:
             print("  vacuum        %s" % v)
-    elif rep["cbm_log_files"] > 2000 or rep["opencode_db_bytes"] > 500 * 1024 * 1024:
+    elif (rep["cbm_log_files"] > 2000 or rep["opencode_db_bytes"] > 500 * 1024 * 1024
+          or rep["cbm_dead_bytes"] > 100 * 1024 * 1024):
         print("\nrun with --clean to reclaim; --prune-sessions DAYS to shrink the db")
     return 0
 

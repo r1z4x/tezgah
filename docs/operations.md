@@ -140,19 +140,28 @@ was (`bin/tezgah-setup:2361-2367`).
 
 ## Health pass: `tezgah-doctor`
 
-`bin/tezgah-doctor` reports the two stores that grow without bound: opencode's
-SQLite session/event database and codebase-memory-mcp's per-index logs
-(`bin/tezgah-doctor:1-19`), read-only by default, with `--json` for a script.
+`bin/tezgah-doctor` reports the stores that grow without bound — opencode's SQLite
+session/event database, codebase-memory-mcp's per-index logs, and the index
+databases that tool itself set aside as corrupt (`*.db.corrupt`) — and the hosts'
+own state, which it never touches (`bin/tezgah-doctor:2-31`), read-only by
+default, with `--json` for a script.
 
 | Invocation | What it does |
 |---|---|
-| `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings (`bin/tezgah-doctor:98-115`) |
-| `tezgah-doctor --clean` | deletes index logs older than `--days` (default 7; `cbm-daemon.log` is never deleted, `:116-137`) and vacuums the database only when opencode is not running (`:139-149`, `:217-241`) |
-| `tezgah-doctor --prune-sessions DAYS` | deletes sessions idle longer than DAYS through `opencode session delete`, then vacuums; skipped when opencode is running or its CLI is missing (`:151-189`, `:223-236`) |
+| `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings, the dead-database bytes and the three host state dirs (`bin/tezgah-doctor:138-158`, `:264-267`) |
+| `tezgah-doctor --clean` | deletes index logs older than `--days` (default 7; `cbm-daemon.log` is never deleted, `:159-180`), deletes every `.db.corrupt` (`:182-196`) and vacuums the database only when opencode is not running (`:198-208`, `:302-326`) |
+| `tezgah-doctor --prune-sessions DAYS` | deletes sessions idle longer than DAYS through `opencode session delete`, then vacuums; skipped when opencode is running or its CLI is missing (`:228-247`, `:291-303`) |
 
 `VACUUM` alone cannot shrink that database — its pages are all live — so
 `--prune-sessions` is the action that actually reclaims space
-(`bin/tezgah-doctor:9-11`).
+(`bin/tezgah-doctor:19-21`).
+
+A `.db.corrupt` carries no age threshold, unlike the logs: the indexer renamed it
+because it could not open it, nothing reads a renamed database, and a re-index
+rebuilds what it held. The dead ones are counted and reported on their own line
+because `cbm_db_count` counts `.db` alone, so a cache can hold gigabytes of them
+while the live count says nothing is wrong. A run that finds more than 100 MB of
+them prints the reclaim hint by itself (`:335-337`).
 
 ## Troubleshooting
 

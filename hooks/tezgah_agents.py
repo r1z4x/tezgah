@@ -45,8 +45,9 @@ HOST_DIRS = {"claude": os.path.join(".claude", "agents"),
 STACK_FILES = (("pyproject.toml", "python"), ("setup.py", "python"),
                ("requirements.txt", "python"), ("package.json", "node"),
                ("go.mod", "go"), ("Cargo.toml", "rust"), ("Makefile", "make"))
-GRAPH_TOOLS = ("search_graph, trace_path, search_code, get_code_snippet, "
-               "get_architecture, query_graph, check_index_coverage")
+GRAPH_TOOLS = ("detect_changes, search_graph, trace_path, search_code, "
+               "get_code_snippet, get_architecture, query_graph, "
+               "check_index_coverage")
 
 
 def manifest_sha():
@@ -64,6 +65,7 @@ def _stack(root):
 def _graph_howto(host):
     if host == "claude":
         return ('Load the graph tools first: ToolSearch("select:mcp__codebase-memory-mcp__'
+                "detect_changes,mcp__codebase-memory-mcp__"
                 "search_graph,mcp__codebase-memory-mcp__trace_path,mcp__codebase-memory-mcp__"
                 "search_code,mcp__codebase-memory-mcp__get_code_snippet,mcp__codebase-memory-mcp__"
                 "get_architecture,mcp__codebase-memory-mcp__query_graph,mcp__codebase-memory-mcp__"
