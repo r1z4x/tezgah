@@ -1249,6 +1249,18 @@ class PostToolUse(TempHome):
         self.run_hook("PostToolUseFailure", "Bash", {"command": "pytest -q"})
         self.assertIn("verify_fail", self.kinds())
 
+    def test_a_check_named_in_a_message_is_not_a_check(self):
+        # The scan runs on the masked text, the convention `shortcut_command`
+        # follows: a check named inside a commit message is text ABOUT a command,
+        # not one. Unmasked, both of these recorded `verify_ok` - and this
+        # session's own ledger then had a `git commit` as its newest passing
+        # check, which is what the Stop rule read when it refused a reply.
+        self.run_hook("PostToolUse", "Bash",
+                      {"command": "git commit -m \"run pytest before this\""})
+        self.run_hook("PostToolUse", "Bash",
+                      {"command": "git commit -F - <<'MSG'\nrun pytest\nMSG"})
+        self.assertNotIn("verify_ok", self.kinds())
+
     def test_a_pwsh_call_is_a_shell_call(self):
         # dsh names its own PowerShell tool `pwsh`; while the name was outside
         # BASH_TOOLS the call reached the hook as a name no list knew and was

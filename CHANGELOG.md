@@ -306,6 +306,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `unknown` rows `:1114`/`:1125`, the `source` field `:1130`, the `worked`
   set `:1386`). A bare-citation pass is still missing from the audit; the
   remainder is `plans/open/002-docs-citation-drift.md`'s.
+- **A check named in a commit message was recorded as a check that passed.** The
+  Stop rule reads the newest `verify_ok` row as support for a "done" claim, and
+  `verify_command` searched the raw command text: a `git commit -F - <<'MSG'`
+  whose message mentioned tests - and a `git commit -m "run pytest before this"` -
+  were both recorded as `verify_ok` with no check having run. This session's own
+  ledger had a `git commit` as its newest passing check at the moment the rule
+  refused a reply. Both halves scan the masked text now, which is the convention
+  this module already states for the twin rule ("a commit message that names
+  `--no-verify` (quoted, or a heredoc body) is not a bypass"). The miss it opens
+  is the piped check's own: a check run inside a quoted body (`bash -c 'pytest'`)
+  records as one that ran, never as one that passed - the direction to prefer,
+  because a lost pass costs a re-run while an invented pass costs the rule its
+  meaning. `tests/test_integrity.py` and `tests/test_opencode_plugin.py` each
+  drive their own half through the real hook, and both were watched failing with
+  the fix reverted in place and passing after both files were restored
+  byte-identical.
 
 ### Changed
 

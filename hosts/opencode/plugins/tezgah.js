@@ -381,7 +381,10 @@ function maskText(text) {
 }
 
 function verifyCommand(cmd) {
-  const m = String(cmd || "").match(VERIFY)
+  // the masked text, the convention shortcutCommand already follows: a check
+  // named inside a quoted string or a heredoc body is text ABOUT a command, not
+  // one, and reading it as one records a passing check nobody ran
+  const m = maskText(cmd).match(VERIFY)
   return m ? m[0] : null
 }
 

@@ -692,8 +692,17 @@ def _counts(rows):
 
 
 def verify_command(cmd):
-    """The name of the check this command runs, or None."""
-    m = VERIFY.search(str(cmd or ""))
+    """The name of the check this command runs, or None.
+
+    The scan runs on the masked text, the convention `shortcut_command` already
+    follows: a check named inside a quoted string or a heredoc body is text ABOUT
+    a command, not one. Unmasked, `git commit -m "run pytest before this"` and a
+    `-F - <<'MSG'` message that mentions tests both recorded as `verify_ok` - a
+    passing check the ledger invented, which then licensed a "done" claim. Cost
+    of the miss it opens: a check run inside a quoted body (`bash -c 'pytest'`)
+    reads as a call that ran, never as one that passed, the same way a piped one
+    does."""
+    m = VERIFY.search(mask(cmd))
     return m.group(0).strip() if m else None
 
 

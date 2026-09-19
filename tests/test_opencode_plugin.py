@@ -1002,6 +1002,16 @@ class OpenCodePlugin(TempHome):
         self.after("bash", {"command": "pytest -q"}, exit=1)
         self.assertIn("verify_fail", self.kinds())
 
+    def test_a_check_named_in_a_message_is_not_a_check(self):
+        # the masked text, the convention shortcutCommand follows: a check named
+        # inside a commit message is text ABOUT a command, not one, and this half
+        # has to agree with the Python one it mirrors
+        self.after("bash", {"command": "git commit -m \"run pytest before this\""},
+                   exit=0)
+        self.after("bash", {"command": "git commit -F - <<'MSG'\nrun pytest\nMSG"},
+                   exit=0)
+        self.assertNotIn("verify_ok", self.kinds())
+
     def test_check_without_exit_records_verify(self):
         self.after("bash", {"command": "pytest -q"})
         self.assertIn("verify", self.kinds())
