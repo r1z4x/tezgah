@@ -57,7 +57,7 @@ function skillRead(tool: string, args: any): boolean {
 // checks (bash), and the test-skip check (the edit/write names).
 const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
   "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
-  "search_replace", "powershell"];
+  "search_replace", "powershell", "pwsh"];
 
 // The provenance label omp puts in front of a result that came from outside the
 // user and the workspace. The handler's return value replaces the tool result

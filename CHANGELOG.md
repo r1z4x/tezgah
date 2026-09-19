@@ -202,6 +202,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   run's record, and the caches other runs read, stop existing. `gh run view` and
   `gh cache list` stay unclassified, and a `# ponytail:` note records the
   ceiling - the next run rebuilds a cache, so the ask may not be earned.
+- **`PowerShell` reached no hook on two of the five hosts that route it.** codex's
+  and cursor's PreToolUse matchers named neither `PowerShell` nor `pwsh`, and a
+  host runs the hook only for the tool names its matcher carries - so a call
+  under either spelling never reached the gate at all, while the shared rules had
+  known both spellings since the earlier round. Both matchers name both now (the
+  installer's constants and the two committed manifests), and omp's `GATED` list
+  gains `pwsh`. Nothing changes on a host that never emits the name; on one that
+  does, a whole tool name's worth of refusals the gate could not make. The
+  installed manifests pick this up on the next `--install`. Two claims next to it
+  went with the fix: `docs/hosts.md` said `pwsh` "is not a `BASH_TOOLS` name" (it
+  is, and the sentence now says so), and `dsh_patch_block`'s docstring said
+  `hosts/dsh/hooks.json` carries "those seven" events where the file declares six
+  - it says six now, and why nothing here handles a subagent's end.
+- **A chained shell write was invisible to the freshness rule.** The target
+  reader sliced `\S+` out of the masked command, so `printf a > x.txt; printf b >
+  y.txt` yielded `x.txt;` - a path nothing is ever written to. No pre-state was
+  captured, no after-state hashed, so the half of the rule the previous round
+  closed for a single redirect stayed open for a chain, which is the shape an
+  agent uses when it does two things in one call. The slice is trimmed of `; | &
+  )` unless it is quoted, and `tests/test_gate.py` drives the real gate for the
+  shape (fails before the trim, passes after). Measured while closing it, and left
+  open with its ceiling in `shell_target`'s docstring: a target that is a *quoted*
+  name reads as no target at all, because the slice is taken by offset from the
+  text where masking blanks a quoted string.
+- **A notebook write was captured nowhere.** `NotebookEdit` is classified as an
+  edit and so runs the write-tool branches, but its target arrives in
+  `notebook_path`, a key the path reader did not carry: no pre-state to roll back
+  to, no after-state, so a notebook write could not be undone and could not stale
+  a check. The reader carries the key now, and a test asserts both halves - the
+  reader finds the path, and the gate hands the call to capture.
 
 ### Changed
 

@@ -968,7 +968,7 @@ RACE_DENY = (
 # ledger keeps no cwd, so normalizing here would compare `a.py` against
 # `./sub/../a.py` and disagree with the reader on the far side. A second session
 # that spells the path differently therefore escapes this rule.
-WRITE_PATH = ("file_path", "filePath", "path")
+WRITE_PATH = ("file_path", "filePath", "path", "notebook_path")
 PATCH_FILE = re.compile(r"(?m)^\*\*\* (?:Update|Add|Delete) File: (\S.*?)\s*$")
 # The write-tool name a shell write's target is handed to `capture` under. capture
 # takes a write tool's own path field and no shell tool name, and the row it
@@ -1206,7 +1206,14 @@ def shell_target(command):
     that write and `_post_write` hash its after-state), and `shell_write_body`
     uses it for the file whose body the three write-tool twins read. Empty for a
     command that writes nothing, and for every write whose target is a positional
-    argument rather than a redirect - see `write_paths`."""
+    argument rather than a redirect - see `write_paths`.
+
+    ponytail: a target that is a QUOTED name (`printf a > "a;b.txt"`) is not read
+    at all - the slice is taken by offset from the masked text, and masking blanks
+    a quoted string, so the match never lands. Measured 2026-09-19: the call
+    captures nothing and its write stays out of the freshness fold, the same hole
+    the separator trim closed for an unquoted chain. Closing it means reading the
+    target off the raw text with a quote-aware scan."""
     c = str(command or "")
     if not c:
         return ""
@@ -1217,7 +1224,15 @@ def shell_target(command):
     if not m:
         return ""
     start, end = m.span(1) if m.group(1) else m.span(2)
-    return c[start:end].strip("'\"")
+    raw = c[start:end]
+    # `\S+` runs to the next whitespace, so the separator of a chained command
+    # came with the name: `printf a > x; printf b > y` sliced `x;`, a path
+    # nothing is ever written to - no pre-state captured, no after-state hashed,
+    # and the write invisible to the freshness fold. A quoted target keeps its
+    # name whole, so only an unquoted slice is trimmed.
+    if raw[:1] in ("'", '"'):
+        return raw.strip("'\"")
+    return raw.strip("'\"").rstrip(";|&)")
 
 
 def _heredoc_bodies(text):

@@ -109,11 +109,14 @@ TOOLING_SKILLS = frozenset(("codebase-memory", "computer-use", "find-skills",
 # Skill dirs symlinked in from a third-party library whose frontmatter carries no
 # marker, so it is bucketed by its clone path instead of defaulting to marketing.
 AI_RESEARCH_SKILL_SOURCES = ("AI-Research-SKILLs",)
-CODEX_PRETOOL_MATCHER = ("Bash|exec_command|apply_patch|Edit|Write|mcp__.*|"
-                         "spawn_agent|Agent|Task|Grep")
+CODEX_PRETOOL_MATCHER = ("Bash|exec_command|PowerShell|pwsh|apply_patch|Edit|Write|"
+                         "mcp__.*|spawn_agent|Agent|Task|Grep")
 # Cursor's preToolUse matcher is a regex over tool TYPES, so it has to name the
-# write tools or the gate never sees an edit. Mirrors hosts/cursor/hooks.json.
-CURSOR_PRETOOL_MATCHER = "Shell|Grep|Task|Write|Edit|MultiEdit|NotebookEdit"
+# write tools or the gate never sees an edit, and the shell under every spelling
+# it can arrive as or the gate never sees the call at all. Mirrors
+# hosts/cursor/hooks.json.
+CURSOR_PRETOOL_MATCHER = ("Shell|PowerShell|pwsh|Grep|Task|Write|Edit|MultiEdit|"
+                          "NotebookEdit")
 # What each host's hook manifest is wired for, matcher included. install_codex
 # and install_cursor write from these and the report rows check the same value,
 # so a manifest carrying six of seven events (no Stop, say) cannot read as wired
@@ -907,7 +910,9 @@ def dsh_patch_block():
     native deepseek-official route stays the default model provider. The bridge
     knows only SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/SubagentStart/
     SubagentStop/Stop and silently drops any other event, so `configPath` names
-    hosts/dsh/hooks.json (those seven) rather than the Claude manifest."""
+    hosts/dsh/hooks.json rather than the Claude manifest - the file declares six
+    of those seven, with no SubagentStop, because nothing here handles a
+    subagent's end (the Claude manifest has no such entry either)."""
     return (
         "- insert:\n"
         "    - id: tezgah-hooks\n"

@@ -1285,6 +1285,54 @@ class Gate(TempHome):
             session_id="shellcap", capture_log=log))
         self.assertEqual(len(calls()), 1, calls())
 
+    def test_a_chained_shell_write_names_the_file_and_not_the_separator(self):
+        # `\S+` ran to the next whitespace, so the separator of a chained command
+        # came with the name: this captured `x.txt;`, a path nothing is ever
+        # written to. The pre-state was then never kept and the after-state never
+        # hashed, so a chained write stayed invisible to the freshness rule while
+        # a single one did not - the same hole, open only on half the shapes.
+        log = os.path.join(self.home, "chained-capture.jsonl")
+
+        def calls():
+            if not os.path.exists(log):
+                return []
+            with open(log) as fh:
+                return [json.loads(line) for line in fh if line.strip()]
+
+        self.assertIsNone(self.decide(
+            "Bash", {"command": "printf a > x.txt; printf b > y.txt"},
+            session_id="chained", capture_log=log))
+        self.assertEqual([c["input"] for c in calls()], [{"file_path": "x.txt"}],
+                         calls())
+
+    def test_a_notebook_write_names_its_notebook(self):
+        # NotebookEdit is classified as an edit and so runs the write-tool rules,
+        # but its target arrives in `notebook_path`, which the path reader did not
+        # carry: no pre-state was captured and no after-state recorded, so the
+        # write was un-rollbackable and invisible to the freshness fold at once.
+        # The gate hands a write tool its own name and its whole input, so the
+        # reader is what has to find the notebook - assert it there, and that the
+        # call reaches capture at all.
+        self.assertEqual(tg.write_paths({"notebook_path": "nb.ipynb"}),
+                         ["nb.ipynb"])
+        log = os.path.join(self.home, "notebook-capture.jsonl")
+
+        def calls():
+            if not os.path.exists(log):
+                return []
+            with open(log) as fh:
+                return [json.loads(line) for line in fh if line.strip()]
+
+        self.assertIsNone(self.decide(
+            "NotebookEdit", {"notebook_path": "nb.ipynb", "new_source": "x"},
+            session_id="notebook", capture_log=log))
+        self.assertEqual([c["tool"] for c in calls()], ["NotebookEdit"], calls())
+        # the same spelling the host sends is the one the rules classify as an
+        # edit, so the write-tool branches (skip marker, attribution, secrets,
+        # capture) all run for it
+        self.assertEqual(ti.classify("NotebookEdit", {"notebook_path": "nb.ipynb"}),
+                         "edit")
+
     # ---- constraint drift: a long turn re-states the rules -----------------
     # Above the gate's DRIFT_STEPS whatever it is tuned to: this test is about a
     # turn long enough to have lost the prompt that armed the rules, not about
