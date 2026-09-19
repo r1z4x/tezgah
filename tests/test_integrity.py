@@ -647,6 +647,38 @@ class StaleEvidence(unittest.TestCase):
         self.assertIn("Stale evidence", reason)
         self.assertIn(new, reason)
 
+    def test_a_write_outside_the_workspace_is_not_a_change_to_the_tree(self):
+        # The fold asks one question - is the newest check newer than the newest
+        # write to the tree this reply is about - and a scratch file outside the
+        # workspace cannot change that tree: a commit message in /tmp, a harness
+        # log, a report written somewhere else. Reading one as a change refused an
+        # honest turn: on 2026-09-19 the reply that reported a green suite was
+        # blocked because its commit message had been written to /tmp after it.
+        # The neighbours above are the control on the other side (a write inside
+        # the workspace, and a new file in it, both still stale the check).
+        root = os.path.join(self.dir, "root")
+        os.makedirs(root, exist_ok=True)
+        outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside, True)
+        old = os.environ.get("TEZGAH_ROOTS")
+        os.environ["TEZGAH_ROOTS"] = root
+        self.addCleanup(self._restore_roots, old)
+        self.check()
+        scratch = os.path.join(outside, "commit-msg.txt")
+        with open(scratch, "w") as fh:
+            fh.write("msg\n")
+        ti.note_tool("s", "Write", {"file_path": scratch}, failed=False, cwd=root)
+        row = ti.events("s")[-1]
+        self.assertNotIn("hash", row, row)
+        self.assertFalse(ti._change_row(row))
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def _restore_roots(self, old):
+        if old is None:
+            os.environ.pop("TEZGAH_ROOTS", None)
+        else:
+            os.environ["TEZGAH_ROOTS"] = old
+
     # ---- the shell route: the same write reached through a redirect --------
     # Measured on 2026-09-19 (`E3-late-note`): the rule fired on a session that
     # wrote with the write tools, and the same append through a heredoc would have

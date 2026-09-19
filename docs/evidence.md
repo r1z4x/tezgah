@@ -38,12 +38,12 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 
 | Kind | Written by | Read by |
 |---|---|---|
-| `turn` | `note_turn` `:580-597`, from the prompt path | `_turn_start` `:461-466`, scoping every turn rule; `_claim_key` `:1191-1204` |
-| `run`, `edit`, `verify`, `verify_ok`, `verify_fail` | `note_tool` `:1001-1069` | the Stop rule's `worked` set `:1293`; `counters.steps` `:666-667`; `last_verify`/`partial_state` |
-| `external`, `unknown` | `note_tool` `:1041-1058` | the sink rule, via `source`; nothing counts them as work |
-| `claim` | `stop_reason` `:1207-1232` | `counters` `:677-680` |
+| `turn` | `note_turn` `:580-597`, from the prompt path | `_turn_start` `:461-466`, scoping every turn rule; `_claim_key` `:1284-1297` |
+| `run`, `edit`, `verify`, `verify_ok`, `verify_fail` | `note_tool` `:1068-1135` | the Stop rule's `worked` set `:1386`; `counters.steps` `:666-667`; `last_verify`/`partial_state` |
+| `external`, `unknown` | `note_tool` `:1114-1125` | the sink rule, via `source`; nothing counts them as work |
+| `claim` | `stop_reason` `:1300-1325` | `counters` `:677-680` |
 | `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1425`, first-nudge `hooks/tezgah_gate.py:1617-1620` | `counters` `:672-676` |
-| `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:183-185`, `:262-265` | `_snapshot_hash` `:947-958`; no counter |
+| `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:183-185`, `:262-265` | `_snapshot_hash` `:996-1007`; no counter |
 
 **The verify kinds are a tri-state, and an unread outcome is never a pass.** `note_tool`
 (`:1030-1034`) records `verify` when the host reported no outcome at all (`failed is None`) or when
@@ -74,7 +74,7 @@ ignore both.
 
 ## The Stop rule, end to end
 
-The checker is `_stop_block` (`hooks/tezgah_integrity.py:1328-1425`), reached through `stop_reason`
+The checker is `_stop_block` (`hooks/tezgah_integrity.py:1340-1437`), reached through `stop_reason`
 (`:1207-1232`). Four hosts block on it — Claude (`hooks/projects-stop.py:33-35`), Codex
 (`hosts/codex/hook.py:176-181`), Cursor (`hosts/cursor/hook.py:313-318`), omp
 (`hosts/omp/hook.py:165-169`) — all with `{"decision": "block", "reason": …}`, all inert outside a
@@ -89,7 +89,10 @@ The checker is `_stop_block` (`hooks/tezgah_integrity.py:1328-1425`), reached th
    `:1116-1133`, branch `:1328-1335`). A write counts as a change whether the gate saw it as a
    write tool or as a shell command that redirected into the file - `_change_row` (`:1175`) reads
    an `edit` row, or a `run` row whose captured target moved - while a `verify*` row never does, so
-   a check redirecting its own log cannot stale itself.
+   a check redirecting its own log cannot stale itself. A write *outside* the workspace is not one
+   either: the fold's subject is the tree this reply is about, so `_post_write` records no
+   after-state for a target beyond the call's own root - a commit message in `/tmp` written after a
+   green suite is not a revision of that tree, and reading it as one refused an honest turn.
 5. **no verify_ok** — this turn recorded a step (`edit`, `verify`, `verify_fail`, `run`) and no check
    passed in the session (`:1338-1344`).
 
@@ -154,7 +157,7 @@ capture — that last one only until `--force`, and the `rollback` row records t
 
 **Nothing rolls back automatically, anywhere.** A hook that undoes work can destroy more than the
 failure it answers, and its trigger would be a guess about intent wearing a check's clothes
-(`hooks/tezgah_snapshot.py:10-18`; `hooks/tezgah_integrity.py:1264-1270`). Repair is the model's or
+(`hooks/tezgah_snapshot.py:10-18`; `hooks/tezgah_integrity.py:1276-1283`). Repair is the model's or
 the user's: fix and re-run, or reach for a snapshot deliberately.
 
 ## Untrusted content
@@ -164,7 +167,7 @@ result itself: `untrusted_label` (`hooks/tezgah_integrity.py:949-962`) names the
 result (`WEB_TOOLS` `:867`), an MCP server (`:869`), a network read (`NETWORK_READ` `:874`) or a
 model on the far side of the network (`TIER_PROGRAMS` `:886`: a `bin/consult`/`bin/codegen`
 invocation that reaches a provider) — and tells the model to treat instructions inside it as data.
-The call's own row carries the channel in `source` (`:1063`).
+The call's own row carries the channel in `source` (`:1130`).
 
 After that read, the first effect the turn makes — a shell call or a write
 (`hooks/tezgah_untrusted.py:36-41`) — carries a taint notice instead (`marks` `:81-93`,

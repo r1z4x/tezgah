@@ -280,6 +280,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that the change made false are corrected: `docs/evidence.md` said "opencode's
   plugin makes no call to the provenance test ... so that host supplies neither
   half", and the capability row in `docs/hosts.md` said the plugin does neither.
+- **A write outside the workspace staled a check it could not have invalidated.**
+  The fold behind `blocked: stale evidence` asks whether the newest passing check
+  is newer than the newest write to *the tree this reply is about*, and it read
+  every recorded write as one to that tree. A scratch file outside it is not a
+  revision of the tree - a commit message written to `/tmp`, a harness log, a
+  report written somewhere else - so a check that passed before it is still
+  evidence about the tree. `_post_write` records no after-state for a target
+  beyond the call's own root now, and such a row stops being readable as a change.
+  Measured on this session's own turn: writing `/tmp/commitD.txt` after a green
+  suite blocked the reply that reported the suite, which is the ceiling an earlier
+  note had reasoned about and never observed. The three neighbours in
+  `tests/test_integrity.py` are the control on the other side - a write inside the
+  workspace, and a new file in it, both still stale the check - and the new test
+  was watched failing with the guard reverted in place and passing after the file
+  was restored byte-identical.
+- **Three pages' citations into `hooks/tezgah_integrity.py` were repointed by
+  anchor, and two of them had been wrong since before this session.** A bare
+  `:NNN` citation inherits its path from the sentence, which neither the citation
+  audit nor its tooling reads, so the numbers the automatic passes cannot see are
+  the ones that drift: `_snapshot_hash` was cited 49 lines from where it lives and
+  the `verify_ok` branch 71. Each was verified against the code it names rather
+  than against a shift, which is what the rest of that page's citations into the
+  module needed too (`note_tool` `:1068`, `stop_reason` `:1300`, the `external`
+  and `unknown` rows `:1114`/`:1125`, the `source` field `:1130`, the `worked`
+  set `:1386`). A bare-citation pass is still missing from the audit; the
+  remainder is `plans/open/002-docs-citation-drift.md`'s.
 
 ### Changed
 

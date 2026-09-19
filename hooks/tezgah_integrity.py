@@ -1033,6 +1033,18 @@ def _post_write(session_id, inp, cwd):
     path = str(paths[0])
     apath = os.path.realpath(
         path if os.path.isabs(path) else os.path.join(cwd or ".", path))
+    base = root_for(cwd) if cwd else None
+    if base:
+        real_base = os.path.realpath(base)
+        if apath != real_base and not apath.startswith(real_base + os.sep):
+            # The fold this feeds asks one question - is the newest check newer
+            # than the newest write to THE TREE this reply is about - and this
+            # write cannot change that tree: a scratch file outside the workspace
+            # (a commit message in /tmp, a harness log, a report somewhere else)
+            # is not a revision of it. Reading one as a change refused honest
+            # turns; measured 2026-09-19, when writing /tmp/commitD.txt after a
+            # green suite blocked the reply that reported the suite.
+            return {}
     after = _file_digest(apath)
     if after is None:
         return {}
