@@ -249,8 +249,9 @@ rewriting pushed history. Never add one back, in any repo, for any reason.
 Merge authority is STANDING: when an independent review is clean and the full
 test suite passes, merge the PR yourself and report it -- do not ask. Stop and
 report instead when a critical/high finding or a failing test appears, or for
-force-push, history rewrite, repo/branch deletion, live migrations, deploys,
-or anything touching a live production account or external service.</harness-reminder>
+force-push, history rewrite, repo/branch deletion, live migrations, deploys, or
+anything beyond the merge touching a live production account or an external
+service.</harness-reminder>
 """
 
 ORCHESTRATE = """
@@ -611,12 +612,12 @@ found in local history; ask before rewriting pushed history.
 
 **Irreversible or outward-facing actions need an explicit ask first.** Force-push,
 rewriting pushed history, deleting a repo or branch, applying a migration to a
-live database, deploying, and anything touching a live production account or an
-external service. This one is an invariant: it stays armed whatever a prompt
-classifier decides. When the gate refuses a command for consent, put the exact
-command and what it cannot undo in front of the user, and name
-`tezgah-consent --last` (or the digest the refusal prints) as what the user runs
-to approve it.
+live database, deploying, and anything beyond the merge touching a live
+production account or an external service. This one is an invariant: it stays
+armed whatever a prompt classifier decides. When the gate refuses a command for
+consent, put the exact command and what it cannot undo in front of the user, and
+name `tezgah-consent --last` (or the digest the refusal prints) as what the user
+runs to approve it.
 
 **Session scope: the user's repo, not tezgah.** Tezgah's own installation is
 not this session's work: its optional tools (codebase-memory-mcp, orx, consult,

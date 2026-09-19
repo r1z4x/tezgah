@@ -305,9 +305,11 @@ const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit",
 // Mirrors hooks/tezgah_integrity.py BASH_TOOLS. A shell tool missing from this
 // set takes the wrong branch twice: its command is hashed as a JSON object and
 // its row is never written, so one call would carry two identities and the
-// metrics would lose the call entirely.
+// metrics would lose the call entirely. `pwsh` is there because dsh's own
+// PowerShell tool is named that, while the five other spellings are what the
+// hosts send.
 const BASH_TOOLS = new Set(["bash", "shell", "command", "exec_command",
-  "run_command", "powershell"])
+  "run_command", "powershell", "pwsh"])
 // The core's task rule has a shell half no write tool takes: a command that
 // moves the active task's own record (`hooks/tezgah_gate.TASK_CHANGE`), which is
 // how an agent moves the phase or the allowlist it is being held to instead of
@@ -751,31 +753,59 @@ function retryReason(tool, args, rows) {
     "that FAILED, counted per user turn.)"
 }
 
-// Which consent record this action already carries: "grant" when
-// bin/tezgah-consent recorded the user's own approval and the effect has not
-// spent it yet, "ask" when only the gate's refusal is on record, null when
-// neither is (hooks/tezgah_gate.consent_mark).
+// The kinds a PostToolUse hook writes after a call ran, whatever the host
+// reported about the outcome (hooks/tezgah_integrity.STEP_KINDS). What spends a
+// grant is one of these, never the presence of `exit`: this host records no exit
+// for a shell call whose result carries no `metadata.exit`, and a lease only
+// `exit` could spend would be a standing permit there.
+const STEP_KINDS = new Set(["run", "edit", "verify", "verify_ok", "verify_fail"])
+
+// Which consent record this action already carries in this workspace: "grant"
+// when bin/tezgah-consent recorded the user's own approval and the effect has
+// not spent it yet, "ask" when only the gate's refusal is on record for this
+// workspace, null when neither is (hooks/tezgah_gate.consent_mark).
 //
 // A grant is a lease on ONE effect, not a standing permit: the row the effect
 // leaves behind - the same id carrying an outcome - is what proves it ran, so the
 // next identical command goes back to the user instead of running on the first
-// approval forever (hooks/tezgah_gate.unspent_grant). Two rows, two facts, never
-// one row conflating them: the gate writes `consent` (it asked) and never
-// `grant` - a grant is the user's, written by the CLI, so the approval cannot be
-// forged by the rule it constrains. Read by kind and id alone, so "who was asked
+// approval forever (hooks/tezgah_gate.unspent_grant). The lease also belongs to
+// one workspace: the action id is tool plus args with no cwd (the loop guard's
+// key too), while the effect is resolved against the directory the call runs in,
+// so the ask row records that directory and a grant answers the action there and
+// not the same text somewhere else. Two rows, two facts, never one row
+// conflating them: the gate writes `consent` (it asked) and never `grant` - a
+// grant is the user's, written by the CLI, so the approval cannot be forged by
+// the rule it constrains. Read by kind, id and that workspace, so "who was asked
 // to confirm what, and who answered" is a query over rows rather than a match on
 // a deny message a later reword would silently break.
-async function consentMark(sessionID, digest) {
+async function consentMark(sessionID, digest, workspace) {
   if (!sessionID || !digest) return null
   const rows = await ledgerTail(sessionID, LEDGER_TAIL)
   const at = rows.map((row) => row.kind === "grant" && row.id === digest)
     .lastIndexOf(true)
+  const asked = rows.map((row) => row.kind === "consent" && row.id === digest)
+    .lastIndexOf(true)
+  const mine = asked === -1 || (rows[asked].workspace ?? null) === workspace
   const spent = at !== -1
     && rows.slice(at + 1).some((row) => row.id === digest
-                                && row.exit !== undefined)
-  if (at !== -1 && !spent) return "grant"
-  if (rows.some((row) => row.kind === "consent" && row.id === digest)) return "ask"
+                                && STEP_KINDS.has(row.kind))
+  if (at !== -1 && !spent && mine) return "grant"
+  if (asked !== -1 && mine) return "ask"
   return null
+}
+
+// The directory a call runs in, as the lease's scope: hooks/tezgah_gate.py
+// records os.path.realpath(cwd) on the ask row and compares the same value, so
+// this half resolves the path the same way - a row written here is then one the
+// Python reader honours, and vice versa (bin/tezgah-gate is handed the same dir
+// as cwd). Falls back to the raw string, and the lease then simply does not
+// match: a scope that cannot be resolved must never be a standing permit.
+function leaseScope(dir) {
+  try {
+    return realpathSync(dir)
+  } catch {
+    return String(dir || "")
+  }
 }
 
 // A consent row: the gate's own fact, `consent` (it asked). `detail` is the
@@ -816,10 +846,14 @@ async function noteDeny(sessionID, rule, reason, tool, args, workspace, extra) {
 async function shellRules(tool, args, sessionID, base, dir) {
   const cmd = String(args.command || args.cmd || "")
   const digest = actionID(tool, args)
+  // The lease's scope, the directory this call runs in - the digest carries the
+  // command text and not the place, so the ask row records the place (see
+  // consentMark).
+  const scope = leaseScope(dir)
   const [klass, ignored] = consentEffect(cmd, dir, base)
-  const mark = klass ? await consentMark(sessionID, digest) : null
+  const mark = klass ? await consentMark(sessionID, digest, scope) : null
   if (klass && mark === null) {
-    await noteConsentRow(sessionID, "consent", klass, digest, base)
+    await noteConsentRow(sessionID, "consent", klass, digest, scope)
     const reason = consentReason(klass, ignored, false, digest)
     await noteDeny(sessionID, "consent", reason, tool, args, base,
                    ignored ? "declared `" + ignored + "` ignored, `" + klass +

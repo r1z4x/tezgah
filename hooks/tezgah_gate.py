@@ -226,13 +226,23 @@ OUTWARD = re.compile(
 # until this alternative is here. The write is what makes it this rule's - a
 # `curl` that only reads a page is the read the untrusted label covers, not an
 # effect. Matched on the masked text like the rest, so a command merely quoted in
-# a message is not one. ponytail: `nc`/`scp`/`rsync` are matched by shape, so
-# `nc --version` is refused once like any other connection tool; the direction is
-# the safe one and the refusal is one-shot and expires (the user's approval lifts
-# it). A raw SQL
-# `UPDATE` typed into `psql -c` is NOT caught - the statement sits in a quoted
-# string, which mask() blanks, and reading SQL intent is not a regex (the ceiling
-# MIGRATION already declares).
+# a message is not one. `nc`/`scp` are matched by shape, both directions, so
+# `nc --version` is refused once like any other connection tool; `rsync` is read
+# one step further, because its direction is the difference between a read and an
+# egress: rsync's LAST argument is where the bytes land, so a remote only in the
+# source position (`rsync host:/src ./dst`) is the read the untrusted label
+# covers, and a remote destination (`rsync ./dst host:/dst`) is this class - with
+# or without options in front, since options sit on either side of the arguments.
+# ponytail: the destination has to be an argument this pattern can see as the
+# last one, so a remote destination behind an alias, a wrapper script or a shell
+# variable derives nothing; a `rsync://` argument is blanked by mask() like any
+# other comment tail, leaving only its `rsync:` remnant as the last token, so
+# `rsync rsync://host/mod ./dst` is still read as the remote form (the direction
+# is the safe one, and the refusal is one-shot); and the class is not read at all
+# from a `scp` in either direction (see above), for the same reason.
+# A raw SQL `UPDATE` typed into `psql -c` is NOT caught - the statement sits in a
+# quoted string, which mask() blanks, and reading SQL intent is not a regex (the
+# ceiling MIGRATION already declares).
 SEND = re.compile(
     r"(?:^|[|;&(]\s*)(?:"
     r"(?:sendmail|msmtp|mutt|mailx|swaks)\b|"
@@ -240,7 +250,9 @@ SEND = re.compile(
     r"aws\s+ses\s+send-email\b|"
     r"(?:stripe|paypal)\s+(?:charges|refunds|payment_intents|payouts|"
     r"transfers)\b|"
-    r"(?:nc|ncat|scp)\s|rsync\s+\S*:|"
+    r"(?:nc|ncat|scp)\s|"
+    r"rsync\s+(?:-\S+\s+)*(?:\S+\s+)*\S*:\S*"
+    r"(?=(?:\s+-\S+)*\s*(?:$|[|;&)]))|"
     r"curl\b[^|;&]*(?:-X\s*(?:POST|PUT|PATCH|DELETE)|"
     r"--request\s*(?:POST|PUT|PATCH|DELETE)|--data\b|--data-\S+|--json\b|"
     r"--form\b|-F\s|-d\s|-T\s|--upload-file\b)|"
@@ -523,18 +535,32 @@ def retry_reason(tool, inp, session_id):
 CONSENT_TAIL = 200
 
 
-def unspent_grant(rows, digest):
-    """The index of the newest `grant` row for this action that the effect has
-    not spent yet, or None when there is none to spend.
+def unspent_grant(rows, digest, workspace=None):
+    """The index of the newest `grant` row for this action in `workspace` that
+    the effect has not spent yet, or None when there is none to spend.
 
     A grant is a lease on ONE effect, not a standing permit: the user approved
-    this command, not every later re-issue of it, and the two are only the same
-    thing while the effect has not run. `bin/tezgah-consent` writes the row; the
-    effect spends it, and the row the effect leaves behind - the same id with an
-    outcome on it (`exit`, which every PostToolUse row for a run carries) - is
-    what proves it ran. A grant with such a row after it is spent, so the next
-    identical command goes back to the user instead of running on the first
-    approval forever.
+    this action, not every later re-issue of it. Two facts decide whether the
+    newest grant is about the call in hand.
+
+    The scope. `call_id` is the loop guard's key too, so it stays what it is -
+    tool plus canonical args, with no cwd - and the lease carries the directory
+    instead: the effect is resolved against it (`rm_outside`, the sink paths),
+    and `rm -rf build` in one checkout and the same text in the next are two
+    different deletes. The ask row records which one was asked about
+    (`workspace`, the call's own directory), and a grant only answers an ask made
+    in the workspace of the call it is spent by. The newest ask is the one read:
+    it is the question the newest grant answered.
+
+    The spend. `bin/tezgah-consent` writes the grant; the effect spends it, and
+    the row the effect leaves behind - the same id with an outcome on it - is
+    what proves it ran. The outcome is the kind a PostToolUse hook writes after a
+    call ran (`STEP_KINDS`), never the `exit` key: cursor's
+    `afterShellExecution` carries no outcome signal and records `verify`/`run`
+    with no such key, so a lease only `exit` could spend is a standing permit on
+    that host. A grant with such a row after it is spent, so the next identical
+    command goes back to the user instead of running on the first approval
+    forever.
 
     The newest grant is the one read: an older one would already have been spent
     by that same outcome row, so a spent newest grant means none is live.
@@ -546,33 +572,41 @@ def unspent_grant(rows, digest):
                if row.get("kind") == "grant" and row.get("id") == digest]
     if not granted:
         return None
-    if any(row.get("id") == digest and "exit" in row
+    asks = [i for i, row in enumerate(rows)
+            if row.get("kind") == "consent" and row.get("id") == digest]
+    if asks and rows[asks[-1]].get("workspace") != workspace:
+        return None
+    if any(row.get("id") == digest and row.get("kind") in STEP_KINDS
            for row in rows[granted[-1] + 1:]):
         return None
     return granted[-1]
 
 
-def consent_mark(session_id, digest):
-    """Which consent record this action carries: "grant" when the user's own
-    approval of it is on the ledger and unspent, "ask" when only the gate's
-    refusal is on record, None when neither is.
+def consent_mark(session_id, digest, workspace=None):
+    """Which consent record this action carries in `workspace`: "grant" when the
+    user's own approval of it is on the ledger and unspent, "ask" when only the
+    gate's refusal is on record for this workspace, None when neither is.
 
     Two rows, two facts, never one row conflating them: the gate writes `consent`
     (it asked) and never `grant` - a grant is the user's, written by the CLI, so
     the approval cannot be forged by the rule it constrains. A bare re-issue of
     the command is neither: it writes no row of its own, which is why the
-    refusal stands (see `decision`). Read by kind and id alone, so "who was asked
-    to confirm what, and who answered" is a query over rows rather than a match
-    on a deny message a later reword would silently break. The window is the
-    ledger tail like the loop guard's, so an action asked about more than
-    `CONSENT_TAIL` rows ago can be asked about once more."""
+    refusal stands (see `decision`). Read by kind, id and the ask row's
+    workspace, so "who was asked to confirm what, and who answered" is a query
+    over rows rather than a match on a deny message a later reword would silently
+    break; the workspace is the one fact the digest cannot carry (see
+    `unspent_grant`), and an ask made in another directory is a question about
+    another action, so the answer to it is not the answer here - that call is
+    asked about once more instead. The window is the ledger tail like the loop
+    guard's, so an action asked about more than `CONSENT_TAIL` rows ago can be
+    asked about once more."""
     if not (session_id and digest):
         return None
     rows = events(session_id, tail=CONSENT_TAIL)
-    if unspent_grant(rows, digest) is not None:
+    if unspent_grant(rows, digest, workspace) is not None:
         return "grant"
     if any(row.get("kind") == "consent" and row.get("id") == digest
-           for row in rows):
+           and row.get("workspace") == workspace for row in rows):
         return "ask"
     return None
 
@@ -780,15 +814,18 @@ def outside_paths(inp, cwd, base):
     return out
 
 
-def sink_check(session_id, digest, klass=None, target=None):
+def sink_check(session_id, digest, klass=None, target=None, workspace=None):
     """(the untrusted channel, the deny reason) for the sink rule, or
     (None, None) when this effect is not one to refuse.
 
     `klass` is the command's effect class, `target` the realpath of a write that
     left the root; a write inside the root and a command of no class are not
-    sinks. An unspent grant does not lift this on its own: it has to be newer
-    than the read, which is the one fact separating the user's approval of THIS
-    turn from an approval of the same command before the untrusted text arrived.
+    sinks. `workspace` is the lease's scope, the directory this call runs in:
+    passed through to `unspent_grant`, so an approval of the same text in another
+    directory does not lift this one. An unspent grant does not lift this on its
+    own either: it has to be newer than the read, which is the one fact
+    separating the user's approval of THIS turn from an approval of the same
+    command before the untrusted text arrived.
 
     The tail is the window, like the consent marks. A read older than the window
     leaves no source row in it, and then every row here is newer than the read,
@@ -803,7 +840,7 @@ def sink_check(session_id, digest, klass=None, target=None):
     start = _turn_start(rows)
     read = max((i for i, row in enumerate(rows)
                 if i >= start and row.get("source")), default=-1)
-    granted = unspent_grant(rows, digest)
+    granted = unspent_grant(rows, digest, workspace)
     if granted is not None and granted > read:
         return None, None
     named = "a `%s` effect" % klass if klass else "a write to %s" % target
@@ -1228,11 +1265,15 @@ def decision(tool, inp, cwd, session_id=None):
         targets = outside_paths(inp, cwd, base)
         if targets:
             digest = call_id(tool, inp)
-            channel, reason = sink_check(session_id, digest, target=targets[0])
+            # The lease's scope, the same one the shell half uses: the call's own
+            # directory, which is what a target's realpath is resolved against.
+            scope = os.path.realpath(cwd)
+            channel, reason = sink_check(session_id, digest, target=targets[0],
+                                         workspace=scope)
             if reason:
-                if consent_mark(session_id, digest) is None:
+                if consent_mark(session_id, digest, scope) is None:
                     note(session_id, "consent", SINK_WRITE, id=digest,
-                         workspace=base)
+                         workspace=scope)
                 return _deny(session_id, "sink", reason, tool, inp, base,
                              extra="untrusted channel: %s" % channel)
     # Consent and the shell half of the sink rule: an irreversible or
@@ -1248,6 +1289,12 @@ def decision(tool, inp, cwd, session_id=None):
     # approval.
     if t in BASH_TOOLS:
         digest = call_id(tool, inp)
+        # The lease's scope: the directory this call runs in, which is what the
+        # effect is resolved against (`rm_outside`, the sink paths). The digest
+        # carries the text and not the place - it is the loop guard's key too and
+        # stays cwd-blind - so the ask row records the directory and a grant
+        # answers the action in one place (see `unspent_grant`).
+        scope = os.path.realpath(cwd)
         # Two readings of one command. The taint rule wants the conservative one
         # (scratch_ok=False): a delete is an effect whatever it targets, so a
         # scratch `rm -rf` cannot be an injection's silent first step. The ask is
@@ -1256,17 +1303,20 @@ def decision(tool, inp, cwd, session_id=None):
         klass, ignored = consent_effect(inp.get("command"), cwd, base,
                                         scratch_ok=False)
         asking, asked_ignored = consent_effect(inp.get("command"), cwd, base)
-        mark = consent_mark(session_id, digest) if klass else None
+        mark = consent_mark(session_id, digest, scope) if klass else None
         if klass:
-            channel, reason = sink_check(session_id, digest, klass=klass)
+            channel, reason = sink_check(session_id, digest, klass=klass,
+                                         workspace=scope)
             if reason:
                 if mark is None:
-                    note(session_id, "consent", klass, id=digest, workspace=base)
+                    note(session_id, "consent", klass, id=digest,
+                         workspace=scope)
                 return _deny(session_id, "sink", reason, tool, inp, base,
                              extra="untrusted channel: %s" % channel)
             if asking and mark != "grant":
                 if mark is None:
-                    note(session_id, "consent", asking, id=digest, workspace=base)
+                    note(session_id, "consent", asking, id=digest,
+                         workspace=scope)
                 extra = ("declared `%s` ignored, `%s` stands"
                          % (asked_ignored, asking) if asked_ignored else None)
                 return _deny(session_id, "consent",

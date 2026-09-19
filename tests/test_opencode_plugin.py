@@ -124,6 +124,17 @@ class OpenCodePlugin(TempHome):
         for command in ("git commit -m x --no-verify", "git push --no-verify"):
             self.denied(self.before("bash", {"command": command}))
 
+    def test_pwsh_takes_the_shell_branches(self):
+        # dsh's own PowerShell tool is named `pwsh`, and every shell branch keys
+        # on membership of BASH_TOOLS (the tuple hooks/tezgah_integrity.py keeps,
+        # mirrored here): a name outside it is hashed as a JSON object and
+        # reaches none of the shell rules, so on that host a `--no-verify` commit
+        # and a force-push would both pass unasked.
+        self.denied(self.before("pwsh",
+                                {"command": "git commit -m x --no-verify"}))
+        self.denied(self.before("pwsh",
+                                {"command": "git push --force origin main"}))
+
     def test_skip_env_denied(self):
         for command in ("SKIP=flake8 git commit -m x",
                         "HUSKY_SKIP_HOOKS=1 git commit -m x",
@@ -358,7 +369,7 @@ class OpenCodePlugin(TempHome):
         self.assertEqual([r["kind"] for r in rows], ["consent", "deny"], rows)
         self.assertEqual(rows[0]["detail"], "publish")
         self.assertEqual(rows[0]["id"], digest)
-        self.assertEqual(rows[0]["workspace"], self.roots)
+        self.assertEqual(rows[0]["workspace"], self.repo)
         self.assertNotIn("exit", rows[0])
         self.assertEqual(rows[1]["detail"][:9], "consent: ")
         self.assertEqual(rows[1]["id"], digest)
@@ -396,7 +407,7 @@ class OpenCodePlugin(TempHome):
         self.assertEqual([r["kind"] for r in rows], ["consent", "deny", "deny"], rows)
         self.assertEqual(rows[0]["detail"], "destructive")
         self.assertEqual(rows[0]["id"], ti.call_id("bash", command))
-        self.assertEqual(rows[0]["workspace"], self.roots)
+        self.assertEqual(rows[0]["workspace"], self.repo)
 
     def test_a_grant_is_spent_by_the_effect_it_authorised(self):
         # The grant is a lease on ONE effect: the row the effect leaves behind
@@ -410,6 +421,58 @@ class OpenCodePlugin(TempHome):
         with open(path, "a") as fh:
             fh.write(json.dumps({"kind": "verify_ok", "detail": "npm publish",
                                  "id": digest, "exit": 0}) + "\n")
+        self.denied(self.before("bash", command))
+
+    def test_the_rsync_destination_decides_the_direction(self):
+        # The four forms the Python suite pins, through this half: its prefilter
+        # matches `rsync` whatever the direction or the flags, so the core is
+        # asked and its answer is what decides - the read of the same shape
+        # passes, the egress is refused as `send`. The core is asked here once
+        # more, in a session of its own, so the refusal this host returns can
+        # only match it by having put the same question to the same pattern.
+        self.gate_bin()
+        for command in ("rsync host:/src ./dst", "rsync -avz host:/src ./dst"):
+            args = {"command": command}
+            self.assertEqual(self.gate("bash", args, session="probe"), "")
+            self.allowed(self.before("bash", args))
+        for command in ("rsync ./dst host:/dst", "rsync -avz ./dst host:/dst",
+                        "rsync --exclude .git ./f host:/d"):
+            args = {"command": command}
+            self.assertIn("`send` effect",
+                          self.gate("bash", args, session="probe"))
+            self.assertIn("`send` effect", self.denied(self.before("bash", args)))
+
+    def test_the_lease_belongs_to_the_directory_the_call_runs_in(self):
+        # The action id is tool plus args and carries no cwd - it is the loop
+        # guard's key and the Python half computes the same string - so the ask
+        # row records the directory the effect is resolved against. The identical
+        # command run one directory deeper drops a different tree, and this grant
+        # answers only the action it was asked about.
+        command = {"command": "rm -rf ../victim"}
+        digest = ti.call_id("bash", command)
+        deeper = os.path.join(self.repo, "sub")
+        os.makedirs(deeper, exist_ok=True)
+        self.denied(self.before("bash", command))
+        self.seed_grant(digest)
+        self.allowed(self.before("bash", command))
+        error = self.denied(self.before("bash", command, directory=deeper))
+        self.assertIn("`destructive` effect", error)
+        # one ask per (action, directory), both on record for the user
+        asks = [r for r in self.ledger() if r["kind"] == "consent"]
+        self.assertEqual([r["workspace"] for r in asks], [self.repo, deeper])
+
+    def test_a_grant_is_spent_by_an_outcome_row_with_no_exit_on_it(self):
+        # The spender is the outcome row, not an `exit` key inside it: a shell
+        # call whose result carries no `metadata.exit` still records `run`/
+        # `verify`, and a lease only `exit` could spend was a standing permit
+        # for one approval (hooks/tezgah_gate.unspent_grant).
+        command = {"command": "npm publish"}
+        digest = ti.call_id("bash", command)
+        self.seed_grant(digest)
+        self.allowed(self.before("bash", command))
+        with open(self.evidence_path("s1"), "a") as fh:
+            fh.write(json.dumps({"kind": "run", "detail": "npm publish",
+                                 "id": digest, "workspace": self.repo}) + "\n")
         self.denied(self.before("bash", command))
 
     def test_a_grant_passes_before_the_ask_is_ever_made(self):

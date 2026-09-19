@@ -906,6 +906,57 @@ class OmpHost(SetupBase):
             self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts")))
 
 
+class PowershellMatcher(SetupBase):
+    """A PowerShell call is a shell call, so every shell rule has to reach it.
+
+    `powershell` is in `BASH_TOOLS` (`hooks/tezgah_integrity.py:113-114`),
+    which the consent, secret, shortcut, loop, retry, task-shell and sink rules
+    are all keyed on - so refusing one is the design. What decides whether the
+    gate sees the call at all is the host's own matcher (Claude's manifest, the
+    dsh manifest) or omp's `GATED` list: a name the PostToolUse side carries
+    that the PreToolUse side does not is recorded in the ledger and never
+    refused, which is the state this class exists to keep out. The spellings
+    are the hosts': `PowerShell` on the Claude-family wire and `pwsh` for dsh's
+    own tool package (`tests/test_dsh_hooks.py:107-110`)."""
+
+    # Claude's matcher dialect, which the dsh bridge implements: a pattern made
+    # only of these characters is a list of exact names, anything else an
+    # unanchored regular expression. Mirrors tests/test_dsh_hooks.py.
+    LITERAL = re.compile(r"^[A-Za-z0-9_\- ,|]+$")
+
+    def selects(self, matcher, tool):
+        if self.LITERAL.match(matcher):
+            return tool in matcher.split("|")
+        return re.search(matcher, tool) is not None
+
+    def pretool_matchers(self, path):
+        with open(os.path.join(REPO, path)) as fh:
+            groups = json.load(fh)["hooks"]["PreToolUse"]
+        return [g["matcher"] for g in groups if g.get("matcher")]
+
+    def test_the_two_manifests_gate_the_powershell_spellings(self):
+        for path in ("hooks/hooks.json", "hosts/dsh/hooks.json"):
+            with self.subTest(path=path):
+                for tool in ("PowerShell", "pwsh"):
+                    self.assertTrue(
+                        any(self.selects(m, tool)
+                            for m in self.pretool_matchers(path)),
+                        "%s: PreToolUse never runs the gate for %s"
+                        % (path, tool))
+
+    def test_the_written_omp_hook_gates_the_shell_name(self):
+        self.env["TEZGAH_CBM_BIN"] = sys.executable  # as OmpHost.install does
+        proc = self.setup("--install", "--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        hook = self.read_text(
+            self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts"))
+        gated = re.search(r"const GATED = \[(.*?)\];", hook, re.S)
+        self.assertIsNotNone(gated, "the written omp hook has no GATED list")
+        # the list is matched case-insensitively, so the one lowercase entry is
+        # what makes a `PowerShell` call on that host reach the gate
+        self.assertIn('"powershell"', gated.group(1))
+
+
 class ReadmeSnippets(unittest.TestCase):
     """The install snippets are the one language-neutral part of the READMEs.
 

@@ -518,14 +518,16 @@ class Gate(TempHome):
     def test_the_refusal_records_the_effect_class_as_a_consent_row(self):
         # "who was asked to confirm what" is a query over rows: kind consent, the
         # class in the detail, the action in the id - not a string match on a
-        # deny message a later reword would silently break
+        # deny message a later reword would silently break. The row's workspace
+        # is the directory the call runs in - the scope the lease is bound to,
+        # which is why the same text in another directory is another ask.
         self.decide("Bash", {"command": "git push --force origin main"},
                     session_id="asked")
         self.decide("Bash", {"command": "npm publish"}, session_id="asked")
         rows = [r for r in self.rows("asked") if r["kind"] == "consent"]
         self.assertEqual([r["detail"] for r in rows],
                          ["destructive", "publish"])
-        self.assertEqual(rows[0]["workspace"], self.roots)
+        self.assertEqual(rows[0]["workspace"], self.repo)
         for r in rows:
             self.assertEqual(len(r["id"]), 12)
             self.assertEqual(r["kind"], "consent")
@@ -580,6 +582,53 @@ class Gate(TempHome):
         self.assertNotIn("repeat-allowed",
                          [r["kind"] for r in self.rows(session)])
 
+    def test_a_grant_is_spent_by_an_outcome_row_with_no_exit_on_it(self):
+        # The spender is the outcome row, not the `exit` key inside it. Cursor's
+        # `afterShellExecution` carries no outcome signal and records `run`/
+        # `verify` with no key at all, so a lease only `exit` could spend never
+        # was spent there - one approval became a standing permit, which is not
+        # the documented model (one grant, one effect).
+        command = "git push --force origin main"
+        session = "no-exit-lease"
+        digest = ti.call_id("Bash", {"command": command})
+        self.decide("Bash", {"command": command}, session_id=session)
+        self.seed_grant(session, digest)
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id=session))
+        self.seed_run(command, session, failed=None)  # the cursor shape
+        outcome = [r for r in self.rows(session) if r["kind"] == "run"][-1]
+        self.assertNotIn("exit", outcome)
+        self.assertIsNotNone(self.decide("Bash", {"command": command},
+                                         session_id=session))
+
+    def test_a_grant_does_not_answer_the_same_text_in_another_directory(self):
+        # The action's identity cannot be the text alone: `call_id` has no cwd -
+        # it is the loop guard's key too, so it stays what it is - while the
+        # effect is resolved against the directory the call runs in, and
+        # `rm -rf ../victim` from a checkout and the same text one directory
+        # deeper drop different trees. The ask row records the directory, so the
+        # grant answers the one it was asked about and the other call is asked
+        # about afresh instead of running on an approval for somewhere else.
+        command = "rm -rf ../victim"
+        session = "lease-scope"
+        digest = ti.call_id("Bash", {"command": command})
+        deeper = os.path.join(self.repo, "sub")
+        os.makedirs(deeper, exist_ok=True)
+        self.assertIsNotNone(self.decide("Bash", {"command": command},
+                                         session_id=session))     # the ask
+        self.seed_grant(session, digest)                          # the answer
+        self.assertIsNone(self.decide("Bash", {"command": command},
+                                      session_id=session))
+        reason = self.decide("Bash", {"command": command}, cwd=deeper,
+                             session_id=session)
+        self.assertIn("`destructive` effect", reason)
+        # one ask per (action, directory), so the user can answer this one too
+        asks = [r for r in self.rows(session) if r["kind"] == "consent"]
+        self.assertEqual([r["workspace"] for r in asks], [self.repo, deeper])
+        self.seed_grant(session, digest)
+        self.assertIsNone(self.decide("Bash", {"command": command}, cwd=deeper,
+                                      session_id=session))
+
     # ---- consent: the rows it may leave behind ----------------------------
     def seed_grant(self, session_id, digest):
         """The row bin/tezgah-consent writes when the user approves an action:
@@ -631,7 +680,7 @@ class Gate(TempHome):
         self.assertEqual([r["kind"] for r in rows if r["kind"] == "consent"],
                          ["consent"])
         self.assertEqual(rows[0]["id"], digest)
-        self.assertEqual(rows[0]["workspace"], self.roots)
+        self.assertEqual(rows[0]["workspace"], self.repo)
         self.assertNotIn("exit", rows[0])
 
     # ---- consent: a declared effect, which may only tighten the class ------
@@ -822,6 +871,35 @@ class Gate(TempHome):
         # PUBLISH first, so a release cannot be relabelled by this rule
         publish = self.decide("Bash", {"command": "gh release create v1 --target main"})
         self.assertIn("`publish` effect", publish)
+
+    def test_the_rsync_destination_decides_the_direction(self):
+        # The copy's effect is its direction, and rsync's direction is its LAST
+        # argument: `host:/src ./dst` brings bytes in - the read the untrusted
+        # label covers - and `./dst host:/dst` carries them out, which is this
+        # class. The pattern read the first token with a colon instead, so the
+        # read was refused and the egress passed, and options in front of the
+        # arguments defeated it in both directions.
+        for command, klass in (
+                ("rsync host:/src ./dst", None),
+                ("rsync ./dst host:/dst", "send"),
+                ("rsync -avz host:/src ./dst", None),
+                ("rsync -avz ./dst host:/dst", "send"),
+                # options sit on either side of the arguments
+                ("rsync --exclude .git ./dst host:/dst", "send"),
+                ("rsync -avz ./dst host:/dst --delete", "send"),
+                # a copy between two local paths is nobody's effect
+                ("rsync -avz ./src ./dst", None),
+                # scp keeps the shape match its own branch documents: both
+                # directions, which is the safe one and a single re-ask
+                ("scp host:/src ./dst", "send"),
+                ("scp -r ./dst host:/dst", "send")):
+            self.assertEqual(tg.effect_class(command, self.repo, self.roots),
+                             klass, command)
+        # and the two results reach the caller: the egress is refused as `send`,
+        # the read of the same shape passes
+        self.assertIn("`send` effect",
+                      self.decide("Bash", {"command": "rsync -avz ./dst host:/dst"}))
+        self.assertIsNone(self.decide("Bash", {"command": "rsync -avz host:/src ./dst"}))
 
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):

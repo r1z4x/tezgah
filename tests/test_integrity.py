@@ -579,6 +579,74 @@ class PostWriteState(unittest.TestCase):
         self.assertNotIn("changed", row)
 
 
+class StaleEvidence(unittest.TestCase):
+    """P1: a passing check licenses a claim only when it is newer than the newest
+    write the gate saw change the tree.
+
+    The hole was measured on the real rule before it landed
+    (`.tezgah/research/infra-candidates/experiments/E0-current-stop-rule/`):
+    `edit -> verify_ok -> edit` claimed done, and an earlier turn's green run
+    licensed a later turn's claim."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        self.target = os.path.join(self.dir, "x.py")
+
+    def edit(self, text):
+        """One write the gate saw change the file: pre-state captured, after-state
+        recorded by the writing host."""
+        tz.capture("Edit", {"file_path": self.target}, self.dir, "s")
+        with open(self.target, "w") as fh:
+            fh.write(text)
+        ti.note_tool("s", "Edit", {"file_path": self.target}, failed=False)
+        return ti.events("s")[-1]
+
+    def check(self):
+        ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False,
+                     out_bytes=42)
+
+    def test_a_write_after_the_check_makes_the_check_stale(self):
+        self.edit("v1\n")
+        self.check()
+        self.edit("v2\n")
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("Stale evidence", reason)
+        self.assertIn(self.target, reason)
+        self.assertEqual([r["detail"] for r in ti.events("s")
+                          if r["kind"] == "claim"], ["blocked: stale evidence"])
+
+    def test_a_check_after_the_last_write_still_licenses_the_claim(self):
+        self.edit("v1\n")
+        self.check()
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_write_that_changed_nothing_does_not_stale_the_check(self):
+        self.edit("v1\n")
+        self.check()
+        # the host accepted a write that touched nothing: same bytes, so the row
+        # carries `changed: false` and the tree the check saw is still the tree
+        tz.capture("Edit", {"file_path": self.target}, self.dir, "s")
+        ti.note_tool("s", "Edit", {"file_path": self.target}, failed=False)
+        self.assertFalse(ti.events("s")[-1]["changed"])
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_new_file_after_the_check_makes_the_check_stale(self):
+        # a file that did not exist has no pre-state, so its row carries a hash
+        # and no `changed`: it is still a change to the tree
+        self.edit("v1\n")
+        self.check()
+        new = os.path.join(self.dir, "new.py")
+        with open(new, "w") as fh:
+            fh.write("x\n")
+        ti.note_tool("s", "Write", {"file_path": new}, failed=False)
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("Stale evidence", reason)
+        self.assertIn(new, reason)
+
+
 class LedgerAppendLock(unittest.TestCase):
     """B9: the ledger's appender serializes on an exclusive lock.
 
@@ -1065,6 +1133,13 @@ class PostToolUse(TempHome):
         self.run_hook("PostToolUseFailure", "Bash", {"command": "pytest -q"})
         self.assertIn("verify_fail", self.kinds())
 
+    def test_a_pwsh_call_is_a_shell_call(self):
+        # dsh names its own PowerShell tool `pwsh`; while the name was outside
+        # BASH_TOOLS the call reached the hook as a name no list knew and was
+        # recorded `unknown`, so no shell rule and no step counter saw it
+        self.run_hook("PostToolUse", "pwsh", {"command": "pytest -q"})
+        self.assertEqual(self.kinds(), ["verify_ok"])
+
     def test_non_check_command_records_run(self):
         self.run_hook("PostToolUse", "Bash", {"command": "ls -la"})
         self.assertIn("run", self.kinds())
@@ -1165,6 +1240,79 @@ class PostToolUse(TempHome):
                   "input": {"command": "codegen 'x'"}, "failed": None},
                  env=self.envv)
         self.assertEqual(self.counters()["codegen_failed"], 0)
+
+
+class CountersAll(TempHome):
+    """C14: the headline rate is a corpus question, over more than one ledger."""
+
+    def setUp(self):
+        super().setUp()
+        self.evidence = os.path.join(self.home, ".cache", "tezgah", "evidence")
+        os.makedirs(self.evidence)
+        self.envv = self.env()
+        self.cli = os.path.join(support.REPO, "bin", "tezgah-status")
+
+    def ledger(self, name, rows):
+        path = os.path.join(self.evidence, name)
+        for row in rows:
+            ti.note_path(path, **row)
+
+    def counts(self, extra_env=None):
+        env = self.envv if extra_env is None else dict(self.envv, **extra_env)
+        out, proc = run_json([self.cli, "--counters", "--all", "--json"], env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_the_fold_totals_the_two_ledgers(self):
+        # one ledger with a claim row that passed and a gate refusal, one with a
+        # refused claim and a second refusal under the same rule: the number the
+        # single-session reader cannot give is the sum of both
+        self.ledger("a.jsonl", [
+            {"kind": "run", "detail": "ls", "exit": 0},
+            {"kind": "verify_ok", "detail": "pytest -q", "exit": 0},
+            {"kind": "deny", "detail": "task: no active task"},
+            {"kind": "deny", "detail": "shortcut: rewrote the check"},
+            {"kind": "claim", "detail": "ok"},
+        ])
+        self.ledger("b.jsonl", [
+            {"kind": "verify_fail", "detail": "pytest -q", "exit": 1},
+            {"kind": "deny", "detail": "task: no active task"},
+            {"kind": "claim", "detail": "blocked: stale evidence"},
+        ])
+        counts = self.counts()
+        self.assertEqual(counts["ledgers"], 2)
+        self.assertEqual(counts["events"], 8)
+        self.assertEqual(counts["steps"], 3)
+        self.assertEqual(counts["claims"], 2)
+        self.assertEqual(counts["false_completion"], 1)
+        # grouped by the rule name before the colon, as counters groups them
+        self.assertEqual(counts["denies"], {"task": 2, "shortcut": 1})
+        self.assertEqual(counts["kinds"]["claim"], 2)
+        # one of the three rows carrying an exit failed
+        self.assertEqual(counts["tool_error_rate"], 0.3333)
+
+    def test_a_ledger_without_a_claim_row_or_an_exit_does_not_divide_by_zero(self):
+        # the rate has no decided row to divide by and the claim share has no
+        # denominator: neither may raise, and neither may invent a number
+        self.ledger("quiet.jsonl", [{"kind": "nudge", "detail": "proj"}])
+        counts = self.counts()
+        self.assertIsNone(counts["tool_error_rate"])
+        self.assertEqual(counts["claims"], 0)
+        self.assertEqual(counts["false_completion"], 0)
+
+    def test_one_session_still_reads_its_own_numbers(self):
+        # the reading that existed before the fold: one session's ledger, with no
+        # `ledgers` key and no other ledger's rows in it
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note", "session": "s-c14", "kind": "verify_ok",
+                  "detail": "pytest -q", "exit": 0}, env=self.envv)
+        self.ledger("other.jsonl", [{"kind": "claim", "detail": "blocked: x"}])
+        out, proc = run_json([self.cli, "--counters", "--json"],
+                             env=dict(self.envv, TEZGAH_SESSION="s-c14"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out["events"], 1)
+        self.assertEqual(out["kinds"], {"verify_ok": 1})
+        self.assertEqual(out["claims"], 0)
 
 
 if __name__ == "__main__":

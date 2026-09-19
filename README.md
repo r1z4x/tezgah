@@ -186,10 +186,13 @@ file does not already carry. The reply-level half - the Stop rule - runs where
 the host hands over the final message: Claude, Codex, omp (`session_stop`) and
 Cursor, which reports the reply on `afterAgentResponse` and takes the decision at
 `stop`. Its ledger is shared, so the newest check wins: a later failure blocks a
-"tests pass" claim even if an earlier run was green. Each row carries the action
-it belongs to (`id`, a digest of the tool and its canonical arguments), the
-workspace, and whichever of `exit`, `out_bytes` and `fail_class` the host
-actually reported - a field a host cannot report is absent, never zeroed, so a
+"tests pass" claim even if an earlier run was green, and so does a later write -
+a green run over the tree as it was then does not cover the tree as it is now,
+because the ledger records whether each write actually changed its target. Each
+row carries the action it belongs to (`id`, a digest of the tool and its
+canonical arguments), the workspace, and whichever of `exit`, `out_bytes` and
+`fail_class` the host actually reported - a field a host cannot report is
+absent, never zeroed, so a
 reader can tell "it failed" from "nobody said" - so a
 run can be reconstructed rather than guessed at; the same identity feeds the
 loop guard, which refuses a third identical call whose previous attempts exited

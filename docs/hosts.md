@@ -26,7 +26,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 
 The middle four marks (`consult`, `research`, `cbm`, `orch`) are tool-use marks:
 any adapter that sees its host's tool calls can light them by calling
-`record()` (`hooks/tezgah_context.py:965-981`). CLI-side, `tezgah-status` reads
+`record()` (`hooks/tezgah_context.py:988-1004`). CLI-side, `tezgah-status` reads
 the same core and takes the session id as an argument or `TEZGAH_SESSION`
 (`bin/tezgah-status:18-20`).
 
@@ -88,11 +88,11 @@ omp filters in its embedded runner before it asks python
 (`hosts/omp/tezgah-hook.ts.in:40-53`). On codex, cursor and dsh a read is not
 observable at that price, so their surfaces pass the four tool-use measures as
 `observable` and the two skill marks render dim (`info`, no glyph) instead of
-claiming the skill was never opened (`hooks/tezgah_context.py:1141-1147`, and the
-`observable` branch at `hooks/tezgah_context.py:1198-1199`). Callers that pass `TOOL_USE_MEASURES`:
+claiming the skill was never opened (`hooks/tezgah_context.py:1181-1187`, and the
+`observable` branch at `hooks/tezgah_context.py:1238-1239`). Callers that pass `TOOL_USE_MEASURES`:
 `statusline.py:112`, `hosts/codex/hook.py:163,177`,
 `hosts/dsh/statusline/lib/index.js:18`. A kill switch is observable everywhere
-and still renders `off` (`hooks/tezgah_context.py:1197`).
+and still renders `off` (`hooks/tezgah_context.py:1237`).
 
 ## Adding a host
 
@@ -117,7 +117,7 @@ In order, each step verified by the one below it:
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
-   not fork git for a cosmetic glyph (`hooks/tezgah_context.py:1150-1151`).
+   not fork git for a cosmetic glyph (`hooks/tezgah_context.py:1190-1191`).
 6. Tests, in two tiers: a per-host class in `tests/test_setup.py` pinning the
    report rows and the written files (e.g. `OmpHost:776-847`,
    `CodexHome:507-534`, `CursorMatcher:536-554`, `DshStatusline:688-763`), and an
@@ -154,6 +154,16 @@ In order, each step verified by the one below it:
   the matcher must list the write spellings or the gate's edit branches are
   unreachable there (`hosts/cursor/hook.py:34-40`,
   `bin/tezgah-setup:114-116`).
+- **Claude, dsh and omp run the gate only for the tool names their matcher
+  carries**, so a name the PostToolUse side carries and the PreToolUse side does
+  not is recorded in the ledger and never refused. `powershell` is a
+  `BASH_TOOLS` member (`hooks/tezgah_integrity.py:113-114`), so the PreToolUse
+  matchers name it in the spellings the hosts send (`hooks/hooks.json:16`,
+  `hosts/dsh/hooks.json:13`: `PowerShell` on the Claude-family wire, `pwsh` for
+  dsh's own tool package) and omp's `GATED` list carries the lowercase one
+  (`hosts/omp/tezgah-hook.ts.in:58-60`). The matcher is only the first half:
+  `pwsh` reaches the hook but is not a `BASH_TOOLS` name, so the shared shell
+  rules do not recognise that spelling yet.
 - **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:1980-1994`),
   so a change is not live until `--sync` or a refresh
   (`refresh_plugin_copy`, `bin/tezgah-setup:2057-2063`).

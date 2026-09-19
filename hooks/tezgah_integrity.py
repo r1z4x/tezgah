@@ -111,7 +111,7 @@ WRITE_TOOLS = ("edit", "write", "multiedit", "notebookedit", "apply_patch",
                "str_replace_editor", "create_file", "str_replace", "edit_file",
                "write_file", "search_replace")
 BASH_TOOLS = ("bash", "shell", "command", "exec_command", "run_command",
-              "powershell")
+              "powershell", "pwsh")
 # The read/search tools: known calls that do no step of work and that no rule
 # reads a row for, spelled as the hosts send them (Claude/Cursor's capitalized
 # set, omp's lowercase one, codex's `grep`). They are not `unknown` - the ledger
@@ -626,12 +626,39 @@ def counters(session_id):
     neither half. `steps` counts the work rows only (STEP_KINDS); and
     `false_completion` counts the claim rows a stop refused, so the rate is
     false_completion / claims."""
+    return _counts(events(session_id))
+
+
+def counters_all():
+    """Every ledger on this machine in one set of counters, plus `ledgers`, the
+    number of files that went into it.
+
+    `counters` answers "how did this session go", which is what the ledger was
+    built for. The one number the module calls a measure of the layer's effect -
+    `false_completion / claims` - is a corpus question, and without this reader
+    the corpus could only be totalled by hand.
+
+    Bound: none, deliberately. A window or a row cap would make the total
+    contradict the sum of the per-session numbers it claims to be, and a cap a
+    reader cannot see is worse than a slow answer. Every ledger this machine had
+    - 1166 of them, 17k rows, 6.5 MB - folded in 0.17 s, one pass; a corpus that
+    outgrows a single pass wants an index, not a silent cap."""
+    files = ledgers()
+    out = _counts(row for path in files for row in events_path(path))
+    out["ledgers"] = len(files)
+    return out
+
+
+def _counts(rows):
+    """`counters`' arithmetic over rows already read: the one implementation
+    both readers fold with, so a total and the sessions it sums cannot drift
+    apart."""
     out = {"events": 0, "denies": {}, "nudges": 0, "kinds": {},
            "consult": 0, "codegen": 0, "codegen_failed": 0, "fanout": 0,
            "steps": 0, "tool_error_rate": None, "claims": 0,
            "false_completion": 0}
     decided = errors = 0
-    for entry in events(session_id):
+    for entry in rows:
         out["events"] += 1
         kind = str(entry.get("kind") or "")
         detail = str(entry.get("detail") or "")
@@ -1058,16 +1085,51 @@ def passing_check(entry):
     check that ran with an outcome nobody saw."""
     if entry.get("kind") != "verify_ok":
         return False
-    if "exit" not in entry:
-        # ponytail: rows written before plan 012 carry no `exit`. Reading them as
-        # unsupported would block an open session on its own history the moment
-        # this rule lands - a false positive on the user, which is worse than the
-        # hole it closes for one release. Tolerated until the ledger turns over;
-        # drop this branch when no live session's first row predates plan 012.
-        return "[exit!=0]" not in str(entry.get("detail") or "")
     if entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
     return "|" not in str(entry.get("detail") or "")
+
+
+def _changed_write(row):
+    """True when this ledger row is a write the gate saw change the tree.
+
+    `capture` recorded the pre-state and the host's result gave the after-state,
+    so a write that landed and one the host accepted and did nothing with are
+    distinguishable. A row with an after-state and no pre-state is a file that
+    did not exist before, which is a change like any other; a row with neither is
+    a write whose target could not be read, and that is left unstated rather than
+    assumed - the same way `partial_state` refuses nothing on a state it could
+    not establish."""
+    if row.get("changed"):
+        return True
+    return "hash" in row and "changed" not in row
+
+
+def _last_change(rows):
+    """The index of the newest write seen to change the tree, or -1."""
+    for i in range(len(rows) - 1, -1, -1):
+        if rows[i].get("kind") == "edit" and _changed_write(rows[i]):
+            return i
+    return -1
+
+
+def _last_pass(rows):
+    """The index of the newest row that is evidence a check passed, or -1."""
+    for i in range(len(rows) - 1, -1, -1):
+        if passing_check(rows[i]):
+            return i
+    return -1
+
+
+def _stale_paths(rows):
+    """The files written after the newest passing check, for the refusal text."""
+    names = []
+    for row in rows[_last_pass(rows) + 1:]:
+        if row.get("kind") == "edit" and _changed_write(row):
+            name = str(row.get("detail") or "").strip()[:80]
+            if name and name not in names:
+                names.append(name)
+    return names
 
 
 def _last_verify(rows):
@@ -1150,7 +1212,8 @@ def stop_reason(text, session_id, edited_hint=None):
     no trace otherwise, and the false-completion rate (counters) needs both the
     refusals and the claims that were allowed through. `detail` carries the
     reason class - `blocked: no verify_ok`, `blocked: check failed`,
-    `blocked: partial failure`, `blocked: placating opener`, or `ok` - so which
+    `blocked: partial failure`, `blocked: stale evidence`, `blocked: placating
+    opener`, or `ok` - so which
     branch refused a turn is readable without parsing the block text. One row
     per reply per turn: an identical row for the same key is skipped."""
     rows = events(session_id)
@@ -1187,7 +1250,8 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
     what the host shows the model.
 
     Blocks only on evidence that is checkable: a placating opener, a completion/
-    verification claim whose newest check did not pass, or a turn that recorded a
+    verification claim whose newest check did not pass, a check that passed
+    before the newest write that changed the tree, or a turn that recorded a
     step and has no passing check - that last half is the evidence-shaped
     trigger, so the same unfounded state stated as a plain description is refused
     too. An explicit 'doğrulanmadı' clears it, so honest uncertainty is always
@@ -1196,7 +1260,10 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
     Branch order is the reason classes' contract: a new branch goes after the
     ones it overlaps, so it cannot swallow their class - the partial-failure
     branch below sits after "the newest check failed" precisely so a turn that
-    ends on a failed check still reads as `check failed`.
+    ends on a failed check still reads as `check failed`, and the stale branch
+    sits before the `no verify_ok` floor because a claim with a check that
+    predates the last write has a different repair than one with no check at
+    all.
 
     `rows` is the ledger the caller already read (`stop_reason` needs it for the
     claim key), so the Stop path reads the file once per turn."""
@@ -1246,8 +1313,26 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
                 "claim \"doğrulanmadı\"."
                 % (_failed_check(rows),
                    "after this turn's edits" if state["edited"] else "in this turn"))
-    if any(passing_check(entry) for entry in rows):
+    # A passing check licenses the claim only when it is newer than the newest
+    # write the gate saw change the tree: a green run over the previous revision
+    # is not evidence about this one, and the ledger already carries both sides
+    # (the check's position, and `changed` on the write). The escape is the
+    # reply's own "doğrulanmadı", which returns above.
+    last_pass, last_change = _last_pass(rows), _last_change(rows)
+    if last_pass > last_change:
         return (None, None)
+    if last_pass >= 0:
+        names = _stale_paths(rows)
+        shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
+                                        if len(names) > 3 else "")
+        return ("stale evidence",
+                "Stale evidence: the newest check that passed ran before %s %s "
+                "written, so it verified an earlier revision of the tree than the "
+                "one this reply is about. Re-run the check over what is on disk "
+                "now and report its output, or mark the claim \"doğrulanmadı\". "
+                "A green run over the previous revision does not cover this one."
+                % (shown or "a file this session wrote",
+                   "was" if len(names) == 1 else "were"))
     if not worked:
         return (None, None)
     return ("no verify_ok",

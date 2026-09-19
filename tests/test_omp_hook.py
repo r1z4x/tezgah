@@ -30,7 +30,11 @@ class OmpHook(TempHome):
 
     def indexed(self, repo):
         """Make the fixture repo's idx mark resolvable: an index db, and a code
-        graph binary, so the probe is not short-circuited and really forks git."""
+        graph binary, so the probe is not short-circuited and really forks git.
+
+        Resolvable is not fresh: no stamp is written and the fixture is not a git
+        repository, so the mark these two tests probe for is the honest "?" - the
+        comparison cannot be made - rather than the old silent fresh."""
         d = os.path.join(self.home, ".cache", "codebase-memory-mcp")
         os.makedirs(d, exist_ok=True)
         open(os.path.join(d, support.slug(repo) + ".db"), "w").close()
@@ -107,7 +111,10 @@ class OmpHook(TempHome):
         probed, _ = self.event({k: v for k, v in payload.items() if k != "idx"},
                                env=env)
         self.assertGreater(self.forks(log) - before, 0)
-        self.assertIn("idx\u2713", probed["status"])
+        # the fixture has an index db and writes no stamp over a directory that is
+        # not a git repo, so the probe's honest answer is "cannot compare": the
+        # point of this half is that it asked at all, not which glyph came back
+        self.assertIn("idx?", probed["status"])
 
     def test_the_turn_boundary_still_probes_the_mark(self):
         # turn_end is where the line is read, so the glyph never stands in for
@@ -120,8 +127,8 @@ class OmpHook(TempHome):
                                 "session_id": "s", "idx": "\u2013"}, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertGreater(self.forks(log) - before, 0)
-        self.assertIn("idx\u2713", out["status"])   # the probe's answer, not "–"
-        self.assertEqual(out["idx"], "\u2713")
+        self.assertIn("idx?", out["status"])   # the probe's answer, not "–"
+        self.assertEqual(out["idx"], "?")
 
     def test_session_start_carries_repo_state_without_the_core(self):
         repo = self.make_repo()

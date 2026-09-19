@@ -8,6 +8,73 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A passing check licensed a claim about a tree it never saw.** The Stop rule's
+  refusal branch was turn-scoped while its pass branch was not, and neither
+  compared a check's position against a write's, so `edit -> verify_ok -> edit`
+  could end "done": the green run was real, and about the previous revision. An
+  earlier turn's check licensed a later turn's edit-only claim the same way. The
+  after-state that refutes both was already on the ledger and read by nothing -
+  `_post_write` records `changed`, and `changed_files` had no caller outside its
+  test - so the fix is a comparison, not a new record: the newest passing check
+  must be newer than the newest write the gate saw change the tree
+  (`_last_pass`/`_last_change`/`stale_paths`, `hooks/tezgah_integrity.py`), and
+  the refusal names the files written after the check
+  (`blocked: stale evidence`). A write that changed nothing does not count, a new
+  file does, and the reply's own "doğrulanmadı" still clears it. Measured before
+  the change on the real function, cells A and B:
+  `.tezgah/research/infra-candidates/experiments/E0-current-stop-rule/`.
+- **The legacy `verify_ok` tolerance is gone from `passing_check`.** Rows written
+  before the ledger carried an `exit` were read as support; the branch's own
+  comment set its removal condition at "no live session's first row predates
+  plan 012", and the corpus now meets it - 464 such rows, in 150 ledgers, none of
+  them written in the last 24 hours, and no current writer can produce one
+  (`failed=False` always writes `exit: 0`).
+- **The `idx` mark reported a fresh graph when it could not compare one.** Both a
+  missing stamp file and a failed `git rev-parse HEAD` fell through to the armed
+  glyph, and `index_notice` stayed silent because the notice only existed for the
+  stale state - so a graph built before the code moved was delivered with the
+  index's authority, and on a host where the worker never writes a stamp the mark
+  was permanently wrong. A fourth state (`idx?`, "cannot compare") says exactly
+  that, the turn gets a line saying the graph's age is unknown, and the legend
+  and the status-line page carry it (`hooks/tezgah_context.py`).
+- **The reminder's standing merge authority was swallowed by its own exception
+  list.** It said to merge a clean-reviewed PR without asking, then listed
+  "anything touching a live production account or external service" among the
+  cases to stop and report instead - and a PR merge is an external-service write.
+  The carve-out that resolves this ("beyond the merge") lived only in the
+  on-demand contract; it is now in the always-on paragraph too, at a cost of 17
+  characters, plus the same clause in the per-turn reminder.
+- **The subagent brief omitted two always-on blocks while asserting the rule set
+  was complete.** It carried neither the on-demand-rules pointer nor any kill
+  switch, so a delegated agent could not learn that spec-first, consult, research
+  routing or graph-first exist, and could not answer "how do I switch this off".
+  Both are in the brief now (2082 -> 3001 characters, inside the subagent budget).
+- **The per-turn lessons digest moved for text the model was never shown.** The
+  digest was taken over the untruncated lesson lines while the injected block
+  truncates each at 200 characters, so a tail-only edit of a long line announced a
+  change the model could not see. One reader now produces both the shown text and
+  the digest, which is what the docstring already claimed.
+- **`rsync` was classified by the wrong end of the command.** `rsync host:/src
+  ./dst` - a read - was refused as a `send`, while `rsync ./dst host:/dst` - the
+  data egress - derived no class at all, and a flag in front of the source
+  defeated the pattern in both directions. The destination decides now
+  (`hooks/tezgah_gate.py`), the opencode mirror agrees on the same nine forms,
+  and the residual (`scp` is still matched by shape) is named on the gate page.
+- **`powershell` could not be gated on any Python host, and `pwsh` was gated
+  nowhere.** The name sat in `BASH_TOOLS`, but no `PreToolUse` matcher carried it,
+  so those hosts recorded PowerShell rows and never refused one, and dsh's own
+  spellings (`PowerShell`, `pwsh`) reached the hook only after the matcher was
+  wired. `pwsh` itself was missing from `BASH_TOOLS` and from the JS mirror, so
+  even a wired matcher let a `--no-verify` command through; both tuples carry it
+  now.
+- **The consent lease answered for command text rather than for an action.** The
+  action digest has no workspace in it, so a grant obtained for one command in one
+  repository answered for the same text in another; the lease is now bound to the
+  workspace the ask recorded. And on Cursor - which reports no exit code for a
+  successful shell call - the spender never fired, so a single approval became a
+  standing permit there, against the documented lease model; an outcome row of any
+  step kind now spends it on every host.
+
 - **opencode's half of the gate had no `send` class, so an outbound send ran
   unasked there.** The JS mirror derives five effect classes and `send` was not
   one of them: `mail`, `sendmail`, `curl -X POST`, a payment API - each refused by
@@ -31,6 +98,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`tezgah-status --counters --all`: the layer's own headline number over every
+  ledger.** `counters` reads one session and writes nothing, so
+  `false_completion / claims` - the ratio the code itself calls the only measure
+  of the layer's effect - could not be read across a day's work. The arithmetic
+  moved into one `_counts(rows)` reader, `counters_all()` folds every ledger
+  through it (1166 ledgers, 17520 events, 0.19 s on this machine: no window and
+  no cap, because a cap would make the total contradict the per-session numbers
+  it claims to be), and the CLI takes `--all` (`--json` prints the dict).
 - **`HANDBOOK.md`: the docs layer as one file.** The ten pages under `docs/`,
   joined in the router's order by `bin/tezgah-docs --bundle`, with their
   cross-references turned into anchors inside the one document and each page's

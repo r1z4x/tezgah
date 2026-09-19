@@ -312,11 +312,15 @@ def task_line(task):
                                           paths))
 
 
-def _lesson_lines(root):
-    """The lesson lines as injected: one per line, markdown bullets stripped.
+# The slice of the ledger that is injected: the last few lines, each cut to one
+# bounded length. Named, because the per-turn digest is taken over exactly this
+# text and a second pair of literals would drift out of step with it.
+LESSON_LINES = 5
+LESSON_CHARS = 200
 
-    One reader for the injected block and for the per-turn stamp, so the digest
-    can only move when the text the model was shown moves."""
+
+def _lesson_lines(root):
+    """The lesson ledger as entries: one per line, markdown bullets stripped."""
     try:
         with open(os.path.join(root, ".tezgah", "lessons.md")) as fh:
             raw = fh.read().splitlines()
@@ -332,21 +336,28 @@ def _lesson_lines(root):
     return out
 
 
+def _lesson_shown(lines):
+    """Those entries as injected: the last LESSON_LINES, each cut to LESSON_CHARS.
+
+    One reader for the injected block and for the per-turn stamp, so the digest
+    can only move when the text the model was shown moves."""
+    return [ln[:LESSON_CHARS] for ln in lines[-LESSON_LINES:]]
+
+
 def lessons(root):
     """The most recent lessons from .tezgah/lessons.md as a context block, or "".
 
     One lesson per line, most recent last. Only the last MAX are injected so the
     block stays bounded no matter how long the ledger grows; blank lines and
     `#` headings are skipped so the file can carry a human header."""
-    max_lines = 5
     lines = _lesson_lines(root)
     if not lines:
         return ""
-    recent = lines[-max_lines:]
+    recent = _lesson_shown(lines)
     more = ("\n(+%d older, see .tezgah/lessons.md)" % (len(lines) - len(recent))
             if len(lines) > len(recent) else "")
     return ("## Lessons from past mistakes in this repo (.tezgah/lessons.md)\n"
-            + "\n".join("- " + ln[:200] for ln in recent) + more + "\n"
+            + "\n".join("- " + ln for ln in recent) + more + "\n"
             "These are standing constraints: check the spec and the change "
             "against each line before you finish.")
 
@@ -368,12 +379,13 @@ def _plan_ids(root):
 
 
 def _lessons_state(root):
-    """(count, digest) over the injected lesson lines; (0, "-") with no ledger."""
+    """(count, digest) over the lesson lines as injected; (0, "-") with no
+    ledger."""
     lines = _lesson_lines(root)
     if not lines:
         return [0, "-"]
     return [len(lines),
-            hashlib.sha1("\n".join(lines).encode()).hexdigest()[:8]]
+            hashlib.sha1("\n".join(_lesson_shown(lines)).encode()).hexdigest()[:8]]
 
 
 def state_stamp(root):
@@ -580,7 +592,14 @@ def subagent_core(core=None):
     not need the long-form rationale the main thread pays for once: each rule
     keeps its bold label and its opening clause, and the full text stays one hop
     away in the `tezgah-contract` skill. The brief is built from CORE_RULES, so
-    it can neither drop a rule nor invent one, and a test asserts exactly that."""
+    it can neither drop a rule nor invent one, and a test asserts exactly that.
+
+    Two always-on blocks are not `CORE_RULES` paragraphs and so cannot come out
+    of that loop: the on-demand-rules pointer and the kill-switch list. Both are
+    carried in the header, because a brief whose header says every rule is in
+    force must not be the one place a delegate cannot learn that spec-first,
+    consult, research routing and the graph exist, or how any rule is switched
+    off."""
     text = core or always_on_core()
     paragraphs = {}
     for block in text.split("\n\n"):
@@ -598,8 +617,12 @@ def subagent_core(core=None):
         if first and not first.endswith((".", ":")):
             first += "."
         short.append("%s %s" % (label, first) if first else label)
+    switches = next((b for b in text.split("\n\n")
+                     if b.startswith("**Kill switches:")), "")
     return ("**Contract.** Full text in the `tezgah-contract` skill; the rules "
             "below are the short form and all of them are in force.\n\n"
+            + POINTERS.strip() + "\n\n"
+            + (switches + "\n\n" if switches else "")
             + "\n".join(short))
 
 
@@ -1022,6 +1045,7 @@ def index_mark(cwd, base):
     """Code-graph readiness for the enclosing repo.
 
     ✓ indexed, ↻ indexed but HEAD moved since the stamp, ✗ not indexed yet,
+    ? the index cannot be compared to HEAD (no stamp, or HEAD unreadable),
     – not applicable (outside a root, codebase-memory-mcp absent, or .no-cbm).
     Remembered per (cwd, base) for the life of the process: the comparison costs
     two git forks, and a long hook process that renders the line twice would pay
@@ -1046,28 +1070,42 @@ def _index_mark(cwd, base):
     slug = index_slug(cwd, base)
     if not slug:
         return "✗"
+    # A comparison that could not be made is not a fresh index. The stamp is
+    # written by the hook process, so on a host that sandboxes hook writes
+    # (dsh) it never exists, and the fallthrough used to call that green.
     try:
-        head = git(repo_root(cwd), "rev-parse", "HEAD")
         with open(os.path.join(cache_dir(), slug)) as fh:
             stamped = fh.read().strip()
-        if head and stamped and stamped != head:
-            return "↻"
     except OSError:
-        pass
-    return "✓"
+        stamped = ""
+    head = git(repo_root(cwd), "rev-parse", "HEAD")
+    if not head or not stamped:
+        return "?"
+    return "↻" if stamped != head else "✓"
 
 
 def index_notice(cwd):
-    """One line when the graph's stamp is behind HEAD, else "".
+    """One line when the graph's stamp is behind HEAD or cannot be compared, else
+    "".
 
     The comparison already existed and ended in a status glyph (`index_mark` ->
     "↻"), which is a surface the model does not read, so the turn that decides
     from the graph was told nothing. Same comparison, moved onto the turn.
     Reuses index_mark: the HEAD fork it guards is already cached for the process,
     so a turn that renders both pays for one. A session start already says this
-    in its own graph line, so this is the mid-session turn's copy."""
+    in its own graph line, so this is the mid-session turn's copy. The "?" mark
+    says less than "↻" but still says something the turn needs: no stamp, or no
+    readable HEAD, means the graph's age is unknown rather than current, and
+    staying silent there is what let an unverifiable index answer with the
+    index's authority."""
     base, _marks = repo_marks(cwd)
-    if not base or index_mark(cwd, base) != "\u21bb":
+    mark = index_mark(cwd, base) if base else ""
+    if mark == "?":
+        return ("Graph index: this session cannot compare the graph to HEAD (no "
+                "readable index stamp), so the graph's age is unknown - it may "
+                "describe code that has moved since. Re-index before trusting a "
+                "graph answer, or say the answer came from text search.")
+    if mark != "\u21bb":
         return ""
     from tezgah_gate import index_slug  # lazy: keep hook import cost minimal
     slug = index_slug(cwd, base)
@@ -1120,7 +1158,7 @@ GLYPHS = {"on": "✓", "ready": "○", "off": "✗", "info": ""}
 COLORS = {"on": "\033[32m", "ready": "\033[33m", "off": "\033[31m", "info": "\033[2m"}
 DIM = "\033[2m"
 RESET = "\033[0m"
-IDX_STATE = {"✓": "on", "↻": "ready", "✗": "off", "–": "info"}
+IDX_STATE = {"✓": "on", "↻": "ready", "✗": "off", "?": "info", "–": "info"}
 LEGEND = """\
 tezgah status marks (state first, glyph after the name; the whole name+glyph is
 colored, and the glyph carries the state on its own where color does not):
@@ -1131,8 +1169,10 @@ colored, and the glyph carries the state on its own where color does not):
                     needs a process per read to observe on codex, cursor and
                     dsh, so those two marks state nothing there instead of
                     claiming the skill was never opened)
-  dim               no state to report: idx n/a, or no blocked plan
-  idx\u2713 indexed   idx\u21bb stale (HEAD moved)   idx\u2717 not indexed   idx\u2013 n/a
+  dim               no state to report: idx n/a or uncomparable, or no blocked
+                    plan
+  idx\u2713 indexed   idx\u21bb stale (HEAD moved)   idx\u2717 not indexed
+  idx? cannot compare (no readable stamp)   idx\u2013 n/a
   plans N (M blk)   open plans under the repo, M of them blocked
 Outside a tezgah root the per-repo extras (idx, plans) are omitted.
 """
@@ -1176,7 +1216,7 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
     have to spawn a process per read to see one. `off` still wins, because a
     kill switch is observable everywhere.
 
-    idx_override: an idx glyph the host already resolved (one of "✓↻✗–"), for a
+    idx_override: an idx glyph the host already resolved (one of "✓↻✗?–"), for a
     redraw that must not fork git for a cosmetic line - omp re-renders on every
     turn_end and tool_result. None probes as before; the other marks stay live."""
     base, marks = repo_marks(cwd)

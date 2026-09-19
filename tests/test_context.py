@@ -850,9 +850,13 @@ class StaleIndexNotice(TempHome):
         self.stamp(self.head())
         self.assertNotIn("Graph index:", self.turn())
 
-    def test_no_stamp_at_all_is_not_a_stale_stamp(self):
+    def test_no_stamp_at_all_is_unknown_rather_than_a_stale_stamp(self):
+        # C10 closed the other half of this: no stamp is not a stale stamp, and
+        # it is not a fresh one either. The turn is told the age is unknown
+        # rather than being told nothing.
         out = self.turn()
-        self.assertNotIn("Graph index:", out)
+        self.assertIn("unknown", out)
+        self.assertNotIn("the index is behind", out)
 
 
 class ActiveTaskLine(TempHome):
@@ -1324,6 +1328,193 @@ class AdhdSwitch(TempHome):
         proc = self.cli("maybe")
         self.assertEqual(proc.returncode, 2)
         self.assertIn("usage: tezgah-adhd", proc.stderr)
+
+
+class IndexMarkUncompared(TempHome):
+    """C10: the `idx` mark may only say fresh when it really compared HEAD to the
+    stamp. Both ways the comparison fails - no stamp file (the sandboxed host
+    whose hook cannot write one) and an unreadable HEAD - used to fall through to
+    the green glyph, and the turn was told nothing, which is the failure the
+    stale-graph notice exists to prevent.
+
+    Its own fixture rather than IndexMark's: a subclass would re-run that class's
+    three cases against the same setup, and this file already sets each fixture
+    up where it is used."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        # a real executable so cbm_bin() is truthy without a real index daemon
+        self.envv = self.env(extra={"TEZGAH_CBM_BIN": sys.executable})
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self.touch(os.path.join(self.repo, "f"))
+        subprocess.run(["git", "-C", self.repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", self.repo, "-c", "user.email=a@b",
+                        "-c", "user.name=t", "commit", "-qm", "x"], check=True)
+        # an index db, so the mark has a reason to compare HEAD at all
+        slug = support.slug(os.path.realpath(self.repo))
+        db_dir = os.path.join(self.home, ".cache", "codebase-memory-mcp")
+        os.makedirs(db_dir, exist_ok=True)
+        open(os.path.join(db_dir, slug + ".db"), "w").close()
+        self.stamp_path = os.path.join(self.home, ".cache", "tezgah", slug)
+
+    def head(self):
+        return subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+
+    def stamp(self, sha):
+        self.touch(self.stamp_path)
+        with open(self.stamp_path, "w") as fh:
+            fh.write(sha)
+
+    def mark(self, env=None):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "health_lines", "cwd": self.repo},
+                             env=env or self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out.rsplit("idx", 1)[1]
+
+    def turn(self):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"session_id": "s",
+                                          "prompt": "add a docstring"}},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_a_db_with_no_stamp_is_not_fresh(self):
+        # the db is there and HEAD is readable, so it looks indexed - but nobody
+        # wrote the stamp, so nothing was compared
+        self.assertEqual(self.mark(), "?")
+
+    def test_an_unreadable_head_is_not_fresh(self):
+        # a stamp exists, but the comparison needs HEAD and git cannot be run
+        self.stamp(self.head())
+        env = self.env(extra={"TEZGAH_CBM_BIN": sys.executable, "PATH": self.home})
+        self.assertEqual(self.mark(env), "?")
+
+    def test_the_turn_says_the_graph_cannot_be_compared(self):
+        # silence was the whole bug: the graph answered with the index's
+        # authority and the turn that decides from it was told nothing
+        out = self.turn()
+        self.assertIn("Graph index:", out)
+        self.assertIn("unknown", out)
+
+
+class MergeCarveOut(unittest.TestCase):
+    """C11: the contract grants standing merge authority, and a PR merge is a
+    write to an external service, so the rule that sends outward-facing actions
+    back for an ask has to carve the merge out. Without the carve-out the
+    exception swallows the authority stated beside it: the same text both grants
+    the merge and demands an ask for it."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        import tezgah_policy as policy  # noqa: E402
+        cls.tc, cls.policy = tc, policy
+
+    @staticmethod
+    def sentence(text, needle):
+        """The sentence carrying `needle`, or "". The claim is made by one
+        sentence, and the paragraph it sits in names other rules too."""
+        return next((s for s in text.replace("\n", " ").split(". ")
+                     if needle in s), "")
+
+    def test_the_always_on_invariant_does_not_ask_for_the_merge(self):
+        carries = self.sentence(self.tc.always_on_core(), "external service")
+        self.assertTrue(carries, "no sentence names an external-service write")
+        self.assertIn("merge", carries)
+
+    def test_the_standing_reminder_does_not_ask_for_the_merge(self):
+        carries = self.sentence(self.policy.REMINDER, "external service")
+        self.assertTrue(carries, "no sentence names an external-service write")
+        self.assertIn("merge", carries)
+
+
+class SubagentBriefHeader(unittest.TestCase):
+    """C12: the brief's own header says every rule below is in force, so the two
+    always-on blocks that are not CORE_RULES paragraphs have to ride with it -
+    the on-demand-rules pointer and the kill-switch list. A delegate that never
+    sees them cannot learn that spec-first, consult, research routing or the
+    graph exist, and cannot tell its caller how a rule is switched off."""
+
+    def setUp(self):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        self.tc = tc
+        self.brief = tc.subagent_core()
+
+    def test_the_on_demand_rules_are_named(self):
+        for needle in ("On-demand rules", "Spec-first", "second opinion",
+                       "OpenResearch", "code graph"):
+            self.assertIn(needle, self.brief)
+
+    def test_every_kill_switch_the_always_on_text_names_is_named(self):
+        paragraphs = [p for p in self.tc.always_on_core().split("\n\n")
+                      if p.startswith("**Kill switches:")]
+        self.assertEqual(1, len(paragraphs), paragraphs)
+        names = re.findall(r"`([^`]+)`", paragraphs[0])
+        self.assertTrue(names, "the kill-switch paragraph names no switch")
+        for name in names:
+            self.assertIn(name, self.brief)
+
+
+class LessonsDigestIsTheShownText(ChildCall):
+    """C13: the digest's one job is "this fact changed", so it may only move when
+    the text the model was shown moves. Each lesson is cut to a bounded line for
+    injection, so an edit past that cut changes nothing the model saw - the
+    digest covered the untruncated lines and fired on one.
+
+    Its own fixture, and the per-turn turn() as the channel that acts, because
+    that is where the wrong "this changed" reaches the model."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self.touch(os.path.join(self.repo, "f"))
+        subprocess.run(["git", "-C", self.repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", self.repo, "-c", "user.email=a@b",
+                        "-c", "user.name=t", "commit", "-qm", "first"], check=True)
+
+    def lesson(self, tail):
+        path = os.path.join(self.repo, ".tezgah", "lessons.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("y" * 260 + tail + "\n")
+
+    def ledger(self):
+        with open(os.path.join(self.repo, ".tezgah", "lessons.md")) as fh:
+            return fh.read().strip()
+
+    def shown(self):
+        """The lesson block as injected, read through the builder that injects
+        it, so "the text the model was shown" is the text compared."""
+        return self.child("import json, tezgah_context as tc\n"
+                          "print(json.dumps(tc.lessons(%r)))\n" % self.repo)
+
+    def turn(self):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"session_id": "s1",
+                                          "prompt": "add a docstring"}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_an_edit_past_the_shown_cut_is_not_a_change(self):
+        self.lesson("A")
+        before, was = self.shown(), self.ledger()
+        self.turn()
+        self.lesson("B")
+        self.assertNotEqual(was, self.ledger())        # the ledger moved
+        self.assertEqual(before, self.shown())         # the shown text did not
+        self.assertNotIn("State since your last turn", self.turn())
 
 
 if __name__ == "__main__":

@@ -79,7 +79,7 @@ def classify(tool, inp):
     return None
 
 
-IDX_GLYPHS = ("\u2713", "\u21bb", "\u2717", "\u2013")
+IDX_GLYPHS = ("\u2713", "\u21bb", "\u2717", "?", "\u2013")
 
 
 def status_line(cwd, session_id, idx=None):

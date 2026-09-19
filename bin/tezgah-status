@@ -8,6 +8,12 @@ their status line; this CLI is how every host (and a human) gets it:
   tezgah-status --color    force ANSI (green in force, yellow on-demand, red off)
   tezgah-status --no-color force plain, or set NO_COLOR
   tezgah-status --json     the structured segments (key/state/glyph/text)
+  tezgah-status --counters [SESSION_ID] [PATH]
+                           this session's ledger aggregate
+  tezgah-status --counters --all
+                           every ledger on this machine in one aggregate, plus
+                           `ledgers`: the false-completion rate over the corpus,
+                           which no single session can answer
   tezgah-status --legend   explain the marks
   tezgah-status --observable=consult,research,cbm,orch
                            the measures this surface can see; a measure outside
@@ -33,7 +39,8 @@ def main():
     args = sys.argv[1:]
     flags = {a for a in args if a.startswith("--")}
     pos = [a for a in args if not a.startswith("--")]
-    known = {"--legend", "--json", "--color", "--no-color", "--counters", "--help"}
+    known = {"--legend", "--json", "--color", "--no-color", "--counters",
+             "--all", "--help"}
     unknown = sorted(f for f in flags
                      if f not in known and not f.startswith("--observable="))
     if unknown:
@@ -46,14 +53,23 @@ def main():
     if "--legend" in flags:
         sys.stdout.write(LEGEND)
         return 0
+    if "--all" in flags and "--counters" not in flags:
+        sys.stderr.write("tezgah-status: --all only means something with "
+                         "--counters\n")
+        return 2
     if "--counters" in flags:
-        session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
         import tezgah_integrity as ti
-        counts = ti.counters(session)
+        if "--all" in flags:
+            counts = ti.counters_all()
+            head = "all %d ledgers" % counts["ledgers"]
+        else:
+            session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
+            counts = ti.counters(session)
+            head = "session %s" % (session or "(none)")
         if "--json" in flags:
             print(json.dumps(counts, sort_keys=True))
             return 0
-        print("session %s: %d events" % (session or "(none)", counts["events"]))
+        print("%s: %d events" % (head, counts["events"]))
         for key in ("steps", "tool_error_rate", "claims", "false_completion",
                     "denies", "nudges", "fanout", "consult", "codegen",
                     "codegen_failed"):
