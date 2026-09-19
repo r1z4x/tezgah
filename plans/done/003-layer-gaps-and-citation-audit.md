@@ -1,7 +1,7 @@
 ---
 id: 003
 title: the layer's recorded gaps, closed or decided - citations first
-status: open
+status: done
 branch: plan/003-layer-gaps-and-citation-audit
 pr:
 created: 2026-09-19
@@ -64,6 +64,17 @@ was re-applied in a single pass after a first attempt carried stale offsets and
 corrupted the pages (recovered from `f2b6527`, and the seven pages restored by
 explicit path so the other workstream's `docs/status-line.md` was untouched).
 
+The 575 citations that name no symbol were then adjudicated page by page: six
+read-only passes (one page each, the sentence as the specification, the cited file
+as the evidence) found 175 pointing at a range that no longer showed what the
+sentence names, and six writers applied them - 224 citation tokens across the ten
+pages, numbers only (184 insertions against 184 deletions), each re-verified by
+reading the target line, and twenty spot-checked independently afterwards with all
+twenty confirmed. `bin/tezgah-docs --citations` was itself wrong about the CLI
+citations - its path pattern required a file extension, so `bin/tezgah-setup`,
+`bin/tezgah-status` and every extension-less command were invisible to it - and
+that is fixed: the judged population went from 243 to 260. Shipped as `86fbdb5`.
+
 Measured 2026-09-19 at HEAD `24936bd`, all unpiped and with the output seen:
 
 - The three checks are green: `compileall` exit 0; `ruff check .` -> "All checks
@@ -103,6 +114,10 @@ Measured 2026-09-19 at HEAD `24936bd`, all unpiped and with the output seen:
   Nothing is pushed.
 
 ## Next
-Resolve the 575 unjudged citations, page by page, from the six read-only passes
-running over them; apply what they confirm and re-run `bin/tezgah-docs --citations`
-until only the genuinely unjudgeable rows are left.
+DONE as of `86fbdb5`. The one open thread, and it belongs to whoever owns the
+concurrent source edits: `bin/tezgah-setup` and `hooks/tezgah_paths.py` were being
+rewritten while this ran (measured +24 and +24 lines against `cdbd61c`), so a
+handful of citations into them are correct for the working tree and not for
+`origin/main`. Re-run `bin/tezgah-docs --citations` once those edits land - it
+names every citation that no longer shows the symbol beside it - and rebase the
+ones it prints before pushing this work.
