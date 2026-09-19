@@ -1413,7 +1413,7 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
                 "now and report its output, or mark the claim \"doğrulanmadı\". "
                 "A green run over the previous revision does not cover this one."
                 % (shown or "a file this session wrote",
-                   "was" if len(names) == 1 else "were"))
+                   "was" if len(names) <= 1 else "were"))
     if not worked:
         return (None, None)
     return ("no verify_ok",
