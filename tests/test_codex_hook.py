@@ -1,4 +1,5 @@
 """hosts/codex/hook.py: SessionStart context, the gate, evidence and Stop."""
+import json
 import os
 import unittest
 
@@ -102,6 +103,43 @@ class CodexEvidence(TempHome):
     def test_non_check_command_records_run(self):
         self.post("exec_command", {"command": "ls -la"}, {"exit_code": 0})
         self.assertEqual(self.kinds(), ["run"])
+
+    def rows(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": self.session},
+                          env=self.envv)
+        return out
+
+    def test_the_row_carries_the_result_size_and_never_the_result(self):
+        # Codex's `tool_response` is the tool's own output - the object carrying
+        # `exit_code` for a shell call, the model-facing text for most other
+        # tools - and it is the only thing on this event the Stop rule's guard
+        # can size. A container is measured by its top-level length, the same
+        # measure the Claude-family writer records, so no result is re-serialized
+        # and none is stored. Without this field the guard read None on every
+        # Codex row and could never refuse the empty-result silent failure it
+        # documents.
+        obj = {"exit_code": 0, "output": "5 passed"}
+        self.post("exec_command", {"command": "pytest -q"}, obj)
+        self.post("exec_command", {"command": "cargo test -q"}, "11 passed")
+        ok, text = self.rows()
+        self.assertEqual((ok["kind"], ok["out_bytes"]), ("verify_ok", len(obj)))
+        self.assertEqual((text["kind"], text["out_bytes"]),
+                         ("verify", len("11 passed")))
+        self.assertNotIn("5 passed", json.dumps(self.rows()))
+
+    def test_a_result_that_never_arrived_leaves_the_field_out(self):
+        # an exit code with no result at all is the host reporting nothing about
+        # what it printed: the field stays absent rather than being written as 0,
+        # which would claim the check returned an empty result.
+        payload = {"hook_event_name": "PostToolUse", "cwd": self.repo,
+                   "session_id": self.session, "tool_name": "exec_command",
+                   "tool_input": {"command": "pytest -q"}}
+        proc = run([support.CODEX_HOOK], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        row = self.rows()[-1]
+        self.assertEqual(row["kind"], "verify")
+        self.assertNotIn("out_bytes", row)
 
 
 class CodexLoopGuardIdentity(TempHome):

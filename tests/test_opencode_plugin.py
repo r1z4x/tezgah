@@ -342,6 +342,26 @@ class OpenCodePlugin(TempHome):
                         'echo "git push --force origin main" >> notes.md'):
             self.allowed(self.before("bash", {"command": command}))
 
+    def test_a_shared_resource_destroyed_at_a_service_is_refused(self):
+        # the four the table was blind to that leave this machine or take a
+        # resource other people share (hooks/tezgah_gate.remote_destroy)
+        for command in ("gh repo delete me/x --yes", "gh repo archive me/x",
+                        "aws s3 rb s3://bucket --force",
+                        "aws s3 rm s3://bucket/prefix --recursive"):
+            error = self.denied(self.before("bash", {"command": command}))
+            self.assertIn("`destructive` effect", error, command)
+        self.assertIn("`schema` effect", self.denied(
+            self.before("bash", {"command": "flyway clean"})))
+
+    def test_a_local_or_narrow_delete_asks_nobody(self):
+        # the same rule as the Python half's: local and recoverable, or narrow
+        # enough that the round-trip costs more than the effect
+        for command in ("git reset --hard HEAD~3", "git tag -d v1",
+                        "docker compose down -v", "chmod -R 000 /etc",
+                        "git push origin main", "aws s3 rm s3://bucket/key.txt",
+                        "gh repo view me/x"):
+            self.allowed(self.before("bash", {"command": command}))
+
     def test_a_repeat_of_an_unapproved_command_is_refused_again(self):
         # The refusal is the ask, not an approval: the gate never writes a grant,
         # so a bare re-issue meets the same refusal and another irreversible
@@ -766,6 +786,38 @@ class OpenCodePlugin(TempHome):
                         'git add -A && git commit -m "fix api_key= handling"'):
             self.allowed(self.before("bash", {"command": command}))
 
+    # ---- the shell's own write route (three write-tool rules, one twin) ----
+    def test_a_heredoc_that_disables_a_test_is_refused(self):
+        # The route E7c measured: with the write tools refused, the armed arm
+        # wrote the target with a heredoc redirect. The tool rule never saw it -
+        # WRITE_TOOLS and BASH_TOOLS are disjoint - so the body a shell write
+        # would land is read instead, on this half too.
+        error = self.denied(self.before("bash", {"command":
+            "cat > tests/test_api.py <<'EOF'\nimport pytest\n" + SKIP_MARK
+            + "\ndef test_x(): pass\nEOF"}))
+        self.assertIn("Test disable denied", error)
+
+    def test_a_heredoc_that_lands_a_credit_is_refused(self):
+        error = self.denied(self.before("bash", {"command":
+            "cat >> CHANGELOG.md <<'EOF'\nCo-Authored-By: Claude "
+            "<noreply@anthropic.com>\nEOF"}))
+        self.assertIn("Attribution is banned", error)
+
+    def test_a_heredoc_that_writes_a_credential_is_refused(self):
+        # maskText blanks heredoc bodies, so the text-level scan cannot see a key
+        # that sits in one; the body is what the rule reads
+        error = self.denied(self.before("bash", {"command":
+            "cat > .env <<'EOF'\nOPENROUTER_API_KEY=sk-live-abc123\nEOF"}))
+        self.assertIn("Credential write denied", error)
+
+    def test_the_shell_route_keeps_the_tool_rule_s_own_gates(self):
+        # a marker outside a test file disables nothing, and a quoted `>` is not
+        # a redirect (the shape test runs on the masked text)
+        self.allowed(self.before("bash", {"command":
+            "cat > NOTES.md <<'EOF'\nwe added " + SKIP_MARK + " to x\nEOF"}))
+        self.allowed(self.before("bash", {"command":
+            "echo '" + SKIP_MARK + " is what the rule bans' > notes.txt"}))
+
     # ---- repeat ceilings: loop per turn, retry per session -----------------
     def test_a_third_identical_failure_is_refused(self):
         for _ in range(2):
@@ -830,6 +882,43 @@ class OpenCodePlugin(TempHome):
         for _ in range(3):
             self.after("bash", {"command": "pytest -q"}, exit=1)
         self.allowed(self.before("bash", {"command": "pytest -q"}))
+
+    # ---- ordering: a commit while the newest check failed ------------------
+    def test_a_commit_is_refused_while_the_newest_check_failed(self):
+        # the one relation between two actions this half asserts: a commit is a
+        # claim that the tree passed, and the newest check said it did not
+        self.after("bash", {"command": "pytest -q"}, exit=1)
+        error = self.denied(self.before("bash", {"command": "git commit -m x"}))
+        self.assertIn("Commit order denied", error)
+        self.assertIn("pytest -q", error)
+        self.assertEqual(self.ledger()[-1]["detail"][:7], "order: ")
+
+    def test_a_commit_passes_when_no_check_ran(self):
+        # how the rule avoids punishing a docs-only commit: no check folds to
+        # null, and null is not "fail"
+        self.allowed(self.before("bash", {"command": "git commit -m docs"}))
+
+    def test_a_commit_passes_after_the_newest_check_passed(self):
+        self.after("bash", {"command": "pytest -q"}, exit=1)
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        self.allowed(self.before("bash", {"command": "git commit -m x"}))
+
+    def test_the_ordering_refusal_names_no_command_that_lifts_it(self):
+        # a refusal is a boundary or it is an instruction: E7 measured what
+        # printing the unlock costs (25 of 25 armed runs removed or disabled the
+        # gate and obeyed it in none)
+        self.after("bash", {"command": "pytest -q"}, exit=1)
+        error = self.denied(self.before("bash", {"command":
+                                                 "git commit --amend --no-edit"}))
+        for unlock in ("tezgah-consent", "--no-verify", "verify-off",
+                       "tezgah-task"):
+            self.assertNotIn(unlock, error)
+
+    def test_the_ordering_rule_rides_verify_off(self):
+        # it rides the integrity rule's own switch rather than adding one
+        self.after("bash", {"command": "pytest -q"}, exit=1)
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.allowed(self.before("bash", {"command": "git commit -m x"}))
 
     # ---- evidence ledger ---------------------------------------------------
     def after(self, tool, args, exit=None, session="s1", directory=None,

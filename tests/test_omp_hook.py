@@ -215,6 +215,27 @@ class OmpHook(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(out["deny"])
 
+    def test_the_row_carries_the_result_size_and_never_the_body(self):
+        # the bridge sends a size, never the result: the writer's rule is that the
+        # ledger records that a call returned something, not what it returned
+        repo = self.make_repo()
+        self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",
+                    "tool": "bash", "input": {"command": "pytest -q"},
+                    "failed": False, "result_len": 41})
+        row = [r for r in self.evidence() if r.get("kind") == "verify_ok"][-1]
+        self.assertEqual(row["out_bytes"], 41)
+        self.assertNotIn("stdout", json.dumps(row))
+
+    def test_a_result_the_bridge_could_not_size_leaves_the_field_out(self):
+        # absent is not zero: a size nobody measured must not be recorded as the
+        # empty result the Stop rule refuses
+        repo = self.make_repo()
+        self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",
+                    "tool": "bash", "input": {"command": "pytest -q"},
+                    "failed": False})
+        row = [r for r in self.evidence() if r.get("kind") == "verify_ok"][-1]
+        self.assertNotIn("out_bytes", row)
+
     def test_post_tool_use_records_evidence_and_marks_the_used_kind(self):
         repo = self.make_repo()
         self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",

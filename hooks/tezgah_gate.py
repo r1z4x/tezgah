@@ -67,15 +67,36 @@ Rules, all only inside a tezgah root:
      25 writing the target through `eval` after the write tools and the shell
      were both refused, and that one is named rather than closed. The `task-off`
      kill switch removes all four.
+ 11. a `git commit` (or `--amend`) is refused while the newest check recorded in
+     this session failed (`order`): a commit is a claim that the tree passed, and
+     the state it would freeze is the one a check just rejected. The state is the
+     Stop rule's own fold over the ledger tail, so no check at all and a passing
+     newest check both pass - a docs-only commit is not this rule's - and the
+     refusal names the failed check and no command, because what lifts it is
+     making the newest check green. It rides the `verify-off` switch.
+     The three rules that read the text a write tool would land - the shell half
+     of the shortcut rule, of the attribution rule above and of the credential
+     rule below - read the body a heredoc writes as well (shell_write_body). The
+     write tools and the shell are disjoint sets, so that route was refused by
+     nothing, and it is the one E7c measured an armed session taking.
 Adapters translate the returned reason into their own permission envelope.
 """
 import os
 import re
 
-from tezgah_integrity import (BASH_TOOLS, STEP_KINDS, WRITE_TOOLS, _turn_start,
-                              call_id, events, mask, note, prior_calls,
+from tezgah_integrity import (BASH_TOOLS, HEREDOC, STEP_KINDS, WRITE_TOOLS,
+                              _turn_start, call_id, events, events_path,
+                              ledgers, mask, note, prior_calls,
                               shortcut_command, shortcut_edit)
 from tezgah_paths import cache_dir, off, root_for
+
+try:  # The ordering rule's two readers: the newest check's state, folded the way
+    # the Stop rule folds it, and the command of that check for the refusal.
+    # Newer than some checkouts, and a missing name costs the rule, never the
+    # session - this import runs on every gated call.
+    from tezgah_integrity import _failed_check, _last_verify
+except ImportError:  # pragma: no cover - only on an integrity module without them
+    _failed_check, _last_verify = None, None
 
 try:  # The race rule reads the write history through tezgah_integrity; that
     # reader is newer than some checkouts of the module, and a missing name must
@@ -169,6 +190,21 @@ BRANCH_DELETE = re.compile(
     r"(?:branch\s+(?:-[A-Za-z]*[dD]\b|--delete\b)|"
     r"push\b[^|;&]*(?:--delete\b|-d\b))",
     re.I)
+# The destructive effect that lands on a shared resource at a service instead of
+# on this machine: the remote repository `gh repo delete|archive` closes for
+# everyone, the bucket `aws s3 rb` removes and the prefix `aws s3 rm --recursive`
+# empties. It is read as `destructive` beside the branch delete and not as a
+# `send` - nothing of this workspace's is carried out to a service that acts on
+# it; something both parties owned stops existing. `aws s3 rm` without
+# `--recursive` is the shape of `rm` on one file, which this table leaves alone.
+# The flag is read off the raw text (see remote_destroy): mask() blanks a `//`
+# tail as a comment, so `s3://bucket --recursive` loses it to the masker, the same
+# ceiling `rsync://` has below.
+REMOTE_DESTROY = re.compile(
+    r"(?:^|[|;&]\s*|\s)(?:gh\s+repo\s+(?:delete|archive)\b|aws\s+s3\s+rb\b)",
+    re.I)
+AWS_S3_RM = re.compile(r"(?:^|[|;&]\s*|\s)aws\s+s3\s+rm\b", re.I)
+AWS_RECURSIVE = re.compile(r"--recursive\b")
 # A recursive force-delete: both flags have to be there (`rm -f` and `rm -r` on
 # their own are not this rule's), and the targets come from the raw text so a
 # quoted path still resolves - the `rm` itself is matched on the masked text, so
@@ -185,12 +221,15 @@ RM_FORCE = re.compile(r"-[A-Za-z]*f[A-Za-z]*\b|--force\b")
 # it per user, and /tmp is the shared fallback.
 SCRATCH_ROOTS = tuple({os.path.realpath(os.environ.get("TMPDIR") or "/tmp"),
                        os.path.realpath("/tmp")})
-# Applying a migration, by the runners that name it. ponytail: a hand-written
-# `psql -c "ALTER TABLE ..."` is not caught - reading SQL intent is not a regex.
+# Applying a migration, by the runners that name it. `clean` is here with the
+# upgrade/down words because `flyway clean` drops every object in the configured
+# schemas - the same class, reached by the runner's own verb rather than by a
+# downgrade. ponytail: a hand-written `psql -c "ALTER TABLE ..."` is not caught -
+# reading SQL intent is not a regex.
 MIGRATION = re.compile(
     r"(?:^|[|;&]\s*|\s)(?:"
     r"(?:alembic|flyway|goose|dbmate|sqitch)\s+"
-    r"(?:upgrade|up|migrate|deploy|down|downgrade|rollback|reset|redo)\b|"
+    r"(?:upgrade|up|migrate|deploy|down|downgrade|rollback|reset|redo|clean)\b|"
     r"(?:knex|prisma|sequelize|typeorm)\s+\S*migrat\S*|"
     r"(?:django-admin|manage\.py)\s+migrate\b|"
     r"python\d?\s+-m\s+django\s+migrate\b|"
@@ -293,8 +332,9 @@ SEGMENT = re.compile(r"\|\||&&|[;&\n]")
 EFFECTS = {
     "send": "this one carries data out to a service that acts on it - mail, a "
             "payment, a remote API called with a write, a copy to another host",
-    "destructive": "this one rewrites or drops history, a branch or files "
-                   "outside the run directory",
+    "destructive": "this one rewrites or drops history, a branch, files "
+                   "outside the run directory, or a repository or bucket other "
+                   "people share",
     "schema": "this one changes the shape of a database",
     "deploy": "this one puts code in front of users",
     "publish": "this one ships an artifact to a registry or a release",
@@ -656,6 +696,24 @@ def rm_outside(masked, raw, cwd, base, scratch_ok=True):
     return False
 
 
+def remote_destroy(masked, raw):
+    """True when this line destroys a shared resource at a service: the remote
+    repository `gh repo delete|archive`, the bucket `aws s3 rb`, or the prefix
+    `aws s3 rm --recursive`.
+
+    The command is found on the masked text - a message that names it destroys
+    nothing - while the `--recursive` flag is read from the raw text at the same
+    offset, because mask() blanks a `//` comment tail and takes the flag with it
+    (the ceiling `rsync://` carries too). The flag has to sit in the same simple
+    command: `aws s3 rm one/key && rm -rf two --recursive` is not this rule."""
+    if REMOTE_DESTROY.search(masked):
+        return True
+    for m in AWS_S3_RM.finditer(masked):
+        if AWS_RECURSIVE.search(SEGMENT.split(raw[m.start():], 1)[0]):
+            return True
+    return False
+
+
 def effect_class(command, cwd, base, scratch_ok=True):
     """The effect class of an irreversible or outward-facing command, or None.
 
@@ -686,8 +744,8 @@ def effect_class(command, cwd, base, scratch_ok=True):
         seg = m.group(1)
         if FORCE_FLAG.search(seg) and not SCRATCH.search(seg):
             return "destructive"
-    if BRANCH_DELETE.search(masked) or rm_outside(masked, c, cwd, base,
-                                                  scratch_ok):
+    if (BRANCH_DELETE.search(masked) or remote_destroy(masked, c)
+            or rm_outside(masked, c, cwd, base, scratch_ok)):
         return "destructive"
     if MIGRATION.search(masked):
         return "schema"
@@ -1083,6 +1141,125 @@ def task_reason(inp, cwd, base):
     return None
 
 
+# --- the shell's write body: three write-tool rules reached through a heredoc -
+# What this closes (the route E7c measured): SKIP_TEST, ATTRIB_LINE and the
+# credential scan are attached to WRITE_TOOLS, which is disjoint from BASH_TOOLS,
+# so a heredoc that wrote a test skip, an attribution line or a key into a file
+# was refused by nothing - and E7c watched the armed arm take exactly that route
+# once the write tools were refused (3 of 25 runs wrote the target with `cat >
+# app/api.py <<'EOF'`). Each of the three now also reads the body a shell command
+# writes, and the body is the RAW text because mask() blanks heredoc bodies by
+# design: a command that merely names a rule must not be denied.
+#
+# The shape test is the task rule's own SHELL_WRITE, read off the masked text, so
+# a quoted `>` is not a redirect; the bodies come from the raw text under it, one
+# per marker, with an unterminated heredoc skipped the way tezgah_integrity's own
+# blanker skips it (the ceiling the two share).
+# ponytail: only a heredoc's body is read. A write whose content is a quoted
+# argument (`echo "Co-Authored-By: x" > f`) is not, and cannot be: the credit
+# there sits inside a string no line-start anchor can see, while widening this to
+# the whole command text would deny a search for the form (`grep "Co-Authored-By"
+# x > out`). The measured route is the heredoc, and that route is closed.
+SHELL_TARGET = re.compile(r">>?(?![&=])\s*(\S+)|(?<![\w-])tee\s+(?:-\S+\s+)*(\S+)")
+
+
+def _heredoc_bodies(text):
+    """Every heredoc body in `text`, in order, read off the raw text."""
+    lines = str(text or "").split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        m = HEREDOC.search(lines[i])
+        if not m:
+            i += 1
+            continue
+        tag = m.group(1)
+        j = i + 1
+        while j < len(lines) and lines[j].strip() != tag:
+            j += 1
+        if j == len(lines):  # unterminated: nothing was written by it
+            i += 1
+            continue
+        out.append("\n".join(lines[i + 1:j]))
+        i = j + 1
+    return out
+
+
+def shell_write_body(command, cwd=None):
+    """The `{file_path, content}` a shell command writes into a file, or None when
+    this command writes no file's content of its own.
+
+    The shape test is SHELL_WRITE on the masked text, so a quoted `>` is not a
+    redirect; the path is that real redirect's target, or `tee`'s argument, sliced
+    from the raw text at the offset the masked match proved (masking keeps
+    length), and resolved against the call's own directory - so a write to a test
+    file is compared against the file the call named and not against whichever one
+    the hook process happens to sit in."""
+    c = str(command or "")
+    if not c or not SHELL_WRITE.search(mask(c)):
+        return None
+    bodies = _heredoc_bodies(c)
+    if not bodies:
+        return None
+    masked = mask(c)
+    m = SHELL_TARGET.search(masked)
+    path = ""
+    if m:
+        start, end = m.span(1) if m.group(1) else m.span(2)
+        path = c[start:end].strip("'\"")
+    if path and not os.path.isabs(path):
+        path = os.path.join(cwd or os.getcwd(), path)
+    return {"file_path": path, "content": "\n".join(bodies)}
+
+
+# --- ordering: a commit while the newest check failed -----------------------
+# The one rule here that asserts a relation between two actions rather than
+# reading one call plus a ledger tail - the shape FAVA found in 90% of real
+# agent-instruction projects ("do not commit before running the tests") and the
+# one this gate did not carry (C9). It is the contract's own claim - nothing is
+# reported done unless the output was seen - given a mechanical half at the one
+# moment a claim is written into the repository's history.
+#
+# The reader is the Stop rule's own fold over the tail (`_last_verify` on the
+# last ORDER_TAIL rows), and the rule is structurally incapable of firing in
+# either direction that would punish honest work: no check at all folds to None
+# and a passing newest check folds to "ok", so a commit in a session that ran no
+# check, and a commit after a green run, both pass. Only "fail" refuses - the
+# newest check in this session rejected the tree the commit would freeze - and
+# the refusal names that check. What lifts it is making the newest check pass
+# (fix what it reported and run it again), so the reason names no command, the
+# way the task refusals do not: a refusal is a boundary or it is an instruction.
+# ponytail: the state is session-wide, not turn-scoped, so a probe the user asked
+# to fail and a check that failed before this turn's prompt both count; the
+# repair is the same either way, and a turn-scoped reader would let a commit
+# through on a tree the failed check still describes.
+ORDER_TAIL = 200
+COMMIT_CMD = re.compile(
+    r"(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*commit(?=\s|$|[|;&])")
+ORDER_DENY = (
+    "Commit order denied: the newest check in this session failed, and a commit "
+    "is a claim that the tree passed. What would be frozen is the state that "
+    "check just rejected - the newest failing one was %s - so fix what it "
+    "reported and run it again, commit once the newest check is green, or say "
+    "plainly that it is failing and why the commit is wanted anyway.")
+
+
+def commit_order_reason(command, session_id):
+    """A deny reason when this session's newest check failed and this command is
+    a commit, else None.
+
+    Not a rule about commits: with no check in the tail the fold is None and
+    nothing is refused, which is what keeps an ordinary commit in a session that
+    ran nothing - a docs edit, a message-only change - out of it."""
+    if not (session_id and _last_verify):
+        return None
+    if not COMMIT_CMD.search(mask(str(command or ""))):
+        return None
+    rows = events(session_id, tail=ORDER_TAIL)
+    if _last_verify(rows) != "fail":
+        return None
+    return ORDER_DENY % _failed_check(rows)
+
+
 # --- constraint drift: a long turn loses the rules it started with ----------
 # The re-statement that keeps the rules alive rides the user prompt
 # (tezgah_context.context_for writes PROMPT_REMINDER on every turn), so the
@@ -1204,6 +1381,11 @@ def decision(tool, inp, cwd, session_id=None):
         return None
     t = str(tool or "").lower()
     sub = inp.get("subagent_type") or (inp.get("args") or {}).get("subagent_type")
+    # The body a shell call writes, read once: the three write-tool-only rules
+    # below reach it through the shell (see the section above). None for every
+    # tool that is not a shell, and for a shell line that writes no body.
+    shell_body = (shell_write_body(inp.get("command"), cwd)
+                  if t in BASH_TOOLS else None)
     if t in ("agent", "task", "subagent") and explored(sub):
         return _deny(session_id, "explorer", EXPLORE_DENY, tool, inp, base)
     # anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
@@ -1212,17 +1394,24 @@ def decision(tool, inp, cwd, session_id=None):
     # hosts/codex/hook.py, hosts/cursor/hook.py and hosts/omp/hook.py. `verify-off`
     # removes that rule, so it drops this half too; `pretooluse-off` above still
     # drops the whole gate, and attribution/explore are other rules and stay
-    # armed.
+    # armed. The shell half of the write rule reads the body a heredoc writes,
+    # which is the route E7c measured once the write tools were refused.
     if not off("verify-off"):
         if t in BASH_TOOLS:
             reason = shortcut_command(inp.get("command"))
             if reason:
                 return _deny(session_id, "shortcut", reason, tool, inp, base)
+            if shell_body:
+                reason = shortcut_edit(shell_body)
+                if reason:
+                    return _deny(session_id, "shortcut", reason, tool, inp, base)
         if t in WRITE_TOOLS:
             reason = shortcut_edit(inp)
             if reason:
                 return _deny(session_id, "shortcut", reason, tool, inp, base)
     if t in BASH_TOOLS and attribution(inp.get("command")):
+        return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
+    if shell_body and attribution_edit(shell_body):
         return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
     if t in WRITE_TOOLS and attribution_edit(inp):
         return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
@@ -1325,10 +1514,23 @@ def decision(tool, inp, cwd, session_id=None):
                              tool, inp, base, extra=extra)
         # A credential on its way into a file. No escape hatch: the deny text
         # names the rephrase (a name, a length, a fingerprint), so the write can
-        # be replaced rather than repeated.
+        # be replaced rather than repeated. The body a heredoc writes is read
+        # here too: mask() blanks it, so the text-level scan above cannot see a
+        # key that sits in it.
         reason = secret_command(inp.get("command"))
         if reason:
             return _deny(session_id, "secret", reason, tool, inp, base)
+        if shell_body and SECRET_TOKEN.search(shell_body["content"]):
+            return _deny(session_id, "secret", SECRET_DENY, tool, inp, base)
+    # Ordering: a commit asserted over a check that just failed (see
+    # commit_order_reason). An argument-shaped rule, so it sits with them and
+    # above the repeat guards; it rides `verify-off`, the switch that governs the
+    # rest of the integrity rule, because this is that rule's claim read at the
+    # one moment it lands in the repository's history.
+    if not off("verify-off") and t in BASH_TOOLS:
+        reason = commit_order_reason(inp.get("command"), session_id)
+        if reason:
+            return _deny(session_id, "order", reason, tool, inp, base)
     # Repeat guards, under the same kill switch as the other integrity denials
     # and after every argument-shaped rule: a call another rule would have
     # refused has to be counted as that rule, not as a repeat. `loop` is the
@@ -1371,3 +1573,67 @@ def decision(tool, inp, cwd, session_id=None):
         except Exception:
             pass
     return None
+
+
+# --- the gate's own blind spot, mined from the ledger -----------------------
+# Nothing read "allowed + effectful + derived no class" out of the ledger, so the
+# class table above could only grow from a hand-built adversarial set - and the
+# last hole it had (`gh pr merge`, commit cf6b908) was found that way (C15). The
+# raw material is on the ledger already: a shell row that ran keeps the command as
+# its `detail`. This is a READER - no new row shape, nothing written back, no
+# cache - and it asks TODAY's `effect_class`, never the class the row was judged
+# under, so the answer moves when the table moves. Growing the table is then a
+# look at real traffic instead of a guess about it.
+#
+# The step kinds a shell call records: `run` for a command, the three verify kinds
+# for a check. `classify` gives no other tool these, so the kind alone is what
+# makes the row a shell call - the "effectful" half of the miner - and the file
+# readers never enter it.
+SHELL_KINDS = tuple(k for k in STEP_KINDS if k != "edit")
+# How many programs the CLI lists before it says how many it left: 166 programs
+# on the corpus this was written against, and the interesting ones are the
+# service-shaped names (`gh`, `aws`, `curl`, `docker`) rather than the tail.
+UNCLASSIFIED_CAP = 40
+
+
+def unclassified_effects(session_id=None, program=None):
+    """What the class table does not see, read off the ledger: every shell call
+    that ran (`SHELL_KINDS`), was never refused (no `deny` row carries its id) and
+    whose command text `effect_class` derives nothing from.
+
+    `session_id` folds one ledger; None folds every ledger on this machine, which
+    is the corpus question and the one worth asking - a single session cannot
+    answer "which shapes does the table miss". `program` keeps only the commands
+    whose first token is it (`gh`, `curl`, ...): that token, not the nine thousand
+    whole commands, is what the table is grown from. The returned `programs`
+    ranking is the unfiltered one either way, so a filtered run still says where
+    its program sits.
+
+    The class is asked with the row's own recorded workspace as the run directory,
+    so an `rm` is judged where it ran rather than where this scan runs. ponytail:
+    the read is `detail`-shaped, so a command the writer cut at DETAIL_MAX is read
+    as the part it kept, and a row with no `id` (a writer older than the field)
+    counts as never refused, which is the honest reading of a row that cannot be
+    matched to a refusal."""
+    files = [None] if session_id else ledgers()
+    programs, commands, rows = {}, {}, 0
+    for path in files:
+        ledger = events(session_id) if path is None else events_path(path)
+        denied = {row.get("id") for row in ledger if row.get("kind") == "deny"}
+        for row in ledger:
+            if row.get("kind") not in SHELL_KINDS:
+                continue
+            if row.get("id") and row.get("id") in denied:
+                continue
+            command = str(row.get("detail") or "")
+            where = row.get("workspace") or os.getcwd()
+            if effect_class(command, where, where) is not None:
+                continue
+            name = os.path.basename(command.split()[0]) if command.split() else ""
+            programs[name] = programs.get(name, 0) + 1
+            if program and name != program:
+                continue
+            rows += 1
+            commands[command] = commands.get(command, 0) + 1
+    return {"ledgers": len(files), "rows": rows, "distinct": len(commands),
+            "programs": programs, "commands": commands, "program": program}

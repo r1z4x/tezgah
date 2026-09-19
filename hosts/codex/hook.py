@@ -104,6 +104,24 @@ def verify_outcome(payload):
     return None
 
 
+def result_size(result):
+    """The size of the result this event reported, or None when it carries none.
+
+    A size, never the body: the ledger records that a call returned something,
+    never what it returned, and the one reader asks only whether it is non-zero.
+    The measure is the Claude-family writer's (`hooks/projects-posttooluse.py`):
+    a container is measured by its top-level length - O(1), no re-serialization -
+    so the Bash answer, the object carrying `exit_code`, reports its field count.
+    Codex's hook reference names `tool_response` the tool's "model-facing output"
+    (`tool_response: true` in its own schema), so a value with no length is
+    recorded as a non-empty result, exactly as the writer records one, and only a
+    missing result leaves the field out - an absent field is never written as 0."""
+    if isinstance(result, (str, bytes, bytearray, list, tuple, dict, set,
+                           frozenset)):
+        return len(result)
+    return 1 if result is not None else None
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -136,7 +154,8 @@ def main():
                           if root_for(cwd) else (None, None))
         # the same name the PreToolUse gate saw: one call has to hash to one id
         note_tool(session_id, tool, inp,
-                  failed=verify_outcome(payload), source=source)
+                  failed=verify_outcome(payload), source=source,
+                  out_bytes=result_size(payload.get("tool_response")))
         if notice:
             # Codex's PostToolUse output carries `additionalContext` with the
             # result - the field is part of its own hook output schema

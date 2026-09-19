@@ -29,6 +29,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   plan 012", and the corpus now meets it - 464 such rows, in 150 ledgers, none of
   them written in the last 24 hours, and no current writer can produce one
   (`failed=False` always writes `exit: 0`).
+- **The gate's effect table missed five remote-destructive actions, and three
+  rules had no shell twin.** `gh repo delete`, `gh repo archive`, `aws s3 rb`,
+  `aws s3 rm --recursive` and `flyway clean` derived no class, so the consent rule
+  never asked about them; they do now (the `--recursive` flag is read from the raw
+  text, because `mask()` blanks the tail of an `s3://` argument - named as the
+  ceiling it is). Separately, `SKIP_TEST`, the attribution line and the secret scan
+  were attached to `WRITE_TOOLS`, which is disjoint from `BASH_TOOLS`, so a
+  heredoc writing a test skip, a `Co-Authored-By:` line or a credential into a
+  file was refused by nothing - the route the E7c block measured as the one an
+  agent takes once the write tools are refused. All three now read a shell write's
+  body through the same shape test the task rule uses, so a quoted `>` is still
+  not a redirect. The local-only actions (`git reset --hard`, `git tag -d`,
+  `docker compose down -v`, `chmod -R 000`, a plain `git push origin main`) were
+  deliberately left asking nothing, because a consent ask costs a round-trip and
+  those are routine; they are listed for the maintainer's call.
+- **The `out_bytes` guard was inert; a result size now reaches it from three more
+  hosts.** `passing_check` refuses a check whose result was empty, and measured on
+  2026-09-19 **0 of 1224 `verify_ok` rows across 1162 ledgers carried the field** -
+  the guard had never rejected one. The codex, cursor and omp adapters now measure
+  the result their own payload carries (a size, never the body, in O(1) and never
+  a re-serialization) and write it. **This is a behaviour change, not only a
+  repair**: a check whose host-reported result is empty - `grep -q`, `test -f` -
+  no longer counts as support for a "done" claim on those hosts; run a check that
+  prints something, or mark the claim "doğrulanmadı".
 - **The `idx` mark reported a fresh graph when it could not compare one.** Both a
   missing stamp file and a failed `git rev-parse HEAD` fell through to the armed
   glyph, and `index_notice` stayed silent because the notice only existed for the
@@ -98,6 +122,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`order`: the first rule that asserts an ordering between two actions.** Every
+  other rule in `decision` reads one call plus a ledger tail; none of them says
+  that one action must not follow another. The field's own measurements put
+  sequence-dependent constraints at 90% of real instruction files, so the gate now
+  has a rule kind for them, with exactly one obligation in it: a `git commit` or
+  `git commit --amend` is refused while the newest check in the session failed.
+  It cannot fire when no check ran or when the newest check passed - a docs-only
+  commit is untouched - and it rides the existing `verify-off` switch, so no new
+  switch and no new always-on text. The measurement is pre-registered in
+  `.tezgah/research/infra-candidates/experiments/E3-commit-on-red/protocol.md`.
+- **`tezgah-status --unclassified`: the gate's own blind spot, read from real
+  traffic.** Nothing extracted "allowed + effectful + derived no class" from the
+  ledger, so the pattern table could only grow by hand. On this machine's 1195
+  ledgers it reports 10,294 such shell calls (9,268 distinct) and, in its first
+  run, named two effects that no pattern covers and no one had listed: `gh run
+  delete` / `gh cache delete` (a delete at a service) and `ssh host cmd` (data
+  egress, which `SEND` covers for `scp` but not for `ssh`). `--unclassified
+  <PROGRAM>` narrows it; `--json` prints the dict.
 - **`tezgah-status --counters --all`: the layer's own headline number over every
   ledger.** `counters` reads one session and writes nothing, so
   `false_completion / claims` - the ratio the code itself calls the only measure

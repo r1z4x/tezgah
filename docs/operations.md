@@ -101,7 +101,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 - `--refresh` does that for opencode alone, without a reinstall: opencode has no
   session-start hook, so its plugin calls it once per session when the stored
   hash no longer matches the source
-  (`hosts/opencode/plugins/tezgah.js:1525-1528`).
+  (`hosts/opencode/plugins/tezgah.js:1750-1754`).
 - `--sync` copies the checkout over the Claude plugin copy, because Claude Code
   runs `~/.claude/plugins/cache/<owner>/tezgah/<version>/` and never this
   checkout (`bin/tezgah-setup:1976-1987`, `bin/tezgah-setup:2033-2043`); `--install` refreshes a stale copy itself

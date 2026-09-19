@@ -242,9 +242,17 @@ export default function tezgahOmp(pi: any): void {
     // Tri-state: an unread outcome must never be written as a passed check,
     // because the Stop rule below reads this ledger as evidence.
     const failed = typeof event?.isError === "boolean" ? event.isError : null;
+    // The evidence row asks one question about the result - is it non-zero - so
+    // the bridge sends a size and never the body: `ask()` serializes its payload
+    // onto the hook's stdin, which is exactly the copy the writer's rule bans. A
+    // string is its own length, a part list is its count, and anything else is
+    // left unstated rather than guessed - an absent field is not a field of 0.
+    const content = event?.content;
+    const resultLen = typeof content === "string" ? content.length
+      : Array.isArray(content) ? content.length : undefined;
     const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
                       input: event?.input ?? {}, failed, idx: idxGlyph,
-                      session_id: sessionOf(ctx) });
+                      session_id: sessionOf(ctx), result_len: resultLen });
     if (hookError) return markBroken(ctx);
     show(ctx, res);
     // A result that came from outside the user and the workspace is labelled in

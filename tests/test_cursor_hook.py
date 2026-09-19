@@ -303,6 +303,63 @@ class CursorProvenance(TempHome):
                          cwd=self.home), "")
 
 
+class CursorEvidence(TempHome):
+    """The ledger the Stop rule reads on Cursor. Both events that carry the
+    tool's own result - `postToolUse` with `tool_output`, `afterShellExecution`
+    with the terminal `output` - hand this adapter a string, so the row keeps the
+    result's size and never the result."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.conv = "c-evidence"
+
+    def call(self, tool, inp, event="postToolUse", **extra):
+        payload = {"hook_event_name": event, "cwd": self.repo,
+                   "conversation_id": self.conv, "tool_name": tool,
+                   "tool_input": inp}
+        payload.update(extra)
+        out, proc = run_json([support.CURSOR_HOOK], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out or {}
+
+    def rows(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": self.conv},
+                          env=self.envv)
+        return out
+
+    def test_the_row_carries_the_result_size_and_never_the_result(self):
+        # Cursor documents `tool_output` as the "JSON-stringified result payload
+        # from the tool" and `output` as the full terminal output, so the size is
+        # a length - O(1), no re-serialization - and the result itself is never
+        # stored. Without this field the Stop rule's out_bytes guard read None on
+        # every Cursor row and could never refuse the empty-result silent failure
+        # it documents; a row for an empty result now records 0, the exact value
+        # the guard refuses, rather than leaving the field out.
+        result = '{"exitCode":0,"stdout":"All tests passed"}'
+        self.call("Shell", {"command": "pytest -q"}, tool_output=result)
+        self.call("Shell", {"command": "pytest -q"},
+                  event="afterShellExecution", output="")
+        ran, empty = self.rows()
+        self.assertEqual((ran["kind"], ran["out_bytes"]),
+                         ("verify", len(result)))
+        self.assertEqual((empty["kind"], empty["out_bytes"]), ("verify", 0))
+        self.assertNotIn("All tests passed", json.dumps(self.rows()))
+
+    def test_a_result_the_event_does_not_carry_leaves_the_field_out(self):
+        # Cursor's failure event reports an error, not a result, so the field
+        # stays absent instead of being written as 0 - a row that claims an empty
+        # result for a call that never returned one is the lie the ledger exists
+        # to prevent.
+        self.call("Shell", {"command": "pytest -q"},
+                  event="postToolUseFailure", error_message="timed out")
+        row = self.rows()[-1]
+        self.assertEqual(row["kind"], "verify_fail")
+        self.assertNotIn("out_bytes", row)
+
+
 class CursorHookThroughTheInstalledLink(TempHome):
     """tezgah-setup wires cursor to ~/.config/tezgah/bin/tezgah-cursor-hook, a
     symlink; the hook must find the repo from the link path."""

@@ -143,8 +143,13 @@ def handle(payload):
         # and the ledger then records a check that ran, never one that passed.
         # `source` is the untrusted channel the result came through, and is left
         # out of the row for every result that is the user's or the workspace's.
+        # `result_len` is the size the bridge measured, never the body, and only
+        # an integer counts: a value of any other shape is left unstated so the
+        # row cannot claim a size nobody measured.
+        size = payload.get("result_len")
         note_tool(session_id, tool, inp,
                   failed=failed if isinstance(failed, bool) else None,
+                  out_bytes=size if isinstance(size, int) and size >= 0 else None,
                   source=source)
         # the call is already paid for, so the status line's used marks are
         # refreshed from the same answer instead of a second subprocess, and

@@ -14,6 +14,11 @@ sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402  (call_id only: the digest a grant carries)
 import tezgah_gate as tg  # noqa: E402  (rm_outside's floor, read in process)
 
+# The skip marker the shell-write half has to catch, assembled at runtime: the
+# shortcut rule refuses a tests/ file that ADDS the literal marker, this file
+# included, so the source must not carry it whole.
+SKIP_MARK = "@pytest.mark." + "skip"
+
 
 class Gate(TempHome):
     def setUp(self):
@@ -69,6 +74,16 @@ class Gate(TempHome):
             reason = self.decide(tool, inp)
             self.assertIsNotNone(reason, tool)
             self.assertIn("Attribution", reason)
+
+    def test_attribution_denies_a_credit_written_by_the_shell(self):
+        # The shell's own write route: a credit inside a heredoc lands in a file
+        # exactly as one in an edit's content does, and the write tools and the
+        # shell are disjoint sets, so the text check never saw it.
+        reason = self.decide("Bash", {"command":
+            "cat >> CHANGELOG.md <<'EOF'\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>\nEOF"})
+        self.assertIsNotNone(reason)
+        self.assertIn("Attribution", reason)
 
     def test_prose_that_names_the_ban_is_not_a_credit(self):
         # The anchor is what keeps the rule from denying the documentation that
@@ -175,6 +190,32 @@ class Gate(TempHome):
             "content": "CASES = ['@pytest.mark.skip']\ndef run(): pass"}))
         self.assertIsNone(self.decide("Write", {
             "file_path": "NOTES.md", "content": "we added @unittest.skip to x"}))
+
+    def test_a_shell_write_that_disables_a_test_is_denied(self):
+        # the route E7c measured: with the write tools refused, the armed arm
+        # wrote the target with a heredoc. The tool rule never saw it - the write
+        # tools and the shell are disjoint - so the body is read instead, and the
+        # same predicate runs on what it would land.
+        reason = self.decide("Bash", {"command":
+            "cat > tests/test_api.py <<'EOF'\nimport pytest\n%s\ndef test_x(): "
+            "pass\nEOF" % SKIP_MARK})
+        self.assertIsNotNone(reason)
+        self.assertIn("Test disable", reason)
+
+    def test_a_shell_write_of_a_marker_outside_a_test_file_passes(self):
+        # the twin keeps the tool rule's own gates: the write has to be a test
+        # file, and a note that carries the marker disables nothing
+        self.assertIsNone(self.decide("Bash", {"command":
+            "cat > NOTES.md <<'EOF'\nwe added %s to x\nEOF" % SKIP_MARK}))
+
+    def test_a_quoted_redirect_is_not_a_shell_write(self):
+        # the shape test runs on the masked text, so a quoted `>` is not a
+        # redirect; and a redirect with no heredoc body carries no content this
+        # rule could read
+        self.assertIsNone(self.decide("Bash", {"command":
+            "echo '%s is what the rule bans' > notes.txt" % SKIP_MARK}))
+        self.assertIsNone(self.decide("Bash", {"command":
+            "grep -rn 'x' docs/ | tee notes.txt"}))
 
     def test_a_commit_message_that_names_no_verify_passes(self):
         # describing the rule is not a bypass; the flag has to be in command
@@ -474,6 +515,40 @@ class Gate(TempHome):
             reason = self.decide("Bash", {"command": command})
             self.assertIsNotNone(reason, command)
             self.assertIn("Consent", reason)
+
+    def test_a_shared_resource_destroyed_at_a_service_denies(self):
+        # The four the table was blind to that leave this machine or take a
+        # resource other people share: a remote repository, an S3 bucket or the
+        # prefix under it, and a schema dropped by the runner's own verb. Each is
+        # read as its class, not as the pattern that matched.
+        for command, klass in (
+                ("gh repo delete me/x --yes", "destructive"),
+                ("gh repo archive me/x", "destructive"),
+                ("aws s3 rb s3://bucket --force", "destructive"),
+                ("aws s3 rm s3://bucket/prefix --recursive", "destructive"),
+                ("flyway clean", "schema")):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("`%s` effect" % klass, reason)
+
+    def test_a_command_that_only_names_a_shared_destroy_denies_nothing(self):
+        # found on the masked text like the rest of the table, so a message that
+        # describes the command is not the command
+        for command in ('git commit -m "gate: deny gh repo delete me/x"',
+                        "echo 'aws s3 rb s3://b' >> notes.md"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_a_local_or_narrow_delete_still_asks_nobody(self):
+        # Deliberately left out of the class table: each is either local and
+        # recoverable from disk, or narrow enough that the round-trip costs the
+        # user more than the effect does. The rule the four added commands pass
+        # is "the effect leaves this machine or destroys a resource others
+        # share"; these fail it.
+        for command in ("git reset --hard HEAD~3", "git tag -d v1",
+                        "docker compose down -v", "chmod -R 000 /etc",
+                        "git push origin main", "aws s3 rm s3://bucket/key.txt",
+                        "gh repo view me/x", "aws s3 ls s3://bucket"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
     def test_ordinary_work_passes_the_consent_rule(self):
         for command in ("npm run build", "pytest -q", "git status",
@@ -901,6 +976,97 @@ class Gate(TempHome):
                       self.decide("Bash", {"command": "rsync -avz ./dst host:/dst"}))
         self.assertIsNone(self.decide("Bash", {"command": "rsync -avz host:/src ./dst"}))
 
+    # ---- ordering: a commit while the newest check failed ------------------
+    def test_a_commit_is_refused_while_the_newest_check_failed(self):
+        # C9: the one relation between two actions this gate asserts. The state
+        # is the Stop rule's own fold over the ledger tail, and the refusal names
+        # the check that failed.
+        self.seed_run("pytest -q", "order", failed=True)
+        reason = self.decide("Bash", {"command": "git commit -m x"},
+                             session_id="order")
+        self.assertIsNotNone(reason)
+        self.assertIn("pytest -q", reason)
+
+    def test_the_ordering_refusal_names_no_command_that_lifts_it(self):
+        # a refusal is a boundary or it is an instruction: E7 measured what
+        # printing the unlock costs (the armed arm removed or disabled the gate in
+        # 25 of 25 runs and obeyed it in none), so this refusal names the failed
+        # check and nothing that would lift it
+        self.seed_run("pytest -q", "order", failed=True)
+        reason = self.decide("Bash", {"command": "git commit --amend --no-edit"},
+                             session_id="order")
+        self.assertIsNotNone(reason)
+        for unlock in ("tezgah-consent", "--no-verify", "verify-off",
+                       "tezgah-task", "tezgah-setup"):
+            self.assertNotIn(unlock, reason)
+
+    def test_a_commit_passes_when_no_check_ran(self):
+        # what keeps the rule from punishing a docs-only commit: no check at all
+        # folds to None, and None is not "fail"
+        self.assertIsNone(self.decide("Bash", {"command": "git commit -m docs"},
+                                      session_id="order"))
+
+    def test_a_commit_passes_after_the_newest_check_passed(self):
+        # the NEWEST check decides, not any check: an older failure is not the
+        # state the commit would freeze
+        self.seed_run("pytest -q", "order", failed=True)
+        self.seed_run("pytest -q", "order", failed=False)
+        self.assertIsNone(self.decide("Bash", {"command": "git commit -m x"},
+                                      session_id="order"))
+
+    def test_a_check_that_ran_with_no_outcome_is_not_a_failure(self):
+        # failed=None is a host that reported nothing: the row is a check that
+        # ran, and this rule refuses only the state that says the tree was
+        # rejected
+        self.seed_run("pytest -q", "order")
+        self.assertIsNone(self.decide("Bash", {"command": "git commit -m x"},
+                                      session_id="order"))
+
+    def test_the_ordering_rule_is_a_commit_rule(self):
+        # the failure refuses the claim, not the session: every other command is
+        # not this rule's
+        self.seed_run("pytest -q", "order", failed=True)
+        for command in ("git status", "pytest -q", "git push origin main"):
+            self.assertIsNone(self.decide("Bash", {"command": command},
+                                          session_id="order"), command)
+
+    def test_the_ordering_refusal_is_its_own_rule_row(self):
+        # the counters separate the rules by the deny row's name, so this one has
+        # to be its own
+        self.seed_run("pytest -q", "order", failed=True)
+        self.decide("Bash", {"command": "git commit -m x"}, session_id="order")
+        denial = [r for r in self.rows("order") if r["kind"] == "deny"][-1]
+        self.assertEqual(denial["detail"].split(":", 1)[0], "order")
+
+    def test_the_ordering_rule_rides_verify_off(self):
+        # it rides the integrity rule's own switch instead of adding a switch:
+        # the state it refuses is that rule's claim, one step earlier
+        self.seed_run("pytest -q", "order", failed=True)
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.assertIsNone(self.decide("Bash", {"command": "git commit -m x"},
+                                      session_id="order"))
+
+    # ---- the gate's own blind spot, mined (bin/tezgah-status) --------------
+    def test_the_miner_folds_the_calls_the_class_table_cannot_place(self):
+        # C15: the reader the class table grows from, and the three shapes have to
+        # come apart - a shell call the table cannot read, one it reads, and one
+        # the gate refused (a refused call was never an allowed one, and counting
+        # it would report a closed hole as open).
+        self.seed_run("gh repo view me/x", "mine", failed=False)
+        self.seed_run("gh repo delete me/x --yes", "mine", failed=False)
+        digest = ti.call_id("Bash", {"command": "spin -x"})
+        for kind, detail in (("run", "spin -x"), ("deny", "loop: too many")):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note", "session": "mine", "kind": kind,
+                      "detail": detail, "id": digest}, env=self.envv)
+        out, proc = run_json(
+            [os.path.join(support.REPO, "bin", "tezgah-status"),
+             "--unclassified", "--json"], None, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out["rows"], 1, out)
+        self.assertEqual(list(out["commands"]), ["gh repo view me/x"])
+        self.assertEqual(out["programs"].get("gh"), 1)
+
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):
         for command in (
@@ -933,6 +1099,15 @@ class Gate(TempHome):
         self.assertIsNone(self.decide("Bash", {
             "command": 'git add -A && git commit -m "fix api_key= handling"'}))
         self.assertIsNone(self.decide("Bash", {"command": "git add .env"}))
+
+    def test_a_credential_written_by_a_heredoc_is_denied(self):
+        # mask() blanks heredoc bodies by design, so the text-level scan cannot
+        # see a key that sits in one - measured on the first version of this
+        # rule: this command passed it. The body is read instead.
+        reason = self.decide("Bash", {"command":
+            "cat > .env <<'EOF'\nOPENROUTER_API_KEY=sk-live-abc123\nEOF"})
+        self.assertIsNotNone(reason)
+        self.assertIn("Credential", reason)
 
     def test_a_credential_write_has_no_repeat_escape(self):
         # unlike consent, this rule keeps refusing: the deny text names the

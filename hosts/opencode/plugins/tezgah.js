@@ -15,10 +15,11 @@
 //   - tool.execute.before also carries the rules that need the ledger: consent
 //     for an unasked irreversible or outward-facing shell command (refused once
 //     per action, so the ask reaches the user), secret for a credential on its
-//     way into a file, and the two repeat ceilings (loop per user turn, retry
-//     per session). One class of that rule is not derived here: an outbound
-//     `send` (mail, a payment, a remote API called with a write, a copy to
-//     another host, a `gh pr`/`gh issue` write) has no pattern in this file at
+//     way into a file, the two repeat ceilings (loop per user turn, retry per
+//     session), and the one ordering obligation (a commit while the newest check
+//     in this session failed). One class of that rule is not derived here: an
+//     outbound `send` (mail, a payment, a remote API called with a write, a copy
+//     to another host, a `gh pr`/`gh issue` write) has no pattern in this file at
 //     all - a command that looks like one is put to the core through the same
 //     gate CLI, so the SEND pattern stays in exactly one place and this host
 //     cannot drift from it.
@@ -43,8 +44,8 @@
 //
 // Known gap: every rule of hooks/tezgah_gate.py is enforced here, but the ledger
 // the counters read is complete only for the rules ported last - consent, secret,
-// loop and retry write the rows the Python gate's `_deny` writes, while the
-// explorer, attribution and shortcut refusals (and the nudge, marked by its
+// loop, retry and order write the rows the Python gate's `_deny` writes, while
+// the explorer, attribution and shortcut refusals (and the nudge, marked by its
 // cache-dir file alone) still leave no row of their own.
 //
 // Every path fails open: if anything here throws unexpectedly, the tool runs.
@@ -136,6 +137,17 @@ const SCRATCH =
 // delete flag is matched by shape, because `--merged` also carries a `d`.
 const BRANCH_DELETE =
   /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*(?:branch\s+(?:-[A-Za-z]*[dD]\b|--delete\b)|push\b[^|;&]*(?:--delete\b|-d\b))/i
+// The destructive effect that lands on a shared resource at a service instead of
+// on this machine (hooks/tezgah_gate.REMOTE_DESTROY): the remote repository
+// `gh repo delete|archive` closes for everyone, the bucket `aws s3 rb` removes
+// and the prefix `aws s3 rm --recursive` empties. Read as `destructive` beside
+// the branch delete, never as a `send`: nothing of this workspace's is carried
+// out, something both parties owned stops existing. `aws s3 rm` without
+// `--recursive` is the shape of `rm` on one file and stays out.
+const REMOTE_DESTROY =
+  /(?:^|[|;&]\s*|\s)(?:gh\s+repo\s+(?:delete|archive)\b|aws\s+s3\s+rb\b)/i
+const AWS_S3_RM = /(?:^|[|;&]\s*|\s)aws\s+s3\s+rm\b/gi
+const AWS_RECURSIVE = /--recursive\b/
 // A recursive force-delete: both flags have to be there (`rm -f` and `rm -r` on
 // their own are not this rule's), and the targets come from the raw text so a
 // quoted path still resolves - the `rm` itself is matched on the masked text, so
@@ -145,10 +157,14 @@ const RM = /(?:^|[|;&]\s*|\s)rm\s+((?:-\S+\s+)*)([^|;&]*)/g
 const RM_AT = new RegExp(RM.source, "y")
 const RM_RECURSIVE = /-[A-Za-z]*r[A-Za-z]*\b|--recursive\b/i
 const RM_FORCE = /-[A-Za-z]*f[A-Za-z]*\b|--force\b/
-// Applying a migration, by the runners that name it. ponytail: a hand-written
-// `psql -c "ALTER TABLE ..."` is not caught - reading SQL intent is not a regex.
+// Applying a migration, by the runners that name it. `clean` is here with the
+// upgrade/down words because `flyway clean` drops every object in the configured
+// schemas - the same class, reached by the runner's own verb rather than by a
+// downgrade (hooks/tezgah_gate.MIGRATION).
+// ponytail: a hand-written `psql -c "ALTER TABLE ..."` is not caught - reading
+// SQL intent is not a regex.
 const MIGRATION =
-  /(?:^|[|;&]\s*|\s)(?:(?:alembic|flyway|goose|dbmate|sqitch)\s+(?:upgrade|up|migrate|deploy|down|downgrade|rollback|reset|redo)\b|(?:knex|prisma|sequelize|typeorm)\s+\S*migrat\S*|(?:django-admin|manage\.py)\s+migrate\b|python\d?\s+-m\s+django\s+migrate\b|(?:bin\/)?rails\s+db:(?:migrate|rollback|reset|schema:load)\b)/i
+  /(?:^|[|;&]\s*|\s)(?:(?:alembic|flyway|goose|dbmate|sqitch)\s+(?:upgrade|up|migrate|deploy|down|downgrade|rollback|reset|redo|clean)\b|(?:knex|prisma|sequelize|typeorm)\s+\S*migrat\S*|(?:django-admin|manage\.py)\s+migrate\b|python\d?\s+-m\s+django\s+migrate\b|(?:bin\/)?rails\s+db:(?:migrate|rollback|reset|schema:load)\b)/i
 // A deploy: putting code in front of users, by the runners that name it.
 const DEPLOY =
   /(?:^|[|;&]\s*|\s)(?:(?:vercel|netlify|fly|flyctl|railway|render|wrangler|firebase|gcloud|eb)\b[^|;&]*?\bdeploy\b|(?:serverless|sls)\s+deploy\b|terraform\s+(?:apply|destroy)\b|helm\s+(?:install|upgrade|uninstall)\b|kubectl\s+(?:apply|delete|rollout|scale)\b|ansible-playbook\b)/i
@@ -171,8 +187,8 @@ const SEND_CANDIDATE =
 // refusal names the class and this clause, never the pattern that matched: the
 // agent has to see what it is about to do, not which regex caught it.
 const EFFECTS = {
-  destructive: "this one rewrites or drops history, a branch or files outside " +
-    "the run directory",
+  destructive: "this one rewrites or drops history, a branch, files outside " +
+    "the run directory, or a repository or bucket other people share",
   schema: "this one changes the shape of a database",
   deploy: "this one puts code in front of users",
   publish: "this one ships an artifact to a registry or a release",
@@ -409,6 +425,76 @@ async function shortcutEdit(args) {
     [...new Set(added)].join(", ") + ". Making a failing test disappear is not " +
     "a fix - fix the code or say the test is failing. Ask the user first if the " +
     "skip is genuinely intended."
+}
+
+// --- the shell's write body: three write-tool rules reached through a heredoc -
+// What this closes (hooks/tezgah_gate.SHELL_WRITE, and the route E7c measured):
+// SKIP_TEST, ATTRIB_LINE and the credential scan are attached to WRITE_TOOLS,
+// which is disjoint from BASH_TOOLS, so a heredoc that wrote a test skip, an
+// attribution line or a key into a file was refused by nothing - and E7c watched
+// the armed arm take exactly that route once the write tools were refused. Each
+// of the three now also reads the body a shell command writes, and the body is
+// the RAW text because maskText blanks heredoc bodies by design: a command that
+// merely names a rule must not be denied.
+//
+// The shape test is the core's own SHELL_WRITE, ported here because the three
+// rules below read a written body (the task rule's phase check is the core's and
+// stays there). ponytail: only a heredoc's body is read; a write whose content is
+// a quoted argument (`echo "Co-Authored-By: x" > f`) is not, and the measured
+// route is the heredoc.
+const SHELL_WRITE =
+  />>?(?!\s*\/dev\/null)(?![&=])|\|\s*tee\b|(?<![\w-])(?:sed|perl)\s+(?:-\S+\s+)*(?:-[A-Za-z]*i[A-Za-z]*)(?![A-Za-z])|(?<![\w-])truncate\s|\bdd\s+[^|;&]*\bof=|(?<![\w-])(?:cp|mv)\s|(?<![\w-])patch\s|(?<![\w-])git\s+(?:apply\b|restore\b|checkout\s+--)/
+const SHELL_TARGET = />>?(?![&=])\s*(\S+)|(?<![\w-])tee\s+(?:-\S+\s+)*(\S+)/
+
+// Every heredoc body in `text`, in order, read off the raw text. Unterminated
+// markers are skipped the way the masker skips them.
+function heredocBodies(text) {
+  const lines = String(text || "").split("\n")
+  const out = []
+  let i = 0
+  while (i < lines.length) {
+    const m = HEREDOC.exec(lines[i])
+    if (!m) { i += 1; continue }
+    const tag = m[1]
+    let j = i + 1
+    while (j < lines.length && lines[j].trim() !== tag) j += 1
+    if (j === lines.length) { i += 1; continue }
+    out.push(lines.slice(i + 1, j).join("\n"))
+    i = j + 1
+  }
+  return out
+}
+
+// The `{filePath, content}` a shell command writes into a file, or null when this
+// command writes no file's content of its own: the target is the real redirect's
+// target (or `tee`'s argument) sliced from the raw text at the offset the masked
+// match proved, resolved against the call's own directory so a write to a test
+// file is compared against the file the CALL named.
+function shellWriteBody(command, dir) {
+  const c = String(command || "")
+  if (!c || !SHELL_WRITE.test(maskText(c))) return null
+  const bodies = heredocBodies(c)
+  if (!bodies.length) return null
+  const masked = maskText(c)
+  const m = SHELL_TARGET.exec(masked)
+  let p = ""
+  if (m) {
+    // Both branches capture the last token of the match, so its offset is the
+    // tail of `m[0]` - no index lookup that a target named after a flag letter
+    // (`| tee e`) could fool.
+    const token = m[1] || m[2]
+    p = c.slice(m.index + m[0].length - token.length, m.index + m[0].length)
+      .replace(/^['"]|['"]$/g, "")
+  }
+  if (p && !p.startsWith("/")) p = join(dir || process.cwd(), p)
+  return { filePath: p, content: bodies.join("\n") }
+}
+
+// The text a write tool would land: the same predicate the edit/write half uses,
+// reachable from the shell twin above.
+function attributionText(args) {
+  return EDIT_TEXT.some(
+    (k) => typeof args?.[k] === "string" && ATTRIB_LINE.test(args[k]))
 }
 
 // The same action seen twice has to hash the same, or the ledger cannot tell a
@@ -753,6 +839,61 @@ function retryReason(tool, args, rows) {
     "that FAILED, counted per user turn.)"
 }
 
+// --- ordering: a commit while the newest check failed -----------------------
+// The one rule here that asserts a relation between two actions rather than
+// reading one call plus a ledger tail (hooks/tezgah_gate.commit_order_reason).
+// The reader is the Stop rule's own fold, `lastVerify` over the tail, and the
+// rule cannot fire in either direction that would punish honest work: no check
+// folds to null and a passing newest check to "ok", so a commit in a session that
+// ran no check, and a commit after a green run, both pass. Only "fail" refuses.
+// The passing_check narrowing (an exit-0 check with no output, or a piped one,
+// counting as "ran" rather than "ok") is not mirrored because this rule reads
+// only `fail`: those rows fold to "ok"/"ran" on both sides and the outcome is
+// identical. The refusal names the failing check and no command that lifts it.
+const FAILED_MARK = "[exit!=0]"
+const COMMIT_CMD =
+  /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*commit(?=\s|$|[|;&])/
+const ORDER_DENY =
+  "Commit order denied: the newest check in this session failed, and a commit " +
+  "is a claim that the tree passed. What would be frozen is the state that " +
+  "check just rejected - the newest failing one was %s - so fix what it " +
+  "reported and run it again, commit once the newest check is green, or say " +
+  "plainly that it is failing and why the commit is wanted anyway."
+
+// The newest check's state, folded exactly as tezgah_integrity._last_verify
+// folds it: "ok"/"ran" for the verify kinds, "fail" for verify_fail, null when
+// the tail carries no check at all.
+function lastVerify(rows) {
+  let state = null
+  for (const row of rows) {
+    if (row.kind === "verify_ok") state = "ok"
+    else if (row.kind === "verify_fail") state = "fail"
+    else if (row.kind === "verify") state = "ran"
+  }
+  return state
+}
+
+// The command of the newest failed check, for the reason text: the tail marker
+// the record writes is not part of it.
+function failedCheck(rows) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].kind === "verify_fail") {
+      const text = String(rows[i].detail || "").split(FAILED_MARK).join("").trim()
+      return text || "a check"
+    }
+  }
+  return "a check"
+}
+
+// The ordering refusal, or null: this command is a commit and the newest check
+// in this session failed. Not a rule about commits - with no check in the tail
+// nothing is refused.
+function orderReason(args, rows) {
+  if (!COMMIT_CMD.test(maskText(args?.command || args?.cmd || ""))) return null
+  if (lastVerify(rows) !== "fail") return null
+  return ORDER_DENY.replace("%s", failedCheck(rows))
+}
+
 // The kinds a PostToolUse hook writes after a call ran, whatever the host
 // reported about the outcome (hooks/tezgah_integrity.STEP_KINDS). What spends a
 // grant is one of these, never the presence of `exit`: this host records no exit
@@ -883,8 +1024,18 @@ async function shellRules(tool, args, sessionID, base, dir) {
     if (fromCore) return fromCore
   }
   const reason = secretCommand(cmd)
-  if (reason) await noteDeny(sessionID, "secret", reason, tool, args, base)
-  return reason
+  if (reason) {
+    await noteDeny(sessionID, "secret", reason, tool, args, base)
+    return reason
+  }
+  // The body a heredoc writes: maskText blanks it, so the text-level scan above
+  // cannot see a key that sits in it (hooks/tezgah_gate.shell_write_body).
+  const body = shellWriteBody(cmd, dir)
+  if (body && SECRET_TOKEN.test(body.content)) {
+    await noteDeny(sessionID, "secret", SECRET_DENY, tool, args, base)
+    return SECRET_DENY
+  }
+  return null
 }
 
 // `loop` then `retry`, over one read of the ledger tail, after every
@@ -912,11 +1063,16 @@ function attribution(tool, args) {
   // The bash path needs WRITE_CMD to establish that a commit or PR body is
   // being written; for a write/edit tool the tool itself is the write, so the
   // content is the whole question.
-  if (WRITE_TOOLS.has(t)) {
-    return EDIT_TEXT.some(
-      (k) => typeof args?.[k] === "string" && ATTRIB_LINE.test(args[k]))
-  }
+  if (WRITE_TOOLS.has(t)) return attributionText(args)
   return false
+}
+
+// The shell's own write route: a credit inside a heredoc lands in a file exactly
+// as one in an edit's content does, and BASH_TOOLS/ WRITE_TOOLS are disjoint, so
+// the text check above never sees it (hooks/tezgah_gate.shell_write_body).
+function shellAttribution(args) {
+  const body = shellWriteBody(args?.command || args?.cmd || "")
+  return body !== null && attributionText(body)
 }
 
 // Python's os.path.realpath(strict=False): the symlinks that exist are resolved
@@ -999,6 +1155,24 @@ function rmOutside(masked, raw, cwd, base) {
 // re-issue is refused again rather than passing on its own earlier refusal. A
 // session whose ledger cannot be written refuses every time, so there the ask has
 // to happen outside the agent.
+// True when this line destroys a shared resource at a service: the remote
+// repository `gh repo delete|archive`, the bucket `aws s3 rb`, or the prefix
+// `aws s3 rm --recursive` (hooks/tezgah_gate.remote_destroy).
+//
+// The command is found on the masked text - a message that names it destroys
+// nothing - while the `--recursive` flag is read from the raw text at the same
+// offset, because the masker blanks a `//` comment tail and takes the flag with
+// it. The flag has to sit in the same simple command.
+function remoteDestroy(masked, raw) {
+  if (REMOTE_DESTROY.test(masked)) return true
+  for (const m of masked.matchAll(AWS_S3_RM)) {
+    const tail = raw.slice(m.index)
+    const end = tail.search(/[;&\n]/)
+    if (AWS_RECURSIVE.test(end === -1 ? tail : tail.slice(0, end))) return true
+  }
+  return false
+}
+
 function effectClass(command, cwd, base) {
   const c = String(command || "")
   if (!c) return null
@@ -1006,7 +1180,8 @@ function effectClass(command, cwd, base) {
   for (const m of masked.matchAll(GIT_PUSH)) {
     if (FORCE_FLAG.test(m[1]) && !SCRATCH.test(m[1])) return "destructive"
   }
-  if (BRANCH_DELETE.test(masked) || rmOutside(masked, c, cwd, base)) {
+  if (BRANCH_DELETE.test(masked) || remoteDestroy(masked, c)
+      || rmOutside(masked, c, cwd, base)) {
     return "destructive"
   }
   if (MIGRATION.test(masked)) return "schema"
@@ -1418,7 +1593,7 @@ export const Tezgah = async ({ directory }) => {
         // the shortcut denials are the gate half of the integrity rule, which
         // `verify-off` removes; attribution and explore are other rules and stay
         const shortcuts = !off("verify-off")
-        if (attribution(tool, args)) {
+        if (attribution(tool, args) || shellAttribution(args)) {
           deny = ATTRIB_DENY
         } else if (tool === "task" && /explore/i.test(sub)) {
           deny = EXPLORE_DENY
@@ -1439,6 +1614,13 @@ export const Tezgah = async ({ directory }) => {
           }
         } else if (shortcuts && BASH_TOOLS.has(tool)) {
           deny = shortcutCommand(args.command || args.cmd || "")
+          if (!deny) {
+            // the shell's own write route, the one E7c measured once the write
+            // tools were refused: a test skip inside a heredoc disables a test
+            // exactly as one in an edit's content does
+            const body = shellWriteBody(args.command || args.cmd || "", dir)
+            if (body) deny = await shortcutEdit(body)
+          }
         }
         // The record's shell route, asked of the core (TASK_CLI carries why the
         // pre-test is here and why it is the whole bound): a command that names
@@ -1459,6 +1641,14 @@ export const Tezgah = async ({ directory }) => {
         // as a repeat.
         if (!deny && BASH_TOOLS.has(tool)) {
           deny = await shellRules(tool, args, sessionID, base, dir)
+        }
+        // The ordering rule: a commit over a check that just failed. An
+        // argument-shaped rule, so it sits with them and above the repeat guards
+        // (hooks/tezgah_gate.decision), and it rides `verify-off` like the rest
+        // of the integrity rule.
+        if (!deny && shortcuts && BASH_TOOLS.has(tool)) {
+          deny = orderReason(args, await ledgerTail(sessionID, LEDGER_TAIL))
+          if (deny) await noteDeny(sessionID, "order", deny, tool, args, base)
         }
         if (!deny && shortcuts &&
             (BASH_TOOLS.has(tool) || WRITE_TOOLS.has(tool))) {
