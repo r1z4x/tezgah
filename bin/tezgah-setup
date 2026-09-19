@@ -955,6 +955,23 @@ def dsh_patch_block():
         "        apiKeyEnv: DEEPSEEK_API_KEY\n"
         "      inception:\n"
         "        apiKeyEnv: INCEPTION_API_KEY\n"
+        # pi-ai's installed catalog ships openrouter and deepseek only, so a
+        # route the catalog does not carry has to declare its own protocol,
+        # endpoint and models - a route that names none of them resolves to
+        # catalogError and no model can be selected on it.
+        "        api: openai-completions\n"
+        "        baseURL: https://api.inceptionlabs.ai/v1\n"
+        "        compat:\n"
+        "          maxTokensField: max_completion_tokens\n"
+        "        models:\n"
+        "          - id: mercury-2.5\n"
+        "            name: Mercury 2.5\n"
+        "            contextWindow: 260000\n"
+        "            maxTokens: 65536\n"
+        "          - id: mercury-2\n"
+        "            name: Mercury 2\n"
+        "            contextWindow: 128000\n"
+        "            maxTokens: 50000\n"
         % (os.path.join(HERE, "hosts", "dsh", "hooks.json"), HERE, cbm_command(),
            dsh_app_mcp_rows()))
 
@@ -1757,7 +1774,8 @@ def report(hosts):
     rows = [
         ("config %s" % tp.CONFIG, os.path.exists(tp.CONFIG)),
         ("%s on PATH" % tp.CBM, bool(tp.cbm_bin())),
-        ("consult/codegen provider key (OpenRouter or DeepSeek)", tp.have_consult_key()),
+        ("consult/codegen provider key (OpenRouter, DeepSeek or Inception)",
+         tp.have_consult_key()),
         ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
         ("npx on PATH (app-analysis MCP servers)", bool(shutil.which("npx"))),
         ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
@@ -1983,7 +2001,9 @@ def host_checks_omp():
                                       "setWidget", "setStatus"))),
         # omp is the host that spends this key: judge(), auto thinking,
         # unexpected-stop and AI staging fall back to a chat model without it.
-        ("TypeSafe (Jev) key resolvable (env or ~/.config/typesafe/key)",
+        # What resolves it is the env it reads or its own login store, not
+        # tezgah's key-file convention, which omp never opens.
+        ("TypeSafe (Jev) key resolvable (env or omp login store)",
          tp.have_typesafe_key()),
         ("status line answers", omp_hook_answers()),
     ]

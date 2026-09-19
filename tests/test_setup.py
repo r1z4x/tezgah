@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import unittest
@@ -136,6 +137,14 @@ class Install(SetupBase):
         self.assertIn("openrouter", dsh)
         self.assertIn("DEEPSEEK_API_KEY", dsh)
         self.assertIn("INCEPTION_API_KEY", dsh)
+        # pi-ai's installed catalog ships openrouter and deepseek only, so a
+        # route it does not carry has to declare its own protocol, endpoint and
+        # models - without them the route resolves to a catalogError and no
+        # model can be selected on it
+        self.assertIn("api: openai-completions", dsh)
+        self.assertIn("baseURL: https://api.inceptionlabs.ai/v1", dsh)
+        self.assertIn("maxTokensField: max_completion_tokens", dsh)
+        self.assertIn("id: mercury-2.5", dsh)
         # the bridge skips any event it does not know, so the manifest the patch
         # names has to exist and be the dsh-shaped one, not the Claude manifest
         manifest = re.search(r"configPath: (\S+)", dsh).group(1)
@@ -438,16 +447,20 @@ class OmpTypeSafeRow(SetupBase):
     """omp is the host that spends TYPESAFE_API_KEY (judge(), auto thinking,
     unexpected-stop, AI staging), so the report has to say whether one resolves
     - a session whose key is missing silently reads the fallback as the
-    feature."""
+    feature. What resolves it is the env or omp's own login store; a tezgah
+    key file is not a path omp opens."""
 
-    def agent_dir(self):
-        os.makedirs(self.path(".omp", "agent"), exist_ok=True)
-
-    def test_the_row_follows_the_key_file(self):
-        self.agent_dir()
-        p = self.path(".config", "typesafe", "key")
+    def login_store(self):
+        p = self.path(".omp", "agent", "agent.db")
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "w").close()
+        conn = sqlite3.connect(p)
+        conn.execute("create table auth_credentials (provider text)")
+        conn.execute("insert into auth_credentials values ('typesafe')")
+        conn.commit()
+        conn.close()
+
+    def test_the_row_follows_the_login_store(self):
+        self.login_store()
         proc = self.setup("--hosts", "omp")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         row = self.row(proc.stdout, "TypeSafe (Jev) key resolvable")
@@ -455,7 +468,7 @@ class OmpTypeSafeRow(SetupBase):
         self.assertTrue(row.strip().startswith("ok"), row)
 
     def test_a_missing_key_reads_as_missing(self):
-        self.agent_dir()
+        os.makedirs(self.path(".omp", "agent"), exist_ok=True)
         proc = self.setup("--hosts", "omp")
         row = self.row(proc.stdout, "TypeSafe (Jev) key resolvable")
         self.assertTrue(row, "row missing")

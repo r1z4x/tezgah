@@ -1,6 +1,7 @@
 """hooks/tezgah_paths.py: roots precedence, root_for boundaries, kill switches."""
 import os
 import shutil
+import sqlite3
 import sys
 import threading
 import unittest
@@ -215,16 +216,20 @@ class ConsultKey(TempHome):
 class TypeSafeKey(TempHome):
     """omp spends TYPESAFE_API_KEY on its System One judgments (`judge()`, auto
     thinking, unexpected-stop, AI staging) and falls back to a chat model
-    without it, so the two places the key can live are the two the helper
-    reads."""
+    without it, so the helper counts exactly the two places omp resolves it
+    from: the env var, and its own login store."""
 
-    def write_key(self):
-        p = os.path.join(self.home, ".config", "typesafe", "key")
+    def login_store(self, provider="typesafe"):
+        p = os.path.join(self.home, ".omp", "agent", "agent.db")
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "w").close()
+        conn = sqlite3.connect(p)
+        conn.execute("create table auth_credentials (provider text)")
+        conn.execute("insert into auth_credentials values (?)", (provider,))
+        conn.commit()
+        conn.close()
 
-    def test_key_file_counts(self):
-        self.write_key()
+    def test_login_store_counts(self):
+        self.login_store()
         out, proc = run_json([support.PROBE_PATHS, "have_typesafe_key"],
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -235,6 +240,17 @@ class TypeSafeKey(TempHome):
                              env=self.env(extra={"TYPESAFE_API_KEY": "test"}))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(out)
+
+    def test_a_key_file_alone_is_not_enough(self):
+        # omp never opens ~/.config/typesafe/key: a file with no export and no
+        # login record means omp reads the fallback chat model, which is the
+        # failure the row exists to expose.
+        p = os.path.join(self.home, ".config", "typesafe", "key")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "w").close()
+        out, _ = run_json([support.PROBE_PATHS, "have_typesafe_key"],
+                          env=self.env())
+        self.assertFalse(out)
 
     def test_no_key_is_false(self):
         out, _ = run_json([support.PROBE_PATHS, "have_typesafe_key"],

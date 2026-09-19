@@ -829,9 +829,9 @@ def context_for(event, cwd, payload=None, with_core=True):
                                "search; never claim the index answered."))
     if not off("consult-off") and not have_consult_key():
         parts.append(("consult",
-                      "Consult: no provider key (OpenRouter or DeepSeek), so the "
-                      "second opinion cannot run; on a call that needed it, say "
-                      "it was skipped and why."))
+                      "Consult: no provider key (OpenRouter, DeepSeek or "
+                      "Inception), so the second opinion cannot run; on a call "
+                      "that needed it, say it was skipped and why."))
     if not off("research-off") and not orx_bin():
         parts.append(("research",
                       "Research: orx (OpenResearch) is not installed, so route "

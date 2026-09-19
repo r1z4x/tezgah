@@ -15,6 +15,7 @@ is the reliable channel; the env var is the escape hatch, not the contract.
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 
 HOME = os.path.expanduser("~")
@@ -210,13 +211,22 @@ def have_consult_key():
 
 
 def have_typesafe_key():
-    """True when the TypeSafe (Jev) key is present: the env var the SDK and omp
-    read, or the key file its single on-disk copy lives in. omp spends this key
-    on `judge()`, auto thinking, unexpected-stop and AI staging, so a session
-    without it silently gets the fallback model where a System One judgment was
-    meant."""
-    return bool(os.environ.get("TYPESAFE_API_KEY")
-                or os.path.exists(os.path.join(HOME, ".config", "typesafe", "key")))
+    """True when omp can resolve its TypeSafe (Jev) credential: the env var it
+    reads, or a record in its own login store (`omp auth login typesafe`). omp
+    spends this key on `judge()`, auto thinking, unexpected-stop and AI staging
+    and silently falls back to a chat model without it. `~/.config/typesafe/key`
+    is tezgah's own key-file convention, not a path omp opens, so a key file
+    alone does not count here - it only reaches omp through an export."""
+    if os.environ.get("TYPESAFE_API_KEY"):
+        return True
+    store = os.path.join(HOME, ".omp", "agent", "agent.db")
+    try:
+        with sqlite3.connect("file:%s?mode=ro" % store, uri=True) as conn:
+            return conn.execute(
+                "select 1 from auth_credentials where provider = ?",
+                ("typesafe",)).fetchone() is not None
+    except (sqlite3.Error, OSError):
+        return False
 
 
 def orx_bin():
