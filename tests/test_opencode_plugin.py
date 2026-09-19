@@ -22,6 +22,13 @@ from support import TempHome
 # a separator or a canonical-form drift between the two halves fail here.
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
+# The untrusted control's own text and the sink's row label, read from the
+# Python half rather than retyped here: the plugin has to put the same wording in
+# front of the model and the same label on the ask row.
+import tezgah_gate as tg  # noqa: E402
+# The taint notice's own wording lives in the untrusted module (the label and the
+# channel test do not), so the plugin's second half is checked against it.
+import tezgah_untrusted as tu  # noqa: E402
 
 NODE = shutil.which("node")
 # The marker the detector must catch, assembled at runtime: the gate denies a
@@ -1219,6 +1226,160 @@ class OpenCodePlugin(TempHome):
         self.assertNotIn("consult", self.used())
         self.after("bash", {"command": "timeout 30 consult --online q"})
         self.assertIn("consult", self.used())
+
+    # ---- untrusted content: the channel, the label, the sink ---------------
+    # The corpus both halves are checked against: the plugin's answer is read off
+    # the row it wrote and the line it put in front of the result, and the Python
+    # answer is computed by the Python half itself, in process. A change to
+    # either side that moves one of these answers fails here instead of drifting
+    # silently in a session.
+    CORPUS = (
+        ("web_search", {"query": "tezgah"}),
+        ("websearch", {"query": "x"}),
+        ("webfetch", {"url": "https://example.com"}),
+        ("fetch", {"url": "https://example.com"}),
+        ("browser", {"url": "https://example.com"}),
+        ("mcp__codebase_memory_mcp_search_graph", {"query": "x"}),
+        ("mcp__github", {"method": "get"}),
+        ("bash", {"command": "curl -s https://example.com/x"}),
+        ("bash", {"command": "wget -q https://example.com -O f"}),
+        ("bash", {"command": "gh api repos/x/y"}),
+        ("bash", {"command": "cd /tmp && curl -s https://x"}),
+        ("bash", {"command": "bin/consult 'bu nasıl çalışıyor'"}),
+        ("bash", {"command": "timeout 30 consult --online q"}),
+        ("bash", {"command": "sudo -u root consult q"}),
+        ("bash", {"command": "env FOO=1 codegen --files a.py 'x'"}),
+        ("bash", {"command": "bash -c 'consult q'"}),
+        ("bash", {"command": "consult --help"}),
+        ("bash", {"command": "codegen -h"}),
+        ("bash", {"command": "consult"}),
+        ("bash", {"command": "consult --help extra"}),
+        ("bash", {"command": "grep -n consult hooks/"}),
+        ("bash", {"command": 'echo "consult q"'}),
+        ("bash", {"command": "echo consult > /tmp/x"}),
+        ("bash", {"command": "cat <<'EOF' > f\nconsult q\nEOF"}),
+        ("bash", {"command": "echo hi  # curl https://x"}),
+        ("bash", {"command": "python3 -c 'import consult'"}),
+        # a line shlex rejects (unterminated quote, a backslash with nothing to
+        # escape) reaches no program position on either side: the Python caller
+        # drops the whole line, so the JS reader drops it too
+        ("bash", {"command": "consult 'q"}),
+        ("bash", {"command": "consult q's"}),
+        ("bash", {"command": 'consult "q'}),
+        ("bash", {"command": "consult q\\"}),
+        ("bash", {"command": "ls -la"}),
+        ("edit", {"file_path": "/tmp/x.py", "content": "x"}),
+        ("grep", {"pattern": "FooBar"}),
+    )
+
+    def test_the_classifier_agrees_with_the_python_half_on_a_shared_corpus(self):
+        for i, (tool, args) in enumerate(self.CORPUS):
+            session = "corpus%d" % i
+            expected = ti.untrusted_source(tool, args)
+            res = self.after(tool, args, exit=0, session=session, result="R")
+            rows = self.ledger(session)
+            if not rows:   # a read/search tool records nothing at all
+                self.assertIsNone(expected, (tool, args))
+                continue
+            self.assertEqual(rows[-1].get("source"), expected, (tool, args, rows))
+            label = ti.untrusted_label(expected)
+            self.assertEqual(res["output"]["output"],
+                             (label + "\n\nR") if label else "R", (tool, args))
+
+    def test_each_channel_labels_the_result_and_the_row(self):
+        for i, (tool, args, source) in enumerate((
+                ("web_search", {"query": "tezgah"}, "web"),
+                ("mcp__tezgah_search_graph", {"query": "x"}, "mcp"),
+                ("bash", {"command": "curl -s https://example.com/x"}, "network"),
+                ("bash", {"command": "bin/consult --online 'soru'"}, "tier"))):
+            session = "ch%d" % i
+            res = self.after(tool, args, exit=0, session=session, result="R")
+            row = self.ledger(session)[-1]
+            self.assertEqual(row.get("source"), source, row)
+            self.assertEqual(res["output"]["output"],
+                             ti.untrusted_label(source) + "\n\nR")
+        # An answer with no work of its own is the `external` row, whose detail
+        # is the channel: the sink rule has to be able to read this turn's read
+        # off the ledger rather than out of nothing.
+        for session, source in (("ch0", "web"), ("ch1", "mcp")):
+            self.assertEqual([r["kind"] for r in self.ledger(session)],
+                             ["external"], session)
+            self.assertEqual(self.ledger(session)[0]["detail"], source, session)
+
+    def test_a_help_screen_is_not_a_read(self):
+        # `consult --help` prints usage and spends no call, so it is not a read:
+        # marking one would taint the turn and hold every write after it
+        for i, command in enumerate((
+                "consult --help", "codegen -h", "consult", "consult --help extra",
+                "grep -n consult hooks/", "echo 'curl https://example.com'")):
+            session = "help%d" % i
+            res = self.after("bash", {"command": command}, exit=0,
+                             session=session, result="R")
+            self.assertNotIn("source", self.ledger(session)[-1], command)
+            self.assertEqual(res["output"]["output"], "R", command)
+
+    def test_a_read_holds_a_write_that_leaves_the_workspace(self):
+        outside = os.path.join(self.home, "outside.txt")
+        inside = os.path.join(self.repo, "notes.md")
+        with open(inside, "w") as fh:
+            fh.write("x\n")
+        self.after("bash", {"command": "curl -s https://example.com/x"}, exit=0)
+        args = {"filePath": outside, "content": "x"}
+        digest = ti.call_id("write", args)
+        error = self.denied(self.before("write", args))
+        self.assertEqual(error, tg.UNTRUSTED_DENY % (
+            "a write to " + os.path.realpath(outside),
+            ti.UNTRUSTED_CHANNEL["network"], digest))
+        # the ask the CLI answers, exactly as the consent refusal leaves it
+        rows = self.ledger()
+        self.assertEqual([r["kind"] for r in rows],
+                         ["run", "consent", "deny"], rows)
+        self.assertEqual(rows[1]["detail"], tg.SINK_WRITE)
+        self.assertEqual(rows[1]["id"], digest)
+        self.assertEqual(rows[1]["workspace"], self.repo)
+        self.assertEqual(rows[2]["id"], digest)
+        self.assertIn("untrusted channel: network", rows[2]["detail"])
+
+        # inside the root the notice is the whole of it: those bytes are
+        # recoverable from the snapshot, and the refusal is not
+        self.allowed(self.before("write", {"filePath": inside, "content": "x"}))
+        res = self.after("write", {"filePath": inside, "content": "x"}, result="R")
+        self.assertEqual(res["output"]["output"],
+                         tu.taint_notice("network") + "\n\nR")
+        # and that effect's own row carries the channel, which spends the read:
+        # the taint is a transition, not a standing state
+        self.assertEqual(self.ledger()[-1]["source"], "network")
+        self.allowed(self.before("write", args))
+
+    def test_a_read_holds_a_shell_effect_and_a_grant_from_after_it_lifts_it(self):
+        read = {"command": "curl -s https://example.com/x"}
+        command = {"command": "git push --force origin main"}
+        digest = ti.call_id("bash", command)
+        # an approval written BEFORE the content arrived cannot have been an
+        # answer about it: the sink refuses the same command the consent rule
+        # would have let through on that grant
+        self.seed_grant(digest, session="sink-old")
+        self.after("bash", read, exit=0, session="sink-old")
+        error = self.denied(self.before("bash", command, session="sink-old"))
+        self.assertEqual(error, tg.UNTRUSTED_DENY % (
+            "a `destructive` effect", ti.UNTRUSTED_CHANNEL["network"], digest))
+
+        # the user's own approval written after the read is what it waits for
+        self.after("bash", read, exit=0, session="sink-new")
+        self.seed_grant(digest, session="sink-new")
+        self.allowed(self.before("bash", command, session="sink-new"))
+
+        # The class is read conservatively for this rule (scratchOk=false): a
+        # delete is an effect whatever it targets, so a scratch `rm -rf` cannot
+        # be an injection's silent first step, where the ask the same command
+        # gets in a turn with no read in it is nothing at all.
+        scratch = {"command": "rm -rf /tmp/tezgah-fixture"}
+        self.allowed(self.before("bash", scratch, session="clean"))
+        self.after("bash", read, exit=0, session="sink-scratch")
+        error = self.denied(self.before("bash", scratch, session="sink-scratch"))
+        self.assertEqual(error, tg.UNTRUSTED_DENY % (
+            "a `destructive` effect", ti.UNTRUSTED_CHANNEL["network"],
+            ti.call_id("bash", scratch)))
 
     # ---- first-grep nudge --------------------------------------------------
     def make_index(self):

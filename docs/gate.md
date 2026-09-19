@@ -17,7 +17,7 @@ Each host's pre-tool hook calls it and wraps the string in that host's own deny 
 |---|---|---|
 | claude, dsh | `hooks/projects-pretooluse.py:24-30` (`hosts/dsh/hooks.json:13`) | `hookSpecificOutput.permissionDecision: "deny"` |
 | codex, cursor, omp | `hosts/codex/hook.py:118-125`, `hosts/cursor/hook.py:279-281`, `hosts/omp/hook.py:117-120` | that host's own envelope — [hosts.md](hosts.md) |
-| opencode | `hosts/opencode/plugins/tezgah.js:1610` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:1719` |
+| opencode | `hosts/opencode/plugins/tezgah.js:2013` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:2130` |
 
 Every refusal is also recorded before it is returned: `_deny` appends a ledger row `deny` whose `detail` is `"<rule>: <reason, first 80 chars>"`, plus any
 `extra` (`hooks/tezgah_gate.py:1425-1439`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
@@ -245,28 +245,28 @@ traffic that produced it, instead of against a hand-built adversarial set.
 ## The mirror: the opencode plugin
 
 opencode cannot run Python hooks, so `hosts/opencode/plugins/tezgah.js` is an independent JavaScript re-implementation of the same rules, dispatched from
-`tool.execute.before` (hosts/opencode/plugins/tezgah.js:1610, exported `hosts/opencode/plugins/tezgah.js:1558`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:1624-1684`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:294`,
-`SKIP_ENV` hosts/opencode/plugins/tezgah.js:295, `NO_VERIFY` `hosts/opencode/plugins/tezgah.js:296`, `GITISH` `hosts/opencode/plugins/tezgah.js:297`, `SKIP_TEST` `hosts/opencode/plugins/tezgah.js:298`). What keeps the two halves honest is a test, not a shared module:
+`tool.execute.before` (hosts/opencode/plugins/tezgah.js:1610, exported `hosts/opencode/plugins/tezgah.js:1961`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:2027-2096`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:300`,
+`SKIP_ENV` hosts/opencode/plugins/tezgah.js:295, `NO_VERIFY` `hosts/opencode/plugins/tezgah.js:302`, `GITISH` `hosts/opencode/plugins/tezgah.js:303`, `SKIP_TEST` `hosts/opencode/plugins/tezgah.js:304`). What keeps the two halves honest is a test, not a shared module:
 `tests/test_opencode_plugin.py` drives the plugin's hooks through a node harness with a throwaway HOME, and imports the Python `tezgah_integrity.call_id` so a
-separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `:21-24`, `tests/test_opencode_plugin.py:1019-1057`).
+separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `:21-24`, `tests/test_opencode_plugin.py:1026-1065`).
 
 The two halves agree on the consent rule. A repeat of an irreversible or
 outward-facing command the user has not approved is refused again, carrying the ask-stands note rather than a second question
 (`hosts/opencode/plugins/tezgah.js:1032-1043`, `hooks/tezgah_gate.py:1572-1581`); a grant is a lease on one effect in one workspace, spent by
 the outcome row that follows it, so the next identical command is asked about again instead of passing on the first approval
-(`unspent_grant` `hooks/tezgah_gate.py:588-632`, `consentMark` `hosts/opencode/plugins/tezgah.js:950-964` - each half records the same scope,
+(`unspent_grant` `hooks/tezgah_gate.py:588-632`, `consentMark` `hosts/opencode/plugins/tezgah.js:963-972` - each half records the same scope,
 `os.path.realpath(cwd)` against `realpathSync(dir)`, so a row one writes is one the other honours); and the refusal
 names the action's digest and the CLI that answers it (`consent_reason` `hooks/tezgah_gate.py:803-817`, `ASK_STANDS_NOTE`
-`hooks/tezgah_gate.py:384-386`). Each half's repeat path is pinned in its own suite (`tests/test_opencode_plugin.py:447-462`, `tests/test_opencode_plugin.py:464-476`;
+`hooks/tezgah_gate.py:384-386`). Each half's repeat path is pinned in its own suite (`tests/test_opencode_plugin.py:454-470`, `tests/test_opencode_plugin.py:471-484`;
 `tests/test_gate.py:630-658`).
 
-The three rule kinds added last are mirrored too, each pinned in both suites: the shell's write body (`SHELL_WRITE` `hosts/opencode/plugins/tezgah.js:448`,
-`heredocBodies` `hosts/opencode/plugins/tezgah.js:454`, `shellWriteBody` `hosts/opencode/plugins/tezgah.js:498`, the shortcut and attribution twins at
-`hosts/opencode/plugins/tezgah.js:1649` and `hosts/opencode/plugins/tezgah.js:1624`, the credential twin at `hosts/opencode/plugins/tezgah.js:1061`), the two
-shared-resource destroys (`REMOTE_DESTROY` `hosts/opencode/plugins/tezgah.js:149`, `remoteDestroy` `hosts/opencode/plugins/tezgah.js:1194`, `flyway clean` added
-to `MIGRATION` `hosts/opencode/plugins/tezgah.js:168`), and the ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:882`, `ORDER_DENY`
-`hosts/opencode/plugins/tezgah.js:884`, `lastVerify` `hosts/opencode/plugins/tezgah.js:894`, `orderReason` `hosts/opencode/plugins/tezgah.js:919`, dispatched at
-`hosts/opencode/plugins/tezgah.js:1678`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
+The three rule kinds added last are mirrored too, each pinned in both suites: the shell's write body (`SHELL_WRITE` `hosts/opencode/plugins/tezgah.js:454`,
+`heredocBodies` `hosts/opencode/plugins/tezgah.js:460`, `shellWriteBody` `hosts/opencode/plugins/tezgah.js:504`, the shortcut and attribution twins at
+`hosts/opencode/plugins/tezgah.js:2060` and `hosts/opencode/plugins/tezgah.js:2027`, the credential twin at `hosts/opencode/plugins/tezgah.js:1088`), the two
+shared-resource destroys (`REMOTE_DESTROY` `hosts/opencode/plugins/tezgah.js:155`, `remoteDestroy` `hosts/opencode/plugins/tezgah.js:1223`, `flyway clean` added
+to `MIGRATION` `hosts/opencode/plugins/tezgah.js:174`), and the ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:895`, `ORDER_DENY`
+`hosts/opencode/plugins/tezgah.js:897`, `lastVerify` `hosts/opencode/plugins/tezgah.js:907`, `orderReason` `hosts/opencode/plugins/tezgah.js:932`, dispatched at
+`hosts/opencode/plugins/tezgah.js:2089`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
 `fail`, and a row that narrowing would refuse reads `ok`/`ran` on both sides, so the outcome is identical. The miner has no mirror: it is a reader on the
 status CLI, not a rule a tool call meets.
 

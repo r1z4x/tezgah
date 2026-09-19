@@ -234,7 +234,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 | claude | SessionStart, SubagentStart, PostCompact, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop - `hooks/hooks.json:2-26` | both: SessionStart hook context (`hooks/projects-auto-init.py:1-6`) and the static `output-styles/tezgah.md` mirror (`README.md:499-500`) | UserPromptSubmit -> `additionalContext` (`hooks/hooks.json:12-14`, `hooks/projects-auto-init.py:38-41`) | `statusLine` command in `~/.claude/settings.json` (`bin/tezgah-setup:426-440`), ANSI, forwards Orca first (`statusline.py:30-48`) | all six: the transcript parse covers the two skill reads, `cbm`, `orch` and both shell kinds, `consult` and `research` (`statusline.py:58-107`, `observable=None` at `:112`) |
 | codex | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, PostCompact, Stop (`bin/tezgah-setup:448-450`; named in `hosts/codex/hook.py:6-7`) | hook: the normalized events inject `context_for` (`hosts/codex/hook.py:188-194`) | UserPromptSubmit -> `additionalContext` (`hosts/codex/hook.py:188-194`) | no custom footer item (`tui.status_line` is a closed enum) - the line rides `systemMessage`, plain, at SessionStart and Stop (`hosts/codex/hook.py:10-12,182-184,195-198`) | four tool-use (`TOOL_USE_MEASURES` at `hosts/codex/hook.py:182,196`) |
 | cursor | 13 events: sessionStart, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, beforeSubmitPrompt, stop, beforeMCPExecution, afterShellExecution, afterMCPExecution, afterFileEdit, afterAgentResponse (`bin/tezgah-setup:819-836`) | hook: sessionStart -> `additional_context` (`hosts/cursor/hook.py:219-221`) | beforeSubmitPrompt -> `additional_context` plus `{"continue": true}` (`hosts/cursor/hook.py:319-325`) | `statusLine` in `~/.cursor/cli-config.json` -> `tezgah-statusline --cursor` (`bin/tezgah-setup:868-871`), ANSI (`statusline.py:116-117`) | four tool-use (`statusline.py:112`) |
-| opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1558-1813`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:757-790`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:1754-1800`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:820-830`) | all six: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1370-1433`) |
+| opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1961-2235`) - `tool.execute.before` carries the whole gate including the untrusted sink, `tool.execute.after` the channel on the row, the provenance label on the result and the taint notice on the next effect (`untrustedSource` `hosts/opencode/plugins/tezgah.js:1515`, `sinkWrite` `:1659`, `labelResult` `:1684`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:757-790`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:2165-2210`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:820-830`) | all six: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1848-1864`) |
 | dsh | SessionStart, SubagentStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop (`hosts/dsh/hooks.json:2-19`) | hook: the same Claude-family scripts, named by `configPath` (`bin/tezgah-setup:921`) | UserPromptSubmit, through the bridge (`hosts/dsh/hooks.json:9-11`) | web-profile plugin: authenticated `GET /api/tezgah.status` -> `tezgah-status` (`hosts/dsh/statusline/lib/index.js:14,39-60`) | four tool-use: the route passes `--observable=consult,research,cbm,orch` (`hosts/dsh/statusline/lib/index.js:18,47-48`) |
 | omp | session_start, session_switch, turn_end, before_agent_start, tool_call, tool_result, session_stop (`hosts/omp/tezgah-hook.ts.in:164,198-199,201,221,235,267`) | both: static `RULES.md` (`bin/tezgah-setup:1033-1040`) and a session payload carrying only what a static file cannot know (`hosts/omp/hook.py:123-131`) | before_agent_start returns a hidden message (`hosts/omp/tezgah-hook.ts.in:201-218`) | extension draws `ctx.ui.setWidget` below the editor, `setStatus` as fallback (`hosts/omp/tezgah-hook.ts.in:20-27`); ANSI line from `hosts/omp/hook.py:85-107` | all six: the embedded runner filters skill reads before asking python (`hosts/omp/tezgah-hook.ts.in:40-53`) and no `observable` is passed (`hosts/omp/hook.py:94-96`) |
 
@@ -297,7 +297,7 @@ builder stay in the shared core under `hooks/` (`hosts/omp/hook.py:1-11`,
 
 A skill read is observable only where the host gives a channel that does not cost
 a process per read: Claude parses its transcript (`statusline.py:58-107`),
-opencode classifies in process (`hosts/opencode/plugins/tezgah.js:1370-1433`),
+opencode classifies in process (`hosts/opencode/plugins/tezgah.js:1848-1864`),
 omp filters in its embedded runner before it asks python
 (`hosts/omp/tezgah-hook.ts.in:40-53`). On codex, cursor and dsh a read is not
 observable at that price, so their surfaces pass the four tool-use measures as
@@ -356,10 +356,19 @@ In order, each step verified by the one below it:
   (`hosts/dsh/hooks.json:16`, `hooks/projects-posttooluse.py:86-95`), and its
   statusline row lives in the web profile because the plugin injects the
   web-only `connection` service (`bin/tezgah-setup:942-947`).
+- **opencode carries the untrusted-content control in the plugin**, not by
+  importing `hooks/tezgah_untrusted.py`, which a plugin cannot do in process: the
+  channel is decided in JS (`untrustedSource` `hosts/opencode/plugins/tezgah.js:1515`,
+  the tier's argv reader at `:1475`), the label and the taint notice ride the
+  result the hook is handed (`labelResult` `:1684`), and the sink rule sits in
+  `tool.execute.before` beside the consent rule (`sinkWrite` `:1659`, `sinkCheck`
+  `:1634`, the shell half inside `shellRules` `:1023`). A shared corpus in
+  `tests/test_opencode_plugin.py:1236` drives both halves over the same calls and
+  fails if their answers differ, so neither can move without the other.
 - **opencode has no session-start hook**, so its always-on file must carry the
   pointer every hook host appends, and the per-session index, agent and contract
   refreshes ride the first `chat.message` instead (`bin/tezgah-setup:574-583`,
-  `hosts/opencode/plugins/tezgah.js:1786-1798`). It denies the native `skill`
+  `hosts/opencode/plugins/tezgah.js:2197-2208`). It denies the native `skill`
   tool - the generated router replaces the injected skill list
   (`bin/tezgah-setup:789-791`) - and `permission.ask` may never be emitted by a
   given build, which is why `tool.execute.before` stays the enforcing half
@@ -632,7 +641,7 @@ Each host's pre-tool hook calls it and wraps the string in that host's own deny 
 |---|---|---|
 | claude, dsh | `hooks/projects-pretooluse.py:24-30` (`hosts/dsh/hooks.json:13`) | `hookSpecificOutput.permissionDecision: "deny"` |
 | codex, cursor, omp | `hosts/codex/hook.py:118-125`, `hosts/cursor/hook.py:279-281`, `hosts/omp/hook.py:117-120` | that host's own envelope — [hosts.md](page-hosts) |
-| opencode | `hosts/opencode/plugins/tezgah.js:1610` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:1719` |
+| opencode | `hosts/opencode/plugins/tezgah.js:2013` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:2130` |
 
 Every refusal is also recorded before it is returned: `_deny` appends a ledger row `deny` whose `detail` is `"<rule>: <reason, first 80 chars>"`, plus any
 `extra` (`hooks/tezgah_gate.py:1425-1439`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
@@ -860,28 +869,28 @@ traffic that produced it, instead of against a hand-built adversarial set.
 ### The mirror: the opencode plugin
 
 opencode cannot run Python hooks, so `hosts/opencode/plugins/tezgah.js` is an independent JavaScript re-implementation of the same rules, dispatched from
-`tool.execute.before` (hosts/opencode/plugins/tezgah.js:1610, exported `hosts/opencode/plugins/tezgah.js:1558`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:1624-1684`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:294`,
-`SKIP_ENV` hosts/opencode/plugins/tezgah.js:295, `NO_VERIFY` `hosts/opencode/plugins/tezgah.js:296`, `GITISH` `hosts/opencode/plugins/tezgah.js:297`, `SKIP_TEST` `hosts/opencode/plugins/tezgah.js:298`). What keeps the two halves honest is a test, not a shared module:
+`tool.execute.before` (hosts/opencode/plugins/tezgah.js:1610, exported `hosts/opencode/plugins/tezgah.js:1961`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:2027-2096`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:300`,
+`SKIP_ENV` hosts/opencode/plugins/tezgah.js:295, `NO_VERIFY` `hosts/opencode/plugins/tezgah.js:302`, `GITISH` `hosts/opencode/plugins/tezgah.js:303`, `SKIP_TEST` `hosts/opencode/plugins/tezgah.js:304`). What keeps the two halves honest is a test, not a shared module:
 `tests/test_opencode_plugin.py` drives the plugin's hooks through a node harness with a throwaway HOME, and imports the Python `tezgah_integrity.call_id` so a
-separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `:21-24`, `tests/test_opencode_plugin.py:1019-1057`).
+separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `:21-24`, `tests/test_opencode_plugin.py:1026-1065`).
 
 The two halves agree on the consent rule. A repeat of an irreversible or
 outward-facing command the user has not approved is refused again, carrying the ask-stands note rather than a second question
 (`hosts/opencode/plugins/tezgah.js:1032-1043`, `hooks/tezgah_gate.py:1572-1581`); a grant is a lease on one effect in one workspace, spent by
 the outcome row that follows it, so the next identical command is asked about again instead of passing on the first approval
-(`unspent_grant` `hooks/tezgah_gate.py:588-632`, `consentMark` `hosts/opencode/plugins/tezgah.js:950-964` - each half records the same scope,
+(`unspent_grant` `hooks/tezgah_gate.py:588-632`, `consentMark` `hosts/opencode/plugins/tezgah.js:963-972` - each half records the same scope,
 `os.path.realpath(cwd)` against `realpathSync(dir)`, so a row one writes is one the other honours); and the refusal
 names the action's digest and the CLI that answers it (`consent_reason` `hooks/tezgah_gate.py:803-817`, `ASK_STANDS_NOTE`
-`hooks/tezgah_gate.py:384-386`). Each half's repeat path is pinned in its own suite (`tests/test_opencode_plugin.py:447-462`, `tests/test_opencode_plugin.py:464-476`;
+`hooks/tezgah_gate.py:384-386`). Each half's repeat path is pinned in its own suite (`tests/test_opencode_plugin.py:454-470`, `tests/test_opencode_plugin.py:471-484`;
 `tests/test_gate.py:630-658`).
 
-The three rule kinds added last are mirrored too, each pinned in both suites: the shell's write body (`SHELL_WRITE` `hosts/opencode/plugins/tezgah.js:448`,
-`heredocBodies` `hosts/opencode/plugins/tezgah.js:454`, `shellWriteBody` `hosts/opencode/plugins/tezgah.js:498`, the shortcut and attribution twins at
-`hosts/opencode/plugins/tezgah.js:1649` and `hosts/opencode/plugins/tezgah.js:1624`, the credential twin at `hosts/opencode/plugins/tezgah.js:1061`), the two
-shared-resource destroys (`REMOTE_DESTROY` `hosts/opencode/plugins/tezgah.js:149`, `remoteDestroy` `hosts/opencode/plugins/tezgah.js:1194`, `flyway clean` added
-to `MIGRATION` `hosts/opencode/plugins/tezgah.js:168`), and the ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:882`, `ORDER_DENY`
-`hosts/opencode/plugins/tezgah.js:884`, `lastVerify` `hosts/opencode/plugins/tezgah.js:894`, `orderReason` `hosts/opencode/plugins/tezgah.js:919`, dispatched at
-`hosts/opencode/plugins/tezgah.js:1678`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
+The three rule kinds added last are mirrored too, each pinned in both suites: the shell's write body (`SHELL_WRITE` `hosts/opencode/plugins/tezgah.js:454`,
+`heredocBodies` `hosts/opencode/plugins/tezgah.js:460`, `shellWriteBody` `hosts/opencode/plugins/tezgah.js:504`, the shortcut and attribution twins at
+`hosts/opencode/plugins/tezgah.js:2060` and `hosts/opencode/plugins/tezgah.js:2027`, the credential twin at `hosts/opencode/plugins/tezgah.js:1088`), the two
+shared-resource destroys (`REMOTE_DESTROY` `hosts/opencode/plugins/tezgah.js:155`, `remoteDestroy` `hosts/opencode/plugins/tezgah.js:1223`, `flyway clean` added
+to `MIGRATION` `hosts/opencode/plugins/tezgah.js:174`), and the ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:895`, `ORDER_DENY`
+`hosts/opencode/plugins/tezgah.js:897`, `lastVerify` `hosts/opencode/plugins/tezgah.js:907`, `orderReason` `hosts/opencode/plugins/tezgah.js:932`, dispatched at
+`hosts/opencode/plugins/tezgah.js:2089`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
 `fail`, and a row that narrowing would refuse reads `ok`/`ran` on both sides, so the outcome is identical. The miner has no mirror: it is a reader on the
 status CLI, not a rule a tool call meets.
 
@@ -1092,11 +1101,18 @@ the effect's own row then carries the channel, so the taint is a transition rath
 The taint is enforced at the sink: while an untrusted read is live, an effect is refused unless the
 user's own approval was written *after* the read (`sink_check` `hooks/tezgah_gate.py:885-918`; deny
 rule `sink` at `hooks/tezgah_gate.py:1527-1534` for a write outside the root,
-`hooks/tezgah_gate.py:1564-1565` for a shell effect class). The
-label reaches the model on the four Python hosts: Claude and dsh through
+`hooks/tezgah_gate.py:1564-1565` for a shell effect class). opencode reaches the same rule from its
+own gate hook (`sinkWrite` `hosts/opencode/plugins/tezgah.js:1659`, `sinkCheck` `:1634`, the shell
+half inside `shellRules` `:1023`). The
+label reaches the model on every host that has a surface for it: Claude and dsh through
 `hooks/projects-posttooluse.py:80-83`, Codex (`hosts/codex/hook.py:153-154`), Cursor
-(`hosts/cursor/hook.py:230-231`), omp (`hosts/omp/hook.py:139-163`). opencode's plugin makes no call
-to the provenance test (`hosts/opencode/plugins/tezgah.js`), so that host supplies neither half.
+(`hosts/cursor/hook.py:230-231`), omp (`hosts/omp/hook.py:139-163`), and opencode, whose plugin
+cannot import the core in process and mirrors the control in JavaScript instead — the channel on the
+call's own row, the label and the taint notice in front of the result the hook is handed, including
+the `external` row an MCP answer or a fetched page earns (`untrustedSource`
+`hosts/opencode/plugins/tezgah.js:1515`, `labelResult` `:1684`, with the tier's argv reader at
+`:1475`). The two halves are pinned against each other over a shared corpus, so neither can move
+without failing the other's test (`tests/test_opencode_plugin.py:1236`).
 
 ### The counters a maintainer reads
 
@@ -1828,7 +1844,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 - `--refresh` does that for opencode alone, without a reinstall: opencode has no
   session-start hook, so its plugin calls it once per session when the stored
   hash no longer matches the source
-  (`hosts/opencode/plugins/tezgah.js:1791-1796`).
+  (`hosts/opencode/plugins/tezgah.js:2202-2208`).
 - `--sync` copies the checkout over the Claude plugin copy, because Claude Code
   runs `~/.claude/plugins/cache/<owner>/tezgah/<version>/` and never this
   checkout (`bin/tezgah-setup:2002-2012`, `bin/tezgah-setup:2081-2091`); `--install` refreshes a stale copy itself

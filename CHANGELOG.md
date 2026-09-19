@@ -255,6 +255,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   1.4 GB and 499 MB - and never touches it: the number is there so a reader can
   decide, and the reported bytes are apparent file sizes, not disk blocks, so a
   `du -sh` beside it will read smaller.
+- **opencode carried no untrusted-content control at all.** The channel
+  classifier, the `source` row, the label on the result and the sink rule reach
+  five hosts through the shared Python core; a plugin cannot import that core in
+  process, and nothing here mirrored the control, so a session on that host that
+  read a fetched page, an MCP answer or a `curl` result went unlabelled and an
+  effect leaving the workspace after it was not refused. The plugin carries all
+  three halves in JavaScript now: a classifier whose answers are pinned against
+  the Python half over a **shared corpus** (33 calls, plus a throwaway 53-shape
+  probe of the shell reader - the probe found one real divergence before the
+  change was finished, on four malformed-quote shapes, and it is closed), the
+  label and the taint notice in front of the result the hook is handed (the
+  runtime passes that object to the model and returns it, read out of the
+  installed 138 MB binary), and the sink rule in `tool.execute.before` beside the
+  consent rule: an effect that leaves the workspace is refused while the turn has
+  a live read, an inside-root one passes with the notice, and the user's own grant
+  from after the read lifts it. Every path fails open, as that plugin's convention
+  requires - an unreadable ledger, a missing session id, or a result that is not a
+  string leaves the call to the host. Six mutation checks were run against the new
+  tests (five killed a test, the sixth is an equivalent mutant: one row is not
+  two). Two ceilings are the Python module's own, verified as identical misses on
+  both halves rather than assumed: a tier read reached through an interpreter
+  (`python3 bin/consult q`) and a network read behind `sudo`. Two docs sentences
+  that the change made false are corrected: `docs/evidence.md` said "opencode's
+  plugin makes no call to the provenance test ... so that host supplies neither
+  half", and the capability row in `docs/hosts.md` said the plugin does neither.
 
 ### Changed
 

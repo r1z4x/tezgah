@@ -175,11 +175,18 @@ the effect's own row then carries the channel, so the taint is a transition rath
 The taint is enforced at the sink: while an untrusted read is live, an effect is refused unless the
 user's own approval was written *after* the read (`sink_check` `hooks/tezgah_gate.py:885-918`; deny
 rule `sink` at `hooks/tezgah_gate.py:1527-1534` for a write outside the root,
-`hooks/tezgah_gate.py:1564-1565` for a shell effect class). The
-label reaches the model on the four Python hosts: Claude and dsh through
+`hooks/tezgah_gate.py:1564-1565` for a shell effect class). opencode reaches the same rule from its
+own gate hook (`sinkWrite` `hosts/opencode/plugins/tezgah.js:1659`, `sinkCheck` `:1634`, the shell
+half inside `shellRules` `:1023`). The
+label reaches the model on every host that has a surface for it: Claude and dsh through
 `hooks/projects-posttooluse.py:80-83`, Codex (`hosts/codex/hook.py:153-154`), Cursor
-(`hosts/cursor/hook.py:230-231`), omp (`hosts/omp/hook.py:139-163`). opencode's plugin makes no call
-to the provenance test (`hosts/opencode/plugins/tezgah.js`), so that host supplies neither half.
+(`hosts/cursor/hook.py:230-231`), omp (`hosts/omp/hook.py:139-163`), and opencode, whose plugin
+cannot import the core in process and mirrors the control in JavaScript instead — the channel on the
+call's own row, the label and the taint notice in front of the result the hook is handed, including
+the `external` row an MCP answer or a fetched page earns (`untrustedSource`
+`hosts/opencode/plugins/tezgah.js:1515`, `labelResult` `:1684`, with the tier's argv reader at
+`:1475`). The two halves are pinned against each other over a shared corpus, so neither can move
+without failing the other's test (`tests/test_opencode_plugin.py:1236`).
 
 ## The counters a maintainer reads
 
