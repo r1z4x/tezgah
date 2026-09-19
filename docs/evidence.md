@@ -42,7 +42,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail` | `note_tool` `:1001-1069` | the Stop rule's `worked` set `:1293`; `counters.steps` `:666-667`; `last_verify`/`partial_state` |
 | `external`, `unknown` | `note_tool` `:1041-1058` | the sink rule, via `source`; nothing counts them as work |
 | `claim` | `stop_reason` `:1207-1232` | `counters` `:677-680` |
-| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1410`, first-nudge `hooks/tezgah_gate.py:1602-1605` | `counters` `:672-676` |
+| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1425`, first-nudge `hooks/tezgah_gate.py:1617-1620` | `counters` `:672-676` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:183-185`, `:262-265` | `_snapshot_hash` `:947-958`; no counter |
 
 **The verify kinds are a tri-state, and an unread outcome is never a pass.** `note_tool`
@@ -104,7 +104,7 @@ command (`_failed_check` `:1234-1244`) and tells the model to report the failure
 line, or fix it and re-run.
 
 **The escape hatches, and the deny that answers each.** The gate refuses these before they run, under
-the same `verify-off` switch (`hooks/tezgah_gate.py:1451-1463`), as rule `shortcut`:
+the same `verify-off` switch (`hooks/tezgah_gate.py:1466-1478`), as rule `shortcut`:
 
 - `--no-verify` on a git/commit/push-style command (`NO_VERIFY` `:62`, `GITISH` `:63`) —
   `shortcut_command` `:743-746`.
@@ -174,8 +174,8 @@ the effect's own row then carries the channel, so the taint is a transition rath
 
 The taint is enforced at the sink: while an untrusted read is live, an effect is refused unless the
 user's own approval was written *after* the read (`sink_check` `hooks/tezgah_gate.py:885-918`; deny
-rule `sink` at `hooks/tezgah_gate.py:1512-1519` for a write outside the root,
-`hooks/tezgah_gate.py:1549-1550` for a shell effect class). The
+rule `sink` at `hooks/tezgah_gate.py:1527-1534` for a write outside the root,
+`hooks/tezgah_gate.py:1564-1565` for a shell effect class). The
 label reaches the model on the four Python hosts: Claude and dsh through
 `hooks/projects-posttooluse.py:80-83`, Codex (`hosts/codex/hook.py:153-154`), Cursor
 (`hosts/cursor/hook.py:230-231`), omp (`hosts/omp/hook.py:139-163`). opencode's plugin makes no call

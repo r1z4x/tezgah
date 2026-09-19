@@ -56,8 +56,8 @@ conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:649-651`)
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, the code graph. That is what a host with
 no prompt-time hook writes into a static file: opencode's
-`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:553-588`) and omp's
-managed `RULES.md` (`bin/tezgah-setup:1032-1034`). Claude applies
+`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:556-591`) and omp's
+managed `RULES.md` (`bin/tezgah-setup:1037-1039`). Claude applies
 `output-styles/tezgah.md` as a plugin output style instead
 (`output-styles/tezgah.md:11-12`); Codex and Cursor receive the same core from
 their session-start hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:203`). `core_for()`
@@ -168,11 +168,11 @@ they survive every other switch being off.
 | `policy.CONTRACT` (`hooks/tezgah_policy.py:674`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:659` |
 
 The second pair is also hashed as one source for the generated opencode contract
-(`bin/tezgah-setup:173-176`, `:152-184`), which notices that *one* of them
+(`bin/tezgah-setup:176-179`, `:152-184`), which notices that *one* of them
 changed; `ContractParity` is what notices that only one of them did, which is the
 drift that actually happens (`tests/test_setup.py:629-652`). `tezgah-setup
 --refresh` re-renders the generated artifacts in a running session when that hash
-is stale (`bin/tezgah-setup:591-606`, `bin/tezgah-setup:2322-2324`).
+is stale (`bin/tezgah-setup:594-609`, `bin/tezgah-setup:2327-2329`).
 
 ## When the injected text grows too large
 
