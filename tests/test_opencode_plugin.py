@@ -353,6 +353,38 @@ class OpenCodePlugin(TempHome):
         self.assertIn("`schema` effect", self.denied(
             self.before("bash", {"command": "flyway clean"})))
 
+    def test_a_ci_run_or_cache_dropped_at_the_service_is_refused_here(self):
+        # the miner's other two, and this half derives `destructive` on its own
+        # rather than asking the core (hooks/tezgah_gate.REMOTE_DESTROY): a
+        # record other people read stops existing, so the spy is planted first
+        # and a spawn would be recorded rather than missing
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        for command in ("gh run delete 12345", "gh cache delete --all"):
+            error = self.denied(self.before("bash", {"command": command}))
+            self.assertIn("`destructive` effect", error, command)
+        for command in ("gh run view 12345", "gh cache list"):
+            self.allowed(self.before("bash", {"command": command}))
+        self.assertEqual(self.spy_calls(log), [])
+
+    def test_ssh_is_put_to_the_core_like_scp(self):
+        # `ssh host cmd` is the same egress `scp` is, and this file keeps no SEND
+        # pattern - so the pre-filter has to carry the name, or the core is never
+        # asked and the command passes unclassified (hooks/tezgah_gate.SEND)
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        for args in ({"command": "ssh host uptime"}, {"command": "ssh host"}):
+            self.assertEqual(self.denied(self.before("bash", args)), SPY_REASON)
+        self.assertEqual([c["payload"]["input"] for c in self.spy_calls(log)],
+                         [{"command": "ssh host uptime"}, {"command": "ssh host"}])
+        # the pre-filter's shape test is a word boundary, as `scp\b` is: a name
+        # that merely starts with `ssh` and continues with a word character
+        # (`sshd`) never reaches the core, while `ssh-keygen` costs the one spawn
+        # the pre-filter's documented looseness is for - the core's own pattern
+        # (`ssh\s`) is what decides its class
+        self.allowed(self.before("bash", {"command": "sshd -T"}))
+        self.assertEqual(len(self.spy_calls(log)), 2)
+
     def test_a_local_or_narrow_delete_asks_nobody(self):
         # the same rule as the Python half's: local and recoverable, or narrow
         # enough that the round-trip costs more than the effect
@@ -578,6 +610,28 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("edit", {"file_path": target, "old_string":
                                           "x = 1", "new_string": "x = 2"}))
         self.assertEqual(self.kinds(), [])
+
+    def test_a_shell_write_is_snapshotted_when_the_call_is_allowed(self):
+        # The shell is a write route like any other: the gate keeps the pre-state
+        # of the file the command redirects into, which is what lets the post hook
+        # tell a redirect that landed from one that wrote the same bytes
+        # (hooks/tezgah_gate.write_paths, tezgah_integrity._post_write). The row is
+        # the capture CLI's own, so it has to exist when the hook returns.
+        support.linked(os.path.join(support.REPO, "bin", "tezgah-capture"),
+                       self.home)
+        target = os.path.join(self.repo, "notes.md")
+        with open(target, "w") as fh:
+            fh.write("x\n")
+        self.allowed(self.before("bash", {"command": "printf y >> notes.md"}))
+        rows = self.ledger()
+        self.assertEqual([r["kind"] for r in rows], ["snapshot"], rows)
+        self.assertEqual(rows[0]["detail"], target)
+        # a quoted `>` is not a redirect and `> /dev/null` is not a file, and a
+        # write whose target is a positional argument is not read at all
+        for command in ("echo 'y > notes.md'", "pytest -q > /dev/null",
+                        "sed -i s/a/b/ notes.md", "ls -la"):
+            self.allowed(self.before("bash", {"command": command}))
+        self.assertEqual(self.kinds(), ["snapshot"])
 
     # ---- the core's own decision for a write (the active task) -------------
     def active_task(self, phase, allowed=(), name="001-x.md"):
@@ -1108,6 +1162,38 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(row["hash"],
                          hashlib.sha256(b"x = 2\n").hexdigest())
         self.assertIs(row["changed"], False)
+
+    def test_a_shell_write_row_carries_the_after_state_and_whether_it_moved(self):
+        # The shell route reaches the same two halves through a redirect: the
+        # gate's capture holds the pre-state (the call site is pinned in the test
+        # above) and the `run` row holds the after-state, so a redirect that wrote
+        # what was already there is not read as a change either
+        # (hooks/tezgah_integrity._post_write).
+        support.linked(os.path.join(support.REPO, "bin", "tezgah-capture"),
+                       self.home)
+        target = os.path.join(self.repo, "notes.md")
+        with open(target, "w") as fh:
+            fh.write("x\n")
+        command = "cat >> %s <<'EOF'\ny\nEOF" % target
+
+        self.allowed(self.before("bash", {"command": command}))
+        with open(target, "w") as fh:          # the command lands
+            fh.write("y\n")
+        self.after("bash", {"command": command})
+        row = self.ledger()[-1]
+        self.assertEqual(row["kind"], "run")
+        self.assertEqual(row["hash"], hashlib.sha256(b"y\n").hexdigest())
+        self.assertIs(row["changed"], True)
+
+        # the same command again: nothing moved between the capture and the hash
+        self.allowed(self.before("bash", {"command": command}))
+        self.after("bash", {"command": command})
+        self.assertIs(self.ledger()[-1]["changed"], False)
+        # and a check row is never the row that carries a change, or a check
+        # redirecting its own output would stale itself
+        self.allowed(self.before("bash", {"command": "pytest -q > out.txt"}))
+        self.after("bash", {"command": "pytest -q > out.txt"}, exit=0)
+        self.assertNotIn("hash", self.ledger()[-1])
 
     def test_a_write_with_no_capture_carries_the_after_state_alone(self):
         # No snapshot row means no pre-state was recorded, and one that was never

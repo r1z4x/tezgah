@@ -48,6 +48,12 @@ def cmd_init(args):
     if not args:
         return misuse("init needs a slug")
     slug = args[0].strip().lower().replace(" ", "-")
+    if not tr.valid_slug(slug):
+        # A slug is the directory name the other commands list, so anything that
+        # is not one (a path, a `..`, a leading dot) would scaffold a line that
+        # `check`, `status` and `claim` can never see.
+        return misuse("init <slug>: %r is not a slug - lowercase letters, digits "
+                      "and dashes" % args[0])
     question = ""
     if len(args) > 1:
         if args[1] != "--question" or len(args) < 3:

@@ -21,6 +21,22 @@ sys.path.insert(0, os.path.join(REPO, "hooks"))
 import tezgah_apps  # noqa: E402
 
 
+def setup_module():
+    """bin/tezgah-setup as a module, for the constants a test has to read from
+    the installer rather than repeat. Importing it is side-effect free (its
+    module level is paths and function definitions)."""
+    import importlib.machinery
+    import importlib.util
+    if "tezgah_setup_probe" in sys.modules:
+        return sys.modules["tezgah_setup_probe"]
+    loader = importlib.machinery.SourceFileLoader("tezgah_setup_probe", SETUP)
+    module = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader("tezgah_setup_probe", loader))
+    sys.modules["tezgah_setup_probe"] = module
+    loader.exec_module(module)
+    return module
+
+
 class SetupBase(unittest.TestCase):
     def setUp(self):
         import tempfile
@@ -536,6 +552,26 @@ class PluginCopy(SetupBase):
         self.assertEqual(
             self.read_text(os.path.join(root, "hooks", "tezgah_gate.py")), checkout)
 
+    def test_a_copy_that_carries_a_file_outside_the_file_set_is_not_current(self):
+        """A file the checkout STOPPED shipping is absent from the listed set, so
+        it cannot move a hash over that set: the copy stayed "current" while
+        serving a skill, or a helper, that no longer exists anywhere. The reverse
+        - a listed file the copy does not hold - is caught by the same row."""
+        root = self.synced_copy()
+        self.assertTrue(self.current(root), "a fresh --sync copy was called stale")
+
+        ghost = os.path.join(root, "skills", "ghost-skill", "SKILL.md")
+        os.makedirs(os.path.dirname(ghost), exist_ok=True)
+        with open(ghost, "w") as fh:
+            fh.write("---\nname: ghost-skill\n---\n")
+        self.assertFalse(self.current(root),
+                         "a copy still serving a dropped skill was called current")
+
+        os.remove(ghost)
+        os.remove(os.path.join(root, "hooks", "tezgah_gate.py"))
+        self.assertFalse(self.current(root),
+                         "a copy missing a file the checkout ships was current")
+
     def test_a_stale_copy_is_reported_and_install_refreshes_it(self):
         _root, fingerprint = self.copy()
         self.assertTrue(self.reported().strip().startswith("MISS"),
@@ -591,6 +627,25 @@ class CodexHome(SetupBase):
         os.remove(hooks)
         self.assertTrue(self.row(self.setup("--hosts", "codex").stdout,
                                  "hooks.json wired").strip().startswith("MISS"))
+
+    def test_a_manifest_missing_the_stop_hook_is_not_reported_as_wired(self):
+        """The row answers "is this host armed?". Stop is the integrity refusal,
+        and the row passed on any single event, so a manifest carrying tezgah's
+        command under six of seven events read `ok` with nothing to block a
+        false "done"."""
+        proc = self.setup("--install", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(self.row(self.setup("--hosts", "codex").stdout,
+                                 "hooks.json wired").strip().startswith("ok"))
+
+        hooks = os.path.join(self.alt, "hooks.json")
+        data = self.read_json(hooks)
+        del data["hooks"]["Stop"]
+        self.write_json(hooks, data)
+        row = self.row(self.setup("--hosts", "codex").stdout, "hooks.json wired")
+        self.assertTrue(row.strip().startswith("MISS"),
+                        "a host wired for every event but Stop was reported as "
+                        "wired: %r" % row)
 
 
 class CursorMatcher(SetupBase):
@@ -680,12 +735,27 @@ class Refresh(SetupBase):
     policy or the full-contract skill changed, without a reinstall."""
 
     def contract_sha(self):
+        # from the installer's own list: a helper that repeats the literals
+        # asserts the implementation against its own assumption, which is how a
+        # source missing from that list stayed invisible
         h = hashlib.sha256()
-        for rel in ("hooks/tezgah_policy.py", "skills/tezgah-contract/SKILL.md"):
+        for rel in setup_module().CONTRACT_SOURCES:
             with open(os.path.join(REPO, rel), "rb") as fh:
                 h.update(fh.read())
             h.update(b"\0")
         return h.hexdigest()
+
+    def test_the_hash_covers_every_source_the_contract_is_rendered_from(self):
+        """The rendered opencode contract is `always_on_core()` (policy.CORE
+        filtered by CORE_RULES, in hooks/tezgah_context.py) plus the skill, and
+        docs/operations.md names all three as sources. With the renderer out of
+        the list an edit to it could not move the hash, so --refresh printed
+        "contract is current" and every opencode session kept the previous
+        always-on text - the one host that cannot see the edit any other way."""
+        self.assertEqual(
+            sorted(setup_module().CONTRACT_SOURCES),
+            ["hooks/tezgah_context.py", "hooks/tezgah_policy.py",
+             "skills/tezgah-contract/SKILL.md"])
 
     def test_stored_hash_covers_policy_and_skill(self):
         self.setup("--install", "--hosts", "opencode")

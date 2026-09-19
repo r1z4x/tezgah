@@ -71,6 +71,18 @@ def line_dir(repo, slug):
     return os.path.join(root(repo), slug)
 
 
+SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def valid_slug(slug):
+    """True for a name `slugs()` can list: lowercase letters, digits and dashes.
+
+    `init` writes under `line_dir`, so anything else - an absolute path, a `..`,
+    a slash, a leading dot - puts state.json and claims.jsonl where `check`,
+    `status` and `claim` never look, or outside the repo altogether."""
+    return bool(SLUG.fullmatch(slug))
+
+
 def _git(repo, *args):
     """(stdout words, error). Never raises: a missing git is an error string."""
     try:
@@ -297,6 +309,10 @@ def append_claim(repo, slug, claim):
     does not parse - is worse than evidence that was refused.
 
     Raises FileNotFoundError when the line directory does not exist."""
+    if not valid_slug(slug):
+        # An invalid slug can still resolve to an existing directory: `..` is
+        # the research root's parent, which is tezgah's own state dir.
+        return claim.get("id"), ["not a research slug: %r" % slug]
     base = line_dir(repo, slug)
     if not os.path.isdir(base):
         raise FileNotFoundError(base)
@@ -461,7 +477,12 @@ evidence that drove it.
 
 
 def init(repo, slug, question="", created=""):
-    """Scaffold a research line. Returns the paths created (never overwrites)."""
+    """Scaffold a research line. Returns the paths created (never overwrites).
+
+    Refuses a slug `slugs()` cannot list - see `valid_slug` - so no caller can
+    write a line that `check`, `status` and `claim` never see."""
+    if not valid_slug(slug):
+        raise ValueError("not a research slug: %r" % slug)
     base = line_dir(repo, slug)
     made = []
     for sub in ("experiments", "literature", "to_human"):

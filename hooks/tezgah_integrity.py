@@ -859,7 +859,10 @@ def classify(tool, inp):
 
 # The channels a result can arrive through that are neither the user nor this
 # workspace: a web result, an MCP server's answer, a shell read that left the
-# machine. Text from one of these can carry instructions the user never gave, and
+# machine, and the tier's own answer (`bin/consult`, `bin/codegen`) - text a
+# model wrote on the far side of the network, which is the same outside channel
+# `curl` is, however deliberately this session asked for it. Text from one of
+# these can carry instructions the user never gave, and
 # nothing else on tezgah's surfaces says so: the gate reads the call's own
 # arguments and never where the text in them came from. The label is the half a
 # host can put in front of the model; the sink rule that would deny a later write
@@ -873,8 +876,52 @@ MCP_TOOL = re.compile(r"^mcp__", re.I)
 # reached through a variable are missed rather than matched by accident.
 NETWORK_READ = re.compile(r"(?:^|[|;&(])\s*(?:curl|wget|gh\s+api)\b",
                           re.I | re.M)
+# The tier's own read, read the same way: the shell reader the status line
+# already uses to say "a shell command really ran consult" (`shell_kind`), so a
+# mention of the tool in an argument is not a run of it. ponytail: that reader
+# keeps basenames only, so `python3 bin/consult q` - the interpreter carries the
+# script as an argument - is missed rather than matched by accident; closing it
+# means teaching shell_programs that python3 takes a script, which is a change
+# to tezgah_context, not to this arm.
+TIER_PROGRAMS = ("consult", "codegen")
+# The invocation that reaches a model is the one with an argument: `consult
+# --help`, `codegen -h` and a bare `consult` print their usage and exit without
+# a call (measured against a loopback stub: `consult --version` is NOT one of
+# these - it becomes the question and spends 3 panel calls, so it stays a read;
+# `codegen --version` exits 1 on the missing --files and is still counted).
+# Reading the usage is not reading an answer, and marking it taints the turn -
+# every write after it then waits on a consent the user gives for a help screen
+# (measured: a `consult --help` held a whole turn's writes). Matched on the raw
+# text because `mask` blanks the question itself, and only after the
+# program-position test above has said this line really runs the tool.
+# ponytail: this is the argv, not the tools' argument parsers, so a question that
+# spells `--help` inside itself, and an invocation the tool rejects (codegen with
+# no --files), are missed - the module's own direction, where a missed read costs
+# a label and a false one costs the turn.
+TIER_CALL = re.compile(r"\b(?:consult|codegen)\b(?P<args>[^|;&<>()\n]*)", re.I)
+TIER_LOCAL_ARGS = ("-h", "--help")
 UNTRUSTED_CHANNEL = {"web": "a web result", "mcp": "an MCP server",
-                     "network": "a network read"}
+                     "network": "a network read",
+                     "tier": "an external model answer"}
+
+
+def _tier_read(cmd):
+    """True when this shell line runs the tier CLI in a form that reaches a
+    model over the network.
+
+    Imported here and not at the top: tezgah_context imports this module for
+    `note_turn`, so a module-level import of it would be a cycle."""
+    try:
+        from tezgah_context import shell_programs
+    except ImportError:  # a checkout without it costs the channel, never the call
+        return False
+    if not set(TIER_PROGRAMS).intersection(shell_programs(cmd)):
+        return False
+    for match in TIER_CALL.finditer(cmd):
+        args = match.group("args").split()
+        if args and not any(arg in TIER_LOCAL_ARGS for arg in args):
+            return True
+    return False
 
 
 def untrusted_source(tool, inp):
@@ -894,6 +941,8 @@ def untrusted_source(tool, inp):
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     if name in BASH_TOOLS and NETWORK_READ.search(mask(cmd)):
         return "network"
+    if name in BASH_TOOLS and _tier_read(cmd):
+        return "tier"
     return None
 
 
@@ -967,6 +1016,12 @@ def _post_write(session_id, inp, cwd):
     that found nothing to do. `capture` records the pre-state only, so nothing in
     the ledger could tell those from a write that landed; the row now carries both
     sides, and a claim about a change has an after-state under it.
+
+    A shell write is the same two halves reached through a redirect: the gate
+    captures the file the command names (tezgah_gate.write_paths reads it off the
+    command), and this reads that same list back. The comparison is what keeps
+    the rule honest for the shell route too - a redirect that wrote the bytes
+    already there is recorded as unchanged, not as a change.
 
     The call's first target is the one recorded, the single-path rule the row's
     `detail` already follows (an apply_patch body names several files and gets one
@@ -1062,9 +1117,16 @@ def note_tool(session_id, tool, inp, failed=None, out_bytes=None, error=None,
               "fail_class": fail_class(error),
               "source": source,
               "workspace": root_for(cwd) if cwd else None}
-    if kind == "edit":
+    if kind in ("edit", "run"):
         # the other half of the write: `capture` recorded the pre-state in the
-        # gate, the after-state is only knowable once the host returned
+        # gate, the after-state is only knowable once the host returned. A `run`
+        # row is here because a shell command can be a write too (the redirect
+        # `tezgah_gate.write_paths` reads): without its after-state the freshness
+        # rule would see no change at all, and with it the row is a change only
+        # when the file's bytes actually moved. A check row (`verify*`) is not:
+        # the row that carries the pass cannot also be the row the fold reads as
+        # the change, or a check redirecting its own output would put the two at
+        # one position and refuse the turn that ran it.
         fields.update(_post_write(session_id, inp, cwd))
     note(session_id, kind, detail, **fields)
 
@@ -1099,16 +1161,35 @@ def _changed_write(row):
     did not exist before, which is a change like any other; a row with neither is
     a write whose target could not be read, and that is left unstated rather than
     assumed - the same way `partial_state` refuses nothing on a state it could
-    not establish."""
+    not establish.
+
+    The fields are what is read, never the kind: a write tool's `edit` row and a
+    shell call's `run` row carry the same pair when the gate captured the same
+    target, so the shell route is not a second implementation of this question.
+    Which kinds the freshness fold counts is `_change_row`'s, below."""
     if row.get("changed"):
         return True
     return "hash" in row and "changed" not in row
 
 
+def _change_row(row):
+    """True when this row is one the freshness fold counts as a change to the
+    tree: a write tool's `edit` row, or a shell call that wrote a file (`run`).
+
+    A `verify*` row is never one, even when its command is a write shape: the row
+    that carries a passing check cannot also be the row the fold reads as the
+    change, or `_last_pass` and `_last_change` return one position and the turn
+    that ran the check is refused for it. ponytail: a shell write chained with a
+    check in one call (`sed -i ... && pytest`) records as the check, so it is not
+    read as a change; a write whose target is not a redirect carries no captured
+    state either (tezgah_gate.write_paths names both ceilings)."""
+    return str(row.get("kind")) in ("edit", "run") and _changed_write(row)
+
+
 def _last_change(rows):
     """The index of the newest write seen to change the tree, or -1."""
     for i in range(len(rows) - 1, -1, -1):
-        if rows[i].get("kind") == "edit" and _changed_write(rows[i]):
+        if _change_row(rows[i]):
             return i
     return -1
 

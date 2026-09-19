@@ -109,6 +109,99 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   uses. The pre-filter is the whole bound on a spawn per bash call, and
   `tests/test_opencode_plugin.py` pins both halves: a candidate reaches the core,
   while a read and a class the table already derives never do.
+- **The contract's source list could go stale without saying so.** The set the
+  installer hashes omitted `hooks/tezgah_context.py` - the renderer that selects
+  and orders the policy's paragraphs - so editing the renderer left the hash
+  unchanged and opencode's always-on text rendering the previous selection. That
+  hash is the only thing that re-renders opencode's text: opencode has no
+  session-start hook. The list names it now, a missing source still reads as
+  stale rather than current (`contract_sha` returns `""` for an unreadable one),
+  and `tests/test_setup.py` asserts the installer's list against the three
+  sources `docs/operations.md` names.
+- **`hooks.json wired` passed on any single event.** The row asked whether one
+  marker appeared under *some* event, so a manifest wired for 6 of 7 events - or
+  12 of 13 on Cursor - read as armed, and a host with no Stop hook at all read as
+  armed. `_hooks_has(path, marker, events)` now returns True only when every
+  named event carries the marker (`None` keeps the old any-event meaning that
+  `predecessors()` relies on), and the two event lists are module constants the
+  installers write from and the rows check against, so a row cannot drift from
+  what the installer wired.
+- **The plugin-copy freshness check could not see a file the copy held and the
+  checkout no longer shipped.** The hash covered only files that still exist, and
+  an unreadable source reads as `None`. `plugin_copy_current` compares both
+  directions now, walking the copy with the same `managed()` predicate the source
+  list is filtered through, and `--install` still empties the copy first, so the
+  ghost goes.
+- **The failed-index note named a log the worker never writes.** The note and the
+  worker's stdout are one value now (`log_path`), so the path a reader is sent to
+  is the file that exists - the hook opens it and hands the descriptor to the
+  worker, which writes no log of its own. Line-count neutral, so no citation into
+  that file moves.
+- **`tezgah-research init` accepted any slug, and one of them wrote into
+  `.tezgah` itself.** `check`, `status` and `claim` list `[a-z0-9][a-z0-9-]*`
+  only, so a slug with a separator or a leading dot made a line no other command
+  could see; `..` resolved to `.tezgah`, where `state.json` and `claims.jsonl`
+  were written. `init` refuses anything outside that set with exit 2 (misuse) and
+  `append_claim` returns a problem instead of writing, so no line can exist that
+  the readers cannot find.
+- **A referee's answer was printed as a judgement without being read.** The
+  reply was checked for being non-empty and nothing else, so a model answering in
+  prose under `## referee (<model>)` read as a cross-examination:
+  `consult --models m1` exited 0, printed `referee: m1`, and printed the
+  paragraph. The five field names the referee is asked for are checked now, and a
+  reply missing any of them is disclosed exactly as a dead referee is -
+  `referee: FAILED (unstructured)`, the panel standing unjudged, a retry hint -
+  and the verdict text is not printed at all, because an unheadlined paragraph
+  under that heading reads as a verdict whatever the footer says. Presence only:
+  the content of an answer that does carry the headings is not judged.
+- **codegen vouched for a draft by its suffix.** The parse guard keyed on `.py`,
+  so a draft with no suffix - the repository's own `bin/*` scripts, which are
+  exactly what the router hands it - was never parsed and still exited 0. A
+  Python shebang counts now, and a language nothing here parses (`.tsx`, `.js`)
+  is named on stderr instead of passing silently: `codegen: NOTE <path> was not
+  parsed (no checker for this type)`. The ceiling is stated in code and in the
+  contract: a broken `.tsx` draft still exits 0, and the point is that the router
+  is told which file nothing read.
+- **A consult or codegen answer was not an untrusted channel.** `curl` to a
+  provider's URL was a network read; the tools that call one on the session's
+  behalf were not, so the two highest-trust paths into the context carried no
+  provenance label and no taint. A shell line that runs `consult` or `codegen` at
+  a program position is a `tier` read now, named `an external model answer`, and
+  every caller of `untrusted_source()` gets it - the label on the result, the row
+  `source`, the taint notice and the gate's sink rule. The invocation shape is
+  the rule rather than a list of local forms: `-h`/`--help` and a bare invocation
+  reach no provider and are not reads, while `consult --version` was measured
+  reaching one (3 calls, the panel asked the question `--version`). Two ceilings
+  are stated in code: `python3 bin/consult q` is missed (the shell reader keeps
+  basenames and does not treat `python3` as a wrapper), and a question that
+  spells `--help` inside itself still counts - each closure would mean teaching
+  the reader or duplicating a tool's argument parser, and the direction is the
+  module's own: a missed read costs a label, a false one costs the turn.
+- **The freshness rule could not see a shell write.** Its fold read `edit` rows
+  only, while the gate's own experience is that a refused write tool sends an
+  agent to the shell - the route E7c measured, and the structural limit
+  ActPlane names. A `run` row whose captured target changed counts as a change
+  now beside an `edit` row (`_change_row`, `hooks/tezgah_integrity.py`), and the
+  gate hands a shell write's redirect target - or `tee`'s argument - to the same
+  `capture` a write tool goes through (`write_paths`, `shell_target`,
+  `SHELL_AS_WRITE` in `hooks/tezgah_gate.py`), mirrored in the JS half. No new
+  mechanism and no new ledger field: `capture` already took a write tool's path
+  field and `_post_write` already hashed the after-state. Four things still do
+  not count, each pinned: a `verify*` row (the row that carries a pass cannot
+  also be the row read as the change, or a check redirecting its own log would
+  stale itself), a no-op write, a command that writes no file, and a quoted `>`
+  or `> /dev/null` - the shape test runs on masked text. Ceiling named in code:
+  `_stale_paths` still names edit rows only, so a refusal for a shell-only change
+  falls back to "a file this session wrote".
+- **`ssh` derived no effect class, and neither did two `gh` deletes.** `scp` was
+  the send class and `ssh` was not, though `ssh host cmd` reaches a machine this
+  ledger holds no pre-state for and can run a command there - the same egress,
+  and further. It is classed now beside `nc`/`ncat`/`scp` (a bare `ssh` still
+  derives nothing), and `gh run delete` / `gh cache delete` joined the
+  `destructive` clause beside `gh repo delete|archive` and `aws s3 rb`: a CI
+  run's record, and the caches other runs read, stop existing. `gh run view` and
+  `gh cache list` stay unclassified, and a `# ponytail:` note records the
+  ceiling - the next run rebuilds a cache, so the ask may not be earned.
 
 ### Changed
 
@@ -119,6 +212,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `tests/test_docs.py` now checks the half a script can (the cited file exists and
   the line is inside it); and the 61 citations the mechanical pass could not
   verify are tracked in `plans/open/002-docs-citation-drift.md`.
+- **that audit left the page it corrected most mangled, and no check could see
+  it.** Twelve citations in `docs/operations.md` carried a path stitched onto
+  itself with a range running backwards
+  (`bin/tezgah-setupbin/tezgah-setupbin/tezgah-setup:2259-2256`, up to five
+  repetitions of the path), and the same twelve were mirrored in the generated
+  `HANDBOOK.md`. The mangling was two-part - the path repeated *and* the numbers
+  moved - and the ten argument-parser rows pointed at no revision's flag line, so
+  those numbers were re-derived from the code (`ap.add_argument("--wizard"` and
+  its nine siblings) rather than un-shifted. `tests/test_docs.py` checked a
+  range's bound but never the path, so a mangled token passed a green suite;
+  `test_no_citation_repeats_its_own_file_name_or_runs_backwards` now rejects a
+  token that names its own file twice or ends before it starts. Neither rule
+  needs an allowlist, and the pattern had to be widened to every backticked
+  `path:line`: the extension-shaped pattern the file's other check uses never
+  reaches `bin/tezgah-setup`, which has no suffix - the first version of the new
+  test passed on the mangled tree for exactly that reason, and was re-proved
+  failing in a clean clone (12 failures) before it was re-proved passing.
 
 ### Added
 

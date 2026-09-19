@@ -607,6 +607,27 @@ class Cli(Workspace):
             self.assertIn(message, proc.stderr, args)
             self.assertEqual(proc.stdout, "", args)
 
+    def test_init_refuses_a_slug_no_other_command_can_see(self):
+        """A slug is the directory name `slugs()` lists, which is what `check`,
+        `status` and `claim` all go through. `init ..` wrote state.json and
+        claims.jsonl into .tezgah itself - the directory the status surfaces
+        treat as tezgah's own - and exited 0, and an absolute slug wrote outside
+        the repository. Both writers refuse now, and nothing is created."""
+        repo = self.repo()
+        for slug in ("..", "../escape", "a/b", ".hidden", "/tmp/absolute-line"):
+            with self.subTest(slug=slug):
+                proc = self.cli(repo, "init", slug)
+                self.assertEqual(proc.returncode, 2, (slug, proc.stdout))
+                self.assertEqual(proc.stdout, "", slug)
+
+        _id, problems = tr.append_claim(repo, "..", dict(CLAIM))
+        self.assertTrue(problems, "append_claim accepted a slug slugs() hides")
+        self.assertEqual(tr.slugs(repo), [])
+        self.assertFalse(os.path.exists(os.path.join(repo, ".tezgah", "state.json")))
+        self.assertFalse(
+            os.path.exists(os.path.join(repo, ".tezgah", "research", "state.json")))
+        self.assertFalse(os.path.exists(os.path.join(repo, ".tezgah", "claims.jsonl")))
+
     def test_check_with_a_slug_reports_only_that_line(self):
         repo = self.repo()
         self.line(repo, "alpha", question="alpha?")

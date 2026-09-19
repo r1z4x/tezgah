@@ -24,10 +24,13 @@ EXIT CODES, and they are the contract:
   2  codegen cannot deliver -- WRITE THE CODE YOURSELF with the main model.
      Raised for: no key, API or network failure, a request that outlived
      --timeout, the model answering BLOCKED, an unparseable reply, a TRUNCATED
-     reply (finish_reason=length), a draft that is not valid Python, or drafts
+     reply (finish_reason=length), a Python draft that does not parse (a `.py`
+     file, or any file whose shebang names Python), or drafts
      identical to what is already there.
      A half-written file that happens to parse is the failure this guards
-     against: it looks like an answer and is not one.
+     against: it looks like an answer and is not one. A draft in a language no
+     checker here parses (`.tsx`, `.js`) is NOT parsed: it still exits 0 and the
+     footer names it, so the router knows which of its files nothing examined.
   1  the caller misused the tool (bad arguments)
   130 the request was interrupted (Ctrl-C): stop, do not fall back
 """
@@ -83,6 +86,9 @@ SYSTEM = """You are writing code inside an existing repository. Rules:
 # docs, anything with a code sample) used to truncate the file silently
 BLOCK = re.compile(r"=== FILE: (?P<path>[^=]+?) ===\s*```[a-zA-Z]*\n"
                    r"(?P<body>.*?)\n```[ \t]*(?=\s*(?:=== FILE:|\Z))", re.S)
+# A file whose first line says it is Python is one, whatever it is called - the
+# repo's own bin/* scripts have no `.py` and are the drafts this tool is handed.
+PY_SHEBANG = re.compile(r"^#![^\n]*\bpython[0-9.]*\b")
 
 
 def key(provider):
@@ -209,18 +215,33 @@ def main():
 
     # Each draft must parse and must differ. A draft that does not parse is a
     # half-written file; one that is byte-identical is a model that did nothing.
-    changed = []
+    # What this can vouch for is Python, by suffix or by shebang: the repo's own
+    # bin/* scripts carry no `.py`, and they are exactly what the router hands
+    # this tool. Nothing here parses TypeScript or JavaScript, so a draft in one
+    # of those is named as unparsed in the footer rather than passed in silence -
+    # exit 0 is the router's go-ahead, and a file nothing examined has to say so.
+    # ponytail: widening past Python means a real second parser (bun/node) and its
+    # version, not another entry on a suffix list.
+    changed, unparsed = [], []
     for path, dest in written:
-        if path.endswith(".py"):
+        body, current = open(dest).read(), open(path).read()
+        vouchable = path.endswith(".py") or bool(PY_SHEBANG.match(body))
+        if vouchable:
             try:
-                ast.parse(open(dest).read(), filename=dest)
+                ast.parse(body, filename=dest)
             except SyntaxError as exc:
                 raise Insufficient(f"{path}: the draft is not valid Python ({exc})") from exc
-        if open(dest).read() != open(path).read():
-            changed.append((path, dest))
+        if body == current:
+            continue
+        changed.append((path, dest))
+        if not vouchable:
+            unparsed.append(path)
     if not changed:
         raise Insufficient("every draft is identical to the file it replaces")
 
+    for path in unparsed:
+        print(f"codegen: NOTE {path} was not parsed (no checker for this type)",
+              file=sys.stderr)
     for path, dest in changed:
         subprocess.run(["diff", "-u", path, dest], check=False)
     written = changed

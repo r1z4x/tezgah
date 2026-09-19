@@ -19,6 +19,7 @@ from support import TempHome, run_json
 
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_context as tc  # noqa: E402
+import tezgah_gate as tg  # noqa: E402  (the write-tool name the gate captures a shell write under)
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_snapshot as tz  # noqa: E402
 
@@ -645,6 +646,89 @@ class StaleEvidence(unittest.TestCase):
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIn("Stale evidence", reason)
         self.assertIn(new, reason)
+
+    # ---- the shell route: the same write reached through a redirect --------
+    # Measured on 2026-09-19 (`E3-late-note`): the rule fired on a session that
+    # wrote with the write tools, and the same append through a heredoc would have
+    # been invisible, because `_changed_write` counted `edit` rows only and a
+    # shell write records `run`. The two halves of that write are the gate's
+    # capture of the file the command redirects into (its call site is pinned in
+    # tests/test_gate.py) and `_post_write` reading the same target back.
+    def shell(self, command, text=None):
+        """One shell write to `self.target`: the pre-state the gate keeps, the
+        command's effect, and the after-state the host's post hook records."""
+        tz.capture(tg.SHELL_AS_WRITE, {"file_path": self.target}, self.dir, "s")
+        if text is not None:
+            with open(self.target, "w") as fh:
+                fh.write(text)
+        ti.note_tool("s", "Bash", {"command": command}, failed=False)
+        return ti.events("s")[-1]
+
+    def append(self, text=None):
+        """The measured shape: `cat >> file <<'EOF'` writing `text`."""
+        return self.shell("cat >> %s <<'EOF'\n%s\nEOF" % (self.target, text or ""),
+                          text)
+
+    def test_a_shell_write_after_the_check_makes_the_check_stale(self):
+        self.edit("v1\n")
+        self.check()
+        row = self.append("v2\n")
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("Stale evidence", reason)
+        self.assertEqual(row["kind"], "run")
+        self.assertIs(row["changed"], True)
+
+    def test_a_shell_write_that_changed_nothing_does_not_stale_the_check(self):
+        # the control the honest mechanism buys: the file's bytes are the whole
+        # question, so a redirect that wrote what was already there is not a
+        # change - had the row been marked changed from the command's shape, every
+        # redirect would stale every check
+        with open(self.target, "w") as fh:
+            fh.write("v1\n")
+        self.check()
+        row = self.append(None)
+        self.assertEqual(row["kind"], "run")
+        self.assertIs(row["changed"], False)
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_check_after_the_last_shell_write_still_licenses_the_claim(self):
+        with open(self.target, "w") as fh:
+            fh.write("v1\n")
+        self.append("v2\n")
+        self.check()
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_shell_command_that_writes_no_file_is_not_a_change(self):
+        # the shape test is the gate's SHELL_WRITE on the masked text: a quoted
+        # `>` is not a redirect and `> /dev/null` is not a file, so the row carries
+        # no after-state and the check is not staled by either
+        self.check()
+        for command in ("echo 'x > notes.md'",
+                        "pytest -q > /dev/null",
+                        "ls -la"):
+            ti.note_tool("s", "Bash", {"command": command}, failed=False)
+            self.assertNotIn("hash", ti.events("s")[-1])
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_check_that_writes_its_own_log_is_not_the_change(self):
+        # The control on the other side of the cut (`_change_row`): a `verify*` row
+        # is never read as a change, so a check that redirects its own output does
+        # not stale itself. Were it counted, `_last_pass` and `_last_change` would
+        # land on this one row and the turn that ran the check would be refused.
+        with open(self.target, "w") as fh:
+            fh.write("v1\n")
+        tz.capture(tg.SHELL_AS_WRITE, {"file_path": self.target}, self.dir, "s")
+        ti.note_tool("s", "Bash", {"command": "pytest -q > %s" % self.target},
+                     failed=False, out_bytes=42)
+        row = ti.events("s")[-1]
+        self.assertEqual(row["kind"], "verify_ok")
+        self.assertNotIn("hash", row)
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_turn_that_changed_nothing_is_still_never_refused(self):
+        # the floor, unmoved by the shell half: nothing written, nothing run, and
+        # a claim - there is no evidence to point at, so nothing refuses
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
 
 class LedgerAppendLock(unittest.TestCase):

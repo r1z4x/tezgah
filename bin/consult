@@ -20,7 +20,9 @@ CONSULT_JUDGE the referee.
 
 Output: one "## <model>" section per independent answer, then "## referee
 (<model>)" judging them, then a footer naming what answered, what failed and
-how, and the one variable to change on a retry.
+how, and the one variable to change on a retry. A reply that does not answer
+under the five headings the referee was asked for is reported as a failed
+cross-examination, not printed as a judgement.
 
 Exit codes: 0 at least one model answered; 1 misuse (bad or unknown arguments,
 or --online on a provider that has no :online suffix); 2 the chosen provider has
@@ -76,6 +78,14 @@ REFEREE = (
     "If one answer is simply better, say so plainly. If the panel agrees, say "
     "what they agreed on and what that agreement does not prove."
 )
+# The five field names REFEREE above asks for, as substrings a reply has to
+# carry. The headings are why stage two exists - the caller reads back named
+# fields instead of a paraphrase that quietly drops the minority view - so a
+# reply without them is not a cross-examination and is never printed as one.
+# Presence only: whether the verdict is *right* is the caller's to judge, and a
+# second judge here would be exactly the free-form opinion this stage replaces.
+REFEREE_FIELDS = ("recommendation", "key disagreements", "unchecked assumptions",
+                  "what would change my mind", "requested evidence")
 
 
 def defaults(provider):
@@ -181,6 +191,8 @@ def retry_hint(classes):
         return "drop the model that answered empty (refused or filtered) from --models"
     if c == "malformed-reply":
         return "the endpoint is not speaking the chat-completions schema; check CONSULT_URL and --provider"
+    if c == "unstructured":
+        return "the referee answered outside its five headings; re-run, or judge the panel yourself"
     if c.startswith("http-4"):
         return "the provider rejected the request; a 401/403 means the key, not the question"
     if c.startswith("http-5"):
@@ -293,6 +305,16 @@ def main():
         except concurrent.futures.TimeoutError:
             verdict, jerr, jcls = None, "timed out after %ss" % deadline, "timeout"
         print("## referee (%s)" % judged)
+        if not jerr:
+            missing = [f for f in REFEREE_FIELDS if f not in verdict.lower()]
+            if missing:
+                # A reply that skipped a heading is not a judgement under the
+                # fields the caller reads back, so it takes the same road as a
+                # referee that never answered: the panel stands unjudged. The
+                # text is not printed - an unheadlined paragraph in the referee
+                # section reads as a verdict whatever the footer says.
+                jerr = "the reply did not answer: %s" % ", ".join(missing)
+                jcls, verdict = "unstructured", None
         if jerr:
             print("ERROR: %s" % jerr)
             classes.append(jcls)

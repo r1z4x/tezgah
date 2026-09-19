@@ -219,17 +219,17 @@ def autoindex(root):
     if stamped == head and head != "nogit":
         return "index current (HEAD unchanged since last index)"
     # a failed worker leaves this marker; surface it and clear it once, so the
-    # session learns the last index failed instead of it looping invisibly
+    # session learns the last index failed, naming the log the output goes to
     failure = stamp_path + ".failed"
-    note = None
+    note, log_path = None, os.path.join(cache, "logs", name + ".log")
     if os.path.exists(failure):
         try:
             os.remove(failure)
         except OSError:
             pass
-        note = "last auto-index failed (see %s/%s.log)" % (cache, name)
+        note = "last auto-index failed (see %s)" % log_path
     try:
-        log = open(os.path.join(cache, "logs", name + ".log"), "ab")
+        log = open(log_path, "ab")
         # Spawn the lock-guarded worker rather than indexing inline. Two sessions
         # in the same repo must not index at once, and a concurrent CBM
         # generation makes the CLI refuse to start (transient); the worker holds

@@ -976,6 +976,36 @@ class Gate(TempHome):
                       self.decide("Bash", {"command": "rsync -avz ./dst host:/dst"}))
         self.assertIsNone(self.decide("Bash", {"command": "rsync -avz host:/src ./dst"}))
 
+    def test_ssh_is_the_same_egress_scp_is(self):
+        # The miner found `ssh host cmd` deriving no class in this machine's real
+        # traffic, while `scp` - the same connection, reached with a command
+        # instead of a copy - was already `send`. The call reaches a machine this
+        # ledger holds no pre-state for, and an interactive login is the same
+        # call with the command left out: one class for both spellings, and the
+        # refusal is one-shot like every other connection tool's.
+        for command in ("ssh host uptime", "ssh -p 2222 host 'cat /etc/x'",
+                        "ssh build@host 'make deploy'", "ssh host"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("`send` effect", reason, command)
+        # and the shape test still leaves the names that merely start with it
+        for command in ("sshd -T", "ssh-keygen -t ed25519", "grep -rn ssh docs/"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_a_ci_run_or_cache_dropped_at_the_service_is_destructive(self):
+        # The miner's other two: `gh run delete` and `gh cache delete` are the
+        # same class as `gh repo delete` - a record other people read stops
+        # existing - and neither derived a class before this.
+        for command in ("gh run delete 12345", "gh cache delete --all",
+                        "gh run delete --repo o/r 12345"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIsNotNone(reason, command)
+            self.assertIn("`destructive` effect", reason, command)
+        # reading the same records is not this rule's, and neither is the local
+        # delete the class deliberately leaves out
+        for command in ("gh run view 12345", "gh cache list", "gh run list"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
     # ---- ordering: a commit while the newest check failed ------------------
     def test_a_commit_is_refused_while_the_newest_check_failed(self):
         # C9: the one relation between two actions this gate asserts. The state
@@ -1211,9 +1241,48 @@ class Gate(TempHome):
         self.assertEqual(calls()[0]["input"], write)
         self.assertEqual(calls()[0]["cwd"], self.repo)
         self.assertEqual(calls()[0]["session_id"], "cap")
-        # and a bash command is not a write tool: there is no file to keep
+        # and a bash command that writes nothing is not a write tool: there is no
+        # file to keep
         self.assertIsNone(self.decide("Bash", {"command": "pytest -q"},
                                       session_id="cap", capture_log=log))
+        self.assertEqual(len(calls()), 1, calls())
+
+    def test_a_shell_write_is_handed_to_capture_like_a_write_tool(self):
+        # The shell is a write route like any other, and the freshness rule reads
+        # the same two halves for it: the gate keeps the pre-state of the file the
+        # command redirects into, and the post hook hashes it (see
+        # tezgah_integrity._post_write). Without this the after-state alone could
+        # not tell a write that landed from a no-op.
+        log = os.path.join(self.home, "shell-capture.jsonl")
+
+        def calls():
+            if not os.path.exists(log):
+                return []
+            with open(log) as fh:
+                return [json.loads(line) for line in fh if line.strip()]
+
+        self.assertIsNone(self.decide(
+            "Bash", {"command": "printf x >> notes.md"}, session_id="shellcap",
+            capture_log=log))
+        self.assertEqual(len(calls()), 1, calls())
+        # the target is the one the command writes, and it goes to capture in the
+        # shape capture reads - a write tool's own path field
+        self.assertEqual(calls()[0]["tool"], tg.SHELL_AS_WRITE)
+        self.assertEqual(calls()[0]["input"], {"file_path": "notes.md"})
+        self.assertEqual(calls()[0]["session_id"], "shellcap")
+        # a quoted `>` is not a redirect and `> /dev/null` is not a file, so
+        # neither is captured; neither is a command that writes no file
+        for command in ("echo 'x > notes.md'", "pytest -q > /dev/null",
+                        "sed -i s/a/b/ notes.md"):
+            self.assertIsNone(self.decide("Bash", {"command": command},
+                                          session_id="shellcap",
+                                          capture_log=log))
+        self.assertEqual(len(calls()), 1, calls())
+        # and a shell call the gate refuses is captured nowhere, like a refused
+        # write tool
+        self.assertIsNotNone(self.decide(
+            "Bash", {"command": "git push --force origin main && printf x > b.md"},
+            session_id="shellcap", capture_log=log))
         self.assertEqual(len(calls()), 1, calls())
 
     # ---- constraint drift: a long turn re-states the rules -----------------

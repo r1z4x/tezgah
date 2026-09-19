@@ -193,15 +193,22 @@ BRANCH_DELETE = re.compile(
 # The destructive effect that lands on a shared resource at a service instead of
 # on this machine: the remote repository `gh repo delete|archive` closes for
 # everyone, the bucket `aws s3 rb` removes and the prefix `aws s3 rm --recursive`
-# empties. It is read as `destructive` beside the branch delete and not as a
-# `send` - nothing of this workspace's is carried out to a service that acts on
-# it; something both parties owned stops existing. `aws s3 rm` without
+# empties, and `gh run delete`/`gh cache delete` drop a CI run's record and the
+# caches other runs read - the miner found the last two in this machine's real
+# traffic, unclassified (`unclassified_effects`). It is read as `destructive`
+# beside the branch delete and not as a `send` - nothing of this workspace's is
+# carried out to a service that acts on it; something both parties owned stops
+# existing. `aws s3 rm` without
 # `--recursive` is the shape of `rm` on one file, which this table leaves alone.
+# ponytail: a cache is rebuilt by the next run, so the cost of asking here is a
+# round-trip the maintainer may later decide a `gh cache delete` does not earn;
+# the refusal is one-shot either way.
 # The flag is read off the raw text (see remote_destroy): mask() blanks a `//`
 # tail as a comment, so `s3://bucket --recursive` loses it to the masker, the same
 # ceiling `rsync://` has below.
 REMOTE_DESTROY = re.compile(
-    r"(?:^|[|;&]\s*|\s)(?:gh\s+repo\s+(?:delete|archive)\b|aws\s+s3\s+rb\b)",
+    r"(?:^|[|;&]\s*|\s)(?:gh\s+repo\s+(?:delete|archive)\b|"
+    r"gh\s+(?:run|cache)\s+delete\b|aws\s+s3\s+rb\b)",
     re.I)
 AWS_S3_RM = re.compile(r"(?:^|[|;&]\s*|\s)aws\s+s3\s+rm\b", re.I)
 AWS_RECURSIVE = re.compile(r"--recursive\b")
@@ -265,8 +272,11 @@ OUTWARD = re.compile(
 # until this alternative is here. The write is what makes it this rule's - a
 # `curl` that only reads a page is the read the untrusted label covers, not an
 # effect. Matched on the masked text like the rest, so a command merely quoted in
-# a message is not one. `nc`/`scp` are matched by shape, both directions, so
-# `nc --version` is refused once like any other connection tool; `rsync` is read
+# a message is not one. `nc`/`scp`/`ssh` are matched by shape, both directions,
+# so `nc --version` is refused once like any other connection tool; `ssh host
+# cmd` runs a command on a machine this ledger holds no pre-state for, which is
+# the same egress `scp` is and reaches further, and classifying it costs a
+# one-shot ask rather than a policy about who may log in; `rsync` is read
 # one step further, because its direction is the difference between a read and an
 # egress: rsync's LAST argument is where the bytes land, so a remote only in the
 # source position (`rsync host:/src ./dst`) is the read the untrusted label
@@ -289,7 +299,7 @@ SEND = re.compile(
     r"aws\s+ses\s+send-email\b|"
     r"(?:stripe|paypal)\s+(?:charges|refunds|payment_intents|payouts|"
     r"transfers)\b|"
-    r"(?:nc|ncat|scp)\s|"
+    r"(?:nc|ncat|scp|ssh)\s|"
     r"rsync\s+(?:-\S+\s+)*(?:\S+\s+)*\S*:\S*"
     r"(?=(?:\s+-\S+)*\s*(?:$|[|;&)]))|"
     r"curl\b[^|;&]*(?:-X\s*(?:POST|PUT|PATCH|DELETE)|"
@@ -333,8 +343,8 @@ EFFECTS = {
     "send": "this one carries data out to a service that acts on it - mail, a "
             "payment, a remote API called with a write, a copy to another host",
     "destructive": "this one rewrites or drops history, a branch, files "
-                   "outside the run directory, or a repository or bucket other "
-                   "people share",
+                   "outside the run directory, or a resource other people "
+                   "share - a repository, a bucket, a CI run or its cache",
     "schema": "this one changes the shape of a database",
     "deploy": "this one puts code in front of users",
     "publish": "this one ships an artifact to a registry or a release",
@@ -960,18 +970,40 @@ RACE_DENY = (
 # that spells the path differently therefore escapes this rule.
 WRITE_PATH = ("file_path", "filePath", "path")
 PATCH_FILE = re.compile(r"(?m)^\*\*\* (?:Update|Add|Delete) File: (\S.*?)\s*$")
+# The write-tool name a shell write's target is handed to `capture` under. capture
+# takes a write tool's own path field and no shell tool name, and the row it
+# writes carries neither - so one file the shell command changes gets the same
+# pre-state a write tool's target gets, and the ledger gains no field it did not
+# have. See the capture call at the end of `decision`.
+SHELL_AS_WRITE = "write"
 
 
 def write_paths(inp):
     """Every file this call writes: the tool's own path field, else the paths an
-    apply_patch body names per hunk."""
+    apply_patch body names per hunk, else the file a shell command's own text
+    writes through a redirect or `tee` (the shape SHELL_WRITE reads, the target
+    shell_target slices - see the shell section below).
+
+    The shell branch is the one write whose target leaves no path field behind,
+    and it is here rather than in a second reader because the two halves of that
+    write have to agree on one answer: the gate hands these paths to `capture`
+    before the call, and `tezgah_integrity._post_write` reads the same list after
+    it to hash the after-state. Raw strings, unresolved - each caller resolves
+    them against its own directory. ponytail: a target that is a positional
+    argument (`cp`, `mv`, `sed -i`, `patch`, `git apply`) is not read off the
+    command at all; which argument of those is the target is a per-program
+    question, and the measured route is the redirect."""
     if not isinstance(inp, dict):
         return []
     for key in WRITE_PATH:
         value = inp.get(key)
         if isinstance(value, str) and value.strip():
             return [value.strip()]
-    return [m.group(1) for m in PATCH_FILE.finditer(str(inp.get("patch") or ""))]
+    paths = [m.group(1) for m in PATCH_FILE.finditer(str(inp.get("patch") or ""))]
+    if paths:
+        return paths
+    target = shell_target(inp.get("command") or inp.get("cmd") or "")
+    return [target] if target else []
 
 
 def race_reason(inp, session_id):
@@ -1163,6 +1195,31 @@ def task_reason(inp, cwd, base):
 SHELL_TARGET = re.compile(r">>?(?![&=])\s*(\S+)|(?<![\w-])tee\s+(?:-\S+\s+)*(\S+)")
 
 
+def shell_target(command):
+    """The file a shell command's own text writes, or "" - the real redirect's
+    target, or `tee`'s argument, sliced from the raw text at the offset the masked
+    match proved (masking keeps length), so a quoted `>` is not a redirect and
+    `> /dev/null` is not a file.
+
+    The one reader of a shell write's target: `write_paths` uses it for the file
+    a shell call changes (which is what makes the gate capture a pre-state for
+    that write and `_post_write` hash its after-state), and `shell_write_body`
+    uses it for the file whose body the three write-tool twins read. Empty for a
+    command that writes nothing, and for every write whose target is a positional
+    argument rather than a redirect - see `write_paths`."""
+    c = str(command or "")
+    if not c:
+        return ""
+    masked = mask(c)
+    if not SHELL_WRITE.search(masked):
+        return ""
+    m = SHELL_TARGET.search(masked)
+    if not m:
+        return ""
+    start, end = m.span(1) if m.group(1) else m.span(2)
+    return c[start:end].strip("'\"")
+
+
 def _heredoc_bodies(text):
     """Every heredoc body in `text`, in order, read off the raw text."""
     lines = str(text or "").split("\n")
@@ -1200,12 +1257,7 @@ def shell_write_body(command, cwd=None):
     bodies = _heredoc_bodies(c)
     if not bodies:
         return None
-    masked = mask(c)
-    m = SHELL_TARGET.search(masked)
-    path = ""
-    if m:
-        start, end = m.span(1) if m.group(1) else m.span(2)
-        path = c[start:end].strip("'\"")
+    path = shell_target(c)
     if path and not os.path.isabs(path):
         path = os.path.join(cwd or os.getcwd(), path)
     return {"file_path": path, "content": "\n".join(bodies)}
@@ -1567,9 +1619,23 @@ def decision(tool, inp, cwd, session_id=None):
     # only place the gate writes anything the deny path does not. capture returns
     # None rather than raising, but no host wraps decision(), so the outer try is
     # cheap insurance in the one path where a failure would block an edit.
+    #
+    # A shell call that writes a file is the same call for this purpose (see
+    # write_paths): without the pre-state, the after-state alone cannot tell a
+    # write that landed from one that was a no-op, and the freshness rule would
+    # count every redirect as a change. `capture` reads a write tool's own path
+    # field and takes no shell tool name, so the target goes in the shape it
+    # reads - SHELL_AS_WRITE - and the row it writes carries no tool name, so
+    # nothing on the ledger claims a write tool ran.
     if capture and t in WRITE_TOOLS:
         try:
             capture(tool, inp, cwd, session_id)
+        except Exception:
+            pass
+    elif capture and t in BASH_TOOLS:
+        try:
+            for path in write_paths(inp):
+                capture(SHELL_AS_WRITE, {"file_path": path}, cwd, session_id)
         except Exception:
             pass
     return None

@@ -6,6 +6,7 @@ CLI, so no real index is built.
 """
 import fcntl
 import os
+import re
 import subprocess
 import sys
 import time
@@ -203,6 +204,13 @@ class IndexCli(TempHome):
                               text=True, env=env, timeout=30)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("last auto-index failed", proc.stdout)
+        # the note exists for whoever has just been told the graph is stale, so
+        # the path it names has to be a readable file: the cache dir also holds
+        # stamps and locks named after the same slug
+        named = re.search(r"\(see ([^)]+)\)", proc.stdout)
+        self.assertIsNotNone(named, proc.stdout)
+        self.assertTrue(os.path.isfile(named.group(1)),
+                        "the note names %s, which is not a file" % named.group(1))
 
     def test_opencode_plugin_triggers_the_index(self):
         with open(os.path.join(REPO, "hosts", "opencode", "plugins",

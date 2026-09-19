@@ -126,6 +126,42 @@ class RefereeStage(ArenaCase):
         for field in FIELDS:
             self.assertIn(field, prompt)
 
+    def test_an_unstructured_verdict_is_not_printed_as_a_judgement(self):
+        # The headings are the whole of stage two: the caller reads back named
+        # fields instead of a paraphrase. A referee that answers in prose, or
+        # one that is cut off, is not a cross-examination - printing its text
+        # under "## referee (<model>)" made it indistinguishable from one, and
+        # the panel's answers then read as if something had judged them.
+        Fake.answers = {"a": "the only answer"}
+        Fake.referee = "Both answers are fine. I would go with the first one."
+        p = self.consult("q?", "--models", "a")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("the only answer", p.stdout)
+        self.assertIn("referee: FAILED (unstructured)", p.stdout)
+        self.assertIn("unjudged", p.stdout)
+        self.assertIn("failed: referee (unstructured)", p.stdout)
+        self.assertNotIn("I would go with the first one", p.stdout)
+
+    def test_a_verdict_missing_one_heading_names_it_and_degrades(self):
+        # Not a judge of the verdict: the check is that the field is THERE. A
+        # reply that answers four of five has dropped the minority report the
+        # heading exists for, and the caller has to be told which one.
+        Fake.answers = {"a": "answer from a"}
+        Fake.referee = DIGEST.replace("5. Requested evidence - the source.", "")
+        p = self.consult("q?", "--models", "a")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("did not answer: requested evidence", p.stdout)
+        self.assertIn("referee: FAILED (unstructured)", p.stdout)
+
+    def test_a_well_formed_verdict_is_still_printed_whole(self):
+        # The control: the check must not degrade a referee that did the work.
+        Fake.answers = {"a": "alpha", "b": "beta"}
+        p = self.consult("q?", "--models", "a,b")
+        self.assertIn("referee: a", p.stdout)
+        self.assertNotIn("FAILED", p.stdout)
+        for field in FIELDS:
+            self.assertIn(field, p.stdout.lower())
+
     def test_no_referee_stops_after_the_panel(self):
         Fake.answers = {"a": "x", "b": "y"}
         p = self.consult("q?", "--models", "a,b", "--no-referee")

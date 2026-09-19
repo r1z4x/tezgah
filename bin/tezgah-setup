@@ -114,6 +114,31 @@ CODEX_PRETOOL_MATCHER = ("Bash|exec_command|apply_patch|Edit|Write|mcp__.*|"
 # Cursor's preToolUse matcher is a regex over tool TYPES, so it has to name the
 # write tools or the gate never sees an edit. Mirrors hosts/cursor/hooks.json.
 CURSOR_PRETOOL_MATCHER = "Shell|Grep|Task|Write|Edit|MultiEdit|NotebookEdit"
+# What each host's hook manifest is wired for, matcher included. install_codex
+# and install_cursor write from these and the report rows check the same value,
+# so a manifest carrying six of seven events (no Stop, say) cannot read as wired
+# while the write side and the check side drift apart.
+CODEX_HOOK_EVENTS = (("SessionStart", None), ("UserPromptSubmit", None),
+                     ("PreToolUse", CODEX_PRETOOL_MATCHER), ("PostToolUse", None),
+                     ("SubagentStart", None), ("PostCompact", None), ("Stop", None))
+CURSOR_HOOK_EVENTS = {
+    "sessionStart": {"timeout": 10},
+    # Cursor runs a preToolUse hook only for the tool types its matcher names, so
+    # a matcher without the write tools leaves the gate's edit branches
+    # unreachable there.
+    "preToolUse": {"timeout": 5, "matcher": CURSOR_PRETOOL_MATCHER},
+    "postToolUse": {"timeout": 10},
+    "postToolUseFailure": {"timeout": 10},
+    "subagentStart": {"timeout": 5},
+    "subagentStop": {"timeout": 10},
+    "beforeSubmitPrompt": {"timeout": 10},
+    "stop": {"timeout": 10},
+    "beforeMCPExecution": {"timeout": 5},
+    "afterShellExecution": {"timeout": 10},
+    "afterMCPExecution": {"timeout": 10},
+    "afterFileEdit": {"timeout": 10},
+    "afterAgentResponse": {"timeout": 5},
+}
 # Set by main() from --devtools: also wire the optional Chrome DevTools MCP.
 APPS_DEVTOOLS = False
 OK, NO = "  ok  ", " MISS "
@@ -146,13 +171,16 @@ def plugin_version():
 
 
 CONTRACT_SOURCES = ("hooks/tezgah_policy.py",
+                    "hooks/tezgah_context.py",
                     "skills/tezgah-contract/SKILL.md")
 
 
 def contract_sha():
     """sha256 over every source of the generated opencode contract: the shared
-    policy and the hand-maintained full-contract skill. The skill is included so
-    a skill-only edit still marks the rendered contract stale."""
+    policy, the renderer that selects and orders its paragraphs, and the
+    hand-maintained full-contract skill. Each is included so an edit to it alone
+    still marks the rendered contract stale - opencode has no session-start hook,
+    so this hash is the only thing that re-renders its always-on text."""
     h = hashlib.sha256()
     for rel in CONTRACT_SOURCES:
         try:
@@ -440,15 +468,12 @@ def wire_claude_statusline():
 def install_codex():
     print("\ncodex:")
     cmd = 'python3 "%s"' % os.path.join(tp.BIN_DIR, "tezgah-codex-hook")
-    # PreToolUse carries a matcher on the group object, mirroring
-    # hosts/codex/hooks.json, and is what makes the policy gate blocking.
-    events = [("SessionStart", None), ("UserPromptSubmit", None),
-              ("PreToolUse", CODEX_PRETOOL_MATCHER), ("PostToolUse", None),
-              ("SubagentStart", None), ("PostCompact", None), ("Stop", None)]
     path = os.path.join(CODEX, "hooks.json")
     data = read_json(path, {"hooks": {}})
     hooks = data.setdefault("hooks", {})
-    for ev, matcher in events:
+    # PreToolUse carries a matcher on the group object, mirroring
+    # hosts/codex/hooks.json, and is what makes the policy gate blocking.
+    for ev, matcher in CODEX_HOOK_EVENTS:
         arr = hooks.setdefault(ev, [])
         arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
         group = {}
@@ -813,25 +838,7 @@ def install_cursor():
     hooks = data.setdefault("hooks", {})
     # Mirrors hosts/cursor/hooks.json. Existing (Orca) entries are merged,
     # never overwritten: only tezgah entries are replaced.
-    spec = {
-        "sessionStart": {"timeout": 10},
-        # Cursor runs a preToolUse hook only for the tool types its matcher
-        # names, so a matcher without the write tools leaves the gate's edit
-        # branches unreachable there.
-        "preToolUse": {"timeout": 5, "matcher": CURSOR_PRETOOL_MATCHER},
-        "postToolUse": {"timeout": 10},
-        "postToolUseFailure": {"timeout": 10},
-        "subagentStart": {"timeout": 5},
-        "subagentStop": {"timeout": 10},
-        "beforeSubmitPrompt": {"timeout": 10},
-        "stop": {"timeout": 10},
-        "beforeMCPExecution": {"timeout": 5},
-        "afterShellExecution": {"timeout": 10},
-        "afterMCPExecution": {"timeout": 10},
-        "afterFileEdit": {"timeout": 10},
-        "afterAgentResponse": {"timeout": 5},
-    }
-    for ev, extra in spec.items():
+    for ev, extra in CURSOR_HOOK_EVENTS.items():
         arr = hooks.setdefault(ev, [])
         arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
         entry = {"command": cmd}
@@ -1770,13 +1777,17 @@ def host_checks_claude():
 
 
 def _hooks_has(path, marker, events=None):
-    data = read_json(path, {}) or {}
-    for ev, arr in (data.get("hooks") or {}).items():
-        if events and ev not in events:
-            continue
-        if any(marker in json.dumps(e) for e in arr):
-            return True
-    return False
+    """True when `marker` is wired under every event in `events`, or under any
+    event when `events` is None.
+
+    A row that one event can satisfy answers the wrong question: a manifest
+    carrying tezgah's command under SessionStart and not under Stop reads as
+    wired, and Stop is the integrity refusal."""
+    hooks = (read_json(path, {}) or {}).get("hooks") or {}
+    if events is None:
+        return any(marker in json.dumps(e) for arr in hooks.values() for e in arr)
+    return all(any(marker in json.dumps(e) for e in (hooks.get(ev) or []))
+               for ev in events)
 
 
 def host_checks_codex():
@@ -1792,7 +1803,8 @@ def host_checks_codex():
         toml = ""
     return [
         ("hooks.json wired%s" % where,
-         _hooks_has(os.path.join(CODEX, "hooks.json"), cmd)),
+         _hooks_has(os.path.join(CODEX, "hooks.json"), cmd,
+                    [ev for ev, _matcher in CODEX_HOOK_EVENTS])),
         ("skills linked%s" % where,
          skills_linked(os.path.join(CODEX, "skills"))),
         ("MCP in config.toml", "mcp_servers.codebase-memory-mcp" in toml),
@@ -1834,7 +1846,9 @@ def host_checks_cursor():
     mcp = read_json(os.path.join(CURSOR, "mcp.json"), {})
     cli = read_json(os.path.join(CURSOR, "cli-config.json"), {})
     return [
-        ("hooks.json wired", _hooks_has(os.path.join(CURSOR, "hooks.json"), "tezgah-cursor-hook")),
+        ("hooks.json wired", _hooks_has(os.path.join(CURSOR, "hooks.json"),
+                                        "tezgah-cursor-hook",
+                                        list(CURSOR_HOOK_EVENTS))),
         ("skills linked", skills_linked(os.path.join(CURSOR, "skills"))),
         ("MCP in mcp.json", "codebase-memory-mcp" in (mcp.get("mcpServers") or {})),
         ("app MCP servers in mcp.json",
@@ -1973,6 +1987,13 @@ PLUGIN_FINGERPRINT = os.path.join("hooks", "tezgah_policy.py")
 PLUGIN_MANIFESTS = (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json")
 
 
+def managed(rel):
+    """True for a relpath a copy is expected to hold: the tracked tree minus the
+    maintainer's `plans/` (never shipped) and any bytecode cache. Shared by
+    plugin_files() and the copy listing, so the two cannot drift."""
+    return bool(rel) and not rel.startswith("plans/") and "__pycache__" not in rel
+
+
 def plugin_files():
     """The relpaths `sync` copies, sorted; None when HERE is not a git checkout."""
     tracked = subprocess.run(
@@ -1982,8 +2003,7 @@ def plugin_files():
         return None
     # --others includes a new source file that is not committed yet; a plain
     # `ls-files` would drop it from the copy (and delete it from the plugin cache)
-    return sorted(f for f in tracked.stdout.splitlines()
-                  if f and not f.startswith("plans/") and "__pycache__" not in f)
+    return sorted(f for f in tracked.stdout.splitlines() if managed(f))
 
 
 def tree_sha(root, files):
@@ -2017,17 +2037,40 @@ def plugin_copies():
     return sorted(out)
 
 
+def copy_files(target):
+    """Every managed relpath the copy holds.
+
+    A hash over the relpaths the checkout still has cannot see a file the
+    checkout STOPPED shipping: the ghost is absent from `files`, so it cannot
+    move the hash, and Claude keeps being served a skill that no longer exists.
+    Only a `.git` or a bytecode cache a copy accumulated is ignored."""
+    out = set()
+    for dirpath, dirnames, filenames in os.walk(target):
+        dirnames[:] = [d for d in dirnames if d != ".git" and d != "__pycache__"]
+        for name in filenames:
+            rel = os.path.relpath(os.path.join(dirpath, name), target)
+            if managed(rel):
+                out.add(rel)
+    return out
+
+
 def plugin_copy_current(target):
     """True when the copy holds this checkout's whole tracked tree, byte for byte.
 
     The copy is what Claude runs, so a one-file hash cannot see a change to
     another hook: with hooks/tezgah_policy.py equal on both sides, --install
-    reported `ok` while the copy still ran the previous hooks/tezgah_gate.py."""
+    reported `ok` while the copy still ran the previous hooks/tezgah_gate.py.
+    Both directions are compared: a listed file missing from the copy is caught
+    by the hash (`tree_sha` returns None for an unreadable source), and a file
+    the copy holds and the checkout does not is caught by the listing, which is
+    the direction a hash over existing relpaths can never see."""
     files = [f for f in plugin_files() or [] if f not in PLUGIN_MANIFESTS]
     if not files:
         return False
     want = tree_sha(HERE, files)
-    return want is not None and want == tree_sha(target, files)
+    if want is None or want != tree_sha(target, files):
+        return False
+    return copy_files(target) - set(PLUGIN_MANIFESTS) == set(files)
 
 
 def sync():

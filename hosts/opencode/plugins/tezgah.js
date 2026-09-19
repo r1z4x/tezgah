@@ -139,13 +139,15 @@ const BRANCH_DELETE =
   /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*(?:branch\s+(?:-[A-Za-z]*[dD]\b|--delete\b)|push\b[^|;&]*(?:--delete\b|-d\b))/i
 // The destructive effect that lands on a shared resource at a service instead of
 // on this machine (hooks/tezgah_gate.REMOTE_DESTROY): the remote repository
-// `gh repo delete|archive` closes for everyone, the bucket `aws s3 rb` removes
-// and the prefix `aws s3 rm --recursive` empties. Read as `destructive` beside
-// the branch delete, never as a `send`: nothing of this workspace's is carried
-// out, something both parties owned stops existing. `aws s3 rm` without
-// `--recursive` is the shape of `rm` on one file and stays out.
+// `gh repo delete|archive` closes for everyone, the bucket `aws s3 rb` removes,
+// the prefix `aws s3 rm --recursive` empties, and `gh run delete`/`gh cache
+// delete` drop a CI run's record and the caches other runs read. Read as
+// `destructive` beside the branch delete, never as a `send`: nothing of this
+// workspace's is carried out, something both parties owned stops existing.
+// `aws s3 rm` without `--recursive` is the shape of `rm` on one file and stays
+// out.
 const REMOTE_DESTROY =
-  /(?:^|[|;&]\s*|\s)(?:gh\s+repo\s+(?:delete|archive)\b|aws\s+s3\s+rb\b)/i
+  /(?:^|[|;&]\s*|\s)(?:gh\s+repo\s+(?:delete|archive)\b|gh\s+(?:run|cache)\s+delete\b|aws\s+s3\s+rb\b)/i
 const AWS_S3_RM = /(?:^|[|;&]\s*|\s)aws\s+s3\s+rm\b/gi
 const AWS_RECURSIVE = /--recursive\b/
 // A recursive force-delete: both flags have to be there (`rm -f` and `rm -r` on
@@ -182,13 +184,14 @@ const OUTWARD =
 // costs one spawn and the core's answer, a miss costs the ask that does not
 // happen, which is the failure this pre-filter exists to avoid.
 const SEND_CANDIDATE =
-  /(?:^|[|;&(]\s*)(?:sendmail|msmtp|mutt|mailx|swaks|mail\s|aws\s+ses\b|stripe\b|paypal\b|nc\b|ncat\b|scp\b|rsync\b|curl\b|gh\s+api\b|gh\s+(?:pr|issue)\s+(?:create|edit|comment|review|merge|close)\b)/i
+  /(?:^|[|;&(]\s*)(?:sendmail|msmtp|mutt|mailx|swaks|mail\s|aws\s+ses\b|stripe\b|paypal\b|nc\b|ncat\b|scp\b|ssh\b|rsync\b|curl\b|gh\s+api\b|gh\s+(?:pr|issue)\s+(?:create|edit|comment|review|merge|close)\b)/i
 // The classes a refused command's effect belongs to, and what each one is. The
 // refusal names the class and this clause, never the pattern that matched: the
 // agent has to see what it is about to do, not which regex caught it.
 const EFFECTS = {
   destructive: "this one rewrites or drops history, a branch, files outside " +
-    "the run directory, or a repository or bucket other people share",
+    "the run directory, or a resource other people share - a repository, a " +
+    "bucket, a CI run or its cache",
   schema: "this one changes the shape of a database",
   deploy: "this one puts code in front of users",
   publish: "this one ships an artifact to a registry or a release",
@@ -465,27 +468,39 @@ function heredocBodies(text) {
   return out
 }
 
+// The file a shell command's own text writes, or "" - the real redirect's target
+// (or `tee`'s argument) sliced from the raw text at the offset the masked match
+// proved, so a quoted `>` is not a redirect and `> /dev/null` is not a file.
+// The one reader of a shell write's target (hooks/tezgah_gate.shell_target):
+// `writtenPath` uses it for the file a shell call changes, which is what makes
+// the gate capture a pre-state for that write and `postWrite` hash its
+// after-state, and `shellWriteBody` uses it for the file whose body the three
+// write-tool twins read.
+function shellTarget(command) {
+  const c = String(command || "")
+  if (!c) return ""
+  const masked = maskText(c)
+  if (!SHELL_WRITE.test(masked)) return ""
+  const m = SHELL_TARGET.exec(masked)
+  if (!m) return ""
+  // Both branches capture the last token of the match, so its offset is the tail
+  // of `m[0]` - no index lookup that a target named after a flag letter
+  // (`| tee e`) could fool.
+  const token = m[1] || m[2]
+  return c.slice(m.index + m[0].length - token.length, m.index + m[0].length)
+    .replace(/^['"]|['"]$/g, "")
+}
+
 // The `{filePath, content}` a shell command writes into a file, or null when this
 // command writes no file's content of its own: the target is the real redirect's
-// target (or `tee`'s argument) sliced from the raw text at the offset the masked
-// match proved, resolved against the call's own directory so a write to a test
-// file is compared against the file the CALL named.
+// target (or `tee`'s argument), resolved against the call's own directory so a
+// write to a test file is compared against the file the CALL named.
 function shellWriteBody(command, dir) {
   const c = String(command || "")
   if (!c || !SHELL_WRITE.test(maskText(c))) return null
   const bodies = heredocBodies(c)
   if (!bodies.length) return null
-  const masked = maskText(c)
-  const m = SHELL_TARGET.exec(masked)
-  let p = ""
-  if (m) {
-    // Both branches capture the last token of the match, so its offset is the
-    // tail of `m[0]` - no index lookup that a target named after a flag letter
-    // (`| tee e`) could fool.
-    const token = m[1] || m[2]
-    p = c.slice(m.index + m[0].length - token.length, m.index + m[0].length)
-      .replace(/^['"]|['"]$/g, "")
-  }
+  let p = shellTarget(c)
   if (p && !p.startsWith("/")) p = join(dir || process.cwd(), p)
   return { filePath: p, content: bodies.join("\n") }
 }
@@ -632,7 +647,15 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd) {
   }
   if (typeof exit === "number") row.exit = exit
   if (out !== null) row.out_bytes = Buffer.byteLength(out)
-  if (kind === "edit") Object.assign(row, await postWrite(sessionID, args, cwd))
+  // A write tool's `edit` row and a shell call that writes a file (`run`) carry
+  // the same after-state pair, because the gate captured the same target for both
+  // (hooks/tezgah_integrity.note_tool). A check row is not one: the row that
+  // carries the pass cannot also be the row the freshness fold reads as the
+  // change, or a check redirecting its own output would put the two at one
+  // position and refuse the turn that ran it.
+  if (kind === "edit" || (kind === "run" && writtenPath(args))) {
+    Object.assign(row, await postWrite(sessionID, args, cwd))
+  }
   await appendRow(sessionID, row)
 }
 
@@ -640,8 +663,11 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd) {
 // the call immediately before the write, so the newest rows are where it is
 // (SNAPSHOT_TAIL in hooks/tezgah_integrity).
 const SNAPSHOT_TAIL = 50
-// The files a call writes: the tool's own path field, else the paths an
-// apply_patch body names per hunk (hooks/tezgah_gate.WRITE_PATH/PATCH_FILE).
+// The file a call writes: the tool's own path field, else the first path an
+// apply_patch body names, else the file a shell command's own text writes through
+// a redirect or `tee` - the one write whose target leaves no path field behind
+// (hooks/tezgah_gate.write_paths, shellTarget). Raw and unresolved, as the Python
+// reader returns it: each caller resolves it against its own directory.
 const WRITE_PATH = ["file_path", "filePath", "path"]
 const PATCH_FILE = /^\*\*\* (?:Update|Add|Delete) File: (\S.*?)\s*$/m
 
@@ -652,7 +678,9 @@ function writtenPath(args) {
     if (typeof value === "string" && value.trim()) return value.trim()
   }
   const m = PATCH_FILE.exec(String(a.patch || ""))
-  return m ? m[1] : null
+  if (m) return m[1]
+  const target = shellTarget(a.command || a.cmd || "")
+  return target || null
 }
 
 // sha256 of a file's bytes, the digest the Python half records
@@ -1673,6 +1701,19 @@ export const Tezgah = async ({ directory }) => {
         // check and before the call proceeds.
         if (!deny && WRITE_TOOLS.has(tool)) {
           await captureSnapshot(tool, args, dir, sessionID)
+        } else if (!deny && BASH_TOOLS.has(tool)) {
+          // A shell call that writes a file (a redirect or `tee`; writtenPath)
+          // takes the same pre-state a write tool's target takes: without it the
+          // after-state alone cannot tell a write that landed from a no-op, and
+          // the freshness rule would count every redirect as a change. `capture`
+          // reads a write tool's own path field and takes no shell tool name, so
+          // the target goes in the shape it reads
+          // (hooks/tezgah_gate.SHELL_AS_WRITE) and the row it writes names no
+          // tool.
+          const target = writtenPath(args)
+          if (target) {
+            await captureSnapshot("write", { file_path: target }, dir, sessionID)
+          }
         }
       } catch {}
       if (deny) throw new Error(deny)
