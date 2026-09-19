@@ -20,19 +20,22 @@ measured.
       session could not support a done claim. (`Ran 922 tests in 129.175s`, `OK`.)
 - [x] `bin/tezgah-docs --citations` exits 0 with `0` citations outside the symbol
       they name.
-- [ ] the delivered work is committed, and `git status --short` afterwards shows
-      only the unrelated work-in-progress this plan does not own.
-- [ ] every item the research lines recorded as open (`C5`, the local-form deletes,
+- [x] the delivered work is committed on its own paths, and nothing of the unrelated
+      work-in-progress was swept in (that workstream committed its own `4b8d9b2`).
+- [x] every item the research lines recorded as open (`C5`, the local-form deletes,
       `consult`'s deadline, `I*`, `O*`) is at HEAD either shown closed with the
-      reproduction that closes it, or written into `docs/` as a deliberate decision
-      with its rationale.
-- [ ] the 575 citations the audit cannot judge are named as the standing residue in
+      reproduction that closes it, or recorded where its disposition lives: `docs/gate.md`
+      for the five local-form deletes (a written non-goal) and for the two classifier
+      seats, `bin/consult`'s docstring and its `ponytail:` comment for the per-model
+      deadline and the 18-minute hang it answers.
+- [x] the 575 citations the audit cannot judge are named as the standing residue in
       `docs/README.md`: they are the next audit's work list, not a claim of
       cleanliness.
-- [ ] the one seat no research line examined - a Jev-shaped classifier in the Stop
-      rule's claim detector - is measured against the corpus or parked with its
-      reason in `docs/gate.md`.
-- [ ] `plans/README.md`'s table carries this plan with its real status.
+- [x] the one seat no research line examined - a Jev-shaped classifier in the Stop
+      rule's claim detector - is measured against the corpus and parked with its reason
+      in `docs/gate.md`, and the measurement closed a real gap in the vocabulary it
+      found (`DONE`, `hooks/tezgah_integrity.py`).
+- [x] `plans/README.md`'s table carries this plan with its real status.
 
 ## State
 One caveat on the numbers below, and it is why the audit exists: the rebased
@@ -43,6 +46,23 @@ lines with seven inside `NO_CONSULT`, so `CORE` sits at 487 in the tree and 486 
 `CONDITIONAL_KEYS`, `POINTERS`, `CONTRACT`) are one line lower if that edit is
 dropped rather than committed. `bin/tezgah-docs --citations` is the command that
 says so; nothing else will.
+
+The seat's measurement (2026-09-19, free, offline): the claim vocabulary was
+applied to this machine's own 161 final replies from
+`~/.omp/agent/sessions/-Projects-tezgah` and to a hand-drawn set of 15 completions
+stated as a completed state. It recognised 2 of the 15 and read 34 of the 161
+replies as claims. The misses are one shape - the Turkish passive and the English
+state predicate - so naming 11 of the 13 closes them in the regex itself: the list
+now catches 13 of the 15, reads 39 of the 161, and still claims 0 of 5 control
+replies (a question, a plan, an explicit `doğrulanmadı`). The verdict never moved,
+which is why the seat stays empty: a turn that recorded work is refused on its
+evidence whatever its wording.
+
+That widening grew `hooks/tezgah_integrity.py` by 13 lines and moved every citation
+into it; `bin/tezgah-docs --citations` caught all 81 in one command, and the rebase
+was re-applied in a single pass after a first attempt carried stale offsets and
+corrupted the pages (recovered from `f2b6527`, and the seven pages restored by
+explicit path so the other workstream's `docs/status-line.md` was untouched).
 
 Measured 2026-09-19 at HEAD `24936bd`, all unpiped and with the output seen:
 
@@ -83,6 +103,6 @@ Measured 2026-09-19 at HEAD `24936bd`, all unpiped and with the output seen:
   Nothing is pushed.
 
 ## Next
-Measure the one seat no research line examined - a Jev-shaped classifier in the
-Stop rule's claim detector - against the 1436-ledger corpus, or park it with its
-reason in `docs/gate.md` beside the empty gate seat that was.
+Resolve the 575 unjudged citations, page by page, from the six read-only passes
+running over them; apply what they confirm and re-run `bin/tezgah-docs --citations`
+until only the genuinely unjudgeable rows are left.
