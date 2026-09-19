@@ -103,8 +103,9 @@ same text.
   emulator (Mobile MCP), and optional web diagnostics (Chrome DevTools MCP); a
   screenshot is an explicit, on-demand action for what the tree cannot answer.
 - **External second opinion.** `~/.config/tezgah/bin/consult` asks independent
-  models in parallel (OpenRouter by default, `--provider deepseek` for the
-  DeepSeek API), then spends one more call on a referee that names where the
+  models in parallel (OpenRouter by default, `--provider deepseek` or
+  `--provider inception` for the DeepSeek and Inception Labs APIs), then spends
+  one more call on a referee that names where the
   panel disagreed, what all of them assumed, what would change the
   recommendation and what evidence it still wants. Each failure is classed with
   the one variable to change on a retry, a dead or unheadlined referee is disclosed
@@ -128,7 +129,8 @@ same text.
   — may credit the assistant, model, vendor, or "AI". Using a tool is fine;
   signing its name to your work is not.
 - **Two-tier orchestration.** The main thread decides and verifies; a cheap
-  model (`~/.config/tezgah/bin/codegen`, OpenRouter by default or `--provider deepseek`) drafts
+  model (`~/.config/tezgah/bin/codegen`, OpenRouter by default, or
+  `--provider deepseek` / `--provider inception`) drafts
   bounded, well-specified edits to a scratch directory. Nothing reaches the repo
   except through the router; on a failed draft (codegen exit 2) the contract
   requires the router to write the code itself with the main model - a rule the
@@ -276,8 +278,10 @@ Requires Python 3.8+. node + npm are needed for the dsh host and, with `pnpm`,
 for its web status line. The optional integrations degrade gracefully:
 `codebase-memory-mcp` on PATH powers the graph; a model key powers `consult`
 and `codegen` — OpenRouter by default (`OPENROUTER_API_KEY` or
-`~/.config/openrouter/key`), or the DeepSeek API with `--provider deepseek`
-(`DEEPSEEK_API_KEY` or `~/.config/deepseek/key`); and OpenResearch's `orx` on
+`~/.config/openrouter/key`), the DeepSeek API with `--provider deepseek`
+(`DEEPSEEK_API_KEY` or `~/.config/deepseek/key`), or Inception Labs with
+`--provider inception` (`INCEPTION_API_KEY` or `~/.config/inception/key`); and
+OpenResearch's `orx` on
 PATH gives the research rule something to drive. When the chosen provider's key
 is missing, tezgah says so instead of pretending.
 

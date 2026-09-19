@@ -435,11 +435,12 @@ anything to fix it: the user arms tezgah's optional tools, not the session.
 NO_CONSULT = """
 ## Appendix - only if no consult provider key exists
 
-There is no consult provider key on this machine (no OPENROUTER_API_KEY /
-DEEPSEEK_API_KEY and no ~/.config/openrouter/key or ~/.config/deepseek/key), so
-the consult second opinion cannot run. Do not tell the user to run it and do not
-claim external verification happened; on a call that needed it, say the second
-opinion was skipped and why.
+There is no consult provider key on this machine (no OPENROUTER_API_KEY,
+DEEPSEEK_API_KEY or INCEPTION_API_KEY, and none of ~/.config/openrouter/key,
+~/.config/deepseek/key or ~/.config/inception/key), so the consult second
+opinion cannot run. Do not tell the user to run it and do not claim external
+verification happened; on a call that needed it, say the second opinion was
+skipped and why.
 """
 
 CBM_RULE = """

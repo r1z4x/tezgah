@@ -7,6 +7,7 @@ Usage:
   consult "question" --no-referee        panel only, no cross-examination
   consult "question" --judge MODEL       referee model (default: first that answered)
   consult "question" --provider deepseek ask the DeepSeek API instead of OpenRouter
+  consult "question" --provider inception ask Inception Labs (Mercury) instead
   consult "question" --models m1,m2      override models
   consult "question" --online            enable live web search (:online, OpenRouter)
   consult "question" --timeout 120       per-model timeout seconds
@@ -14,6 +15,7 @@ Usage:
 Providers (--provider, default openrouter):
   openrouter  OPENROUTER_API_KEY  ~/.config/openrouter/key
   deepseek    DEEPSEEK_API_KEY    ~/.config/deepseek/key
+  inception   INCEPTION_API_KEY   ~/.config/inception/key
 Key lookup order: the provider's env var, then its key file. CONSULT_URL
 overrides the endpoint (a gateway, or a test server), CONSULT_MODELS the panel,
 CONSULT_JUDGE the referee.
@@ -48,6 +50,15 @@ PROVIDERS = {
         "DEEPSEEK_API_KEY",
         "~/.config/deepseek/key",
         "deepseek-chat,deepseek-reasoner",
+    ),
+    # Inception Labs serves an OpenAI-compatible chat-completions route; the
+    # model ids carry no vendor prefix here (`mercury-2.5`, not
+    # `inception/mercury-2.5`, which is the OpenRouter spelling).
+    "inception": (
+        "https://api.inceptionlabs.ai/v1/chat/completions",
+        "INCEPTION_API_KEY",
+        "~/.config/inception/key",
+        "mercury-2.5,mercury-2",
     ),
 }
 SYSTEM = (

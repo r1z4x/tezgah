@@ -17,6 +17,7 @@ an expensive one decides, and nothing lands unreviewed.
 Providers (--provider, default openrouter):
   openrouter  OPENROUTER_API_KEY  ~/.config/openrouter/key
   deepseek    DEEPSEEK_API_KEY    ~/.config/deepseek/key
+  inception   INCEPTION_API_KEY   ~/.config/inception/key
 Key lookup order: the provider's env var, then its key file.
 
 EXIT CODES, and they are the contract:
@@ -57,6 +58,15 @@ PROVIDERS = {
         "DEEPSEEK_API_KEY",
         "~/.config/deepseek/key",
         "deepseek-chat",
+    ),
+    # Inception Labs' Mercury route is OpenAI-compatible except for one field:
+    # it takes `max_completion_tokens`, not `max_tokens` (see the `ask` payload
+    # below), and the model id carries no vendor prefix.
+    "inception": (
+        "https://api.inceptionlabs.ai/v1/chat/completions",
+        "INCEPTION_API_KEY",
+        "~/.config/inception/key",
+        "mercury-2.5",
     ),
 }
 # CODEGEN_MODEL still overrides the OpenRouter default (historical behaviour).
@@ -128,7 +138,11 @@ def ask(task, files, model, provider, timeout, max_tokens):
         "temperature": 0,
     }
     if max_tokens:
-        payload["max_tokens"] = max_tokens
+        # Inception names this field `max_completion_tokens` (its compat table in
+        # ~/.omp/agent/models.yml records the same), so the name follows the
+        # provider rather than the OpenAI default.
+        field = "max_completion_tokens" if provider == "inception" else "max_tokens"
+        payload[field] = max_tokens
     req = urllib.request.Request(
         os.environ.get("CODEGEN_URL", "").strip() or PROVIDERS[provider][0],
         data=json.dumps(payload).encode(),

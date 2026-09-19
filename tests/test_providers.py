@@ -2,9 +2,11 @@
 
 Each case runs the script in a throwaway HOME with no provider key, so the
 unknown-provider and missing-key paths are exercised without any network call;
-the deadline case talks to a local stalling server and never to a provider.
+the deadline and payload cases talk to a local server and never to a provider.
 """
+import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -52,10 +54,21 @@ class Providers(ProviderCase):
         self.assertIn("no API key for deepseek", p.stderr)
         self.assertIn("DEEPSEEK_API_KEY", p.stderr)
 
+    def test_consult_inception_wants_its_own_key(self):
+        p = self.invoke(CONSULT, "q", "--provider", "inception")
+        self.assertEqual(p.returncode, 2, p.stderr)
+        self.assertIn("no API key for inception", p.stderr)
+        self.assertIn("INCEPTION_API_KEY", p.stderr)
+
     def test_consult_online_is_openrouter_only(self):
         p = self.invoke(CONSULT, "q", "--provider", "deepseek", "--online")
         self.assertEqual(p.returncode, 1, p.stderr)
         self.assertIn("--online is OpenRouter-only", p.stderr)
+
+    def test_codegen_inception_wants_its_own_key(self):
+        p = self.invoke(CODEGEN, "t", "--files", __file__, "--provider", "inception")
+        self.assertEqual(p.returncode, 2, p.stderr)
+        self.assertIn("no API key for inception", p.stderr)
 
     def test_codegen_deepseek_wants_its_own_key(self):
         p = self.invoke(CODEGEN, "t", "--files", __file__, "--provider", "deepseek")
@@ -145,6 +158,94 @@ class CodegenDeadline(ProviderCase):
         self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertIn("outlived --timeout=2s", proc.stderr)
         self.assertLess(elapsed, 15, "the deadline did not fire promptly")
+
+
+class Recorder(threading.Thread):
+    """A one-shot chat-completions endpoint that records the JSON body it was
+    sent and answers with one draft file block. The field names on that body are
+    the whole compatibility surface of an OpenAI-compatible route, so the test
+    reads back what codegen actually put on the wire."""
+
+    def __init__(self, reply):
+        super().__init__(daemon=True)
+        self.sock = socket.socket()
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(1)
+        self.port = self.sock.getsockname()[1]
+        self.reply = reply
+        self.body = None
+
+    def run(self):
+        try:
+            conn, _ = self.sock.accept()
+        except OSError:
+            return
+        try:
+            self.body = json.loads(recv_body(conn))
+            payload = json.dumps({"choices": [
+                {"message": {"content": self.reply}, "finish_reason": "stop"}]}).encode()
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                         b"Content-Length: %d\r\n\r\n" % len(payload) + payload)
+        except (OSError, ValueError):
+            pass
+        finally:
+            conn.close()
+
+    def close(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def recv_body(conn):
+    """The body of one HTTP request, read off the socket by Content-Length."""
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = conn.recv(65536)
+        if not chunk:
+            break
+        data += chunk
+    head, _, body = data.partition(b"\r\n\r\n")
+    match = re.search(rb"(?i)content-length:\s*(\d+)", head)
+    length = int(match.group(1)) if match else 0
+    while len(body) < length:
+        chunk = conn.recv(65536)
+        if not chunk:
+            break
+        body += chunk
+    return body[:length]
+
+
+class CodegenPayload(ProviderCase):
+    """Inception names the token cap `max_completion_tokens`; the OpenAI default
+    is the wrong field there, and a wrong field is a 400 the caller can do
+    nothing with."""
+
+    def test_the_token_cap_field_follows_the_provider(self):
+        cases = (("inception", "INCEPTION_API_KEY", "max_completion_tokens",
+                  "max_tokens"),
+                 ("openrouter", "OPENROUTER_API_KEY", "max_tokens",
+                  "max_completion_tokens"))
+        for provider, env_key, field, other in cases:
+            target = os.path.join(self.env["HOME"], "draft.py")
+            with open(target, "w") as fh:
+                fh.write("a = 1\n")
+            server = Recorder("=== FILE: %s ===\n```\na = 2\n```\n" % target)
+            server.start()
+            self.addCleanup(server.close)
+            env = dict(self.env, **{env_key: "test"},
+                       CODEGEN_URL="http://127.0.0.1:%d/v1/chat/completions"
+                                   % server.port)
+            proc = subprocess.run([sys.executable, CODEGEN, "t", "--files", target,
+                                   "--provider", provider, "--max-tokens", "64",
+                                   "--out-dir", os.path.join(self.env["HOME"], "out")],
+                                  capture_output=True, text=True, env=env, timeout=30)
+            self.assertIsInstance(server.body, dict, proc.stderr)
+            self.assertIn(field, server.body, provider)
+            self.assertNotIn(other, server.body, provider)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 if __name__ == "__main__":

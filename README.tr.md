@@ -83,7 +83,8 @@ beş ayrı kopyası yoktur.
   ve isteğe bağlı web tanılamalarını (Chrome DevTools MCP) kapsar; bir ekran görüntüsü,
   ağacın yanıtlayamadığı durumlar için açık, isteğe bağlı bir eylemdir.
 - **Harici ikinci görüş.** Önemsiz olmayan veya geri alınması zor bir karardan önce,
-  `~/.config/tezgah/bin/consult` OpenRouter (veya `--provider deepseek` ile DeepSeek API)
+  `~/.config/tezgah/bin/consult` OpenRouter (veya `--provider deepseek` ile DeepSeek API,
+  ya da `--provider inception` ile Inception Labs API)
   aracılığıyla bağımsız modellere paralel olarak danışır ve ajan (agent) bunların nerede
   anlaştığını veya anlaşmazlığa düştüğünü raporlar.
 - **OpenResearch aracılığıyla araştırma.** Yönlendirici (router) bir görevin araştırma olduğuna karar verdiğinde —
@@ -102,7 +103,8 @@ beş ayrı kopyası yoktur.
   — asistana, modele, satıcıya veya "yapay zeka"ya (AI) atıfta bulunamaz. Bir aracı kullanmak sorun değildir;
   ancak onun adını kendi çalışmanıza imzalamak kabul edilemez.
 - **İki aşamalı orkestrasyon.** Ana iş parçacığı (main thread) karar verir ve doğrular; ucuz bir
-  model (`~/.config/tezgah/bin/codegen`, varsayılan olarak OpenRouter veya `--provider deepseek`)
+  model (`~/.config/tezgah/bin/codegen`, varsayılan olarak OpenRouter, `--provider deepseek`
+  veya `--provider inception`)
   geçici bir dizine (scratch directory) sınırları belirlenmiş, iyi tanımlanmış düzenlemeler tasarlar.
   Yönlendirici (router) dışında hiçbir şey depoya ulaşmaz ve başarısız bir taslak otomatik olarak
   ana modele geri döner.
@@ -181,8 +183,10 @@ Python 3.8+ gerektirir. dsh barındırıcısı için ve `pnpm` ile web durum çu
 İsteğe bağlı entegrasyonlar zarif bir şekilde düşürülür (degrade gracefully):
 PATH üzerindeki `codebase-memory-mcp` grafiğe güç sağlar; bir model anahtarı `consult`
 ve `codegen`'e güç sağlar — varsayılan olarak OpenRouter (`OPENROUTER_API_KEY` veya
-`~/.config/openrouter/key`) veya `--provider deepseek` ile DeepSeek API
-(`DEEPSEEK_API_KEY` veya `~/.config/deepseek/key`); ve OpenResearch'ün `orx`'i
+`~/.config/openrouter/key`), `--provider deepseek` ile DeepSeek API
+(`DEEPSEEK_API_KEY` veya `~/.config/deepseek/key`) ya da `--provider inception`
+ile Inception Labs (`INCEPTION_API_KEY` veya `~/.config/inception/key`); ve
+OpenResearch'ün `orx`'i
 PATH üzerinde araştırma kuralına yönlendireceği bir şey verir. Seçilen sağlayıcının anahtarı
 eksik olduğunda, tezgah mış gibi yapmak yerine bunu söyler.
 

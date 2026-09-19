@@ -367,6 +367,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **TypeSafe (Jev) is reported as an armed capability, because omp spends its
+  key.** `TYPESAFE_API_KEY` is what omp reads for `judge()`, auto thinking,
+  unexpected-stop and AI staging, and a session without it silently gets the
+  fallback chat model where a System One judgment was meant - so
+  `have_typesafe_key()` (env, then `~/.config/typesafe/key`, the file the key's
+  single on-disk copy lives in) and a `host_checks_omp` row
+  (`tezgah-setup --report`) say which one a session will get. The key itself is
+  not a provider tezgah can route: `POST https://api.typesafe.ai/v1/systemone`
+  takes state plus typed questions and answers with judgments, so `consult`,
+  `codegen` and the host chat routes cannot name it - omp's own integration is
+  the seat, and the row is what tells a session whether it is there.
+  Checks: `unittest discover -s tests` (test_paths 23, test_setup 69),
+  `ruff check .`, `compileall`, `tezgah-setup --report` showing the row `ok`
+  with the key file present.
+
 - **Inception Labs (Mercury) is a provider in `consult`, `codegen`, dsh and
   opencode.** Both CLIs take `--provider inception`: the key comes from
   `INCEPTION_API_KEY` and then `~/.config/inception/key`, the models are

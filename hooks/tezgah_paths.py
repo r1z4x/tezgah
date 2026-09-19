@@ -198,12 +198,25 @@ def cbm_bin():
 
 
 def have_consult_key():
-    """True when a consult/codegen provider key is present: OpenRouter or
-    DeepSeek, since both `consult` and `codegen` accept `--provider deepseek`."""
+    """True when a consult/codegen provider key is present: OpenRouter,
+    DeepSeek or Inception, since both `consult` and `codegen` accept
+    `--provider deepseek` / `--provider inception`."""
     return bool(os.environ.get("OPENROUTER_API_KEY")
                 or os.environ.get("DEEPSEEK_API_KEY")
+                or os.environ.get("INCEPTION_API_KEY")
                 or os.path.exists(os.path.join(HOME, ".config", "openrouter", "key"))
-                or os.path.exists(os.path.join(HOME, ".config", "deepseek", "key")))
+                or os.path.exists(os.path.join(HOME, ".config", "deepseek", "key"))
+                or os.path.exists(os.path.join(HOME, ".config", "inception", "key")))
+
+
+def have_typesafe_key():
+    """True when the TypeSafe (Jev) key is present: the env var the SDK and omp
+    read, or the key file its single on-disk copy lives in. omp spends this key
+    on `judge()`, auto thinking, unexpected-stop and AI staging, so a session
+    without it silently gets the fallback model where a System One judgment was
+    meant."""
+    return bool(os.environ.get("TYPESAFE_API_KEY")
+                or os.path.exists(os.path.join(HOME, ".config", "typesafe", "key")))
 
 
 def orx_bin():

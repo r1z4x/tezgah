@@ -52,6 +52,11 @@ CLAUDE = tp.HOST_DIRS["claude"]
 # codex home (CODEX_HOME) cannot be armed by one and sought by another.
 CODEX = tp.HOST_DIRS["codex"]
 OPENCODE = tp.HOST_DIRS["opencode"]
+# opencode keeps provider credentials (what `opencode auth login` writes) in its
+# data dir, not its config dir; tezgah-doctor reads the same path for the
+# session database, so both name it the same way.
+OPENCODE_DATA = os.environ.get("TEZGAH_OPENCODE_DATA",
+                               os.path.join(HOME, ".local", "share", "opencode"))
 CURSOR = tp.HOST_DIRS["cursor"]
 DSH = tp.HOST_DIRS["dsh"]
 DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
@@ -350,7 +355,8 @@ def dsh_run(args):
 # Provider key files tezgah already uses for consult/codegen, so the dsh route
 # check and the rest of tezgah agree on what "a key is available" means.
 DSH_KEY_FILES = {"OPENROUTER_API_KEY": os.path.join(HOME, ".config", "openrouter", "key"),
-                 "DEEPSEEK_API_KEY": os.path.join(HOME, ".config", "deepseek", "key")}
+                 "DEEPSEEK_API_KEY": os.path.join(HOME, ".config", "deepseek", "key"),
+                 "INCEPTION_API_KEY": os.path.join(HOME, ".config", "inception", "key")}
 
 
 def dsh_key_resolvable(name):
@@ -365,6 +371,17 @@ def dsh_key_resolvable(name):
     except OSError:
         return False
     return re.search(r"(?m)^\s+%s\s*:" % re.escape(name), text) is not None
+
+
+def opencode_key_resolvable(provider, env):
+    """True when opencode can resolve a provider's key: the launch env (its
+    registry declares one env var per provider), or its own auth store, which
+    `opencode auth login` writes. Values are never read, only the record's
+    presence, so no secret enters tezgah's own config or report."""
+    if os.environ.get(env):
+        return True
+    store = read_json(os.path.join(OPENCODE_DATA, "auth.json"), {})
+    return bool((store or {}).get(provider))
 
 
 def detected():
@@ -904,9 +921,10 @@ def dsh_patch_block():
     """dsh home-patch rows: run tezgah's existing Claude hooks in dsh through its
     claude-code bridge (same contract, same grep/Explore gate, same attribution
     gate), register the code graph and the app-analysis servers as MCP servers,
-    and declare the two OpenAI-compatible LLM routes (OpenRouter and DeepSeek
-    direct) on the pi-ai adapter the base composition already mounts. The routes
-    read their keys from the launch env or the harness credential store; the
+    and declare the three OpenAI-compatible LLM routes (OpenRouter, DeepSeek
+    direct and Inception Labs) on the pi-ai adapter the base composition
+    already mounts. The routes read their keys from the launch env or the
+    harness credential store; the
     native deepseek-official route stays the default model provider. The bridge
     knows only SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/SubagentStart/
     SubagentStop/Stop and silently drops any other event, so `configPath` names
@@ -935,6 +953,8 @@ def dsh_patch_block():
         "        apiKeyEnv: OPENROUTER_API_KEY\n"
         "      deepseek:\n"
         "        apiKeyEnv: DEEPSEEK_API_KEY\n"
+        "      inception:\n"
+        "        apiKeyEnv: INCEPTION_API_KEY\n"
         % (os.path.join(HERE, "hosts", "dsh", "hooks.json"), HERE, cbm_command(),
            dsh_app_mcp_rows()))
 
@@ -1844,6 +1864,11 @@ def host_checks_opencode():
         ("status line plugin in tui.json + linked",
          any("tezgah-tui" in s for s in specs)
          and os.path.exists(os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx"))),
+        # opencode's own registry declares INCEPTION_API_KEY for the inception
+        # provider, so nothing needs adding to opencode.json - but the route is
+        # only usable once a key resolves, and that is what this reports.
+        ("Inception provider key resolvable (env or auth store)",
+         opencode_key_resolvable("inception", "INCEPTION_API_KEY")),
     ]
 
 
@@ -1881,8 +1906,9 @@ def host_checks_dsh():
         ("MCP bridge in cordis.patch.yml", "dsh-mcp-client" in patched),
         ("app MCP servers in cordis.patch.yml",
          all("serverName: %s" % n in patched for n in tezgah_apps.names(False))),
-        ("OpenRouter + DeepSeek routes in cordis.patch.yml",
-         "openrouter" in patched and "DEEPSEEK_API_KEY" in patched),
+        ("OpenRouter + DeepSeek + Inception routes in cordis.patch.yml",
+         "openrouter" in patched and "DEEPSEEK_API_KEY" in patched
+         and "INCEPTION_API_KEY" in patched),
         ("dsh launcher on PATH (~/.local/bin/dsh)",
          is_tezgah_link(os.path.join(LOCAL_BIN, "dsh"))),
         ("skills linked", skills_linked(os.path.join(DSH, "skills"))),
@@ -1890,6 +1916,8 @@ def host_checks_dsh():
          dsh_key_resolvable("OPENROUTER_API_KEY")),
         ("DeepSeek route key resolvable (env, ~/.config/deepseek/key or store)",
          dsh_key_resolvable("DEEPSEEK_API_KEY")),
+        ("Inception route key resolvable (env, ~/.config/inception/key or store)",
+         dsh_key_resolvable("INCEPTION_API_KEY")),
         ("status-line plugin linked into the web profile",
          os.path.exists(linked)),
         ("status-line row in the web cordis.patch.yml", DSH_STATUSLINE in web_patch),
@@ -1953,6 +1981,10 @@ def host_checks_omp():
          all(k in hook_text for k in ("session_start", "before_agent_start",
                                       "tool_call", "session_stop",
                                       "setWidget", "setStatus"))),
+        # omp is the host that spends this key: judge(), auto thinking,
+        # unexpected-stop and AI staging fall back to a chat model without it.
+        ("TypeSafe (Jev) key resolvable (env or ~/.config/typesafe/key)",
+         tp.have_typesafe_key()),
         ("status line answers", omp_hook_answers()),
     ]
 

@@ -60,7 +60,7 @@ measure the surface cannot see, then armed-and-used or armed-not-used.
 | `pony` | the full ponytail skill text was read this session | `ponytail-auto.off`, or `.no-ponytail` |
 | `exec` | never used-gated: `on` as soon as armed | `exec-mode.off` |
 | `adhd` | `skills/i-have-adhd/SKILL.md` was read this session | `adhd-off`, or `.no-adhd` |
-| `consult` | a shell command really ran `consult` | `consult-off`, or no OpenRouter/DeepSeek key |
+| `consult` | a shell command really ran `consult` | `consult-off`, or no OpenRouter/DeepSeek/Inception key |
 | `research` | a command really ran the research CLI | `research-off`, or `orx` not installed |
 | `cbm` | a code-graph tool call (an `mcp__…codebase…` tool) | `.no-cbm` |
 | `orch` | a delegate call (`Task`/`Agent`/`spawn_agent`) or a subagent start | `orchestrate-off` |

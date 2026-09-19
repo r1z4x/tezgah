@@ -131,10 +131,11 @@ class Install(SetupBase):
         self.assertIn("# tezgah:start", dsh)
         self.assertIn("dsh-hooks-claude-code", dsh)
         self.assertIn("dsh-mcp-client", dsh)
-        # both OpenRouter and DeepSeek routes are declared on the pi-ai adapter
+        # all three routes are declared on the pi-ai adapter
         self.assertIn("id: llm-pi-ai", dsh)
         self.assertIn("openrouter", dsh)
         self.assertIn("DEEPSEEK_API_KEY", dsh)
+        self.assertIn("INCEPTION_API_KEY", dsh)
         # the bridge skips any event it does not know, so the manifest the patch
         # names has to exist and be the dsh-shaped one, not the Claude manifest
         manifest = re.search(r"configPath: (\S+)", dsh).group(1)
@@ -392,7 +393,7 @@ class Deps(SetupBase):
 
 
 class DshChecks(SetupBase):
-    """The two dsh LLM routes are reported separately and read the provider key
+    """The three dsh LLM routes are reported separately and read the provider key
     files tezgah already uses, so a single-provider setup is not shown broken."""
 
     def test_routes_are_per_provider_and_read_config_key_files(self):
@@ -402,10 +403,63 @@ class DshChecks(SetupBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         openrouter = self.row(proc.stdout, "OpenRouter route key resolvable")
         deepseek = self.row(proc.stdout, "DeepSeek route key resolvable")
+        inception = self.row(proc.stdout, "Inception route key resolvable")
         self.assertTrue(openrouter, "OpenRouter row missing")
         self.assertTrue(deepseek, "DeepSeek row missing")
+        self.assertTrue(inception, "Inception row missing")
         self.assertTrue(openrouter.strip().startswith("ok"))
         self.assertTrue(deepseek.strip().startswith("MISS"))
+        self.assertTrue(inception.strip().startswith("MISS"))
+
+
+class OpencodeKeyRow(SetupBase):
+    """opencode's own registry owns the inception provider, so opencode.json
+    carries no route block and the key is the whole wiring: the report has to
+    say whether one resolves, from the launch env or the store `opencode auth
+    login` writes."""
+
+    def test_the_row_follows_the_auth_store(self):
+        self.write_json(self.path(".local", "share", "opencode", "auth.json"),
+                        {"inception": {"type": "api", "key": "k"}})
+        proc = self.setup("--hosts", "opencode")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        row = self.row(proc.stdout, "Inception provider key resolvable")
+        self.assertTrue(row, "row missing")
+        self.assertTrue(row.strip().startswith("ok"), row)
+
+    def test_a_missing_key_reads_as_missing(self):
+        proc = self.setup("--hosts", "opencode")
+        row = self.row(proc.stdout, "Inception provider key resolvable")
+        self.assertTrue(row, "row missing")
+        self.assertTrue(row.strip().startswith("MISS"), row)
+
+
+class OmpTypeSafeRow(SetupBase):
+    """omp is the host that spends TYPESAFE_API_KEY (judge(), auto thinking,
+    unexpected-stop, AI staging), so the report has to say whether one resolves
+    - a session whose key is missing silently reads the fallback as the
+    feature."""
+
+    def agent_dir(self):
+        os.makedirs(self.path(".omp", "agent"), exist_ok=True)
+
+    def test_the_row_follows_the_key_file(self):
+        self.agent_dir()
+        p = self.path(".config", "typesafe", "key")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "w").close()
+        proc = self.setup("--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        row = self.row(proc.stdout, "TypeSafe (Jev) key resolvable")
+        self.assertTrue(row, "row missing")
+        self.assertTrue(row.strip().startswith("ok"), row)
+
+    def test_a_missing_key_reads_as_missing(self):
+        self.agent_dir()
+        proc = self.setup("--hosts", "omp")
+        row = self.row(proc.stdout, "TypeSafe (Jev) key resolvable")
+        self.assertTrue(row, "row missing")
+        self.assertTrue(row.strip().startswith("MISS"), row)
 
 
 class SkillTriggerLine(unittest.TestCase):

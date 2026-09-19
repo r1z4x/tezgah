@@ -29,6 +29,8 @@ elif op == "orx_bin":
     out = tp.orx_bin()
 elif op == "have_consult_key":
     out = tp.have_consult_key()
+elif op == "have_typesafe_key":
+    out = tp.have_typesafe_key()
 else:
     raise SystemExit("unknown op: %s" % op)
 print(json.dumps(out))

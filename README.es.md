@@ -88,7 +88,8 @@ mismo texto cinco veces.
   captura de pantalla es una acción explícita y bajo demanda para lo que el árbol no puede responder.
 - **Segunda opinión externa.** Antes de una decisión no trivial o difícil de revertir,
   `~/.config/tezgah/bin/consult` consulta a modelos independientes a través de OpenRouter (o
-  la API de DeepSeek con `--provider deepseek`) en paralelo, y el agente informa en qué
+  la API de DeepSeek con `--provider deepseek`, o Inception Labs con
+  `--provider inception`) en paralelo, y el agente informa en qué
   estuvieron de acuerdo o en desacuerdo.
 - **Investigación a través de OpenResearch.** Cuando el enrutador juzga que una tarea es de investigación — una
   revisión bibliográfica, formulación y prueba de hipótesis, ejecución de experimentos, un
@@ -107,7 +108,8 @@ mismo texto cinco veces.
   — puede dar crédito al asistente, modelo, proveedor o "IA". Usar una herramienta está bien;
   firmar tu trabajo con su nombre no lo está.
 - **Orquestación de dos niveles.** El hilo principal decide y verifica; un modelo
-  económico (`~/.config/tezgah/bin/codegen`, OpenRouter por defecto o `--provider deepseek`) redacta
+  económico (`~/.config/tezgah/bin/codegen`, OpenRouter por defecto, `--provider deepseek`
+  o `--provider inception`) redacta
   ediciones limitadas y bien especificadas en un directorio temporal. Nada llega al repositorio
   excepto a través del enrutador, y un borrador fallido recurre automáticamente al modelo principal.
 - **Subagentes por repositorio.** Al inicio de la sesión, el repositorio contenedor obtiene un pequeño conjunto de
@@ -185,8 +187,10 @@ Requiere Python 3.8+. Se necesitan node + npm para el host dsh y, con `pnpm`,
 para su línea de estado web. Las integraciones opcionales se degradan con gracia:
 `codebase-memory-mcp` en el PATH impulsa el grafo; una clave de modelo impulsa `consult`
 y `codegen` — OpenRouter por defecto (`OPENROUTER_API_KEY` o
-`~/.config/openrouter/key`), o la API de DeepSeek con `--provider deepseek`
-(`DEEPSEEK_API_KEY` o `~/.config/deepseek/key`); y `orx` de OpenResearch en el PATH
+`~/.config/openrouter/key`), la API de DeepSeek con `--provider deepseek`
+(`DEEPSEEK_API_KEY` o `~/.config/deepseek/key`), o Inception Labs con
+`--provider inception` (`INCEPTION_API_KEY` o `~/.config/inception/key`); y `orx`
+de OpenResearch en el PATH
 le da a la regla de investigación algo que controlar. Cuando falta la clave del proveedor
 elegido, tezgah lo indica en lugar de fingir.
 

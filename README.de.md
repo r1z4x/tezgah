@@ -88,7 +88,7 @@ desselben Textes.
   ein Screenshot ist eine explizite On-Demand-Aktion für das, was der Baum nicht beantworten kann.
 - **Externe Zweitmeinung.** Vor einer nicht-trivialen oder schwer rückgängig zu machenden Entscheidung
   fragt `~/.config/tezgah/bin/consult` unabhängige Modelle über OpenRouter (oder die DeepSeek-API
-  mit `--provider deepseek`) parallel an, und der Agent berichtet, wo sie
+  mit `--provider deepseek`, oder Inception Labs mit `--provider inception`) parallel an, und der Agent berichtet, wo sie
   übereinstimmten oder nicht.
 - **Forschung via OpenResearch.** Wenn der Router eine Aufgabe als Forschung einstuft – eine
   Literaturrecherche, das Aufstellen und Testen von Hypothesen, das Durchführen von Experimenten, ein
@@ -107,7 +107,8 @@ desselben Textes.
   –, darf den Assistenten, das Modell, den Anbieter oder „KI“ erwähnen. Ein Werkzeug zu benutzen ist in Ordnung;
   seinen Namen unter Ihre Arbeit zu setzen, ist es nicht.
 - **Zweistufige Orchestrierung.** Der Haupt-Thread entscheidet und verifiziert; ein günstiges
-  Modell (`~/.config/tezgah/bin/codegen`, standardmäßig OpenRouter oder `--provider deepseek`) entwirft
+  Modell (`~/.config/tezgah/bin/codegen`, standardmäßig OpenRouter, `--provider deepseek`
+  oder `--provider inception`) entwirft
   begrenzte, gut spezifizierte Bearbeitungen in einem Scratch-Verzeichnis. Nichts gelangt in das Repo
   außer über den Router, und ein fehlgeschlagener Entwurf fällt automatisch auf das Hauptmodell zurück.
 - **Pro-Repo-Subagenten.** Beim Sitzungsstart erhält das umschließende Repo eine kleine Gruppe von
@@ -185,8 +186,10 @@ Erfordert Python 3.8+. Node + npm werden für den dsh-Host und, mit `pnpm`,
 für seine Web-Statuszeile benötigt. Die optionalen Integrationen degradieren gracefully (fallen elegant zurück):
 `codebase-memory-mcp` im PATH treibt den Graphen an; ein Modellschlüssel treibt `consult`
 und `codegen` an – standardmäßig OpenRouter (`OPENROUTER_API_KEY` oder
-`~/.config/openrouter/key`) oder die DeepSeek-API mit `--provider deepseek`
-(`DEEPSEEK_API_KEY` oder `~/.config/deepseek/key`); und OpenResearchs `orx` im
+`~/.config/openrouter/key`), die DeepSeek-API mit `--provider deepseek`
+(`DEEPSEEK_API_KEY` oder `~/.config/deepseek/key`) oder Inception Labs mit
+`--provider inception` (`INCEPTION_API_KEY` oder `~/.config/inception/key`); und
+OpenResearchs `orx` im
 PATH gibt der Forschungsregel etwas zum Steuern. Wenn der Schlüssel des gewählten Anbieters
 fehlt, teilt tezgah dies mit, anstatt etwas vorzutäuschen.
 

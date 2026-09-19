@@ -197,8 +197,47 @@ class ConsultKey(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(out)
 
+    def test_inception_key_file_counts(self):
+        p = os.path.join(self.home, ".config", "inception", "key")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "w").close()
+        out, proc = run_json([support.PROBE_PATHS, "have_consult_key"],
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out)
+
     def test_no_key_is_false(self):
         out, _ = run_json([support.PROBE_PATHS, "have_consult_key"],
+                          env=self.env())
+        self.assertFalse(out)
+
+
+class TypeSafeKey(TempHome):
+    """omp spends TYPESAFE_API_KEY on its System One judgments (`judge()`, auto
+    thinking, unexpected-stop, AI staging) and falls back to a chat model
+    without it, so the two places the key can live are the two the helper
+    reads."""
+
+    def write_key(self):
+        p = os.path.join(self.home, ".config", "typesafe", "key")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "w").close()
+
+    def test_key_file_counts(self):
+        self.write_key()
+        out, proc = run_json([support.PROBE_PATHS, "have_typesafe_key"],
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out)
+
+    def test_env_counts(self):
+        out, proc = run_json([support.PROBE_PATHS, "have_typesafe_key"],
+                             env=self.env(extra={"TYPESAFE_API_KEY": "test"}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out)
+
+    def test_no_key_is_false(self):
+        out, _ = run_json([support.PROBE_PATHS, "have_typesafe_key"],
                           env=self.env())
         self.assertFalse(out)
 
