@@ -15,10 +15,10 @@ promise that every non-obvious claim is openable - then the seats nobody has
 measured.
 
 ## Acceptance
-- [ ] `python3 -m unittest discover -s tests` prints `OK` **unpiped**: a piped run
+- [x] `python3 -m unittest discover -s tests` prints `OK` **unpiped**: a piped run
       records as "ran", never as "passed", which is why the first green report this
-      session could not support a done claim.
-- [ ] `bin/tezgah-docs --citations` exits 0 with `0` citations outside the symbol
+      session could not support a done claim. (`Ran 922 tests in 129.175s`, `OK`.)
+- [x] `bin/tezgah-docs --citations` exits 0 with `0` citations outside the symbol
       they name.
 - [ ] the delivered work is committed, and `git status --short` afterwards shows
       only the unrelated work-in-progress this plan does not own.
@@ -35,6 +35,15 @@ measured.
 - [ ] `plans/README.md`'s table carries this plan with its real status.
 
 ## State
+One caveat on the numbers below, and it is why the audit exists: the rebased
+citations are measured against the **working tree**, which carries the
+uncommitted `Inception` edit to `hooks/tezgah_policy.py` - that edit replaces six
+lines with seven inside `NO_CONSULT`, so `CORE` sits at 487 in the tree and 486 at
+`HEAD`, and the four `tezgah_policy.py` numbers this session wrote (`CORE`,
+`CONDITIONAL_KEYS`, `POINTERS`, `CONTRACT`) are one line lower if that edit is
+dropped rather than committed. `bin/tezgah-docs --citations` is the command that
+says so; nothing else will.
+
 Measured 2026-09-19 at HEAD `24936bd`, all unpiped and with the output seen:
 
 - The three checks are green: `compileall` exit 0; `ruff check .` -> "All checks
@@ -64,13 +73,16 @@ Measured 2026-09-19 at HEAD `24936bd`, all unpiped and with the output seen:
   **0 triggers in 147** sampled calls; the line's `state.json` carries it as `H6`,
   NEGATIVE PRIOR. Its seam map rejected the prompt-arming seat too, and left the
   Stop rule's claim detector unexamined.
-- Not committed: `bin/tezgah-docs`, `docs/README.md`,
-  `docs/{architecture,contract,evidence,gate,glossary,hosts}.md`, `HANDBOOK.md`,
-  `CHANGELOG.md`. The tree also carries an unrelated work-in-progress (an
-  `Inception` provider for `consult`: `README*`, `bin/consult`, `bin/codegen`,
+- Committed on `main`: the citation work as `f2b6527` (`bin/tezgah-docs`,
+  `docs/README.md`, `docs/{architecture,contract,evidence,gate,glossary,hosts}.md`,
+  `HANDBOOK.md`, `CHANGELOG.md`) and this plan as `7fd483e`, `a8f69ac` - explicit
+  paths only, so the unrelated work-in-progress stayed unstaged. That WIP is an
+  `Inception` provider for `consult` (`README*`, `bin/consult`, `bin/codegen`,
   `bin/tezgah-setup`, `hooks/tezgah_paths.py`, `tests/test_{paths,providers,setup}.py`,
-  `docs/status-line.md`) which this plan does not own and must not commit.
+  `docs/status-line.md`): this plan does not own it and must not commit it.
+  Nothing is pushed.
 
 ## Next
-Commit the delivered citation work on its own explicit paths, leaving the
-Inception WIP unstaged.
+Measure the one seat no research line examined - a Jev-shaped classifier in the
+Stop rule's claim detector - against the 1436-ledger corpus, or park it with its
+reason in `docs/gate.md` beside the empty gate seat that was.
