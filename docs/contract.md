@@ -40,27 +40,27 @@ caller how to disarm one (`hooks/tezgah_context.py:588-626`).
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:70-86`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**Turkish, BLUF.**` :489, `**Ponytail (minimal code).**` :498, `**Output shape:
-ADHD-friendly.**` :509, `**Deliver the whole ask; never the shortcut.**` :519,
-`**Integrity: evidence, or "doğrulanmadı".**` :533, `**Loop discipline.**` :544,
-`**Spec before building.**` :550 *(conditional)*, `**Lessons ledger: stop
-repeating mistakes.**` :564, `**Code discovery: graph first.**` :571
-*(conditional)*, `**Consult before irreversible.**` :580 *(conditional)*,
-`**Research: route it to OpenResearch.**` :594 *(conditional)*, `**No AI
-attribution, ever, on any host.**` :603, `**Irreversible or outward-facing
-actions need an explicit ask first.**` :613, `**Session scope: the user's repo,
-not tezgah.**` :622, `**Kill switches:**` :631.
+`**Turkish, BLUF.**` :490, `**Ponytail (minimal code).**` :499, `**Output shape:
+ADHD-friendly.**` :510, `**Deliver the whole ask; never the shortcut.**` :520,
+`**Integrity: evidence, or "doğrulanmadı".**` :534, `**Loop discipline.**` :545,
+`**Spec before building.**` :551 *(conditional)*, `**Lessons ledger: stop
+repeating mistakes.**` :565, `**Code discovery: graph first.**` :572
+*(conditional)*, `**Consult before irreversible.**` :581 *(conditional)*,
+`**Research: route it to OpenResearch.**` :595 *(conditional)*, `**No AI
+attribution, ever, on any host.**` :604, `**Irreversible or outward-facing
+actions need an explicit ask first.**` :614, `**Session scope: the user's repo,
+not tezgah.**` :623, `**Kill switches:**` :632.
 
 `always_on_core()` (`hooks/tezgah_context.py:577-585`) drops the four
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:650-655`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, the code graph. That is what a host with
 no prompt-time hook writes into a static file: opencode's
-`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:556-591`) and omp's
-managed `RULES.md` (`bin/tezgah-setup:1037-1039`). Claude applies
+`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:573-608`) and omp's
+managed `RULES.md` (`bin/tezgah-setup:1074-1076`). Claude applies
 `output-styles/tezgah.md` as a plugin output style instead
 (`output-styles/tezgah.md:11-12`); Codex and Cursor receive the same core from
-their session-start hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:203`). `core_for()`
+their session-start hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:220`). `core_for()`
 (`hooks/tezgah_context.py:568-574`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
@@ -74,7 +74,7 @@ applied, and it also returns the names of the switches that fired.
 - **Loop discipline.** Never repeat an identical failing command; three attempts is the ceiling, then report what is still unknown.
 - **Lessons ledger: stop repeating mistakes.** `.tezgah/lessons.md` lines are standing constraints; the recent ones are injected at session start.
 - **No AI attribution, ever, on any host.** Nothing persisted or published may name a model, vendor or "AI" as author, co-author, generator or helper.
-- **Irreversible or outward-facing actions need an explicit ask first.** The one invariant: it stays armed whatever the classifier decides (`tests/test_context.py:1181-1191`), because the classifier is advisory. It cuts the standing merge authority out by name ("beyond the merge") because a PR merge is itself an external-service write, and an exception that covered it would swallow the authority stated beside it (`hooks/tezgah_policy.py:613`, `:653`).
+- **Irreversible or outward-facing actions need an explicit ask first.** The one invariant: it stays armed whatever the classifier decides (`tests/test_context.py:1181-1191`), because the classifier is advisory. It cuts the standing merge authority out by name ("beyond the merge") because a PR merge is itself an external-service write, and an exception that covered it would swallow the authority stated beside it (`hooks/tezgah_policy.py:614`, `:653`).
 - **Session scope: the user's repo, not tezgah.** The session never maintains tezgah itself; a missing capability is one line plus the documented fallback.
 - **Kill switches.** The switch list itself, so a session can tell the user how to disarm a rule it is asked to ignore; pinned against the shipped skill by `tests/test_skills.py:99-109`.
 
@@ -102,7 +102,7 @@ missing the code graph or every consult key (`hooks/tezgah_policy.py:425-443`).
 
 A kill switch removes the rule's text, not just a status mark
 (`hooks/tezgah_context.py:571-572`). `off()` checks `~/.config/tezgah` and the
-legacy `~/.claude` (`hooks/tezgah_paths.py:43-45`, `:218-220`); the drop itself
+legacy `~/.claude` (`hooks/tezgah_paths.py:44-46`, `:219-221`); the drop itself
 happens in `core_split()`.
 
 | Switch file | Rule it removes | Where the drop is implemented |
@@ -115,7 +115,7 @@ happens in `core_split()`.
 | `consult-off` | `**Consult before irreversible.**` | `hooks/tezgah_context.py:544-546` |
 | `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py:547-549` |
 | `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py:550-551` disables it, `hooks/tezgah_context.py:864-866` injects "Orchestration is off", and the skill-ignore note is `hooks/tezgah_context.py:753-755` |
-| `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:803-805` returns `None` |
+| `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:770-771` returns `None` |
 | `pretooluse-off` | the gate's denials, not a rule | [gate.md](gate.md) |
 | `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:528-531` |
 | `.no-adhd` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:532-534` |
@@ -148,7 +148,7 @@ they survive every other switch being off.
    the brief from it, so a label edit fails loudly instead of silently dropping
    a rule.
 4. If the rule names a kill switch, add the drop to `core_split()` and list the
-   switch in the `**Kill switches:**` paragraph (`hooks/tezgah_policy.py:631`).
+   switch in the `**Kill switches:**` paragraph (`hooks/tezgah_policy.py:632`).
 5. Mirror the full text into `skills/tezgah-contract/SKILL.md`, and regenerate
    `output-styles/tezgah.md` from a fresh Python process when the paragraph is
    always-on — a warm interpreter serves a stale `CORE`.
@@ -158,21 +158,21 @@ they survive every other switch being off.
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py:1230-1238`) and
    `ContractParity.test_every_rule_and_heading_in_the_contract_reaches_the_skill`
-   (`tests/test_setup.py:659-674`).
+   (`tests/test_setup.py:773-783`).
 
 ## The two copies that must stay in step
 
 | Copy A | Copy B | Test that fails when only one changed |
 |---|---|---|
 | `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:1234` |
-| `policy.CONTRACT` (`hooks/tezgah_policy.py:674`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:659` |
+| `policy.CONTRACT` (`hooks/tezgah_policy.py:675`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:773` |
 
 The second pair is also hashed as one source for the generated opencode contract
-(`bin/tezgah-setup:176-179`, `:152-184`), which notices that *one* of them
+(`bin/tezgah-setup:193-199`, `:181-200`), which notices that *one* of them
 changed; `ContractParity` is what notices that only one of them did, which is the
-drift that actually happens (`tests/test_setup.py:629-652`). `tezgah-setup
+drift that actually happens (`tests/test_setup.py:761-783`). `tezgah-setup
 --refresh` re-renders the generated artifacts in a running session when that hash
-is stale (`bin/tezgah-setup:594-609`, `bin/tezgah-setup:2327-2329`).
+is stale (`bin/tezgah-setup:611-626`, `bin/tezgah-setup:2403-2405`).
 
 ## When the injected text grows too large
 

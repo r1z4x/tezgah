@@ -19,7 +19,7 @@ request (`CONTRIBUTING.md:13-19`).
 
 | Check | What it catches that the other two do not |
 |---|---|
-| `compileall` | A syntax error in any `.py` under `hooks/` and `hosts/`, plus `statusline.py`, without running a line of it and with no environment set up. The `bin/` CLIs are Python sources with no `.py` suffix, so only running one compiles it (`test_setup.py:66`). |
+| `compileall` | A syntax error in any `.py` under `hooks/` and `hosts/`, plus `statusline.py`, without running a line of it and with no environment set up. The `bin/` CLIs are Python sources with no `.py` suffix, so only running one compiles it (`test_setup.py:82`). |
 | `unittest` | Behaviour: what a hook answers, what the [gate](glossary.md#gate) denies, what reaches the [ledger](glossary.md#ledger), what a status line renders. |
 | `ruff` | Lint only, with the rule set pinned in `pyproject.toml:12-14` (`E4`, `E7`, `E9`, `F`; `E501` ignored). The pin exists because newer ruff releases ship a broader default and would otherwise change `ruff check .` in CI (`pyproject.toml:10-11`). One pre-existing script is exempted per-file in `pyproject.toml:19-20`. |
 
@@ -64,7 +64,7 @@ fresh `home` and a `roots` dir, `env()`, `make_repo()`, `config()` and `touch()`
 **Probes.** `tests/_probe_*.py` are tiny scripts that call one function of a
 shared module and print its result as JSON, so the call happens in a process
 whose `HOME` and `TEZGAH_ROOTS` are already the test's. They exist because those
-modules derive paths from `HOME` at import time - `hooks/tezgah_paths.py:20-33`
+modules derive paths from `HOME` at import time - `hooks/tezgah_paths.py:21-34`
 builds `CONFIG`, `CACHE` and `DEFAULT_ROOT` at module level - so importing them
 into the test process would answer about the developer's real machine.
 
@@ -106,8 +106,8 @@ no prompt, so the run costs no model call (`e2e_omp_statusline.py:2-4`).
 **It must fail on a plausible bug.** Where the repo turns a behaviour into a
 string, the pin *is* the contract: the exact status segment
 (`test_statusline.py:8-17`, compared at `:31-37`), a `tezgah-setup --status` row
-label (`test_setup.py:387-392`), the opencode router line a skill's trigger
-reaches (`test_setup.py:439-453`), the kill-switch labels whose deletion must
+label (`test_setup.py:1013-1019`), the opencode router line a skill's trigger
+reaches (`test_setup.py:516-524`), the kill-switch labels whose deletion must
 fail the test rather than silently disarm a rule (`test_context.py:365-367`). An
 intentional change updates the pin in the same commit; deleting the test because
 it is now red is the failure mode these pins exist to catch.
@@ -118,15 +118,15 @@ call was forwarded, dies at the first refactor. Where text is asserted it is
 output the user or a host sees. The suite's own comments say the rule twice:
 pin the behaviour, not one phrasing of it (`test_skills.py:79-81`), and pin a
 rule on a synthetic input, not only on the shipped pair
-(`test_setup.py:395-399`).
+(`test_setup.py:466-469`).
 
 **Stay deterministic and isolated.** A temp HOME is the mechanism
 (`support.py:3-5`); `base_env` also points `TEZGAH_CBM_BIN` and `TEZGAH_ORX_BIN`
 at paths that do not exist, so the machine's own graph binary and orx cannot leak
 into an assertion (`support.py:49-53`). The installer suite sets
-`TEZGAH_NO_DEPS=1` so `--install` fetches nothing (`test_setup.py:40-42`). No test
+`TEZGAH_NO_DEPS=1` so `--install` fetches nothing (`test_setup.py:56-58`). No test
 reaches the network: where a provider is needed it is a loopback stub
-(`test_providers.py:91-93`, `test_consult_arena.py:72`).
+(`test_providers.py:106-108`, `test_consult_arena.py:72`).
 
 **Run inside the default discovery.** A new test is `tests/test_<thing>.py`, a
 `unittest.TestCase`, and passes under
@@ -161,8 +161,8 @@ and `self.env()`, assert on its JSON output:
 
 **For a CLI.** Run it with a temp environment and assert on its stdout or on the
 tree it left. A `bin/` CLI is run as a subprocess with `sys.executable` and an
-explicit environment (`test_setup.py:61-68`); `SetupBase` in
-`test_setup.py:24-78` is the worked example for `bin/tezgah-setup` (fake host
+explicit environment (`test_setup.py:77-84`); `SetupBase` in
+`test_setup.py:40-94` is the worked example for `bin/tezgah-setup` (fake host
 dirs, `TEZGAH_NO_DEPS=1`, stdin always a pipe so the wizard cannot block on a
 real terminal). For a plain CLI,
 `run([support.STATUSLINE], {"cwd": repo}, env=self.envv)` is enough

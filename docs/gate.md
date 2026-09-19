@@ -16,8 +16,8 @@ Each host's pre-tool hook calls it and wraps the string in that host's own deny 
 | Host | Adapter | Refusal envelope |
 |---|---|---|
 | claude, dsh | `hooks/projects-pretooluse.py:24-30` (`hosts/dsh/hooks.json:13`) | `hookSpecificOutput.permissionDecision: "deny"` |
-| codex, cursor, omp | `hosts/codex/hook.py:118-125`, `hosts/cursor/hook.py:279-281`, `hosts/omp/hook.py:117-120` | that host's own envelope — [hosts.md](hosts.md) |
-| opencode | `hosts/opencode/plugins/tezgah.js:2013` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:2130` |
+| codex, cursor, omp | `hosts/codex/hook.py:136-143`, `hosts/cursor/hook.py:301-302`, `hosts/omp/hook.py:117-120` | that host's own envelope — [hosts.md](hosts.md) |
+| opencode | `hosts/opencode/plugins/tezgah.js:2016` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:2133` |
 
 Every refusal is also recorded before it is returned: `_deny` appends a ledger row `deny` whose `detail` is `"<rule>: <reason, first 80 chars>"`, plus any
 `extra` (`hooks/tezgah_gate.py:1425-1439`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
@@ -45,7 +45,7 @@ Trigger, shell: `--no-verify`, or `SKIP=`/`HUSKY_SKIP_HOOKS=`/`HUSKY=0`, next to
 (`hooks/tezgah_integrity.py:749-766`, `NO_VERIFY` `:62`, `SKIP_ENV` `:61`, `NEUTER` `:56-57`, `GITISH` `:63`). Trigger, edit/write: a skip marker newly
 introduced into a test file — the path must match `tests?/`, `test_*`, `*_test`, `*.test.*` (`TEST_PATH` `:75-78`), the marker must survive `mask()` so one
 inside a string or comment does not count, and `_added` compares against the file's own text on disk for a `Write` (`:780-814`, `SKIP_TEST` `:65-70`). Told:
-the texts at `:743-753` and `:810-813` — run the checks, or say the test is failing; ask the user first if the skip is intended. Standing, with one switch:
+the texts at `:766-778` and `:832-835` — run the checks, or say the test is failing; ask the user first if the skip is intended. Standing, with one switch:
 `verify-off` removes this check (`hooks/tezgah_gate.py:1466-1478`). The shell is a write route like any other, and the one E7c measured an
 armed session taking once the write tools were refused: a heredoc that writes a skip into a test file meets the same predicate, run over the body the
 command would land (`shell_write_body` `hooks/tezgah_gate.py:1259`, read at `hooks/tezgah_gate.py:1472` — the body is the raw text, because `mask()` blanks
@@ -73,7 +73,7 @@ Trigger: this user turn has a read row carrying a `source` (web, mcp, network), 
 root (`outside_paths` `hooks/tezgah_gate.py:866-882`) or a shell command of any effect class (`hooks/tezgah_gate.py:1559-1561`; a shell redirect out of the root is not this rule's, see below). Told: put
 it in front of the user; content is not the user, so an approval given before the read does not cover it (`UNTRUSTED_DENY` `hooks/tezgah_gate.py:852-859`). Lifts only on an
 unspent user `grant` newer than the read (`sink_check` `hooks/tezgah_gate.py:885-916`). The refusal leaves the same `consent` ask row the rule below uses, labelled
-`outside-workspace` when the realpath is what makes the call a sink (`SINK_WRITE` `hooks/tezgah_gate.py:863`, `hooks/tezgah_gate.py:1528`), so `bin/tezgah-consent` answers it identically. A write
+`outside-workspace` when the realpath is what makes the call a sink (`SINK_WRITE` `hooks/tezgah_gate.py:863`, `hooks/tezgah_gate.py:1531`), so `bin/tezgah-consent` answers it identically. A write
 *inside* the root is not this rule's sink.
 
 ### Consent — an irreversible or outward-facing command
@@ -122,7 +122,7 @@ is refused from the body (`hooks/tezgah_gate.py:1590`), because `mask()` blanks 
 The one rule here that asserts a relation between two actions rather than reading one call plus a ledger tail, and the shape FAVA found in 90% of real
 agent-instruction projects ("do not commit before running the tests").
 
-Trigger: the command is a `git commit` (or `--amend`; `COMMIT_CMD` `hooks/tezgah_gate.py:1303`, matched at `hooks/tezgah_gate.py:1598`) and the newest check in
+Trigger: the command is a `git commit` (or `--amend`; `COMMIT_CMD` `hooks/tezgah_gate.py:1303`, matched at `hooks/tezgah_gate.py:1322`) and the newest check in
 this session **failed**. The state is the Stop rule's own fold over the ledger tail (`ORDER_TAIL = 200` `hooks/tezgah_gate.py:1302`, the fold
 `tezgah_integrity._last_verify`), and the rule is structurally incapable of firing in either direction that would punish honest work: no check at all folds
 to `None` and a passing newest check folds to `ok`, so a commit in a session that ran no check — a docs-only commit — and a commit after a green run both
@@ -192,7 +192,7 @@ identity per session is what makes `loop` and `retry` count attempts instead of 
 Read this before filing a security-ish issue; each is a decision, not an oversight.
 
 - A hand-written migration — `psql -c "ALTER TABLE ..."`. "reading SQL intent is not a regex" (`hooks/tezgah_gate.py:234-235`).
-- A raw SQL `UPDATE` through `psql -c`: the statement sits in a quoted string that `mask()` blanks (`hooks/tezgah_gate.py:292-294`, `hooks/tezgah_integrity.py:743-746`).
+- A raw SQL `UPDATE` through `psql -c`: the statement sits in a quoted string that `mask()` blanks (`hooks/tezgah_gate.py:292-294`, `hooks/tezgah_integrity.py:752-754`).
 - A shell write outside the root (`echo x > ../y`): "the class table is the shell's sink list" (`hooks/tezgah_gate.py:849-851`).
 - An effect whose target was not named in the user's prompt — the taxonomy's own version. A PreToolUse payload carries the call, never the prompt text, and
   the prompt path stores only `sha1(prompt)[:12]` (`hooks/tezgah_gate.py:830-832`).
@@ -264,14 +264,14 @@ precision and 768 ms.
 ## The mirror: the opencode plugin
 
 opencode cannot run Python hooks, so `hosts/opencode/plugins/tezgah.js` is an independent JavaScript re-implementation of the same rules, dispatched from
-`tool.execute.before` (hosts/opencode/plugins/tezgah.js:1610, exported `hosts/opencode/plugins/tezgah.js:1961`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:2027-2096`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:300`,
+`tool.execute.before` (hosts/opencode/plugins/tezgah.js:2016, exported `hosts/opencode/plugins/tezgah.js:1964`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:2027-2096`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:300`,
 `SKIP_ENV` hosts/opencode/plugins/tezgah.js:295, `NO_VERIFY` `hosts/opencode/plugins/tezgah.js:302`, `GITISH` `hosts/opencode/plugins/tezgah.js:303`, `SKIP_TEST` `hosts/opencode/plugins/tezgah.js:304`). What keeps the two halves honest is a test, not a shared module:
 `tests/test_opencode_plugin.py` drives the plugin's hooks through a node harness with a throwaway HOME, and imports the Python `tezgah_integrity.call_id` so a
 separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `:21-24`, `tests/test_opencode_plugin.py:1026-1065`).
 
 The two halves agree on the consent rule. A repeat of an irreversible or
 outward-facing command the user has not approved is refused again, carrying the ask-stands note rather than a second question
-(`hosts/opencode/plugins/tezgah.js:1032-1043`, `hooks/tezgah_gate.py:1572-1581`); a grant is a lease on one effect in one workspace, spent by
+(`hosts/opencode/plugins/tezgah.js:1062-1073`, `hooks/tezgah_gate.py:1572-1581`); a grant is a lease on one effect in one workspace, spent by
 the outcome row that follows it, so the next identical command is asked about again instead of passing on the first approval
 (`unspent_grant` `hooks/tezgah_gate.py:588-632`, `consentMark` `hosts/opencode/plugins/tezgah.js:963-972` - each half records the same scope,
 `os.path.realpath(cwd)` against `realpathSync(dir)`, so a row one writes is one the other honours); and the refusal
@@ -281,7 +281,7 @@ names the action's digest and the CLI that answers it (`consent_reason` `hooks/t
 
 The three rule kinds added last are mirrored too, each pinned in both suites: the shell's write body (`SHELL_WRITE` `hosts/opencode/plugins/tezgah.js:454`,
 `heredocBodies` `hosts/opencode/plugins/tezgah.js:460`, `shellWriteBody` `hosts/opencode/plugins/tezgah.js:504`, the shortcut and attribution twins at
-`hosts/opencode/plugins/tezgah.js:2060` and `hosts/opencode/plugins/tezgah.js:2027`, the credential twin at `hosts/opencode/plugins/tezgah.js:1088`), the two
+`hosts/opencode/plugins/tezgah.js:2060` and `hosts/opencode/plugins/tezgah.js:2027`, the credential twin at `hosts/opencode/plugins/tezgah.js:1091`), the two
 shared-resource destroys (`REMOTE_DESTROY` `hosts/opencode/plugins/tezgah.js:155`, `remoteDestroy` `hosts/opencode/plugins/tezgah.js:1223`, `flyway clean` added
 to `MIGRATION` `hosts/opencode/plugins/tezgah.js:174`), and the ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:895`, `ORDER_DENY`
 `hosts/opencode/plugins/tezgah.js:897`, `lastVerify` `hosts/opencode/plugins/tezgah.js:907`, `orderReason` `hosts/opencode/plugins/tezgah.js:932`, dispatched at

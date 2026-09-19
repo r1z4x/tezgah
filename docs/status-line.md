@@ -91,7 +91,7 @@ python is asked (hooks/tezgah_context.py:125-129). A surface that cannot see one
 was never opened", so it declares what it can see and those marks render `info`
 (dim, no glyph) instead of `ready` (`observable`, hooks/tezgah_context.py:1212-1217; the set constant
 `TOOL_USE_MEASURES`, hooks/tezgah_context.py:1187). The `--observable=` flag carries it on the CLI
-(bin/tezgah-status:12-16,37-38,69-72). Two callers pass the tool-use set: Cursor's
+(bin/tezgah-status:26-30,52-53,120-123). Two callers pass the tool-use set: Cursor's
 status line (statusline.py:109-114) and Codex, which renders the line plain into
 `systemMessage` (hosts/codex/hook.py:163-165,177-179); dsh passes the literal flag
 string (hosts/dsh/statusline/lib/index.js:18,47-48).

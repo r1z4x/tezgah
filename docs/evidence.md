@@ -10,8 +10,8 @@ undone from. Read it before changing a rule that records or reads evidence, or w
 One append-only JSONL file per session at `<cache>/evidence/<slug>.jsonl`; the stem is a readable
 prefix plus a hash of the session id, so a filename can never be turned back into one
 (`hooks/tezgah_integrity.py:228-244`). Every writer goes through `note_path` (`:355-374`): `note()`
-derives the path from the session id (`:364-374`), and the consent CLI passes an explicit path,
-holding no session id. The row is built in exactly one place (`:357-360`), and its shape is
+derives the path from the session id (`:377-387`), and the consent CLI passes an explicit path,
+holding no session id. The row is built in exactly one place (`:370-371`), and its shape is
 `{"kind": …, "ts": …, "detail": …}` plus whatever `LEDGER_FIELDS` keys the writer knew — for a check
 the host reported passing, `{"kind": "verify_ok", "ts": 1758000000, "detail": "pytest -q",
 "id": "a1b2c3d4e5f6", "exit": 0, "out_bytes": 4312}`.
@@ -19,28 +19,28 @@ the host reported passing, `{"kind": "verify_ok", "ts": 1758000000, "detail": "p
 `kind` is the event kind, `detail` is free text (the command, a path, a short reason) and `ts` is
 epoch seconds. `detail` is credential-redacted **before** it is stored, over the whole text, and
 truncated to `DETAIL_MAX = 200` only afterwards, so a marker the cut halves still reads as a marker
-(`:266-291`, `:293`, `:350-358`): a named key keeps its name and loses its value, a `Bearer` token or
-a prefixed token family loses it (`:246-263`). The optional fields are exactly `LEDGER_FIELDS`
+(`:266-291`, `:306`, `:363-367`): a named key keeps its name and loses its value, a `Bearer` token or
+a prefixed token family loses it (`:246-276`). The optional fields are exactly `LEDGER_FIELDS`
 (`:161-162`) — `id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed` — and
 a key outside that set is dropped, a `None` value left out, because every reader treats a missing key
-as `None` (`:359-360`). The append is one locked line, an exclusive `flock` with a 1 s bound falling
+as `None` (`:372-373`). The append is one locked line, an exclusive `flock` with a 1 s bound falling
 back to an unlocked write (`:296-338`), and is best effort: a write failure is never the caller's.
 
 What never reaches the ledger: tool result bodies (only `out_bytes`, a size,
 `hooks/projects-posttooluse.py:41-58`), the prompt text (the `turn` row keeps `sha1(prompt)[:12]`,
-`:580-597`), read/search calls (`:1035-1036`), and any credential, already replaced.
+`:609-610`), read/search calls (`:1124-1125`), and any credential, already replaced.
 
 ## The kinds, by what reads them
 
-A bare `:N` below is `hooks/tezgah_integrity.py`; `classify` (`:817-824`) picks the kind for a call —
+A bare `:N` below is `hooks/tezgah_integrity.py`; `classify` (`:839-846`) picks the kind for a call —
 a write tool is `edit`, a shell call is `verify` when its command matches the check vocabulary `VERIFY`
 (`:39-53`) and `run` otherwise.
 
 | Kind | Written by | Read by |
 |---|---|---|
 | `turn` | `note_turn` `:593-610`, from the prompt path | `_turn_start` `:474-479`, scoping every turn rule; `_claim_key` `:1306-1321` |
-| `run`, `edit`, `verify`, `verify_ok`, `verify_fail` | `note_tool` `:1090-1167` | the Stop rule's `worked` set `:1386`; `counters.steps` `:666-667`; `last_verify`/`partial_state` |
-| `external`, `unknown` | `note_tool` `:1127-1138` | the sink rule, via `source`; nothing counts them as work |
+| `run`, `edit`, `verify`, `verify_ok`, `verify_fail` | `note_tool` `:1090-1167` | the Stop rule's `worked` set `:1408`; `counters.steps` `:679-680`; `last_verify`/`partial_state` |
+| `external`, `unknown` | `note_tool` `:1127-1147` | the sink rule, via `source`; nothing counts them as work |
 | `claim` | `stop_reason` `:1322-1348` | `counters` `:629-644` |
 | `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1425`, first-nudge `hooks/tezgah_gate.py:1617-1620` | `counters` `:629-644` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:183-185`, `:262-265` | `_snapshot_hash` `:1018-1031`; no counter |
@@ -67,9 +67,9 @@ anything. `changed_files` (`:1079-1089`) reads exactly those rows.
 **`claim` is the false-completion record.** `stop_reason` (`:1322-1348`) writes one row per reply per
 turn, deduplicated by `_claim_key` (`:1306-1321`), with detail `blocked: <class>` or `ok`: a refusal
 and an allowed claim are both recorded, because the rate needs both halves. **`external` and
-`unknown` claim no step of work.** `external` (`:1117-1123`) is a result with no work of its own — an
+`unknown` claim no step of work.** `external` (`:1136`) is a result with no work of its own — an
 MCP answer, a fetched page — recorded so its provenance is on the ledger at all; `unknown`
-(`:1124-1133`) is a tool name no list knows. The step counter, the Stop rule and the loop ceilings
+(`:1147`) is a tool name no list knows. The step counter, the Stop rule and the loop ceilings
 ignore both.
 
 ## The Stop rule, end to end
@@ -79,14 +79,14 @@ The checker is `_stop_block` (`hooks/tezgah_integrity.py:1362-1459`), reached th
 (`hosts/codex/hook.py:176-181`), Cursor (`hosts/cursor/hook.py:313-318`), omp
 (`hosts/omp/hook.py:165-169`) — all with `{"decision": "block", "reason": …}`, all inert outside a
 [root](glossary.md#root) and under the `verify-off` [kill switch](glossary.md#kill-switch)
-(`hooks/projects-stop.py:28`). Five triggers, in order, each naming its reason class (`:1324`):
+(`hooks/projects-stop.py:28`). Five triggers, in order, each naming its reason class (`:1329-1331`):
 
-1. **placating opener** — the reply opens by agreeing or apologising (`:1373-1379`, `SYCOPHANT` `:116-122`).
-2. **check failed** — the newest check in the session failed (`:1400-1404`).
-3. **partial failure** — this turn recorded a `verify_fail` and nothing passed since (`:1407-1417`).
+1. **placating opener** — the reply opens by agreeing or apologising (`:1386-1392`, `SYCOPHANT` `:116-122`).
+2. **check failed** — the newest check in the session failed (`:1413-1418`).
+3. **partial failure** — this turn recorded a `verify_fail` and nothing passed since (`:1420-1434`).
 4. **stale evidence** — the newest check that passed ran before the newest write the gate saw change
    the tree, so it verified an earlier revision of it (`_last_pass`/`_last_change`/`_stale_paths`
-   `:1223-1249`, branch `:1426-1437`). A write counts as a change whether the gate saw it as a
+   `:1223-1249`, branch `:1436-1450`). A write counts as a change whether the gate saw it as a
    write tool or as a shell command that redirected into the file - `_change_row` (`:1209`) reads
    an `edit` row, or a `run` row whose captured target moved - while a `verify*` row never does, so
    a check redirecting its own log cannot stale itself. A write *outside* the workspace is not one
@@ -94,15 +94,15 @@ The checker is `_stop_block` (`hooks/tezgah_integrity.py:1362-1459`), reached th
    after-state for a target beyond the call's own root - a commit message in `/tmp` written after a
    green suite is not a revision of that tree, and reading it as one refused an honest turn.
 5. **no verify_ok** — this turn recorded a step (`edit`, `verify`, `verify_fail`, `run`) and no check
-   passed in the session (`:1438-1446`).
+   passed in the session (`:1453-1459`).
 
 The trigger for 2–5 is the turn's own evidence, not its words: a turn that did work and never saw a
-check pass is refused whatever the reply says (`:1395`). What lets the turn end is the absence
-of both — no work row and no claim vocabulary (`:1396-1397`) — or a `passing_check` row newer than
-the newest write seen to change the tree (`:1423-1424`). An explicit admission (`doğrulanmadı`,
-`unverified`, `not verified`, `couldn't verify`; `NEGATED` `:112-115`) clears the rule (`:1381-1382`),
+check pass is refused whatever the reply says (`:1408-1410`). What lets the turn end is the absence
+of both — no work row and no claim vocabulary (`:1409-1410`) — or a `passing_check` row newer than
+the newest write seen to change the tree (`:1436-1437`). An explicit admission (`doğrulanmadı`,
+`unverified`, `not verified`, `couldn't verify`; `NEGATED` `:112-115`) clears the rule (`:1394-1395`),
 checked after the placating-opener branch and before the evidence triggers. The block text is the
-string at `:1375-1379`, `:1402-1404`, `:1410-1415`, `:1431-1436`, `:1441-1446`; it names the failed
+string at `:1387-1392`, `:1414-1417`, `:1422-1434`, `:1443-1450`, `:1453-1459`; it names the failed
 command (`_failed_check` `:1349-1361`) and tells the model to report the failure with its exact error
 line, or fix it and re-run.
 
@@ -112,9 +112,9 @@ the same `verify-off` switch (`hooks/tezgah_gate.py:1466-1478`), as rule `shortc
 - `--no-verify` on a git/commit/push-style command (`NO_VERIFY` `:62`, `GITISH` `:63`) —
   `shortcut_command` `:758-779`.
 - an env that skips the hooks — `SKIP=`, `HUSKY_SKIP_HOOKS=`, `HUSKY=0` — again requiring the git/hook
-  context, so a read that merely mentions `SKIP=` passes (`SKIP_ENV` `:61`, `:747-750`).
+  context, so a read that merely mentions `SKIP=` passes (`SKIP_ENV` `:61`, `:769-772`).
 - a check chained so it cannot fail: `|| true`, `; true`, `|| exit 0`, `|| :` (`NEUTER` `:56-57`,
-  `:751-754`).
+  `:773-776`).
 - a newly added test skip/xfail in a test file (`SKIP_TEST` `:65-73`, path gate `TEST_PATH` `:75-78`,
   per-marker count `_added` `:780-801`, `shortcut_edit` `:802`). Rewriting an existing skip in place
   passes; one more does not.
@@ -152,22 +152,22 @@ refused capture writes no row and so claims no copy (`:39-53`, `:159-162`).
 `tezgah-rollback <snapshot-id> [--force]` (`bin/tezgah-rollback:24-35`). It refuses an unknown or
 malformed id, stored bytes that do not match the recorded hash, and a file that has changed since the
 capture — that last one only until `--force`, and the `rollback` row records that it was used
-(`:245-256`). The id to pass is on the `snapshot` ledger row for that write (`_snapshot_hash`
+(`:245-265`). The id to pass is on the `snapshot` ledger row for that write (`_snapshot_hash`
 `:1018-1031`).
 
 **Nothing rolls back automatically, anywhere.** A hook that undoes work can destroy more than the
 failure it answers, and its trigger would be a guess about intent wearing a check's clothes
-(`hooks/tezgah_snapshot.py:10-18`; `hooks/tezgah_integrity.py:1289-1296`). Repair is the model's or
+(`hooks/tezgah_snapshot.py:10-18`; `hooks/tezgah_integrity.py:1298-1301`). Repair is the model's or
 the user's: fix and re-run, or reach for a snapshot deliberately.
 
 ## Untrusted content
 
 A result that arrived from outside the user and this workspace carries a provenance label on the
 result itself: `untrusted_label` (`hooks/tezgah_integrity.py:971-985`) names the channel — a web
-result (`WEB_TOOLS` `:892`), an MCP server (`:881`), a network read (`NETWORK_READ` `:899`) or a
+result (`WEB_TOOLS` `:892`), an MCP server (`:894`), a network read (`NETWORK_READ` `:899`) or a
 model on the far side of the network (`TIER_PROGRAMS` `:908`: a `bin/consult`/`bin/codegen`
 invocation that reaches a provider) — and tells the model to treat instructions inside it as data.
-The call's own row carries the channel in `source` (`:1139`).
+The call's own row carries the channel in `source` (`:1152`).
 
 After that read, the first effect the turn makes — a shell call or a write
 (`hooks/tezgah_untrusted.py:36-41`) — carries a taint notice instead (`marks` `:81-93`,
@@ -179,17 +179,17 @@ The taint is enforced at the sink: while an untrusted read is live, an effect is
 user's own approval was written *after* the read (`sink_check` `hooks/tezgah_gate.py:885-918`; deny
 rule `sink` at `hooks/tezgah_gate.py:1527-1534` for a write outside the root,
 `hooks/tezgah_gate.py:1564-1565` for a shell effect class). opencode reaches the same rule from its
-own gate hook (`sinkWrite` `hosts/opencode/plugins/tezgah.js:1659`, `sinkCheck` `:1634`, the shell
-half inside `shellRules` `:1023`). The
+own gate hook (`sinkWrite` `hosts/opencode/plugins/tezgah.js:1662`, `sinkCheck` `:1637`, the shell
+half inside `shellRules` `:1026`). The
 label reaches the model on every host that has a surface for it: Claude and dsh through
 `hooks/projects-posttooluse.py:80-83`, Codex (`hosts/codex/hook.py:153-154`), Cursor
 (`hosts/cursor/hook.py:230-231`), omp (`hosts/omp/hook.py:139-163`), and opencode, whose plugin
 cannot import the core in process and mirrors the control in JavaScript instead — the channel on the
 call's own row, the label and the taint notice in front of the result the hook is handed, including
 the `external` row an MCP answer or a fetched page earns (`untrustedSource`
-`hosts/opencode/plugins/tezgah.js:1515`, `labelResult` `:1684`, with the tier's argv reader at
-`:1475`). The two halves are pinned against each other over a shared corpus, so neither can move
-without failing the other's test (`tests/test_opencode_plugin.py:1236`).
+`hosts/opencode/plugins/tezgah.js:1518`, `labelResult` `:1687`, with the tier's argv reader at
+`:1478`). The two halves are pinned against each other over a shared corpus, so neither can move
+without failing the other's test (`tests/test_opencode_plugin.py:1285`).
 
 ## The counters a maintainer reads
 
@@ -205,18 +205,18 @@ Each key, as both readers produce it:
 
 - `events` — every row; `kinds` — a histogram of them.
 - `steps` — rows whose kind is in `STEP_KINDS` (`:626-628`): work rows only.
-- `tool_error_rate` — non-zero `exit` values over every row carrying an `exit` (`:668-671`, `:687-688`);
+- `tool_error_rate` — non-zero `exit` values over every row carrying an `exit` (`:681-684`, `:700-701`);
   a host reporting no outcome contributes to neither half, so every row with an `exit` counts.
 - `claims` and `false_completion` — the `claim` rows, and those whose detail starts with `blocked`
-  (`:677-680`).
-- `denies` — `deny` rows grouped by the text before the first colon (`:672-674`), which is the rule
+  (`:690-693`).
+- `denies` — `deny` rows grouped by the text before the first colon (`:686-687`), which is the rule
   name (`shortcut`, `loop`, `consent`, `sink`, `race`, …); `nudges` and `fanout` — the nudge rows and
-  the subagent-ish kinds (`:689-690`).
-- `consult`, `codegen`, `codegen_failed` — substring matches on `detail` (`:681-686`).
+  the subagent-ish kinds (`:689-703`).
+- `consult`, `codegen`, `codegen_failed` — substring matches on `detail` (`:694-699`).
 
 The one ratio that matters is **`false_completion / claims`**: how often a reply claiming completion
 or verification had to be refused — the only number here that measures the layer's effect rather than
-its traffic, and the one its own docstring names as the point of the counters (`:616-627`). One
+its traffic, and the one its own docstring names as the point of the counters (`:640-641`). One
 ledger is an anecdote; `--counters --all` is the same ratio over the corpus, 0.224 across 1454
 ledgers when this was written, which is the reading no single session could give.
 

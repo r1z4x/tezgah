@@ -8,6 +8,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **the dsh inception route could not serve a model, and the TypeSafe row counted
+  a file omp never reads.** A review of the provider commit found both. pi-ai's
+  installed catalog ships `openrouter` and `deepseek`; a route it does not carry
+  and that declares no `api` resolves with `api: undefined`, keeps the adapter's
+  `PiAiCatalogError` as its `catalogError` and throws `INVALID_CONFIG` for every
+  request that selects it - so `inception:` with only `apiKeyEnv` was inert while
+  two `tezgah-setup --report` rows read `ok` over it (the routes row only greps
+  the patch text). The route now declares `api: openai-completions`,
+  `baseURL: https://api.inceptionlabs.ai/v1`, `compat.maxTokensField:
+  max_completion_tokens` and its two models, the shape the adapter README
+  documents for a route outside the catalog; the schema accepts it (`profile` in
+  `@deepseek-ai/dsh-llm-pi-ai`, `supportedProtocols()` -> `openai-completions,
+  openai-responses, anthropic-messages`) and the composed tree carries it.
+  `have_typesafe_key()` had counted `~/.config/typesafe/key`, which is tezgah's
+  key-file convention and not a path omp opens (0 occurrences in the binary): a
+  file with no export and no login record would print `ok` while omp silently
+  read the fallback chat model. It now counts the env var omp reads or a
+  `typesafe` record in omp's login store, and a test pins that the key file alone
+  is not enough. Three copies of the same fact were left behind and are corrected
+  with them: the consult no-key appendix in `skills/tezgah-contract/SKILL.md`
+  (the hand-kept twin of the policy text) and the two labels that still
+  enumerated two providers (`bin/tezgah-setup`'s report row,
+  `hooks/tezgah_context.py`'s health line).
+
 - **The Stop rule's claim vocabulary missed a completion stated as a completed
   state.** `DONE` carried the first person and a handful of English forms
   (`yaptım`, `düzelttim`, `done`, `fixed`, `all tests pass`), so a reply that said
@@ -342,6 +366,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **the citations that name no symbol beside them were adjudicated page by page,
+  and 224 of them were rebound.** `bin/tezgah-docs --citations` judges only the
+  citations a symbol sits next to (243 of them); the other 575 were unjudged, and
+  six read-only passes over them - one page each, with the sentence as the
+  specification and the cited file as the evidence - found 175 pointing at a range
+  that no longer showed what the sentence names. Six writers, one page each,
+  applied them: 224 citation tokens across the ten pages, re-verified by reading
+  the target line, in a diff that touches numbers only (184 insertions against 184
+  deletions). The twenty most severe were spot-checked independently afterwards,
+  and all twenty showed the quoted line where the writer said it would be. The
+  three that named no symbol at all, plus the residue the writers' own rule could
+  not settle, are what the audit still counts as unjudged - the number to watch
+  after the next change to a cited module.
+
+- **`bin/tezgah-docs --citations` could not see most of the CLI citations.** Its
+  pattern for a path required a file extension, so every citation to
+  `bin/tezgah-setup`, `bin/tezgah-status` and the other extension-less commands was
+  invisible to it: not judged, not counted, not shifted by any mechanical pass -
+  which is why a page citing the installer drifted furthest. The pattern now takes
+  a path with a slash or a dotted name, and the judged population went from 243 to
+  260.
+
 - **the bare citations the 002 audit left open were rebased, and 81 numbers were
   wrong.** A citation that names a symbol beside it (`note_tool` `:1068`) is
   checkable: the range has to lie inside that symbol's body, and that is the half
@@ -388,8 +434,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   key.** `TYPESAFE_API_KEY` is what omp reads for `judge()`, auto thinking,
   unexpected-stop and AI staging, and a session without it silently gets the
   fallback chat model where a System One judgment was meant - so
-  `have_typesafe_key()` (env, then `~/.config/typesafe/key`, the file the key's
-  single on-disk copy lives in) and a `host_checks_omp` row
+  `have_typesafe_key()` (the env var omp reads, or a record in omp's own login
+  store; the `~/.config/typesafe/key` file is tezgah's convention and only
+  reaches omp through the export) and a `host_checks_omp` row
   (`tezgah-setup --report`) say which one a session will get. The key itself is
   not a provider tezgah can route: `POST https://api.typesafe.ai/v1/systemone`
   takes state plus typed questions and answers with judgments, so `consult`,

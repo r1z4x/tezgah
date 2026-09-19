@@ -23,16 +23,16 @@ host installs them (`commands/` appears nowhere in `bin/tezgah-setup`). Its name
 is prefixed with the plugin's, so the command is `/tezgah:plan-sync` and a bare
 `/plan-sync` does not exist ([tests/test_skills.py:124-139]). An **always-on
 rule** is text injected into every turn by the client hooks, defined in
-`hooks/tezgah_policy.py:486` (`CORE`); the model cannot choose not to load it,
+`hooks/tezgah_policy.py:487` (`CORE`); the model cannot choose not to load it,
 and only the on-demand tail of it points at a skill, `tezgah-contract`
-(`hooks/tezgah_policy.py:650`, `:672`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
+(`hooks/tezgah_policy.py:650`, `:669`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
 skill is simply not read.
 
 ## The router
 
 opencode has no prompt-time injection point tezgah can rely on for a skill list,
 so the installer writes one: `~/.config/tezgah/opencode-skills.md` always-on and
-`opencode-skills.full.md` on demand ([bin/tezgah-setup:101-104]), the first
+`opencode-skills.full.md` on demand ([bin/tezgah-setup:106-109]), the first
 listed in opencode's `instructions` ([bin/tezgah-setup:747-749]). Its native
 skill list and `skill` tool are switched off in the same pass -
 `permission.skill = "deny"` ([bin/tezgah-setup:763]) - so the generated file is
@@ -75,17 +75,17 @@ definition of "a tezgah skill": the router, the per-host linking, the uninstall
 and the context budget all read it. Each install function links those
 directories into the host's own skill directory - Codex
 ([bin/tezgah-setup:461-462]), opencode (`bin/tezgah-setup:762-763`), Cursor (`bin/tezgah-setup:852-853`), dsh
-(`bin/tezgah-setup:979-980`), omp (`bin/tezgah-setup:1041-1043`). Claude is the exception: it installs from a
+(`bin/tezgah-setup:996-997`), omp (`bin/tezgah-setup:1058-1060`). Claude is the exception: it installs from a
 plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/rizacan-local/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
-`bin/tezgah-setup:2028-2102`, `bin/tezgah-setup:2105-2108`). On Claude the plugin name prefixes the skill name -
+`bin/tezgah-setup:2048-2122`, `bin/tezgah-setup:2125-2128`). On Claude the plugin name prefixes the skill name -
 `Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:27-29]).
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
 directory ([bin/tezgah-setup:76-82]), and it is used for every host row
-([bin/tezgah-setup:1796-1797], `bin/tezgah-setup:1829`, `bin/tezgah-setup:1857`, `bin/tezgah-setup:1888`, `bin/tezgah-setup:1944`). It was
+([bin/tezgah-setup:1796-1797], `bin/tezgah-setup:1847`, `bin/tezgah-setup:1875`, `bin/tezgah-setup:1906`, `bin/tezgah-setup:1962`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
 it ([tests/test_skills.py:54-69]).

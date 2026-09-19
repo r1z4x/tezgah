@@ -134,7 +134,8 @@ CODE_FILES = ("hooks/*.py", "bin/*", "statusline.py", "hosts/*/*.py",
 STRING = re.compile(r'"""(?:.|\n)*?"""|\'\'\'(?:.|\n)*?\'\'\'')
 TOP = re.compile(r"^(?:def|class)\s+(\w+)|^([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=")
 RUN = re.compile(r"((?:`[A-Za-z_][A-Za-z0-9_]*(?:\(\))?`\s*[/,]?\s*){1,5})$")
-CITE = re.compile(r"`([\w./-]+\.\w+):(\d+)(?:-(\d+))?`|`(:(\d+)(?:-(\d+))?)`")
+CITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+):(\d+)(?:-(\d+))?`"
+                  r"|`(:(\d+)(?:-(\d+))?)`")
 
 
 def code_symbols(path):
