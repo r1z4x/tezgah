@@ -104,15 +104,17 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
   (`hosts/opencode/plugins/tezgah.js:1525-1528`).
 - `--sync` copies the checkout over the Claude plugin copy, because Claude Code
   runs `~/.claude/plugins/cache/<owner>/tezgah/<version>/` and never this
-  checkout (`bin/tezgah-setup:1980-2000`); `--install` refreshes a stale copy itself
-  (`bin/tezgah-setup:2057-2063`). Then restart Claude — hooks are read once per session
-  (`bin/tezgah-setup:2053`).
+  checkout (`bin/tezgah-setup:1976-1987`, `bin/tezgah-setup:2033-2043`); `--install` refreshes a stale copy itself
+  (`bin/tezgah-setup:2081-2087`). Then restart Claude — hooks are read once per session.
 
 From the user's side a stale copy looks like this: Claude keeps applying the old
-rules while `--report` shows ` MISS plugin copy current (hooks/tezgah_policy.py
-matches)`. That row compares a sha256 of one file rather than the version number
-both trees report, which is what lets it catch a copy that lags HEAD
-(`bin/tezgah-setup:1969-2000`).
+rules while `--report` shows ` MISS plugin copy current (every copied file
+matches)`. That row compares a sha256 over every tracked file `sync` copies —
+not the version number both trees report, and not a single file: a one-file hash
+cannot see a change to another hook, which is how a gate change once left the
+installed copy running the previous rules while `--install` printed `ok`
+(`bin/tezgah-setup:1989-2000`, `bin/tezgah-setup:2020-2030`). Recognising a copy
+at all is still the presence of one file (`bin/tezgah-setup:1969`).
 
 ## Uninstall and adopt
 

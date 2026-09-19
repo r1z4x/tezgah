@@ -476,6 +476,66 @@ class PluginCopy(SetupBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return self.row(proc.stdout, "plugin copy current")
 
+    PROBE = (
+        "import importlib.machinery, importlib.util, json, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "print(json.dumps(m.plugin_copy_current(sys.argv[2])))\n"
+    )
+
+    def current(self, target):
+        """plugin_copy_current for a copy in the throwaway HOME, asked in its own
+        process so the temp HOME is the one the module reads."""
+        out = subprocess.run([sys.executable, "-c", self.PROBE, SETUP, target],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout.strip().splitlines()[-1])
+
+    def synced_copy(self):
+        """A copy made the way --sync makes one, so it matches byte for byte."""
+        root = self.path(".claude", "plugins", "cache", "rizacan-local",
+                         "tezgah", "0.9.0")
+        fingerprint = os.path.join(root, "hooks", "tezgah_policy.py")
+        os.makedirs(os.path.dirname(fingerprint), exist_ok=True)
+        with open(fingerprint, "w") as fh:
+            fh.write("# frozen copy\n")
+        proc = self.setup("--sync")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("synced", proc.stdout)
+        return root
+
+    def freeze(self, root, rel):
+        with open(os.path.join(root, rel), "a") as fh:
+            fh.write("# the copy froze before HEAD\n")
+
+    def test_a_copy_that_differs_in_another_hook_is_not_current(self):
+        # the regression: the fingerprint alone matched, so --install skipped the
+        # refresh while the copy ran the previous gate
+        root = self.synced_copy()
+        self.assertTrue(self.current(root), "a fresh --sync copy was called stale")
+        self.freeze(root, "hooks/tezgah_gate.py")
+        self.assertFalse(self.current(root),
+                         "a copy differing only in another hook was called current")
+
+    def test_a_copy_that_matches_the_checkout_is_current(self):
+        root = self.synced_copy()
+        self.assertTrue(self.current(root),
+                        "--install would re-copy a copy that already matches")
+
+    def test_install_refreshes_a_copy_whose_other_hook_changed(self):
+        root = self.synced_copy()
+        self.freeze(root, "hooks/tezgah_gate.py")
+        proc = self.setup("--install", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("synced", proc.stdout)
+        with open(os.path.join(REPO, "hooks", "tezgah_gate.py")) as fh:
+            checkout = fh.read()
+        self.assertEqual(
+            self.read_text(os.path.join(root, "hooks", "tezgah_gate.py")), checkout)
+
     def test_a_stale_copy_is_reported_and_install_refreshes_it(self):
         _root, fingerprint = self.copy()
         self.assertTrue(self.reported().strip().startswith("MISS"),

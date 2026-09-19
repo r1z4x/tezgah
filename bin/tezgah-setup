@@ -1764,7 +1764,7 @@ def host_checks_claude():
         # is the one gap the other four rows cannot see. An absent copy is not
         # current either: all([]) is True, and a row that stays green on a
         # machine with no tezgah plugin at all is not a check.
-        ("plugin copy current (hooks/tezgah_policy.py matches)",
+        ("plugin copy current (every copied file matches)",
          bool(copies) and all(plugin_copy_current(t) for t in copies)),
     ]
 
@@ -1963,18 +1963,41 @@ def versions_agree():
 
 # ------------------------------------------------------------------- sync ----
 
-# One file any revision of the checkout carries and Claude's runtime loads, so a
-# COPY that lags HEAD shows up as a hash mismatch instead of as the version
-# number both trees happen to report.
+# One file any revision of the checkout carries, so a directory in the plugin
+# cache is RECOGNISED as a tezgah copy; freshness is a separate question, asked
+# over the whole tree by plugin_copy_current.
 PLUGIN_FINGERPRINT = os.path.join("hooks", "tezgah_policy.py")
 
+# The manifest is the maintainer's local, ignored file: its version is the signal
+# this check exists to replace, and a copy without one is still a copy.
+PLUGIN_MANIFESTS = (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json")
 
-def file_sha(path):
-    try:
-        with open(path, "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()
-    except OSError:
-        return ""
+
+def plugin_files():
+    """The relpaths `sync` copies, sorted; None when HERE is not a git checkout."""
+    tracked = subprocess.run(
+        ["git", "-C", HERE, "ls-files", "--cached", "--others", "--exclude-standard"],
+        capture_output=True, text=True)
+    if tracked.returncode != 0:
+        return None
+    # --others includes a new source file that is not committed yet; a plain
+    # `ls-files` would drop it from the copy (and delete it from the plugin cache)
+    return sorted(f for f in tracked.stdout.splitlines()
+                  if f and not f.startswith("plans/") and "__pycache__" not in f)
+
+
+def tree_sha(root, files):
+    """sha256 over each relpath and its bytes, or None when one is unreadable."""
+    h = hashlib.sha256()
+    for rel in files:
+        h.update(rel.encode() + b"\0")
+        try:
+            with open(os.path.join(root, rel), "rb") as fh:
+                h.update(fh.read())
+        except OSError:
+            return None
+        h.update(b"\0")
+    return h.hexdigest()
 
 
 def plugin_copies():
@@ -1995,9 +2018,16 @@ def plugin_copies():
 
 
 def plugin_copy_current(target):
-    """True when the copy carries this checkout's PLUGIN_FINGERPRINT."""
-    want = file_sha(os.path.join(HERE, PLUGIN_FINGERPRINT))
-    return bool(want) and file_sha(os.path.join(target, PLUGIN_FINGERPRINT)) == want
+    """True when the copy holds this checkout's whole tracked tree, byte for byte.
+
+    The copy is what Claude runs, so a one-file hash cannot see a change to
+    another hook: with hooks/tezgah_policy.py equal on both sides, --install
+    reported `ok` while the copy still ran the previous hooks/tezgah_gate.py."""
+    files = [f for f in plugin_files() or [] if f not in PLUGIN_MANIFESTS]
+    if not files:
+        return False
+    want = tree_sha(HERE, files)
+    return want is not None and want == tree_sha(target, files)
 
 
 def sync():
@@ -2007,16 +2037,10 @@ def sync():
     if not targets:
         print("no installed tezgah found under %s (nothing to sync)" % cache)
         return 1
-    tracked = subprocess.run(
-        ["git", "-C", HERE, "ls-files", "--cached", "--others", "--exclude-standard"],
-        capture_output=True, text=True)
-    if tracked.returncode != 0:
+    files = plugin_files()
+    if files is None:
         print("not a git checkout, nothing to sync from: %s" % HERE)
         return 1
-    # --others includes a new source file that is not committed yet; a plain
-    # `ls-files` would drop it from the copy (and delete it from the plugin cache)
-    files = [f for f in tracked.stdout.splitlines()
-             if f and not f.startswith("plans/") and "__pycache__" not in f]
     for t in targets:
         # A copy that contains this checkout IS this checkout, so emptying it
         # would delete the tree being copied from (someone running the copy's own
@@ -2043,10 +2067,10 @@ def sync():
         # The plugin manifest is the maintainer's local, untracked file, and a
         # copy without one is not a plugin Claude can load: carry it over when
         # this checkout has it, and copy nothing when it does not.
-        for name in ("plugin.json", "marketplace.json"):
-            src = os.path.join(HERE, ".claude-plugin", name)
+        for rel in PLUGIN_MANIFESTS:
+            src = os.path.join(HERE, rel)
             if os.path.isfile(src):
-                dst = os.path.join(t, ".claude-plugin", name)
+                dst = os.path.join(t, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(src, dst)
         print("%s synced %s (%d files)" % (OK, t, len(files)))
