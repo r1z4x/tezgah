@@ -74,7 +74,7 @@ applied, and it also returns the names of the switches that fired.
 - **Loop discipline.** Never repeat an identical failing command; three attempts is the ceiling, then report what is still unknown.
 - **Lessons ledger: stop repeating mistakes.** `.tezgah/lessons.md` lines are standing constraints; the recent ones are injected at session start.
 - **No AI attribution, ever, on any host.** Nothing persisted or published may name a model, vendor or "AI" as author, co-author, generator or helper.
-- **Irreversible or outward-facing actions need an explicit ask first.** The one invariant: it stays armed whatever the classifier decides (`tests/test_context.py:1181-1191`), because the classifier is advisory. It cuts the standing merge authority out by name ("beyond the merge") because a PR merge is itself an external-service write, and an exception that covered it would swallow the authority stated beside it (`hooks/tezgah_policy.py:614`, `:653`).
+- **Irreversible or outward-facing actions need an explicit ask first.** The one invariant: it stays armed whatever the classifier decides (`tests/test_context.py:1181-1191`), because the classifier is advisory. It cuts the standing merge authority out by name ("beyond the merge") because a PR merge is itself an external-service write, and an exception that covered it would swallow the authority stated beside it (`hooks/tezgah_policy.py:614`, `:192-200`).
 - **Session scope: the user's repo, not tezgah.** The session never maintains tezgah itself; a missing capability is one line plus the documented fallback.
 - **Kill switches.** The switch list itself, so a session can tell the user how to disarm a rule it is asked to ignore; pinned against the shipped skill by `tests/test_skills.py:99-109`.
 

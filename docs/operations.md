@@ -50,7 +50,7 @@ named under `predecessor wiring still present` and retired by `--adopt`
 
 A successful run prints, in order: `dependencies:`, a line per missing optional
 tool with the vendor command it runs — over the network, no sudo
-(`:1105-1147`) — or `all optional tools present` (the run is appended to
+(`:1200-1240`) — or `all optional tools present` (the run is appended to
 `~/.config/tezgah/install.log`, `bin/tezgah-setup:1180-1220`); `installing for: <hosts>`
 (`bin/tezgah-setup:2353`); the common block — config and roots, the contract sha, one `ok` line
 per `~/.config/tezgah/bin` symlink, the app artifacts dir (`:394-429`);
@@ -96,7 +96,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 `hooks/tezgah_context.py`, `skills/tezgah-contract/SKILL.md`):
 
 - `--install` re-renders every host file, the opencode contract and the skill
-  router, and rewrites `~/.config/tezgah/contract.sha256` (`:152-187`,
+  router, and rewrites `~/.config/tezgah/contract.sha256` (`:181-210`,
   `bin/tezgah-setup:611-626`).
 - `--refresh` does that for opencode alone, without a reinstall: opencode has no
   session-start hook, so its plugin calls it once per session when the stored

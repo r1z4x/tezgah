@@ -273,14 +273,14 @@ shared config, contract hash and the CLI symlinks every host shell can call
   (`instructions`, `mcp`, `permission.skill=deny`, `compaction.prune`,
   `watcher.ignore`, the two `external_directory` grants) and `tui.json` +
   `tui-plugins/tezgah-tui.tsx`.
-- **dsh** - `install_dsh` (`bin/tezgah-setup:997-1008`): `~/.dsh/skills/*` symlinks,
+- **dsh** - `install_dsh` (`bin/tezgah-setup:1014-1025`): `~/.dsh/skills/*` symlinks,
   a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:920-961`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
   rows and the three `llm-pi-ai` routes, plus `~/.local/bin/dsh` ->
-  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:974-996`) links the statusline
+  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:991-1013`) links the statusline
   package into the **web profile** and adds its row to
   `~/.dsh/profiles/web/cordis.patch.yml`.
-- **omp** - `install_omp` (`bin/tezgah-setup:1053-1101`): `~/.omp/agent/RULES.md`
+- **omp** - `install_omp` (`bin/tezgah-setup:1070-1118`): `~/.omp/agent/RULES.md`
   (managed block), `skills/*` symlinks, `agents/tezgah-*.md`, `mcp.json`
   (`$schema`, `mcpServers`), and `hooks/pre/tezgah-hook.ts` rendered from
   `hosts/omp/tezgah-hook.ts.in` with the python path substituted for `@HOOK@`.
@@ -322,12 +322,12 @@ In order, each step verified by the one below it:
    TS/JS host, the bridge file with a substituted python path
    (`hosts/omp/tezgah-hook.ts.in` rendered at `bin/tezgah-setup:1107-1116`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
-   (`bin/tezgah-setup:1102-1106`), and `uninstall_<host>()` removing only
+   (`bin/tezgah-setup:1119-1123`), and `uninstall_<host>()` removing only
    tezgah-managed links and blocks (`bin/tezgah-setup:1412-1512`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
-   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:1992-1996`); the
+   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:2012-2016`); the
    `--report` output is that list (`bin/tezgah-setup:1747-1779`). Give the row a home-qualified
-   label if the host's dir can be relocated (`host_checks_codex`, `:1818-1840`).
+   label if the host's dir can be relocated (`host_checks_codex`, `:1836-1858`).
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
@@ -392,7 +392,7 @@ In order, each step verified by the one below it:
   host whose shell the gate cannot see.
 - **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:2133-2136`),
   so a change is not live until `--sync` or a refresh
-  (`refresh_plugin_copy`, `bin/tezgah-setup:2161-2171`).
+  (`refresh_plugin_copy`, `bin/tezgah-setup:2181-2191`).
 - **omp spawns the MCP `command` as one executable** and takes the rest in
   `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1092-1094`),
   and `setStatus` strips ANSI, so only the widget path keeps the per-mark colors
@@ -490,7 +490,7 @@ applied, and it also returns the names of the switches that fired.
 - **Loop discipline.** Never repeat an identical failing command; three attempts is the ceiling, then report what is still unknown.
 - **Lessons ledger: stop repeating mistakes.** `.tezgah/lessons.md` lines are standing constraints; the recent ones are injected at session start.
 - **No AI attribution, ever, on any host.** Nothing persisted or published may name a model, vendor or "AI" as author, co-author, generator or helper.
-- **Irreversible or outward-facing actions need an explicit ask first.** The one invariant: it stays armed whatever the classifier decides (`tests/test_context.py:1181-1191`), because the classifier is advisory. It cuts the standing merge authority out by name ("beyond the merge") because a PR merge is itself an external-service write, and an exception that covered it would swallow the authority stated beside it (`hooks/tezgah_policy.py:614`, `:653`).
+- **Irreversible or outward-facing actions need an explicit ask first.** The one invariant: it stays armed whatever the classifier decides (`tests/test_context.py:1181-1191`), because the classifier is advisory. It cuts the standing merge authority out by name ("beyond the merge") because a PR merge is itself an external-service write, and an exception that covered it would swallow the authority stated beside it (`hooks/tezgah_policy.py:614`, `:192-200`).
 - **Session scope: the user's repo, not tezgah.** The session never maintains tezgah itself; a missing capability is one line plus the documented fallback.
 - **Kill switches.** The switch list itself, so a session can tell the user how to disarm a rule it is asked to ignore; pinned against the shipped skill by `tests/test_skills.py:99-109`.
 
@@ -1427,27 +1427,27 @@ skill is simply not read.
 opencode has no prompt-time injection point tezgah can rely on for a skill list,
 so the installer writes one: `~/.config/tezgah/opencode-skills.md` always-on and
 `opencode-skills.full.md` on demand ([bin/tezgah-setup:106-109]), the first
-listed in opencode's `instructions` ([bin/tezgah-setup:747-749]). Its native
+listed in opencode's `instructions` ([bin/tezgah-setup:793-795]). Its native
 skill list and `skill` tool are switched off in the same pass -
-`permission.skill = "deny"` ([bin/tezgah-setup:763]) - so the generated file is
+`permission.skill = "deny"` ([bin/tezgah-setup:808]) - so the generated file is
 the only list that host has.
 
 The router is generated, not written: `skill_groups()` walks the installed skill
 directories in precedence order - this checkout's `skills/`, then opencode's,
 Claude's and `~/.agents/skills` - takes the first directory that defines a name,
 buckets each by `skill_category()` and returns the groups
-([bin/tezgah-setup:634-654]). Buckets are `tezgah core`, `code & host tooling`,
+([bin/tezgah-setup:679-699]). Buckets are `tezgah core`, `code & host tooling`,
 `research & papers`, `AI research & engineering`, `marketing & growth`; the first
 two are listed always-on and the rest collapse to a count line pointing at the
-full file ([bin/tezgah-setup:628-631], `bin/tezgah-setup:734-747`). `ai-research` is the one
+full file ([bin/tezgah-setup:673-676], `bin/tezgah-setup:751-765`). `ai-research` is the one
 exception: it stays named in the always-on file under `research (tezgah's own)`
 because a library a session is never told about is one it answers from memory -
 measured on a live opencode turn that read nothing and answered anyway
-([bin/tezgah-setup:691-694]).
+([bin/tezgah-setup:745-750]).
 
 Each line is `name - trigger - path`, and the trigger is one sentence pulled from
-the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:584-610],
-`bin/tezgah-setup:700-709`). **The sentence carrying the `Use when ...` trigger wins over the
+the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:629-655],
+`bin/tezgah-setup:717-726]). **The sentence carrying the `Use when ...` trigger wins over the
 opening one.** A line built from the first sentence is what shipped, and it
 stripped `tezgah-contract` and `ponytail` of every word a session matches on -
 `tezgah-contract`'s description opens with "The full tezgah working contract." -
@@ -1460,26 +1460,26 @@ trigger sentence keeps its first sentence.
 Every other host gets the same idea natively: the skills are linked into the
 directory that host reads, and the host lists `name` + `description` itself -
 which is why the installer counts that metadata as an always-on cost
-([bin/tezgah-setup:1626-1634]).
+([bin/tezgah-setup:1676-1684]).
 
 ### How a skill reaches a host
 
-`SKILLS` in `bin/tezgah-setup:71-73` is the shipped list, and it is the single
+`SKILLS` in `bin/tezgah-setup:76-78` is the shipped list, and it is the single
 definition of "a tezgah skill": the router, the per-host linking, the uninstall
 and the context budget all read it. Each install function links those
 directories into the host's own skill directory - Codex
-([bin/tezgah-setup:461-462]), opencode (`bin/tezgah-setup:762-763`), Cursor (`bin/tezgah-setup:852-853`), dsh
-(`bin/tezgah-setup:996-997`), omp (`bin/tezgah-setup:1058-1060`). Claude is the exception: it installs from a
+([bin/tezgah-setup:506-507]), opencode (`bin/tezgah-setup:779-780`), Cursor (`bin/tezgah-setup:869-870`), dsh
+(`bin/tezgah-setup:1016-1017`), omp (`bin/tezgah-setup:1078-1080`). Claude is the exception: it installs from a
 plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/rizacan-local/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
-`bin/tezgah-setup:2048-2122`, `bin/tezgah-setup:2125-2128`). On Claude the plugin name prefixes the skill name -
+`bin/tezgah-setup:2048-2122`, `bin/tezgah-setup:2133-2136`). On Claude the plugin name prefixes the skill name -
 `Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:27-29]).
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
 directory ([bin/tezgah-setup:76-82]), and it is used for every host row
-([bin/tezgah-setup:1796-1797], `bin/tezgah-setup:1847`, `bin/tezgah-setup:1875`, `bin/tezgah-setup:1906`, `bin/tezgah-setup:1962`). It was
+([bin/tezgah-setup:1851-1852], `bin/tezgah-setup:1867`, `bin/tezgah-setup:1900`, `bin/tezgah-setup:1932`, `bin/tezgah-setup:1990`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
 it ([tests/test_skills.py:54-69]).
@@ -1527,14 +1527,14 @@ LaTeX template trees were copied, and every drop is named in that file.
 1. Write `skills/<name>/SKILL.md` with frontmatter carrying `name` and a
    `description` whose **later** sentence begins `Use when ...` - that sentence
    is the router line, and it must carry the words a session would match on
-   ([bin/tezgah-setup:584-610]).
-2. Add the name to `SKILLS` ([bin/tezgah-setup:71-73]). `SKILLS` drives the
+   ([bin/tezgah-setup:629-655]).
+2. Add the name to `SKILLS` ([bin/tezgah-setup:76-78]). `SKILLS` drives the
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
 3. Expect `tests/test_skills.py:54-69` to fail if the two disagree, and
    `tests/test_setup.py:455-471` to fail if the generated router line lost its
    trigger words. Re-run `--install` (or opencode's `--refresh`,
-   [bin/tezgah-setup:576-580]) so the written routers pick the skill up.
+   [bin/tezgah-setup:621-625]) so the written routers pick the skill up.
 4. Quote examples in a form the tests accept: no floating `@latest` package tag
    and any pinned package spec must match the one tezgah wires
    ([tests/test_skills.py:90-97]); slash commands carry the `tezgah:` prefix
@@ -1815,7 +1815,7 @@ named under `predecessor wiring still present` and retired by `--adopt`
 
 A successful run prints, in order: `dependencies:`, a line per missing optional
 tool with the vendor command it runs — over the network, no sudo
-(`:1105-1147`) — or `all optional tools present` (the run is appended to
+(`:1200-1240`) — or `all optional tools present` (the run is appended to
 `~/.config/tezgah/install.log`, `bin/tezgah-setup:1180-1220`); `installing for: <hosts>`
 (`bin/tezgah-setup:2353`); the common block — config and roots, the contract sha, one `ok` line
 per `~/.config/tezgah/bin` symlink, the app artifacts dir (`:394-429`);
@@ -1861,7 +1861,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 `hooks/tezgah_context.py`, `skills/tezgah-contract/SKILL.md`):
 
 - `--install` re-renders every host file, the opencode contract and the skill
-  router, and rewrites `~/.config/tezgah/contract.sha256` (`:152-187`,
+  router, and rewrites `~/.config/tezgah/contract.sha256` (`:181-210`,
   `bin/tezgah-setup:611-626`).
 - `--refresh` does that for opencode alone, without a reinstall: opencode has no
   session-start hook, so its plugin calls it once per session when the stored
@@ -2043,7 +2043,7 @@ One coding agent tezgah is installed into - claude, codex, cursor, opencode, dsh
 The label on an evidence [row](#row) saying what happened: `classify()` gives `edit` or `run`/`verify` (`hooks/tezgah_integrity.py:839`), `note_tool()` refines a check into `verify_ok`/`verify_fail` (`:1101`) and adds `external` (`:1136`) or `unknown` (`:1147`), and the machinery adds `deny`, `nudge`, `turn`, `claim`, `drift`, `consent`, `grant`, `snapshot`, `rollback`; `kinds()` returns the distinct set (`:410`).
 
 #### kill switch
-A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:232`, `:46`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:631-637`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
+A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:241`, `:46`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:631-637`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
 
 #### legend
 The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hooks/tezgah_context.py:1162`), printed by `tezgah-status --legend` (`bin/tezgah-status:61-62`). Not the marks themselves.
@@ -2076,7 +2076,7 @@ A piece of work spanning sessions, one markdown file with frontmatter under `<re
 The status table in `plans/README.md` (`plans/README.md:3`), owned by the `plan-status` skill (`skills/plan-status/SKILL.md:1`) and the first block the [budget](#budget) gives up because it lives on disk (`hooks/tezgah_context.py:656-665`). Not the injected list of open plans.
 
 #### plugin copy
-Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:2060-2076`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:2133`, `bin/tezgah-setup:2133`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
+Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:2080-2096`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:2133`, `bin/tezgah-setup:2133`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
 
 #### pointer
 The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py:650`). Not a rule.

@@ -59,14 +59,14 @@ shared config, contract hash and the CLI symlinks every host shell can call
   (`instructions`, `mcp`, `permission.skill=deny`, `compaction.prune`,
   `watcher.ignore`, the two `external_directory` grants) and `tui.json` +
   `tui-plugins/tezgah-tui.tsx`.
-- **dsh** - `install_dsh` (`bin/tezgah-setup:997-1008`): `~/.dsh/skills/*` symlinks,
+- **dsh** - `install_dsh` (`bin/tezgah-setup:1014-1025`): `~/.dsh/skills/*` symlinks,
   a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:920-961`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
   rows and the three `llm-pi-ai` routes, plus `~/.local/bin/dsh` ->
-  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:974-996`) links the statusline
+  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:991-1013`) links the statusline
   package into the **web profile** and adds its row to
   `~/.dsh/profiles/web/cordis.patch.yml`.
-- **omp** - `install_omp` (`bin/tezgah-setup:1053-1101`): `~/.omp/agent/RULES.md`
+- **omp** - `install_omp` (`bin/tezgah-setup:1070-1118`): `~/.omp/agent/RULES.md`
   (managed block), `skills/*` symlinks, `agents/tezgah-*.md`, `mcp.json`
   (`$schema`, `mcpServers`), and `hooks/pre/tezgah-hook.ts` rendered from
   `hosts/omp/tezgah-hook.ts.in` with the python path substituted for `@HOOK@`.
@@ -108,12 +108,12 @@ In order, each step verified by the one below it:
    TS/JS host, the bridge file with a substituted python path
    (`hosts/omp/tezgah-hook.ts.in` rendered at `bin/tezgah-setup:1107-1116`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
-   (`bin/tezgah-setup:1102-1106`), and `uninstall_<host>()` removing only
+   (`bin/tezgah-setup:1119-1123`), and `uninstall_<host>()` removing only
    tezgah-managed links and blocks (`bin/tezgah-setup:1412-1512`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
-   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:1992-1996`); the
+   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:2012-2016`); the
    `--report` output is that list (`bin/tezgah-setup:1747-1779`). Give the row a home-qualified
-   label if the host's dir can be relocated (`host_checks_codex`, `:1818-1840`).
+   label if the host's dir can be relocated (`host_checks_codex`, `:1836-1858`).
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
@@ -178,7 +178,7 @@ In order, each step verified by the one below it:
   host whose shell the gate cannot see.
 - **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:2133-2136`),
   so a change is not live until `--sync` or a refresh
-  (`refresh_plugin_copy`, `bin/tezgah-setup:2161-2171`).
+  (`refresh_plugin_copy`, `bin/tezgah-setup:2181-2191`).
 - **omp spawns the MCP `command` as one executable** and takes the rest in
   `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1092-1094`),
   and `setStatus` strips ANSI, so only the widget path keeps the per-mark colors

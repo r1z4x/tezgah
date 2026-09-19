@@ -62,7 +62,7 @@ One coding agent tezgah is installed into - claude, codex, cursor, opencode, dsh
 The label on an evidence [row](#row) saying what happened: `classify()` gives `edit` or `run`/`verify` (`hooks/tezgah_integrity.py:839`), `note_tool()` refines a check into `verify_ok`/`verify_fail` (`:1101`) and adds `external` (`:1136`) or `unknown` (`:1147`), and the machinery adds `deny`, `nudge`, `turn`, `claim`, `drift`, `consent`, `grant`, `snapshot`, `rollback`; `kinds()` returns the distinct set (`:410`).
 
 ### kill switch
-A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:232`, `:46`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:631-637`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
+A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:241`, `:46`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:631-637`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
 
 ### legend
 The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hooks/tezgah_context.py:1162`), printed by `tezgah-status --legend` (`bin/tezgah-status:61-62`). Not the marks themselves.
@@ -95,7 +95,7 @@ A piece of work spanning sessions, one markdown file with frontmatter under `<re
 The status table in `plans/README.md` (`plans/README.md:3`), owned by the `plan-status` skill (`skills/plan-status/SKILL.md:1`) and the first block the [budget](#budget) gives up because it lives on disk (`hooks/tezgah_context.py:656-665`). Not the injected list of open plans.
 
 ### plugin copy
-Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:2060-2076`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:2133`, `bin/tezgah-setup:2133`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
+Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:2080-2096`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:2133`, `bin/tezgah-setup:2133`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
 
 ### pointer
 The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py:650`). Not a rule.
