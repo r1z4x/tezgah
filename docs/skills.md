@@ -45,7 +45,7 @@ buckets each by `skill_category()` and returns the groups
 ([bin/tezgah-setup:634-654]). Buckets are `tezgah core`, `code & host tooling`,
 `research & papers`, `AI research & engineering`, `marketing & growth`; the first
 two are listed always-on and the rest collapse to a count line pointing at the
-full file ([bin/tezgah-setup:628-631], `bin/tezgah-setup:706-719`). `ai-research` is the one
+full file ([bin/tezgah-setup:628-631], `bin/tezgah-setup:731-744`). `ai-research` is the one
 exception: it stays named in the always-on file under `research (tezgah's own)`
 because a library a session is never told about is one it answers from memory -
 measured on a live opencode turn that read nothing and answered anyway
@@ -53,7 +53,7 @@ measured on a live opencode turn that read nothing and answered anyway
 
 Each line is `name - trigger - path`, and the trigger is one sentence pulled from
 the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:584-610],
-`bin/tezgah-setup:672-681`). **The sentence carrying the `Use when ...` trigger wins over the
+`bin/tezgah-setup:697-706`). **The sentence carrying the `Use when ...` trigger wins over the
 opening one.** A line built from the first sentence is what shipped, and it
 stripped `tezgah-contract` and `ponytail` of every word a session matches on -
 `tezgah-contract`'s description opens with "The full tezgah working contract." -
@@ -74,18 +74,18 @@ which is why the installer counts that metadata as an always-on cost
 definition of "a tezgah skill": the router, the per-host linking, the uninstall
 and the context budget all read it. Each install function links those
 directories into the host's own skill directory - Codex
-([bin/tezgah-setup:461-462]), opencode (`bin/tezgah-setup:734-735`), Cursor (`bin/tezgah-setup:842-843`), dsh
-(`bin/tezgah-setup:967-968`), omp (`bin/tezgah-setup:1029-1031`). Claude is the exception: it installs from a
+([bin/tezgah-setup:461-462]), opencode (`bin/tezgah-setup:759-760`), Cursor (`bin/tezgah-setup:849-850`), dsh
+(`bin/tezgah-setup:974-975`), omp (`bin/tezgah-setup:1036-1038`). Claude is the exception: it installs from a
 plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/rizacan-local/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
-`bin/tezgah-setup:2003-2054`, `bin/tezgah-setup:2057-2060`). On Claude the plugin name prefixes the skill name -
+`bin/tezgah-setup:2023-2097`, `bin/tezgah-setup:2100-2103`). On Claude the plugin name prefixes the skill name -
 `Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:27-29]).
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
 directory ([bin/tezgah-setup:76-82]), and it is used for every host row
-([bin/tezgah-setup:1796-1797], `bin/tezgah-setup:1812`, `bin/tezgah-setup:1838`, `bin/tezgah-setup:1869`, `bin/tezgah-setup:1925`). It was
+([bin/tezgah-setup:1796-1797], `bin/tezgah-setup:1824`, `bin/tezgah-setup:1852`, `bin/tezgah-setup:1883`, `bin/tezgah-setup:1939`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
 it ([tests/test_skills.py:54-69]).
@@ -138,7 +138,7 @@ LaTeX template trees were copied, and every drop is named in that file.
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
 3. Expect `tests/test_skills.py:54-69` to fail if the two disagree, and
-   `tests/test_setup.py:439-454` to fail if the generated router line lost its
+   `tests/test_setup.py:455-471` to fail if the generated router line lost its
    trigger words. Re-run `--install` (or opencode's `--refresh`,
    [bin/tezgah-setup:576-580]) so the written routers pick the skill up.
 4. Quote examples in a form the tests accept: no floating `@latest` package tag

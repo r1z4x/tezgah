@@ -19,10 +19,10 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 |---|---|---|---|---|---|
 | claude | SessionStart, SubagentStart, PostCompact, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop - `hooks/hooks.json:2-26` | both: SessionStart hook context (`hooks/projects-auto-init.py:1-6`) and the static `output-styles/tezgah.md` mirror (`README.md:499-500`) | UserPromptSubmit -> `additionalContext` (`hooks/hooks.json:12-14`, `hooks/projects-auto-init.py:38-41`) | `statusLine` command in `~/.claude/settings.json` (`bin/tezgah-setup:423-437`), ANSI, forwards Orca first (`statusline.py:30-48`) | all six: the transcript parse covers the two skill reads, `cbm`, `orch` and both shell kinds, `consult` and `research` (`statusline.py:58-107`, `observable=None` at `:112`) |
 | codex | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, PostCompact, Stop (`bin/tezgah-setup:445-447`; named in `hosts/codex/hook.py:6-7`) | hook: the normalized events inject `context_for` (`hosts/codex/hook.py:188-194`) | UserPromptSubmit -> `additionalContext` (`hosts/codex/hook.py:188-194`) | no custom footer item (`tui.status_line` is a closed enum) - the line rides `systemMessage`, plain, at SessionStart and Stop (`hosts/codex/hook.py:10-12,182-184,195-198`) | four tool-use (`TOOL_USE_MEASURES` at `hosts/codex/hook.py:182,196`) |
-| cursor | 13 events: sessionStart, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, beforeSubmitPrompt, stop, beforeMCPExecution, afterShellExecution, afterMCPExecution, afterFileEdit, afterAgentResponse (`bin/tezgah-setup:816-833`) | hook: sessionStart -> `additional_context` (`hosts/cursor/hook.py:219-221`) | beforeSubmitPrompt -> `additional_context` plus `{"continue": true}` (`hosts/cursor/hook.py:319-325`) | `statusLine` in `~/.cursor/cli-config.json` -> `tezgah-statusline --cursor` (`bin/tezgah-setup:858-861`), ANSI (`statusline.py:116-117`) | four tool-use (`statusline.py:112`) |
-| opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1530-1771`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:729-762`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:1713-1758`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:792-802`) | all six: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1370-1433`) |
-| dsh | SessionStart, SubagentStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop (`hosts/dsh/hooks.json:2-19`) | hook: the same Claude-family scripts, named by `configPath` (`bin/tezgah-setup:909`) | UserPromptSubmit, through the bridge (`hosts/dsh/hooks.json:9-11`) | web-profile plugin: authenticated `GET /api/tezgah.status` -> `tezgah-status` (`hosts/dsh/statusline/lib/index.js:14,39-60`) | four tool-use: the route passes `--observable=consult,research,cbm,orch` (`hosts/dsh/statusline/lib/index.js:18,47-48`) |
-| omp | session_start, session_switch, turn_end, before_agent_start, tool_call, tool_result, session_stop (`hosts/omp/tezgah-hook.ts.in:164,198-199,201,221,235,267`) | both: static `RULES.md` (`bin/tezgah-setup:1021-1028`) and a session payload carrying only what a static file cannot know (`hosts/omp/hook.py:123-131`) | before_agent_start returns a hidden message (`hosts/omp/tezgah-hook.ts.in:201-218`) | extension draws `ctx.ui.setWidget` below the editor, `setStatus` as fallback (`hosts/omp/tezgah-hook.ts.in:20-27`); ANSI line from `hosts/omp/hook.py:85-107` | all six: the embedded runner filters skill reads before asking python (`hosts/omp/tezgah-hook.ts.in:40-53`) and no `observable` is passed (`hosts/omp/hook.py:94-96`) |
+| cursor | 13 events: sessionStart, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, beforeSubmitPrompt, stop, beforeMCPExecution, afterShellExecution, afterMCPExecution, afterFileEdit, afterAgentResponse (`bin/tezgah-setup:816-833`) | hook: sessionStart -> `additional_context` (`hosts/cursor/hook.py:219-221`) | beforeSubmitPrompt -> `additional_context` plus `{"continue": true}` (`hosts/cursor/hook.py:319-325`) | `statusLine` in `~/.cursor/cli-config.json` -> `tezgah-statusline --cursor` (`bin/tezgah-setup:865-868`), ANSI (`statusline.py:116-117`) | four tool-use (`statusline.py:112`) |
+| opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1558-1813`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:754-787`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:1754-1800`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:817-827`) | all six: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1370-1433`) |
+| dsh | SessionStart, SubagentStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop (`hosts/dsh/hooks.json:2-19`) | hook: the same Claude-family scripts, named by `configPath` (`bin/tezgah-setup:916`) | UserPromptSubmit, through the bridge (`hosts/dsh/hooks.json:9-11`) | web-profile plugin: authenticated `GET /api/tezgah.status` -> `tezgah-status` (`hosts/dsh/statusline/lib/index.js:14,39-60`) | four tool-use: the route passes `--observable=consult,research,cbm,orch` (`hosts/dsh/statusline/lib/index.js:18,47-48`) |
+| omp | session_start, session_switch, turn_end, before_agent_start, tool_call, tool_result, session_stop (`hosts/omp/tezgah-hook.ts.in:164,198-199,201,221,235,267`) | both: static `RULES.md` (`bin/tezgah-setup:1028-1035`) and a session payload carrying only what a static file cannot know (`hosts/omp/hook.py:123-131`) | before_agent_start returns a hidden message (`hosts/omp/tezgah-hook.ts.in:201-218`) | extension draws `ctx.ui.setWidget` below the editor, `setStatus` as fallback (`hosts/omp/tezgah-hook.ts.in:20-27`); ANSI line from `hosts/omp/hook.py:85-107` | all six: the embedded runner filters skill reads before asking python (`hosts/omp/tezgah-hook.ts.in:40-53`) and no `observable` is passed (`hosts/omp/hook.py:94-96`) |
 
 The middle four marks (`consult`, `research`, `cbm`, `orch`) are tool-use marks:
 any adapter that sees its host's tool calls can light them by calling
@@ -35,38 +35,38 @@ the same core and takes the session id as an argument or `TEZGAH_SESSION`
 Every host gets the skill symlinks from `SKILLS` (`bin/tezgah-setup:71-74`)
 except claude, whose skills arrive with the plugin. `install_common` writes the
 shared config, contract hash and the CLI symlinks every host shell can call
-(`bin/tezgah-setup:346-378`).
+(`bin/tezgah-setup:374-406`).
 
-- **claude** - `install_claude` (`bin/tezgah-setup:389-399`): `~/.claude/statusline.py`,
+- **claude** - `install_claude` (`bin/tezgah-setup:417-427`): `~/.claude/statusline.py`,
   `~/.claude/workflows/{cbm-map,cbm-review,cbm-impact}.js`, the
   `~/.claude/bin/{consult,codegen,tezgah-render-table}` links, and two keys in
   `~/.claude/settings.json` - `statusLine` (`bin/tezgah-setup:423-437`) and the attribution
-  off-switch (`bin/tezgah-setup:402-420`). Its hook manifest is the plugin's own
+  off-switch (`bin/tezgah-setup:430-448`). Its hook manifest is the plugin's own
   `hooks/hooks.json`; no `hooks.json` is written into `~/.claude`. Claude runs a
   **copy** of the checkout under `~/.claude/plugins/cache`, refreshed by
-  `--sync` (`bin/tezgah-setup:1980-2054`).
-- **codex** - `install_codex` (`bin/tezgah-setup:440-465`): `$CODEX_HOME/hooks.json`
+  `--sync` (`bin/tezgah-setup:2001-2097`).
+- **codex** - `install_codex` (`bin/tezgah-setup:468-490`): `$CODEX_HOME/hooks.json`
   (one group per event, PreToolUse carrying `CODEX_PRETOOL_MATCHER` at `:112-113`),
   `skills/*` symlinks, `~/.codex/bin/consult`, and `mcp_servers.*` tables in
-  `config.toml` (`ensure_toml_mcp`, `bin/tezgah-setup:472-502`).
-- **cursor** - `install_cursor` (`bin/tezgah-setup:807-863`): `~/.cursor/hooks.json`
+  `config.toml` (`ensure_toml_mcp`, `bin/tezgah-setup:497-527`).
+- **cursor** - `install_cursor` (`bin/tezgah-setup:832-870`): `~/.cursor/hooks.json`
   (tezgah entries replaced, a user's Orca entries merged), `skills/*` symlinks,
   `mcp.json` servers, and `cli-config.json` `statusLine`.
-- **opencode** - `install_opencode` (`bin/tezgah-setup:729-804`): the plugin under
+- **opencode** - `install_opencode` (`bin/tezgah-setup:754-829`): the plugin under
   both `plugins/` and `plugin/` (version drift), `skills/*` symlinks, the
-  generated `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:528-563`) and
-  `opencode-skills.md` + `.full.md` (`bin/tezgah-setup:684-726`), then `opencode.json`
+  generated `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:553-588`) and
+  `opencode-skills.md` + `.full.md` (`bin/tezgah-setup:709-751`), then `opencode.json`
   (`instructions`, `mcp`, `permission.skill=deny`, `compaction.prune`,
   `watcher.ignore`, the two `external_directory` grants) and `tui.json` +
   `tui-plugins/tezgah-tui.tsx`.
-- **dsh** - `install_dsh` (`bin/tezgah-setup:965-973`): `~/.dsh/skills/*` symlinks,
-  a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:893-927`) that
+- **dsh** - `install_dsh` (`bin/tezgah-setup:972-980`): `~/.dsh/skills/*` symlinks,
+  a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:900-934`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
   rows and the two `llm-pi-ai` routes, plus `~/.local/bin/dsh` ->
-  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:942-962`) links the statusline
+  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:949-969`) links the statusline
   package into the **web profile** and adds its row to
   `~/.dsh/profiles/web/cordis.patch.yml`.
-- **omp** - `install_omp` (`bin/tezgah-setup:1021-1067`): `~/.omp/agent/RULES.md`
+- **omp** - `install_omp` (`bin/tezgah-setup:1028-1074`): `~/.omp/agent/RULES.md`
   (managed block), `skills/*` symlinks, `agents/tezgah-*.md`, `mcp.json`
   (`$schema`, `mcpServers`), and `hooks/pre/tezgah-hook.ts` rendered from
   `hosts/omp/tezgah-hook.ts.in` with the python path substituted for `@HOOK@`.
@@ -106,13 +106,13 @@ In order, each step verified by the one below it:
 2. The hook adapter(s) under `hosts/<host>/` (an `install_*`-independent
    directory like `hosts/codex/hook.py`, `hosts/cursor/hook.py`) plus, for a
    TS/JS host, the bridge file with a substituted python path
-   (`hosts/omp/tezgah-hook.ts.in` rendered at `bin/tezgah-setup:1058-1067`).
+   (`hosts/omp/tezgah-hook.ts.in` rendered at `bin/tezgah-setup:1065-1074`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
-   (`bin/tezgah-setup:1070-1072`), and `uninstall_<host>()` removing only
-   tezgah-managed links and blocks (`bin/tezgah-setup:1383-1483`).
+   (`bin/tezgah-setup:1077-1079`), and `uninstall_<host>()` removing only
+   tezgah-managed links and blocks (`bin/tezgah-setup:1390-1490`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
-   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:1941-1943`); the
-   `--report` output is that list (`bin/tezgah-setup:1718-1750`). Give the row a home-qualified
+   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:1955-1957`); the
+   `--report` output is that list (`bin/tezgah-setup:1725-1757`). Give the row a home-qualified
    label if the host's dir can be relocated (`host_checks_codex`, `:1784-1785`).
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
@@ -136,18 +136,18 @@ In order, each step verified by the one below it:
   accepts SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart,
   SubagentStop and Stop, and silently drops anything else - which is why
   `configPath` names `hosts/dsh/hooks.json` and not the Claude manifest
-  (`bin/tezgah-setup:901-903`). Its status route goes through `tezgah-status`
+  (`bin/tezgah-setup:908-910`). Its status route goes through `tezgah-status`
   with the four tool-use measures (`hosts/dsh/statusline/lib/index.js:18`), it
   declares `TEZGAH_CALL_OUTCOME=none` because the bridge drops the outcome field
   (`hosts/dsh/hooks.json:16`, `hooks/projects-posttooluse.py:86-95`), and its
   statusline row lives in the web profile because the plugin injects the
-  web-only `connection` service (`bin/tezgah-setup:930-935`).
+  web-only `connection` service (`bin/tezgah-setup:937-942`).
 - **opencode has no session-start hook**, so its always-on file must carry the
   pointer every hook host appends, and the per-session index, agent and contract
-  refreshes ride the first `chat.message` instead (`bin/tezgah-setup:546-555`,
-  `hosts/opencode/plugins/tezgah.js:1745-1756`). It denies the native `skill`
+  refreshes ride the first `chat.message` instead (`bin/tezgah-setup:571-580`,
+  `hosts/opencode/plugins/tezgah.js:1786-1798`). It denies the native `skill`
   tool - the generated router replaces the injected skill list
-  (`bin/tezgah-setup:761-763`) - and `permission.ask` may never be emitted by a
+  (`bin/tezgah-setup:786-788`) - and `permission.ask` may never be emitted by a
   given build, which is why `tool.execute.before` stays the enforcing half
   (`hosts/opencode/plugins/tezgah.js:11-14`).
 - **Cursor only runs a PreToolUse hook for the tool types its matcher names**, so
@@ -164,11 +164,11 @@ In order, each step verified by the one below it:
   (`hosts/omp/tezgah-hook.ts.in:58-60`). The matcher is only the first half:
   `pwsh` reaches the hook but is not a `BASH_TOOLS` name, so the shared shell
   rules do not recognise that spelling yet.
-- **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:1980-1994`),
+- **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:2001-2014`),
   so a change is not live until `--sync` or a refresh
-  (`refresh_plugin_copy`, `bin/tezgah-setup:2057-2063`).
+  (`refresh_plugin_copy`, `bin/tezgah-setup:2100-2106`).
 - **omp spawns the MCP `command` as one executable** and takes the rest in
-  `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1043-1045`),
+  `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1050-1052`),
   and `setStatus` strips ANSI, so only the widget path keeps the per-mark colors
   (`hosts/omp/tezgah-hook.ts.in:12-15`).
 

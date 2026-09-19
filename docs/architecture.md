@@ -107,7 +107,7 @@ One session, in order. Each step names the file that handles the event on Claude
    kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:84`),
    and attaches the untrusted-content label when the result came from outside.
 5. **Stop** — `hooks/projects-stop.py:33` calls `stop_reason`, which reads the
-   ledger and can refuse the turn (`hooks/tezgah_integrity.py:1207`). omp and
+   ledger and can refuse the turn (`hooks/tezgah_integrity.py:1288`). omp and
    Codex reach the same function from their own Stop events
    (`hosts/omp/hook.py:168`).
 
@@ -126,7 +126,7 @@ on `subagent_start` the payload is the short brief, not the whole CORE
 | On-demand full contract | the deep detail — orchestration, codegen, the exact kill switches — as a skill, not a hook payload | `skills/tezgah-contract/SKILL.md`, whose joined text is `CONTRACT` `hooks/tezgah_policy.py:674` | only when loaded |
 
 A host that carries the CORE in a static file does not pay for it twice: omp's
-managed `RULES.md` already holds it (`bin/tezgah-setup:1023-1025`), so its session hook
+managed `RULES.md` already holds it (`bin/tezgah-setup:1030-1032`), so its session hook
 passes `with_core=False` and injects only the live state
 (`hosts/omp/hook.py:123-128`, `hooks/tezgah_context.py:735-744`). opencode's
 always-on file is written from the same policy by the installer
@@ -139,12 +139,12 @@ lowest-value blocks are dropped in a fixed order rather than the rules
 
 | Store | Path | Writer | Authoritative for |
 |---|---|---|---|
-| Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py:230-231`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py:1001`) | what a session actually ran, and therefore the Stop verdict |
+| Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py:230-231`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py:1056`) | what a session actually ran, and therefore the Stop verdict |
 | Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py:999-1001`) | `record` (`hooks/tezgah_context.py:988`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript |
 | Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py:56-61`) | `capture` on the write path (`hooks/tezgah_snapshot.py:190`) | the pre-write bytes; the rollback source |
 | Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py:398-399`) | `write_stamp` (`hooks/tezgah_context.py:414`) | the comparison behind the one-line delta, nothing else |
 | Installed config dir | `~/.config/tezgah` (`hooks/tezgah_paths.py:21-25`) | the installer and the user | which roots are armed, which kill switches are on |
-| Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:1978-1986`) | `tezgah-setup --sync` (`bin/tezgah-setup:2003`) | what Claude Code actually executes — a copy, never this checkout |
+| Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:1999-2007`) | `tezgah-setup --sync` (`bin/tezgah-setup:2023`) | what Claude Code actually executes — a copy, never this checkout |
 
 The cache dir is resolved once per process and falls back to a temp dir on a
 sandboxed host, so one session's state never splits across two files

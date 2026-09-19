@@ -107,8 +107,8 @@ same text.
   DeepSeek API), then spends one more call on a referee that names where the
   panel disagreed, what all of them assumed, what would change the
   recommendation and what evidence it still wants. Each failure is classed with
-  the one variable to change on a retry, a dead referee is disclosed as an
-  unjudged panel, and a packet too long for argv goes in with `consult -`. The
+  the one variable to change on a retry, a dead or unheadlined referee is disclosed
+  as an unjudged panel, and a packet too long for argv goes in with `consult -`. The
   agent reports where the models disagreed and verifies their claims against the
   code.
 - **Research via OpenResearch.** When the router judges a task is research — a

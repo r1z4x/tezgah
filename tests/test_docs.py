@@ -157,6 +157,32 @@ class DocsLayer(unittest.TestCase):
                         "%s:%s is past the end of the file (%d lines)"
                         % (path, end or start, lines))
 
+    def test_no_citation_repeats_its_own_file_name_or_runs_backwards(self):
+        # The corruption the bound check above cannot see: a path stitched to
+        # itself (`bin/tezgah-setupbin/tezgah-setup:2259-2256`) or a range whose
+        # end precedes its start. Both keep the `path:line` shape, so the file
+        # exists and the number is inside it and the check above stays green.
+        # Yet neither can be a citation a reader follows - no path names its own
+        # file twice, and no range ends before it starts - so this needs no
+        # allowlist: a token that trips either rule is corrupt by construction.
+        # The shape is any backticked `path:line`, not only the extension-bearing
+        # files the check above names: the path half of `bin/tezgah-setup` has no
+        # extension, so an extension-shaped pattern never reaches the corruption.
+        cite = re.compile(r"`([\w./-]+):(\d+)(?:-(\d+))?`")
+        for page in index()["pages"]:
+            text = read(os.path.join(support.REPO, page["path"]))
+            for cite_match in cite.finditer(text):
+                token, path = cite_match.group(0), cite_match.group(1)
+                start, end = cite_match.group(2), cite_match.group(3)
+                name = os.path.basename(path)
+                with self.subTest(page=page["path"], cite=token):
+                    self.assertEqual(
+                        token.count(name), 1,
+                        "%s names %s %d times" % (token, name, token.count(name)))
+                    self.assertLessEqual(
+                        int(start), int(end or start),
+                        "%s ends before it starts" % token)
+
     def test_the_handbook_is_the_pages_and_is_current(self):
         # HANDBOOK.md is the layer in one file, and the only copy of it that
         # leaves this checkout: a page edited without regenerating it leaves the

@@ -56,8 +56,8 @@ conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:649-651`)
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, the code graph. That is what a host with
 no prompt-time hook writes into a static file: opencode's
-`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:528-563`) and omp's
-managed `RULES.md` (`bin/tezgah-setup:1025-1027`). Claude applies
+`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:553-588`) and omp's
+managed `RULES.md` (`bin/tezgah-setup:1032-1034`). Claude applies
 `output-styles/tezgah.md` as a plugin output style instead
 (`output-styles/tezgah.md:11-12`); Codex and Cursor receive the same core from
 their session-start hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:203`). `core_for()`
@@ -158,21 +158,21 @@ they survive every other switch being off.
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py:1230-1238`) and
    `ContractParity.test_every_rule_and_heading_in_the_contract_reaches_the_skill`
-   (`tests/test_setup.py:604-618`).
+   (`tests/test_setup.py:659-674`).
 
 ## The two copies that must stay in step
 
 | Copy A | Copy B | Test that fails when only one changed |
 |---|---|---|
 | `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:1234` |
-| `policy.CONTRACT` (`hooks/tezgah_policy.py:674`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:604` |
+| `policy.CONTRACT` (`hooks/tezgah_policy.py:674`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:659` |
 
 The second pair is also hashed as one source for the generated opencode contract
-(`bin/tezgah-setup:148-149`, `:152-184`), which notices that *one* of them
+(`bin/tezgah-setup:173-176`, `:152-184`), which notices that *one* of them
 changed; `ContractParity` is what notices that only one of them did, which is the
-drift that actually happens (`tests/test_setup.py:593-596`). `tezgah-setup
+drift that actually happens (`tests/test_setup.py:629-652`). `tezgah-setup
 --refresh` re-renders the generated artifacts in a running session when that hash
-is stale (`bin/tezgah-setup:566-581`, `bin/tezgah-setup:2279-2281`).
+is stale (`bin/tezgah-setup:591-606`, `bin/tezgah-setup:2322-2324`).
 
 ## When the injected text grows too large
 
