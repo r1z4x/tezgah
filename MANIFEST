@@ -3,6 +3,7 @@
 .github/ISSUE_TEMPLATE/feature_request.yml
 .github/PULL_REQUEST_TEMPLATE.md
 .github/workflows/ci.yml
+.github/workflows/release.yml
 .gitignore
 .mcp.json
 .tezgah/research/env-scaling/claims.jsonl
@@ -633,6 +634,7 @@ bin/tezgah-task
 bin/tezgah-task.py
 bin/tezgah-triage
 bin/tezgah-triage.py
+bin/tezgah.js
 commands/adhd.md
 commands/ponytail.md
 docs/README.md
@@ -687,6 +689,7 @@ hosts/omp/tezgah-hook.ts.in
 hosts/opencode/plugins/tezgah.js
 hosts/opencode/tui/tezgah-tui.tsx
 output-styles/tezgah.md
+package.json
 packaging/build.sh
 packaging/install.ps1
 packaging/install.sh

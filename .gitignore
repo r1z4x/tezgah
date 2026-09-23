@@ -14,43 +14,9 @@ __pycache__/
 # tezgah: end generated agents
 
 # local state: the lessons ledger, the research lines, and the local plugin
-# manifest are the maintainer's, not repository content. The trailing `/*` matters:
-# git never descends into an excluded *directory*, so `/.tezgah/` would make the
-# re-includes below unreachable - the contents are excluded level by level instead.
-/.tezgah/*
+# manifest are the maintainer's, not repository content.
+/.tezgah/
 /.claude-plugin/
-
-# ...except the one part of a research line whose whole rule is temporal: the
-# protocol committed before its results is decided on the commit graph, so a line
-# git cannot see can never satisfy it (the layer's own audit measured 7 of 7
-# experiments unverifiable under this file). The *protocol* side is re-included
-# here, which puts every line's predictions into history from this commit on; the
-# results side is deliberately NOT, because committing a protocol and its results
-# in one commit is the rule's refusal ("one commit added both, so the plan cannot
-# be shown to precede the run"), and adding them together to make the rule pass
-# would fabricate the order the rule exists to prove. A session that runs an
-# experiment commits its own results afterwards, when the protocol is already in
-# history, and the rule is then decidable for that experiment.
-!/.tezgah/research/
-/.tezgah/research/*
-!/.tezgah/research/*/
-/.tezgah/research/*/*
-!/.tezgah/research/*/experiments/
-/.tezgah/research/*/experiments/*
-!/.tezgah/research/*/experiments/*/
-/.tezgah/research/*/experiments/*/*
-!/.tezgah/research/*/experiments/*/protocol.md
-!/.tezgah/research/*/experiments/*/analysis.md
-
-# The whole line is the record: state.json, findings.md, claims.jsonl, the notes
-# under literature/, the run receipts under experiments/*/raw/ and the reader's
-# copy in to_human/. A record that exists on one machine is a claim nobody else
-# can check, and 11 of the lines here had exactly that. One exclusion survives
-# and it is deliberate: an experiment's results.jsonl stays out, so committing the
-# protocol before the run keeps needing its own explicit `git add -f`.
-!/.tezgah/research/*/**
-/.tezgah/research/*/experiments/*/results.jsonl
-/.tezgah/research/**/__pycache__/
 
 # codegraph index (plan 010 spike; the directory carries its own .gitignore that
 # un-ignores its marker file, so the directory itself stays visible without this)
