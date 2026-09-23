@@ -1,7 +1,7 @@
 {
   "name": "@r1z4x/tezgah",
-  "version": "0.17.0",
-  "description": "Armed harness contract for coding agents",
+  "version": "0.17.1",
+  "description": "One shared working contract for every AI coding assistant you run: Claude Code, Codex, Cursor, opencode, dsh and oh-my-pi (omp).",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/r1z4x/tezgah.git" },
   "bin": { "tezgah": "bin/tezgah.js" },
