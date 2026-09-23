@@ -1,8 +1,0 @@
-{"cell": "audit-before", "observation": "judged citations outside the symbol they name", "value": 36, "raw": "raw/audit.txt", "source": "run.py -> raw/audit.txt", "scope": "real"}
-{"cell": "shift-policy", "observation": "derived shift for hooks/tezgah_policy.py", "value": "+7", "raw": "raw/audit.txt", "source": "run.py -> raw/audit.txt", "scope": "derived"}
-{"cell": "shift-context", "observation": "derived shift for hooks/tezgah_context.py", "value": "+8", "raw": "raw/audit.txt", "source": "run.py -> raw/audit.txt", "scope": "derived"}
-{"cell": "shift-setup", "observation": "derived shift for bin/tezgah-setup", "value": "+2", "raw": "raw/audit.txt", "source": "run.py -> raw/audit.txt", "scope": "derived"}
-{"cell": "shift-test-context", "observation": "derived shift for tests/test_context.py", "value": "+39", "raw": "raw/audit.txt", "source": "run.py -> raw/audit.txt", "scope": "derived"}
-{"cell": "replacements", "observation": "tokens replaced across pages", "value": "33 across 6 pages", "raw": "raw/audit.txt", "source": "run.py -> raw/audit.txt", "scope": "derived"}
-{"cell": "audit-after", "observation": "judged citations outside the symbol they name after the pass", "value": "0 of 329 judged", "raw": "raw/audit.txt", "source": "run.py -> raw/audit.txt", "scope": "real"}
-{"cell": "residue", "observation": "citations the audit cannot judge, named rather than claimed clean", "value": 748, "raw": "raw/audit.txt", "source": "run.py -> raw/audit.txt", "scope": "real"}

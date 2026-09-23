@@ -1,7 +1,0 @@
-=== the delegated audit's numbers, as reported ===
-tree: 365 vendored bodies / 4,202,519 B + 6 index files / 20,095 B + library.json 111.6 KB + SKILL.md 5,114 B + SOURCE 1.8 KB
-ledger: 30,750 rows / 1,546 files; 1 row reads a vendored entry body (this session's own); 3 list a stage index; 26 read the same material from the upstream clone
-lines citing an entry: 0 of 6
-router: 217-byte line in a 4.3 KB always-on file; full file 18.8 KB
-tests: 22, all integrity/importer, none adoption
-instrument limit: the ledger records shell/edit rows, not host file reads

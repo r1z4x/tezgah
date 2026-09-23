@@ -1,3 +1,0 @@
-### protocol mtime before the run:
-E1-documented-rule-enforcement/protocol.md 2026-09-20 12:00:27.415571691 +0300 4994 bytes
-E1-documented-rule-enforcement/run.py 2026-09-20 12:00:23.620310325 +0300 6657 bytes

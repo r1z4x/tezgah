@@ -1,4 +1,0 @@
-Turkish caught: 57 of 57 (missed: none)
-English refused: 0 of 24 (flagged: none)
-the reported case: ['durum', 'onarimi']
-refusal names the tokens: True | offers English: True
