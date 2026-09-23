@@ -1,0 +1,54 @@
+Third-party material vendored into or adapted by this repository. The MIT LICENSE
+at the root covers tezgah's own files; the copies below keep their original terms.
+
+skills/no-ai-slop  - MIT, Peter Yang, https://github.com/petergyang/no-ai-slop
+skills/ponytail    - MIT. Origin not recorded at vendoring time; if you are the
+                     author, open an issue and the attribution will be corrected.
+skills/i-have-adhd - MIT, ayghri, https://github.com/ayghri/i-have-adhd.
+                     Adapted for tezgah: the ten rules are kept and two are
+                     rewritten (the state restatement points at the todo list
+                     instead of duplicating it, and a time estimate is marked
+                     as an estimate), the user-invocation frontmatter is
+                     dropped so the skill is model-invocable from the router,
+                     and the trigger phrases are tezgah's.
+skills/research    - MIT, Orchestra Research. Adapts the orchestration layer of
+                     its AI-research-SKILLs library (the autoresearch,
+                     ara-rigor-reviewer and ara-research-manager skills):
+                     https://github.com/orchestra-research/AI-research-SKILLs
+                     Nothing is copied verbatim.
+skills/product-analysis - MIT. Adapts the intended-vs-implemented method (a gap
+                     is a finding only when the documented intent and the code
+                     that enforces it are both cited) and the opportunity-score
+                     framing from https://github.com/phuryn/pm-skills, whose
+                     pm-ai-shipping and pm-product-discovery skills attribute
+                     those in turn to Teresa Torres, Dan Olsen and Alberto
+                     Savoia. Nothing is copied verbatim: the evidence classes,
+                     the two-axis rule, the artifact shape and the scorecard are
+                     tezgah's, and the skill points at the marketplace by URL
+                     instead of reproducing its text.
+
+skills/pm-frameworks - MIT, Pawel Huryn, https://github.com/phuryn/pm-skills.
+                     VENDORED at revision
+                     8607e3b077817f89bf4a9b623246219734ac3be0 (2026-09-19): two
+                     skills, byte-for-byte upstream -
+                     `intended-vs-implemented/SKILL.md` and
+                     `opportunity-solution-tree/SKILL.md`. The entry point
+                     `skills/pm-frameworks/SKILL.md` is tezgah's own and is not
+                     part of the manifest; the other 67 skills and the plugin
+                     manifest are not copied. `skills/pm-frameworks/SOURCE`
+                     records the upstream paths and the per-file sha256, and
+                     `tests/test_skills.py` holds the tree to it.
+
+skills/ai-research - MIT, Orchestra Research. VENDORED from the same library at
+                     revision 773a52944ba4747a18bd4ae9ade53fff041adcbc
+                     (2026-06-15): 98 skills in 23 categories, each with its
+                     markdown references, in the upstream layout. The bodies are
+                     byte-for-byte upstream, frontmatter included - 96 keep
+                     Orchestra Research's `author` line, two
+                     (`ml-training-recipes`, `a-evolve`) keep the contributing
+                     author's - and a markdown file with no frontmatter carries
+                     one attribution comment.
+                     Three machine-scraped reference dumps and the LaTeX template
+                     trees are not copied, and every drop is named in
+                     skills/ai-research/SOURCE. `bin/tezgah-import-ai-research
+                     --check` verifies the tree against its manifest.

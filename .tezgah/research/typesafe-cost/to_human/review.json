@@ -1,0 +1,105 @@
+{
+  "dimensions": {
+    "evidence_relevance": 3,
+    "falsifiability": 5,
+    "scope_calibration": 3,
+    "argument_coherence": 2,
+    "exploration_integrity": 5,
+    "methodological_rigour": 3
+  },
+  "grade": "revise",
+  "notes": "weakest is argument_coherence: the ranked surface list, C5's status and findings.md's Open questions all contradict the two live measurements the line itself recorded afterwards (the triage recall of 69.9% and the refused compaction). The contradictions this note names were repaired on 2026-09-22: the ranking carries a re-ranked note, C5 is superseded by C5-picker-built, and the Open questions entry names what was run. The scores are left as the review scored the line, not re-scored after the close-out.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "status": "resolved",
+      "target": "claims.jsonl",
+      "quote": "\"statement\": \"TypeSafe's published economics are $0.042 per 1M input tokens with $0 output, and batching 13 questions into one call is 12.2x cheaper and 10.0x faster with identical answers.\", \"falsification\": \"the vendor's cookbook or the pricing page states a different price, or a batched call's answers differ from the same questions asked singly.\", \"proof\": [\"findings.md\"], ",
+      "observation": "the vendor economics claim rests on prose in findings.md alone: the line holds no literature/ directory and no literature/INDEX.jsonl row, so the quoted cookbook numbers cannot be re-opened by a reader, and the claim is marked supported on the strength of a paraphrase-by-quotation.",
+      "fix": "either record the read sources under literature/ with their ids and re-point C4's proof at them, or downgrade C4 to a cited secondary figure that is explicitly not re-checkable from this line.",
+      "closure": "C4-secondary-economics supersedes C4 and records the vendor figures as a quoted secondary this line cannot re-open; the numbers stay in findings.md 1c with their source URL, which is the downgrade the finding offered as its second option."
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "status": "resolved",
+      "target": "findings.md",
+      "quote": "- The skill-suggestion line's benefit on THIS roster is unproven: the independent\n  chooser was already at 0/20 wrong without it, so the arm has no headroom to improve,\n  and the TypeSafe arm's difference (1/20 -> 2/20) sits inside jev's own 10%\n  self-disagreement. The line costs 305-325 characters (~78 tokens) per fresh prompt\n  plus $0.000038 and ~0.8 s; the vendor's 16.8% -> 7.3% was measured on a 182-skill",
+      "observation": "this paragraph measures the skill-suggestion line as having no headroom on this roster and inside jev's own self-disagreement, which removes the premise of C5 and of the rank-1 entry in section 4; C5 nevertheless stays a live hypothesis and the ranking is unchanged above it.",
+      "fix": "re-rank the surfaces with the measured result in hand (the app-analysis triage, already refuted at recall 69.9%, and the skill suggestion both lose their first place), and restate C5 as unproven on this roster rather than a hypothesis to build first.",
+      "closure": "findings.md section 4 now carries a re-ranked note (rank 1 built with no headroom, rank 2 refuted in shape, rank 4 the one unbuilt surface), and C5-picker-built supersedes C5-R/C5 as the rank-1 hypothesis, so the ranking and C5 no longer contradict the measurements."
+    },
+    {
+      "id": "F3",
+      "severity": "major",
+      "status": "resolved",
+      "target": "findings.md",
+      "quote": "- Whether the remaining predictions hold: P1 is measured and refuted (the per-line\n  shape recalled 69.9% of the controls, and the shipped unit shape recalls 100% of\n  them but reads 94% of the screen), P2's saving is measured and refused, and P3 and\n  P4 were never run.",
+      "observation": "the Open questions section still states that none of P1-P4 has been run, while the two paragraphs appended below it report P1 measured and refuted on a 356-line screen and a four-arm prompt experiment run to completion.",
+      "fix": "rewrite the Open questions entry to name which predictions have since been run and with what outcome, so the section does not read as a pre-measurement state.",
+      "closure": "the Open questions entry was rewritten to say which predictions were run and what they returned (P1 refuted, P2 refused, P3/P4 unrun for want of a protocol), so the section no longer reads as a pre-measurement state."
+    },
+    {
+      "id": "F4",
+      "severity": "major",
+      "status": "resolved",
+      "target": "claims.jsonl",
+      "quote": "\"statement\": \"A TypeSafe tree triage keeps at least 95% of the load-bearing controls while the agent reads at most 30% of the tree's lines.\", \"falsification\": \"recall below 95% of the load-bearing controls, or the agent still reading more than 30% of the lines on the measured fixture screens.\", \"proof\": [\"findings.md\"], ",
+      "observation": "C6 still carries status untested although C6-R, on the same line and the same fixture, already executed its falsification and returned recall 69.9% against the 95% floor, so two claims in one file disagree about whether the test was run.",
+      "fix": "mark C6 refuted or superseded by C6-R and keep only the residual question (whether another question shape clears the floor).",
+      "closure": "C6-unit-shape supersedes C6 as refuted (100% of the 83 control lines at a 94% read), and C6-R stands as the per-line shape's 69.9%; the two claims no longer disagree about whether the test ran."
+    },
+    {
+      "id": "F5",
+      "severity": "minor",
+      "status": "resolved",
+      "target": "state.json",
+      "quote": "\"metric\": \"measured token cost of one app-analysis screen read through the wired Playwright MCP, the always-on text tezgah injects per session (the installer's own context budget), and - added 2026-09-22 - the recall of the load-bearing control lines a judgement keeps at a given read share, plus the wrong-load count of the roster-compaction arms\",",
+      "observation": "the locked evaluation names only the read costs and tezgah's injected text, and its note asserts the predictions are still untested, so the field the reader takes as the line's metric and baseline never covers the triage recall or the roster-compaction measurement the line concluded on.",
+      "fix": "extend the evaluation with the triage recall metric and the compaction arms, and correct the note to say which predictions were later run and how they turned out.",
+      "closure": "state.json's evaluation now carries the triage recall and the compaction arms in its metric and baseline, and its note names which predictions were later run; the field a reader takes as the metric covers what the line concluded on."
+    },
+    {
+      "id": "F6",
+      "severity": "minor",
+      "status": "resolved",
+      "target": "findings.md",
+      "quote": "| 40-row work-order table, 5 columns, nav + filter form (~120 controls) | 14,805 chars | ~3,701 | the ordinary case: one screen of a real admin app |\n| WO detail screen, 20 buttons | 1,138 chars | ~284 | a small screen costs little |\n| two-screen flow (list read, click, detail read) | 15,943 chars | ~3,985 | 1.4 s wall time - speed is not the bottleneck, context is |",
+      "observation": "each row of the read-cost table is a single run on a single fixture with no repeats, no spread and no stated variance, while C3's falsification band spans 2,000 to 6,000 tokens, which is wider than one fixture can support; tokens are additionally derived as chars / 4.",
+      "fix": "say n=1 per row and name the fixture, or repeat the snapshot on two or three screens of the same class so the number carries a spread.",
+      "closure": "the read-cost table's caption now states that every row is one snapshot of one fixture (n=1) with no repeat and no spread, so the table reads as a bound on the instrument rather than a sampled measurement."
+    },
+    {
+      "id": "F7",
+      "severity": "minor",
+      "status": "resolved",
+      "target": "to_human/protocol.md",
+      "quote": "1. **a prompt-time skill suggestion** - deletes most of the 2.0k-token roster\n   from the always-on text, and TypeSafe's own measurement says wrong loads drop\n   by more than half;",
+      "observation": "the reader's copy still recommends building the prompt-time skill suggestion first on the vendor's wrong-load figure, with no mention of the line's own later measurement that the chooser already sat at 0/20 wrong and the arm had no headroom.",
+      "fix": "carry the refuting measurement into this section, or drop the surface from the recommended first implementation.",
+      "closure": "to_human/protocol.md section 3 carries the refuting measurement: recommendation 1 is built but had no headroom on this roster and ships opt-in, recommendation 2 is built in the unit shape rather than the per-line one, and recommendation 3 is built as --states."
+    },
+    {
+      "id": "F8",
+      "severity": "suggestion",
+      "status": "resolved",
+      "target": "findings.md",
+      "quote": "| TypeSafe jev-1.12 (quoted) | $0.042 | $0.00016 |\n| a Sonnet-class agent model [INFERENCE list price] | ~$3 | $0.0111 (roughly 70x) |\n| a reasoning-class model [INFERENCE list price] | ~$15 | $0.0555 (roughly 350x) |",
+      "observation": "the bolded 69x and 347x multipliers are derived from agent-model list prices that the line itself marks as an inference it did not read this session, two lines below the table, so the headline ratio reads as measured at a glance.",
+      "fix": "move the [INFERENCE] marker into the table row or the caption, and give the multipliers as a range rather than a single bold figure.",
+      "closure": "[INFERENCE list price] sits in the two agent-model rows themselves and the multipliers are given as ranges (roughly 70x and 350x) instead of bold single figures, so the inference cannot be read as a measurement at a glance."
+    },
+    {
+      "id": "F9",
+      "severity": "minor",
+      "status": "resolved",
+      "target": "state.json",
+      "quote": "        {\n          \"tag\": \"ai-suggested\",\n          \"what\": \"six surfaces where a judgment would pay, and four places it must not go; the credential path and the offline invariant are left as decisions for the user.\"\n        }",
+      "observation": "the sessions record ends at the six surface suggestions, so neither the live triage run behind C6-R nor the compaction experiment behind C7 appears as an executed event, which leaves the two claims that changed the conclusion unrecorded in the state file.",
+      "fix": "append the two runs to the session events with their costs and their outcome, so state.json matches what claims.jsonl asserts was executed.",
+      "closure": "three events were appended to state.json's session - the live triage run, the four-arm compaction experiment with its cost and outcome, and the 2026-09-22 close-out - so the two claims that changed the conclusion are recorded as executed."
+    }
+  ],
+  "closure": "Closed 2026-09-22 against HEAD ddf72b4. The nine findings are settled: seven resolved in the artifacts, none left open - the line has no experiments/ or literature/ to repair, so the two options F1 offered were the downgrade that was taken; F2-F9 are answered by edits to findings.md, state.json, to_human/protocol.md and to_human/report.md, and by the superseding claims C1-seam-exists, C4-secondary-economics, C5-picker-built and C6-unit-shape."
+}

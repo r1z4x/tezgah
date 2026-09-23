@@ -1,0 +1,115 @@
+{
+  "dimensions": {
+    "evidence_relevance": 3,
+    "falsifiability": 4,
+    "scope_calibration": 4,
+    "argument_coherence": 5,
+    "exploration_integrity": 5,
+    "methodological_rigour": 3
+  },
+  "grade": "revise",
+  "notes": "methodological_rigour is the weakest dimension: E1's protocol is a post-hoc reconstruction, no arm was repeated so no arm has a variance band, and the round's total is carried as measured over an arm whose usage was never recorded. evidence_relevance follows at 3 because C2's result rows carry no source and are uncommitted, C1's proof leans on a code-graph response the line did not keep, and C5 has no evidence at all. The audit claims (C1, C3, C4) and the honesty of the recording are what hold the line up. Three of the evidence_relevance causes were repaired before the close-out - the results rows now carry source and scope, the caller claim's proof is the import grep rather than a graph response, and C5 has a run behind it (C5-R, refuted) - while C2 stays a fixture claim and E1's ordering stays unverifiable. The scores are left as the review scored the line.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "target": "experiments/E1-ai-research-router/protocol.md",
+      "quote": "this file did not land (the tool returned an unrelated notice instead of a",
+      "observation": "E1's protocol states that its own first write failed and that the text was re-created from the transcript after the run. The ordering property every P1-P4 verdict rests on - a prediction provably older than its result - is therefore not demonstrable from the artifacts, and the line itself says the checker can only warn about it rather than decide it.",
+      "fix": "Keep the run and its verdicts, but record in C2's proof that the E1 ordering is unverifiable; for the next round write the protocol, confirm the write landed (read the file back), and commit it before the first call so the ordering is decidable.",
+      "status": "recorded",
+      "closure": "The ordering defect is permanent and the line says so: E1's protocol states its own first write did not land, so no artifact can prove the predictions predate the results. Kept rather than repaired - the run, its rows and its verdicts stand - and recorded in log.md entry 27, in findings.md's closure section and in the report's 'Artifact state' as an integrity defect this line carries."
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "target": "experiments/E1-ai-research-router/analysis.md",
+      "quote": "and a ceiling is the wrong instrument for",
+      "observation": "The analysis concedes in its own words that both arms at 14/14 is a ceiling on a hand-written unambiguous set, so the instrument cannot say where the flat arm breaks. C2's in-library half therefore reports a capability that was demonstrated, not an accuracy that was measured, and E1's P1 is neither supported nor refuted by this set.",
+      "fix": "Do not build a caller on the in-library half alone: run the near-miss set the analysis's own open question names (a query whose correct entry is separated from a plausible neighbour by something the option clause does not carry) and fix a floor before the run, or restate C2 as 'answers every query the option clause carries'.",
+      "status": "recorded",
+      "closure": "The ceiling is stated as a limit in the report ('does not show where the flat 98-option Choice breaks'), and C2's statement was already the honest restatement - it reports 14 of 14 on a hand-labelled in-library set, not a measured accuracy. Running the near-miss set would need a new protocol and new calls, which this close-out must not make; the design for it is named in the analysis's own open question."
+    },
+    {
+      "id": "F3",
+      "severity": "major",
+      "target": "experiments/E1-ai-research-router/results.jsonl",
+      "quote": "\"id\": \"Q01\", \"query\"",
+      "observation": "Each row is an id/query/label/arm record with no `source` field, and the file is untracked and gitignored, so C2's proof points at rows no reader can trace back to the run that produced them - and the checker warns on all 14 E1 rows plus a 15th warning for the commit itself.",
+      "fix": "Add a `source` to every row naming the run log or raw output that produced it, then force-add the results (the checker already prints the exact command) so a tracked commit holds the run.",
+      "status": "resolved",
+      "closure": "Every results row now carries source and scope, and both results.jsonl files are tracked, so C2's proof points at rows a reader can trace."
+    },
+    {
+      "id": "F4",
+      "severity": "minor",
+      "target": "experiments/E1b-none-refusal/analysis.md",
+      "quote": "so this bounds the gross failure, not the near-miss",
+      "observation": "The refusal half of C2 rests on four out-of-library queries whose option text shares no vocabulary with the query, which the analysis correctly calls a bound on the gross failure only. C2's statement ('refuses 4 of 4 out-of-library queries') travels without either qualifier - the count or the coarse exclusion.",
+      "fix": "Write the count and the exclusion into C2's statement, or add the ML-adjacent query the line already names as the untested case and run it.",
+      "status": "recorded",
+      "closure": "C2's statement carries the count (4 of 4), and the qualifier travels in the report and in findings.md - the four queries share no vocabulary with the option text at all, which bounds the gross failure and not the near-miss. The ML-adjacent query the finding suggests as the better instrument is still not written."
+    },
+    {
+      "id": "F5",
+      "severity": "major",
+      "target": "claims.jsonl",
+      "quote": "\"status\": \"untested\", \"provenance\": \"ai-suggested\"",
+      "observation": "C5 sits in claims.jsonl with no result behind it, and its own falsification names a floor 'fixed in that experiment's protocol before the run' that does not exist yet - a threshold that has not been written cannot refute anything. The spec defers the same item (J7) until a labelled sample exists, so the claim file is ahead of the evidence.",
+      "fix": "Move C5 out of claims.jsonl into findings.md's ranked list as a candidate, or write the protocol with its floor first and keep it as a claim only after a run.",
+      "status": "resolved",
+      "closure": "E2 pre-registered the floor this finding said did not exist (agreement at or above 0.9 on the clear items, at most one false alarm) and then ran it; C5-R records the result as refuted - 0.56 agreement, precision 0.29 - so C5 is no longer ahead of its evidence."
+    },
+    {
+      "id": "F6",
+      "severity": "major",
+      "target": "claims.jsonl",
+      "quote": "\"id\": \"C1-three-callers\", \"statement\"",
+      "observation": "None of the five claims carries a `kind` (a search for the field returns nothing), so a claim proven by opening a file and a claim proven by a live measurement are typed alike - which is what the checker's five warnings say. The proof fields themselves show the split: C1/C3/C4 name paths, C2 names a results file, C5 names a proposal.",
+      "fix": "Set the kind per claim: code for C1, C3 and C4, evidence for C2, and either derivation or an explicit untested marker for C5, so the checker stops warning and a reader can see what each proof is a proof of.",
+      "status": "resolved",
+      "closure": "Every claim now carries a kind: C1-R-callers-fixed, C3-R-spend-counted and C4-R-readers-named are code, C5-R is evidence, and the superseded rows were typed one by one, so the checker no longer warns on the class."
+    },
+    {
+      "id": "F7",
+      "severity": "minor",
+      "target": "findings.md",
+      "quote": "| E1b stage arm | 4 | not recorded | <= $0.0002 [estimate] |",
+      "observation": "One arm of E1b recorded neither tokens nor cost, and the round's summary line then reports the whole round as measured ('$0.0041 measured, under 1 cent') over a sum that contains an estimate. The dollars are small enough that it does not change the decision; it does mean the headline figure is not entirely measured.",
+      "fix": "Recover the stage-arm usage from the reply (run.py holds it) or split the total into a measured part and an estimated part in the same table.",
+      "status": "open",
+      "closure": "Confirmed still true: E1b's stage-arm rows record no usage and no cost, and the reply that carried them is gone, so recovering the figure needs a re-run. Recorded as a limit rather than fixed - the round's total stays a measured sum over one arm whose usage was never recorded."
+    },
+    {
+      "id": "F8",
+      "severity": "minor",
+      "target": "findings.md",
+      "quote": "- **The seam is a subsystem wearing a helper's clothes.**",
+      "observation": "All five Patterns bullets name no source (the checker says so explicitly), so the generalisations - tezgah's tiers are decided by bytes, 'every capability tezgah names is named in the same handful of places' - rest on the two precedents and the audit without saying so. They read as findings of the same standing as the claims while being the author's synthesis.",
+      "fix": "Attach a [Cnn] or path token per bullet, or move the section under a heading that says it is synthesis over the claims rather than evidence of its own.",
+      "status": "resolved",
+      "closure": "The Patterns bullets name the claim they generalise from ([C1], [C2], [C3]), so the section reads as synthesis over named claims rather than as evidence of its own."
+    },
+    {
+      "id": "F9",
+      "severity": "suggestion",
+      "target": "log.md",
+      "quote": "mtimes moved between two `git status`",
+      "observation": "The audit read a working tree that was being edited during the read (eight files in flight at HEAD 4bf25e8), and the line says each citation is labelled with the revision it came from. That is honest, but no artifact lets a later reader reconstruct the revision that was actually read, so a citation that no longer matches today cannot be told apart from a mistake.",
+      "fix": "Save the in-flight change into the line (a saved diff or `git stash show -p` output) so the audited revision can be restored and re-checked.",
+      "status": "recorded",
+      "closure": "The in-flight revision cannot be reconstructed from any artifact - the tree moved on and the eight files landed - so instead of a saved diff the line states that every citation is labelled with the revision it came from, and the report says so in its limits."
+    },
+    {
+      "id": "F10",
+      "severity": "minor",
+      "target": "claims.jsonl",
+      "quote": "trace_path inbound on Users-rizax-Projects-tezgah.hooks.tezgah_judge.ask",
+      "observation": "C1's proof leans on a live code-graph response (41 caller edges including tests) that no artifact in the line preserves, and the graph is external, rebuildable state. The import grep in the falsification is reproducible; the edge count is not, so the strongest single piece of the caller claim is the least re-checkable.",
+      "fix": "Replace the graph reference in the proof with the grep and its captured output, or record the graph query and its result as an artifact in the line.",
+      "status": "resolved",
+      "closure": "C1-R-callers-fixed replaces the graph edge count with the import grep and the file lines it was cross-checked against, so the caller claim's proof is now the reproducible half."
+    }
+  ],
+  "closure": "Closed 2026-09-22 against HEAD ddf72b4. Five findings are resolved in the artifacts (F3, F5, F6, F8, F10), four are recorded as defects or bounds the line carries and cannot repair (F1, F2, F4, F9), and one is open because it needs a re-run (F7, E1b's unrecorded stage-arm usage). C5 is settled by C5-R (refuted: 0.56 agreement against a 0.9 floor, precision 0.29); C1, C3 and C4 by C1-R-callers-fixed, C3-R-spend-counted and C4-R-readers-named; and every shipped passage that said the seam had two callers now names all three."
+}

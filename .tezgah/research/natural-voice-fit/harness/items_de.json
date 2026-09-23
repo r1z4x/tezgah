@@ -1,0 +1,31 @@
+{
+  "language": "German",
+  "locale": "de-DE",
+  "note": "Fixture drafts, authored in this session so the English-shaped habits show: unnecessary anglicisms where a German term is standard, noun-string compounds, -ing calques, bureaucratic filler, and strings that must stay verbatim. Inputs for measurement, not samples of any writer's prose.",
+  "items": [
+    {
+      "id": "de-exec-1",
+      "register": "executive",
+      "brief": "A quarterly update for the executive team, read in ten seconds between meetings. The reader wants the number, the risk and the ask.",
+      "draft": "Quartalsupdate Q3\n\nIm dritten Quartal haben wir im Rahmen der Initiative zur Reduzierung der Churn-Rate deutliche Fortschritte erzielt. Die durchgeführten Analysen zeigen, dass die Hauptursache für Abgänge in den ersten zwei Wochen des Onboardings liegt.\n\nIn diesem Zusammenhang ist festzuhalten, dass die Churn-Rate gegen Ende des Quartals von 6,1 % auf 4,4 % zurückgegangen ist. Es muss jedoch betont werden, dass für eine belastbare Bewertung mindestens zwei weitere Quartale an Daten erforderlich sind.\n\nAuf der anderen Seite verläuft die Adoption des neuen Pricing-Modells im Vertrieb langsamer als erwartet. 40 % der Teams nutzen das neue Modell noch nicht aktiv.\n\nFür das kommende Quartal ist unser einziger Ask, dass eine Person aus dem Data-Team für sechs Monate auf diese Aufgabe allokiert wird."
+    },
+    {
+      "id": "de-exec-2",
+      "register": "executive",
+      "brief": "A short status note for the executive team about a migration that is running late. The reader must decide whether to extend the deadline.",
+      "draft": "Rechenzentrums-Migration - Status\n\nIm Rahmen des Migrationsprojekts hat sich die Abschaltung der Altsysteme gegenüber dem geplanten Zeitrahmen verzögert. Die Verzögerung resultiert primär aus unerwarteten Fehlern bei den Konsistenzprüfungen der Daten.\n\nBis heute wurden von insgesamt 1.240 Servern 1.090 in die neue Umgebung überführt; für die verbleibenden Server wird ein Aufwand von drei Wochen veranschlagt. Die Backup-Verifizierung erfolgt automatisch über s3://kavara-backups, die p95-Latenz liegt stabil bei 120 ms.\n\nDarüber hinaus wird evaluiert, einen Teil der Restarbeiten durch einen externen Dienstleister durchführen zu lassen. Die Kosten hierfür werden auf rund 4 Millionen Euro geschätzt.\n\nBei Genehmigung wäre die Migration am 14. November abgeschlossen."
+    },
+    {
+      "id": "de-dev-1",
+      "register": "developer",
+      "brief": "A release note read by engineers who use the internal API. They need what changed, what breaks, and the exact identifiers.",
+      "draft": "Release Notes - v2.1.3\n\nIn diesem Release wurden im Bereich des Queue-Managements wesentliche Änderungen vorgenommen. Das Verhalten der Funktion retry_queue wurde dahingehend angepasst, dass die Anzahl der Wiederholungsversuche im Fehlerfall erhöht wird.\n\nZusätzlich wird in der Funktion handle_timeout nun sichergestellt, dass Anfragen, die länger als 30 Sekunden dauern, automatisch abgebrochen werden. Diese Änderung kann bestehende Integrationen einzelner Teams beeinflussen.\n\nWichtig ist der Hinweis, dass die Nutzung des Skripts deploy_prod.sh ab diesem Release verpflichtend ist. Alte Skripte funktionieren weiterhin, werden aber nicht mehr supported.\n\nDie Speichernutzung wurde in diesem Release um 18 % reduziert: Bei 500 gleichzeitigen Anfragen erreicht der Prozess bis zu 2.5 GB."
+    },
+    {
+      "id": "de-dev-2",
+      "register": "developer",
+      "brief": "An incident summary for the engineering team the morning after. They need the timeline, the cause, and the follow-up owner.",
+      "draft": "Incident Summary - 12. September\n\nGestern kam es gegen 14:20 Uhr zu einer kurzzeitigen Störung in der Produktionsumgebung. Die Störung dauerte insgesamt 11 Minuten, in diesem Zeitraum schlugen 62 % der API-Aufrufe fehl.\n\nErste Untersuchungen zeigen, dass die Ursache in der Erschöpfung des Datenbank-Verbindungspools liegt. Der Pool wurde daraufhin vorübergehend vergrößert, der Service lief wieder normal.\n\nBei der Root-Cause-Analyse wurde festgestellt, dass eine Änderung aus dem Release v2.1.2 Verbindungen nicht freigibt. Diese Verbindungen bleiben aufgrund eines Fehlers in der Datei src/db/pool.py offen.\n\nDarüber hinaus ist festzuhalten, dass auch auf der Monitoring-Seite eine Lücke besteht: Für die Pool-Auslastung ist kein Alert-Schwellwert definiert. Zur Behebung wurde ein Task angelegt, Owner ist das Platform-Team."
+    }
+  ]
+}

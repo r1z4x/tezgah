@@ -1,0 +1,50 @@
+{
+  "question": "Which parts of tezgah's harness are measurably load-bearing, which are dead weight or unstable, and what change to the harness improves a named metric without breaking a measured invariant?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-20",
+  "evaluation": {
+    "metric": "for each harness component: (a) refusals per rule over the whole ledger corpus, (b) injected bytes per event against that event's budget, (c) wall-clock ms per gated call (process) and per decision (in-process), (d) per-rule host parity (implemented/absent/divergent)",
+    "baseline": "the repository's own recorded numbers where they exist: the pre-tool path at 50.965 ms (docs/gate.md), the subagent budget at 4400 B (hooks/tezgah_context.py:687), the arm-bench lab's pooled harness delta 40/50 against 40/50 (benchmarks/lab README)",
+    "locked_at": "2026-09-20T16:05:00+0300 (state.json written after the first four result sets; the per-experiment thresholds they are read against were committed in e1dda58 BEFORE any run - experiments/E*/protocol.md - and this deviation is recorded in log.md)",
+    "environment": {
+      "machine": "darwin 25.5.0 arm64 (Apple M1 Pro)",
+      "python": "3.10.14 (conda-forge)",
+      "corpus": "1613 ledger files, 35652 rows, 2026-09-14..2026-09-20",
+      "host": "omp (this session), corpus mixed"
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "status": "confirmatory",
+      "verdict": "holds: session_start 76.2% of 12000 B, user_prompt 18.9% of 6000 B, subagent_start 91.5% of 4400 B; the live half does not grow with the repository",
+      "text": "the always-on injection stays under its budget in a normal session, and subagent_start is the event that binds"
+    },
+    {
+      "id": "H2",
+      "status": "confirmatory",
+      "verdict": "holds: explorer and order at zero in 1613 ledgers; task, race and lang confined to one day each",
+      "text": "at least one shipped deny rule has never refused a real call, and at least two fired only on the day they shipped"
+    },
+    {
+      "id": "H3",
+      "status": "confirmatory",
+      "verdict": "holds: decision p50 0.43 ms, unchanged at 20x the corpus; the gated call costs 61.0 ms, all of it interpreter start plus import",
+      "text": "the gate decision is cheap in process and does not grow with the corpus, and what a host pays per call is module import rather than rules"
+    },
+    {
+      "id": "H4",
+      "status": "confirmatory",
+      "verdict": "holds with one half scoped to the tree it was read on: lang was absent from the plugin then and is enforced by delegation now (C26); five labels stay divergent, five of fourteen are compared by the plugin suite, and delegation still fails open by design",
+      "text": "the opencode mirror is missing or diverges on rules the Python gate enforces, and its delegation fails open"
+    },
+    {
+      "id": "H5",
+      "status": "refuted",
+      "verdict": "re-taken by E5b (C27) on 2026-09-22: the guarded half holds (the guard at all seven entry points, the plugin's core asks all through one collect with a deadline) and the bounded half failed only at the Stop path, which was then bounded through turn_rows; H5 stays refuted on the two reads unbounded by construction, used() and _hash_file, which no run has timed.",
+      "text": "every hot-path operation is guarded and bounded"
+    }
+  ],
+  "sessions": []
+}

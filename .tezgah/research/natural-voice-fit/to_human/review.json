@@ -1,0 +1,55 @@
+{
+ "dimensions": {
+  "evidence_relevance": 4,
+  "falsifiability": 5,
+  "scope_calibration": 5,
+  "argument_coherence": 4,
+  "exploration_integrity": 4,
+  "methodological_rigour": 3
+ },
+ "findings": [
+  {
+   "severity": "major",
+   "target": "experiments/turkish-markers/raw/host-20260921T224011.log",
+   "quote": "marker_density_b\": 2.199668550829376",
+   "problem": "The marker-density secondary metric recorded 2.20 per 100 words for arm B on the first H1 run and 0.00 on the two runs after the harness stopped the model's own commentary from leaking into the judged text. A secondary number that swings that far between runs of the same configuration is not a measurement of the contract; the report should not quote it as one, and the metric needs a run-to-run variance before it is used again.",
+   "status": "open"
+  },
+  {
+   "severity": "major",
+   "target": "experiments/audience-briefs/analysis.md",
+   "quote": "part of the delta is the brief being legible to the judge",
+   "problem": "The audience experiment gives the judges the same brief the arm was given, so the +1.96 is partly a legibility effect. It is recorded in the analysis and the report, but no run tested a reader who had not seen the brief, which is the test the claim needs before it is quoted outside this line.",
+   "status": "open"
+  },
+  {
+   "severity": "minor",
+   "target": "experiments/untranslated-terms/analysis.md",
+   "quote": "items are seeded with the rail's own terms.",
+   "problem": "One pair of eyes wrote the rail, the items and the seeded terms, so the 266.4 to 0.00 gap measures what an explicit rail does in the direction it was designed for. A rail written by someone else, or read from a real termbase, is the version that would make the number general.",
+   "status": "open"
+  },
+  {
+   "severity": "minor",
+   "target": "experiments/voice-sample/analysis.md",
+   "quote": "the falsifier sits one item away",
+   "problem": "The voice result passes its threshold by one item's worth of judgements out of twelve, so it is a weak support recorded as a support. The report says so; the claim should not be quoted without that sentence.",
+   "status": "open"
+  },
+  {
+   "severity": "minor",
+   "target": "experiments/language-rails/analysis.md",
+   "quote": "shared style of instruction is confounded with the language.",
+   "problem": "The German section was written by the same session as the Turkish one, so the language is confounded with the instruction style. The coverage note names this as the design boundary, and the honest reading of H5 is that a second language worked, not that German's rail is what made it work.",
+   "status": "open"
+  },
+  {
+   "severity": "suggestion",
+   "target": "to_human/report.md",
+   "quote": "Every run is fixture-scoped.",
+   "problem": "The scoping sentence should stay the first line of the limits section in any citation of these numbers: the rows measure contract texts against drafts authored in this session, and a reader who takes them for a property of the running system has taken something the run does not show.",
+   "status": "open"
+  }
+ ],
+ "note": "Six dimensions scored for the five pre-registered hypotheses and the seven claims. Methodological rigour is the lowest score deliberately: no human judge, two cheap model tiers, fixture items, and one circular test. Falsifiability is the highest because every protocol named its falsifier before the run and one of them fired."
+}

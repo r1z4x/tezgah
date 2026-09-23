@@ -1,0 +1,426 @@
+#!/usr/bin/env python3
+"""tezgah-doctor - report and reclaim the state the armed harnesses leave behind.
+
+Two stores grow without bound and neither rotates on its own:
+  - opencode's SQLite session/event database (~/.local/share/opencode/opencode.db)
+  - one codegraph index per indexed repository (`<repo>/.codegraph/codegraph.db`).
+    It lives inside the repo rather than in one shared cache, so there is no
+    central directory to measure: the per-repo scan below is the only place the
+    total is visible, and a repo whose index is stale or abandoned keeps its
+    bytes until its owner deletes them.
+
+It also reports the hosts' own state (~/.codex, ~/.omp, ~/.claude) and never
+touches it: those stores belong to the hosts, and the number is here so a reader
+can decide, not so this tool can act.
+
+This tool is read-only by default. With --clean it vacuums the opencode database
+(only when opencode is not running, so it cannot fight a live connection).
+VACUUM alone cannot shrink that database - its pages are all live - so
+--prune-sessions is the action that actually reclaims space: it deletes old
+sessions through the supported opencode command and then vacuums.
+
+--coverage is the other read-only report, and the one codegraph does not ship:
+every tracked file the index does not hold, in the two classes a file can go
+missing by. Its rules are imported from benchmarks/codegraph-bench/probe.py, the
+spike that measured them. That file is in MANIFEST, which `packaging/build.sh`
+ships verbatim, so a release artifact carries it and a packaged install answers
+`--coverage` in full. A tree that lost it - a hand-stripped copy, a repack that
+dropped benchmarks/ - gets a named refusal and exit 0 rather than an ImportError
+out of a shipped CLI. Everything it reads is the standard library or a file in
+this tree.
+
+  tezgah-doctor                    report sizes and counts
+  tezgah-doctor --json             same, machine readable
+  tezgah-doctor --coverage         the tracked files the graph index does not hold
+  tezgah-doctor --coverage --repo ~/Projects/x
+  tezgah-doctor --clean            vacuum the opencode database
+  tezgah-doctor --prune-sessions 30   delete sessions idle > 30 days, then vacuum
+"""
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import time
+
+HOME = os.path.expanduser("~")
+# this file lives in <checkout>/bin, and the coverage rules live in the checkout's
+# bench directory next to the hooks that own the roots and the binary resolver
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(REPO_ROOT, "hooks"))
+from tezgah_paths import CODEGRAPH, codegraph_bin, root_for, roots  # noqa: E402
+
+# the coverage rules, in the bench directory next to the hooks that own the roots
+# and the binary resolver. MANIFEST lists it, so it ships; it is also the one file
+# here that a repack may drop, so `load_probe` treats it as optional rather than
+# assuming it.
+PROBE = os.path.join(REPO_ROOT, "benchmarks", "codegraph-bench", "probe.py")
+OPENCODE = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"), "opencode")
+OPENCODE_DATA = os.environ.get("TEZGAH_OPENCODE_DATA",
+                               os.path.join(HOME, ".local", "share", "opencode"))
+OPENCODE_DB = os.path.join(OPENCODE_DATA, "opencode.db")
+TEZGAH_CACHE = os.path.join(HOME, ".cache", "tezgah")
+OPENCODE_BIN = shutil.which("opencode")
+# codegraph's index, inside the repo it belongs to (derived from the engine name
+# itself, so the doctor cannot name a directory the engine does not write)
+GRAPH_DIR = "." + CODEGRAPH
+GRAPH_DB = CODEGRAPH + ".db"
+
+
+def du(path):
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def human(n):
+    n = float(n)
+    for unit in ("B", "K", "M", "G"):
+        if n < 1024:
+            return "%.1f%s" % (n, unit)
+        n /= 1024.0
+    return "%.1fT" % n
+
+
+def codegraph_size(repo):
+    """One repo's index as (bytes, has_index).
+
+    The file is the marker, not the directory: codegraph writes `.codegraph/`
+    with its lock and `.gitignore` before the index exists, so a directory
+    without `codegraph.db` is a repo whose index never finished."""
+    try:
+        return os.path.getsize(os.path.join(repo, GRAPH_DIR, GRAPH_DB)), True
+    except OSError:
+        return 0, False
+
+
+def is_repo(path):
+    """Git is the marker, and a worktree keeps `.git` as a file. `.codegraph` is
+    the second one: an indexed project that is not a git checkout is still a repo
+    this report has bytes to account for."""
+    return (os.path.exists(os.path.join(path, ".git"))
+            or os.path.isdir(os.path.join(path, GRAPH_DIR)))
+
+
+def repos_under(root, depth=2):
+    """The repositories one configured root holds, as absolute paths.
+
+    Two levels below the root, so both a flat `~/Projects/<repo>` layout and an
+    `~/Projects/<org>/<repo>` one are covered. The walk stops at the first repo
+    on a path: descending into one would report its vendored checkouts as repos
+    of their own."""
+    found = []
+    frontier = [(root, 0)]
+    while frontier:
+        directory, level = frontier.pop()
+        if is_repo(directory):
+            found.append(directory)
+            continue
+        if level >= depth:
+            continue
+        try:
+            names = sorted(os.listdir(directory))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(directory, name)
+            if not name.startswith(".") and os.path.isdir(path):
+                frontier.append((path, level + 1))
+    return sorted(found)
+
+
+def targets(named):
+    """The repositories to account for as (configured root, repo) pairs: the ones
+    the user named, else every repository under a configured tezgah root."""
+    if named:
+        out = []
+        for path in named:
+            repo = os.path.realpath(os.path.expanduser(path))
+            out.append((root_for(repo) or "", repo))
+        return out
+    return [(root, repo) for root in roots() for repo in repos_under(root)]
+
+
+def host_bytes():
+    """The hosts' own state dirs, measured and never touched by this tool."""
+    return {"codex_bytes": du(os.path.join(HOME, ".codex")) if os.path.isdir(
+        os.path.join(HOME, ".codex")) else 0,
+        "omp_bytes": du(os.path.join(HOME, ".omp")) if os.path.isdir(
+        os.path.join(HOME, ".omp")) else 0,
+        "claude_bytes": du(os.path.join(HOME, ".claude")) if os.path.isdir(
+        os.path.join(HOME, ".claude")) else 0}
+
+
+def db_rows(db, table):
+    if not os.path.exists(db):
+        return None
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+        try:
+            return con.execute("SELECT count(*) FROM %s" % table).fetchone()[0]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+
+
+def opencode_cfg():
+    try:
+        with open(os.path.join(OPENCODE, "opencode.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def opencode_running():
+    try:
+        return subprocess.run(["pgrep", "-x", "opencode"],
+                              capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+def collect(pairs):
+    cfg = opencode_cfg()
+    repos = []
+    for root, repo in pairs:
+        size, indexed = codegraph_size(repo)
+        repos.append({"root": root, "repo": repo, "bytes": size, "indexed": indexed})
+    return {
+        "opencode_db_bytes": os.path.getsize(OPENCODE_DB) if os.path.exists(OPENCODE_DB) else 0,
+        "opencode_sessions": db_rows(OPENCODE_DB, "session"),
+        "opencode_events": db_rows(OPENCODE_DB, "event"),
+        "opencode_running": opencode_running(),
+        "compaction_prune": (cfg.get("compaction") or {}).get("prune"),
+        "watcher_ignore": len(((cfg.get("watcher") or {}).get("ignore") or [])),
+        "codegraph_repos": repos,
+        "codegraph_bytes": sum(r["bytes"] for r in repos),
+        "tezgah_cache_bytes": du(TEZGAH_CACHE) if os.path.isdir(TEZGAH_CACHE) else 0,
+        **host_bytes(),
+    }
+
+
+def vacuum_db():
+    before = os.path.getsize(OPENCODE_DB)
+    con = sqlite3.connect(OPENCODE_DB)
+    try:
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        con.execute("VACUUM")
+        con.commit()
+    finally:
+        con.close()
+    return before, os.path.getsize(OPENCODE_DB)
+
+
+def select_old_sessions(days):
+    """Sessions whose last update is older than `days`, oldest first."""
+    if not os.path.exists(OPENCODE_DB):
+        return []
+    cutoff = int((time.time() - days * 86400) * 1000)  # time_updated is epoch ms
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % OPENCODE_DB, uri=True)
+        try:
+            rows = con.execute(
+                "SELECT id FROM session WHERE time_updated < ? ORDER BY time_updated",
+                (cutoff,)).fetchall()
+            return [r[0] for r in rows]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return []
+
+
+def prune_sessions(days):
+    """Delete sessions older than `days` and return (deleted, failed).
+
+    Uses `opencode session delete` rather than raw SQL: that keeps the event log
+    and the running server consistent. The caller guarantees opencode is stopped.
+    """
+    ids = select_old_sessions(days)
+    if not ids or not OPENCODE_BIN:
+        # nothing is attempted without the CLI; the caller reports the skip, so
+        # do not count these ids as failed deletions
+        return 0, 0
+    deleted = failed = 0
+    for sid in ids:
+        proc = subprocess.run([OPENCODE_BIN, "session", "delete", sid],
+                              capture_output=True)
+        if proc.returncode == 0:
+            deleted += 1
+        else:
+            failed += 1
+    return deleted, failed
+
+
+def load_probe():
+    """The bench spike, imported by path so its two coverage rules stay the only
+    implementation of them; `None` when this tree has no such file.
+
+    Its directory name (`codegraph-bench`) is not an identifier, so it cannot be
+    imported as a package; a copy of the rules here would be a second definition
+    of "covered" that drifts from the spike's the first time either is touched.
+    Missing is an answer, not an error: a tree that dropped benchmarks/ asks for
+    rules that are simply not there, and a shipped CLI may not raise at the user
+    over a file it can describe."""
+    if not os.path.exists(PROBE):
+        return None
+    loader = importlib.machinery.SourceFileLoader("tezgah_codegraph_probe", PROBE)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def coverage_report(repo, dump_path):
+    """Every tracked file the codegraph index does not hold, as two classes.
+
+    A report, not a gate: it always exits 0, and the counts it read come first,
+    so an empty result cannot read as "everything is covered". The same holds
+    when the rules themselves are not in this tree: it names the file and what to
+    do, so a user of a tree that lost them reads a reason, not a traceback."""
+    probe = load_probe()
+    if probe is None:
+        print("codegraph coverage: %s" % repo)
+        print("  coverage probe unavailable: %s" % PROBE)
+        print("  it is the only implementation of these rules and this tree has "
+              "lost it (a copy or repack that dropped benchmarks/): run "
+              "--coverage from a tree that has it.")
+        return 0
+    binary = codegraph_bin()
+    report, why = probe.coverage(repo, dump_path,
+                                 [binary] if binary else None)
+    print("codegraph coverage: %s" % repo)
+    if report is None:
+        print("  could not read an index dump: %s" % why)
+        print("  index the repo first (`codegraph init`), run this in a git work "
+              "tree, or pass --dump FILE with the output of `codegraph files -j`.")
+        return 0
+    print("  tracked files read: %d | files the index holds: %d"
+          % (report["tracked"], report["indexed"]))
+    print("  uncovered, supported extension (%d):" % len(report["by_ext"]))
+    for rel, lang in report["by_ext"]:
+        print("    %s (%s)" % (rel, lang))
+    print("  uncovered, shebang-only script with no `.py` twin (%d):"
+          % len(report["by_shebang"]))
+    for rel, lang in report["by_shebang"]:
+        print("    %s (%s)" % (rel, lang))
+    print("  covered through a `.py` twin (%d)" % len(report["twins"]))
+    print("  codegraph reports none of this itself: `status` counts what it "
+          "parsed, never what it skipped.")
+    return 0
+
+
+def report(rep):
+    print("opencode")
+    print("  db            %s  (%s sessions, %s events)" % (
+        human(rep["opencode_db_bytes"]), rep["opencode_sessions"], rep["opencode_events"]))
+    print("  compaction    prune=%s  watcher.ignore=%d" % (
+        rep["compaction_prune"], rep["watcher_ignore"]))
+    print("  running       %s" % ("yes" if rep["opencode_running"] else "no"))
+    print("codegraph (one index per repository)")
+    rows = rep["codegraph_repos"]
+    if not rows:
+        print("  no repository under a configured root (%s)"
+              % (", ".join(roots()) or "none configured"))
+    else:
+        root = None
+        for row in rows:
+            if row["root"] != root:
+                root = row["root"]
+                print("  %s" % (root or "(named on the command line)"))
+            print("    %-40s %9s  %s" % (
+                os.path.relpath(row["repo"], root) if root else row["repo"],
+                human(row["bytes"]), "indexed" if row["indexed"] else "no index"))
+        indexed = sum(1 for row in rows if row["indexed"])
+        print("  total         %s across %d repos (%d indexed, %d without an index)"
+              % (human(rep["codegraph_bytes"]), len(rows), indexed,
+                 len(rows) - indexed))
+    print("tezgah")
+    print("  cache         %s" % human(rep["tezgah_cache_bytes"]))
+    print("host state (the hosts' own; this tool never touches it)")
+    for label, key in (("codex", "codex_bytes"), ("omp", "omp_bytes"),
+                       ("claude", "claude_bytes")):
+        print("  %-13s %s" % (label, human(rep[key])))
+
+
+def main():
+    ap = argparse.ArgumentParser(description="report and reclaim harness state")
+    ap.add_argument("--json", action="store_true", help="machine-readable report")
+    ap.add_argument("--coverage", action="store_true",
+                    help="the tracked files the graph index does not hold (exits 0)")
+    ap.add_argument("--repo", action="append", metavar="PATH",
+                    help="a repository to account for instead of the configured "
+                         "roots (repeatable; --coverage reports the first)")
+    ap.add_argument("--dump", metavar="FILE",
+                    help="a saved `codegraph files -j` dump to read for --coverage")
+    ap.add_argument("--clean", action="store_true",
+                    help="vacuum the opencode database (opt-in)")
+    ap.add_argument("--prune-sessions", type=int, metavar="DAYS",
+                    help="delete sessions idle longer than DAYS, then vacuum")
+    args = ap.parse_args()
+
+    if args.coverage:
+        repo = os.path.realpath(os.path.expanduser(args.repo[0]) if args.repo
+                                else os.getcwd())
+        return coverage_report(repo, args.dump)
+
+    pairs = targets(args.repo)
+    rep = collect(pairs)
+    cleaned = None
+    if args.clean or args.prune_sessions is not None:
+        cleaned = {}
+        if args.prune_sessions is not None and os.path.exists(OPENCODE_DB):
+            if rep["opencode_running"]:
+                cleaned["prune_sessions"] = "skipped: opencode is running"
+            elif not OPENCODE_BIN:
+                cleaned["prune_sessions"] = "skipped: opencode is not installed"
+            else:
+                deleted, failed = prune_sessions(args.prune_sessions)
+                cleaned["prune_sessions"] = {"deleted": deleted, "failed": failed}
+        if os.path.exists(OPENCODE_DB):
+            if rep["opencode_running"]:
+                cleaned["vacuum"] = "skipped: opencode is running"
+            else:
+                try:
+                    before, after = vacuum_db()
+                    cleaned["vacuum"] = {"before": before, "after": after}
+                except sqlite3.Error as exc:
+                    cleaned["vacuum"] = "failed: %s" % exc
+        rep = collect(pairs)
+
+    if args.json:
+        out = dict(rep)
+        if cleaned is not None:
+            out["cleaned"] = cleaned
+        print(json.dumps(out, indent=2))
+        return 0
+    report(rep)
+    if cleaned is not None:
+        print("cleaned")
+        ps = cleaned.get("prune_sessions")
+        if isinstance(ps, dict):
+            print("  sessions      %d deleted, %d failed" % (ps["deleted"], ps["failed"]))
+        elif ps:
+            print("  sessions      %s" % ps)
+        v = cleaned.get("vacuum")
+        if isinstance(v, dict):
+            print("  vacuum        %s -> %s" % (human(v["before"]), human(v["after"])))
+        elif v:
+            print("  vacuum        %s" % v)
+    elif rep["opencode_db_bytes"] > 500 * 1024 * 1024:
+        print("\nrun with --clean to vacuum; --prune-sessions DAYS to shrink the db")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

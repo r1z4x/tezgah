@@ -1,0 +1,6 @@
+=== the citation pass, as reported ===
+CitationsA (architecture, gate, contract, evidence): 348 examined, 80 content-drift fixes, 163 re-anchored for the gate +131, 266 confirmed
+CitationsB (glossary, hosts, operations, status-line): 473 examined, 159 re-pointed, 3 bare given a path, 4 prose corrections, 99 re-anchored at the end
+CitationsC (judge, skills, testing, README): 153 examined, 51 rebinds + 1 malformed fixed, 5 rebinds in the second pass
+audit before: 748 not judgeable, 36 outside
+audit after: 355 judged (0 outside the symbol they name), 755 not judgeable

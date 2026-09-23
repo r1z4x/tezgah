@@ -1,0 +1,52 @@
+$ python3 harness/run.py --track h1
+transport=host generator=slow judges=default,smol
+
+config: track=h1 transport=host generator=slow judges=default,smol items=6
+contract bytes=10323, rail keep=13 translate=7
+item tr-sales-1   sales      a=3.50 b=4.50 delta=+1.00 | default: fwd 4 vs 5, back 5 vs 3
+item tr-sales-2   sales      a=4.25 b=5.00 delta=+0.75 | default: fwd 4 vs 5, back 5 vs 4
+item tr-exec-1    executive  a=5.00 b=4.25 delta=-0.75 | default: fwd 5 vs 4, back 4 vs 5
+item tr-exec-2    executive  a=5.00 b=4.00 delta=-1.00 | default: fwd 5 vs 4, back 4 vs 5
+item tr-dev-1     developer  a=4.50 b=4.00 delta=-0.50 | default: fwd 4 vs 4, back 5 vs 5
+item tr-dev-2     developer  a=4.75 b=5.00 delta=+0.25 | default: fwd 4 vs 5, back 5 vs 5
+
+=== SUMMARY ===
+{
+ "track": "h1",
+ "lang": "tr",
+ "n_items": 6,
+ "delta_mean": -0.041666666666666664,
+ "ci95": [
+  -0.625,
+  0.5833333333333334
+ ],
+ "marker_density_a": 0.7724301841948901,
+ "marker_density_b": 2.199668550829376,
+ "per_item": [
+  {
+   "id": "tr-sales-1",
+   "delta": 1.0
+  },
+  {
+   "id": "tr-sales-2",
+   "delta": 0.75
+  },
+  {
+   "id": "tr-exec-1",
+   "delta": -0.75
+  },
+  {
+   "id": "tr-exec-2",
+   "delta": -1.0
+  },
+  {
+   "id": "tr-dev-1",
+   "delta": -0.5
+  },
+  {
+   "id": "tr-dev-2",
+   "delta": 0.25
+  }
+ ]
+}
+TEZGAH_RESULTS {"track": "h1", "lang": "tr", "n_items": 6, "delta_mean": -0.041666666666666664, "ci95": [-0.625, 0.5833333333333334], "marker_density_a": 0.7724301841948901, "marker_density_b": 2.199668550829376, "per_item": [{"id": "tr-sales-1", "delta": 1.0}, {"id": "tr-sales-2", "delta": 0.75}, {"id": "tr-exec-1", "delta": -0.75}, {"id": "tr-exec-2", "delta": -1.0}, {"id": "tr-dev-1", "delta": -0.5}, {"id": "tr-dev-2", "delta": 0.25}]}

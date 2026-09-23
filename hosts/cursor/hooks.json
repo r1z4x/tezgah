@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ],
+    "preToolUse": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 5, "matcher": "Shell|PowerShell|pwsh|Grep|Task|Write|Edit|MultiEdit|NotebookEdit" }
+    ],
+    "postToolUse": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ],
+    "postToolUseFailure": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ],
+    "beforeMCPExecution": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 5 }
+    ],
+    "afterShellExecution": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ],
+    "afterMCPExecution": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ],
+    "afterFileEdit": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ],
+    "afterAgentResponse": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 5 }
+    ],
+    "subagentStart": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 5 }
+    ],
+    "subagentStop": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ],
+    "beforeSubmitPrompt": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ],
+    "stop": [
+      { "command": "\"${TEZGAH_PYTHON:-python3}\" \"@CURSOR_HOOK@\"", "timeout": 10 }
+    ]
+  }
+}

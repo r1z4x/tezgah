@@ -1,0 +1,127 @@
+$ python3 harness/run.py --track h5
+transport=host generator=slow judges=default,smol
+
+config: track=h5 transport=host generator=slow judges=default,smol items=4
+contract bytes=10323, rail keep=13 translate=7
+item de-exec-1    executive  a=3.50 b=5.00 delta=+1.50 | default: fwd 4 vs 5, back 5 vs 3
+    markers a=['Churn-Rate', 'Pricing-Modell'] b=['Churn-Rate', 'Pricing-Modell', 'Adoption', 'allokiert', 'Ask']
+    --- arm a ---
+Quartalsupdate Q3
+
+Die Churn-Rate ist im dritten Quartal von 6,1 % auf 4,4 % gesunken. Die Analysen zeigen, dass die Hauptursache für Abgänge in den ersten zwei Wochen des Onboardings liegt. Für eine belastbare Bewertung brauchen wir mindestens zwei weitere Quartale mit Daten.
+
+Der Vertrieb übernimmt das neue Pricing-Modell langsamer als erwartet. 40 % der Teams nutzen es noch nicht.
+
+Für das kommende Quartal brauchen wir nur eine Person aus dem Data-Team, die sechs Monate an dieser Aufgabe arbeitet.
+    --- arm b ---
+Quartalsbericht Q3
+
+Die Abwanderungsquote ging gegen Ende des dritten Quartals von 6,1 % auf 4,4 % zurück. Unsere Analysen zeigen, dass die Hauptursache für Abgänge in den ersten zwei Wochen der Einarbeitung liegt. Für eine belastbare Bewertung brauchen wir jedoch mindestens zwei weitere Quartale an Daten.
+
+Die Einführung des neuen Preismodells im Vertrieb verläuft langsamer als erwartet. 40 % der Teams nutzen es noch nicht aktiv.
+
+Für das kommende Quartal bitten wir darum, eine Person aus dem Datenteam für sechs Monate dieser Aufgabe zuzuweisen.
+
+**Was geändert wurde**
+- Englische Begriffe durch deutsche ersetzt: `Quartalsupdate` → `Quartalsbericht`, `Churn-Rate` → `Abwanderungsquote`, `Onboarding` → `Einarbeitung`, `Adoption` → `Einführung`, `Pricing-Modell` → `Preismodell`, `Data-Team` → `Datenteam`, `allokiert` → `zuzuweisen`.
+- Bürokratische Einleitungen gestrichen und die konkrete Abwanderungszahl vorgezogen.
+- `Ask` als klare Bitte formuliert.
+item de-exec-2    executive  a=4.25 b=4.25 delta=+0.00 | default: fwd 4 vs 5, back 4 vs 5
+    markers a=[] b=[]
+    --- arm a ---
+Rechenzentrums-Migration: Status
+
+Die Abschaltung der Altsysteme verzögert sich. Hauptursache sind unerwartete Fehler bei den Konsistenzprüfungen der Daten.
+
+1.090 der 1.240 Server sind migriert. Die restlichen 150 brauchen rund drei Wochen. Die Backup-Verifizierung läuft automatisch über s3://kavara-backups, die p95-Latenz liegt stabil bei 120 ms.
+
+Für einen Teil der Restarbeiten prüfen wir einen externen Dienstleister. Die Kosten schätzen wir auf rund 4 Millionen Euro.
+
+Bei Genehmigung wäre die Migration am 14. November abgeschlossen.
+    --- arm b ---
+Migration des Rechenzentrums: Stand
+
+Die Abschaltung der Altsysteme verzögert sich. Ursache sind unerwartete Fehler bei den Datenkonsistenzprüfungen.
+
+Von 1.240 Servern sind 1.090 in die neue Umgebung überführt. Für die restlichen 150 rechnen wir mit drei Wochen. Die Datensicherung wird automatisch über s3://kavara-backups geprüft; die p95-Latenz liegt stabil bei 120 ms.
+
+Wir prüfen außerdem, einen Teil der Restarbeiten an einen externen Dienstleister zu vergeben. Die Kosten schätzen wir auf rund 4 Millionen Euro.
+
+Nach Ihrer Genehmigung schließen wir die Migration am 14. November ab.
+item de-dev-1     developer  a=3.75 b=5.00 delta=+1.25 | default: fwd 4 vs 5, back 5 vs 4
+    markers a=['Release Notes'] b=[]
+    --- arm a ---
+Release Notes - v2.1.3
+
+Die Funktion retry_queue erhöht bei Fehlern die Anzahl der Wiederholungsversuche.
+
+handle_timeout bricht Anfragen nach 30 Sekunden automatisch ab. Das kann bestehende Integrationen einzelner Teams beeinflussen.
+
+Das Skript deploy_prod.sh ist ab diesem Release verpflichtend. Alte Skripte funktionieren weiterhin, werden aber nicht mehr unterstützt.
+
+Die Speichernutzung sinkt in diesem Release um 18 %. Bei 500 gleichzeitigen Anfragen braucht der Prozess bis zu 2,5 GB.
+    --- arm b ---
+Versionshinweise - v2.1.3
+
+Die Funktion retry_queue macht im Fehlerfall jetzt mehr Wiederholungsversuche.
+
+Die Funktion handle_timeout bricht Anfragen jetzt nach 30 Sekunden ab. Das kann bestehende Integrationen einzelner Teams beeinflussen.
+
+Das Skript deploy_prod.sh ist ab diesem Release verpflichtend. Alte Skripte funktionieren weiterhin, werden aber nicht mehr unterstützt.
+
+Der Speicherbedarf sinkt um 18 %. Bei 500 gleichzeitigen Anfragen belegt der Prozess bis zu 2,5 GB.
+item de-dev-2     developer  a=3.25 b=5.00 delta=+1.75 | default: fwd 4 vs 5, back 5 vs 2
+    markers a=['Root-Cause-Analyse', 'Incident Summary', 'Alert-Schwellwert', 'Task'] b=[]
+    --- arm a ---
+Incident Summary - 12. September
+
+Am 12. September kam es gegen 14:20 Uhr zu einer kurzzeitigen Störung in der Produktionsumgebung. Sie dauerte 11 Minuten; in diesem Zeitraum schlugen 62 % der API-Aufrufe fehl.
+
+Erste Untersuchungen zeigen, dass der Datenbank-Verbindungspool erschöpft war. Der Pool wurde daraufhin vorübergehend vergrößert. Der Service lief wieder normal.
+
+Die Root-Cause-Analyse ergab, dass eine Änderung aus Release v2.1.2 Verbindungen nicht freigibt. Diese Verbindungen bleiben aufgrund eines Fehlers in src/db/pool.py offen.
+
+Auch das Monitoring hat eine Lücke. Für die Pool-Auslastung fehlt ein Alert-Schwellwert. Zur Behebung hat das Platform-Team einen Task angelegt.
+    --- arm b ---
+Störungsbericht vom 12. September
+
+Gestern kam es gegen 14:20 Uhr zu einer kurzzeitigen Störung in der Produktionsumgebung. Die Störung dauerte insgesamt 11 Minuten, in diesem Zeitraum schlugen 62 % der API-Aufrufe fehl.
+
+Erste Untersuchungen zeigen, dass die Ursache in der Erschöpfung des Datenbank-Verbindungspools liegt. Der Pool wurde daraufhin vorübergehend vergrößert, der Dienst lief wieder normal.
+
+Die Ursachenanalyse ergab, dass eine Änderung aus Version v2.1.2 Verbindungen nicht freigibt. Diese Verbindungen bleiben aufgrund eines Fehlers in der Datei src/db/pool.py offen.
+
+Auch die Überwachung hat eine Lücke: Für die Auslastung des Pools ist keine Warnschwelle definiert. Zur Behebung wurde eine Aufgabe angelegt, Verantwortlicher ist das Platform-Team.
+
+=== SUMMARY ===
+{
+ "track": "h5",
+ "lang": "de",
+ "n_items": 4,
+ "delta_mean": 1.125,
+ "ci95": [
+  0.375,
+  1.625
+ ],
+ "marker_density_a": 1.9845278178611512,
+ "marker_density_b": 1.0080645161290323,
+ "per_item": [
+  {
+   "id": "de-exec-1",
+   "delta": 1.5
+  },
+  {
+   "id": "de-exec-2",
+   "delta": 0.0
+  },
+  {
+   "id": "de-dev-1",
+   "delta": 1.25
+  },
+  {
+   "id": "de-dev-2",
+   "delta": 1.75
+  }
+ ]
+}
+TEZGAH_RESULTS {"track": "h5", "lang": "de", "n_items": 4, "delta_mean": 1.125, "ci95": [0.375, 1.625], "marker_density_a": 1.9845278178611512, "marker_density_b": 1.0080645161290323, "per_item": [{"id": "de-exec-1", "delta": 1.5}, {"id": "de-exec-2", "delta": 0.0}, {"id": "de-dev-1", "delta": 1.25}, {"id": "de-dev-2", "delta": 1.75}]}

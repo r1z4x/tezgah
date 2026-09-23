@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""tezgah-task - the active task: one plan's phase and its path allowlist.
+
+  tezgah-task start <NNN|path> --phase P [--allow GLOB ...]   activate a plan
+  tezgah-task phase P                                         change the active task's phase
+  tezgah-task allow GLOB ...                                  replace the allowlist
+  tezgah-task stop                                            deactivate (clear phase)
+  tezgah-task status [--json]                                 the active task, or "no active task"
+
+The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
+the scope a write has to stay inside, and at most one open plan carries a phase
+because `start` clears the others. That makes the gate's refusal a rule the user
+set in advance, so this CLI is the only writer and the agent never runs it -
+`stop` and a hand edit are equally valid ways to take the requirement away.
+`phase implementation` (or `verification`) is what lets a write through, so the
+phase changes when the work reaches that point and not before.
+
+Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
+with nothing written - 2 misuse.
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_task as tt  # noqa: E402
+
+
+def repo_root(path):
+    """The repository this run is about: git's own answer, else the directory the
+    CLI was called in - a plan under a tree git does not know is still a plan."""
+    try:
+        out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except OSError:
+        pass
+    return os.path.realpath(path)
+
+
+def misuse(message):
+    """Misuse exits 2, so a caller can tell it from a record that refuses."""
+    print("tezgah-task: %s" % message, file=sys.stderr)
+    return 2
+
+
+def today():
+    return time.strftime("%Y-%m-%d")
+
+
+def read(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def open_dir(root):
+    return os.path.join(root, ".tezgah", "plans", "open")
+
+
+def plans(root):
+    return sorted(glob.glob(os.path.join(open_dir(root), "*.md")))
+
+
+def plan_path(root, ref):
+    """The plan file `ref` names: a three-digit id picks the single `NNN-*.md`
+    under .tezgah/plans/open, anything else is a path. Returns (path, problem) with one
+    of the two set."""
+    if os.path.isfile(ref):
+        return os.path.realpath(ref), None
+    if re.fullmatch(r"\d{3}", ref):
+        found = [p for p in plans(root) if os.path.basename(p).startswith(ref + "-")]
+        if not found:
+            return None, "no plan %s under %s" % (ref, open_dir(root))
+        if len(found) > 1:
+            return None, "%s matches %d plans: %s" % (ref, len(found), ", ".join(found))
+        return found[0], None
+    return None, "no such plan %r (a three-digit id, or a path)" % ref
+
+
+def active_here(root):
+    """The active task as every reader sees it - resolved by the module, so the
+    CLI and the gate cannot disagree about which plan is active."""
+    return tt.active(root, root)
+
+
+def problems(items):
+    for problem in items:
+        print("FAIL %s" % problem)
+    return 1
+
+
+def write_fields(path, **fields):
+    """Write the record, turning an I/O failure into the problem channel: a plan
+    that cannot be written is a problem with the plan, not with how the command
+    was called, and it must exit 1 with nothing half-applied."""
+    try:
+        tt.set_fields(path, **fields)
+    except OSError as exc:
+        return ["cannot write %s: %s" % (path, exc)]
+    return []
+
+
+def show(path):
+    """Print the record as it stands on disk, read back through the parser the
+    gate uses: the CLI reports what was written, not what it meant to write."""
+    text = read(path)
+    fields = tt.frontmatter(text)
+    allow = tt.allowed_paths(text)
+    print("task %s: phase %s" % (fields.get("id") or os.path.basename(path).split("-")[0],
+                                 fields.get("phase") or "(none)"))
+    print("  allowed: %s" % (", ".join(allow) if allow else "any path in the repo"))
+    print("  path: %s" % path)
+    return 0
+
+
+def bad_phase(phase):
+    return "phase %r is not one of %s" % (phase, ", ".join(tt.TASK_PHASES))
+
+
+def cmd_start(args):
+    if not args:
+        return misuse("start needs a plan id or path")
+    root = repo_root(os.getcwd())
+    path, problem = plan_path(root, args[0])
+    phase = None
+    allow = []
+    rest = args[1:]
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--phase":
+            if i + 1 >= len(rest):
+                return misuse("--phase needs one of %s" % ", ".join(tt.TASK_PHASES))
+            phase = rest[i + 1]
+            i += 2
+            continue
+        if rest[i] == "--allow":
+            i += 1
+            first = i
+            while i < len(rest) and not rest[i].startswith("--"):
+                i += 1
+            if i == first:
+                return misuse("--allow needs at least one glob (omit it for any path)")
+            allow += rest[first:i]
+            continue
+        return misuse("unknown argument %r" % rest[i])
+    if phase is None:
+        return misuse("start needs --phase %s" % "|".join(tt.TASK_PHASES))
+    if phase not in tt.TASK_PHASES:
+        return problems([bad_phase(phase)])
+    if problem:
+        return problems([problem])
+    fields = {"phase": phase, "updated": today()}
+    if allow:
+        fields["allowed_paths"] = allow
+    for other in plans(root):
+        if other == path:
+            continue
+        if tt.frontmatter(read(other)).get("phase"):
+            # one active task at a time: the plan that had the phase loses it
+            # here rather than both being active and the gate reading whichever
+            # sorts first
+            bad = write_fields(other, phase="", updated=today())
+            if bad:
+                return problems(bad)
+    bad = write_fields(path, **fields)
+    if bad:
+        return problems(bad)
+    return show(path)
+
+
+def cmd_phase(args):
+    if len(args) != 1:
+        return misuse("phase takes one of %s" % ", ".join(tt.TASK_PHASES))
+    phase = args[0]
+    if phase not in tt.TASK_PHASES:
+        return problems([bad_phase(phase)])
+    task = active_here(repo_root(os.getcwd()))
+    if not task:
+        return problems(["no active task: start one with "
+                         "`tezgah-task start <id> --phase %s`" % phase])
+    bad = write_fields(task["path"], phase=phase, updated=today())
+    if bad:
+        return problems(bad)
+    return show(task["path"])
+
+
+def cmd_allow(args):
+    for arg in args:
+        if arg.startswith("--"):
+            return misuse("allow takes globs, not %r" % arg)
+    task = active_here(repo_root(os.getcwd()))
+    if not task:
+        return problems(["no active task to widen: start one with "
+                         "`tezgah-task start <id> --phase P --allow GLOB`"])
+    # No globs replaces the list with an empty one, which reads as "any path in
+    # the repo" - and the gate skips the scope check entirely then, so this is
+    # the way back out of a scope that turned out to be too narrow.
+    bad = write_fields(task["path"], allowed_paths=args, updated=today())
+    if bad:
+        return problems(bad)
+    return show(task["path"])
+
+
+def cmd_stop(args):
+    if args:
+        return misuse("stop takes no arguments")
+    task = active_here(repo_root(os.getcwd()))
+    if not task:
+        return problems(["no active task to stop"])
+    bad = write_fields(task["path"], phase="", updated=today())
+    if bad:
+        return problems(bad)
+    print("task %s stopped" % task["id"])
+    return show(task["path"])
+
+
+def cmd_status(args):
+    as_json = "--json" in args
+    rest = [a for a in args if a != "--json"]
+    if rest:
+        return misuse("status takes --json and nothing else (%r)" % rest[0])
+    root = repo_root(os.getcwd())
+    task = active_here(root)
+    bad = []
+    for path in plans(root):
+        fields = tt.frontmatter(read(path))
+        phase = fields.get("phase") or ""
+        if phase and phase not in tt.TASK_PHASES:
+            bad.append({"id": fields.get("id") or os.path.basename(path).split("-")[0],
+                        "phase": phase, "path": path})
+    if as_json:
+        print(json.dumps({"active": task, "malformed": bad}, indent=2))
+    else:
+        if task:
+            show(task["path"])
+        else:
+            print("no active task")
+        for row in bad:
+            print("FAIL %s: phase %r is not one of %s, so the plan is ignored (%s)"
+                  % (row["id"], row["phase"], ", ".join(tt.TASK_PHASES), row["path"]))
+    return 1 if bad else 0
+
+
+def main(argv):
+    if len(argv) < 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    cmd, rest = argv[1], argv[2:]
+    if cmd == "start":
+        return cmd_start(rest)
+    if cmd == "phase":
+        return cmd_phase(rest)
+    if cmd == "allow":
+        return cmd_allow(rest)
+    if cmd == "stop":
+        return cmd_stop(rest)
+    if cmd == "status":
+        return cmd_status(rest)
+    return misuse("unknown command %r (start, phase, allow, stop, status)" % cmd)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

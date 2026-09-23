@@ -1,0 +1,7 @@
+# The per-language rail coverage measured in this session (authority, corpus, marker study, criterion)
+
+**What it is and claims.** Authority and reference corpus exist for German (Rat fuer deutsche Rechtschreibung; DWDS), French (Academie francaise; Frantext), Spanish (RAE; CORPES XXI), Portuguese (Ciberduvidas; Corpus do Portugues), Italian (Accademia della Crusca; CORIS/CODIS), Dutch (Taalunie; Instituut voor de Nederlandse Taal), Polish (Rada Jezyka Polskiego; NKJP), Russian (Gramota.ru; the Russian National Corpus), Japanese (Agency for Cultural Affairs; BCCWJ), Korean (National Institute of Korean Language; Modu corpus), Chinese (the MOE/State Language Commission standards regime; LCMC/ZCTC), Arabic (arabiCorpus, retiring 2027; ARATECT), Hindi (Central Hindi Directorate plus the Commission for Scientific and Technical Terminology; IIT Bombay corpora) and Indonesian (idTenTen). The marker leg is quantified and in-language only for Japanese and Korean; Chinese, Arabic and Russian have classification/detection work; Italian and Spanish have single qualifying studies; the rest have none found. No language has all four legs.
+
+**How it changes the skill.** The design cannot promise a language-general fix that is uniform. It has to declare per language which legs exist, cite them, and use the language-independent instruments where a leg is missing. The Arabic corpus retiring in 2027 is the standing example of why a rail's sources need a date.
+
+**Quality.** Institutional or community source read in session; the field's own authority, not a measurement.

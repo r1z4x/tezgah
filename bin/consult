@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""consult - second opinion from external models.
+
+Usage:
+  consult "question"                     independent answers, then one referee
+  consult -                              read the question from redirected stdin
+  consult "question" --no-referee        panel only, no cross-examination
+  consult "question" --judge MODEL       referee model (default: first that answered)
+  consult "question" --provider deepseek ask the DeepSeek API instead of OpenRouter
+  consult "question" --provider inception ask Inception Labs (Mercury) instead
+  consult "question" --models m1,m2      override models
+  consult "question" --online            enable live web search (:online, OpenRouter)
+  consult "question" --timeout 120       per-model timeout seconds
+
+Providers (--provider, default openrouter):
+  openrouter  OPENROUTER_API_KEY  ~/.config/openrouter/key
+  deepseek    DEEPSEEK_API_KEY    ~/.config/deepseek/key
+  inception   INCEPTION_API_KEY   ~/.config/inception/key
+Key lookup order: the provider's env var, then its key file. CONSULT_URL
+overrides the endpoint (a gateway, or a test server), CONSULT_MODELS the panel,
+CONSULT_JUDGE the referee.
+
+Output: one "## <model>" section per independent answer, then "## referee
+(<model>)" judging them, then a footer naming what answered, what failed and
+how, and the one variable to change on a retry. A reply that does not answer
+under the five headings the referee was asked for is reported as a failed
+cross-examination, not printed as a judgement.
+
+Exit codes: 0 at least one model answered; 1 misuse (bad or unknown arguments,
+or --online on a provider that has no :online suffix); 2 the chosen provider has
+no key; 3 the models ran but none answered.
+"""
+import concurrent.futures
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+# provider -> (chat-completions URL, key env var, key file, default models)
+PROVIDERS = {
+    "openrouter": (
+        "https://openrouter.ai/api/v1/chat/completions",
+        "OPENROUTER_API_KEY",
+        "~/.config/openrouter/key",
+        "google/gemini-2.5-pro,x-ai/grok-4.3",
+    ),
+    "deepseek": (
+        "https://api.deepseek.com/v1/chat/completions",
+        "DEEPSEEK_API_KEY",
+        "~/.config/deepseek/key",
+        "deepseek-chat,deepseek-reasoner",
+    ),
+    # Inception Labs serves an OpenAI-compatible chat-completions route; the
+    # model ids carry no vendor prefix here (`mercury-2.5`, not
+    # `inception/mercury-2.5`, which is the OpenRouter spelling).
+    "inception": (
+        "https://api.inceptionlabs.ai/v1/chat/completions",
+        "INCEPTION_API_KEY",
+        "~/.config/inception/key",
+        "mercury-2.5,mercury-2",
+    ),
+}
+SYSTEM = (
+    "You are one of several independent models consulted for a second opinion "
+    "on an engineering decision. Be direct and specific. State your "
+    "recommendation first, then the key reasons, then what could make it "
+    "wrong. If you lack context to judge, say exactly what is missing. End "
+    "with 'What would change my mind:' and name the observation or test."
+)
+# The second stage. Its whole job is the part one-shot parallel querying cannot
+# do: make the disagreement explicit instead of leaving the caller to diff two
+# answers. The headings are fixed so the caller can read back named fields
+# rather than a free-form verdict that quietly drops the minority view.
+REFEREE = (
+    "You are the referee for a panel of independent models that answered the "
+    "same question without seeing each other's answers. Judge their answers "
+    "against the question's own constraints. Do not average them into a bland "
+    "compromise and do not invent a consensus that is not there.\n"
+    "Answer under exactly these headings, in this order:\n"
+    "1. Recommendation - the single answer you would act on, and why.\n"
+    "2. Key disagreements - where the panel actually conflicts, naming which "
+    "model holds which position.\n"
+    "3. Unchecked assumptions - what every answer assumed and none verified.\n"
+    "4. What would change my mind - the observation, test or evidence that "
+    "flips the recommendation.\n"
+    "5. Requested evidence - what you would need to read, run or fetch to "
+    "settle the disagreement.\n"
+    "If one answer is simply better, say so plainly. If the panel agrees, say "
+    "what they agreed on and what that agreement does not prove."
+)
+# The five field names REFEREE above asks for, as substrings a reply has to
+# carry. The headings are why stage two exists - the caller reads back named
+# fields instead of a paraphrase that quietly drops the minority view - so a
+# reply without them is not a cross-examination and is never printed as one.
+# Presence only: whether the verdict is *right* is the caller's to judge, and a
+# second judge here would be exactly the free-form opinion this stage replaces.
+REFEREE_FIELDS = ("recommendation", "key disagreements", "unchecked assumptions",
+                  "what would change my mind", "requested evidence")
+
+
+def defaults(provider):
+    if provider == "openrouter" and os.environ.get("CONSULT_MODELS"):
+        return os.environ["CONSULT_MODELS"].split(",")
+    return PROVIDERS[provider][3].split(",")
+
+
+def endpoint(provider):
+    return os.environ.get("CONSULT_URL", "").strip() or PROVIDERS[provider][0]
+
+
+def get_key(provider):
+    _url, env, path, _models = PROVIDERS[provider]
+    k = os.environ.get(env, "").strip()
+    if not k:
+        try:
+            with open(os.path.expanduser(path), encoding="utf-8") as fh:
+                k = fh.read().strip()
+        except OSError:
+            pass
+    if not k:
+        print("consult: no API key for %s. Set %s or write the key to %s "
+              "(chmod 600)." % (provider, env, path), file=sys.stderr)
+        sys.exit(2)
+    return k
+
+
+def classify(exc):
+    """A failure class, named so the footer can point at ONE variable."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return "http-%d" % exc.code
+    if isinstance(exc, TimeoutError):
+        # A stalled response, as distinct from the wall-clock deadline below:
+        # urllib wraps OSError around the request only, not around getresponse
+        # or the body read, so a slow stream surfaces here rather than there.
+        return "timeout"
+    if isinstance(exc, urllib.error.URLError):
+        return "network"
+    if isinstance(exc, (ValueError, KeyError, IndexError, TypeError)):
+        # json.JSONDecodeError is a ValueError; a reply missing choices[0] is a
+        # schema mismatch, not a model verdict.
+        return "malformed-reply"
+    return "error"
+
+
+def ask(provider, model, question, key, timeout, system):
+    """One stateless chat completion. Returns (model, answer, err, class)."""
+    body = json.dumps({
+        "model": model.strip(),
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": question},
+        ],
+    }).encode()
+    try:
+        # The construction is inside the try on purpose: Request() parses the
+        # URL and raises ValueError for a scheme-less one (e.g. a CONSULT_URL
+        # of "localhost"), which would otherwise escape this worker as an
+        # uncaught exception and kill the run with a traceback.
+        req = urllib.request.Request(endpoint(provider), data=body, headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.load(resp)
+        answer = data["choices"][0]["message"]["content"]
+    except Exception as exc:  # network, HTTP, schema - all reported, never raised
+        detail = ""
+        if hasattr(exc, "read"):
+            try:
+                detail = " " + exc.read().decode()[:300]
+            except Exception:
+                pass
+        return model, None, "%s%s" % (exc, detail), classify(exc)
+    if not (answer or "").strip():
+        # A model can return 200 with null/empty content (refusal, filtered
+        # response). That is a failure to answer, not an answer -- and
+        # crashing here used to swallow every model after it in the list.
+        return model, None, "empty response (refused or filtered)", "empty"
+    return model, answer.strip(), None, None
+
+
+def referee_packet(question, answers):
+    parts = ["QUESTION:\n" + question,
+             "The models below answered it independently and did not see each "
+             "other's answers.\n"]
+    for model, answer in answers:
+        parts.append("\n=== ANSWER (%s) ===\n%s\n" % (model, answer))
+    return "\n".join(parts)
+
+
+def retry_hint(classes):
+    """The one variable to change, from the failures that actually happened."""
+    if not classes:
+        return None
+    c = classes[0]
+    if c == "timeout":
+        return "raise --timeout, or drop --online (a slow model is not a broken one)"
+    if c == "network":
+        return "retry once; if it repeats, check the network or switch --provider"
+    if c == "empty":
+        return "drop the model that answered empty (refused or filtered) from --models"
+    if c == "malformed-reply":
+        return "the endpoint is not speaking the chat-completions schema; check CONSULT_URL and --provider"
+    if c == "unstructured":
+        return "the referee answered outside its five headings; re-run, or judge the panel yourself"
+    if c.startswith("http-4"):
+        return "the provider rejected the request; a 401/403 means the key, not the question"
+    if c.startswith("http-5"):
+        return "the provider errored; retry once, then switch --provider"
+    return "retry once; if it repeats, switch --provider"
+
+
+VALUE_FLAGS = ("--provider", "--models", "--timeout", "--judge")
+
+
+def main():
+    args = sys.argv[1:]
+    # Before the loop: an unrecognized flag falls through to the `question is
+    # None` arm below and the flag text becomes the prompt, so `--help` used to
+    # spend a paid panel call and print no usage.
+    if "-h" in args or "--help" in args:
+        print(__doc__.strip())
+        return 0
+    provider, models, timeout, question, judge = "openrouter", None, 120, None, None
+    online, referee = False, True
+    i = 0
+    while i < len(args):
+        if args[i] in VALUE_FLAGS and i + 1 >= len(args):
+            # Without this, a trailing flag fails to match its arm, falls to the
+            # `question is None` branch below, and the flag text becomes the
+            # prompt - a paid request for a typo, answered with exit 3 instead
+            # of the documented misuse exit 1.
+            sys.exit("consult: %s needs a value" % args[i])
+        if args[i] == "--provider" and i + 1 < len(args):
+            provider = args[i + 1]
+            i += 2
+        elif args[i] == "--models" and i + 1 < len(args):
+            models = args[i + 1].split(",")
+            i += 2
+        elif args[i] == "--judge" and i + 1 < len(args):
+            judge = args[i + 1]
+            i += 2
+        elif args[i] == "--online":
+            online = True
+            i += 1
+        elif args[i] == "--no-referee":
+            referee = False
+            i += 1
+        elif args[i] == "--timeout" and i + 1 < len(args):
+            timeout = int(args[i + 1])
+            i += 2
+        elif question is None:
+            question = args[i]
+            i += 1
+        else:
+            sys.exit("consult: unexpected argument %r" % args[i])
+    if provider not in PROVIDERS:
+        sys.exit("consult: unknown provider %r (use %s)"
+                 % (provider, " or ".join(sorted(PROVIDERS))))
+    if online and provider != "openrouter":
+        # ":online" is an OpenRouter suffix; appending it elsewhere yields an
+        # unknown model id, so refuse rather than fail every model.
+        sys.exit("consult: --online is OpenRouter-only; drop it or use "
+                 "--provider openrouter")
+    if models is None:
+        models = defaults(provider)
+    if question == "-":
+        # A packet is often several KB, and argv has a length limit (and some
+        # endpoints stall before the request starts on a long argument), so a
+        # redirected packet is read from stdin instead. Deliberately explicit:
+        # reading stdin for a missing argument would turn a stray open pipe
+        # into a paid prompt where the caller expected the usage error.
+        question = "" if sys.stdin.isatty() else sys.stdin.read().strip()
+    if not question:
+        sys.exit(__doc__.strip())
+    if online:
+        models = [m if m.strip().endswith(":online") else m.strip() + ":online"
+                  for m in models]
+
+    key = get_key(provider)
+    ok, failed, classes, answers = [], [], [], []
+    deadline = timeout + 15  # wall-clock cap per model: urllib's socket timeout resets on slow :online streams
+    pool = concurrent.futures.ThreadPoolExecutor(len(models))
+    futures = [(m, pool.submit(ask, provider, m, question, key, timeout, SYSTEM))
+               for m in models]
+    for model, fut in futures:
+        try:
+            rmodel, answer, err, cls = fut.result(timeout=deadline)
+        except concurrent.futures.TimeoutError:
+            rmodel, answer, err, cls = model, None, \
+                "timed out after %ss (raise --timeout, or drop --online)" % deadline, "timeout"
+        print("## %s" % rmodel)
+        if err:
+            print("ERROR: %s" % err)
+            failed.append("%s (%s)" % (rmodel, cls))
+            classes.append(cls)
+        else:
+            print(answer)
+            ok.append(rmodel)
+            answers.append((rmodel, answer))
+        print()
+
+    # Stage two, and it is deliberately ONE sequential call: the panel above is
+    # already independent and parallel, so what is left to buy is the
+    # cross-examination, not more of the same opinion. A full multi-round debate
+    # (revise, re-critique, blind judge) was measured as ceremony here: the
+    # client is stateless, the cost triples and the caller wants one answer.
+    judged = None
+    if referee and answers:
+        judged = judge or os.environ.get("CONSULT_JUDGE", "").strip() or answers[0][0]
+        fut = pool.submit(ask, provider, judged,
+                          referee_packet(question, answers), key, timeout, REFEREE)
+        try:
+            judged, verdict, jerr, jcls = fut.result(timeout=deadline)
+        except concurrent.futures.TimeoutError:
+            verdict, jerr, jcls = None, "timed out after %ss" % deadline, "timeout"
+        print("## referee (%s)" % judged)
+        if not jerr:
+            missing = [f for f in REFEREE_FIELDS if f not in verdict.lower()]
+            if missing:
+                # A reply that skipped a heading is not a judgement under the
+                # fields the caller reads back, so it takes the same road as a
+                # referee that never answered: the panel stands unjudged. The
+                # text is not printed - an unheadlined paragraph in the referee
+                # section reads as a verdict whatever the footer says.
+                jerr = "the reply did not answer: %s" % ", ".join(missing)
+                jcls, verdict = "unstructured", None
+        if jerr:
+            print("ERROR: %s" % jerr)
+            classes.append(jcls)
+            failed.append("referee (%s)" % jcls)
+        else:
+            print(verdict)
+        print()
+
+    print("consulted: %s | failed: %s" % (
+        ", ".join(ok) or "none", ", ".join(failed) or "none"))
+    if judged:
+        # A dead referee is a degraded arena, not a silent one: the panel
+        # answers are unjudged and the caller has to be told.
+        if verdict is None:
+            print("referee: FAILED (%s) -- no cross-examination, the panel "
+                  "answers stand unjudged" % jcls)
+        else:
+            print("referee: %s" % judged)
+    hint = retry_hint(classes)
+    if hint:
+        print("retry: %s" % hint)
+    pool.shutdown(wait=False)
+    sys.stdout.flush()
+    # ponytail: hard exit so a still-hung request thread cannot wedge the process (18-min hang seen);
+    # flush above preserves output. Upgrade to per-thread cancellation only if a leaked socket ever matters.
+    os._exit(0 if ok else 3)
+
+
+main()

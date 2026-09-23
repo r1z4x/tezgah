@@ -1,0 +1,77 @@
+{
+  "dimensions": {
+    "evidence_relevance": 4,
+    "falsifiability": 4,
+    "scope_calibration": 5,
+    "argument_coherence": 4,
+    "exploration_integrity": 5,
+    "methodological_rigour": 3
+  },
+  "grade": "weak accept",
+  "notes": "mean 4.17, weakest methodological_rigour (3). The line answered its question and the answer was a correction of the question: gortex is a rival engine and not tezgah's (C01), SoL-Pi ships four Pi-only mechanisms and no loop (C06), so the dependency half is refused on two measured grounds and the deliverable becomes six ideas with a cost and a check each. Evidence relevance is held at 4 because two of the three sources are the projects' own documentation - grey by construction, labelled as such in INDEX.jsonl - and no independent source entered the index for either repository. Falsifiability is 4 because every claim carries a criterion that names what would refute it, but nine of the ten criteria are 'a file in that repository says otherwise', which only one of the two surveys could have gone back to check. Scope calibration is 5: no claim is wider than its note, no claim declares a scope because nothing here rests on a row this session produced, and the report's own limits section names the installation, benchmarking and reproduction that did not happen. Methodological rigour is 3 because nothing was installed, run or measured: every number in the line is quoted from a source, the five costs are guesses and the paper's loop was read as prose with no artifacts to check it against. The review was written on 2026-09-22 by the closing pass, which read the line's own artifacts and re-checked each quote below against the file it names.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "target": "literature/INDEX.jsonl",
+      "quote": "a tool's own README, docs and benchmark page, written by its author and independent of nothing",
+      "observation": "Two of the three sources in this line are the projects' own documentation - gortex's README, docs and benchmark page, and SoL-Pi's tree, docs and blog - and only one of them is an arXiv preprint. Every judgement the line makes about what a mechanism does, how many tools a surface publishes or how a repository is structured therefore inherits that source's interest, and no independent source entered the index for either repository: no issue thread, no third-party benchmark, no review. The index rows say so, each with a quality note, and the report repeats it, so the defect is not concealment - it is that the line's strongest available evidence class for its two central objects is the objects' own marketing surface, and a reader weighing the six ideas should price that in.",
+      "fix": "Not repairable inside this line: fixing it means reading sources the two surveys did not read (independent benchmarks, issue threads, third-party write-ups), which is another reading pass and not a check clause.",
+      "status": "accepted"
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "target": "claims.jsonl",
+      "quote": "\"provenance\": \"ai-executed\"",
+      "observation": "All ten claims are a literature claim over a note, so this line holds no evidence claim at all: nothing under experiments/, no results.jsonl, no orx run log, and no number this session measured. Every figure in findings.md and in the report - 71,724 stars, 1,626 stars, 31,530 to 972 tokens, 24 source files, 152 proposals, 535 environments, 44.7 to 49.0 percent - is quoted from a source's own statement, which is the honest state of a survey and also the ceiling on what it can conclude: the line can say what the sources claim and cannot say what either project does. The claims carry the provenance that matches (ai-executed, because a session read the files) and no scope field, because a scope is only owed by a claim resting on recorded rows.",
+      "fix": "The only repair is the run this line deliberately did not do - install one engine, index a clone, answer the extensionless-file question - and that is a new line's work, not a defect of this one.",
+      "status": "accepted"
+    },
+    {
+      "id": "F3",
+      "severity": "major",
+      "target": "to_human/report.md",
+      "quote": "guesses from the shape of the change, marked as guesses where they were formed",
+      "observation": "Five of the six verdicts carry a cost in days (20-40 lines, 100-200 lines, 1-2 days, 2-4 days, 1-2 days) and none of those numbers was measured: they are order-of-magnitude estimates formed from the shape of the change, and the least reliable of them is the per-host parsing half of the counter-metric idea, whose 2-4 days rest on an unverified assumption about six different session-log formats. The report marks them as estimates in its limits section and calls them 'cost, one line' in the table header rather than 'estimate', so a reader skimming the table can take a guess for a price. The estimates are still the useful half of the answer - they are what makes 'borrow the idea' actionable - so the finding is about labelling, and the label is one section away from the table.",
+      "fix": "Move the estimate caveat into the table's own caption (one line above it) rather than leaving it in the limits section, so no reader meets the day figures without the word.",
+      "status": "open"
+    },
+    {
+      "id": "F4",
+      "severity": "minor",
+      "target": "findings.md",
+      "quote": "exposes the cache-read/cache-write split was not verified per host",
+      "observation": "The counter-metric idea is the one the line prices most expensively and knows least about: whether any of tezgah's six host session logs exposes a cache-read and cache-write split was not checked against a single host's format, and the estimate of 2-4 days above it was formed without that check. The finding names its own gap in the Open questions section, but the verdict table in the report prices the idea anyway, so the number a reader takes away rests on an assumption the line states only once and in another file.",
+      "fix": "Open one host's session log and read its token fields before the idea is priced again; that is a 30-minute check and it either moves the estimate or makes the field unmeasurable for that host.",
+      "status": "open"
+    },
+    {
+      "id": "F5",
+      "severity": "minor",
+      "target": "literature/sol-pi-nvlabs-harness-extensions.md",
+      "quote": "`npm run check` = `typecheck && vitest run && npm pack --dry-run`",
+      "observation": "SoL-Pi's only test signal is its own documentation's report of a suite run locally - 19 test files, 140 tests - and its single CI workflow (star-history.yml) does not run it, so nothing in this line can say the suite passes today, or passed on the tree as read. That matters because the boundary claim the line rests on (four mechanisms, no loop) is a claim about which files exist, which the tree does answer, while the mechanisms' behaviour is asserted only by the repository's own tests and its authors' prose. The note says this in its quality section and does not upgrade the signal to evidence.",
+      "fix": "None available without installing Pi and running the suite, which this line did not do and should not be asked to.",
+      "status": "accepted"
+    },
+    {
+      "id": "F6",
+      "severity": "suggestion",
+      "target": "literature/2609.20519-sol-pi-auto-research-loops.md",
+      "quote": "the Oracle Analysis prompt, the acceptance-gate code",
+      "observation": "Two of the six verdicts (the pre-rollout screen and the two-gate accept rule) are borrowed from a description of a method whose artifacts are published nowhere: the note lists the Oracle Analysis prompt, the acceptance-gate code, the environment builder and the lineage scheduler as absent from the repository, so the line's recommendation rests on prose about a procedure rather than on an implementation any reader can inspect. The claims state the rules correctly - the paper does state them - but a future attempt to implement either idea will be re-deriving a method from a paragraph, which is the failure mode the line's own 'read the repository, not its paper' lesson names.",
+      "fix": "When either idea is implemented, price the first hour as re-derivation from the paper rather than as porting a described mechanism; nothing in the line can do this now.",
+      "status": "open"
+    },
+    {
+      "id": "F7",
+      "severity": "suggestion",
+      "target": "to_human/report.md",
+      "quote": "no SoL-Pi extension was loaded",
+      "observation": "The report's limits section states the reading depth exactly - no binary installed, no daemon started, no index built, no SoL-Pi extension loaded, no Pi installation present - which is what keeps the six ideas from reading as six measured results. The stronger version of that statement is missing: the line also never checked either project's licence obligations for code reuse beyond naming the licence (Apache-2.0 and MIT), which matters because the three gortex ideas are answer-shape changes that a reader may take as text to copy, and because the installers' file-writing behaviour was read from docs and never observed on a scratch tree.",
+      "fix": "If any of the borrowed text is ever copied rather than re-written from the idea, check the licence file at the version read and record it; a scratch-tree observation of one installer would settle the collision claim empirically instead of from docs.",
+      "status": "open"
+    }
+  ]
+}

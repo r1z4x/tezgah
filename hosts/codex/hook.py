@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Codex lifecycle hook. Reads Codex's JSON on stdin and emits the shared tezgah
+context (hooks/tezgah_context.py) plus, where Codex shows it, the tezgah status
+segment as `systemMessage`.
+
+Codex fires SessionStart, UserPromptSubmit, PreToolUse, PostToolUse,
+SubagentStart, PostCompact and Stop; anything else is ignored. Inert outside the
+roots.
+
+Codex cannot put a custom item in its TUI footer (`tui.status_line` is a closed
+built-in enum), so the status segment rides `systemMessage`, which Codex
+surfaces in the UI: once at SessionStart and once per turn at Stop. PostToolUse
+records evidence and, when the result came from outside the user and this
+workspace or the call is an effect made after one did, hands the model that
+provenance as `additionalContext` with the result. PreToolUse translates Codex's
+tool names into the shared gate's vocabulary (hooks/tezgah_gate.py) and emits the
+deny envelope.
+Stop blocks a done/tested claim with no successful check behind it, the same
+rule Claude's Stop hook enforces (hooks/tezgah_integrity.py).
+"""
+import json
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "hooks"))
+from tezgah_context import (  # noqa: E402
+    TOOL_USE_MEASURES, command_text, context_for, health_lines, record,
+    shell_kind)
+from tezgah_gate import decision, drift_reason  # noqa: E402
+from tezgah_guard import safe  # noqa: E402
+from tezgah_integrity import note_tool, stop_reason  # noqa: E402
+from tezgah_paths import off, root_for  # noqa: E402
+from tezgah_untrusted import marks  # noqa: E402
+
+EVENTS = {
+    "SessionStart": "session_start",
+    "UserPromptSubmit": "user_prompt",
+    "SubagentStart": "subagent_start",
+    "PostCompact": "post_compact",
+}
+
+# Codex tool names -> the shared gate's vocabulary. apply_patch/Edit/Write and
+# MCP names pass through unchanged; the gate only acts on Bash/Task/Grep, so the
+# rest are inert here by design.
+GATE_TOOLS = {
+    "Bash": "Bash",
+    "exec_command": "Bash",
+    "spawn_agent": "Task",
+    "Agent": "Task",
+    "Task": "Task",
+    "Grep": "Grep",
+    "grep": "Grep",
+}
+
+
+def classify(payload):
+    """The used-tool kind for a PostToolUse payload, or None."""
+    name = payload.get("tool_name", "") or ""
+    if name.startswith("mcp__") and "codegraph" in name:
+        return "graph"
+    if name in ("Task", "Agent", "task", "spawn_agent"):
+        return "orch"
+    if name in ("Bash", "shell", "Shell", "exec_command"):
+        kind = shell_kind(command_text(payload.get("tool_input")))
+        if kind:
+            return kind
+    return None
+
+
+def gate_name(name):
+    """The tool name the gate denies under and the ledger row records.
+
+    `call_id` hashes the name it is handed, so mapping Codex's `exec_command`
+    onto the gate's `Bash` on the PreToolUse side alone leaves the PostToolUse
+    row carrying a second id for the same call - the loop guard then reads a
+    history that never matches and never denies. Both halves map through here.
+    """
+    return GATE_TOOLS.get(name, name)
+
+
+def gate_reason(payload, cwd, session_id):
+    """The shared gate's deny reason for a PreToolUse payload, or None. Codex
+    names are mapped onto the gate's expected names; unknown names (apply_patch,
+    Edit, Write, mcp__*) pass through and are inert unless the gate knows them."""
+    name = payload.get("tool_name", "") or ""
+    inp = payload.get("tool_input")
+    if not isinstance(inp, dict):
+        inp = {}
+    return decision(gate_name(name), inp, cwd, session_id)
+
+
+def verify_outcome(payload):
+    """True/False from the tool response's exit code, else None.
+
+    Codex fires PostToolUse for a failed command too (there is no separate
+    failure event) and the payload's `tool_response` carries the command's exit
+    code, so an unread code must never be written as verify_ok - that is the
+    false "the check passed" record the ledger exists to prevent."""
+    resp = payload.get("tool_response")
+    if isinstance(resp, dict):
+        code = resp.get("exit_code")
+        if isinstance(code, int) and not isinstance(code, bool):
+            return code != 0
+    return None
+
+
+def result_size(result):
+    """The size of the result this event reported, or None when it carries none.
+
+    A size, never the body: the ledger records that a call returned something,
+    never what it returned, and the one reader asks only whether it is non-zero.
+    The measure is the Claude-family writer's (`hooks/projects-posttooluse.py`):
+    a container is measured by its top-level length - O(1), no re-serialization -
+    so the Bash answer, the object carrying `exit_code`, reports its field count.
+    Codex's hook reference names `tool_response` the tool's "model-facing output"
+    (`tool_response: true` in its own schema), so a value with no length is
+    recorded as a non-empty result, exactly as the writer records one, and only a
+    missing result leaves the field out - an absent field is never written as 0."""
+    if isinstance(result, (str, bytes, bytearray, list, tuple, dict, set,
+                           frozenset)):
+        return len(result)
+    return 1 if result is not None else None
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        return
+    if not isinstance(payload, dict):
+        return
+    event = payload.get("hook_event_name") or "SessionStart"
+    cwd = payload.get("cwd") or os.getcwd()
+    session_id = payload.get("session_id")
+
+    if event == "PreToolUse":
+        reason = safe(session_id, gate_reason, payload, cwd, session_id)
+        if reason:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }}))
+        return
+    if event == "PostToolUse":
+        tool = gate_name(payload.get("tool_name", ""))
+        inp = payload.get("tool_input") or {}
+        # The long turn's re-statement is produced before this call's own row
+        # lands, so its step count is the turn's work up to this call (see
+        # tezgah_gate.drift_reason); it rides the same `additionalContext` the
+        # label does, below.
+        drift = (safe(session_id, drift_reason, tool, inp, cwd, session_id)
+                 if root_for(cwd) else None)
+        safe(session_id, record, session_id, classify(payload))
+        # read before this call's row lands: `source` on the row is the taint's
+        # own mark, and `marks` answers about the turn the call arrived in. Like
+        # every other tezgah surface but the status line, both halves are armed
+        # only inside a configured root.
+        got = (safe(session_id, marks, tool, inp, session_id)
+               if root_for(cwd) else (None, None))
+        source, notice = got or (None, None)
+        notice = "\n".join(t for t in (notice, drift) if t)
+        # the same name the PreToolUse gate saw: one call has to hash to one id
+        safe(session_id, note_tool, session_id, tool, inp,
+             failed=verify_outcome(payload), source=source,
+             out_bytes=result_size(payload.get("tool_response")))
+        if notice:
+            # Codex's PostToolUse output carries `additionalContext` with the
+            # result - the field is part of its own hook output schema
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": notice,
+            }}))
+        return
+    if event == "SubagentStart":
+        safe(session_id, record, session_id, "orch")
+    if event == "Stop":
+        out = {}
+        # Codex's stop.input carries the same fields Claude's does
+        # (last_assistant_message, stop_hook_active) and its stop.output accepts
+        # {"decision": "block", "reason": ...}, so the integrity rule's second
+        # half runs here too: a done/tested claim with nothing observed behind it
+        # cannot end the turn. `verify-off` drops it; outside a root it is inert.
+        if (not payload.get("stop_hook_active") and not off("verify-off")
+                and root_for(cwd)):
+            reason = safe(session_id, stop_reason,
+                          payload.get("last_assistant_message"), session_id)
+            if reason:
+                out["decision"] = "block"
+                out["reason"] = reason
+        seg = safe(session_id, health_lines, cwd, session_id,
+                   observable=TOOL_USE_MEASURES)
+        if seg:
+            out["systemMessage"] = "tezgah  " + seg
+        if out:
+            print(json.dumps(out))
+        return
+    normalized = EVENTS.get(event)
+    if not normalized:
+        return
+    text = safe(session_id, context_for, normalized, cwd, payload)
+    out = {}
+    if text:
+        out["hookSpecificOutput"] = {"hookEventName": event, "additionalContext": text}
+    if event == "SessionStart":
+        seg = safe(session_id, health_lines, cwd, session_id,
+                   observable=TOOL_USE_MEASURES)
+        if seg:
+            out["systemMessage"] = "tezgah  " + seg
+    if out:
+        print(json.dumps(out))
+
+
+main()

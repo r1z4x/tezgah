@@ -1,0 +1,32 @@
+{
+  "question": "Does removing the drift refusal and delivering the same notice on the tool-result channel drive drift deny rows to zero without raising the real-work blocked-claim rate above its 2026-09-20 value of 0.5345?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-20",
+  "evaluation": {
+    "metric": "the `drift` row of `bin/tezgah-status --failure-shapes` (sessions and deny rows = fires), with the real-work blocked-claim rate beside it (claim rows whose detail starts `blocked:` over all claim rows in ledgers whose workspace set contains /Users/rizax/Projects)",
+    "baseline": "2026-09-20 snapshot: drift 179 sessions / 227 fires / 1.27 per session over 1669 ledgers (the candidate analysis read 177 / 225 at its own snapshot of the same date); real work 124 blocked / 232 claims = 0.5345 over 444 ledgers",
+    "locked_at": "2026-09-20 (written with experiments/drift-notice/protocol.md, before any run)",
+    "environment": {
+      "machine": "darwin 25.5.0 arm64 (Apple M1 Pro)",
+      "python": "3.10.14",
+      "corpus": "1670 ledger files under ~/.cache/tezgah/evidence, read 2026-09-20",
+      "host": "omp (this session), corpus mixed: 892 of the 1670 ledgers are the arm-bench lab's own sessions"
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "status": "untested",
+      "text": "the drift refusal is a delivery mechanism rather than a correction, so moving the same notice onto the tool-result channel removes the refusal without moving the real-work blocked-claim rate",
+      "verdict": "untested at the round's instrument: the arms' session_rows read 4-15 per row against the rule's DRIFT_STEPS = 25 work rows in one turn, so no arm could fire the rule and the round is blind to the factor. The mechanism is verified in real work (49 drift marker rows, 0 deny rows over the round's 30-ledger window) and prediction (c) is undecided at n=12 (8/12 = 0.6667 against the 0.5345 floor), so the hypothesis is neither supported nor refuted; a task that can reach the threshold is plan 009's deliverable."
+    }
+  ],
+  "sessions": [
+    {
+      "date": "2026-09-22",
+      "tag": "ai-executed",
+      "what": "closed the line: wrote to_human/report.md (the round's verdict, prediction by prediction, and the limits) and to_human/review.json (six dimensions, seven findings, every quote verbatim from the file it targets), recorded the round's outcome as claims C06-C07 through bin/tezgah-research claim, and moved phase to concluded / direction conclude with H1 left untested and prediction (c) on watch at ~50 after-claims. Nothing new was measured: no model call, no run, no claim row edited in place."
+    }
+  ]
+}

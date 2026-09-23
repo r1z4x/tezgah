@@ -1,0 +1,68 @@
+{
+  "question": "Does an edit contract that takes a position for the target language and locale, the reader's register, the terms that must not be translated, and the samples of the writer's own prose produce edits blind judges rate more native, better fitted to the reader and more terminology-correct than the shipped English-only marker set does - in any target language, Turkish being only the first instance?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-21",
+  "evaluation": {
+    "metric": "blind rubric mean per arm: three judges from three different model families score each edited draft 0-5 on two rubrics (native language and locale, audience fit), arm labels hidden and the A/B order swapped between two judge passes; the reported number is the mean delta (candidate minus baseline) over items with a bootstrap 95% CI. Two secondary numbers: marker density per 100 words by the candidate marker set, and terminology error points per 1,000 words in the arithmetic the industry already uses (MQM-Core error classes, as scored by the Japan Translation Federation guidelines: severity points 100/10/1, category weights, errors per 1,000 units, with their published pass band as the reference), covering both directions named in the standard - a marked keep segment translated (do not translate), and a segment meant to be translated left as it was (untranslated).",
+    "baseline": "the shipped skills/no-ai-slop SKILL.md + eval.md applied by the same model with the same prompt skeleton over the same items",
+    "locked_at": "2026-09-21",
+    "environment": {
+      "transport": "the agent host's own model access (the session's `completion` primitive); the OpenRouter path was attempted first and returned HTTP 402, no credit on the key",
+      "generator_tier": "slow",
+      "judge_tiers": [
+        "default",
+        "smol"
+      ],
+      "note": "tiers, item sets and prompt skeletons are pinned in each experiment's protocol.md, committed before its run; the concrete model behind a host tier is whatever the host resolves it to and is not asserted here"
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "slug": "turkish-markers",
+      "prediction": "primary delta >= +0.5 on the Turkish item subset",
+      "falsifier": "delta <= 0, or a 95% CI that includes 0, on the Turkish subset",
+      "text": "a Turkish-native set of sourced editorial defects with their replacements (calqued verbs and nouns, redundant pronouns, `ki` and `olarak` inflation, filler verbs, word-for-word collocations) yields Turkish edits blind judges rate more native than the English-only marker set does. Inverted sentences are excluded: the primary Turkish authority says they are not defective and the one quantitative study finds them a register feature"
+    },
+    {
+      "id": "H2",
+      "slug": "audience-briefs",
+      "prediction": "audience-fit delta >= +0.5 on the register items",
+      "falsifier": "no difference, or native-ness falls while fit rises, which would mean the brief buys fit by copying a corporate template",
+      "text": "register-specific briefs (sales, executive, developer vocabulary and structure) raise audience-fit scores over one generic audience line"
+    },
+    {
+      "id": "H3",
+      "slug": "voice-sample",
+      "prediction": "panel preference share >= 0.6 for the capture arm",
+      "falsifier": "preference share <= 0.5",
+      "text": "capturing 2-3 samples of the writer's own prose before editing improves voice preservation over no capture"
+    },
+    {
+      "id": "H4",
+      "slug": "untranslated-terms",
+      "text": "an explicit keep-or-translate decision per term, read against a glossary rail (ISO/IEC/IEEE 24765 for the developer register, the TDK entries for Turkish, a termbase for the rest), reduces terminology errors compared with letting the model translate freely",
+      "prediction": "the candidate arm's severity-weighted terminology error points per 1,000 words are at most half the free-translation arm's, and it commits no do-not-translate error on a marked segment",
+      "falsifier": "no reduction in error points; or a reduction bought by a comprehension cost, with judges rating the kept-term drafts less clear; or errors moved rather than removed, with untranslated errors rising as do-not-translate errors fall"
+    },
+    {
+      "id": "H5",
+      "slug": "language-rails",
+      "text": "the same rail design - a normative authority, a per-register reference corpus, and in-language marker evidence - produces a measurable gain in a second language (German) and not only in the language it was first built for",
+      "prediction": "native-ness delta >= +0.5 in the second language, at least as large as the first",
+      "falsifier": "the delta collapses toward 0, or a rail leg is missing for that language, which is itself the finding that the design does not generalise there"
+    }
+  ],
+  "sessions": [
+    {
+      "date": "2026-09-21",
+      "tag": "ai-executed",
+      "events": [
+        "ai-executed: widened the line to any target language and added the untranslated-term axis",
+        "ai-executed: wrote the fixture harness, item sets, rail, briefs and voice samples",
+        "ai-executed: ran the tracks over the host transport after the OpenRouter path returned HTTP 402"
+      ]
+    }
+  ]
+}

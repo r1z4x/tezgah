@@ -1,0 +1,78 @@
+{
+  "C1": {
+    "policy_research_paragraph_hits": [],
+    "skill_hits": [],
+    "note": "the only live-web mention in the whole contract is consult's --online"
+  },
+  "C2": {
+    "notes": 14,
+    "by_line": {
+      "infra-candidates": 7,
+      "product-analysis": 7
+    },
+    "hosts": [
+      "www.alphaxiv.org",
+      "www.alphaxiv.org",
+      "www.alphaxiv.org",
+      "www.alphaxiv.org",
+      "www.alphaxiv.org",
+      "www.alphaxiv.org",
+      "www.alphaxiv.org",
+      "research.google.com",
+      "www.microsoft.com",
+      "dora.dev",
+      "",
+      "",
+      "www.nngroup.com",
+      "playwright.dev"
+    ],
+    "grey_or_practice": 5,
+    "formal": 9,
+    "grey_files": [
+      "product-analysis/literature/01-heart-2010-rodden.md",
+      "product-analysis/literature/02-space-2021-forsgren.md",
+      "product-analysis/literature/03-dora-2025.md",
+      "product-analysis/literature/06-ux-competitive-triage-standards.md",
+      "product-analysis/literature/07-app-mcp-surfaces.md"
+    ]
+  },
+  "C3": {
+    "files": []
+  },
+  "C4": {
+    "infra-candidates": {
+      "bullets": 4,
+      "multi_source": 0,
+      "tokens": []
+    },
+    "judge-positioning": {
+      "bullets": 5,
+      "multi_source": 0,
+      "tokens": []
+    },
+    "product-analysis": {
+      "bullets": 3,
+      "multi_source": 0,
+      "tokens": []
+    },
+    "research-layer-audit": {
+      "bullets": 0,
+      "multi_source": 0,
+      "tokens": []
+    },
+    "typesafe-cost": {
+      "bullets": 3,
+      "multi_source": 0,
+      "tokens": []
+    },
+    "ustam-artifact-contract": {
+      "bullets": 4,
+      "multi_source": 0,
+      "tokens": []
+    }
+  }
+}
+
+C2 grey/practice notes: 5 of 14
+C3 comparison artifacts: 0
+C4 multi-source patterns: 0 of 19 bullets

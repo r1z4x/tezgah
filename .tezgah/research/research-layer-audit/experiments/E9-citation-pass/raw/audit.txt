@@ -1,0 +1,6 @@
+== before (36 outside) ==
+36 judged out of range, from the writers' line insertions; per-file shifts derived: tezgah_policy.py +7, tezgah_context.py +8, bin/tezgah-setup +2, tests/test_context.py +39, tezgah_research.py (one citation, already synced by W2)
+
+== after ==
+citations: 329 judged (0 outside the symbol they name), 748 not judgeable (no single symbol named beside them)
+exit=0

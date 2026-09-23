@@ -1,0 +1,25 @@
+{
+  "name": "@r1z4x/tezgah",
+  "version": "0.17.0",
+  "description": "Armed harness contract for coding agents",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/r1z4x/tezgah.git" },
+  "bin": { "tezgah": "bin/tezgah.js" },
+  "files": [
+    "bin/",
+    "hooks/",
+    "hosts/",
+    "skills/",
+    "workflows/",
+    "output-styles/",
+    "commands/",
+    "agents/",
+    "statusline.py",
+    "MANIFEST",
+    "CHANGELOG.md",
+    "LICENSE",
+    ".mcp.json",
+    "packaging/"
+  ],
+  "engines": { "node": ">=18" }
+}

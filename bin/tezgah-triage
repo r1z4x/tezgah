@@ -1,0 +1,485 @@
+#!/usr/bin/env python3
+"""tezgah-triage - the snapshot lines an analysis needs, judged in one call.
+
+A `browser_snapshot` / `mobile_list_elements_on_screen` result is the whole screen
+as text - one measured 40-row work-order table came back as 13,045 characters in
+356 lines - and the analyze-app loop pays for all of it to find the dozen lines
+that carry the controls. This flattens the snapshot, asks TypeSafe about the
+units of the tree (a row, a table cell, a control on its own) in ONE batched
+request, and prints the line ids under the selected units with their original
+element refs.
+
+  tezgah-triage --select FILE --task "TEXT"   the lines a named task needs
+  tezgah-triage --states FILE [--component T] per-state coverage of a component
+
+FILE is the JSON a snapshot call returned (the MCP result object), the flattened
+text of one, or the text itself. Output is the selected line ids with their refs,
+how many units and lines were selected, the characters that may now be skipped,
+and the arithmetic of the judgement - input tokens sent, latency, and the cost at
+$0.042 per 1M input tokens (output tokens are billed at $0).
+
+The judgement is an aid, not the finding: the agent reads the selected refs and
+still owns the claim, and a line it did not select is a line the judgement did not
+rank - the shape below was measured on two reproduced screens this round, and the
+measurement is printed with every run:
+
+  units, one question each   356-line / 40-row table   100% of the 83 control
+                             lines at a 94% read (67 units)
+                             31-line / 20-button screen   100% at a 74% read
+  one question per line      356-line / 40-row table   73.5% at a 26% read
+
+Per-line questions split identical siblings - a `Sil` next to a selected `Düzenle`
+came back as low as 0.5 while its twin scored 0.92 - so the shipped unit keeps
+every line under a selected subtree. Read-share is not free: on a task that names
+a control every row repeats, the selection is most of the screen, because most of
+the screen is what the task needs. 79% of that screen's lines sit inside the 40
+rows the task names, so no selection keeping 95% of the controls reads less than
+76% of it - the floor is arithmetic, not a tuning failure.
+
+It needs a credential - with no key, or with the seam's `judge-off` master switch
+or this tool's own `triage-off`, this prints why and exits 1, and the loop reads
+the tree directly. Exit codes: 0 judged, 1 no judgement, 2 misuse.
+"""
+import json
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
+import tezgah_judge  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
+
+# jev-1.12's own cookbook price for input; output is billed at $0, so the
+# arithmetic is one multiplication and a caller can check it against this number.
+PRICE_PER_MILLION = 0.042
+# A noul is a probability, so the printed rows are a table rather than a verdict.
+# The threshold comes from the two measured curves, not from the midpoint: at 0.3
+# both screens keep 100% of their control lines (94% read on the 40-row table, 74%
+# on the 20-button screen), and the read-share is flat from 0.2 to 0.4, so nothing
+# is bought by reading more. At 0.5 the table loses a control and the detail screen
+# reads the same; above 0.6 both start dropping what they were asked for.
+SELECTED_AT = 0.3
+# The state set the analyze-app contract asks a component for: whichever of these
+# the tree does not show is the finding, so all of them are asked at once.
+STATES = ("default", "hover", "focus", "active", "disabled", "loading", "error",
+          "empty", "skeleton", "offline", "partial", "long-text",
+          "permission-denied")
+REF = re.compile(r"\[ref=([A-Za-z0-9_-]+)\]")
+# The tree's own repeating pieces: a row / list item / article / table cell with
+# everything under it, or a control that is a leaf on its own. One question per
+# unit instead of one per line is what keeps identical siblings together - the unit
+# is judged once, so a `Sil` beside a selected `Düzenle` cannot be lost to a second,
+# lower guess - and it is what makes the judgement cheaper: 67 questions for a
+# 40-row table instead of 356, at 7,008 input tokens instead of 13,559.
+#
+#   units, one question each   100% of the 83 control lines at a 94% read
+#   one question per line       73.5% at a 26% read (22 controls lost)
+#
+# The read-share is bounded by the task, not by the unit: 79% of that screen's
+# lines sit inside the 40 rows the task names, so any selection keeping 95% of the
+# controls reads at least 76% of it.
+UNIT = re.compile(r"^\s*-\s(row|listitem|article|cell|button|searchbox|combobox|"
+                  r"textbox|checkbox|link|option)\b")
+# Printed with every selection: the recall the shape was measured at on the two
+# screens it was measured on this round, because a caller that treats a selection
+# as coverage reads a missed line as a line that does not matter.
+MEASURED = ("100% of the control lines at a 94% read on a reproduced 356-line "
+            "40-row table (67 units), 100% at a 74% read on a 31-line 20-button "
+            "screen")
+CUT = 96
+USAGE = "tezgah-triage --select FILE --task TEXT | --states FILE [--component TEXT]"
+NO_CREDENTIAL = ("no credential (TYPESAFE_API_KEY or ~/.config/typesafe/key, or "
+                 "the OpenRouter fallback's OPENROUTER_API_KEY or "
+                 "~/.config/openrouter/key), or the judge-off switch is on")
+TRIAGE_OFF = "the triage-off switch is on"
+FAILED = ("the call failed - a timeout, a refusal, or a reply that is not the "
+          "documented shape")
+
+
+def misuse(message):
+    """A wrong call, not a wrong snapshot: exit 2, so a caller can tell them apart."""
+    sys.stderr.write("tezgah-triage: %s\n" % message)
+    return 2
+
+
+def no_judgement(reason):
+    """Exit 1 with the reason, which is what the loop's fallback reads."""
+    sys.stderr.write("tezgah-triage: no judgement - %s; read the snapshot "
+                     "yourself\n" % reason)
+    return 1
+
+
+def off_reason():
+    """Why no judgement can be asked for, or None when one can.
+
+    This tool's own switch answers first, then the seam's - `judge-off`, or no
+    credential - because a switch that answers for one caller must not answer for
+    the others: `triage-off` leaves `tezgah-docs` and the skill picker judging."""
+    if tp.off("triage-off"):
+        return TRIAGE_OFF
+    if not tezgah_judge.available():
+        return NO_CREDENTIAL
+    return None
+
+
+def record(result):
+    """One `judge` ledger row for the call just paid for, in the shape the status
+    counters fold on: which caller, which model, and what it cost.
+
+    A cost row, never a step and never a check - nothing here may license a done
+    claim. Best effort in every direction: no session id, or an unwritable ledger,
+    changes nothing the run prints."""
+    usage = result["usage"]
+    ti.note(os.environ.get("TEZGAH_SESSION"), "judge",
+            "tezgah-triage %s in=%d out=%d ms=%d"
+            % (result.get("model", tezgah_judge.MODEL),
+               usage["input_tokens"], usage["output_tokens"],
+               result["latency_ms"]))
+
+
+def snapshot_text(path):
+    """The snapshot as text, from the three shapes a caller actually has.
+
+    The raw `tools/call` result (`{"content": [{"type": "text", "text": ...}]}`),
+    the flattened text saved as a JSON string, or the text written by hand. A
+    shape that fits none of them is handed back as text - flattening it is then
+    the caller's problem, not a crash."""
+    with open(path, encoding="utf-8") as fh:
+        raw = fh.read()
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return raw
+    if isinstance(data, str):
+        return data
+    if isinstance(data, dict):
+        content = data["snapshot"] if isinstance(data.get("snapshot"), str) \
+            else data.get("content")
+    else:
+        content = data
+    if isinstance(content, list):
+        content = "\n".join(part.get("text", "") for part in content
+                            if isinstance(part, dict))
+    return content if isinstance(content, str) else raw
+
+
+def lines(text):
+    """The snapshot as lines, in order. Blank lines carry nothing a judgement can
+    select and each one costs a question, so they are dropped rather than
+    numbered."""
+    return [line.rstrip() for line in text.splitlines() if line.strip()]
+
+
+def numbered_text(window, start=1):
+    return "\n".join("%d: %s" % (start + i, line) for i, line in enumerate(window))
+
+
+def chance(result, key):
+    """The noul a question came back with, 0.0 when it came back as anything else:
+    an unreadable answer is a line that was not selected, not a crash."""
+    value = tezgah_judge.noul(result, key)
+    return value if value is not None else 0.0
+
+
+def ref(line):
+    match = REF.search(line)
+    return match.group(1) if match else "-"
+
+
+def trim(line):
+    text = line.strip()
+    return text if len(text) <= CUT else text[:CUT] + "..."
+
+
+def judge_line(result):
+    usage = result["usage"]
+    print("judge: %d input tokens, %d output, %d ms; $%.6f at $%.3f/1M input"
+          % (usage["input_tokens"], usage["output_tokens"], result["latency_ms"],
+             usage["input_tokens"] * PRICE_PER_MILLION / 1000000,
+             PRICE_PER_MILLION))
+
+
+def units(numbered):
+    """(first, last, role) 0-based spans, one per line, covering every line.
+
+    A unit is a line the tree marks as one repeating piece - `row`, `listitem`,
+    `article`, `cell` - with its whole subtree, or a control leaf (`button`,
+    `searchbox`, `combobox`, `textbox`, `checkbox`, `link`, `option`). Only the
+    outermost ones are units: an inner cell of a selected row would be a second
+    question about the same lines, and the outer answer already carries it. A line
+    the tree marks with something else (`banner`, `table`, `rowgroup`) or not at
+    all stands as a unit of its own, so every line is in exactly one unit and no
+    line is invisible to the judgement - a selection that could not name the
+    footer could not select it either."""
+    spans, i = [], 0
+    while i < len(numbered):
+        match = UNIT.match(numbered[i])
+        end = i + 1
+        if match:
+            indent = len(numbered[i]) - len(numbered[i].lstrip())
+            while end < len(numbered) and \
+                    len(numbered[end]) - len(numbered[end].lstrip()) > indent:
+                end += 1
+        spans.append((i, end, match.group(1) if match else "line"))
+        i = end
+    return spans
+
+
+def select_request(numbered, task):
+    """(state, questions) for one `--select` pass: the units with their lines, one
+    noul each. The state carries the task, so the per-unit question can stay short
+    instead of repeating the task 67 times."""
+    spans = units(numbered)
+    state = ("TASK: %s\n\nThe units below are the repeating pieces of the "
+             "accessibility tree - a row, a list item, a table cell, or a control "
+             "on its own - numbered, each with the lines under it. A unit matters "
+             "when it carries a control, a label or a datum this task must read or "
+             "act on; a unit that only groups or decorates does not.\n\nUNITS:\n%s"
+             % (task, "\n".join("%d: %s" % (k, "\n      ".join(numbered[start:end]))
+                                for k, (start, end, _role)
+                                in enumerate(spans, 1))))
+    questions = {str(k): {"type": "noul",
+                          "instructions": "Does unit %d matter for the task above?" % k}
+                 for k in range(1, len(spans) + 1)}
+    return spans, state, questions
+
+
+def select(numbered, task):
+    """Which lines a named task needs: one noul per unit, every line under a
+    selected unit read."""
+    spans, state, questions = select_request(numbered, task)
+    if len(spans) <= 1:
+        return no_judgement("the snapshot carries no unit the tree marks (row, "
+                            "cell, or a control)")
+    result = tezgah_judge.ask(state, questions)
+    if not result:
+        return no_judgement(FAILED)
+    record(result)
+    scored = [(k, start, end, chance(result, str(k)))
+              for k, (start, end, _role) in enumerate(spans, 1)]
+    chosen = [row for row in scored if row[3] >= SELECTED_AT]
+    picked = [(n, numbered[n - 1], row[3])
+              for row in chosen for n in range(row[1] + 1, row[2] + 1)]
+    ids = {n for n, _line, _value in picked}
+    total = sum(len(line) + 1 for line in numbered)
+    skipped = [line for n, line in enumerate(numbered, 1) if n not in ids]
+    print("snapshot: %d lines, %d chars" % (len(numbered), total))
+    print("task: %s" % task)
+    print("selected %d of %d units, %d of %d lines:"
+          % (len(chosen), len(spans), len(picked), len(numbered)))
+    for n, line, value in picked:
+        print("  #%-4d ref=%-8s %.2f  %s" % (n, ref(line), value, trim(line)))
+    print("not selected: %d lines, %d chars the caller may skip"
+          % (len(skipped), sum(len(line) + 1 for line in skipped)))
+    if len(picked) >= 0.8 * len(numbered):
+        print("note: the selection is most of the screen - a task naming a control "
+              "every row repeats is read in full, so the units bought coverage, "
+              "not skipping")
+    print("measured: %s" % MEASURED)
+    judge_line(result)
+    return 0
+
+
+def locate(numbered, component):
+    """The (first, last) 0-based span of a component: `#12` names a line, anything
+    else matches a line's text, and the span runs to the end of the subtree - the
+    lines indented under it - so a per-component pass sees the component, not one
+    line of it."""
+    if component.startswith("#"):
+        digits = component[1:]
+        if not digits.isdigit() or not 1 <= int(digits) <= len(numbered):
+            return None
+        start = int(digits) - 1
+    else:
+        start = next((i for i, line in enumerate(numbered)
+                      if component.lower() in line.lower()), None)
+        if start is None:
+            return None
+    indent = len(numbered[start]) - len(numbered[start].lstrip())
+    end = start + 1
+    while end < len(numbered) and \
+            len(numbered[end]) - len(numbered[end].lstrip()) > indent:
+        end += 1
+    return start, end
+
+
+def states(numbered, component):
+    """A component's states judged in one request: one noul each, and the
+    interactive pair read off one Choice.
+
+    Each question carries what counts as shown, because `Is the component shown in
+    its <state> state?` alone was measured answering about the wrong lines: on a
+    driven fixture (ten conditions x five components) the disabled question came
+    back 0.49-0.51 for a form whose only `[disabled]` sat on a child button, and
+    partial came back 0.26-0.30 for a view whose row printed a missing amount.
+    focus and active share one bit of evidence - the snapshot's `[active]` marks
+    the element that has focus and it has no marker for a press - so two nouls
+    over that one bit answered both at once (0.95 focus beside 0.82 active on the
+    focused searchbox, 0.87 active on the button held down). One Choice over the
+    three readings cannot say both, and its pressed option names what a press
+    really prints, `[pressed]`, which `[active]` is not.
+    The tables stay inside this function rather than above it: the docs cite this
+    file by line number and a constant higher up would move every citation under
+    it."""
+    span = locate(numbered, component) if component else (0, len(numbered))
+    if span is None:
+        return misuse("no line matches %r" % component)
+    start, end = span
+    window = numbered[start:end]
+    state = ("COMPONENT: %s\n\nThese are the component's lines from the "
+             "accessibility tree, numbered as the snapshot was flattened. For each "
+             "state asked about, answer yes when the tree shows the component in "
+             "that state; a state this snapshot does not show is not yet a missing "
+             "state - drive the element, or route the data state, and re-read.\n\n%s"
+             % (trim(window[0]), numbered_text(window, start + 1)))
+    shown = {
+        "default": "the lines show the component's at-rest content and no other "
+                   "state below replaces them",
+        "hover": "a line under the component carries content that only appears "
+                 "while the pointer is over it",
+        "disabled": "the component's own line carries [disabled]; a disabled child "
+                    "does not put the component in that state",
+        "loading": "a line under the component carries loading or in-progress text",
+        "error": "a line under the component carries a failure message - a request "
+                 "that failed, or an alert about a failure; a permission, offline "
+                 "or no-data message is a different state",
+        "empty": "a line under the component says there is no data to show; a field "
+                 "left blank is not this state",
+        "skeleton": "the component shows placeholder shapes while data loads",
+        "offline": "a line under the component carries an offline or connectivity "
+                   "message",
+        "partial": "a value under the component is printed as missing, unavailable "
+                   "or not loaded while the component is otherwise populated; a "
+                   "loading placeholder, an error, an offline notice or a permission "
+                   "message is a different state",
+        "long-text": "a value under the component is long enough that the component "
+                     "must wrap or truncate it",
+        "permission-denied": "a line under the component carries a permission or "
+                             "access message",
+    }
+    # The interactive pair, asked as one Choice over the three readings of the one
+    # bit they share: the option taken IS the answer, so the tree cannot come back
+    # as showing focus and a press at once, and the pressed option carries the
+    # marker a press really prints.
+    interactive = {
+        "neither": "no line under the component carries [active]",
+        "focus": "a line under the component carries [active], the snapshot's mark "
+                 "for the element that has focus",
+        "pressed": "a line under the component carries [pressed], or copy that only "
+                   "a press shows; [active] is the element that has focus, so that "
+                   "marker on its own is not this option",
+    }
+    pair_option = {"focus": "focus", "active": "pressed"}
+    # One question answers the pair, so its id is written once: the ask and the
+    # reading of the reply both use it.
+    pair_id = "interactive"
+    # The states the aria snapshot cannot carry, measured on the same fixture: it
+    # has no marker for the pointer being over an element, [active] is the focused
+    # element rather than a pressed one, a skeleton and a loading placeholder read
+    # the same, "long" is a width the text does not know, and default is the
+    # absence of every other state. A verdict on these is the judgement reading the
+    # words rather than the tree, in either direction - a "shown" among them is not
+    # proof any more than a "not shown" is a finding - so the run names them.
+    unmarked = ("default", "hover", "active", "skeleton", "long-text")
+    questions = {name: {"type": "noul",
+                        "criteria": {"true": shown[name], "false": "it is not"},
+                        "instructions": "Is the component shown in its %s state?" % name}
+                 for name in STATES if name not in pair_option}
+    questions[pair_id] = {"type": "choice", "criteria": interactive,
+                          "instructions": "Which of these does the component show?"}
+    result = tezgah_judge.ask(state, questions)
+    if not result:
+        return no_judgement(FAILED)
+    record(result)
+    # The pair's answer is the option, not two probabilities: the one Choice that
+    # came back - and each option's share of the distribution beside it, when the
+    # reply prints one.
+    taken = tezgah_judge.choice(result, pair_id)
+
+    def reading(name):
+        """(value, shown) for one state: the noul its own question came back with,
+        or - for the two the Choice answers - whether this state's option is the one
+        taken, valued by the probability the reply put on that option (1.0 / 0.0
+        when it prints none), so the column stays the confidence it was."""
+        if name not in pair_option:
+            value = chance(result, name)
+            return value, value >= SELECTED_AT
+        chosen = taken == pair_option[name]
+        value = tezgah_judge.noul(result, pair_id, pair_option[name])
+        return (value if value is not None else 1.0 if chosen else 0.0), chosen
+
+    verdicts = {name: reading(name) for name in STATES}
+    missing = [name for name in STATES if not verdicts[name][1]]
+    print("snapshot: %d lines" % len(numbered))
+    print("component: %s" % trim(window[0]))
+    print("lines %d-%d, %d chars, %d states asked in one call:"
+          % (start + 1, end, sum(len(line) + 1 for line in window), len(STATES)))
+    for name in STATES:
+        value, is_shown = verdicts[name]
+        print("  %-18s %.2f  %s" % (name, value,
+                                    "shown" if is_shown else "not shown"))
+    print("not shown: %d of %d%s" % (len(missing), len(STATES),
+                                     (" - " + ", ".join(missing)) if missing else ""))
+    print("unmarked: %s - the aria snapshot cannot carry these either way, so a "
+          "verdict on them is the judgement reading the words rather than the tree: "
+          "drive or route the state and re-read" % ", ".join(unmarked))
+    judge_line(result)
+    return 0
+
+
+def main(argv):
+    if not argv:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    if "-h" in argv or "--help" in argv:
+        print(__doc__.strip())
+        return 0
+    mode, task, component = None, None, None
+    rest = []
+    flag = 0
+    while flag < len(argv):
+        arg = argv[flag]
+        if arg in ("--select", "--states"):
+            if mode:
+                return misuse("one mode at a time: %s" % USAGE)
+            mode = arg[2:]
+        elif arg in ("--task", "--component"):
+            if flag + 1 >= len(argv):
+                return misuse("%s needs a value" % arg)
+            flag += 1
+            if arg == "--task":
+                task = argv[flag]
+            else:
+                component = argv[flag]
+        elif arg.startswith("--"):
+            return misuse("unknown option %r (%s)" % (arg, USAGE))
+        else:
+            rest.append(arg)
+        flag += 1
+    if not mode or len(rest) != 1:
+        return misuse(USAGE)
+    if mode == "select":
+        if not task:
+            return misuse('--select needs --task "TEXT"')
+        if component:
+            return misuse("--component only means something with --states")
+    elif task:
+        return misuse("--task only means something with --select")
+    try:
+        text = snapshot_text(rest[0])
+    except (OSError, UnicodeDecodeError) as exc:
+        return misuse("cannot read %s: %s" % (rest[0], exc))
+    numbered = lines(text)
+    if not numbered:
+        return misuse("%s holds no lines" % rest[0])
+    reason = off_reason()
+    if reason:
+        return no_judgement(reason)
+    return select(numbered, task) if mode == "select" \
+        else states(numbered, component)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

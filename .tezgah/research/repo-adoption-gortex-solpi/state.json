@@ -1,0 +1,43 @@
+{
+  "question": "Do zzet/gortex and NVlabs/SoL-Pi carry features worth adopting into tezgah, and what would each cost to adopt?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-22",
+  "evaluation": {
+    "metric": "sources screened and claims carried: one note per source under literature/ with one literature/INDEX.jsonl row each (3 notes, 3 rows, the two repositories labelled grey with a quality judgement), 10 claims each citing a literature/ note with a falsification criterion and provenance ai-executed, at zero refusals from `bin/tezgah-research check repo-adoption-gortex-solpi`",
+    "baseline": "no run: no repository installed, no index built, no model call, nothing under experiments/, no predictions.jsonl; no number in this line is a measurement of either repository or of tezgah - it is a deliverable count over a reading pass, not a behavioural metric",
+    "locked_at": "2026-09-22, the date the survey's reading pass was run; written into state.json at the close-out, so it is a criterion over artifacts already in the tree rather than a pre-registered behavioural metric. No claim in this line reports a number this session measured.",
+    "environment": {
+      "model": "none (no model call was made; the two read-only surveys read files, and the paper was fetched through orx)",
+      "harness": "bin/tezgah-research, the research layer only",
+      "prompt": "bin/tezgah-research init repo-adoption-gortex-solpi --question <the question above> --allow-open <the five open lines' reasons>"
+    }
+  },
+  "hypotheses": [
+    "H1 (REFUTED as posed): zzet/gortex is a candidate replacement for the engine behind tezgah's code-graph rule. Refuted by C01 - the engine is colbymchenry/codegraph (MIT, Rust, 71,724 stars), decided by measurement in plans/done/010-codegraph-backend-migration.md, and gortex (Apache-2.0, Go, 1,626 stars) is a separate product with its own verbs, env var and store.",
+    "H2 (REFUTED): NVlabs/SoL-Pi ships the auto-research loop its paper describes, so the loop itself is an adoption candidate. Refuted by C06 - 24 source files under src/sol-pi hold four Pi-extension mechanisms and no proposal generator, gate, environment builder or evaluator; the loop (152 proposals, about 535 environments) is prose, and the mechanisms need a Pi host tezgah does not have.",
+    "H3 (CONFIRMED): both repositories carry borrowable ideas that cost no dependency. Confirmed by C02, C03, C04, C07 and C08 - six ideas, four of them about the shape of an answer tezgah already gives (an in-band provenance floor, a two-lifetime write, a pre-committed savings baseline, a verbatim-quote receipt) and two about measurement it lacks (a pre-rollout screen, a token and cost counter-metric), none of which requires either repository installed."
+  ],
+  "sessions": [
+    {
+      "date": "2026-09-22",
+      "tag": "user",
+      "what": "asked for a survey of zzet/gortex and NVlabs/SoL-Pi as adoption candidates, with a per-idea verdict and its cost; no implementation, no commit"
+    },
+    {
+      "date": "2026-09-22",
+      "tag": "ai-executed",
+      "what": "two read-only surveys read both repositories at first hand through the GitHub API and raw endpoints (README, docs, source tree, CI, releases, metadata) and compared them against tezgah's own surfaces (hooks/tezgah_policy.py, hooks/tezgah_agents.py, hooks/tezgah_index.py, bin/tezgah-setup, bin/tezgah-doctor, benchmarks/codegraph-bench/probe.py, workflows/*.js); the companion paper 2609.20519 was fetched through orx"
+    },
+    {
+      "date": "2026-09-22",
+      "tag": "ai-executed",
+      "what": "wrote the three literature notes (gortex and SoL-Pi grey, the paper formal) with one INDEX.jsonl row each, and recorded C01-C10 through the CLI - each with a falsification criterion, provenance ai-executed, kind literature and a proof naming a note; no scope was declared because no claim rests on a row this line produced"
+    },
+    {
+      "date": "2026-09-22",
+      "tag": "ai-executed",
+      "what": "closed the line: wrote findings.md (four sections, every Patterns bullet naming its source), the report with the six per-idea verdicts and the dependency answer, and to_human/review.json whose findings each quote the file they target verbatim; locked the screening-discipline evaluation, moved phase to concluded with direction conclude, and appended the closing log line. Nothing was installed, run, benchmarked, committed or measured, and no note, index row or claim was edited in place."
+    }
+  ]
+}

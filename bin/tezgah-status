@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""tezgah-status [PATH] [SESSION_ID] - the armed/used checklist for any host.
+
+Reads the same core the hooks do. Claude Code and Cursor show the color form in
+their status line; this CLI is how every host (and a human) gets it:
+
+  tezgah-status            plain one line (or ANSI when stdout is a terminal)
+  tezgah-status --color    force ANSI (green in force, yellow on-demand, red off)
+  tezgah-status --no-color force plain, or set NO_COLOR
+  tezgah-status --json     the structured segments (key/state/glyph/text)
+  tezgah-status --counters [SESSION_ID] [PATH]
+                           this session's ledger aggregate
+  tezgah-status --counters --all
+                           every ledger on this machine in one aggregate, plus
+                           `ledgers`: the false-completion rate over the corpus,
+                           which no single session can answer
+  tezgah-status --unclassified [PROGRAM]
+                           the gate's own blind spot, mined from every ledger on
+                           this machine: shell calls that ran, were never
+                           refused, and whose command the class table derives no
+                           effect class from. The ranked list is by program
+                           (`gh`, `aws`, `curl`, ...) - the token the table is
+                           grown from; with PROGRAM, that program's own commands,
+                           ranked. `--json` prints the whole fold.
+  tezgah-status --failure-shapes
+                           the recurring refusal shapes mined from every ledger
+                           on this machine, with the corpus size read: one row
+                           per shape refused in at least RECURRING_SESSIONS (5)
+                           distinct sessions, carrying its fires-per-session
+                           beside the count so a frequency-ranked reading cannot
+                           recommend the rule that fires most - `drift` fires on
+                           long careful turns whether or not anything is
+                           drifting. A report, not a gate: it always exits 0.
+                           `--json` prints the whole fold.
+  tezgah-status --legend   explain the marks
+  tezgah-status --observable=consult,research,graph,orch
+                           the measures this surface can see; a measure outside
+                           the set renders as dim "no state" instead of claiming
+                           "armed, not used yet". A host that cannot see a skill
+                           read (dsh) passes the tool-use four.
+
+The session id may be passed as the second argument or via TEZGAH_SESSION;
+without it the "used" marks cannot light up, so a host that knows the id should
+pass it.
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_context import (  # noqa: E402
+    LEGEND, color_default, health_segments, render_line)
+
+
+def main():
+    args = sys.argv[1:]
+    flags = {a for a in args if a.startswith("--")}
+    pos = [a for a in args if not a.startswith("--")]
+    known = {"--legend", "--json", "--color", "--no-color", "--counters",
+             "--all", "--unclassified", "--failure-shapes", "--help"}
+    unknown = sorted(f for f in flags
+                     if f not in known and not f.startswith("--observable="))
+    if unknown:
+        sys.stderr.write("tezgah-status: unknown option(s): %s (try --help)\n"
+                         % ", ".join(unknown))
+        return 2
+    if "--help" in flags:
+        sys.stdout.write(__doc__.strip() + "\n")
+        return 0
+    if "--legend" in flags:
+        sys.stdout.write(LEGEND)
+        return 0
+    if "--all" in flags and "--counters" not in flags:
+        sys.stderr.write("tezgah-status: --all only means something with "
+                         "--counters\n")
+        return 2
+    if "--counters" in flags:
+        import tezgah_integrity as ti
+        if "--all" in flags:
+            counts = ti.counters_all()
+            head = "all %d ledgers" % counts["ledgers"]
+        else:
+            session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
+            counts = ti.counters(session)
+            head = "session %s" % (session or "(none)")
+        if "--json" in flags:
+            print(json.dumps(counts, sort_keys=True))
+            return 0
+        print("%s: %d events" % (head, counts["events"]))
+        for key in ("steps", "tool_error_rate", "claims", "false_completion",
+                    "denies", "nudges", "fanout", "consult", "codegen",
+                    "codegen_failed", "judge", "shape"):
+            value = counts[key]
+            if key == "denies":
+                value = ", ".join("%s=%d" % kv for kv in sorted(value.items())) or "none"
+            print("  %-16s %s" % (key, value))
+        print("  %-16s %s" % ("kinds", ", ".join(
+            "%s=%d" % kv for kv in sorted(counts["kinds"].items())) or "none"))
+        return 0
+    if "--unclassified" in flags:
+        # The reader itself is the gate's (tezgah_gate.unclassified_effects): it
+        # owns effect_class, and a second copy of the class table here is the
+        # fork this CLI exists to avoid.
+        import tezgah_gate as tg
+        program = pos[0] if pos else None
+        found = tg.unclassified_effects(program=program)
+        if "--json" in flags:
+            print(json.dumps(found, sort_keys=True))
+            return 0
+        print("%d ledgers: %s%d allowed shell calls derived no effect class, "
+              "%d distinct" % (found["ledgers"],
+                               "`%s` - " % program if program else "",
+                               found["rows"], found["distinct"]))
+        # No filter: the programs, because the ranking is what says which names
+        # are service-shaped. With one: that program's commands, because "which
+        # `gh` calls are unread" is the next question after "gh is unread".
+        ranked = sorted((found["commands"] if program else found["programs"]).items(),
+                        key=lambda kv: (-kv[1], kv[0]))
+        for name, count in ranked[:tg.UNCLASSIFIED_CAP]:
+            print("  %6d  %s" % (count, name))
+        if len(ranked) > tg.UNCLASSIFIED_CAP:
+            print("  ... and %d more %s" % (
+                len(ranked) - tg.UNCLASSIFIED_CAP,
+                "commands of `%s` (--json prints all)" % program if program
+                else "programs (re-run with one of them)"))
+        return 0
+    if "--failure-shapes" in flags:
+        # The fold is the shapes module's (tezgah_shapes.failure_shapes): it
+        # owns the corpus walk and the ranking, and a second copy here is the
+        # fork this CLI exists to avoid - same as the --unclassified branch.
+        import tezgah_shapes as ts
+        found = ts.failure_shapes()
+        if "--json" in flags:
+            print(json.dumps(found, sort_keys=True))
+            return 0
+        print("%d ledgers: %d shapes recur in >= %d distinct sessions" % (
+            found["ledgers"], len(found["shapes"]),
+            found["recurring_sessions"]))
+        # Only when the corpus mixes contracts: a fold that read one version of
+        # the rows needs no line, and one that read pre-version rows beside
+        # current ones must say so - otherwise a shape that moved because the
+        # row's meaning changed reads as a rule that changed.
+        contracts = found.get("row_versions") or {}
+        if len(contracts) > 1 or "unversioned" in contracts:
+            print("  row contracts read: %s" % ", ".join(
+                "%s x%d" % (label, n) for label, n in sorted(contracts.items())))
+        for shape in found["shapes"]:
+            # fires-per-session rides every row: the count alone would rank the
+            # rule that fires on long turns above the one that recurs
+            print("  %6d sessions %6d fires %6.2f/session  %s" % (
+                shape["sessions"], shape["fires"],
+                shape["fires_per_session"], shape["rule"]))
+            for command in shape["commands"]:
+                print("           %s" % command)
+        return 0
+    cwd = os.path.realpath(pos[0] if pos else os.getcwd())
+    session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
+    spec = next((f.split("=", 1)[1] for f in flags
+                 if f.startswith("--observable=")), None)
+    observable = set(spec.split(",")) if spec else None
+    segs = health_segments(cwd, session, observable=observable)
+    if "--json" in flags:
+        print(json.dumps(segs))
+        return 0
+    color = "--color" in flags or (
+        "--no-color" not in flags and sys.stdout.isatty() and color_default())
+    line = render_line(segs, color=color)
+    if line:
+        print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

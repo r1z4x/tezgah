@@ -1,0 +1,143 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+# No job inherits a token it does not need: the workflow defaults to none and
+# each job re-declares only what it reads.
+permissions: {}
+
+jobs:
+  test:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Byte-compile every script
+        run: python3 -m compileall -q hooks hosts bin statusline.py
+      - name: Run the stdlib test suite
+        run: python3 -m unittest discover -s tests -v
+      - name: Install ruff
+        run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Every docs citation lands in the symbol it names
+        run: python3 bin/tezgah-docs --citations
+      - name: Every open plan names the command that proves it
+        run: python3 skills/plan-add/render_table.py --acceptance --strict
+
+  apps-e2e:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "20"
+      # Handshake only: no browser or device, so it stays deterministic.
+      # TEZGAH_E2E_STRICT makes a server that cannot start a failure, not a skip.
+      - name: App MCP handshake (playwright + mobile-mcp)
+        run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py
+
+  artifact-install:
+    # The release shape rather than the checkout: the tarball is built, unpacked
+    # and installed from, so a path that only resolves in a git checkout (or a
+    # tree entry the MANIFEST does not carry) fails here and nowhere else.
+    # TEZGAH_DIST points upgrade.sh at the freshly built dist/ instead of a
+    # published release, so no tag has to exist for CI to exercise the real
+    # fetch-verify-unpack-flip code path; TEZGAH_NO_DEPS keeps the optional
+    # tools' own installers off the network.
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build the release artifact
+        run: bash packaging/build.sh --version 0.0.0-test --out "$RUNNER_TEMP/dist"
+      - name: Install from the built artifact
+        env:
+          TEZGAH_DIST: ${{ runner.temp }}/dist
+          TEZGAH_NO_DEPS: "1"
+        run: |
+          bash packaging/install.sh --version 0.0.0-test --prefix "$RUNNER_TEMP/prefix"
+          # The tree answers for itself, from the VERSION the build wrote: a build
+          # that stops writing it, or a reader that stops reading it, would
+          # otherwise answer plausibly with the CHANGELOG heading.
+          got=$("$RUNNER_TEMP/prefix/current/bin/tezgah-setup" --version)
+          [ "$got" = 0.0.0-test ] || {
+            echo "the installed tree reports '$got', not the built 0.0.0-test"; exit 1; }
+          "$RUNNER_TEMP/prefix/current/bin/tezgah-setup" --report
+      - name: Install the unpacked artifact, end to end
+        run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_packaged_install.py
+
+  artifact-install-windows:
+    # The only place the Windows claim is proven: the same artifact install from
+    # the native entry point on a real windows runner. `shell: bash` is Git Bash,
+    # the shell the sh-based packaging scripts are written against, and install.ps1
+    # is the twin a Windows user actually runs.
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      # Windows Python ships `python.exe` with no `python3`, and both build.sh and
+      # the smoke probe PATH for `python3`; without this the smoke would take its
+      # SKIP branch and the Windows claim would go unproven.
+      - name: Put python3 on PATH
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          printf '#!/bin/sh\nexec python "$@"\n' > "$HOME/.local/bin/python3"
+          chmod +x "$HOME/.local/bin/python3"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build the release artifact
+        shell: bash
+        run: bash packaging/build.sh --version 0.0.0-test --out "$RUNNER_TEMP/dist"
+      - name: Install from the built artifact
+        shell: pwsh
+        env:
+          TEZGAH_DIST: ${{ runner.temp }}\dist
+          TEZGAH_NO_DEPS: "1"
+        run: |
+          pwsh -File packaging/install.ps1 -Version 0.0.0-test -Prefix "$env:RUNNER_TEMP\prefix"
+          # The interpreter is named rather than the script executed: a host on
+          # Windows starts through the resolver's `python3`/`py`, so the bare path
+          # is not guaranteed to be executable here.
+          $setup = "$env:RUNNER_TEMP\prefix\current\bin\tezgah-setup"
+          $got = python $setup --version
+          if ($got -ne '0.0.0-test') {
+            throw "the installed tree reports '$got', not the built 0.0.0-test"
+          }
+          python $setup --report
+      - name: Install the unpacked artifact, end to end
+        shell: bash
+        run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_packaged_install.py

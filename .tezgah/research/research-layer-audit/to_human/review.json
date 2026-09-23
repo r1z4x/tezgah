@@ -1,0 +1,105 @@
+{
+  "dimensions": {
+    "evidence_relevance": 5,
+    "falsifiability": 5,
+    "scope_calibration": 4,
+    "argument_coherence": 5,
+    "exploration_integrity": 5,
+    "methodological_rigour": 4
+  },
+  "grade": "accept",
+  "notes": "mean 4.67 after the implementation pass; methodological_rigour stays 4 because two defects escaped the suite that shipped beside them and the parent did not re-run the writers' mutation evidence independently",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "critical",
+      "target": "experiments/E1-documented-rule-enforcement/results.jsonl",
+      "quote": "\"documented\": \"lock the metric and baseline before running anything (state.json evaluation)\", \"line\": \"state.json with e",
+      "observation": "the checker never opens the artifact that carries the rule",
+      "fix": "I2/I3/I4 - field the evaluation, the claim kind and the results source, then require them",
+      "status": "closed"
+    },
+    {
+      "id": "F2",
+      "severity": "critical",
+      "target": "experiments/E2-order-rule-needs-a-tracked-line/results.jsonl",
+      "quote": "\"order_warning\": true, \"said\": [\"warn q:",
+      "observation": "the prescribed layout is gitignored, so the flagship rule is unreachable where it must fire",
+      "fix": "I1 - name the tracking requirement at init and make check --strict refuse an ignored line path",
+      "status": "closed"
+    },
+    {
+      "id": "F3",
+      "severity": "major",
+      "target": "experiments/E1-documented-rule-enforcement/analysis.md",
+      "quote": "of **75 claims, 24 (32%)** name\nan artifact the line produced (`experiments/`, `literature",
+      "observation": "68% of existing claims are bound to nothing the line produced",
+      "fix": "I3 - per-kind proof rules, and a proof with no path token is refused",
+      "status": "closed"
+    },
+    {
+      "id": "F4",
+      "severity": "major",
+      "target": "experiments/E3-orx-linkage/results.jsonl",
+      "quote": "\"predicted\": \"0 of 6 lines\", \"hit\": true",
+      "observation": "no claim names a run and no tezgah code reads orx: the evidence chain crosses a human",
+      "fix": "I4 - a results row carries its source, and source --run captures the log as the receipt",
+      "status": "closed"
+    },
+    {
+      "id": "F5",
+      "severity": "major",
+      "target": "experiments/E4-non-academic-channel-and-synthesis/results.jsonl",
+      "quote": "5 of 14 - all five in product-analysis: research.google.com,",
+      "observation": "the grey channel is used unprompted and unnamed; nothing compares sources",
+      "fix": "I5/I6 - a source-classed INDEX and a review artifact whose findings quote verbatim",
+      "status": "closed"
+    },
+    {
+      "id": "F6",
+      "severity": "minor",
+      "target": "experiments/E5-research-routing-map/results.jsonl",
+      "quote": "is never classified, so the layer's own",
+      "observation": "the surface that reports the layer measures a proxy for it",
+      "fix": "I7 - classify the layer's own CLI; correct the two opencode statements; add the docs page",
+      "status": "closed"
+    },
+    {
+      "id": "F7",
+      "severity": "minor",
+      "target": "experiments/E6-coverage-gap-list/results.jsonl",
+      "quote": "validated nowhere\", \"code\": \"hooks/tezga",
+      "observation": "25 documented behaviours are unpinned, clustered as prose, CLI edges, degradation and the status surface",
+      "fix": "I8 - pin them, starting with the skill's method prose and the CLI's refusal edges",
+      "status": "closed"
+    },
+    {
+      "id": "F8",
+      "severity": "major",
+      "status": "closed",
+      "target": "experiments/E7-implementation-acceptance/results.jsonl",
+      "quote": "the write path accepts a row-less evidence file (check will",
+      "observation": "the write path refused a claim the checker only warns about, found by the acceptance runner and invisible to the shipped suite",
+      "fix": "reported with the reproduction; fixed on both sides and pinned from both directions"
+    },
+    {
+      "id": "F9",
+      "severity": "critical",
+      "status": "closed",
+      "target": "experiments/E8-post-change-enforcement/analysis.md",
+      "quote": "The first post-change run was **5 of 8**: P6 failed, and it was a hole rather than\na probe",
+      "observation": "kind: evidence accepted a proof naming only a repository file the line never produced - E1's P6, half-closed by the first pass",
+      "fix": "reported with the reproduction and the rule shape; fixed on both sides; re-run took the probe set from 5 of 8 to 6 of 8"
+    },
+    {
+      "id": "F10",
+      "severity": "minor",
+      "status": "closed",
+      "reason": "the relation is a field now, and the checker prints it: C49 carries `supersedes: C27` and C48 carries `supersedes: C17`, and `check research-layer-audit` reports each with the message that a reader who opens the superseded id alone reads the statement this line has since replaced - the relation this finding says nothing reported. What remains is smaller and is named in the report's limits: the relation is printed as a warning, so `--strict` does not stop on a stale row.",
+      "target": "claims.jsonl",
+      "quote": "C27",
+      "observation": "a claim cannot be revised in place: C27's number went stale and C34 records the supersession, but nothing reports the relation",
+      "fix": "a supersedes relation on a claim, reported by check"
+    }
+  ]
+}

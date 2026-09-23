@@ -1,0 +1,143 @@
+{
+  "note": "The keep-or-translate rail the term arm is given. Every entry carries the authority it comes from. Keep entries are the do-not-translate categories (identifiers, version strings, unit symbols, product names, URIs, standard numbers); translate entries are the calques the Turkish editorial authorities name, with the replacement they give.",
+  "keep": [
+    {
+      "form": "retry_queue",
+      "severity": 100,
+      "reason": "code identifier",
+      "source": "Mozilla l10n style guide: variables are never translated; W3C ITS: a translated attribute value breaks the page"
+    },
+    {
+      "form": "handle_timeout",
+      "severity": 100,
+      "reason": "code identifier",
+      "source": "Mozilla l10n style guide"
+    },
+    {
+      "form": "deploy_prod.sh",
+      "severity": 100,
+      "reason": "file name of a script",
+      "source": "Mozilla l10n style guide; ISO/IEC Directives Part 2 cl.9.2 (mark-up and code follow their own syntax)"
+    },
+    {
+      "form": "src/db/pool.py",
+      "severity": 100,
+      "reason": "file path",
+      "source": "Mozilla l10n style guide"
+    },
+    {
+      "form": "s3://kavara-backups",
+      "severity": 100,
+      "reason": "URI",
+      "source": ".NET string guidance: culture-independent strings (paths, tags, identifiers) are compared ordinally"
+    },
+    {
+      "form": "Kavara",
+      "severity": 100,
+      "reason": "product name",
+      "source": "Apple identity guidelines: do not translate and do not transliterate the product name"
+    },
+    {
+      "form": "v2.1.3",
+      "severity": 10,
+      "reason": "version string",
+      "source": "Microsoft Turkish localization style guide: version numbers are not translated"
+    },
+    {
+      "form": "v2.1.2",
+      "severity": 10,
+      "reason": "version string",
+      "source": "Microsoft Turkish localization style guide"
+    },
+    {
+      "form": "120 ms",
+      "severity": 10,
+      "reason": "unit symbol",
+      "source": "BIPM SI Brochure cl.5.2: unit symbols are mathematical entities, not abbreviations - no plural, no full stop"
+    },
+    {
+      "form": "2.5 GB",
+      "severity": 10,
+      "reason": "unit symbol",
+      "source": "BIPM SI Brochure cl.5.2"
+    },
+    {
+      "form": "p95",
+      "severity": 10,
+      "reason": "metric name used as a term of art",
+      "source": "ISO/IEC Directives Part 2 cl.9.2 (technical notation follows its own convention)"
+    },
+    {
+      "form": "API",
+      "severity": 1,
+      "reason": "acronym used as-is",
+      "source": "Google developer documentation: use one term per concept, define abbreviations, do not re-invent them"
+    },
+    {
+      "form": "1.240",
+      "severity": 10,
+      "reason": "a number written with the local thousands separator",
+      "source": "ISO/IEC Directives Part 2 cl.9.1: the three-digit grouping does not apply to every number, and the local convention decides the separator"
+    }
+  ],
+  "translate": [
+    {
+      "from": "organize etmek",
+      "to": "düzenlemek",
+      "severity": 10,
+      "reason": "support-verb phrase where a single Turkish verb exists",
+      "source": "Alpay, Türkçe Sorunları Kılavuzu (organizasyon / organize etmek)"
+    },
+    {
+      "from": "aksiyon alınması",
+      "to": "önlem alınması / harekete geçilmesi",
+      "severity": 10,
+      "reason": "word-for-word rendering of take action",
+      "source": "Alpay, T24 column on word-for-word translation"
+    },
+    {
+      "from": "realize edilmiştir",
+      "to": "gerçekleştirilmiştir",
+      "severity": 10,
+      "reason": "loan verb with a Turkish equivalent the dictionary itself points to",
+      "source": "TDK Güncel Türkçe Sözlük: realizasyon -> gerçekleştirme"
+    },
+    {
+      "from": "implemente edilmiştir",
+      "to": "uygulanmıştır / hayata geçirilmiştir",
+      "severity": 10,
+      "reason": "loan verb with no dictionary entry",
+      "source": "TDK Güncel Türkçe Sözlük: no entry for implemente"
+    },
+    {
+      "from": "vizyoner",
+      "to": "uzak görüşlü",
+      "severity": 10,
+      "reason": "loan adjective with a Turkish equivalent",
+      "source": "Alpay, T24 column"
+    },
+    {
+      "from": "söz konusu",
+      "to": "adı geçen / bu",
+      "severity": 1,
+      "reason": "bureaucratic formula where a plain reference works",
+      "source": "Anadolu Ajansı, Türkçeyi Doğru Kullan (gereksiz ifadeler)"
+    },
+    {
+      "from": "Bu bağlamda",
+      "to": "Bu nedenle / Bu yüzden",
+      "severity": 1,
+      "reason": "calque of in this context",
+      "source": "Alpay, T24 column (word-for-word translation)"
+    }
+  ],
+  "register_overrides": [
+    {
+      "form": "Deadline",
+      "register": "sales",
+      "decision": "keep",
+      "reason": "plaza dili: in the Turkish corporate register this loan is the established term, and speakers give no exact Turkish equivalent as their reason for using it",
+      "source": "plaza-dili (tr.wikipedia entry; the 470-person Preply survey reported by İndigo Dergisi)"
+    }
+  ]
+}

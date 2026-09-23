@@ -1,0 +1,86 @@
+{
+  "dimensions": {
+    "evidence_relevance": 4,
+    "falsifiability": 4,
+    "scope_calibration": 3,
+    "argument_coherence": 5,
+    "exploration_integrity": 5,
+    "methodological_rigour": 4
+  },
+  "grade": "accept",
+  "notes": "Mean 4.17. The line answered its question and the answer required a correction of its own prediction: the adoptable material is a decomposition discipline rather than code (held), but the two subsystems the protocol named as 'most likely to have to build rather than borrow' turned out to be a key plus a branch and a two-file rule, while the fork half was not a source at all because the repository declares it unsound. Evidence relevance is 4, not 5, because two of the seven notes are the surveyed project's own launch surface and three more are arXiv preprints that are not peer-reviewed venue records; every one is labelled in INDEX.jsonl with a quality note, and six of the seven arXiv records were re-confirmed through the arXiv API independently of the notes that quote them. Scope calibration is the weak dimension at 3: the line declares no scope on any claim because it recorded no row, which is honest but leaves the reader to infer that every claim is bounded by 'read, not run' - and four claims describe mechanisms inside a repository its own CONTRIBUTING.md calls 'selected components from a larger internal codebase', so the claim's reach is narrower than the repository it names. Argument coherence is 5: the reject verdict is argued from one measured source on the process-boundary axis rather than from preference, and the ranking in the report follows the costs. Exploration integrity is 5: the falsifier in the protocol is stated, scored and reported as NOT fired, one prediction half is reported wrong in the direction it was wrong, the coverage gaps of all seven slices are carried rather than dropped, and eight candidates are rejected with reasons. Methodological rigour is 4: seven slices with per-slice citation requirements and an independent literature step, but the load-bearing claims were re-verified selectively rather than exhaustively, and one slice's report contained no candidate list at all after its refutation pass. Nothing was built, installed, executed or measured, and the line holds no evidence claim.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "target": "to_human/report.md",
+      "quote": "Costs are **estimates**, formed from the shape of the change, not measured.",
+      "observation": "The ranking's payoff-per-line column is the part of this report a reader will act on, and every figure in it is a guess. Three of the nine are counts of files a change would touch, which are the most defensible; the rest are order-of-magnitude judgements formed from having read the surrounding code, and none was produced by making the change. The caveat sits one line above the table rather than in the column header, so a reader who skims the table meets 'Cost (est.)' nine times and the sentence that explains it once. The same applies to the CI item, whose cost is given as one file without saying that the SHA pins must be looked up per action.",
+      "fix": "Move the estimate caveat into the table's own caption so no reader meets a figure without the word beside it, and, where a figure is a file count rather than a judgement, say which it is.",
+      "status": "open"
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "target": "findings.md",
+      "quote": "no number in this line is a measurement of either system",
+      "observation": "The line holds twenty claims and not one is an evidence claim: all are literature claims over a note, code claims over an artifact of this repository, or a derivation. Nothing was compiled, run, imported or benchmarked, and no scope is declared on any claim because a scope is owed only by a claim resting on a recorded row. That is the honest state of a reading pass, and it is also the ceiling: this line can say what the repository's code does when read and what six papers claim, and it cannot say what either system does when run. The report states this, but a reader who reads only the nine-item ranking can take a method that was written on paper for a method that was tried.",
+      "fix": "Not repairable inside this line: repairing it means building and running one of the two systems, which is a different experiment and a different deliverable.",
+      "status": "accepted"
+    },
+    {
+      "id": "F3",
+      "severity": "major",
+      "target": "log.md",
+      "quote": "every tezgah-side claim a slice reported was re-read before it could",
+      "observation": "Verification was selective. The claims that entered claims.jsonl were re-read at their cited lines, and the two findings that changed the line's conclusion (the dead omission record, the FIXME on the fork path) were confirmed twice. But the twenty-eight adapt/accept candidates that did not become claims were carried on the reporting agent's citation alone, and the refutation lists - which are what tell a reader what was considered and refused - were not re-read at all. The distinction is not stated in the log: the sentence above is true of the claim rows and silent about the rest.",
+      "fix": "State the boundary in the log: claims were re-verified, candidates were not, and the refutation lists rest on one reading each.",
+      "status": "open"
+    },
+    {
+      "id": "F4",
+      "severity": "minor",
+      "target": "experiments/E1-repo-survey/protocol.md",
+      "quote": "versioned, forkable session-store and the stable-id input dedup are the two",
+      "observation": "The prediction is left standing as written and scored in analysis.md, which is the correct order - amending a protocol after its results is the one thing the layer refuses. But the protocol is also the first file a reader of this line opens, and it contains a sentence the line then contradicts without saying so in the file. A reader who stops at the protocol takes a wrong claim away.",
+      "fix": "Add one line under the prediction pointing at analysis.md's score, without altering the prediction itself - an annotation, not an amendment.",
+      "status": "open"
+    },
+    {
+      "id": "F5",
+      "severity": "minor",
+      "target": "to_human/report.md",
+      "quote": "architecture class tezgah's *hosts* occupy, not tezgah",
+      "observation": "The placement is argued from the clone, and the clone is not the product: the repository's own CONTRIBUTING.md states it 'contains selected components from a larger internal codebase' and that pull requests are not reviewed or merged. So the component boundaries read here are the boundaries of a published slice, and a mechanism missing from the slice may exist behind it. The claim rows cite the clone for what they assert about the code, which is correct, but the report's class-level statement is about a product and rests on a slice.",
+      "fix": "Name the slice boundary in the sentence that places the repository: the class is read from the published components, and the unpublished remainder is unobserved.",
+      "status": "open"
+    },
+    {
+      "id": "F6",
+      "severity": "suggestion",
+      "target": "experiments/E1-repo-survey/analysis.md",
+      "quote": "A separate literature step produced seven notes",
+      "observation": "The seven survey reports are not stored under the line. Each returned a structured object with candidates, refutations and coverage gaps; only the distilled candidates reached findings.md and the report, and the raw reports live in the session's agent transcripts rather than in a file a later reader can open. The coverage gaps in particular were carried into the findings text, but the per-slice lists of what was NOT read - which are the most honest thing a survey produces - survive here only in summary.",
+      "fix": "Store each slice's returned object under the experiment directory so a later session can re-check a refutation without re-reading 61,771 lines.",
+      "status": "open"
+    },
+    {
+      "id": "F7",
+      "severity": "major",
+      "target": "to_human/report.md",
+      "quote": "asserted a defect from half a function",
+      "observation": "The line's headline finding - a silent cut that drops the fourth open plan from the injected context - was wrong, and it was wrong in the way this repository's own ledger exists to catch: a function was read up to its loop and not to its return, and the absence of a marker was asserted from the part that had been read. `open_plans` does append `(+N more)` (`hooks/tezgah_context.py:321`), introduced by `2cc51e4` and present before this session began. Recommendation it was supporting - ranked first of nine - rested on it. What makes this worth recording rather than quietly fixing is that the same session produced both the error and the measurement that exposed it: only implementing the item forced the full read. A survey that stops at candidates would have shipped the wrong one.",
+      "fix": "Done in this session: C23c recorded as refuted and superseding C23b, and the report, findings and analysis corrected in place. The durable fix is procedural and already in the repository's lessons ledger - read the whole function before naming it a defect.",
+      "status": "accepted"
+    },
+    {
+      "id": "F8",
+      "severity": "minor",
+      "target": "to_human/report.md",
+      "quote": "it is a host's own statement of where that host is going",
+      "observation": "The second source is one vendor's account of its own product, and the line treats it more generously than it treats the earlier grey note. The playbook's three numbers - 78 examples reviewed, 36.6s against 42.2s and 37.0s, 267s to 90ms - were not reproduced, the code behind them is not shipped here, and the author is arguing for a rewrite he is building. The line does label the class in INDEX.jsonl with a quality note and repeats that the figures are the author's own, but the report's two derived uses of it (a cost argument for plan 012 and a filtering step for plan 004) inherit that interest without saying so at the point of use.",
+      "fix": "Name the interest beside each derived use rather than only in the note: the roster measurement is a vendor's own benchmark, and the AutoQA experience is a maintainer's recollection, not a study.",
+      "status": "open"
+    }
+  ]
+}

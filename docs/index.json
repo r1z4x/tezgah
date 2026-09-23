@@ -1,0 +1,283 @@
+{
+ "version": 1,
+ "about": "The machine-readable index of docs/. bin/tezgah-docs reads this; tests/test_docs.py keeps it in step with the directory. Every path is repo-relative.",
+ "pages": [
+  {
+   "path": "docs/architecture.md",
+   "title": "Architecture: the layers and what runs when",
+   "audience": "maintainer, agent new to the repo",
+   "answers": [
+    "what are the layers and what does each own",
+    "what runs when from session start to Stop",
+    "what does a session pay for and what is on demand",
+    "where is state kept and who writes each store"
+   ],
+   "sources": [
+    "hooks/tezgah_context.py",
+    "hooks/tezgah_policy.py",
+    "hooks/tezgah_paths.py",
+    "bin/tezgah-setup",
+    "hosts/codex/hook.py",
+    "hosts/omp/hook.py",
+    "statusline.py"
+   ]
+  },
+  {
+   "path": "docs/layers.md",
+   "title": "Layers: the four layers, and which one tezgah is",
+   "audience": "agent, maintainer, anyone writing a claim that says harness",
+   "answers": [
+    "which layer is tezgah and which one is the harness",
+    "is tezgah an agent harness",
+    "what is the boundary against host, framework, SDK, IDE plugin, eval harness, orchestrator and MCP",
+    "which of the three senses of harness a sentence is using",
+    "what does the gate see of an MCP call"
+   ],
+   "sources": [
+    "docs/glossary.md",
+    "docs/hosts.md",
+    "hooks/tezgah_policy.py",
+    "hooks/tezgah_gate.py",
+    "hooks/tezgah_integrity.py",
+    "hooks/tezgah_apps.py",
+    "hooks/tezgah_paths.py",
+    "bin/tezgah-setup",
+    "skills/harness/SKILL.md"
+   ]
+  },
+  {
+   "path": "docs/hosts.md",
+   "title": "Hosts: what each one gets and what each one can see",
+   "audience": "maintainer, agent adding a host or a mark",
+   "answers": [
+    "what does each host get and where is it written",
+    "which host can observe what",
+    "what is a host adapter responsible for",
+    "what does it take to add a host"
+   ],
+   "sources": [
+    "hooks/tezgah_paths.py",
+    "bin/tezgah-setup",
+    "hosts/codex/hook.py",
+    "hosts/cursor/hook.py",
+    "hosts/omp/hook.py",
+    "hosts/omp/tezgah-hook.ts.in",
+    "hosts/opencode/plugins/tezgah.js",
+    "hosts/dsh/hooks.json",
+    "hosts/dsh/statusline/lib/index.js",
+    "statusline.py"
+   ]
+  },
+  {
+   "path": "docs/contract.md",
+   "title": "Contract: what a session is told, and how a rule is disarmed",
+   "audience": "agent, maintainer adding a rule",
+   "answers": [
+    "what exactly is a session told and from which file",
+    "how is a rule disarmed",
+    "how is a rule added and what keeps the copies in step",
+    "what happens when the injected text grows too large"
+   ],
+   "sources": [
+    "hooks/tezgah_policy.py",
+    "hooks/tezgah_context.py",
+    "bin/tezgah-setup",
+    "skills/tezgah-contract/SKILL.md",
+    "output-styles/tezgah.md",
+    "tests/test_context.py"
+   ]
+  },
+  {
+   "path": "docs/gate.md",
+   "title": "Gate: every way a tool call can be refused",
+   "audience": "agent, reviewer, maintainer",
+   "answers": [
+    "why was my command denied",
+    "which decisions need the user's explicit approval and how is it given",
+    "what does the gate not catch on purpose",
+    "how do I add a gate rule"
+   ],
+   "sources": [
+    "hooks/tezgah_gate.py",
+    "hooks/projects-pretooluse.py",
+    "bin/tezgah-consent",
+    "hosts/opencode/plugins/tezgah.js",
+    "tests/test_gate.py"
+   ]
+  },
+  {
+   "path": "docs/evidence.md",
+   "title": "Evidence: the ledger, the Stop rule, snapshots",
+   "audience": "agent, maintainer",
+   "answers": [
+    "what stops an unverified done",
+    "what does the ledger hold and what never reaches it",
+    "how does a check get recorded as passed versus merely run",
+    "how do I undo a bad write"
+   ],
+   "sources": [
+    "hooks/tezgah_integrity.py",
+    "hooks/projects-posttooluse.py",
+    "hooks/projects-stop.py",
+    "hooks/tezgah_snapshot.py",
+    "hooks/tezgah_untrusted.py",
+    "bin/tezgah-rollback",
+    "bin/tezgah-capture"
+   ]
+  },
+  {
+   "path": "docs/status-line.md",
+   "title": "Status line: what each mark means and how it is drawn",
+   "audience": "agent, maintainer adding a mark",
+   "answers": [
+    "what does each status mark mean and why is it in that state",
+    "how does a surface draw the line",
+    "how do I see or debug the line for a session"
+   ],
+   "sources": [
+    "hooks/tezgah_context.py",
+    "bin/tezgah-status",
+    "statusline.py",
+    "hooks/projects-posttooluse.py",
+    "hosts/omp/tezgah-hook.ts.in",
+    "hosts/opencode/tui/tezgah-tui.tsx",
+    "hosts/dsh/statusline/lib/index.js"
+   ]
+  },
+  {
+   "path": "docs/judge.md",
+   "title": "Judge: the judgement seam, its three callers and its switches",
+   "audience": "agent, maintainer adding a caller",
+   "answers": [
+    "what is the judgement seam and is it a rule",
+    "which callers ask for a judgement and what is each for",
+    "where does the credential come from and what leaves the machine",
+    "how do I switch the judgement off",
+    "what does a judgement cost and how was that measured",
+    "what will the seam never be used for"
+   ],
+   "sources": [
+    "hooks/tezgah_judge.py",
+    "bin/tezgah-triage",
+    "bin/tezgah-docs",
+    "hooks/tezgah_skill_pick.py",
+    "hooks/tezgah_policy.py",
+    "hooks/tezgah_paths.py",
+    "tests/test_judge.py",
+    "tests/test_triage.py",
+    "tests/test_docs_router.py"
+   ]
+  },
+  {
+   "path": "docs/research.md",
+   "title": "Research: the line in the repository, the CLI that checks it, the mark it lights",
+   "audience": "agent, maintainer adding or checking a research line",
+   "answers": [
+    "where does a research line live and what does it hold",
+    "what does tezgah-research check refuse and what does it only warn about",
+    "what do init, claim, migrate and source write",
+    "how does a session learn that a research line is broken",
+    "what lights the research mark and how is the layer switched off",
+    "why may a new research line not be opened while another is unfinished"
+   ],
+   "sources": [
+    "hooks/tezgah_research.py",
+    "bin/tezgah-research",
+    "hooks/tezgah_policy.py",
+    "hooks/tezgah_context.py",
+    "skills/research/SKILL.md",
+    "tests/test_research.py"
+   ]
+  },
+  {
+   "path": "docs/skills.md",
+   "title": "Skills: what ships, and how one reaches a host",
+   "audience": "maintainer, agent adding a skill",
+   "answers": [
+    "what is a skill here and how does it reach a host",
+    "which skills ship and what does each do",
+    "how do I add a skill without breaking the router or the install report"
+   ],
+   "sources": [
+    "bin/tezgah-setup",
+    "skills/",
+    "commands/",
+    "NOTICE",
+    "tests/test_setup.py",
+    "tests/test_skills.py"
+   ]
+  },
+  {
+   "path": "docs/feature-audit.md",
+   "title": "Feature audit: one feature, every layer",
+   "audience": "agent auditing an existing feature; maintainer of the product rule",
+   "answers": [
+    "what does a feature-level audit cover that a screen review misses",
+    "what are the five matrices and the capability-change proposal",
+    "how is the feature-audit skill reached and what evidence backs it"
+   ],
+   "sources": [
+    "skills/feature-audit/SKILL.md",
+    "hooks/tezgah_policy.py",
+    "hooks/tezgah_context.py",
+    ".tezgah/research/feature-coherence/"
+   ]
+  },
+  {
+   "path": "docs/testing.md",
+   "title": "Testing: the checks, the probes, the e2e scripts",
+   "audience": "maintainer",
+   "answers": [
+    "how do I check this repo and what does each check catch",
+    "how do I write a test here that will not be deleted later",
+    "what do the probes and the e2e scripts need to run"
+   ],
+   "sources": [
+    "AGENTS.md",
+    ".github/workflows/ci.yml",
+    "tests/support.py",
+    "tests/e2e_analyze_wiring.py",
+    "tests/e2e_omp_statusline.py",
+    "tests/e2e_dsh_statusline.py"
+   ]
+  },
+  {
+   "path": "docs/operations.md",
+   "title": "Operations: install, upgrade, repair",
+   "audience": "operator, maintainer",
+   "answers": [
+    "how do I install verify and upgrade this on a machine",
+    "what does each installer flag do",
+    "how do I install or upgrade a released version without a git checkout",
+    "where does an installed version unpack and how do I roll back",
+    "something is broken what do I check first"
+   ],
+   "sources": [
+    "bin/tezgah-setup",
+    "bin/tezgah-doctor",
+    "bin/tezgah-rollback",
+    "packaging/build.sh",
+    "packaging/install.sh",
+    "packaging/upgrade.sh",
+    "packaging/install.ps1",
+    "RELEASING.md",
+    "README.md"
+   ]
+  },
+  {
+   "path": "docs/glossary.md",
+   "title": "Glossary: one term per concept",
+   "audience": "everyone",
+   "answers": [
+    "what does this word mean in this repository"
+   ],
+   "sources": [
+    "hooks/tezgah_context.py",
+    "hooks/tezgah_gate.py",
+    "hooks/tezgah_integrity.py",
+    "hooks/tezgah_paths.py",
+    "hooks/tezgah_policy.py"
+   ]
+  }
+ ]
+}

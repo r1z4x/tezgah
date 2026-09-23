@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""tezgah-consent <digest> | --last - the user's half of the gate's consent rule.
+
+The gate refuses an irreversible or outward-facing command once and records the
+ask as a `consent` row naming that action's digest; the identical command passes
+on the retry. This CLI answers the ask instead of spending it, so the approval
+is a row rather than a second attempt:
+
+  tezgah-consent <digest>   approve the action the gate asked about
+  tezgah-consent --last     approve the newest ask that no grant answers yet
+
+The grant lands in the ledger that carries the ask - the one session the gate
+reads it from. `TEZGAH_SESSION` names that session when the host sets it;
+otherwise every ledger is searched, newest activity first. The row written is
+`{"kind": "grant", "detail": "cli", "id": <digest>}`: the ask, the approval and
+a repeat the gate allowed without one (`repeat-allowed`) stay three rows.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
+
+# The window the gate reads its asks from (tezgah_gate.CONSENT_TAIL): an ask
+# older than this is one the gate can no longer see, so granting it would
+# approve something the gate still refuses.
+TAIL = 200
+
+
+def asks(rows):
+    """The consent asks in a ledger, oldest first, as (digest, effect class)."""
+    return [(str(r.get("id")), str(r.get("detail") or "")) for r in rows
+            if r.get("kind") == "consent" and r.get("id")]
+
+
+def granted(rows, digest):
+    """True when a grant answers this ask already."""
+    return any(r.get("kind") == "grant" and r.get("id") == digest for r in rows)
+
+
+def open_ask(path):
+    """(digest, effect) for the newest ask at `path` that no grant answers, or
+    None. A granted ask stays in the ledger, so "newest" alone would approve it
+    a second time and never reach an older ask."""
+    rows = ti.events_path(path, tail=TAIL)
+    for digest, effect in reversed(asks(rows)):
+        if not granted(rows, digest):
+            return digest, effect
+    return None
+
+
+def search(digest):
+    """(path, effect) of the ledger carrying this ask, newest ledger first."""
+    for path in ledgers():
+        for d, effect in reversed(asks(ti.events_path(path, tail=TAIL))):
+            if d == digest:
+                return path, effect
+    return None, ""
+
+
+def ledgers():
+    """The ledgers to look in: the session's own when the host named it - a
+    grant written anywhere else is one the gate never reads - else all of them,
+    newest activity first."""
+    session = os.environ.get("TEZGAH_SESSION")
+    return [ti._path(session)] if session else ti.ledgers()
+
+
+def scope(paths):
+    """Where the search looked, for the not-found sentence."""
+    if not paths:
+        return "any tezgah ledger"
+    if len(paths) == 1:
+        return paths[0]
+    return "%d ledgers" % len(paths)
+
+
+def main():
+    args = sys.argv[1:]
+    if "--help" in args or "-h" in args:
+        sys.stdout.write(__doc__.strip() + "\n")
+        return 0
+    if len(args) != 1 or (args[0].startswith("-") and args[0] != "--last"):
+        sys.stderr.write("tezgah-consent: give one digest, or --last "
+                         "(try --help)\n")
+        return 2
+
+    paths = ledgers()
+    if args[0] == "--last":
+        digest, effect, path = None, "", None
+        for candidate in paths:
+            found = open_ask(candidate)
+            if found:
+                digest, effect, path = found[0], found[1], candidate
+                break
+        if not path:
+            sys.stderr.write("tezgah-consent: no consent ask is waiting to be "
+                             "approved in %s\n" % scope(paths))
+            return 1
+    else:
+        digest = args[0]
+        path, effect = search(digest)
+        if not path:
+            sys.stderr.write("tezgah-consent: no consent ask with digest %s in "
+                             "%s\n" % (digest, scope(paths)))
+            return 1
+
+    ti.note_path(path, "grant", "cli", id=digest)
+    print("granted %s%s -> %s"
+          % (digest, " (%s)" % effect if effect else "", path))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

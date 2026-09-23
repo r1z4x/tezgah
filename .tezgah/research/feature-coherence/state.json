@@ -1,0 +1,91 @@
+{
+  "question": "What makes an AI product/feature analysis miss cross-layer coherence defects (infrastructure capability <-> data contract <-> UI state <-> flow), and what artifact plus mechanism closes it?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-20",
+  "evaluation": {
+    "metric": "classes detected out of the frozen 10-class defect corpus on the Ustam admin users feature, per rater arm (union across 3 independent raters, plus per-rater median) and the count of unverifiable claims made",
+    "baseline": "the shipped product-analysis + analyze-app rubric at HEAD, run by 3 independent raters blind to the corpus: measured union 4 of 10 classes, per-rater median 3 (experiments/E2-baseline-detection/analysis.md); the user's own report (user-verbatim, 2026-09-20) is that it detects 0 of the 10 classes",
+    "locked_at": "2026-09-20T00:00:00+0300 (protocol.md files written before any rater ran; commit 07235b3 is the proof)",
+    "environment": {
+      "app": "/Users/rizax/Projects/Ustam apps/admin (Next.js) at HEAD 98f985f, route (dashboard)/users, plus its NestJS API on localhost:3001",
+      "rater": "one model, three independent contexts per arm, blind to the corpus and to the class list",
+      "instrument": "10-class defect corpus frozen in E1-defect-corpus (sha256 70871644e095372e6e9a5faa5fa761d8dee60c87e82eaca33d5dd857a938d1a6), plus rows R04/R05 from E1b joined by scoring-addendum"
+    }
+  },
+  "hypotheses": [
+    "H1 (structural): the shipped rubric's unit of analysis is the screen, so a defect that exists only across layers is invisible; a feature-level matrix of entity x action x layer makes it visible. Status: supported on the first feature - 9 of 13 corpus rows are invisible from the screen alone, baseline 4 of 9 in-scope classes against 7 for the matrices.",
+    "H2 (standard): the shipped rubric carries no per-surface rule set, so search, cascade and wizard defects are judged by taste; a named rule table makes them decidable. Status: partially supported - treatment raters reached the search and autocomplete rows through the rule table, while the baseline reached the search class only through one rater's own probe.",
+    "H3 (output slot): the artifact has no section in which an infrastructure change can be proposed, so a UI finding that needs an absent capability stops at advice. Status: supported and resolved - 0 proposals in the baseline's three artifacts, 5 in the treatment's five on the first feature.",
+    "H4 (mechanism): prose alone does not move the classes that need the app exercised; a runnable probe does. Status: not supported - E4's probe arm reached 6 classes against the control arm's 7, and the class the probe was expected to add was already reached by every rater in both arms. The probe is a convenience: cheap, re-runnable, no credential.",
+    "H5 (transfer): the artifact's effect reproduces on a second, differently-architected feature. Status: supported thinly - with three passes per arm on the first feature the artifact leads the pre-wiring rubric 7 classes to 6, and on the second stack 6 to 4; but the post-wiring axis skill alone reaches 6 on the second stack, above the artifact's 5, so the wiring is the larger lever and a single reading can move three classes.",
+    "H6 (proposal discipline): the artifact makes the capability-change proposal unskippable. Status: supported as a discipline difference - 13 of 13 artifact-following artifacts wrote at least one proposal, 2 of 5 pre-wiring artifacts did."
+  ],
+  "sessions": [
+    {
+      "date": "2026-09-20",
+      "tag": "user",
+      "what": "states the problem on an admin users area: the analysis does not check whether the infrastructure permits CRUD, whether the fields exist, whether the UI is internally consistent, the search dropdowns, the state of other fields after a search selection, wizard step prerequisites, whether an illogical form structure could be redesigned, modern form patterns, or user-benefit UX - and never investigates changing the infrastructure when the UI needs it. Asks for research using subagents and the research skill."
+    },
+    {
+      "date": "2026-09-20",
+      "tag": "user-revised",
+      "what": "narrows the scope in two steps: the audit is not restricted to form fields - every interface element and every data view counts, a list UI included; and a feature-level ask must reach the rule, which it did not (5 of 6 feature prompts armed nothing)."
+    },
+    {
+      "date": "2026-09-20",
+      "tag": "user-revised",
+      "what": "rejects the first shipped skill text as thin and asks whether the pm layer will consume it, then asks that the synthesis be one persisted artifact rather than scattered pieces. Both were acted on: the skill was rewritten with the 40-rule research table, and skills/product-analysis/SKILL.md runs the coherence pass with docs/feature-audit.md as the durable page."
+    },
+    {
+      "date": "2026-09-20",
+      "tag": "ai-executed",
+      "what": "froze a 15-row defect corpus in 10 classes on one real feature (E1), drove the running app for the runtime half (E1b), ran three blind baseline raters (E2), shipped the skill plus its wiring, and ran the static contract-vs-call-site probe (E4b)."
+    },
+    {
+      "date": "2026-09-20",
+      "tag": "ai-suggested",
+      "what": "that the browser's request log cannot settle a capability row (a server-rendered surface hides its API calls), recorded after E1b's own prediction failed; and that the baseline's six missed classes share one cause - no required matrix and no proposal slot."
+    },
+    {
+      "date": "2026-09-21",
+      "tag": "ai-executed",
+      "what": "E5/E6/E7: the second feature, the pre-wiring rubric control and the withdrawn corpus row; the transfer claim made falsifiable and left thin."
+    },
+    {
+      "date": "2026-09-21",
+      "tag": "ai-executed",
+      "what": "E12: two independent re-scores; a frozen corpus overwritten by a later write was restored and the scoring rule corrected from findings-only to findings plus matrix cells."
+    },
+    {
+      "date": "2026-09-21",
+      "tag": "ai-executed",
+      "what": "E8: three passes per arm on the first feature; artifact 7 classes against the pre-wiring rubric's 6, and the proposal recorded as a discipline (13/13 against 2/5) rather than a categorical effect."
+    },
+    {
+      "date": "2026-09-21",
+      "tag": "ai-executed",
+      "what": "E9: the second stack brought up and driven; the repository's own dev target never reaches its users surface, and the clipped-column class is unreachable rather than scrollable."
+    },
+    {
+      "date": "2026-09-21",
+      "tag": "ai-executed",
+      "what": "E10/E11: seven products read at first hand (7/7 deliver the invite credential in-product) and the two declared-unreachable evidence classes found in source as a dark analytics seam plus real user-voice sources."
+    },
+    {
+      "date": "2026-09-21",
+      "tag": "user-revised",
+      "what": "asked whether the second target should be removed from the line; answered keep, so the transfer material stays and no artifact was deleted."
+    },
+    {
+      "date": "2026-09-21",
+      "tag": "ai-executed",
+      "what": "the seven final claims recorded through the CLI; the six-dimension review refreshed over the final claims."
+    },
+    {
+      "date": "2026-09-22",
+      "tag": "ai-executed",
+      "what": "closure pass, no run and no model call: the two remaining check --strict items settled as limits rather than by editing frozen evidence - E4b's protocol stays byte-identical and its no-falsification warn is read as the checker's denial test spanning the sentence into the heading, and each literature/INDEX.jsonl row now states in its quality field why it carries one record per source"
+    }
+  ]
+}

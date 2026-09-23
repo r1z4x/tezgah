@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
+    ],
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Agent|agent|Task|task|Grep|grep|Bash|bash|PowerShell|pwsh|Shell|shell|subagent|Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-pretooluse.py\"", "timeout": 5 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|edit|Write|write|MultiEdit|NotebookEdit|Bash|bash|PowerShell|pwsh|str_replace_editor|WebFetch|WebSearch|web_fetch|web_search|fetch|mcp__.*", "hooks": [ { "type": "command", "command": "TEZGAH_CALL_OUTCOME=none \"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-posttooluse.py\"", "timeout": 5 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-stop.py\"", "timeout": 5 } ] }
+    ]
+  }
+}

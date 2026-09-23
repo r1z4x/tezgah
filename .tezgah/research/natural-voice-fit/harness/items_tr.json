@@ -1,0 +1,43 @@
+{
+  "language": "Turkish",
+  "locale": "tr-TR",
+  "note": "Fixture drafts, authored in this session to be slop-typical on purpose: calqued verbs and nouns, -mektedir inflation, redundant third-person pronouns, filler verbs, missing clause links, and a few strings that must stay verbatim. They are inputs to measure the two contracts, not samples of any real writer's prose.",
+  "items": [
+    {
+      "id": "tr-sales-1",
+      "register": "sales",
+      "brief": "A follow-up email to a prospect after a product demo. The reader is a busy operations manager who decides fast and dislikes hype.",
+      "draft": "Merhaba Elif Hanım,\n\nBugünkü demo için tekrar teşekkür ederiz. Görüşmemizde ürünümüzün sağladığı faydalardan bahsettik ve sizin de belirttiğiniz üzere entegrasyon tarafında birtakım iyileştirmeler söz konusu olabilir. Bu bağlamda, bir sonraki adım olarak ekip arkadaşlarımıza teknik bir toplantı organize etmek istiyoruz.\n\nAyrıca belirtmek gerekir ki, mevcut müşterilerimizden biri kısa süre önce benzer bir geçiş sürecini tamamlamış durumdadır ve sonuçlar oldukça olumlu olmuştur. Onların deneyimlerini de paylaşabiliriz.\n\nDeadline tarafında bir esneklik sağlayabileceğimizi düşünüyoruz. Cuma gününe kadar bir geri dönüş yapabilirseniz, Q4 kapanışına yetişmemiz mümkün olacaktır.\n\nSevgiler,\nDeniz"
+    },
+    {
+      "id": "tr-sales-2",
+      "register": "sales",
+      "brief": "The opening section of a one-page sales brief left with the prospect after the demo. The reader is an operations manager who will forward it to a colleague.",
+      "draft": "Kavara, operasyon ekiplerinin manuel iş yükünü azaltmak için geliştirilmiş bir platformdur. Sistem, görevlerin otomatik olarak dağıtılmasını sağlamakta ve ekiplerin performansını ölçmektedir.\n\nÜrünümüz 12 farklı sektörde kullanılmaktadır ve kullanıcılarımızın %87'si ilk üç ay içinde ölçülebilir bir iyileşme raporlamıştır. Bu rakam, çözümün gerçek dünyada karşılık bulduğunu göstermektedir.\n\nÜrünümüzün vizyoner yaklaşımı sayesinde kurulum süreci oldukça hızlıdır: ortalama 6 hafta içinde ekipleriniz tamamen geçiş yapmış olur. Teknik ekiplerimiz geçiş boyunca sizinle birlikte çalışır ve gerekli tüm eğitimleri sağlar.\n\nŞirketinizin büyüme hedefleriyle uyumlu bir yol haritası çizmek için bir sonraki toplantıda bir araya gelmemiz faydalı olacaktır."
+    },
+    {
+      "id": "tr-exec-1",
+      "register": "executive",
+      "brief": "A quarterly update for the executive team, read in ten seconds between meetings. The reader wants the number, the risk and the ask.",
+      "draft": "Yönetici Özeti - Üçüncü Çeyrek\n\nBu çeyrekte, müşteri kayıp oranının azaltılmasına yönelik olarak başlatılan çalışmalar kapsamında önemli mesafeler kat edilmiştir. Yapılan analizler, kayıpların temel nedeninin onboarding sürecinin ilk iki haftasında yaşandığını göstermektedir.\n\nBu bağlamda, onboarding akışında aksiyon alınması ve yapılan değişiklikler neticesinde çeyrek sonunda kayıp oranı %6,1'den %4,4'e gerilemiştir. Ancak belirtmek gerekir ki bu iyileşmenin kalıcı olup olmadığını görmek için en az iki çeyrek daha veriye ihtiyaç duyulmaktadır.\n\nDiğer taraftan, satış ekibinin yeni fiyatlandırma modeline adaptasyonu beklenenden yavaş ilerlemektedir. Ekiplerin %40'ı yeni modeli henüz aktif olarak kullanmamaktadır.\n\nÖnümüzdeki çeyrek için talep ettiğimiz tek şey, veri ekibinden bir kişinin altı ay boyunca bu işe tahsis edilmesidir."
+    },
+    {
+      "id": "tr-exec-2",
+      "register": "executive",
+      "brief": "A short status note for the executive team about an infrastructure migration that is running late. The reader must decide whether to extend the deadline.",
+      "draft": "Veri Merkezi Geçişi - Durum Notu\n\nGeçiş projesi kapsamında, eski sunucuların kapatılması çalışmaları planlanan takvime göre bir miktar gecikmiştir. Gecikmenin ana nedeni, veri tutarlılığı kontrollerinde ortaya çıkan birtakım beklenmedik hatalardır.\n\nBugüne kadar toplam 1.240 sunucunun 1.090'ı yeni ortama taşınmıştır; geçiş büyük ölçüde realize edilmiştir ve kalan sunucuların geçişi için toplam 3 haftalık bir çalışma öngörülmektedir. Yedekleme doğrulamaları s3://kavara-backups deposu üzerinden otomatik olarak yapılmaktadır ve p95 gecikme 120 ms seviyesinde sabit kalmıştır.\n\nAyrıca, kalan işlerin bir kısmının dışarıdan bir parti ile tamamlanması değerlendirilmektedir. Bu seçeneğin maliyeti yaklaşık 4 milyon lira olarak hesaplanmıştır.\n\nOnay verilmesi durumunda geçiş, 14 Kasım'da tamamlanmış olacaktır."
+    },
+    {
+      "id": "tr-dev-1",
+      "register": "developer",
+      "brief": "A release note read by engineers who use the internal API. They need what changed, what breaks, and the exact identifiers.",
+      "draft": "Sürüm Notları - v2.1.3\n\nBu sürümde, kuyruk yönetimi tarafında önemli değişiklikler yapılmıştır ve yeni mekanizma implemente edilmiştir. retry_queue fonksiyonunun davranışı, hata durumlarında yeniden deneme sayısını artıracak şekilde güncellenmiştir.\n\nAyrıca handle_timeout fonksiyonunda, 30 saniyeden uzun süren isteklerin artık otomatik olarak iptal edilmesi sağlanmaktadır. Bu değişiklik, bazı ekiplerin mevcut entegrasyonlarını etkileyebilecektir.\n\nÖnemli bir not olarak belirtmek gerekir ki, deploy_prod.sh betiğinin kullanımı bu sürümden itibaren zorunlu hale gelmiştir. Eski betikler çalışmaya devam edecektir ancak desteklenmemektedir.\n\nBellek kullanımı bu sürümde %18 azalmıştır: eşzamanlı 500 istek altında süreç 2.5 GB'a kadar çıkmaktadır."
+    },
+    {
+      "id": "tr-dev-2",
+      "register": "developer",
+      "brief": "An incident summary for the engineering team the morning after. They need the timeline, the cause, and the follow-up owner.",
+      "draft": "Olay Özeti - 12 Eylül\n\nDün saat 14:20 civarında, üretim ortamında kısa süreli bir kesinti yaşanmıştır. Kesinti, toplam 11 dakika sürmüştür ve bu süre boyunca API çağrılarının %62'si başarısız olmuştur.\n\nİlk incelemeler, sorunun kaynağının veritabanı bağlantı havuzunun tükenmesi olduğunu göstermektedir. Bunun üzerine havuz boyutu geçici olarak artırılmış ve servis normale dönmüştür.\n\nKök neden analizinde, sürüm v2.1.2 ile gelen bir değişikliğin bağlantıları serbest bırakmadığı tespit edilmiştir. Bu bağlantılar src/db/pool.py dosyasındaki bir hata nedeniyle açık kalmaktadır.\n\nAyrıca belirtmek gerekir ki, izleme tarafında da bir eksiklik söz konusudur: havuz doluluk oranı için uyarı eşiği tanımlanmamıştır. Bu eksikliğin giderilmesi için bir görev açılmıştır ve sorumlusu platform ekibidir."
+    }
+  ]
+}

@@ -1,0 +1,315 @@
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
+
+// tezgah-setup substitutes the absolute path of hosts/omp/hook.py, the python
+// half that owns the contract, the gate and the evidence ledger. This file is
+// only the bridge: omp's extension events in, the host's own envelopes back.
+const HOOK = "@HOOK@";
+
+// The interpreter the hook runs under, resolved the way tezgah's own
+// `hooks/tezgah_paths.python_cmd()` resolves it: the tezgah override first, then
+// the names the platforms ship. A bridge that names one interpreter is dead on a
+// host that ships another - which is what the whole Windows half of the plan is
+// about - so the resolution is done once, here. Memoised after the first ask: the
+// probe reads PATH, and a session that never reaches the hook must not pay for it.
+let pythonMemo: string | undefined;
+
+function pythonBin(): string {
+  if (pythonMemo) return pythonMemo;
+  // The order is the order they answer in: `py` is the Windows launcher, and
+  // TEZGAH_PYTHON (the name the manifests and every other adapter resolve
+  // through) overrides the list entirely.
+  const names = ["python3", "python", "py"];
+  if (process.env.TEZGAH_PYTHON) {
+    return (pythonMemo = process.env.TEZGAH_PYTHON);
+  }
+  // A bare name is resolved by the OS at spawn time only through its own rules,
+  // and node does not read a shell's hash, so the lookup is done here: PATH with
+  // the platform's separator, and `.exe` beside each name on Windows.
+  const dirs = String(process.env.PATH || "").split(delimiter);
+  const win = process.platform === "win32";
+  const found = names.find((name) => dirs.some((dir) => {
+    try {
+      return existsSync(join(dir, name))
+        || (win && existsSync(join(dir, name + ".exe")));
+    } catch { return false; }
+  }));
+  // Nothing resolved: the first documented name, so the failure the catch below
+  // reports names an interpreter instead of an empty command.
+  return (pythonMemo = found || names[0]);
+}
+
+// The status line refreshes on the events omp already emits - session start,
+// session switch, turn end, and the tool results that move a used mark - so the
+// extension polls nothing and holds no timer that a session switch could stale.
+
+// omp sanitizes what `setStatus` stores (ANSI/VT sequences stripped), so the
+// per-mark colors the hook returns survive only through the widget path, which
+// renders the string as it is. The status key stays as the fallback for a build
+// without setWidget: the text is then uncolored, never wrong.
+function draw(ctx: any, line: string): void {
+  // The widget is drawn by the host, not by the hook, so it is the one surface
+  // a broken hook cannot take away - and talking to a host UI is where a build
+  // can refuse. Nothing here may throw: the line is cosmetic, and the caller's
+  // message (the session brief, the failure notice) still has to go out.
+  try {
+    if (!line || !ctx?.ui) return;
+    if (typeof ctx.ui.setWidget === "function") {
+      ctx.ui.setWidget("tezgah", [line], { placement: "belowEditor" });
+    } else {
+      ctx.ui.setStatus("tezgah", line);
+    }
+  } catch { /* a host that refuses the widget keeps the message instead */ }
+}
+
+// Tools whose result can move the status line's used marks, carry the evidence
+// the Stop rule reads, or arrive from outside the user and the workspace.
+// read/grep/glob are absent on purpose: a read-heavy turn would otherwise spawn
+// python per call for nothing. The three web tools are here because their result
+// is exactly the one the untrusted-content label exists for.
+const WATCHED = ["bash", "shell", "command", "edit", "write", "multiedit",
+  "notebookedit", "apply_patch", "edit_file", "write_file", "search_replace",
+  "task", "agent", "spawn_agent", "web_search", "web_fetch", "browser"];
+
+// A read of a tezgah skill file is the one read whose result moves a status
+// mark, and matching it here keeps the rule that made reads unwatched: ordinary
+// reads never reach python. Mirror of hooks/tezgah_context.skill_read_kind.
+const SKILL_MARKS: Record<string, string> =
+  { ponytail: "pony", "i-have-adhd": "adhd" };
+const READ_TOOLS = ["read", "read_file", "readfile", "view_file"];
+
+function skillRead(tool: string, args: any): boolean {
+  if (!READ_TOOLS.includes(tool.toLowerCase())) return false;
+  const raw = args?.filePath ?? args?.file_path ?? args?.path ?? "";
+  const path = String(raw).replace(/\\/g, "/");
+  return Object.keys(SKILL_MARKS).some(
+    (name) => path.endsWith("skills/" + name + "/SKILL.md"));
+}
+
+// The gate is only consulted for the tools the shared rule knows: the refusal
+// of the grep-only explorer (task/agent), the anti-shortcut and attribution
+// checks (bash), and the test-skip check (the edit/write names).
+const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
+  "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
+  "search_replace", "powershell", "pwsh"];
+
+// The provenance label omp puts in front of a result that came from outside the
+// user and the workspace. The handler's return value replaces the tool result
+// (extensionRunner.emitToolResult reads `content`/`details`/`isError` off it and
+// the tool call hands that back as the result), so the line is read with the
+// content it applies to, in the same turn - not as a side message. An unknown
+// content shape is left alone rather than replaced by a label alone, which would
+// throw the result away.
+function labelled(content: any, label: string): any {
+  const part = { type: "text", text: label };
+  if (Array.isArray(content)) return [part, ...content];
+  if (typeof content === "string") {
+    return [part, { type: "text", text: content }];
+  }
+  return undefined;
+}
+
+// The hook's failure is the one state the bridge can see and the hook cannot
+// report: no interpreter to start it with, the checkout moved, the hook crashed
+// or ran past the timeout. It is remembered here so the next event can say so.
+let hookError = "";
+// the session already told about the failure in flight, so a broken hook costs
+// one message per episode rather than one per event
+let toldSession: string | undefined;
+
+const FAIL = "\u001b[31mhook\u2717\u001b[0m tezgah hook failed";
+
+function why(err: any): string {
+  const text = String(err?.message ?? err ?? "");
+  return text.split("\n")[0].slice(0, 160) || "no answer";
+}
+
+function ask(payload: Record<string, unknown>): any {
+  try {
+    const out = execFileSync(pythonBin(), [HOOK], {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      timeout: 10000,
+    });
+    hookError = "";
+    toldSession = undefined;
+    return out.trim() ? JSON.parse(out) : {};
+  } catch (err) {
+    // A missing python or a crash in the hook leaves the host exactly as it
+    // was: tezgah never turns its own failure into a blocked tool call. The
+    // failure is kept instead of thrown, and surfaces on the widget below.
+    hookError = why(err);
+    return {};
+  }
+}
+
+// The failure mark: draw() already cannot throw, so a broken hook costs the
+// marks and nothing else.
+function markBroken(ctx: any): void {
+  draw(ctx, FAIL);
+}
+
+// The one line that says what happened and how to check it, delivered once per
+// failing session on the events that can carry a message.
+function failureNotice(ctx: any, session: string | undefined): string | undefined {
+  if (!hookError) return undefined;
+  markBroken(ctx);
+  if (toldSession === String(session)) return undefined;
+  toldSession = String(session);
+  return "tezgah: its omp hook failed, so the gate, the evidence ledger and the " +
+    "status line are off this session. Reason: " + hookError + ". Tell the user " +
+    "in one line and carry on with their task; do not debug, reinstall or " +
+    "reconfigure tezgah mid-session (the user can check it with `" +
+    pythonBin() + " " + HOOK + "` or `tezgah-setup --report`).";
+}
+
+function cwdOf(ctx: any): string {
+  return String(ctx?.cwd ?? process.cwd());
+}
+
+function sessionOf(ctx: any): string | undefined {
+  try {
+    return ctx?.sessionManager?.getSessionId?.() ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export default function tezgahOmp(pi: any): void {
+  // The idx glyph the last probed answer carried. omp redraws the line after
+  // every watched tool and the stamp probe behind that mark is the line's only
+  // subprocess, so the per-tool redraw sends the glyph back rather than forking
+  // git for a mark that cannot have moved within one turn. turn_end and the
+  // session switch still ask for the probe, so the mark is fresh at every turn
+  // boundary - where it is read.
+  let idxGlyph: string | undefined;
+  const show = (ctx: any, res: any): void => {
+    if (res.idx) idxGlyph = res.idx;
+    if (res.status) draw(ctx, res.status);
+  };
+  // A failed hook answers nothing, so the last good line would keep claiming a
+  // gate that is not running: the widget is repainted with the failure instead.
+  const refresh = (ctx: any): void => {
+    const res = ask({ event: "status", cwd: cwdOf(ctx), session_id: sessionOf(ctx) });
+    if (hookError) return markBroken(ctx);
+    show(ctx, res);
+  };
+
+  pi.on("session_start", async (_event: any, ctx: any) => {
+    const session = sessionOf(ctx);
+    const res = ask({ event: "session_start", cwd: cwdOf(ctx),
+                      session_id: session });
+    if (hookError) {
+      const notice = failureNotice(ctx, session);
+      if (notice) {
+        try {
+          pi.sendMessage({ customType: "tezgah-hook-error", content: notice,
+                           display: true, attribution: "agent" },
+                         { deliverAs: "nextTurn" });
+        } catch { /* the notice is best effort, the mark is already drawn */ }
+      }
+      return;
+    }
+    if (res.status) show(ctx, res);
+    if (res.context) {
+      // omp's always-on RULES.md carries the contract itself; what rides here
+      // is this repo's state, so the model knows the index, the open plans and
+      // the lessons without the contract being paid twice.
+      pi.sendMessage({ customType: "tezgah-session", content: res.context,
+                       display: false, attribution: "agent" },
+                     { deliverAs: "nextTurn" });
+    }
+  });
+
+  // The notice as the message-capable events hand it back: before_agent_start
+  // returns it, session_start sends it.
+  const noticeMessage = (ctx: any, session: string | undefined): any => {
+    const notice = failureNotice(ctx, session);
+    return notice ? { message: { customType: "tezgah-hook-error", content: notice,
+                                 display: true, attribution: "agent" } } : undefined;
+  };
+
+  pi.on("session_switch", async (_event: any, ctx: any) => refresh(ctx));
+  pi.on("turn_end", async (_event: any, ctx: any) => refresh(ctx));
+
+  pi.on("before_agent_start", async (event: any, ctx: any) => {
+    const session = sessionOf(ctx);
+    if (hookError) return noticeMessage(ctx, session);
+    // omp also fires this for a queued batch that carries no user text (the
+    // continuation it starts after the Stop rule blocks a turn, for one). The
+    // reminder is armed by a prompt, so a text-less batch must not pay for it
+    // again.
+    const prompt = String(event?.prompt ?? "").trim();
+    if (!prompt) return undefined;
+    const res = ask({ event: "user_prompt", cwd: cwdOf(ctx), prompt,
+                      session_id: session });
+    if (hookError) return noticeMessage(ctx, session);
+    if (!res.context) return undefined;
+    // A hidden message, not a system-prompt rewrite: omp keeps per-request
+    // bytes out of the system prompt so an open-weight provider keeps its
+    // prefix cache, and the turn's reminder is exactly such a byte.
+    return { message: { customType: "tezgah-reminder", content: res.context,
+                        display: false, attribution: "agent" } };
+  });
+
+  pi.on("tool_call", async (event: any, ctx: any) => {
+    const tool = String(event?.toolName ?? event?.name ?? "");
+    if (!GATED.includes(tool.toLowerCase())) return undefined;
+    const res = ask({ event: "pre_tool_use", cwd: cwdOf(ctx), tool,
+                      input: event?.input ?? event?.args ?? {},
+                      session_id: sessionOf(ctx) });
+    if (hookError) {
+      markBroken(ctx);
+      return undefined;  // a hook that cannot answer cannot refuse either
+    }
+    if (res.deny) return { block: true, reason: res.deny };
+    return undefined;
+  });
+
+  pi.on("tool_result", async (event: any, ctx: any) => {
+    const tool = String(event?.toolName ?? "");
+    const args = event?.input ?? {};
+    if (!WATCHED.includes(tool.toLowerCase()) && !tool.startsWith("mcp__")
+        && !skillRead(tool, args)) {
+      return;
+    }
+    // Tri-state: an unread outcome must never be written as a passed check,
+    // because the Stop rule below reads this ledger as evidence.
+    const failed = typeof event?.isError === "boolean" ? event.isError : null;
+    // The evidence row asks one question about the result - is it non-zero - so
+    // the bridge sends a size and never the body: `ask()` serializes its payload
+    // onto the hook's stdin, which is exactly the copy the writer's rule bans. A
+    // string is its own length, a part list is its count, and anything else is
+    // left unstated rather than guessed - an absent field is not a field of 0.
+    const content = event?.content;
+    const resultLen = typeof content === "string" ? content.length
+      : Array.isArray(content) ? content.length : undefined;
+    const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
+                      input: event?.input ?? {}, failed, idx: idxGlyph,
+                      session_id: sessionOf(ctx), result_len: resultLen });
+    if (hookError) return markBroken(ctx);
+    show(ctx, res);
+    // A result that came from outside the user and the workspace is labelled in
+    // place; every other result is left exactly as the host produced it.
+    if (res.label) {
+      const content = labelled(event?.content, res.label);
+      if (content) return { content };
+    }
+    return undefined;
+  });
+
+  pi.on("session_stop", async (event: any, ctx: any) => {
+    const res = ask({ event: "stop", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
+                      last_assistant_message: event?.last_assistant_message,
+                      stop_hook_active: event?.stop_hook_active === true });
+    if (hookError) {
+      markBroken(ctx);
+      return undefined;  // an unanswerable Stop rule must not block the turn
+    }
+    if (res.decision === "block" && res.reason) {
+      return { decision: "block", reason: res.reason };
+    }
+    return undefined;
+  });
+}

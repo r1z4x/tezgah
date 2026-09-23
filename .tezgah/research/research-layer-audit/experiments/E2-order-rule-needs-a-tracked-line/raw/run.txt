@@ -1,0 +1,23 @@
+[
+  {
+    "cell": "A",
+    "tracked": true,
+    "exit": 0,
+    "refuses": false,
+    "said": [
+      "warn q: no claims recorded yet",
+      "research: 1 line(s) ok"
+    ]
+  },
+  {
+    "cell": "B",
+    "tracked": false,
+    "exit": 0,
+    "refuses": false,
+    "said": [
+      "warn q: no claims recorded yet",
+      "warn q: experiment E1: results.jsonl is not committed yet, so the protocol order cannot be checked",
+      "research: 1 line(s) ok"
+    ]
+  }
+]

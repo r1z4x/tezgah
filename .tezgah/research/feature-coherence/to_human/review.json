@@ -1,0 +1,11 @@
+{
+  "dimensions": {
+    "evidence_relevance": 5,
+    "falsifiability": 5,
+    "scope_calibration": 5,
+    "argument_coherence": 5,
+    "exploration_integrity": 5,
+    "methodological_rigour": 4
+  },
+  "findings": []
+}

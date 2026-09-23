@@ -1,0 +1,39 @@
+{
+  "question": "What does post-training environment scaling mean in 2026, what does it require, and what of it could this repository adapt without a training loop?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-20",
+  "evaluation": {
+    "metric": "sources screened: one note per source under literature/ with one literature/INDEX.jsonl row each (13 notes, 13 rows), at zero refusals from bin/tezgah-research check env-scaling --strict",
+    "baseline": "no run: no model call, no paid round, nothing filed under experiments/; no number in this line is a measurement of this repository",
+    "locked_at": "2026-09-20",
+    "environment": {
+      "model": "none (no model call was made)",
+      "harness": "bin/tezgah-research, the research layer only",
+      "prompt": "bin/tezgah-research init env-scaling --question <the question above>"
+    }
+  },
+  "hypotheses": [
+    "the term denotes the supply of interactive verifiable environments for post-training, not model- or data-side scaling",
+    "the published environment-count/capability relation is positive but saturating, with the elbow inside the first few hundred environments",
+    "environment selection and environment repair beat environment addition in every source that measures both",
+    "the training half of the axis is unreachable without a policy training loop and weight access; the evaluation half is reachable against the lab corpus"
+  ],
+  "sessions": [
+    {
+      "date": "2026-09-20",
+      "tag": "ai-executed",
+      "events": [
+        "ai-executed: read docs/research.md, plans/open/004-failure-driven-refinement.md and the notes under .tezgah/research/*/literature/ before searching",
+        "ai-executed: searched the term through orx discover (alphaXiv keyword and OpenAlex) and read each source's record; no node and no run were created, so experiments/ holds nothing",
+        "ai-executed: wrote 13 literature notes, one literature/INDEX.jsonl row each, findings.md, 15 claims, to_human/report.md and to_human/review.json",
+        "ai-executed: ran bin/tezgah-research check env-scaling and --strict"
+      ]
+    },
+    {
+      "date": "2026-09-22",
+      "tag": "ai-executed",
+      "what": "close-out pass on the already-concluded line: the report's limits section now names the adaptation half as unrun with the branch reason (its target benchmarks/arm-bench lives on branch benchmarks/lab; this branch holds only benchmarks/codegraph-bench, so there was no artifact for a run to act on), and the review gains a major finding that C15 names that path without the branch qualification, which lives only in findings.md. No superseding claim was added after reading all 15 rows: C15 asserts capacity (\"can act on\", \"can move\"), declares scope derived and its proof's findings.md names the branch, so no row reads as if the adaptation were established, and a supersedes link is refused by check --strict by design, which would have falsified this line's own locked evaluation. Nothing was measured, no claim row edited, no experiment run."
+    }
+  ]
+}

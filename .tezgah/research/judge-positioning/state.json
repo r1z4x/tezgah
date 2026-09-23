@@ -1,0 +1,75 @@
+{
+  "question": "tezgah_judge (the TypeSafe/Jev judgement seam) zay\u0131f g\u00f6r\u00fcn\u00fcyor: bug\u00fcn tam olarak ne, tezgah'\u0131n katmanlar\u0131nda nas\u0131l konumlanmal\u0131, bundan sonra hangi y\u00fczeylere hizmet etmeli, ve s\u00f6zle\u015fme ad\u0131n\u0131 vermeli mi?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-20",
+  "evaluation": {
+    "metric": "top-1 accuracy of a flat Choice over the 98 ai-research entries against 14 hand-labelled queries, the refusal rate over 4 out-of-library queries, and the input tokens/latency/dollars each arm measured",
+    "baseline": "the current seam: one batched ask(), no question vocabulary, no cache, no counter, one global switch, one hardcoded model (hooks/tezgah_judge.py)",
+    "locked_at": "2026-09-20",
+    "note": "the audit and the pattern study were read from the tree at HEAD 4bf25e8 with 8 uncommitted files; the two experiments are uncommitted because .tezgah/research/ is untracked"
+  },
+  "hypotheses": [
+    "H1: the seam is a shared subsystem with three callers, not an implementation detail of two tools. Confirmed: the code graph (trace_path inbound on hooks.tezgah_judge.ask) and grep both give bin/tezgah-triage, bin/tezgah-docs and hooks/tezgah_skill_pick; the module docstring and docs/operations.md still say two.",
+    "H2: the seam is named nowhere the session can see it. Confirmed by grep: neither tezgah-triage nor tezgah-docs appears in hooks/tezgah_policy.py, hooks/tezgah_context.py or agents/*.md, and judge-off is missing from the kill-switch paragraph and the contract table. Reachable only through skills/analyze-app/SKILL.md, docs/operations.md and the tools' --help.",
+    "H3: naming it costs no always-on paragraph. Confirmed against the contract's own design: CONDITIONAL_KEYS exists so an on-demand capability is not paid every session; the codegen precedent is named in the README and the on-demand skill only.",
+    "H4: the flat Choice primitive holds at ~98 options. Confirmed on a ceiling-limited set (14/14 in-library, 4/4 refused out-of-library); P1's floor (<=0.65) is refuted and the near-miss case stays untested.",
+    "H5: the judgement spend is invisible for the highest-frequency caller. Confirmed: counters has no judge key, and the prompt-path caller is a hook call with no shell row at all."
+  ],
+  "sessions": [
+    {
+      "date": "2026-09-20",
+      "events": [
+        {
+          "tag": "user",
+          "what": "the user reports the judgement seam looks weak and asks for comprehensive research into how it should be positioned in this project's structure."
+        },
+        {
+          "tag": "ai-executed",
+          "what": "read hooks/tezgah_judge.py in full and all three callers, and collected every weakness with its line."
+        },
+        {
+          "tag": "ai-executed",
+          "what": "studied how consult and codegen are positioned (contract.md, status-line.md, evidence.md, operations.md, tezgah_policy.py, the status line's _GROUP and counters) to fix the two tiers a capability can sit in."
+        },
+        {
+          "tag": "ai-executed",
+          "what": "asked the code graph for the seam's callers (trace_path inbound, 41 caller edges including tests) and cross-checked with grep for the import."
+        },
+        {
+          "tag": "ai-executed",
+          "what": "ran E1 and E1b live through the shipped seam: 50 calls, $0.0041 measured. Flat Choice over 98 entries 14/14; 4/4 out-of-library queries refused; two-stage buys no accuracy and saves 1.61x tokens."
+        },
+        {
+          "tag": "ai-executed",
+          "what": "measured the credential-reader divergence: with the key file present and no omp store, tp.have_typesafe_key() is False while tezgah_judge.available() is True."
+        },
+        {
+          "tag": "ai-suggested",
+          "what": "the positioning decision (Tier B, no always-on paragraph), the ranked next surfaces with their measurement status, and a seven-item checkable spec ordered cheapest-high-value first."
+        }
+      ]
+    },
+    {
+      "date": "2026-09-22",
+      "events": [
+        {
+          "tag": "ai-executed",
+          "what": "closed the line against HEAD ddf72b4: read hooks/tezgah_judge.py, its three callers, hooks/tezgah_paths.py, docs/judge.md, docs/contract.md and docs/operations.md, and confirmed that six of the seven spec items (J1-J6) are built while J7 is refuted by its own pre-registered run."
+        },
+        {
+          "tag": "ai-executed",
+          "what": "corrected the drift the audit first measured: five shipped places still said the seam had two callers (the module docstring, three passages of docs/operations.md, a comment in hooks/tezgah_context.py, one in the opencode plugin), each now naming bin/tezgah-triage, bin/tezgah-docs and hooks/tezgah_skill_pick.py; verified with bin/tezgah-docs --citations (0 flagged) and by leaving the line counts of every file other documents cite by line unchanged."
+        },
+        {
+          "tag": "ai-executed",
+          "what": "recorded the superseding claims C1-R-callers-fixed (supported), C3-R-spend-counted (refuted - the judge key, status print and per-caller cost rows now exist) and C4-R-readers-named (revised - have_judge_key() asks the seam's own question and the install report prints both rows), and left C5 to C5-R, which the parent session settled as refuted."
+        },
+        {
+          "tag": "ai-executed",
+          "what": "closed the ten review findings with a status each: five resolved in the artifacts, four recorded as defects or bounds the line carries (E1's post-hoc protocol, C2's ceiling, the coarse refusal set, the unreconstructable in-flight revision) and one open (E1b's stage-arm usage was never recorded and needs a re-run)."
+        }
+      ]
+    }
+  ]
+}

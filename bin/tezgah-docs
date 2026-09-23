@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""tezgah-docs [QUERY] - reach the docs/ page that answers a question.
+
+Reads docs/index.json and prints the matching page paths, so an agent picks a
+page instead of guessing and a script can assert the layer is intact.
+
+  tezgah-docs                 every page, one line each
+  tezgah-docs <words...>      the pages matching every word of the query
+  tezgah-docs --json [QUERY]  the matching entries as JSON
+  tezgah-docs --read QUERY    print the first matching page in full
+  tezgah-docs --citations     the citations that no longer show what they name
+
+Matching is word-based and case-insensitive against an entry's title, its
+questions, its sources and its path; every word must match, so a second word
+narrows. A query that matches nothing is the last resort of one TypeSafe Choice
+question over the pages themselves (`docs-judge-off`, the seam's `judge-off`, or
+no credential, turns that off and leaves this command as it was); it answers
+`none` for a query no page covers. Exit codes: 0 with matches, 1 with none, 2
+usage.
+"""
+import glob
+import json
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
+import tezgah_judge  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
+
+INDEX = os.path.join(HERE, "docs", "index.json")
+
+
+def entries():
+    """The index entries, or [] when the index is missing or malformed."""
+    try:
+        with open(INDEX, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    pages = data.get("pages")
+    if not isinstance(pages, list):
+        return []
+    return [p for p in pages if isinstance(p, dict) and p.get("path")]
+
+
+def blob(entry):
+    """Everything a query is matched against, lowercased."""
+    parts = [str(entry.get("path") or ""), str(entry.get("title") or "")]
+    parts += [str(a) for a in (entry.get("answers") or [])]
+    parts += [str(s) for s in (entry.get("sources") or [])]
+    return " ".join(parts).lower()
+
+
+def matches(query):
+    """The entries every word of `query` appears in; [] for an empty query."""
+    words = query.lower().split()
+    if not words:
+        return []
+    return [e for e in entries() if all(w in blob(e) for w in words)]
+
+
+# --- the citation audit -----------------------------------------------------
+# A page's `path:line` is a promise a reader can open. `tests/test_docs.py`
+# checks the half a script can (the file exists, the line is inside it) and says
+# why it stops there: whether the line still shows the thing the sentence names
+# is a judgement about prose, and a test that guessed at it would fail on
+# rewording rather than on drift. That judgement is mechanical in one case - a
+# citation that names a symbol whose body the range must lie in - and that case
+# is where the drift actually lands, because the numbers were written against a
+# revision of the file and nothing regenerates them when lines move under them.
+# A report, not a gate: `bin/tezgah-docs --citations` prints what it can judge
+# and counts what it cannot, for a re-run after any change to a cited module.
+
+CODE_FILES = ("hooks/*.py", "bin/*", "statusline.py", "hosts/*/*.py",
+              "hosts/*/*.ts.in", "hosts/*/plugins/*.js", "tests/*.py")
+STRING = re.compile(r'"""(?:.|\n)*?"""|\'\'\'(?:.|\n)*?\'\'\'')
+TOP = re.compile(r"^(?:def|class)\s+(\w+)|^([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=")
+RUN = re.compile(r"((?:`[A-Za-z_][A-Za-z0-9_]*(?:\(\))?`\s*[/,]?\s*){1,5})$")
+CITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+):(\d+)(?:-(\d+))?`"
+                  r"|`(:(\d+)(?:-(\d+))?)`")
+
+
+def code_symbols(path):
+    """{name: [(start, end)]} for this file's top-level defs, classes and
+    assignments. A triple-quoted body is masked first, so a line inside a
+    contract string cannot read as a definition and cut another one short."""
+    text = open(path, encoding="utf-8", errors="replace").read()
+    chars = list(text)
+    for m in STRING.finditer(text):
+        for i in range(m.start(), m.end()):
+            if chars[i] != "\n":
+                chars[i] = " "
+    lines = "".join(chars).splitlines()
+    starts = [(i, m.group(1) or m.group(2))
+              for i, line in enumerate(lines, 1) if (m := TOP.match(line))]
+    out = {}
+    for k, (start, name) in enumerate(starts):
+        end = starts[k + 1][0] - 1 if k + 1 < len(starts) else len(lines)
+        out.setdefault(name, []).append((start, end))
+    return out
+
+
+def symbols():
+    """{name: (path, [(start, end)])} over every code file, for the names
+    exactly one file defines: an ambiguous name is skipped, not guessed at."""
+    seen = {}
+    for pattern in CODE_FILES:
+        for path in sorted(glob.glob(os.path.join(HERE, pattern))):
+            if not os.path.isfile(path):
+                continue
+            for name, spans in code_symbols(path).items():
+                seen.setdefault(name, []).append(
+                    (os.path.relpath(path, HERE), spans))
+    return {name: only[0] for name, only in seen.items() if len(only) == 1}
+
+
+def citations(known):
+    """(flagged, judged, unjudged): the citations whose named symbol does not
+    contain the cited range, how many were judgeable, and how many were not.
+
+    A citation that writes its own path is judged against the symbol in that
+    file alone: a sentence naming `note_tool` beside `hooks/x.py:12` means the
+    `note_tool` in `hooks/x.py`, so a same-named symbol elsewhere is not the
+    thing being cited and the row is left unjudged rather than misjudged."""
+    flagged, judged, unjudged = [], 0, 0
+    for path in sorted(glob.glob(os.path.join(HERE, "docs", "*.md"))):
+        text = open(path, encoding="utf-8").read()
+        for m in CITE.finditer(text):
+            pre = text[:m.start()].rstrip().rstrip("(").rstrip().rstrip(",")
+            run = RUN.search(pre.rstrip()) if pre.rstrip().endswith("`") else None
+            spans, where = [], None
+            for name in re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`",
+                                   run.group(1)) if run else []:
+                hit = known.get(name)
+                if not hit:
+                    continue
+                if m.group(1) and hit[0] != m.group(1):
+                    continue
+                where, spans = hit[0], spans + hit[1]
+            if not spans:
+                unjudged += 1
+                continue
+            lo = int(m.group(2) or m.group(5))
+            hi = int(m.group(3) or m.group(6) or lo)
+            low, high = min(s for s, _ in spans), max(e for _, e in spans)
+            judged += 1
+            if lo >= low and hi <= high:
+                continue
+            flagged.append((os.path.relpath(path, HERE), m.group(0),
+                            where, low, high))
+    return flagged, judged, unjudged
+
+
+NONE = "none"
+# `none` is an option on purpose: without it the question has to pick a page, and
+# a query that names nothing in the layer (a typo, a nonsense word) would come
+# back with an arbitrary page instead of the "nothing matches" this command
+# promises. It is also what keeps `tezgah-docs zzz-nothing-matches` exiting 1.
+ASK = ("Which page of this project's docs answers the reader's question? The "
+       "reader may name a thing with a different word from the pages' own - the "
+       "same subject under a synonym - so match the topic rather than the wording, "
+       "and pick the page whose answers would settle the question. Answer 'none' "
+       "when the question names nothing any page answers - a typo, a nonsense "
+       "string, or a topic outside this layer.")
+
+
+def off():
+    """True when this command must not ask: its own switch first, then the seam's.
+
+    `docs-judge-off` answers for this command alone - the triage and the skill
+    picker keep judging - and `judge-off`, or an unresolvable credential, turns the
+    whole path off. Both are read before the request, so an armed switch makes no
+    request at all rather than one whose answer is thrown away."""
+    return tp.off("docs-judge-off") or not tezgah_judge.available()
+
+
+def record(result):
+    """One `judge` ledger row for the call just paid for, in the shape the status
+    counters fold on: which caller, which model, and what it cost.
+
+    A cost row, never a step and never a check - nothing here may license a done
+    claim - and best effort: no session id, or an unwritable ledger, changes
+    nothing this command prints."""
+    usage = result["usage"]
+    ti.note(os.environ.get("TEZGAH_SESSION"), "judge",
+            "tezgah-docs %s in=%d out=%d ms=%d"
+            % (result.get("model", tezgah_judge.MODEL),
+               usage["input_tokens"], usage["output_tokens"],
+               result["latency_ms"]))
+
+
+def judge_pick(query):
+    """The one page a TypeSafe Choice question names, or None.
+
+    The last resort for a query the index could not place: a word the index does
+    not carry is usually a word nobody wrote down, and a model reading the pages'
+    own questions can still land the reader on the right one. Three things keep
+    it from standing in for the match above - it runs only when that match found
+    nothing, the question offers `none`, and every failure (no key, `judge-off`,
+    a refused or unreadable reply) returns None so the caller prints what it
+    always printed.
+
+    Measured over 39 live queries the index could not place (33 paraphrases of
+    the pages' own answers plus the queries naming nothing in the layer): 37 pages
+    right, 0 wrong, 2 missed, 0 pages picked for a query outside the layer. All
+    three of the misses the first wording produced were the reader's word rather
+    than the page's, which is what ASK now speaks to - that instruction recovered
+    one of them and cost nothing - and the two that remain (a client where the
+    page says host, "support one more" where it says add) stay missed because the
+    layer carries no synonym list to judge them against."""
+    pages = entries()
+    if not query or not pages or off():
+        return None
+    criteria = {NONE: "no page answers this question"}
+    for page in pages:
+        criteria[page["path"]] = "%s. Answers: %s" % (
+            page.get("title") or "", "; ".join(page.get("answers") or []))
+    result = tezgah_judge.ask(query, {"page": {
+        "type": "choice", "instructions": ASK, "criteria": criteria}})
+    if result is not None:
+        record(result)
+    chosen = tezgah_judge.choice(result, "page")
+    return next((p for p in pages if p["path"] == chosen), None)
+
+
+def main(argv):
+    if "-h" in argv or "--help" in argv:
+        print(__doc__.strip())
+        return 0
+    flags = {a for a in argv if a.startswith("--")}
+    unknown = sorted(f for f in flags
+                     if f not in ("--json", "--read", "--citations"))
+    if unknown:
+        sys.stderr.write("tezgah-docs: unknown option(s): %s (try --help)\n"
+                         % ", ".join(unknown))
+        return 2
+    if "--citations" in flags:
+        flagged, judged, unjudged = citations(symbols())
+        for where, token, symbol_in, low, high in flagged:
+            print("%s  %s -> the symbol it names lives at %s:%d-%d"
+                  % (where, token, symbol_in, low, high))
+        print("citations: %d judged (%d outside the symbol they name), "
+              "%d not judgeable (no single symbol named beside them)"
+              % (judged, len(flagged), unjudged))
+        return 1 if flagged else 0
+    query = " ".join(a for a in argv if not a.startswith("--")).strip()
+    found = matches(query) if query else entries()
+    if not found:
+        pick = judge_pick(query)
+        found = [pick] if pick else []
+    if not found:
+        sys.stderr.write("tezgah-docs: nothing matches %r - the bare call lists "
+                         "every page\n" % query)
+        return 1
+    if "--json" in flags:
+        print(json.dumps(found, indent=2, sort_keys=True))
+        return 0
+    if "--read" in flags:
+        try:
+            with open(os.path.join(HERE, found[0]["path"]), encoding="utf-8") as fh:
+                sys.stdout.write(fh.read())
+        except OSError as exc:
+            sys.stderr.write("tezgah-docs: %s\n" % exc)
+            return 1
+        return 0
+    for entry in found:
+        print("%s  %s" % (entry["path"], entry.get("title") or ""))
+        answers = "; ".join(entry.get("answers") or [])
+        if answers:
+            print("    answers: %s" % answers)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

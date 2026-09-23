@@ -1,0 +1,43 @@
+{
+  "question": "Hangi yapı, bir ürünü PM ve PE seviyesinde kanıta dayalı analiz edip iyileştirmeyi rutin hale getirir; ve tezgah'ta ürün sorularına verilen araştırma neden zayıf kalıyor?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-19",
+  "evaluation": {
+    "metric": "number of the eight fixed product prompts that arm the product rule (baseline 0), and whether the shipped skill's scorecard can be applied to a real product question",
+    "baseline": "0 of 8 product prompts armed any rule (executed 2026-09-19, recorded in findings.md)",
+    "locked_at": "2026-09-19",
+    "metric_note": "The metric is a routing and applicability proxy for this line's goal and says so: it counts how many of the eight prompts arm the rule and whether the scorecard can be applied to a real product question, and neither half reads an answer. The goal measurement - one paired run on the same prompts with and without the rule, each answer scored blind against the scorecard - is named in to_human/report.md and was NOT run (review finding F3, reframed 2026-09-22). The metric, the baseline and locked_at above are unchanged since they were locked; this note was added in the closing pass and is recorded as such in the session events and log.md."
+  },
+  "hypotheses": [
+    "H1 (CONFIRMED, the baseline): a product-shaped prompt arms no rule, so no evidence discipline reaches the model on a product question. Measured 2026-09-19: all eight product prompts armed nothing (C1).",
+    "H2 (CONFIRMED): a dedicated conditional rule plus a skill that names its standards and evidence classes fixes the routing gap without new machinery (the research workspace is reused). Measured: the rule is the documented route (C8), the workspace's claim checks are reused unchanged (C3), and no new component was added.",
+    "H3 (CONFIRMED): the fix is observable: the eight prompts change from 'none' to 'product', and the skill ships on every host. Measured: the eight product prompts arm product and the two controls arm nothing, on the real injection path and with session_start carrying nothing (C9), and the skill is in SKILLS with a readable SKILL.md on every host (AC4, tests/test_skills.py)."
+  ],
+  "sessions": [
+    {
+      "date": "2026-09-19",
+      "events": [
+        {"tag": "user", "what": "the user states the problem: product analysis at PM and PE level keeps coming out weak, and asks for research plus a structure."},
+        {"tag": "user", "what": "the user asks for current internet research, and asks whether GitHub packages with skills exist."},
+        {"tag": "ai-executed", "what": "read the CHI 2010 HEART paper, the DORA 2025 report and companion insight, the MSR/OpenAlex SPACE record, the arXiv hallucination survey, and the MIT pm-skills marketplace."},
+        {"tag": "ai-executed", "what": "ran classify_prompt on eight product prompts: all eight armed nothing."},
+        {"tag": "ai-suggested", "what": "that the fix belongs in the routing layer plus one skill, and that the marketplace should be referenced rather than vendored."},
+        {"tag": "ai-executed", "what": "consulted external models on the design before building it."},
+        {"tag": "ai-executed", "what": "built the rule and the skill, then fixed five test failures and shifted 300+ doc citations back onto the symbols they name."},
+        {"tag": "ai-executed", "what": "verified: 931 tests OK, ruff clean, compileall clean, citations 0 outside, and the injection path carries the paragraph for a product prompt only."},
+        {"tag": "ai-suggested", "what": "that the marketplace should stay referenced rather than vendored; the user has not confirmed it."}
+      ]
+    },
+    {
+      "date": "2026-09-22",
+      "events": [
+        {"tag": "ai-executed", "what": "closing pass: re-derived the suite count by loading the tree of the landing commit 2a5a29e (932 test cases; 928 at its parent, 1333 at HEAD), which reconciles the 932 in log.md row 19 with the 931 recorded above and in the report."},
+        {"tag": "ai-executed", "what": "read literature/02-space-2021-forsgren.md and recorded what it holds (the verbatim SPACE abstract, ACM's 403 on the full text, the five dimensions deliberately omitted), then pointed the report's named-standards row at the abstract the line actually used."},
+        {"tag": "ai-suggested", "what": "reframed review finding F3 rather than answering it: the locked metric is a routing and applicability proxy, the headline goal is unmeasured, and the paired run that would measure it is named and left unrun."},
+        {"tag": "ai-executed", "what": "settled F6 through the CLI: C10c supersedes C10 and cites the artifact the vendoring decision produced instead of the two models' agreement; the first correction row C10b lost its apostrophes to shell quoting and is superseded by C10c."},
+        {"tag": "ai-executed", "what": "closed the review's four findings with a reason each in to_human/review.json, dated the two findings.md bullets that disagreed about arming, and added the closing-pass rows to log.md."}
+      ]
+    }
+  ]
+}

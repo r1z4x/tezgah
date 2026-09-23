@@ -1,0 +1,251 @@
+{
+  "experiment": "E9 - the runtime half on the second stack",
+  "target_repo": "/Users/rizax/Projects/aibim-app",
+  "date": "2026-09-21",
+  "agent": "E9Runtime",
+  "docker_allowed": true,
+  "stack_came_up": {
+    "as_issued_by_make_admin_dev": false,
+    "after_docker_only_bridge": true,
+    "command": "cd /Users/rizax/Projects/aibim-app && COMPOSE_PROJECT_NAME=fce9 make admin-dev",
+    "note_on_project_scope": "COMPOSE_PROJECT_NAME=fce9 was set so nothing shared is touched (the repo's postgres volume is project-scoped by default; no aibim volume, network or container existed before the run). The repo's own target was used unchanged; the only wrapper is the project name.",
+    "boot_wall_clock_seconds": 163,
+    "boot_epoch_range": [1789939090, 1789939253],
+    "make_exit_code": 0,
+    "readiness_evidence": {
+      "ran": "docker ps -a --format '{{.Names}}\\t{{.Status}}\\t{{.Ports}}'",
+      "observed": [
+        "fce9-postgres-1        Up (healthy)   5432/tcp",
+        "fce9-admin-backend-1   Up (healthy)   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp",
+        "fce9-admin-frontend-1  Restarting (1) 19 seconds ago"
+      ],
+      "backend_healthcheck": "docker-compose.yml:191 test curl -f http://localhost:8081/health passed (container reported healthy)",
+      "frontend_healthcheck": "never reached - the container never started nginx"
+    },
+    "failure": {
+      "failing_command": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d admin-backend admin-frontend postgres   (issued by `make admin-dev`)",
+      "error": "2026/09/20 21:21:06 [emerg] 1#1: host not found in upstream \"aibim\" in /etc/nginx/conf.d/default.conf:46",
+      "cause": "admin/frontend/nginx.conf:44-46 declares a /ws/ location with `proxy_pass http://aibim:8080;`. nginx resolves upstream host names at config load, so it aborts. The `aibim` app-backend service is never started by `make admin-dev` (Makefile:582-583 starts only admin-backend, admin-frontend, postgres), so the name does not exist on the fce9_default network.",
+      "container_state": "docker inspect fce9-admin-frontend-1 -> status=restarting restarts=9 exit=1",
+      "last_30_lines_as_observed": [
+        "10-listen-on-ipv6-by-default.sh: info: Getting the checksum of /etc/nginx/conf.d/default.conf",
+        "10-listen-on-ipv6-by-default.sh: info: /etc/nginx/conf.d/default.conf differs from the packaged version",
+        "/docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh",
+        "/docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh",
+        "/docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh",
+        "/docker-entrypoint.sh: Configuration complete; ready for start up",
+        "2026/09/20 21:21:06 [emerg] 1#1: host not found in upstream \"aibim\" in /etc/nginx/conf.d/default.conf:46",
+        "nginx: [emerg] host not found in upstream \"aibim\" in /etc/nginx/conf.d/default.conf:46",
+        "/docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration",
+        "/docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/",
+        "/docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh",
+        "10-listen-on-ipv6-by-default.sh: info: Getting the checksum of /etc/nginx/conf.d/default.conf",
+        "10-listen-on-ipv6-by-default.sh: info: /etc/nginx/conf.d/default.conf differs from the packaged version",
+        "/docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh",
+        "/docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh",
+        "/docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh",
+        "/docker-entrypoint.sh: Configuration complete; ready for start up",
+        "2026/09/20 21:21:13 [emerg] 1#1: host not found in upstream \"aibim\" in /etc/nginx/conf.d/default.conf:46",
+        "nginx: [emerg] host not found in upstream \"aibim\" in /etc/nginx/conf.d/default.conf:46",
+        "/docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration",
+        "/docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/",
+        "/docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh",
+        "10-listen-on-ipv6-by-default.sh: info: Getting the checksum of /etc/nginx/conf.d/default.conf",
+        "10-listen-on-ipv6-by-default.sh: info: /etc/nginx/conf.d/default.conf differs from the packaged version",
+        "/docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh",
+        "/docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh",
+        "/docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh",
+        "/docker-entrypoint.sh: Configuration complete; ready for start up",
+        "2026/09/20 21:21:26 [emerg] 1#1: host not found in upstream \"aibim\" in /etc/nginx/conf.d/default.conf:46",
+        "nginx: [emerg] host not found in upstream \"aibim\" in /etc/nginx/conf.d/default.conf:46"
+      ],
+      "note": "These are the lines read from `docker logs fce9-admin-frontend-1` during the run; the container was removed at teardown, so a fresh capture is no longer possible.",
+      "why_not_fixed_the_faithful_way": "Starting the missing `aibim` service means a full Rust release build (app/backend/Dockerfile, rust:1.88-slim-bookworm builder, CARGO_JOBS=1) with no prebuilt image present; that would exceed the 20-minute boot box."
+    },
+    "bridge_to_reach_the_surface": {
+      "repo_writes": 0,
+      "commands": [
+        "docker run -d --name fce9-aibim-stub --network fce9_default --network-alias aibim alpine:latest sleep infinity",
+        "docker restart fce9-admin-frontend-1"
+      ],
+      "result": "fce9-admin-frontend-1 Up (healthy), 0.0.0.0:3001->3000/tcp; nginx start worker lines; healthcheck GET / -> 200 1327 bytes",
+      "residual_effect_recorded": "with nothing listening on aibim:8080, the shell's ticket call fails: GET /api/v1/admin/ws/ticket -> 502 (x3 per page load, the only console errors observed). The users surface itself does not depend on it."
+    }
+  },
+  "admin_created": {
+    "tool": "cd /Users/rizax/Projects/aibim-app && COMPOSE_PROJECT_NAME=fce9 make create-admin   (EMAIL/PASSWORD/NAME passed through the tool environment)",
+    "makefile_target": "Makefile:742-752 (docker compose run --rm admin-backend create_admin)",
+    "observed_output": [
+      "✓ Super admin user created successfully",
+      "user_id:   7f404578-b1bd-4325-9485-c4b634026806",
+      "email:     admin@example.com",
+      "name:      Ada Admin",
+      "role:      super_admin",
+      "tenant_id: 00000000-0000-0000-0000-000000000001"
+    ],
+    "sign_in": "login form at http://localhost:3001/login submitted with real key events -> landed on http://localhost:3001/ ; then GET /api/v1/auth/me -> 200, GET /api/v1/admin/users?limit=200 -> 200"
+  },
+  "surface_rendered": true,
+  "surface_url": "http://localhost:3001/users",
+  "rendered_facts": [
+    {
+      "id": "F1",
+      "evidence_class": "ui-observed",
+      "claim": "The users table overflows its container at 320px: table scrollWidth 733 inside a .table-container of clientWidth 55, i.e. 678px of overflow; all 5 header cells (Name, Email, Role, Tenant, Status) are clipped; both rows have 5/5 cells clipped.",
+      "tool_calls": "browser tool: page.setViewport(320,800) then page.evaluate(() => { container=.table-container.getBoundingClientRect(); table.getBoundingClientRect(); th.getBoundingClientRect() ... }) - see E9-users2-320.png / E9-final-320.png",
+      "measurement": { "viewport": 320, "sidebar": 210, "admin_main": 110, "admin_page": 105, "container_clientWidth": 55, "table_scrollWidth": 733, "overflow_px": 678, "container_overflow_x": "hidden", "clipped_headers": ["Name", "Email", "Role", "Tenant", "Status"], "cell_clips_per_row": [5, 5], "cell_child_overflows_per_row": [3, 3] }
+    },
+    {
+      "id": "F2",
+      "evidence_class": "ui-observed",
+      "claim": "The same table overflows its container at 768px by 230px; Role, Tenant and Status are clipped, 3 of 5 cells per row.",
+      "tool_calls": "same evaluate at page.setViewport(768,900) - E9-users2-768.png",
+      "measurement": { "viewport": 768, "sidebar": 210, "admin_main": 558, "container_clientWidth": 503, "table_scrollWidth": 733, "overflow_px": 230, "container_overflow_x": "hidden", "clipped_headers": ["Role", "Tenant", "Status"], "cell_clips_per_row": [3, 3] }
+    },
+    {
+      "id": "F3",
+      "evidence_class": "ui-observed",
+      "claim": "At 1280px the table fits exactly: container clientWidth 985 == table scrollWidth 985, 0 clipped headers, 0 clipped cells.",
+      "tool_calls": "same evaluate at page.setViewport(1280,900) - E9-users2-1280.png",
+      "measurement": { "viewport": 1280, "sidebar": 240, "admin_main": 1040, "container_clientWidth": 985, "table_scrollWidth": 985, "overflow_px": 0, "container_overflow_x": "hidden" }
+    },
+    {
+      "id": "F4",
+      "evidence_class": "ui-observed",
+      "claim": "The overflow is clipped, not scrollable: .table-container computes overflow-x: hidden and the page has no horizontal scroll (document.scrollWidth == clientWidth == 320). Even with container.scrollLeft forced to its maximum (678), the Status header/cell (104px wide) is wider than the container (57px) so the column can never be fully seen; lastHeaderVisible=false, statusCellVisible=false, document.scrollLeft stays 0.",
+      "tool_calls": "page.evaluate: read getComputedStyle(.table-container).overflowX; set .admin-main.scrollLeft=99999, document.documentElement.scrollLeft=99999, .table-container.scrollLeft=99999; re-measure th/td rects vs container rect",
+      "measurement": { "container_overflow_x": "hidden", "admin_main_overflow_x": "auto", "container_scrollWidth": 733, "container_clientWidth": 55, "container_scrollLeft_max": 678, "doc_scrollLeft": 0, "lastHeaderVisible": false, "statusCellVisible": false, "status_header_width": 104, "container_width_at_320": 57 }
+    },
+    {
+      "id": "F5",
+      "evidence_class": "code",
+      "claim": "The clipping is structural, not incidental: admin/frontend/src/components/ui/DataTable.tsx renders <table class=\"w-full\"> inside <div class=\"table-container\">, and admin/frontend/src/index.css:500-505 gives .table-container `overflow: hidden` with no overflow-x: auto anywhere in that stylesheet (the only `overflow:` declarations are `hidden`, at lines 185, 361, 461, 502).",
+      "tool_calls": "grep for overflow-x/overflow: in admin/frontend/src/index.css and read DataTable.tsx"
+    },
+    {
+      "id": "F6",
+      "evidence_class": "ui-observed",
+      "claim": "The sidebar is a fixed 210px (240px above 900px viewport width) while the viewport is 320px, so the content column is 110px wide: the page title, the four stat cards, the search field (58px) and the table are all squeezed into or cut off at that column. Header text is cut ('Use...'), the stat cards stack into one column.",
+      "tool_calls": "page.evaluate metrics at 320 (sidebar/admin_main/admin_page widths, search input width) + E9-final-320.png / E9-users2-320.png",
+      "measurement": { "sidebar": 210, "admin_main": 110, "admin_page": 105, "search_input_width": 58, "stat_grid_columns": "not read (selector .stat-grid did not match; the card grid is rendered by StatGrid)" }
+    },
+    {
+      "id": "F7",
+      "evidence_class": "ui-observed",
+      "claim": "Create modal: renders centered at 480x487.5 px at 1280 (rect 400->880) and 768 (144->624); at 320 the inline width:480px is overridden by flex shrink so it becomes 320x487.5 (0->320) and does not overflow the viewport (document.scrollWidth stays 320). Fields: Full Name, Email, Password, Role (select, default 'viewer'), Tenant (search-select). Buttons: close, Cancel, Create User.",
+      "tool_calls": "page.evaluate over .modal-overlay/.modal-content rects, labels, inputs, buttons + E9-create-modal-1280.png, E9-create-modal-320.png",
+      "measurement": { "1280": { "rect": [400, 880], "w": 480, "exceeds_viewport": false }, "768": { "rect": [144, 624], "w": 480 }, "320": { "rect": [0, 320], "w": 320, "style_width": "480px", "doc_scrollWidth": 320 } }
+    },
+    {
+      "id": "F8",
+      "evidence_class": "ui-observed",
+      "claim": "The create form shows no required marker on Tenant, but the server requires it: submitting with Tenant empty yields the toast 'email, password, and tenant_id are required' and the modal stays open with all typed values intact.",
+      "tool_calls": "page.evaluate click on the .modal-content 'Create User' button, then read [data-sonner-toast] text"
+    },
+    {
+      "id": "F9",
+      "evidence_class": "ui-observed",
+      "claim": "After selecting the tenant (Self-Hosted / Community) the create succeeds and the row appears; the created user is inactive by default (list shows Inactive, StatGrid ACTIVE 1 / INACTIVE 1, panel offers 'Activate'). GET /api/v1/admin/users?limit=200 confirms is_active:false, role:viewer.",
+      "tool_calls": "tenant trigger click + option click inside .modal-content, submit button click, then page.evaluate over table rows and fetch('/api/v1/admin/users?limit=200')",
+      "measurement": { "row_count_after": 2, "created_user": { "role": "viewer", "is_active": false, "tenant_name": "Self-Hosted", "full_name_len": 72 } },
+      "caveat": "The 72-char name and 128-char email are MY automation's doing (triple-click select-all did not clear the field before retyping, so the value is a doubled string). The relevant property for the width test is the length, not the text; it is not a product defect and must not be recorded as one."
+    },
+    {
+      "id": "F10",
+      "evidence_class": "ui-observed",
+      "claim": "Detail panel: fixed 520px wide. At 1280 rect 760->1280 with a 760px scrim; at 768 rect 248->768 with a 248px scrim; at 320 it shrinks to 0->320 and the scrim collapses to width 0, so the outside-click target disappears and only the X closes it. No panel descendant escapes the panel at 1280 or 768; at 320 exactly one does.",
+      "tool_calls": "page.evaluate over div[class*=\"520px\"] rect + a full descendant overflow scan (each element's rect vs the panel's content box) at 1280/768/320 + E9-detail-1280.png, E9-detail-320.png",
+      "measurement": { "1280": { "panel": [760, 1280], "scrim": 760, "offenders": 0, "panel_overflow_x": "auto" }, "768": { "panel": [248, 768], "scrim": 248, "offenders": 0 }, "320": { "panel": [0, 320], "scrim": 0, "offenders": 1, "panel_scrollWidth": 363, "panel_clientWidth": 319 } }
+    },
+    {
+      "id": "F11",
+      "evidence_class": "ui-observed",
+      "claim": "At 320px the detail panel's Email value escapes the panel by 43.7px and the viewport by the same amount: the value span (class 'text-[12px] text-white ml-auto font-medium', right edge 363.7) vs the panel's content right edge 320; the panel's own scrollWidth 363 > clientWidth 319, so the value is cut and only reachable by scrolling the panel.",
+      "tool_calls": "page.evaluate: locate the span whose text starts with the email, compare its rect to the panel rect/padding + overflow scan; then getBoundingClientRect on the panel",
+      "measurement": { "value_span_right": 363.7, "panel_content_right": 320, "escape_px": 43.7, "panel_scrollWidth": 363, "panel_clientWidth": 319, "whiteSpace": "normal", "minWidth": "auto" }
+    },
+    {
+      "id": "F12",
+      "evidence_class": "ui-observed",
+      "claim": "Detail panel content (read from the rendered panel): title = the user's name, subtitle = 'a81a7a5a...', rows Email / Tenant (Self-Hosted) / Role (VIEWER) / Status (Inactive) / Created (Sep 21, 2026), a CHANGE ROLE group with 5 buttons (super admin, admin, operator, viewer, api user - the current one disabled) and Edit Profile + Activate.",
+      "tool_calls": "page.evaluate reading the panel's innerText and its button list",
+      "measurement": { "role_buttons": [{"t": "super admin", "disabled": false}, {"t": "admin", "disabled": false}, {"t": "operator", "disabled": false}, {"t": "viewer", "disabled": true}, {"t": "api user", "disabled": false}], "has_edit_profile": true, "status": "Inactive" }
+    },
+    {
+      "id": "F13",
+      "evidence_class": "ui-observed",
+      "claim": "The search control filters the table server-side on a debounce: typing 'Ada' leaves 1 row (Ada Admin) and sets the subtitle to '1 users across all tenants'; a term with no match leaves 0 rows and the table renders its empty state 'No users found' with subtitle '0 users across all tenants'. The input width tracks the column: 987px at 1280, 505px at 768, 58px at 320.",
+      "tool_calls": "page.click on input[placeholder=\"Search by name or email...\"], page.type, then page.evaluate over rows/subtitle/cells; page.setViewport for the widths; E9-search-1280.png",
+      "measurement": { "search_Ada": { "rows": 1, "subtitle": "1 users across all tenants" }, "search_no_match": { "rows": 0, "empty_text": "No users found", "subtitle": "0 users across all tenants" }, "input_width": { "1280": 987, "768": 505, "320": 58 } }
+    },
+    {
+      "id": "F14",
+      "evidence_class": "ui-observed",
+      "claim": "The app shell shows 'Loading...' as the signed-in user's name in every state, next to the correct role 'Super Admin', even though GET /api/v1/auth/me returns 200 with {user:{full_name:'Ada Admin', role:'super_admin', ...}}. The avatar letter is 'L', taken from 'Loading...'. The page's own data resolves normally.",
+      "tool_calls": "page.evaluate reading .admin-sidebar innerText at 1280/768/320 (identical) and page.evaluate fetch('/api/v1/auth/me')",
+      "measurement": { "sidebar_footer_tail": ["L", "", "Loading...", "", "Super Admin"], "me_status": 200, "me_user_full_name": "Ada Admin", "me_user_role": "super_admin" }
+    },
+    {
+      "id": "F15",
+      "evidence_class": "code",
+      "claim": "F14 is a field-contract mismatch between layers, cited on both sides: the API sends full_name (GET /api/v1/auth/me body above; the same field fed by POST /api/v1/admin/users in create_admin's output). admin/frontend/src/hooks/useMe.ts:7-13 declares the interface with `name: string` (no full_name) and useMe.ts:25 returns `body?.data ?? body?.user ?? body`, so me.name is undefined; admin/frontend/src/components/AdminLayout.tsx:62 is `const userName = me?.name || 'Loading...'`. role does resolve, which is why the super-admin-only role list renders - the mismatch is on the name alone.",
+      "tool_calls": "read hooks/useMe.ts and grep AdminLayout.tsx for the me usage; compare with the live /api/v1/auth/me payload"
+    },
+    {
+      "id": "F16",
+      "evidence_class": "behaviour",
+      "claim": "`make admin-dev` alone cannot serve the admin shell: even past the nginx crash, the shell calls GET /api/v1/admin/ws/ticket on load (x3), which cannot succeed unless the `aibim` app-backend service is running - with the stub in its place every one of those returns 502, and they are the only console errors on the page.",
+      "tool_calls": "page.on('response') capture during a page load at localhost:3001/users; result: GET /api/v1/auth/me -> 200, GET /api/v1/admin/users?limit=200 -> 200, GET /api/v1/admin/ws/ticket -> 502 (x3)"
+    }
+  ],
+  "table_width_row_exists": true,
+  "table_width_row": {
+    "class": "C7 (layout: a table whose width exceeds its container)",
+    "exists_at": [320, 768],
+    "absent_at": [1280],
+    "overflow_px": { "320": 678, "768": 230, "1280": 0 },
+    "clipping_vs_scrolling": "clipped - .table-container computes overflow-x: hidden and index.css declares no overflow-x: auto; the page has no horizontal scroll; at 320 the widest column is wider than the container even at maximum scrollLeft, so the clipped columns are unreachable",
+    "content_dependency": "at 768 the overflow depends on cell content: with the single short row the table fit (503 == 503); with a 72-char name / 128-char email row it overflows by 230px. At 320 it overflowed on both datasets (469 vs 55 with short content, 733 vs 55 with long)."
+  },
+  "ui_observed_rows": ["F1", "F2", "F3", "F4", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14"],
+  "evidence_class_counts": { "ui-observed": 13, "code": 2, "behaviour": 1, "user-verbatim": 0, "external": 0 },
+  "prediction_outcome": {
+    "predicted": "the stack starts and the surface renders; a C7 row appears; at least one row is ui-observed",
+    "as_issued": "falsified on the first clause: make admin-dev starts postgres and admin-backend but the admin-frontend crash-loops (nginx cannot resolve the aibim upstream) so the surface is not reachable",
+    "after_bridge": "the second and third clauses hold: the surface rendered with real data and C7 appears at 320 and 768 with 13 ui-observed rows",
+    "consequence_for_the_line": "the second stack's corpus CAN carry the classes the first one did, but the boot path is not self-sufficient, so E9 must record the frontend crash-loop and the 502 ticket route as part of the method, not as an environment accident."
+  },
+  "not_looked_at": [
+    "the app backend (aibim service) never ran, so anything needing /ws/ or the app API is unmeasured",
+    "hover / focus / active / disabled / loading / error / permission-denied states beyond those reached: only default, empty (No users found) and one server-validation error were observed",
+    "the SPA was served from the image's prebuilt dist (npm run build inside the Dockerfile), so no Vite dev-server behaviour was measured",
+    "axe-core / WCAG checks were not run - all findings above are geometry and rendered-text reads",
+    "the tenants, billing, api-keys and other pages of the same shell were not driven"
+  ],
+  "artifacts": {
+    "screenshots_dir": "/Users/rizax/Projects/tezgah/.tezgah/scratch/feature-coherence/",
+    "files": ["E9-users-320.png", "E9-users-768.png", "E9-users-1280.png", "E9-users2-320.png", "E9-users2-768.png", "E9-users2-1280.png", "E9-final-320.png", "E9-create-modal-1280.png", "E9-create-modal-320.png", "E9-detail-1280.png", "E9-detail-768.png", "E9-detail-320.png", "E9-search-1280.png", "E9-create-success-1280.png", "E9-after-create2-1280.png", "E9-after-create4-1280.png", "E9-submit-debug.png", "E9-create-submitted-1280.png", "E9-after-create-1280.png", "E9-after-create3-1280.png"],
+    "boot_log": "/Users/rizax/Projects/tezgah/.tezgah/scratch/feature-coherence/E9-boot.log"
+  },
+  "teardown": {
+    "browser": "browser.close({all:true}) -> Released 5 managed tabs",
+    "commands_and_results": [
+      "COMPOSE_PROJECT_NAME=fce9 make admin-down -> Container fce9-admin-frontend-1 Stopped; Container fce9-admin-backend-1 Stopped",
+      "docker rm -f fce9-aibim-stub -> removed (the bridge container)",
+      "COMPOSE_PROJECT_NAME=fce9 docker compose -f docker-compose.yml -f docker-compose.dev.yml down -v -> fce9-admin-backend-1 Removed, fce9-postgres-1 Removed, Network fce9_default Removed, Volume fce9_postgres_data Removed",
+      "docker rmi fce9-admin-backend:latest fce9-admin-frontend:latest -> Untagged/Deleted both"
+    ],
+    "final_state_verified": {
+      "ran": "docker ps -a --format '{{.Names}}\\t{{.Status}}' ; docker volume ls | grep -c fce9 ; docker network ls | grep -c fce9 ; docker images | grep -c fce9",
+      "containers": ["api-postgres-1  Exited (0) 6 days ago", "api-redis-1  Exited (0) 6 days ago"],
+      "fce9_volumes": 0,
+      "fce9_networks": 0,
+      "fce9_images": 0,
+      "note": "the two exited api-* containers pre-date this session and are untouched - the machine is back to its pre-run state"
+    },
+    "repo_writes": {
+      "aibim_app": "none - git status --porcelain shows 104 modified/deleted paths, all pre-existing (newest mtime 2026-08-28, this session ran 2026-09-21); no path under admin/ or app/ was touched",
+      "tezgah": "scratch only: /Users/rizax/Projects/tezgah/.tezgah/scratch/feature-coherence/"
+    }
+  }
+}

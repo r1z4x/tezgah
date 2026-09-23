@@ -1,0 +1,521 @@
+#!/usr/bin/env python3
+"""tezgah-research - the research workspace CLI.
+
+  tezgah-research init <slug> [--question "..."] [--tracked] [--allow-open "<why>"]
+                                                          scaffold a line
+  tezgah-research check [<slug>] [--json] [--strict] [--orx]  the discipline checks
+  tezgah-research status                           one line per research line
+  tezgah-research claim <slug>                     record one claim from stdin
+  tezgah-research predict <slug>                   record one prediction from stdin
+  tezgah-research components [--json]              what predicts what, per component
+  tezgah-research migrate <slug> [--dry-run]       derive fields the rules require
+  tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"]
+                           [--scope real|fixture|derived] [--fixture "<what was generated>"]
+
+A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
+auditable investigation needs: the question, the decision log, the findings, the
+claims with their kind, falsification criteria and evidence, the predictions bound
+to the commits that carried each proposed change, one directory per
+experiment whose protocol is committed before its results, the literature index,
+and the review a concluded line reports. `check` exits 1 when a line breaks those
+rules, so a hook or a person can act on it.
+
+`check --strict` also fails the guarantees the checker cannot decide - an
+experiment path git ignores and does not track, a protocol that answers neither
+what it predicts nor what would falsify it, a report a concluded line owes that
+states nowhere what the evidence does not show, a claim written before `kind`
+existed, a results row written before `source` did, a results file whose rows
+declare no `scope` (what their numbers were measured on), a claim resting on a
+fixture row that declares no scope or asserting a number its cited artifacts do not
+contain, a grey source with no quality
+note, an unsourced `Patterns` bullet, a concluded line with no review, a claim
+that supersedes another - because a session that wants a line it can defend wants
+those refused rather than noted. `check --orx` adds the run command the orx
+project registered against this repository holds, which is the recipe its runs
+have to be reproducible from. `migrate` derives the `kind` of the claims, the
+`source` of the results rows whose own fields imply one, and the
+`literature/INDEX.jsonl` rows from the artifacts already in the line, and reports
+every field it cannot derive instead of inventing one - `scope` is one of those, so
+the session that ran the experiment is the only thing that can supply it.
+`source --run` files one
+run's orx log as the experiment's receipt, and takes `--scope` for the row it
+writes. `predict` writes one row of `predictions.jsonl` - the commit a proposed
+change landed in, the claim it moves, the metric, its `value_before` and
+`value_after`, and what would falsify it - and refuses a row whose commit is not
+in this history, whose metric or baseline names no number, whose falsifier is
+empty, whose commit reached a frozen path (`hooks/tezgah_gate.py`,
+`hooks/tezgah_integrity.py`, `tests/`, `benchmarks/`, a protocol) without a human
+`granted_by`, whose `claim` names an id the line does not hold, or whose
+`components` is missing or names a component the manifest
+(`hooks/tezgah_components.py`) does not define. `components` prints, per component
+the manifest defines, the prediction rows that name it and their state -
+`unmeasured` until the round measures them, `held` once `value_after` is filled,
+`falsified` when the claim the row names is `refuted` in the line's own
+`claims.jsonl` - with the number of components and rows it read. It is a report
+and not a gate: it always exits 0.
+
+`init` reads the lines already in the repository before it scaffolds anything, and
+refuses while one of them is unfinished - its phase not `concluded`, a claim left
+`hypothesis` or `testing`, a pre-registered experiment with no results or no
+analysis, no `to_human/report.md` or `to_human/review.json`, a review finding with
+no status - printing every open slug with its reasons. `--allow-open "<reason>"`
+opens the new line anyway and writes the reason into its `log.md` as the first
+entry; an empty reason is misuse. `check` prints the same list of open lines after
+the per-line report, and so does `status`, so neither state has to be discovered by
+being refused.
+
+Exit codes: 0 clean, 1 problems found - a broken line for `check`, a refused
+claim for `claim`, a refused row for `predict`, which writes nothing and prints
+one reason per problem, or a new line refused for `init` over unfinished ones - 2
+misuse.
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_paths as tp  # noqa: E402
+import tezgah_research as tr  # noqa: E402
+
+
+def repo_root(path):
+    try:
+        out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except OSError:
+        pass
+    return os.path.realpath(path)
+
+
+def misuse(message):
+    """Misuse exits 2, so a caller can tell it from a line that fails the checks."""
+    print("tezgah-research: %s" % message, file=sys.stderr)
+    return 2
+
+
+def cmd_init(args):
+    if not args:
+        return misuse("init needs a slug")
+    slug = args[0].strip().lower().replace(" ", "-")
+    if not tr.valid_slug(slug):
+        # A slug is the directory name the other commands list, so anything that
+        # is not one (a path, a `..`, a leading dot) would scaffold a line that
+        # `check`, `status` and `claim` can never see.
+        return misuse("init <slug>: %r is not a slug - lowercase letters, digits "
+                      "and dashes" % args[0])
+    question, tracked, allow = "", False, None
+    rest = args[1:]
+    while rest:
+        flag = rest.pop(0)
+        if flag == "--question" and rest:
+            question = rest.pop(0)
+        elif flag == "--tracked":
+            tracked = True
+        elif flag == "--allow-open" and rest:
+            allow = rest.pop(0)
+        else:
+            return misuse('init <slug> [--question "..."] [--tracked] '
+                          '[--allow-open "<reason>"]')
+    if allow is not None and not allow.strip():
+        return misuse("--allow-open needs the reason the new line is worth opening "
+                      "over the unfinished ones")
+    repo = repo_root(os.getcwd())
+    unfinished = tr.open_lines(repo)
+    if unfinished and allow is None:
+        # The refusal is the whole point: a line opened beside eleven unfinished
+        # ones is how this repository came to hold thirteen of them, so the state
+        # is read before anything is written and the reason is the only way past.
+        print("init refused: %d research line(s) are unfinished, and a new line is "
+              "not opened over them without a reason:" % len(unfinished))
+        for name, reasons in unfinished:
+            print("  %s: %s" % (name, "; ".join(reasons)))
+        print('to open %s anyway, say why: tezgah-research init %s '
+              '--allow-open "<reason>"' % (slug, slug))
+        return 1
+    created = time.strftime("%Y-%m-%d")
+    made = tr.init(repo, slug, question=question, created=created)
+    if allow is not None:
+        problem = tr.note_open(repo, slug, allow, created)
+        if problem:
+            print("  WARNING: the reason could not be written to log.md (%s)"
+                  % problem)
+    print("research line: %s" % tr.line_dir(repo, slug))
+    for path in made:
+        print("  wrote %s" % path)
+    report_tracking(repo, slug, tracked)
+    print("\nnext: write experiments/<hypothesis>/protocol.md - what the change is, "
+          "what it predicts, what result would falsify it, why - and COMMIT it "
+          "before the run. Then record the run in results.jsonl and commit it: "
+          "`git add -f experiments/<hypothesis>/results.jsonl` after the protocol "
+          "is in history, because a path git ignores is staged by no plain `git "
+          "add` and that silent no-op looks exactly like a commit. Then analyse it "
+          "in analysis.md, and put the claim in claims.jsonl with its kind, "
+          "falsification criterion and evidence.")
+    print("kill switch: research-off")
+    return 0
+
+
+def report_tracking(repo, slug, tracked):
+    """Print the TRACKING block for a line whose path git ignores, and with
+    `tracked` append the lines that re-include it.
+
+    Naming the ignore source matters twice over: an ignored line cannot show that
+    its protocol predates its results, because the commit the rule compares
+    against will never exist, and the next session cannot read the line at all.
+    The negation is one line only when no ancestor directory is excluded; when one
+    is, git stops there and the whole chain down to the line is what makes the
+    re-inclusion work, which is why `--tracked` writes the chain it printed."""
+    base = tr.line_dir(repo, slug)
+    raw = tr.ignored_by(repo, base)
+    if not raw:
+        return
+    rel = os.path.relpath(base, repo)
+    source = tr.ignore_source(raw)
+    if source is None:
+        lines = ["!%s/" % rel]
+    else:
+        lines = tr.negations(repo, slug, source[2])
+    print("\nTRACKING: %s/ is ignored by %s, so the protocol order can never be "
+          "verified for this line and no other session can read it." % (rel, raw))
+    if len(lines) == 1:
+        print("  append this line to the file that ignores it (--tracked does it):")
+    else:
+        print("  git cannot re-include a path under an excluded directory, so these "
+              "lines, in this order, are what makes the negation work (--tracked "
+              "appends them):")
+    for line in lines:
+        print("    %s" % line)
+    if not tracked:
+        print("  re-run with --tracked to append them to the file that ignores it.")
+        return
+    if source is None or not os.path.realpath(source[0]).startswith(
+            os.path.realpath(repo) + os.sep):
+        print("  not appended: the ignore comes from %s, outside the repository - "
+              "add the lines there." % (source[0] if source else raw))
+        return
+    added = append_lines(source[0], lines)
+    print("  tracked: appended %d line(s) to %s" % (len(added), source[0]))
+    still = tr.ignored_by(repo, os.path.join(base, "state.json"))
+    if still:
+        print("  WARNING: %s/state.json is still ignored by %s" % (rel, still))
+
+
+def append_lines(path, lines):
+    """Append the lines this file does not already have, and nothing else: the
+    other lines of a `.gitignore` are the user's, and nothing here stages them."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            body = fh.read()
+    except OSError:
+        body = ""
+    present = {line.strip() for line in body.splitlines()}
+    added = [line for line in lines if line not in present]
+    if not added:
+        return []
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            if body and not body.endswith("\n"):
+                fh.write("\n")
+            fh.write("".join(line + "\n" for line in added))
+    except OSError as exc:
+        print("  WARNING: %s could not be written (%s)" % (path, exc))
+        return []
+    return added
+
+
+def cmd_check(args):
+    as_json = "--json" in args
+    strict = "--strict" in args
+    ask_orx = "--orx" in args
+    rest = [a for a in args if a not in ("--json", "--strict", "--orx")]
+    repo = repo_root(os.getcwd())
+    if len(rest) > 1:
+        return misuse("check [<slug>] [--json] [--strict] [--orx]")
+    known = tr.slugs(repo)
+    if rest and rest[0] not in known:
+        print("FAIL %s: no such research line (have: %s)"
+              % (rest[0], ", ".join(known) or "none"))
+        return 1
+    problems = 0
+    report = {}
+    if known:
+        report = tr.check(repo, rest[0] if rest else None, strict=strict)
+        for slug, row in report.items():
+            for err in row["errors"]:
+                problems += 1
+                print("FAIL %s: %s" % (slug, err))
+            for warn in row["warnings"]:
+                print("warn %s: %s" % (slug, warn))
+    else:
+        print("no research line under %s" % tr.root(repo))
+    if ask_orx:
+        # The registry is the repository's, not a line's, so this runs whatever the
+        # lines look like - which is also why it is only asked for when --orx says so.
+        report["orx"] = tr.check_orx(repo, tp.orx_bin(), strict=strict)
+        for err in report["orx"]["errors"]:
+            problems += 1
+            print("FAIL orx: %s" % err)
+        for warn in report["orx"]["warnings"]:
+            print("warn orx: %s" % warn)
+    if as_json:
+        # The payload is the whole answer for a machine caller: a sentence after
+        # it is not JSON, and one before it is prose the reader never asked for.
+        print(json.dumps(report, indent=2))
+        return 1 if problems else 0
+    if not problems:
+        print("research: %d line(s) ok" % len(report))
+    # The layer's own state, after the per-line report and outside the FAIL/warn
+    # classes: a line being open is a state and not a defect, but it is the state
+    # `init` refuses a new line over, so a session running `check` sees it here
+    # instead of meeting it at its next `init`. Only when the whole layer was
+    # asked about: `check <slug>` answers for that line and stays that answer.
+    if not rest:
+        unfinished = tr.open_note(repo)
+        if unfinished:
+            print(unfinished)
+    return 1 if problems else 0
+
+
+def cmd_status(args):
+    if args:
+        return misuse("status takes no arguments")
+    repo = repo_root(os.getcwd())
+    rows = tr.summary(repo)
+    if not rows:
+        print("no research line under %s" % tr.root(repo))
+        return 0
+    for row in rows:
+        print(row)
+    return 0
+
+
+def cmd_components(args):
+    """The per-component report: which predictions name each component and what
+    state they are in, read from the manifest the rules also read.
+
+    Always exit 0, because it is a report and not a gate: it refuses nothing the
+    checker does not already refuse, and what it prints - the components and the
+    rows it read - is what tells an empty manifest from a line with no
+    predictions. The shaping is the module's (`component_report`,
+    `components_text`), so the `--json` and the text are one decision."""
+    as_json = "--json" in args
+    if [a for a in args if a != "--json"]:
+        return misuse("components [--json]")
+    report = tr.component_report(repo_root(os.getcwd()))
+    if as_json:
+        print(json.dumps(report, indent=2))
+        return 0
+    for line in tr.components_text(report):
+        print(line)
+    return 0
+
+
+def cmd_claim(args):
+    """Record the claim handed in on stdin; the line must exist first, so a
+    typo cannot create one. Reading stdin happens after the slug check, so a
+    misuse case never waits on a terminal."""
+    if not args:
+        return misuse("claim needs a slug")
+    slug = args[0]
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if slug not in known:
+        return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    try:
+        # The bytes, decoded here rather than by the interpreter's stdin wrapper:
+        # under a C locale that wrapper reads invalid bytes as lone surrogates, so
+        # a claim could be recorded whose statement is not text at all.
+        body = sys.stdin.buffer.read().decode("utf-8")
+    except UnicodeDecodeError:
+        return misuse("stdin is not valid UTF-8")
+    if not body.strip():
+        return misuse("claim needs one JSON object on stdin")
+    try:
+        claim = json.loads(body)
+    except ValueError:
+        return misuse("stdin is not valid JSON")
+    if not isinstance(claim, dict):
+        return misuse("stdin must be one JSON object")
+    try:
+        claim_id, problems = tr.append_claim(repo, slug, claim)
+    except OSError as exc:
+        # The line directory can go missing or stop being writable between the
+        # slug check and the append; that is a problem with the line, not with
+        # how the command was called, so it takes the refusal channel.
+        claim_id, problems = claim.get("id"), ["cannot append to claims.jsonl: %s" % exc]
+    if problems:
+        for problem in problems:
+            print("FAIL %s: %s" % (slug, problem))
+        return 1
+    print(("claim %s recorded" % claim_id) if claim_id else "claim recorded")
+    return 0
+
+
+def cmd_predict(args):
+    """Record the prediction handed in on stdin; the line must exist first, the
+    same way `claim` requires it, and the row is judged by the module's own
+    `prediction_problems` so the writer can never refuse what `check` accepts.
+
+    One reason per problem, and nothing written when anything is refused: a row
+    the loop later reads is a promise about a commit, so a half-valid one is not
+    worth appending. The undecidable class - a commit git cannot place - is
+    printed as a warning and recorded, which is the same fail-open `check` uses:
+    a check that cannot decide must not invent a refusal."""
+    if len(args) != 1:
+        return misuse("predict <slug>")
+    slug = args[0]
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if slug not in known:
+        return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    try:
+        # The bytes, decoded here rather than by the interpreter's stdin wrapper:
+        # under a C locale that wrapper reads invalid bytes as lone surrogates, so
+        # a row could be recorded whose metric is not text at all.
+        body = sys.stdin.buffer.read().decode("utf-8")
+    except UnicodeDecodeError:
+        return misuse("stdin is not valid UTF-8")
+    if not body.strip():
+        return misuse("predict needs one JSON object on stdin")
+    try:
+        pred = json.loads(body)
+    except ValueError:
+        return misuse("stdin is not valid JSON")
+    if not isinstance(pred, dict):
+        return misuse("stdin must be one JSON object")
+    try:
+        problems, undecided = tr.append_prediction(repo, slug, pred)
+    except OSError as exc:
+        # The line directory can go missing or stop being writable between the
+        # slug check and the append; that is a problem with the line, not with
+        # how the command was called, so it takes the refusal channel.
+        problems = ["cannot append to predictions.jsonl: %s" % exc]
+        undecided = []
+    for problem in problems:
+        print("FAIL %s: %s" % (slug, problem))
+    for note in undecided:
+        print("warn %s: %s" % (slug, note))
+    if problems:
+        return 1
+    print("prediction for commit %s recorded" % pred.get("commit"))
+    return 0
+
+
+def cmd_migrate(args):
+    """Derive what the newer rules require of the artifacts already in the line.
+
+    The dry run prints exactly what the real run would derive and what it cannot,
+    which is the point of having it: an existing line is other sessions' evidence,
+    and a migration that cannot be previewed is a migration nobody dares run."""
+    dry = "--dry-run" in args
+    rest = [a for a in args if a != "--dry-run"]
+    if len(rest) != 1:
+        return misuse("migrate <slug> [--dry-run]")
+    slug = rest[0]
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if slug not in known:
+        return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    lines, problems = tr.migrate(repo, slug, dry_run=dry)
+    print("migrate %s%s: %d derived" % (slug, " (dry run, nothing written)" if dry
+                                        else "", len(lines)))
+    for line in lines:
+        print("  %s" % line)
+    for problem in problems:
+        print("could not derive: %s" % problem)
+    return 0
+
+
+def cmd_source(args):
+    """File one orx run's log as the receipt of an experiment."""
+    usage = ('source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"] '
+             '[--scope real|fixture|derived] [--fixture "<what was generated>"]')
+    if len(args) < 2:
+        return misuse(usage)
+    slug, hypothesis = args[0], args[1]
+    run = command = scope = ""
+    fixture = None
+    rest = args[2:]
+    while rest:
+        flag = rest.pop(0)
+        if flag == "--run" and rest:
+            run = rest.pop(0)
+        elif flag == "--command" and rest:
+            command = rest.pop(0)
+        elif flag == "--scope" and rest:
+            scope = rest.pop(0)
+        elif flag == "--fixture" and rest:
+            fixture = rest.pop(0)
+        else:
+            return misuse(usage)
+    if "/" in hypothesis or "\\" in hypothesis or hypothesis.startswith("."):
+        return misuse("source <slug> <hypothesis>: %r is not an experiment "
+                      "directory name" % hypothesis)
+    if not run:
+        return misuse("source needs --run <orxRunId>")
+    if scope and scope not in tr.SCOPES:
+        return misuse("--scope %r is not one of %s" % (scope, ", ".join(tr.SCOPES)))
+    if fixture is not None and not fixture.strip():
+        return misuse("--fixture needs the text naming what was generated")
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if slug not in known:
+        return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    orx = tp.orx_bin()
+    if not orx:
+        return misuse("orx is not installed, so no run log can be read; nothing "
+                      "was written (TEZGAH_ORX_BIN overrides the lookup)")
+    path, problems = tr.source_run(repo, slug, hypothesis, run, orx, command, scope,
+                                   fixture or "")
+    if problems:
+        for problem in problems:
+            print("FAIL %s: %s" % (slug, problem))
+        return 1
+    print("receipt %s" % path)
+    print('row {"source": "orx:%s", "log": "raw/%s.log"%s%s%s}'
+          % (run, run, ', "command": %s' % json.dumps(command) if command else "",
+             ', "scope": %s' % json.dumps(scope) if scope else "",
+             ', "fixture": %s' % json.dumps(fixture) if fixture else ""))
+    if not scope:
+        print("note: the row declares no scope, so nothing says whether this run "
+              "measured the running system or an input you generated; re-file with "
+              "--scope %s" % "|".join(tr.SCOPES))
+    elif scope == "fixture" and not fixture:
+        print("note: the row declares scope fixture and does not say what was "
+              "generated, which is the field the checker warns about; re-file with "
+              '--fixture "<what was generated>"')
+    return 0
+
+
+def main(argv):
+    if len(argv) < 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    cmd, rest = argv[1], argv[2:]
+    if cmd == "init":
+        return cmd_init(rest)
+    if cmd == "check":
+        return cmd_check(rest)
+    if cmd == "status":
+        return cmd_status(rest)
+    if cmd == "claim":
+        return cmd_claim(rest)
+    if cmd == "predict":
+        return cmd_predict(rest)
+    if cmd == "components":
+        return cmd_components(rest)
+    if cmd == "migrate":
+        return cmd_migrate(rest)
+    if cmd == "source":
+        return cmd_source(rest)
+    return misuse("unknown command %r (init, check, status, claim, predict, "
+                  "components, migrate, source)" % cmd)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,3780 @@
+#!/usr/bin/env python3
+"""tezgah-setup - arm every host you have from this one checkout.
+
+  tezgah-setup                         on a terminal: the install wizard
+  tezgah-setup --report                report what is armed, per host
+  tezgah-setup --wizard                the same wizard, forced (also on a pipe)
+  tezgah-setup --install               wire every detected host
+  tezgah-setup --install --hosts omp
+  tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh
+  tezgah-setup --roots ~/work:~/oss --install
+  tezgah-setup --uninstall             remove only tezgah-managed wiring
+  tezgah-setup --version               print the plugin version
+  tezgah-setup --adopt                 move the predecessor wiring aside
+  tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
+  tezgah-setup --write-manifest        release: regenerate the tracked MANIFEST from git
+  tezgah-setup --status [PATH]         print the armed/used checklist
+  tezgah-setup --agents [PATH]         regenerate this repo's subagent set
+  tezgah-setup --deps [--dry-run]      install missing optional tools only
+  tezgah-setup --install --no-deps     arm hosts without installing tools
+  tezgah-setup --prefix DIR            install prefix (default ~/.local/share/tezgah)
+  tezgah-setup --upgrade [VERSION]     fetch a release into the prefix, re-arm
+  tezgah-setup --upgrade --dry-run     say what an upgrade would do, run nothing
+
+Claude Code installs from a plugin; the other four do not have that channel,
+so they are wired here: Codex hooks.json + skills, Cursor hooks.json + skills,
+opencode plugins + instructions + skills, dsh's managed patch block, and the
+shared MCP registration.
+Re-running is idempotent; every write is backed up once as <file>.tezgah-bak.
+"""
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_apps  # noqa: E402
+import tezgah_context  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
+import tezgah_policy as policy  # noqa: E402
+import tezgah_agents  # noqa: E402
+from tezgah_policy import (  # noqa: E402
+    ADHD, CODEGRAPH_RULE, CODEGRAPH_STATIC, CONSULT, EXEC, NO_CONSULT,
+    ORCHESTRATE, PONYTAIL, WORKFLOWS)
+
+HOME = os.path.expanduser("~")
+# Where a released artifact unpacks: <prefix>/<version> plus a `current` symlink
+# to the active one. XDG_DATA_HOME is honoured and TEZGAH_PREFIX wins outright,
+# and main() resolves the prefix a flag, that env var, the tree this process is
+# running from, or the prefix an install recorded - in that order - because "is
+# this link tezgah's?" has to accept an install tree exactly as it accepts this
+# checkout: a version flip moves what `current` points at, and a link judged by
+# the checkout alone is orphaned by every upgrade.
+PREFIX_ENV = "TEZGAH_PREFIX"
+INSTALL_PREFIX = os.path.realpath(
+    os.environ.get(PREFIX_ENV)
+    or os.path.join(os.environ.get("XDG_DATA_HOME")
+                    or os.path.join(HOME, ".local", "share"), "tezgah"))
+# True when the prefix came from the environment rather than from the computed
+# default: an explicit answer outranks both fallbacks main() resolves (the tree
+# that is running, and the prefix an install recorded).
+PREFIX_PINNED = bool(os.environ.get(PREFIX_ENV))
+
+
+def running_prefix():
+    """The install prefix this tree is running from, or "" when it is a checkout.
+
+    `<prefix>/<version>/bin/tezgah-setup` with `<prefix>/current` pointing back
+    at it is exactly the released layout, and the running tree is the one piece
+    of evidence that cannot be stale about where it lives. It is needed because
+    `packaging/install.sh` runs this installer from the tree it just unpacked,
+    without a --prefix to pass on: without this, a first `--upgrade` from an
+    artifact would aim at ~/.local/share/tezgah wherever the user put the tree."""
+    prefix = os.path.dirname(HERE)  # HERE is <prefix>/<version>, two levels above bin/
+    current = os.path.join(prefix, "current")
+    if os.path.isdir(prefix) and os.path.islink(current) \
+            and os.path.realpath(current) == HERE:
+        return prefix
+    return ""
+# The per-host config roots live in tezgah_paths, the one place that also decides
+# whether a host is installed: the installer's report and the per-repo agent
+# generation must not answer that question differently.
+CLAUDE = tp.HOST_DIRS["claude"]
+# One definition, shared with the hooks and the agent generator, so a relocated
+# codex home (CODEX_HOME) cannot be armed by one and sought by another.
+CODEX = tp.HOST_DIRS["codex"]
+OPENCODE = tp.HOST_DIRS["opencode"]
+# opencode keeps provider credentials (what `opencode auth login` writes) in its
+# data dir, not its config dir; tezgah-doctor reads the same path for the
+# session database, so both name it the same way.
+OPENCODE_DATA = os.environ.get("TEZGAH_OPENCODE_DATA",
+                               os.path.join(HOME, ".local", "share", "opencode"))
+CURSOR = tp.HOST_DIRS["cursor"]
+DSH = tp.HOST_DIRS["dsh"]
+DSH_PATCH = os.path.join(DSH, "cordis.patch.yml")
+DSH_WEB = os.path.join(DSH, "profiles", "web")
+DSH_WEB_PATCH = os.path.join(DSH_WEB, "cordis.patch.yml")
+DSH_STATUSLINE = "tezgah-dsh-statusline"
+OMP = tp.HOST_DIRS["omp"]
+OMP_AGENT = os.path.join(OMP, "agent")
+OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
+                  "packages/coding-agent/src/config/mcp-schema.json")
+# The managed RULES.md still carries this one line: RULES.md is the always-on
+# file, so a session whose extension cannot start still learns the ledger
+# exists. The hook injects the actual lessons at session start.
+OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
+               "treat every line as a standing constraint on the work.")
+LOCAL_BIN = os.path.join(HOME, ".local", "bin")
+SKILLS = ["harness", "tezgah-contract", "ponytail", "i-have-adhd", "no-ai-slop",
+          "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
+          "product-analysis", "feature-audit", "pm-frameworks", "ai-research"]
+
+
+def skills_linked(base):
+    """True when every shipped skill resolves to a readable SKILL.md under
+    `base`. `islink` alone called a dangling link installed: a name in SKILLS
+    whose skill file was never written reported as linked on every host at once,
+    while no host could read it."""
+    return all(os.path.isfile(os.path.join(base, s, "SKILL.md"))
+               for s in SKILLS)
+
+
+# Shipped by tezgah, reached only from a research task: the always-on router
+# collapses it to its bucket's count line like every other on-demand bucket.
+RESEARCH_SKILLS = frozenset(("ai-research",))
+# opencode context hygiene tezgah arms: prune clears old tool results from the
+# prompt (stops a long session re-sending every output each step) and the
+# watcher ignore keeps fs-events out of noisy trees. Both merge; a user's
+# explicit value wins.
+OPENCODE_IGNORE = [".git/**", "node_modules/**", "dist/**", "build/**",
+                   ".venv/**", "__pycache__/**", ".ruff_cache/**"]
+WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
+ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp"]
+# orx ships an installable skill shim for these four; dsh has no orx harness,
+# so research routing there falls back to `orx skill` on the shell.
+ORX_AGENTS = {"claude": "claude", "codex": "codex",
+              "opencode": "opencode", "cursor": "cursor"}
+CONTRACT_SHA = os.path.join(tp.CONFIG_DIR, "contract.sha256")
+SKILL_ROUTER = os.path.join(tp.CONFIG_DIR, "opencode-skills.md")
+# Where `link()` records the entries it had to materialise instead of
+# symlinking; see materialised_paths() for why the fact has to be written down.
+MATERIALISED = os.path.join(tp.CONFIG_DIR, "materialised")
+# The relay `_materialise` writes where a symlink is refused: it runs the real
+# script with __file__ and sys.argv[0] pointing at it, so a script that finds
+# its own tree by walking up from __file__ still finds the install tree.
+RELAY = ('import runpy\nimport sys\n\n'
+         'sys.argv[0] = %r\n'
+         'runpy.run_path(%r, run_name="__main__")\n')
+# The research/marketing buckets are collapsed to a pointer in the always-on
+# router and listed in full here, read only when the task class matches.
+SKILL_ROUTER_FULL = os.path.join(tp.CONFIG_DIR, "opencode-skills.full.md")
+# Host-tooling skills that are neither tezgah's core nor research. Everything
+# else falls under marketing & growth; the router groups by these buckets.
+TOOLING_SKILLS = frozenset(("codegraph", "computer-use", "find-skills",
+                            "orca-cli", "orchestration"))
+# Skill dirs symlinked in from a third-party library whose frontmatter carries no
+# marker, so it is bucketed by its clone path instead of defaulting to marketing.
+AI_RESEARCH_SKILL_SOURCES = ("AI-Research-SKILLs",)
+CODEX_PRETOOL_MATCHER = ("Bash|exec_command|PowerShell|pwsh|apply_patch|Edit|Write|"
+                         "mcp__.*|spawn_agent|Agent|Task|Grep")
+# Cursor's preToolUse matcher is a regex over tool TYPES, so it has to name the
+# write tools or the gate never sees an edit, and the shell under every spelling
+# it can arrive as or the gate never sees the call at all. Mirrors
+# hosts/cursor/hooks.json.
+CURSOR_PRETOOL_MATCHER = ("Shell|PowerShell|pwsh|Grep|Task|Write|Edit|MultiEdit|"
+                          "NotebookEdit")
+# What each host's hook manifest is wired for, matcher included. install_codex
+# and install_cursor write from these and the report rows check the same value,
+# so a manifest carrying six of seven events (no Stop, say) cannot read as wired
+# while the write side and the check side drift apart.
+CODEX_HOOK_EVENTS = (("SessionStart", None), ("UserPromptSubmit", None),
+                     ("PreToolUse", CODEX_PRETOOL_MATCHER), ("PostToolUse", None),
+                     ("SubagentStart", None), ("PostCompact", None), ("Stop", None))
+CURSOR_HOOK_EVENTS = {
+    "sessionStart": {"timeout": 10},
+    # Cursor runs a preToolUse hook only for the tool types its matcher names, so
+    # a matcher without the write tools leaves the gate's edit branches
+    # unreachable there.
+    "preToolUse": {"timeout": 5, "matcher": CURSOR_PRETOOL_MATCHER},
+    "postToolUse": {"timeout": 10},
+    "postToolUseFailure": {"timeout": 10},
+    "subagentStart": {"timeout": 5},
+    "subagentStop": {"timeout": 10},
+    "beforeSubmitPrompt": {"timeout": 10},
+    "stop": {"timeout": 10},
+    "beforeMCPExecution": {"timeout": 5},
+    "afterShellExecution": {"timeout": 10},
+    "afterMCPExecution": {"timeout": 10},
+    "afterFileEdit": {"timeout": 10},
+    "afterAgentResponse": {"timeout": 5},
+}
+# The feature selection for THIS run: None means "read config.json['features']",
+# and an absent key there means the registry's declared default, which is what
+# makes a config written before this existed behave exactly as it used to.
+# --enable/--disable/--devtools and the wizard set it before anything is written.
+FEATURES = None
+OK, NO = "  ok  ", " MISS "
+
+
+def mkdirp(p):
+    os.makedirs(p, exist_ok=True)
+
+
+def expand(p):
+    return os.path.expanduser(str(p))
+
+
+# The one version reader for this install: the status line's `tezgah vX.Y.Z`
+# prefix prints the same value, from `version_segment()` in the core
+# (`hooks/tezgah_context.py`), so this is the call into that reader and not a
+# second reading of the same rule. Two readers are two answers to "which
+# version is this", and they drift the moment a release moves one of them - the
+# shape the lessons ledger records for a write path and its checker. The reader
+# takes the local plugin manifest first (the maintainer's file, untracked, so a
+# clone has none) and the newest release heading in CHANGELOG.md second, and it
+# answers None when it finds neither.
+def plugin_version():
+    """The version `--version` prints: the shared reader, else `unknown`.
+
+    The degradation is this CLI's own and deliberately different from the status
+    line's: a line with no readable version falls back to the bare name, because
+    a placeholder there would read as a version, while this CLI's whole output
+    is that value, so it keeps answering the word it has always answered rather
+    than printing an empty string that would read as a broken flag."""
+    return tezgah_context.version() or "unknown"
+CONTRACT_SOURCES = ("hooks/tezgah_policy.py",
+                    "hooks/tezgah_context.py",
+                    "skills/tezgah-contract/SKILL.md")
+# The code-graph MCP server: one argv, one environment, both written into every
+# host row from here. `CODEGRAPH_MCP_TOOLS` is what makes the tools the agent
+# briefs name really exist - codegraph exposes `codegraph_explore` alone without
+# it - and `CODEGRAPH_TELEMETRY=0` keeps a local-first toolchain from reporting
+# usage; codegraph is opt-out, so the value has to be said out loud.
+GRAPH_ARGS = ["serve", "--mcp"]
+GRAPH_ENV = {
+    "CODEGRAPH_MCP_TOOLS": "explore,node,search,callers,callees,impact,files,status",
+    "CODEGRAPH_TELEMETRY": "0",
+}
+
+
+def contract_sha():
+    """sha256 over every source of the generated opencode contract: the shared
+    policy, the renderer that selects and orders its paragraphs, and the
+    hand-maintained full-contract skill. Each is included so an edit to it alone
+    still marks the rendered contract stale - opencode has no session-start hook,
+    so this hash is the only thing that re-renders its always-on text."""
+    h = hashlib.sha256()
+    for rel in CONTRACT_SOURCES:
+        try:
+            with open(os.path.join(HERE, rel), "rb") as fh:
+                h.update(fh.read())
+        except OSError:
+            return ""
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def write_contract_sha():
+    """Persist the current source hash. Returns it, or "" when unreadable."""
+    sha = contract_sha()
+    if sha:
+        mkdirp(tp.CONFIG_DIR)
+        with open(CONTRACT_SHA, "w", encoding="utf-8") as fh:
+            fh.write(sha + "\n")
+    return sha
+
+
+def contract_stale():
+    """True when the stored contract hash is missing or out of date."""
+    try:
+        with open(CONTRACT_SHA, encoding="utf-8") as fh:
+            stored = fh.read().strip()
+    except OSError:
+        stored = ""
+    return stored != contract_sha()
+
+
+def link(src, dst):
+    """Idempotent symlink - or, where this platform refuses one, an entry
+    materialised in place. A real file in the way is kept as <dst>.tezgah-bak
+    and replaced, so an old shim (codex/bin/consult) does not block the build."""
+    if is_tezgah_copy(dst):
+        # tezgah's own materialised entry from an earlier symlink-less run: it
+        # is replaced, not reported as a user's file and not left pointing at a
+        # tree an upgrade has already moved away from
+        remove_materialised(dst)
+    elif os.path.isdir(dst) and not os.path.islink(dst):
+        return "%s %s is a directory - move it aside first" % (NO, dst)
+    elif os.path.islink(dst):
+        if os.path.realpath(dst) == os.path.realpath(src):
+            return "%s %s" % (OK, dst)
+        os.unlink(dst)
+    elif os.path.exists(dst):
+        try:
+            os.replace(dst, dst + ".tezgah-bak")
+        except OSError as exc:
+            return "%s %s (%s)" % (NO, dst, exc)
+    try:
+        mkdirp(os.path.dirname(dst))
+    except OSError as exc:
+        return "%s %s (%s)" % (NO, dst, exc)
+    if not symlinks_refused():
+        try:
+            os.symlink(src, dst)
+            return "%s %s -> %s" % (OK, dst, src)
+        except (OSError, NotImplementedError):
+            pass  # an account or filesystem that has no symlink to give
+    try:
+        return _materialise(src, dst)
+    except (OSError, shutil.Error) as exc:
+        return "%s %s (%s)" % (NO, dst, exc)
+
+
+def symlinks_refused():
+    """True when this machine cannot make a symlink for tezgah's entries.
+
+    A locked-down Windows account has no SeCreateSymbolicLinkPrivilege and a
+    FAT/exFAT volume has no symlinks at all; TEZGAH_NO_SYMLINK=1 asks for the
+    same layout on a machine that can, which is how a user picks it on purpose
+    (and how the suite exercises it without a Windows host)."""
+    return (os.environ.get("TEZGAH_NO_SYMLINK", "").strip() not in ("", "0")
+            or not hasattr(os, "symlink"))
+
+
+def materialised_paths():
+    """The paths `link()` materialised (copy or relay) instead of symlinking.
+
+    Recorded rather than guessed: with no symlink there is nothing in the entry
+    itself that says tezgah wrote it, so "not a tezgah link" needs an answer
+    that does not need a link - uninstall removes these, and a same-named file
+    tezgah never wrote stays the user's."""
+    try:
+        with open(MATERIALISED, encoding="utf-8") as fh:
+            return set(line.strip() for line in fh if line.strip())
+    except OSError:
+        return set()
+
+
+def record_materialised(path, add=True):
+    keys = materialised_paths()
+    if add:
+        keys.add(path)
+    else:
+        keys.discard(path)
+    try:
+        mkdirp(tp.CONFIG_DIR)
+        with open(MATERIALISED, "w", encoding="utf-8") as fh:
+            fh.write("".join(k + "\n" for k in sorted(keys)))
+    except OSError:
+        pass
+
+
+def is_tezgah_copy(path):
+    """True when `path` is a real entry this installer materialised where a
+    symlink was refused. A same-named file tezgah never wrote is the user's."""
+    return not os.path.islink(path) and path in materialised_paths()
+
+
+def drop_entry(path):
+    """Remove a file, link or directory `link()` is replacing."""
+    if os.path.islink(path) or os.path.isfile(path):
+        os.unlink(path)
+    elif os.path.isdir(path):
+        shutil.rmtree(path)
+
+
+def remove_materialised(path):
+    """Drop an entry `link()` materialised, and its record with it."""
+    drop_entry(path)
+    record_materialised(path, add=False)
+
+
+def _python_shebang():
+    """The relay's own shebang: a resolved interpreter is named directly, so a
+    shell can start the entry on a machine whose python3 is not on PATH; a bare
+    name goes through env, which is the same lookup the shell already does."""
+    python = tp.python_cmd()
+    if os.path.isabs(python) and " " not in python:
+        return "#!" + python
+    return "#!/usr/bin/env " + python
+
+
+def _write_relay(src, dst, shebang):
+    """A symlink-less entry for a script: a one-line launcher for `src`."""
+    interpreter = (shebang[2:].strip().split() or [""])[0]
+    if "sh" in os.path.basename(interpreter) and "python" not in shebang:
+        # a shell script relays to the shell that would have run it
+        # (bin/tezgah-dsh); Windows never reaches this branch - the dsh entry
+        # there is the .cmd install_dsh_launcher copies, because a relay is a
+        # file cmd.exe cannot start, and dsh_launcher_row() names the launcher
+        # the row judged
+        text = '#!/bin/sh\nexec "%s" "$@"\n' % src
+    else:
+        text = ("%s\n# tezgah: symlink-less entry, relays to %s\n"
+                % (_python_shebang(), src)) + RELAY % (src, src)
+    with open(dst, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.chmod(dst, 0o755)
+
+
+def _materialise(src, dst):
+    """Put tezgah's entry at `dst` without a symlink, and record it.
+
+    A plain copy of a tree script cannot work: every script here locates hooks/,
+    skills/ and the plugin root by walking up from its own __file__, so a copy
+    under ~/.config/tezgah/bin imports a hooks/ that is not there (measured: a
+    copied farm entry dies with ModuleNotFoundError). A script is therefore
+    written as a relay that runs the real file with the interpreter this tree
+    resolved - runpy sets __file__ to it, so everything inside it resolves its
+    own tree again - while a module a host imports by path (opencode's plugin,
+    the Claude workflows, the TUI plugin) is copied verbatim, because a relay
+    would hand the host the wrong body. A directory (a skill) is copied: a host
+    reads SKILL.md and the scripts in it by path, and nothing in a skill walks
+    up to the tree root."""
+    if os.path.isdir(src):
+        shutil.copytree(src, dst)
+    else:
+        with open(src, "rb") as fh:
+            head = fh.readline(200)
+        if head.startswith(b"#!"):
+            _write_relay(src, dst, head.decode("utf-8", "replace").strip())
+        else:
+            shutil.copy2(src, dst)
+    record_materialised(dst)
+    return "%s %s (symlink refused here; written in place)" % (OK, dst)
+
+
+def read_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return default
+
+
+def write_json(path, data):
+    """Write JSON, skipping the write when the bytes are already there.
+
+    An unchanged write is not free: it moves a host file's mtime and lays down a
+    `.tezgah-bak`, so a command whose whole point is idempotence (a repeated
+    --disable) would report a change it never made. Returns True when it wrote."""
+    text = json.dumps(data, indent=2) + "\n"
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if fh.read() == text:
+                return False
+    except OSError:
+        pass
+    mkdirp(os.path.dirname(path))
+    backup(path)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+    return True
+
+
+def backup(path):
+    if os.path.exists(path) and not os.path.exists(path + ".tezgah-bak"):
+        try:
+            shutil.copy2(path, path + ".tezgah-bak")
+        except OSError:
+            pass
+
+
+def set_managed_block(path, block, start="# tezgah:start", end="# tezgah:end"):
+    """Replace the tezgah block in a text file, or append it. A YAML file that
+    is an empty sequence (`[]`, the dsh patch-layer default) loses that token
+    first, because a sequence cannot follow it."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        lines = []
+    out, skip = [], False
+    for ln in lines:
+        if ln.strip().startswith(start):
+            skip = True
+            continue
+        if ln.strip().startswith(end):
+            skip = False
+            continue
+        if not skip and ln.strip() != "[]":
+            out.append(ln)
+    while out and not out[-1].strip():
+        out.pop()
+    if not out:
+        out = ["# dsh home patch layer - tezgah-setup manages the marked block below"]
+    mkdirp(os.path.dirname(path))
+    text = "\n".join(out) + "\n" + start + " (managed by tezgah-setup; do not edit)\n" \
+        + block.strip() + "\n" + end + "\n"
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if fh.read() == text:
+                return False  # nothing to back up or rewrite
+    except OSError:
+        pass
+    backup(path)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return True
+
+
+def codegraph_command():
+    """The codegraph executable every host row is written from.
+
+    Three channels in the resolver's order (hooks/tezgah_paths.codegraph_bin):
+    the TEZGAH_CODEGRAPH_BIN pin, the config an install writes, then PATH. The
+    config value is read a second time here because a pin that is not yet on
+    PATH still answers None from the resolver, and a row pinned to a path the
+    user chose is what they meant."""
+    return tp.codegraph_bin() or tp.config().get("codegraph_bin") or tp.CODEGRAPH
+
+
+def graph_command():
+    """The graph server's whole argv: the executable plus its serve flags.
+
+    omp and dsh take `command` + `args` separately, and the two hosts whose
+    schema takes one string (codex's toml, opencode's list) build it from this,
+    so the argv is written once and cannot drift between the six rows."""
+    return [codegraph_command()] + GRAPH_ARGS
+
+
+# tezgah's own MCP surface, registered beside the graph server. The name is the
+# prefix every tool is drawn under (`tezgah_status`, `tezgah_gate_check`, ...),
+# and the report names it by this same constant.
+TEZGAH_MCP_NAME = "tezgah"
+
+
+def tezgah_mcp_command(root=HERE):
+    """tezgah's MCP server's whole argv: the interpreter plus `bin/tezgah-mcp`.
+
+    One builder for every host row, exactly as `graph_command()` is for the
+    graph. `root` is the tree the row will be READ by: the five hosts that read
+    this checkout's configs want this checkout, while Claude reads the plugin
+    COPY, whose own `bin/tezgah-mcp` is the one that exists there - a row
+    pointing at a checkout the user never had would start nothing."""
+    return [tp.python_cmd(), os.path.join(root, "bin", "tezgah-mcp")]
+
+
+def tezgah_mcp_server(root=HERE):
+    """The tezgah row in the registry's shape (name/command/env), so each writer
+    can treat it exactly like the app servers it already writes instead of
+    growing a second rule."""
+    return {"name": TEZGAH_MCP_NAME, "command": tezgah_mcp_command(root), "env": {}}
+
+
+def selection():
+    """The feature ids behind this run's wiring.
+
+    A run-level override (--enable/--disable/--devtools/wizard) wins; otherwise
+    `config.json["features"]` answers; otherwise None, which means "the declared
+    default per feature" and is the backwards-compatible path - a config written
+    before the key existed wires exactly what it used to."""
+    if FEATURES is not None:
+        return list(FEATURES)
+    raw = tp.config().get("features")
+    return [i for i in raw if isinstance(i, str)] if isinstance(raw, list) else None
+
+
+def save_features(ids):
+    """Persist `ids` as config.json["features"] - this key's only writer.
+
+    An unchanged value writes nothing at all: a repeated --disable must not move
+    a mtime or leave a second backup, because "wrote nothing" is what makes the
+    command idempotent rather than merely convergent. Returns True when the file
+    changed."""
+    cfg = tp.config()
+    if list(cfg.get("features") or []) == list(ids):
+        return False
+    cfg["features"] = list(ids)
+    write_json(tp.CONFIG, cfg)
+    return True
+
+
+def app_servers(selected=None):
+    """The app-analysis MCP servers to wire this run (shared spec)."""
+    return tezgah_apps.servers(selection() if selected is None else selected)
+
+
+def app_server_names(selected=None):
+    """The names those servers are written under."""
+    return [s["name"] for s in app_servers(selected)]
+
+
+def app_mcp_names():
+    """Every app server name tezgah may have written, for cleanup and checks.
+
+    Not the selection: uninstall has to clear a row an older release left even
+    when the feature is off today, and a disable is never an uninstall."""
+    return tezgah_apps.names(tezgah_apps.MCP_IDS)
+
+
+def reconcile_json_servers(holder):
+    """Converge a JSON host's MCP holder on the selection, in both directions.
+
+    Every writer used to be add-or-refresh only, so a server the user turns off
+    stayed in the host file as a ghost. A name tezgah may have written but does
+    not wire this run is dropped; a name tezgah never owned (`codegraph`, or a
+    server of the user's own) is not in that list and stays. Returns the names
+    dropped, so the caller can say the file changed."""
+    wanted = app_server_names()
+    dropped = [n for n in app_mcp_names() if n not in wanted and n in holder]
+    for name in dropped:
+        holder.pop(name)
+    return dropped
+
+
+def restart_hint(host, path):
+    """What a run that changed a host's config must say.
+
+    A host reads its MCP config at boot, and tezgah cannot reach into a running
+    process, so the honest end of a write is naming the host to restart.
+    Printed only when something was written."""
+    print("%s %s: restart %s so it re-reads %s (read at boot)"
+          % (OK, host, host, path))
+
+
+def dsh_cli_args():
+    """How to invoke the dsh CLI, or None when it cannot be found.
+
+    dsh has no single install layout: a profile-local node entry appears only
+    after a real `dsh web` boot, while an npx bootstrap leaves the CLI in the npm
+    cache. So try, in order, an explicit override, the profile-local entry,
+    tezgah's own launcher (which itself falls back to npx) and finally npx."""
+    override = os.environ.get("TEZGAH_DSH_BIN")
+    if override:
+        return [override]
+    local = os.path.join(DSH, "profiles", "node_modules", "@deepseek-ai",
+                         "dsh", "lib", "bin.js")
+    node = shutil.which("node")
+    if node and os.path.isfile(local):
+        return [node, local]
+    launcher = os.path.join(HERE, "bin", "tezgah-dsh")
+    if os.path.isfile(launcher):
+        return [launcher]
+    found = shutil.which("dsh")
+    if found:
+        return [found]
+    if shutil.which("npx"):
+        return ["npx", "-y", "@deepseek-ai/dsh"]
+    return None
+
+
+def dsh_run(args):
+    """Run the dsh CLI with args. False when it cannot run, so a host without dsh
+    never fails the install."""
+    base = dsh_cli_args()
+    if not base:
+        return False
+    try:
+        return subprocess.run(base + args, capture_output=True,
+                              text=True).returncode == 0
+    except OSError:
+        return False
+
+
+# Provider key files tezgah already uses for consult/codegen, so the dsh route
+# check and the rest of tezgah agree on what "a key is available" means.
+DSH_KEY_FILES = {"OPENROUTER_API_KEY": os.path.join(HOME, ".config", "openrouter", "key"),
+                 "DEEPSEEK_API_KEY": os.path.join(HOME, ".config", "deepseek", "key"),
+                 "INCEPTION_API_KEY": os.path.join(HOME, ".config", "inception", "key")}
+
+
+def dsh_key_resolvable(name):
+    """True when the launch env, a tezgah provider key file, or the harness
+    credential store can resolve the route key. Values are never read, only the
+    reference name, so no secret enters tezgah's own config."""
+    if os.environ.get(name) or os.path.exists(DSH_KEY_FILES.get(name, "")):
+        return True
+    try:
+        with open(os.path.join(DSH, ".credentials.yaml"), encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return False
+    return re.search(r"(?m)^\s+%s\s*:" % re.escape(name), text) is not None
+
+
+def opencode_key_resolvable(provider, env):
+    """True when opencode can resolve a provider's key: the launch env (its
+    registry declares one env var per provider), or its own auth store, which
+    `opencode auth login` writes. Values are never read, only the record's
+    presence, so no secret enters tezgah's own config or report."""
+    if os.environ.get(env):
+        return True
+    store = read_json(os.path.join(OPENCODE_DATA, "auth.json"), {})
+    return bool((store or {}).get(provider))
+
+
+def detected():
+    """Which hosts exist here, from the one place that decides that."""
+    return {h: tp.host_installed(h) for h in ALL_HOSTS}
+
+
+# ---------------------------------------------------------------- install ----
+
+def install_common(new_roots, hosts):
+    cfg = tp.config()
+    cfg["roots"] = [expand(r) for r in new_roots] if new_roots else \
+        (tp.roots() or [tp.DEFAULT_ROOT])
+    if tp.codegraph_bin():
+        cfg["codegraph_bin"] = tp.codegraph_bin()
+    cfg["hosts"] = hosts
+    # The resolved selection, written beside roots/hosts: the next run reads one
+    # persisted answer instead of the flags some earlier run happened to carry,
+    # which is what lets --disable mean anything. A key absent here (and in the
+    # file) normalises to the registry's declared default, so an install made
+    # before this key existed keeps wiring exactly what it used to.
+    cfg["features"] = list(tezgah_apps.selected_ids(selection()))
+    # The prefix this install was made into, recorded beside roots and hosts: a
+    # later `--upgrade` has no flag of its own to repeat and may run from
+    # anywhere, so it moves the tree the install actually used instead of the
+    # XDG default. An explicit --prefix or TEZGAH_PREFIX still wins over it.
+    cfg["prefix"] = INSTALL_PREFIX
+    write_json(tp.CONFIG, cfg)
+    print("%s %s  roots=%s" % (OK, tp.CONFIG, cfg["roots"]))
+    if write_contract_sha():
+        print("%s %s" % (OK, CONTRACT_SHA))
+    for name, src in [
+            ("consult", os.path.join(HERE, "bin", "consult")),
+            ("codegen", os.path.join(HERE, "bin", "codegen")),
+            ("tezgah-status", os.path.join(HERE, "bin", "tezgah-status")),
+            ("tezgah-pony", os.path.join(HERE, "bin", "tezgah-pony")),
+            ("tezgah-adhd", os.path.join(HERE, "bin", "tezgah-adhd")),
+            ("tezgah-docs", os.path.join(HERE, "bin", "tezgah-docs")),
+            ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
+            ("tezgah-consent", os.path.join(HERE, "bin", "tezgah-consent")),
+            ("tezgah-rollback", os.path.join(HERE, "bin", "tezgah-rollback")),
+            ("tezgah-agents", os.path.join(HERE, "bin", "tezgah-agents")),
+            ("tezgah-context", os.path.join(HERE, "bin", "tezgah-context")),
+            ("tezgah-capture", os.path.join(HERE, "bin", "tezgah-capture")),
+            ("tezgah-doctor", os.path.join(HERE, "bin", "tezgah-doctor")),
+            ("tezgah-setup", os.path.join(HERE, "bin", "tezgah-setup")),
+            ("tezgah-research", os.path.join(HERE, "bin", "tezgah-research")),
+            ("tezgah-task", os.path.join(HERE, "bin", "tezgah-task")),
+            ("tezgah-gate", os.path.join(HERE, "bin", "tezgah-gate")),
+            ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
+            ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
+            ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
+            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations
+        print(link(src, os.path.join(tp.BIN_DIR, name)))
+    mkdirp(tezgah_apps.ARTIFACTS)
+    print("%s app artifacts -> %s" % (OK, tezgah_apps.ARTIFACTS))
+
+
+def statusline_wired():
+    sl = read_json(os.path.join(CLAUDE, "settings.json"), {}).get("statusLine") or {}
+    return "statusline.py" in json.dumps(sl)
+
+
+def install_claude():
+    print("\nclaude:")
+    print(link(os.path.join(HERE, "statusline.py"), os.path.join(CLAUDE, "statusline.py")))
+    for w in WORKFLOW_FILES:
+        print(link(os.path.join(HERE, "workflows", w), os.path.join(CLAUDE, "workflows", w)))
+    for b in ("consult", "codegen", "tezgah-render-table"):
+        src = (os.path.join(HERE, "bin", b) if b != "tezgah-render-table"
+               else os.path.join(HERE, "skills", "plan-add", "render_table.py"))
+        print(link(src, os.path.join(CLAUDE, "bin", b)))
+    wire_claude_statusline()
+    wire_claude_attribution()
+
+
+def wire_claude_attribution():
+    """Mechanically disable Claude Code's commit/PR attribution.
+
+    `attribution` is a documented settings key (docs.claude.com settings
+    reference): {"commit": "", "pr": "", "sessionUrl": false} hides all of it.
+    The hooks also enforce this, but the setting removes the default at source.
+    Backed up; skipped when already correct."""
+    sp = os.path.join(CLAUDE, "settings.json")
+    settings = read_json(sp, None)
+    if settings is None:
+        print("%s %s (will not create it - set attribution by hand)" % (NO, sp))
+        return
+    wanted = {"commit": "", "pr": "", "sessionUrl": False}
+    if settings.get("attribution") == wanted:
+        print("%s attribution disabled in Claude settings" % OK)
+        return
+    settings["attribution"] = wanted
+    write_json(sp, settings)
+    print("%s attribution -> none (previous kept as %s.tezgah-bak)" % (OK, sp))
+
+
+def wire_claude_statusline():
+    """Point Claude's statusLine at tezgah's wrapper (it forwards to Orca, then
+    appends the tezgah segment). Backed up; skipped when already correct."""
+    sp = os.path.join(CLAUDE, "settings.json")
+    settings = read_json(sp, None)
+    if settings is None:
+        print("%s %s (will not create it - add the statusLine line by hand)" % (NO, sp))
+        return
+    cmd = tp.hook_command(os.path.join(CLAUDE, "statusline.py"))
+    if (settings.get("statusLine") or {}).get("command") == cmd:
+        print("%s statusLine -> tezgah" % OK)
+        return
+    settings["statusLine"] = {"type": "command", "command": cmd}
+    write_json(sp, settings)
+    print("%s statusLine -> tezgah (previous kept as %s.tezgah-bak)" % (OK, sp))
+
+
+def install_codex():
+    print("\ncodex:")
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-codex-hook"))
+    path = os.path.join(CODEX, "hooks.json")
+    data = read_json(path, {"hooks": {}})
+    hooks = data.setdefault("hooks", {})
+    # PreToolUse carries a matcher on the group object, mirroring
+    # hosts/codex/hooks.json, and is what makes the policy gate blocking.
+    for ev, matcher in CODEX_HOOK_EVENTS:
+        arr = hooks.setdefault(ev, [])
+        arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+        group = {}
+        if matcher:
+            group["matcher"] = matcher
+        group["hooks"] = [{"type": "command", "command": cmd, "timeout": 10}]
+        arr.append(group)
+    write_json(path, data)
+    print("%s %s" % (OK, path))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(CODEX, "skills", s)))
+    mcp = os.path.join(CODEX, "bin", "consult")
+    print(link(os.path.join(tp.BIN_DIR, "consult"), mcp))
+    ensure_toml_mcp(os.path.join(CODEX, "config.toml"))
+
+
+def _toml_str(value):
+    return '"%s"' % value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def ensure_toml_mcp(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        if not os.path.isdir(os.path.dirname(path)):
+            return
+        text = ""  # codex is installed but has no config.toml yet
+    # Reconcile before adding: a table an older release wrote for a feature that
+    # is off today is the same ghost a JSON host would keep, and the removal
+    # helper already takes out exactly one table and leaves the user's keys.
+    stale = [n for n in app_mcp_names() if n not in app_server_names()]
+    if strip_toml_mcp(path, stale):
+        restart_hint("codex", path)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    blocks = []
+    if "mcp_servers.codegraph" not in text:
+        argv = graph_command()
+        blocks.append("\n".join(
+            ["[mcp_servers.codegraph]",
+             "command = %s" % _toml_str(argv[0]),
+             "args = [%s]" % ", ".join(_toml_str(a) for a in argv[1:]),
+             "env = { %s }" % ", ".join(
+                 "%s = %s" % (k, _toml_str(v)) for k, v in GRAPH_ENV.items())]))
+    # tezgah's own surface is written exactly like the app servers: the row is
+    # registry-shaped (name/command/env), so this loop stays the only rule.
+    servers = list(app_servers()) + [tezgah_mcp_server()]
+    for srv in servers:
+        marker = "[mcp_servers.%s]" % srv["name"]
+        if marker in text:
+            continue
+        cmd = srv["command"]
+        lines = [marker, "command = %s" % _toml_str(cmd[0]),
+                 "args = [%s]" % ", ".join(_toml_str(a) for a in cmd[1:])]
+        if srv["env"]:
+            lines.append("env = { %s }" % ", ".join(
+                "%s = %s" % (k, _toml_str(v)) for k, v in srv["env"].items()))
+        blocks.append("\n".join(lines))
+    if not blocks and not refresh_toml_mcp(path, servers):
+        print("%s MCP servers already in %s" % (OK, path))
+        return
+    if not blocks:
+        print("%s updated app MCP argv in %s" % (OK, path))
+        restart_hint("codex", path)
+        return
+    backup(path)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(("\n" if text and not text.endswith("\n") else "")
+                 + "\n".join(blocks) + "\n")
+    # The append above only fires for a missing table; an existing one is
+    # refreshed in place so a new pin or a new `--caps` reaches an install that
+    # already had the server.
+    refresh_toml_mcp(path, servers)
+    print("%s added MCP server(s) to %s" % (OK, path))
+    restart_hint("codex", path)
+
+
+def refresh_toml_mcp(path, servers):
+    """Update tezgah's own keys inside an existing [mcp_servers.*] table.
+
+    An append-only writer means a table written by an older tezgah keeps its old
+    argv forever, so a changed pin or a new `--caps` silently never reaches an
+    existing install - which is how `--caps=testing,storage,network` landed on
+    one host and none of the others. Only `command`, `args` and `env` are
+    touched, because those are tezgah's; every other key in the table (a timeout,
+    a comment) stays the user's.
+
+    ponytail: an `env` line that does not exist yet is not inserted here - the
+    append path writes it with the table, and a changed env value is rare enough
+    to be worth a re-add. Returns True when it changed the file.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return False
+    want = {s["name"]: s for s in servers}
+    out, current, changed = [], None, False
+    for line in lines:
+        marker = re.match(r"\s*\[mcp_servers\.([^\]]+)\]\s*$", line)
+        if marker:
+            current = want.get(marker.group(1))
+        elif current is not None and not line.lstrip().startswith("["):
+            key = line.split("=", 1)[0].strip() if "=" in line else ""
+            cmd = current["command"]
+            new = None
+            if key == "command":
+                new = "command = %s" % _toml_str(cmd[0])
+            elif key == "args":
+                new = "args = [%s]" % ", ".join(_toml_str(a) for a in cmd[1:])
+            elif key == "env" and current["env"]:
+                new = "env = { %s }" % ", ".join(
+                    "%s = %s" % (k, _toml_str(v))
+                    for k, v in current["env"].items())
+            if new is not None:
+                changed = changed or line != new
+                line = new
+        out.append(line)
+    if not changed:
+        return False
+    backup(path)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out) + "\n")
+    return True
+
+
+def strip_toml_mcp(path, names):
+    """Remove only the named [mcp_servers.*] tables, keeping everything else.
+    Returns True when it changed the file."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return False
+    out, skip, changed = [], False, False
+    for line in lines:
+        m = re.match(r"\[mcp_servers\.([^\]]+)\]", line.strip())
+        if m:
+            skip = m.group(1) in names
+            changed = changed or skip
+        if not skip:
+            out.append(line)
+    if not changed:
+        return False
+    backup(path)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out).rstrip("\n") + "\n")
+    print("%s removed tezgah app MCP server(s) from %s" % (OK, path))
+    return True
+
+
+def opencode_contract():
+    """The standing contract for opencode, rendered from the shared policy.
+
+    When the policy exposes a consolidated CORE block it is the contract;
+    otherwise the individual blocks are concatenated as before."""
+    root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
+    # Always-on = the invariants plus one-line pointers; the conditional rules
+    # (spec/consult/research/graph) are armed per prompt by the hook hosts and
+    # stay in the on-demand skill here.
+    core = (tezgah_context.always_on_core()
+            if hasattr(tezgah_context, "always_on_core")
+            else getattr(policy, "CORE", None))
+    if core:
+        blocks = [core]
+    else:
+        # the two `%` slots of CODEGRAPH_RULE, filled from the policy file that
+        # owns them: this render lands in a file written before a repo is known,
+        # so it can only state where codegraph keeps the index and how it is
+        # built, never a path or a slug of its own
+        blocks = [CODEGRAPH_RULE % CODEGRAPH_STATIC,
+                  WORKFLOWS, ORCHESTRATE, PONYTAIL, ADHD, EXEC,
+                  CONSULT if tp.have_consult_key() else NO_CONSULT]
+    # opencode has no session-start inject hook, so the always-on file must
+    # carry the same pointer every hook host appends: without it the two-tier
+    # codegen routing and the consult detail are never in front of the session.
+    blocks.append(
+        "**Full contract on demand.** The router (frontier model) decides and "
+        "verifies; bounded, well-specified edits go to `{CODEGEN_BIN}` on a "
+        "cheap model, which returns a diff to a scratch dir and never writes "
+        "the repo (exit 2 = write it yourself with the main model). Consult "
+        "rules and the exact kill switches live in the `tezgah-contract` "
+        "skill - read its `SKILL.md` from the skill router on the first "
+        "non-trivial task (opencode disables the native `skill` tool).")
+    text = tezgah_context.render("\n\n".join(b.strip() for b in blocks), root)
+    path = os.path.join(tp.CONFIG_DIR, "opencode-contract.md")
+    # a re-render that produces the same bytes writes nothing: every install and
+    # every --refresh lands here, and an unchanged contract must move no mtime
+    # and lay no backup (write_if_changed owns the mkdir as well).
+    write_if_changed(path, "<!-- generated by tezgah-setup from "
+                     "hooks/tezgah_policy.py; edit the source, re-run "
+                     "--install -->\n\n" + text + "\n")
+    return path
+
+
+def refresh_contract():
+    """Re-render the generated opencode contract and skill router when the
+    policy or the full-contract skill changed.
+
+    opencode has no session-start hook that can run the Python contract, so a
+    policy edit otherwise lands only at the next --install; a running session
+    calls this instead. Idempotent and cheap. Returns the contract path when it
+    refreshed, else None."""
+    if not os.path.isfile(CONTRACT_SHA) or not contract_stale():
+        return None
+    path = opencode_contract()
+    always, full = skill_router_texts()
+    write_if_changed(SKILL_ROUTER, always)
+    write_if_changed(SKILL_ROUTER_FULL, full)
+    write_contract_sha()
+    return path
+
+
+def skill_description(path):
+    """One compact trigger line from a SKILL.md frontmatter `description`.
+
+    Best effort: a missing, unreadable or undescribed skill yields "" rather
+    than an error, because the router must never fail an install. The sentence
+    carrying the `Use when ...` trigger wins over the opening one: a description
+    whose first sentence is a preface ("The full tezgah working contract.")
+    otherwise reaches the router stripped of every word a session matches on."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read(6000)
+    except OSError:
+        return ""
+    block = re.search(r"^---\s*\n(.*?)\n---", text, re.S)
+    if not block:
+        return ""
+    folded = re.search(r"description:\s*[>|]-?\s*\n((?:\s+.*\n?)+)", block.group(1))
+    if folded:
+        desc = " ".join(line.strip() for line in folded.group(1).splitlines())
+    else:
+        inline = re.search(r"description:\s*(.+)", block.group(1))
+        desc = inline.group(1).strip().strip("\"'") if inline else ""
+    desc = re.sub(r"\s+", " ", desc).strip()
+    sentences = re.split(r"(?<=[.!?])\s+", desc)
+    line = next((s for s in sentences if re.match(r"(?:Also )?[Uu]se\b", s)),
+                sentences[0] if sentences else "")
+    return line[:137].rstrip() + "..." if len(line) > 140 else line
+
+
+def skill_category(name, path=""):
+    if name in RESEARCH_SKILLS:
+        return "research & papers"
+    if name in SKILLS:
+        return "tezgah core"
+    if name.startswith("deepscientist-") or name == "orx" or name.startswith("orx-"):
+        return "research & papers"
+    if name in TOOLING_SKILLS:
+        return "code & host tooling"
+    real = os.path.realpath(path) if path else ""
+    if any(src in real for src in AI_RESEARCH_SKILL_SOURCES):
+        return "AI research & engineering"
+    return "marketing & growth"
+
+
+ROUTER_ORDER = ["tezgah core", "code & host tooling", "research & papers",
+                "AI research & engineering", "marketing & growth"]
+# The buckets a coding session actually reaches for; the rest are collapsed.
+ROUTER_ALWAYS = ("tezgah core", "code & host tooling")
+
+
+def skill_groups():
+    """{bucket: [(name, path)]} over the installed skill dirs.
+
+    Generated from the actual dirs so it tracks what is installed. The first dir
+    to define a name wins, matching opencode's precedence."""
+    dirs = [os.path.join(HERE, "skills"), os.path.join(OPENCODE, "skills"),
+            os.path.join(CLAUDE, "skills"), os.path.join(HOME, ".agents", "skills")]
+    found = {}
+    for d in dirs:
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(d, name, "SKILL.md")
+            if name not in found and os.path.isfile(path):
+                found[name] = path
+    groups = {c: [] for c in ROUTER_ORDER}
+    for name, path in sorted(found.items()):
+        groups[skill_category(name, path)].append((name, path))
+    return groups
+
+
+def _router_head():
+    return [
+        "<!-- generated by tezgah-setup from the installed skill dirs;"
+        " re-run --install after adding or removing a skill -->",
+        "",
+        "# Skill router",
+        "",
+        "opencode's native skill list and `skill` tool are disabled here"
+        " (`permission.skill = deny`), so this router replaces them. When a task"
+        " matches a skill below, read its `SKILL.md` with the read tool and follow"
+        " it - do not call the `skill` tool, it will be denied.",
+        "",
+    ]
+
+
+def _router_section(cat, items):
+    out = ["## %s" % cat, ""]
+    for name, path in items:
+        trigger = skill_description(path)
+        line = "- `%s` - %s" % (name, path)
+        if trigger:
+            line = "- `%s` - %s - %s" % (name, trigger, path)
+        out.append(line)
+    out.append("")
+    return out
+
+
+def skill_router_texts():
+    """(always-on router, full router).
+
+    opencode's own skill list is denied at install, and the plugin's prompt-time
+    injection carries the builder's per-turn text - the conditional rules
+    included - rather than a roster, so the always-on file carries the skills a
+    coding session needs and collapses the research/marketing buckets to a
+    pointer at the full file, read only when that task class comes up. Same shape
+    as the contract: the common case always-on, the rest on demand. tezgah's own
+    on-demand skills are the exception: they are named always-on, because a
+    library the session is never told about is one it answers from memory
+    instead - measured with a live opencode turn that read nothing and answered
+    anyway."""
+    groups = skill_groups()
+    always = _router_head()
+    for cat in ROUTER_ORDER:
+        if cat in ROUTER_ALWAYS and groups[cat]:
+            always += _router_section(cat, groups[cat])
+    own = {name for cat in ROUTER_ORDER if cat not in ROUTER_ALWAYS
+           for name, _path in groups[cat] if name in RESEARCH_SKILLS}
+    if own:
+        always += _router_section("research (tezgah's own)",
+                                  [row for cat in ROUTER_ORDER
+                                   for row in groups[cat] if row[0] in own])
+    collapsed = [(c, len([r for r in groups[c] if r[0] not in own]))
+                 for c in ROUTER_ORDER if c not in ROUTER_ALWAYS and groups[c]]
+    collapsed = [(c, n) for c, n in collapsed if n]
+    if collapsed:
+        always += [
+            "## Other skill buckets (on demand)",
+            "",
+            "Not listed here, to keep every session cheap. Before picking a skill"
+            " for one of these task classes, read the full list at `%s`."
+            % SKILL_ROUTER_FULL,
+            "",
+        ]
+        always += ["- %s: %d skill%s" % (cat, n, "" if n == 1 else "s")
+                   for cat, n in collapsed]
+        always.append("")
+    full = _router_head()
+    for cat in ROUTER_ORDER:
+        if groups[cat]:
+            full += _router_section(cat, groups[cat])
+    return ("\n".join(always).rstrip() + "\n",
+            "\n".join(full).rstrip() + "\n")
+
+
+def install_opencode():
+    print("\nopencode:")
+    src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
+    for d in ("plugins", "plugin"):  # opencode version drift; the plugin self-guards
+        print(link(src, os.path.join(OPENCODE, d, "tezgah.js")))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(OPENCODE, "skills", s)))
+    contract = opencode_contract()
+    mkdirp(tp.CONFIG_DIR)
+    always, full = skill_router_texts()
+    # write_if_changed: the router text depends on the skills tree, not on the
+    # feature selection, so a repeated --disable renders the same bytes and must
+    # leave both files (and their mtimes) alone.
+    write_if_changed(SKILL_ROUTER, always)
+    write_if_changed(SKILL_ROUTER_FULL, full)
+    print("%s %s (always-on, %d chars)" % (OK, SKILL_ROUTER, len(always)))
+    print("%s %s (on demand, %d chars)" % (OK, SKILL_ROUTER_FULL, len(full)))
+    cfg = read_json(os.path.join(OPENCODE, "opencode.json"),
+                    {"$schema": "https://opencode.ai/config.json"})
+    instr = cfg.get("instructions") or []
+    for extra in (contract, SKILL_ROUTER):
+        if extra not in instr:
+            instr.append(extra)
+    cfg["instructions"] = instr
+    mcp = cfg.setdefault("mcp", {})
+    mcp.setdefault("codegraph", {"enabled": True, "type": "local",
+                                 "command": graph_command(),
+                                 "environment": dict(GRAPH_ENV)})
+    for srv in list(app_servers()) + [tezgah_mcp_server()]:
+        entry = mcp.get(srv["name"])
+        if not isinstance(entry, dict):
+            entry = mcp[srv["name"]] = {}
+        # tezgah owns type/command/environment; `enabled` and any other key the
+        # user added stay theirs. Refreshing in place is the point: setdefault
+        # left an entry an older tezgah wrote with its old argv forever.
+        entry.setdefault("enabled", True)
+        entry["type"] = "local"
+        entry["command"] = list(srv["command"])
+        if srv["env"]:
+            entry.setdefault("environment", {}).update(srv["env"])
+    dropped = reconcile_json_servers(mcp)
+    if dropped:
+        print("%s removed %s from %s (not selected)"
+              % (OK, ", ".join(dropped), os.path.join(OPENCODE, "opencode.json")))
+    # Deny every skill so opencode stops injecting ~80 name+description blocks
+    # into the system prompt; the generated router replaces them.
+    cfg.setdefault("permission", {})["skill"] = "deny"
+    # A skill body and tezgah's own CLIs live OUTSIDE the session's project (the
+    # checkout is at a fixed path, the project is wherever the user works), and
+    # opencode asks before reading or running anything out there. In a
+    # non-interactive run there is nobody to answer that prompt, so the call is
+    # auto-rejected and the session answers from memory instead - measured: a live
+    # `opencode run` tried to open `skills/ai-research/` and was denied. Grant the
+    # two directories tezgah installs for exactly this. A user who set the
+    # shorthand action (`"external_directory": "ask"`) keeps it: an explicit
+    # global choice is not ours to overwrite.
+    grants = [os.path.join(HERE, "skills", "**"), os.path.join(tp.CONFIG_DIR, "bin", "**")]
+    external = cfg["permission"].get("external_directory")
+    if isinstance(external, dict):
+        for grant in grants:
+            external.setdefault(grant, "allow")
+    elif external is None:
+        cfg["permission"]["external_directory"] = {g: "allow" for g in grants}
+    # Context hygiene: prune replaces old tool results in the prompt with
+    # "[Old tool result content cleared]" so a long session stops re-sending
+    # every output on every step. setdefault keeps a user's explicit choice.
+    cfg.setdefault("compaction", {}).setdefault("prune", True)
+    wat = cfg.setdefault("watcher", {})
+    ign = wat.setdefault("ignore", [])
+    for pat in OPENCODE_IGNORE:
+        if pat not in ign:
+            ign.append(pat)
+    changed = write_json(os.path.join(OPENCODE, "opencode.json"), cfg)
+    print("%s opencode.json (instructions + skill router + mcp + skill deny)" % OK)
+    print("%s opencode.json (compaction.prune + watcher.ignore)" % OK)
+    if changed or dropped:
+        restart_hint("opencode", os.path.join(OPENCODE, "opencode.json"))
+    # TUI status line: opencode has no command statusLine, only a TUI plugin
+    # declared in tui.json. Local path spec resolves relative to tui.json.
+    print(link(os.path.join(HERE, "hosts", "opencode", "tui", "tezgah-tui.tsx"),
+               os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")))
+    tpath = os.path.join(OPENCODE, "tui.json")
+    tui = read_json(tpath, {"$schema": "https://opencode.ai/tui.json"})
+    plugins = tui.get("plugin") or []
+    spec = "./tui-plugins/tezgah-tui.tsx"
+    if spec not in [p if isinstance(p, str) else p[0] for p in plugins]:
+        plugins.append(spec)
+    tui["plugin"] = plugins
+    write_json(tpath, tui)
+    print("%s tui.json (status line plugin)" % OK)
+
+
+def install_cursor():
+    print("\ncursor:")
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-cursor-hook"))
+    path = os.path.join(CURSOR, "hooks.json")
+    data = read_json(path, {"version": 1, "hooks": {}})
+    data.setdefault("version", 1)
+    hooks = data.setdefault("hooks", {})
+    # Mirrors hosts/cursor/hooks.json. Existing (Orca) entries are merged,
+    # never overwritten: only tezgah entries are replaced.
+    for ev, extra in CURSOR_HOOK_EVENTS.items():
+        arr = hooks.setdefault(ev, [])
+        arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+        entry = {"command": cmd}
+        entry.update(extra)
+        arr.append(entry)
+    write_json(path, data)
+    print("%s %s" % (OK, path))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(CURSOR, "skills", s)))
+    mpath = os.path.join(CURSOR, "mcp.json")
+    mcfg = read_json(mpath, {"mcpServers": {}})
+    servers = mcfg.setdefault("mcpServers", {})
+    argv = graph_command()
+    servers.setdefault("codegraph", {"command": argv[0], "args": argv[1:],
+                                     "env": dict(GRAPH_ENV)})
+    for srv in list(app_servers()) + [tezgah_mcp_server()]:
+        entry = servers.get(srv["name"])
+        if not isinstance(entry, dict):
+            entry = servers[srv["name"]] = {}
+        # tezgah owns command/args/env; other keys are the user's. setdefault
+        # would leave an older entry's argv in place forever.
+        entry["command"] = srv["command"][0]
+        entry["args"] = list(srv["command"][1:])
+        if srv["env"]:
+            entry.setdefault("env", {}).update(srv["env"])
+    dropped = reconcile_json_servers(servers)
+    changed = write_json(mpath, mcfg)
+    print("%s %s" % (OK, mpath))
+    if dropped:
+        print("%s removed %s from %s (not selected)" % (OK, ", ".join(dropped), mpath))
+    if changed or dropped:
+        restart_hint("cursor", mpath)
+    cc = os.path.join(CURSOR, "cli-config.json")
+    cfg = read_json(cc, {})
+    cfg.setdefault("version", 1)
+    cfg["statusLine"] = {
+        "type": "command",
+        "command": tp.hook_command(
+            os.path.join(tp.BIN_DIR, "tezgah-statusline")) + " --cursor",
+    }
+    write_json(cc, cfg)
+    print("%s %s (statusLine -> tezgah)" % (OK, cc))
+
+
+def dsh_app_mcp_rows():
+    """One dsh-mcp-client row per MCP server tezgah writes into the block.
+
+    `@deepseek-ai/dsh-mcp-client` takes `command` + `args` + `env` for a stdio
+    server (confirmed against its published config schema), so the same argv
+    tezgah writes for the other hosts works here - the app servers and tezgah's
+    own surface, which is registry-shaped and joins this loop unchanged. A
+    server that fails to start is inert by default (`failOnStartupError: false`),
+    so a machine without the graph or a simulator never blocks a dsh boot."""
+    rows = []
+    for srv in list(app_servers()) + [tezgah_mcp_server()]:
+        rows.append(
+            "    - id: tezgah-mcp-%s\n"
+            "      name: '@deepseek-ai/dsh-mcp-client'\n"
+            "      config:\n"
+            "        serverName: %s\n"
+            "        transport: stdio\n"
+            "        command: %s\n"
+            "        args: [%s]\n" % (
+                srv["name"], srv["name"], srv["command"][0],
+                ", ".join("'%s'" % a for a in srv["command"][1:])))
+        if srv["env"]:
+            rows.append("        env:\n")
+            for key, value in srv["env"].items():
+                rows.append("          %s: '%s'\n" % (key, value))
+    return "".join(rows)
+
+
+def dsh_graph_mcp_row():
+    """The dsh-mcp-client row for the code graph, in the shared patch block.
+
+    codegraph's own `install --target` knows Claude Code, Cursor, Codex, opencode
+    and others, but not dsh, so tezgah writes this row itself - from the same
+    argv and environment every other host row gets, so dsh cannot end up on a
+    different surface than the four hosts codegraph can install into."""
+    argv = graph_command()
+    rows = ["        serverName: codegraph\n",
+            "        transport: stdio\n",
+            "        command: %s\n" % argv[0],
+            "        args: [%s]\n" % ", ".join("'%s'" % a for a in argv[1:])]
+    rows.append("        env:\n")
+    for key, value in GRAPH_ENV.items():
+        rows.append("          %s: '%s'\n" % (key, value))
+    return "".join(rows)
+
+
+def dsh_patch_block():
+    """dsh home-patch rows: run tezgah's existing Claude hooks in dsh through its
+    claude-code bridge (same contract, same grep/Explore gate, same attribution
+    gate), register the code graph and the app-analysis servers as MCP servers,
+    and declare the three OpenAI-compatible LLM routes (OpenRouter, DeepSeek
+    direct and Inception Labs) on the pi-ai adapter the base composition
+    already mounts. The routes read their keys from the launch env or the
+    harness credential store; the
+    native deepseek-official route stays the default model provider. The bridge
+    knows only SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/SubagentStart/
+    SubagentStop/Stop and silently drops any other event, so `configPath` names
+    hosts/dsh/hooks.json rather than the Claude manifest - the file declares six
+    of those seven, with no SubagentStop, because nothing here handles a
+    subagent's end (the Claude manifest has no such entry either)."""
+    return (
+        "- insert:\n"
+        "    - id: tezgah-hooks\n"
+        "      name: '@deepseek-ai/dsh-hooks-claude-code'\n"
+        "      config:\n"
+        "        configPath: %s\n"
+        "        pluginRoot: %s\n"
+        "        projectDir: .\n"
+        "    - id: tezgah-mcp\n"
+        "      name: '@deepseek-ai/dsh-mcp-client'\n"
+        "      config:\n"
+        "%s"
+        "%s"
+        "- id: llm-pi-ai\n"
+        "  config:\n"
+        "    providers:\n"
+        "      openrouter:\n"
+        "        apiKeyEnv: OPENROUTER_API_KEY\n"
+        "      deepseek:\n"
+        "        apiKeyEnv: DEEPSEEK_API_KEY\n"
+        "      inception:\n"
+        "        apiKeyEnv: INCEPTION_API_KEY\n"
+        # pi-ai's installed catalog ships openrouter and deepseek only, so a
+        # route the catalog does not carry has to declare its own protocol,
+        # endpoint and models - a route that names none of them resolves to
+        # catalogError and no model can be selected on it.
+        "        api: openai-completions\n"
+        "        baseURL: https://api.inceptionlabs.ai/v1\n"
+        "        compat:\n"
+        "          maxTokensField: max_completion_tokens\n"
+        "        models:\n"
+        "          - id: mercury-2.5\n"
+        "            name: Mercury 2.5\n"
+        "            contextWindow: 260000\n"
+        "            maxTokens: 65536\n"
+        "          - id: mercury-2\n"
+        "            name: Mercury 2\n"
+        "            contextWindow: 128000\n"
+        "            maxTokens: 50000\n"
+        % (os.path.join(HERE, "hosts", "dsh", "hooks.json"), HERE,
+           dsh_graph_mcp_row(), dsh_app_mcp_rows()))
+
+
+def dsh_status_block():
+    """Web-profile patch row for the tezgah status line.
+
+    The row lives in the web profile, not the shared home patch, because the
+    plugin's host half injects the web-only `connection` service: inserting it
+    into a headless tree would leave a permanently pending row."""
+    return (
+        "- insert:\n"
+        "    - id: tezgah-statusline\n"
+        "      name: '%s'\n" % DSH_STATUSLINE)
+
+
+def install_dsh_statusline():
+    """Link the status-line plugin into the web profile and enable its row.
+
+    The plugin is a plain dependency, not a bundle: pnpm links the repo package
+    under the profile's node_modules and the patch row inserts it into the
+    composed tree. A profile that has never booted `web` has no package.json, so
+    this is a no-op with a hint instead of a half-written profile."""
+    if not os.path.isfile(os.path.join(DSH_WEB, "package.json")):
+        print("%s dsh web profile not initialized; run `dsh web` once, then "
+              "re-run --install" % NO)
+        return
+    pkg = os.path.join(HERE, "hosts", "dsh", "statusline")
+    if not dsh_run(["plugin", "--profile", "web", "add", "link:" + pkg]):
+        if dsh_cli_args() is None:
+            print("%s dsh CLI not found (need node + npx or a local dsh)" % NO)
+        else:
+            print("%s could not link the dsh status line (is pnpm on PATH?)" % NO)
+        return
+    print("%s status line linked into the web profile" % OK)
+    set_managed_block(DSH_WEB_PATCH, dsh_status_block())
+    print("%s %s" % (OK, DSH_WEB_PATCH))
+
+
+def dsh_launcher(platform=None):
+    """(launcher source, its entry) for the platform this install runs on.
+
+    Chosen by the installer, not asked of the user: a `sh` script has no
+    interpreter on Windows, and cmd.exe resolves a command through PATHEXT, so
+    the platform decides both the file and the name of the entry that starts it.
+    Called with `platform` by the tests that ask for the other answer; here it is
+    os.name, which is also what the Windows dependency report branches on."""
+    nt = (platform or os.name) == "nt"
+    return (os.path.join(HERE, "bin", "tezgah-dsh.cmd" if nt else "tezgah-dsh"),
+            os.path.join(LOCAL_BIN, "dsh.cmd" if nt else "dsh"))
+
+
+def install_dsh_launcher(platform=None):
+    """Wire the `dsh` entry onto the launcher this platform can start.
+
+    Windows gets a copy rather than `link()`: where a symlink is refused, link()
+    materialises a `#!` file as a relay, and the relay `_write_relay` writes for
+    a shell script is a `/bin/sh` one-liner - a file cmd.exe cannot start. The
+    copy has nothing to relay: it resolves the CLI, the index farm and its own
+    interpreter by absolute path, so it works from ~/.local/bin. Recorded as
+    materialised, which is how uninstall tells it from a same-named file the
+    user wrote."""
+    src, dst = dsh_launcher(platform)
+    if not os.path.isfile(src):
+        print("%s %s missing from this tree" % (NO, src))
+        return
+    if not src.endswith(".cmd"):
+        print(link(src, dst))
+        return
+    if os.path.islink(dst):
+        os.unlink(dst)  # an entry an earlier install wrote, not the user's file
+    elif os.path.exists(dst) and not is_tezgah_copy(dst):
+        backup(dst)     # a same-named file of the user's keeps link()'s backup
+    try:
+        mkdirp(os.path.dirname(dst))
+        shutil.copy2(src, dst)
+    except OSError as exc:
+        print("%s %s (%s)" % (NO, dst, exc))
+        return
+    record_materialised(dst)
+    print("%s %s (written in place; a .cmd has nothing to relay)" % (OK, dst))
+
+
+def dsh_launcher_row(platform=None):
+    """The report row for the dsh launcher, naming the launcher it judged.
+
+    The entry is held against the launcher this platform chose, not against
+    "tezgah wrote something here": a `sh` entry on Windows - or the `/bin/sh`
+    relay a symlink-less install leaves - reads as a launcher while being a file
+    that machine cannot start, so without the name in the row and this check the
+    row would report a host that is armed and unrunnable."""
+    src, dst = dsh_launcher(platform)
+    good = is_tezgah_entry(dst)
+    if good:
+        try:
+            if os.path.islink(dst):
+                good = os.path.realpath(dst) == os.path.realpath(src)
+            else:
+                # a materialised entry: a copy of the launcher, or - where the
+                # platform can run it - the relay link() writes pointing at it.
+                # A `sh` relay where the launcher is the .cmd is exactly what
+                # this row exists to catch, so a .cmd has to match byte for byte
+                with open(dst, encoding="utf-8", errors="replace") as fh:
+                    body = fh.read()
+                with open(src, encoding="utf-8", errors="replace") as fh:
+                    launcher = fh.read()
+                good = body == launcher or (not src.endswith(".cmd")
+                                            and src in body)
+        except OSError:
+            good = False
+    return ("dsh launcher on PATH (~/.local/bin/%s -> %s)"
+            % (os.path.basename(dst), os.path.basename(src)), good)
+
+
+def install_dsh():
+    print("\ndsh:")
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(DSH, "skills", s)))
+    if set_managed_block(DSH_PATCH, dsh_patch_block()):
+        restart_hint("dsh", DSH_PATCH)
+    print("%s %s" % (OK, DSH_PATCH))
+    install_dsh_statusline()
+    install_dsh_launcher()
+
+
+
+def write_if_changed(path, text):
+    """Write text only when it differs. Returns True when it was written."""
+    mkdirp(os.path.dirname(path))
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if fh.read() == text:
+                return False
+    except OSError:
+        pass
+    backup(path)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return True
+
+
+def set_managed_md(path, block, start="<!-- tezgah:start -->",
+                   end="<!-- tezgah:end -->"):
+    """Replace the marked block in a markdown file, or append it, keeping any
+    user text around it. Markdown gets HTML-comment markers, not `#`."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        lines = []
+    out, skip = [], False
+    for ln in lines:
+        if ln.strip().startswith(start):
+            skip = True
+            continue
+        if ln.strip().startswith(end):
+            skip = False
+            continue
+        if not skip:
+            out.append(ln)
+    while out and not out[-1].strip():
+        out.pop()
+    text = "\n".join(out + [start + " (managed by tezgah-setup; do not edit)",
+                            block.strip(), end]) + "\n"
+    # write_if_changed, not a bare write: a run that renders the same bytes must
+    # not move the file's mtime or lay a .tezgah-bak, which is what makes a
+    # repeated --disable idempotent rather than merely convergent.
+    return write_if_changed(path, text)
+
+
+def install_omp():
+    print("\nomp:")
+    mkdirp(OMP_AGENT)
+    root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
+    rules = os.path.join(OMP_AGENT, "RULES.md")
+    set_managed_md(rules, tezgah_context.render(
+        tezgah_context.always_on_core() + "\n\n" + OMP_LESSONS, root))
+    print("%s %s (always-on contract)" % (OK, rules))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s),
+                   os.path.join(OMP_AGENT, "skills", s)))
+    for name, text in tezgah_agents.omp_user_agents().items():
+        path = os.path.join(OMP_AGENT, "agents", name)
+        if write_if_changed(path, text):
+            print("%s %s" % (OK, path))
+    mcp_path = os.path.join(OMP_AGENT, "mcp.json")
+    cfg = read_json(mcp_path, {})
+    cfg["$schema"] = OMP_MCP_SCHEMA
+    servers = cfg.setdefault("mcpServers", {})
+    argv = graph_command()
+    servers.setdefault("codegraph", {"type": "stdio", "command": argv[0],
+                                     "args": argv[1:],
+                                     "env": dict(GRAPH_ENV)})
+    for srv in list(app_servers()) + [tezgah_mcp_server()]:
+        # omp spawns `command` as ONE executable and takes the rest in `args`
+        # (its mcp-schema.json); the whole argv in `command` is spawned as the
+        # comma-joined string and fails with ENOENT.
+        entry = servers.get(srv["name"])
+        if not isinstance(entry, dict):
+            entry = servers[srv["name"]] = {}
+        # tezgah owns the argv shape; every other key is the user's. The refresh
+        # also heals an entry an earlier release wrote with the whole argv in
+        # `command`, which omp spawns comma-joined and fails with ENOENT.
+        entry["type"] = "stdio"
+        entry["command"] = srv["command"][0]
+        entry["args"] = list(srv["command"][1:])
+        if srv["env"]:
+            entry.setdefault("env", {}).update(srv["env"])
+    dropped = reconcile_json_servers(servers)
+    changed = write_json(mcp_path, cfg)
+    print("%s %s (mcpServers)" % (OK, mcp_path))
+    if dropped:
+        print("%s removed %s from %s (not selected)" % (OK, ", ".join(dropped), mcp_path))
+    if changed or dropped:
+        restart_hint("omp", mcp_path)
+    try:
+        with open(os.path.join(HERE, "hosts", "omp", "tezgah-hook.ts.in"), encoding="utf-8") as fh:
+            hook = fh.read().replace(
+                "@HOOK@", os.path.join(HERE, "hosts", "omp", "hook.py"))
+    except OSError:
+        hook = ""
+    if hook:
+        hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
+        if write_if_changed(hook_dst, hook):
+            print("%s %s (contract + gate + status line)" % (OK, hook_dst))
+
+
+INSTALLERS = {"claude": install_claude, "codex": install_codex,
+              "opencode": install_opencode, "cursor": install_cursor,
+              "dsh": install_dsh, "omp": install_omp}
+
+
+def install_openresearch(hosts):
+    """Trigger orx's own installer so the research routing rule has a manual to
+    load.
+
+    The shim files (a real `skills/orx/SKILL.md`, not a tezgah symlink) are owned
+    by orx, so tezgah only runs its installer and never lists them for uninstall.
+    dsh has no orx harness; the rule there falls back to `orx skill` on the
+    shell."""
+    print("\nopenresearch (orx):")
+    orx = tp.orx_bin()
+    if not orx:
+        print("%s orx not on PATH - skipped; run `tezgah-setup --deps` to install "
+              "it, or see https://github.com/alphaXiv/OpenResearch" % NO)
+        return
+    for h in hosts:
+        agent = ORX_AGENTS.get(h)
+        if not agent:
+            print("%s %s: orx has no harness for this host" % (NO, h))
+            continue
+        proc = subprocess.run([orx, "install-skills", "--agent", agent],
+                              capture_output=True, text=True)
+        last = (proc.stdout or proc.stderr).strip().splitlines()
+        print("%s %s: %s" % (OK if proc.returncode == 0 else NO, h,
+                             last[-1] if last else "exit %d" % proc.returncode))
+
+
+# ------------------------------------------------------------ dependencies ----
+# Tools an OPTIONAL FEATURE owns are not written here: `feature_deps()` reads
+# them from the registry row, so `--features` (which answers for the same key)
+# and this installer cannot disagree about what installing a feature means. Only
+# the tools no feature owns stay private. `--install` installs any that are
+# missing by default (`--no-deps` skips); each command is the vendor's own
+# documented installer and none needs sudo. dsh has no single installer, so the
+# documented first step - initializing its home profile through npx - stands in;
+# the first `dsh web` boot completes it.
+PRIVATE_DEPS = (
+    {"name": "cursor-agent",
+     "probe": lambda: shutil.which("cursor-agent") or shutil.which("cursor"),
+     "needs": ("curl", "bash"),
+     "cmd": ["bash", "-c", "curl https://cursor.com/install -fsS | bash"],
+     "why": "the cursor host"},
+    # Before dsh: its profile plugins are managed with pnpm, so `dsh plugin`
+    # cannot initialize a profile without it.
+    {"name": "pnpm", "probe": lambda: bool(shutil.which("pnpm")),
+     "needs": ("npm",), "cmd": ["npm", "install", "-g", "pnpm"],
+     "why": "the dsh host and its web status line"},
+    {"name": "dsh", "probe": lambda: os.path.isdir(DSH), "needs": ("npx",),
+     "cmd": ["npx", "-y", "@deepseek-ai/dsh", "plugin", "--profile", "web",
+             "--version"],
+     "why": "the dsh host; the first `dsh web` boot finishes it"},
+)
+
+
+def feature_deps(only=None):
+    """Dependency rows the registry declares, in the two sets that need them.
+
+    With no argument this is the INSTALL-TIME set: a feature that carries a
+    server is left out, because its runtime is heavy - the browser build
+    Playwright launches on its first tool call, the platform tools a simulator
+    needs - and a plain `--install` must not download a browser nobody asked for.
+    `only` is how `--enable <id>` asks for exactly the named features' rows
+    instead, heavy ones included. Rows are de-duplicated on the install command,
+    so three features sharing one interpreter ask for one installer."""
+    rows, seen = [], set()
+    for row in tezgah_apps.REGISTRY:
+        if only is not None:
+            if row["id"] not in only:
+                continue
+        elif row.get("command"):
+            continue
+        dep = row.get("dep") or {}
+        cmd = dep.get("cmd")
+        if not cmd or tuple(cmd) in seen:
+            continue
+        seen.add(tuple(cmd))
+        rows.append({"name": row["id"], "probe": dep["probe"],
+                     "needs": tuple(dep.get("needs") or ()),
+                     "cmd": list(cmd), "why": dep.get("why") or row["why"]})
+    return tuple(rows)
+
+
+DEPS = feature_deps() + PRIVATE_DEPS
+
+
+def dep_rows(only=None):
+    """The rows one dependency run considers.
+
+    The install-time table, plus the named features' own rows: an --enable sits
+    on top of an install, so it considers the same base set and not a different
+    one. De-duplicated by name, because orx is a feature id and an install-time
+    row at once. DEPS is read first and as a whole, so a caller that swaps the
+    table (the Windows report test) still decides that set."""
+    rows = list(DEPS)
+    names = {d["name"] for d in rows}
+    for dep in feature_deps(only=only):
+        if dep["name"] not in names:
+            rows.append(dep)
+            names.add(dep["name"])
+    return rows
+
+
+def _dep_pretty(dep):
+    cmd = dep["cmd"]
+    return " ".join(cmd[2:]) if cmd[0] in ("sh", "bash") else " ".join(cmd)
+
+
+# The id `--devtools` is sugar for. It is a feature id, not a server name: one
+# key per feature answers wire/install/report, and a flag that named the server
+# instead would be a second way to say the same thing.
+DEVTOOLS_FEATURE = "mcp-chrome-devtools"
+
+
+def dep_state(dep):
+    """A feature's dependency state as one line, and whether it is met.
+
+    Shared by `--features` and by the enable step, so the two cannot describe the
+    same probe differently, and the command is in the line because knowing the
+    probe fails is useless without knowing what would fix it."""
+    if not dep:
+        return "no dependency", True
+    if dep["probe"]():
+        return "dep met", True
+    text = "dep unmet (%s)" % (dep.get("why") or "its installer is not recorded")
+    if dep.get("cmd"):
+        text += "; would run: %s" % _dep_pretty(dep)
+    return text, False
+
+
+def features_report():
+    """Every feature id with its default, its selection and its dependency.
+
+    One table answers all three questions a feature asks: is it wired unless the
+    user says otherwise, is it wired on this machine, and can it run at all -
+    which is why the dependency state is printed here and not only inside an
+    enable."""
+    selected = set(tezgah_apps.selected_ids(selection()))
+    stored = tp.config().get("features")
+    print("features (%s; %s):"
+          % (tp.CONFIG, "features=" + ",".join(stored) if isinstance(stored, list)
+             else "no features key = the declared defaults"))
+    for row in tezgah_apps.REGISTRY:
+        state, met = dep_state(row.get("dep"))
+        print("  %s %-20s default %-3s  selected %-3s  %s"
+              % (OK if met else NO, row["id"],
+                 "on" if row["default"] else "off",
+                 "on" if row["id"] in selected else "off", state))
+
+
+def parse_feature_ids(raw):
+    """Ids from a comma/space list; None when one of them is unknown.
+
+    The contract `parse_hosts` already has: an unknown token refuses the whole
+    request rather than persisting half of it."""
+    picked = []
+    for tok in re.split(r"[,\s]+", (raw or "").strip()):
+        if not tok:
+            continue
+        if tok not in tezgah_apps.IDS:
+            return None
+        if tok not in picked:
+            picked.append(tok)
+    return picked or None
+
+
+def select_features(enabled, disabled, hosts, dry_run, deps_off=False):
+    """Persist an --enable/--disable and bring the recorded hosts with it.
+
+    `hosts` is what config.json records - the install's own answer - so a
+    selection change reaches every armed host without re-asking which those are.
+    Only MCP rows move: each writer converges on the selection and leaves every
+    other key alone. An enable satisfies its feature's dependency in the same
+    run; a disable runs no dependency command at all, because uninstalling a tool
+    the user may still want is not what turning a server off means. Returns the
+    exit code."""
+    base = tezgah_apps.selected_ids(selection())
+    keep = set(base) | set(enabled or ())
+    keep -= set(disabled or ())
+    global FEATURES
+    FEATURES = list(tezgah_apps.selected_ids(keep))
+    print("features: %s" % (", ".join(FEATURES) or "none"))
+    if enabled and not deps_off:
+        # The dependency half of the enable side only. `only` keeps this to the
+        # enabled ids: enabling one feature must not install every missing tool
+        # on the machine.
+        install_deps(dry_run=dry_run, only=set(enabled))
+    elif enabled:
+        # --no-deps (and TEZGAH_NO_DEPS) covers this step too, or the escape
+        # hatch would not reach the one path that installs on demand. The state
+        # is still printed, so a skipped check is never a silent one.
+        for row in tezgah_apps.REGISTRY:
+            if row["id"] in enabled:
+                print("  --  %s: %s (deps skipped)"
+                      % (row["id"], dep_state(row.get("dep"))[0]))
+    if dry_run:
+        # Nothing is written under --dry-run, the selection included: a preview
+        # that persisted the choice would be the one step the flag did not cover.
+        print("  --  --dry-run: %s and the host files were not written" % tp.CONFIG)
+    else:
+        print("%s %s" % (OK if save_features(FEATURES) else "  --  ", tp.CONFIG))
+        for h in hosts:
+            INSTALLERS[h]()
+    features_report()
+    return 0
+
+
+# How each optional tool is installed on Windows, by channel: the package
+# manager that carries it and the command to run, or None with the reason no
+# channel exists. A locked-down Windows account has no `sh` and no `curl | sh`
+# pipeline, so the two tools whose only vendor installer is one are named as
+# having no channel there instead of being passed over in silence.
+WINDOWS_DEPS = {
+    "orx": (None, "its installer is a POSIX `curl | sh` script"),
+    "cursor-agent": (None, "the cursor-agent installer is Linux and macOS only"),
+    "pnpm": ("npm", "npm install -g pnpm"),
+    "dsh": ("npm", "npx -y @deepseek-ai/dsh plugin --profile web --version"),
+}
+
+
+def _install_deps_windows(only=None):
+    """Report, per missing tool, the channel that would install it on Windows.
+
+    The POSIX path runs the vendor's own installer; Windows has none of those
+    pipelines to run, so this names the channel - npm, or the reason there is
+    none - for every tool that is missing and returns those names, the same
+    contract the POSIX path answers with, so `--install` can report what is
+    still missing instead of returning as if the step had completed."""
+    still = []
+    rows = dep_rows(only)
+    for dep in rows:
+        if dep["probe"]():
+            continue
+        # A feature-owned row has no entry here until one is recorded; naming the
+        # channel as absent is the honest answer, and a KeyError would take the
+        # whole install down instead.
+        channel, how = WINDOWS_DEPS.get(
+            dep["name"], (None, "no Windows channel is recorded for this tool"))
+        if channel:
+            print("%s %s missing (%s); install with %s: %s"
+                  % (NO, dep["name"], dep["why"], channel, how))
+        else:
+            print("%s %s missing (%s); no Windows channel: %s"
+                  % (NO, dep["name"], dep["why"], how))
+        still.append(dep["name"])
+    return still
+
+
+def _augment_path():
+    """Let a just-installed tool be found without a new shell."""
+    for d in (LOCAL_BIN, os.path.join(HOME, ".cargo", "bin")):
+        parts = os.environ.get("PATH", "").split(os.pathsep)
+        if os.path.isdir(d) and d not in parts:
+            os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+
+
+def _dep_log(name, cmd):
+    try:
+        os.makedirs(tp.CONFIG_DIR, exist_ok=True)
+        with open(os.path.join(tp.CONFIG_DIR, "install.log"), "a", encoding="utf-8") as fh:
+            fh.write("%s %s: %s\n"
+                     % (datetime.datetime.now().isoformat(timespec="seconds"), name, cmd))
+    except OSError:
+        pass
+
+
+def install_deps(dry_run=False, only=None):
+    """Install the missing optional tools with their own installers.
+
+    Auto (no prompt), no sudo, idempotent. `only` names features whose own rows
+    are added to the install-time table, which is how `--enable <id>` satisfies
+    that feature's runtime without pulling the runtime of every feature nobody
+    enabled. Returns the names still missing."""
+    print("\ndependencies:")
+    if os.name == "nt":
+        return _install_deps_windows(only)
+    _augment_path()
+    missing = [d for d in dep_rows(only) if not d["probe"]()]
+    if not missing:
+        print("%s all optional tools present" % OK)
+        return []
+    still = []
+    for dep in missing:
+        name, pretty = dep["name"], _dep_pretty(dep)
+        helper = next((h for h in dep["needs"] if not shutil.which(h)), None)
+        if helper:
+            print("%s %s missing (%s) but `%s` is not on PATH - install that first"
+                  % (NO, name, dep["why"], helper))
+            still.append(name)
+            continue
+        if dry_run:
+            print("%s %s missing (%s); would run: %s" % ("  --  ", name, dep["why"], pretty))
+            continue
+        print("%s %s missing (%s); running: %s" % ("  --  ", name, dep["why"], pretty))
+        _dep_log(name, pretty)
+        try:
+            subprocess.run(dep["cmd"])
+        except OSError as exc:
+            print("%s %s: %s" % (NO, name, exc))
+            still.append(name)
+            continue
+        _augment_path()
+        if dep["probe"]():
+            print("%s %s installed" % (OK, name))
+        else:
+            print("%s %s: installer ran but `%s` is still not found; open a new "
+                  "shell (PATH) and re-run" % (NO, name, name))
+            still.append(name)
+    return still
+
+
+# ---------------------------------------------------------------- uninstall ----
+
+def is_tezgah_link(path):
+    """A symlink is tezgah-managed when it resolves inside this checkout or
+    inside the install prefix.
+
+    Both roots count: an install unpacked from a release tarball links into
+    <prefix>/<version>/, a checkout install links into the checkout. Recognising
+    only the checkout orphaned every link at a version flip - uninstall kept
+    them, and the report called tezgah's own wiring the user's."""
+    if not os.path.islink(path):
+        return False
+    target = os.path.realpath(path)
+    return any(target == root or target.startswith(root + os.sep)
+               for root in (HERE, INSTALL_PREFIX))
+
+
+def is_tezgah_entry(path):
+    """True when `path` is tezgah's own wiring: a link into this tree or the
+    install prefix, or an entry `link()` materialised where a symlink was
+    refused. One predicate, because every check that asks "is this ours" would
+    otherwise answer differently on a Windows account."""
+    return is_tezgah_link(path) or is_tezgah_copy(path)
+
+
+def unlink_tezgah(path):
+    """Remove tezgah's own wiring - a link, or an entry this installer
+    materialised - and leave anything else untouched."""
+    if os.path.islink(path):
+        if not is_tezgah_link(path):
+            print("%s kept %s (not a tezgah link)" % (NO, path))
+            return False
+        os.unlink(path)
+    elif is_tezgah_copy(path):
+        remove_materialised(path)
+    else:
+        return False
+    print("%s removed %s" % (OK, path))
+    return True
+
+
+def unlink_dir(d):
+    """Remove every tezgah symlink directly inside d (non-recursive)."""
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        return
+    for name in names:
+        unlink_tezgah(os.path.join(d, name))
+
+
+def drop_managed_hook_entries(path):
+    """Remove only tezgah's own entries from a host hooks.json."""
+    data = read_json(path, None)
+    if not data:
+        print("%s no %s" % (OK, path))
+        return
+    changed = False
+    kept_events = {}
+    for ev, arr in (data.get("hooks") or {}).items():
+        kept = [e for e in arr if "tezgah" not in json.dumps(e)]
+        changed = changed or len(kept) != len(arr)
+        if kept:
+            kept_events[ev] = kept
+    if not changed:
+        print("%s no tezgah hook entries in %s" % (OK, path))
+        return
+    if kept_events:
+        data["hooks"] = kept_events
+    else:
+        data.pop("hooks", None)
+    write_json(path, data)
+    print("%s removed tezgah hook entries from %s" % (OK, path))
+
+
+def remove_managed_block(path, start="# tezgah:start", end="# tezgah:end"):
+    """Drop the tezgah-delimited block, leaving every other line intact."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        print("%s no %s" % (OK, path))
+        return
+    out, skip, changed = [], False, False
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped.startswith(start):
+            skip, changed = True, True
+            continue
+        if stripped.startswith(end):
+            skip = False
+            continue
+        if not skip:
+            out.append(ln)
+    if not changed:
+        print("%s no tezgah block in %s" % (OK, path))
+        return
+    while out and not out[-1].strip():
+        out.pop()
+    # A dsh patch layer must stay a top-level YAML array; a file left holding
+    # only comments parses to null and the next dsh boot fails on it.
+    if not any(ln.strip() and not ln.strip().startswith("#") for ln in out):
+        out.append("[]")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out) + "\n")
+    print("%s removed tezgah block from %s" % (OK, path))
+
+
+def uninstall_common():
+    print("\ncommon:")
+    unlink_dir(tp.BIN_DIR)
+    removed = tezgah_agents.cleanup()
+    if removed:
+        print("%s removed %d generated repo agent file(s)" % (OK, removed))
+
+
+def unwire_claude_settings():
+    """Remove tezgah's statusLine and attribution keys, leaving everything else."""
+    sp = os.path.join(CLAUDE, "settings.json")
+    s = read_json(sp, None)
+    if not s:
+        return
+    changed = False
+    if "statusline.py" in json.dumps(s.get("statusLine") or {}):
+        s.pop("statusLine", None)
+        changed = True
+    if s.get("attribution") == {"commit": "", "pr": "", "sessionUrl": False}:
+        s.pop("attribution", None)
+        changed = True
+    if changed:
+        write_json(sp, s)
+        print("%s removed tezgah statusLine/attribution from %s (restore from .tezgah-bak if wanted)" % (OK, sp))
+
+
+def unwire_opencode_config():
+    """Drop tezgah's contract/router paths, skill deny, and TUI plugin spec."""
+    p = os.path.join(OPENCODE, "opencode.json")
+    c = read_json(p, None)
+    if c:
+        changed = False
+        if c.get("instructions"):
+            kept = [i for i in c["instructions"] if "tezgah" not in i]
+            if kept != c["instructions"]:
+                if kept:
+                    c["instructions"] = kept
+                else:
+                    c.pop("instructions", None)
+                changed = True
+        perm = c.get("permission")
+        if isinstance(perm, dict) and perm.get("skill") == "deny":
+            perm.pop("skill")
+            if not perm:
+                c.pop("permission", None)
+            changed = True
+        perm = c.get("permission")
+        external = perm.get("external_directory") if isinstance(perm, dict) else None
+        if isinstance(external, dict):
+            kept = {k: v for k, v in external.items()
+                    if k not in (os.path.join(HERE, "skills", "**"),
+                                 os.path.join(tp.CONFIG_DIR, "bin", "**"))}
+            if kept != external:
+                if kept:
+                    perm["external_directory"] = kept
+                else:
+                    perm.pop("external_directory")
+                    if not perm:
+                        c.pop("permission", None)
+                changed = True
+        comp = c.get("compaction")
+        if isinstance(comp, dict) and comp.get("prune") is True:
+            c.pop("compaction", None)
+            changed = True
+        wat = c.get("watcher")
+        if isinstance(wat, dict) and isinstance(wat.get("ignore"), list):
+            kept = [p for p in wat["ignore"] if p not in OPENCODE_IGNORE]
+            if kept != wat["ignore"]:
+                if kept:
+                    wat["ignore"] = kept
+                else:
+                    wat.pop("ignore")
+                if not wat:
+                    c.pop("watcher", None)
+                changed = True
+        mcp = c.get("mcp")
+        if isinstance(mcp, dict):
+            for name in app_mcp_names() + [TEZGAH_MCP_NAME]:
+                if name in mcp:
+                    mcp.pop(name)
+                    changed = True
+            if not mcp:
+                c.pop("mcp", None)
+        if changed:
+            write_json(p, c)
+            print("%s removed tezgah instructions/skill-deny from %s" % (OK, p))
+    t = os.path.join(OPENCODE, "tui.json")
+    tj = read_json(t, None)
+    if tj and tj.get("plugin"):
+        kept = [x for x in tj["plugin"]
+                if "tezgah-tui" not in (x if isinstance(x, str) else x[0])]
+        if kept != tj["plugin"]:
+            if kept:
+                tj["plugin"] = kept
+            else:
+                tj.pop("plugin", None)
+            write_json(t, tj)
+            print("%s removed tezgah TUI plugin from %s" % (OK, t))
+
+
+def uninstall_claude():
+    print("\nclaude:")
+    unlink_tezgah(os.path.join(CLAUDE, "statusline.py"))
+    for w in WORKFLOW_FILES:
+        unlink_tezgah(os.path.join(CLAUDE, "workflows", w))
+    for b in ("consult", "codegen", "tezgah-render-table"):
+        unlink_tezgah(os.path.join(CLAUDE, "bin", b))
+    unwire_claude_settings()
+    drop_claude_mcp_row()
+
+
+def drop_claude_mcp_row():
+    """Remove tezgah's own MCP row from every installed plugin copy.
+
+    Claude's MCP channel is the copy's `.mcp.json`, which `sync()` renders - so
+    this is the one host whose row is not removed from a config under
+    ~/.claude, and the one host an uninstall would otherwise leave wired. Only
+    tezgah's own name is dropped: the graph row and the app servers are written
+    by the same file, and the other five hosts keep codegraph through an
+    uninstall too (`test_setup` pins that), so removing it here would make
+    Claude the one host an uninstall changed the meaning of."""
+    for target in plugin_copies():
+        path = os.path.join(target, MCP_JSON)
+        cfg = read_json(path, None)
+        servers = (cfg or {}).get("mcpServers")
+        if not isinstance(servers, dict) or TEZGAH_MCP_NAME not in servers:
+            continue
+        servers.pop(TEZGAH_MCP_NAME)
+        write_json(path, cfg)
+        print("%s removed the tezgah MCP server from %s" % (OK, path))
+
+
+def uninstall_codex():
+    print("\ncodex:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(CODEX, "skills", s))
+    drop_managed_hook_entries(os.path.join(CODEX, "hooks.json"))
+    strip_toml_mcp(os.path.join(CODEX, "config.toml"),
+                   app_mcp_names() + [TEZGAH_MCP_NAME])
+
+
+def uninstall_opencode():
+    print("\nopencode:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(OPENCODE, "skills", s))
+    for d in ("plugins", "plugin"):
+        unlink_tezgah(os.path.join(OPENCODE, d, "tezgah.js"))
+    unlink_tezgah(os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx"))
+    unwire_opencode_config()
+    for path in (SKILL_ROUTER, SKILL_ROUTER_FULL):
+        try:
+            os.remove(path)
+            print("%s removed %s" % (OK, path))
+        except OSError:
+            print("%s no %s" % (OK, path))
+
+
+def uninstall_cursor():
+    print("\ncursor:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(CURSOR, "skills", s))
+    drop_managed_hook_entries(os.path.join(CURSOR, "hooks.json"))
+    mpath = os.path.join(CURSOR, "mcp.json")
+    mcfg = read_json(mpath, None)
+    if mcfg and isinstance(mcfg.get("mcpServers"), dict):
+        removed = [n for n in app_mcp_names() + [TEZGAH_MCP_NAME]
+                   if n in mcfg["mcpServers"]]
+        for n in removed:
+            mcfg["mcpServers"].pop(n)
+        if removed:
+            write_json(mpath, mcfg)
+            print("%s removed app MCP server(s) from %s" % (OK, mpath))
+
+
+def uninstall_dsh():
+    print("\ndsh:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(DSH, "skills", s))
+    remove_managed_block(DSH_PATCH)
+    if os.path.isfile(os.path.join(DSH_WEB, "package.json")):
+        remove_managed_block(DSH_WEB_PATCH)
+        dsh_run(["plugin", "--profile", "web", "remove", DSH_STATUSLINE])
+    unlink_tezgah(dsh_launcher()[1])
+
+
+def uninstall_omp():
+    print("\nomp:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(OMP_AGENT, "skills", s))
+    agents_dir = os.path.join(OMP_AGENT, "agents")
+    if os.path.isdir(agents_dir):
+        for name in os.listdir(agents_dir):
+            if name.startswith("tezgah-") and name.endswith(".md"):
+                os.remove(os.path.join(agents_dir, name))
+                print("%s removed %s" % (OK, os.path.join(agents_dir, name)))
+    hook = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
+    if os.path.exists(hook) and not os.path.islink(hook):
+        os.remove(hook)
+        print("%s removed %s" % (OK, hook))
+    else:
+        unlink_tezgah(hook)
+    mcp_path = os.path.join(OMP_AGENT, "mcp.json")
+    cfg = read_json(mcp_path, None)
+    if isinstance(cfg, dict):
+        servers = cfg.get("mcpServers") or {}
+        for name in ["codegraph", TEZGAH_MCP_NAME] + app_mcp_names():
+            servers.pop(name, None)
+        write_json(mcp_path, cfg)
+        print("%s dropped tezgah servers from %s" % (OK, mcp_path))
+    rules = os.path.join(OMP_AGENT, "RULES.md")
+    try:
+        with open(rules, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        text = ""
+    if text:
+        kept = re.sub(r"<!-- tezgah:start -->.*?<!-- tezgah:end -->\n?",
+                      "", text, flags=re.S).strip()
+        if kept:
+            with open(rules, "w", encoding="utf-8") as fh:
+                fh.write(kept + "\n")
+            print("%s stripped the tezgah block from %s" % (OK, rules))
+        else:
+            os.remove(rules)
+            print("%s removed %s" % (OK, rules))
+
+
+UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
+                "opencode": uninstall_opencode, "cursor": uninstall_cursor,
+                "dsh": uninstall_dsh, "omp": uninstall_omp}
+
+
+def uninstall(hosts, dry_run=False):
+    """Remove only tezgah's own wiring, per host.
+
+    The first thing a real run does is stand the tool gate down
+    (`pretooluse-off`): an uninstall is itself a stream of destructive
+    commands, and a gate that outlives the consent binary it needs would turn
+    the user's own teardown into a series of refusals. The switch file goes
+    away with `~/.config/tezgah` when whoever cleans that up gets to it."""
+    if dry_run:
+        print("uninstall preview (nothing written): hosts=%s"
+              % (", ".join(hosts) or "none detected"))
+        print("  the removal itself runs without --dry-run: hooks, skills, MCP")
+        print("  rows, status line, launchers - and the gate stands down first")
+        return 0
+    mkdirp(tp.CONFIG_DIR)
+    stand_down = os.path.join(tp.CONFIG_DIR, "pretooluse-off")
+    with open(stand_down, "w", encoding="utf-8") as fh:
+        fh.write("")
+    print("%s gate stood down (%s); this session will not be asked again"
+          % (OK, stand_down))
+    print("uninstalling for: %s\n" % (", ".join(hosts) or "none detected"))
+    uninstall_common()
+    for h in hosts:
+        UNINSTALLERS[h]()
+    print("\nnon-tezgah files and .tezgah-bak backups were left untouched.")
+
+
+# ------------------------------------------------------------------ adopt ----
+
+def _move(path, dest_dir):
+    if not os.path.exists(path):
+        return False
+    mkdirp(dest_dir)
+    shutil.move(path, os.path.join(dest_dir, os.path.basename(path)))
+    return True
+
+
+def adopt():
+    """Retire the pre-tezgah wiring: the Codex projects-harness, the ~/.claude
+    cbm-* hook files an older harness wrote and their settings.json entries.
+    Nothing is deleted - it is moved under
+    ~/.config/tezgah/adopted/<timestamp>/."""
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = os.path.join(tp.CONFIG_DIR, "adopted", stamp)
+    print("adopt: moving predecessor wiring to %s\n" % dest)
+
+    # Codex: projects-harness dir + its hooks.json entries
+    print("%s projects-harness" % (OK if _move(os.path.join(CODEX, "projects-harness"),
+                                               dest) else NO))
+    path = os.path.join(CODEX, "hooks.json")
+    data = read_json(path, None)
+    if data:
+        for ev, arr in list((data.get("hooks") or {}).items()):
+            arr[:] = [e for e in arr
+                      if "projects-harness" not in json.dumps(e)
+                      and "Code discovery: prefer" not in json.dumps(e)]
+        data["hooks"] = {ev: arr for ev, arr in (data.get("hooks") or {}).items() if arr}
+        if not data["hooks"]:
+            data.pop("hooks", None)
+        write_json(path, data)
+        print("%s cleaned %s" % (OK, path))
+
+    # Claude: the predecessor harness's cbm-* hook scripts and the settings.json
+    # entries that call them. Those filenames are the files on disk, not this
+    # engine's name, so they are moved aside under their own spelling.
+    for name in ("cbm-code-discovery-gate", "cbm-session-reminder", "cbm-subagent-reminder"):
+        print("%s ~/.claude/hooks/%s" % (OK if _move(os.path.join(CLAUDE, "hooks", name),
+                                                     dest) else NO, name))
+    # Codex: the old bin shims that exec'd projects-harness
+    for name in ("codex-harness-status", "consult"):
+        f = os.path.join(CODEX, "bin", name)
+        if os.path.isfile(f) and not os.path.islink(f):
+            try:
+                # another tool's bytes: this only probes for a marker, so a
+                # non-UTF-8 byte reads as absent instead of aborting the run
+                stale = "projects-harness" in open(f, encoding="utf-8", errors="replace").read()
+            except OSError:
+                stale = False
+            if stale:
+                print("%s ~/.codex/bin/%s" % (OK if _move(f, dest) else NO, name))
+    sp = os.path.join(CLAUDE, "settings.json")
+    settings = read_json(sp, None)
+    if settings:
+        changed = False
+        for ev, arr in (settings.get("hooks") or {}).items():
+            kept = []
+            for entry in arr:
+                hs = entry.get("hooks")
+                if isinstance(hs, list):
+                    before = len(hs)
+                    hs[:] = [h for h in hs if "cbm-" not in h.get("command", "")]
+                    changed = changed or len(hs) != before
+                    if not hs:
+                        continue
+                kept.append(entry)
+            arr[:] = kept
+        if changed:
+            settings["hooks"] = {ev: arr for ev, arr in (settings.get("hooks") or {}).items() if arr}
+            if not settings["hooks"]:
+                settings.pop("hooks", None)
+            write_json(sp, settings)
+            print("%s cleaned cbm hook entries from %s" % (OK, sp))
+        else:
+            print("%s no cbm hook entries in %s" % (OK, sp))
+    print("\nrestart each host for the hooks to reload.")
+
+
+# ----------------------------------------------------------------- report ----
+
+def predecessors():
+    """Pre-tezgah wiring still present; --adopt retires it.
+
+    The `cbm-*` names below are literal files an older, unrelated harness left
+    on a user's disk - not this repo's engine, which is codegraph now. They stay
+    spelled as the files are spelled: --adopt moves those files aside, and a
+    probe renamed to match the new engine would leave the stale hooks
+    undetected."""
+    out = []
+    if os.path.isdir(os.path.join(CODEX, "projects-harness")):
+        out.append("~/.codex/projects-harness present")
+    if _hooks_has(os.path.join(CODEX, "hooks.json"), "projects-harness"):
+        out.append("projects-harness entries in ~/.codex/hooks.json")
+    if any(os.path.exists(os.path.join(CLAUDE, "hooks", n)) for n in
+           ("cbm-code-discovery-gate", "cbm-session-reminder", "cbm-subagent-reminder")):
+        out.append("~/.claude/hooks/cbm-* present")
+    if "cbm-" in json.dumps(read_json(os.path.join(CLAUDE, "settings.json"), {})):
+        out.append("cbm hook entries in ~/.claude/settings.json")
+    return out
+
+
+def _frontmatter_description(path):
+    """Return the joined `description:` block from a SKILL.md frontmatter."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+    if not text.startswith("---"):
+        return ""
+    body = text.split("---", 2)[1]
+    out, collecting = [], False
+    for line in body.splitlines():
+        if re.match(r"^description:\s*", line):
+            collecting = True
+            out.append(re.sub(r"^description:\s*[>|]?\s*", "", line))
+            continue
+        if collecting:
+            if re.match(r"^\S", line):
+                break
+            out.append(line.strip())
+    return " ".join(part for part in out if part).strip()
+
+
+def context_budget():
+    """Always-on context tezgah injects, as (label, chars) rows + on-demand size.
+
+    Approximate and host-side only: it counts the rendered contract, the
+    per-turn reminder and the skill/subagent metadata. MCP tool schemas are the
+    host's to measure and are deliberately not counted here.
+    """
+    core = tezgah_context.render(tezgah_context.always_on_core())
+    conditional = sum(
+        len(p) for p in policy.CORE.split("\n\n")
+        if next((k for k, label in tezgah_context.CORE_RULES
+                 if p.startswith(label)), None) in policy.CONDITIONAL_KEYS)
+    reminder = tezgah_context.render(policy.PROMPT_REMINDER)
+    skills = sum(len(name) + len(_frontmatter_description(
+        os.path.join(HERE, "skills", name, "SKILL.md"))) + 8 for name in SKILLS)
+    agents = sum(len(name) + len(desc) for name, desc, *_ in tezgah_agents.ROLES)
+    agents += len("tezgah-orchestrator") + len(tezgah_agents.ORCH_DESC)
+    rows = [
+        ("core contract (always-on, per session)", len(core)),
+        ("per-turn reminder", len(reminder)),
+        ("skill metadata (%d)" % len(SKILLS), skills),
+        ("subagent metadata (%d)" % (len(tezgah_agents.ROLES) + 1), agents),
+        ("conditional rules (armed by task class)", conditional),
+    ]
+    return rows, len(tezgah_context.render(policy.CONTRACT))
+
+
+def mcp_tool_schemas(command, timeout=30, env=None):
+    """(tool count, schema bytes) an MCP server declares, or (0, None).
+
+    The one band the budget report cannot count: the schemas are the host's,
+    and the only honest way to size them is to ask the server. This performs
+    the initialize + tools/list handshake over stdio and measures the JSON.
+    `env` is the environment the host will spawn the server with, because the
+    surface itself can depend on it: codegraph exposes one tool without its
+    CODEGRAPH_MCP_TOOLS and eight with it."""
+    import json as _json
+    import subprocess as _subprocess
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+         "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                    "clientInfo": {"name": "tezgah-setup", "version": "1"}}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+    ]
+    payload = "".join(_json.dumps(r) + "\n" for r in requests)
+    try:
+        proc = _subprocess.run(command, input=payload, capture_output=True,
+                               text=True, timeout=timeout, env=env)
+    except (OSError, _subprocess.SubprocessError):
+        return 0, None
+    for line in proc.stdout.splitlines():
+        try:
+            msg = _json.loads(line)
+        except ValueError:
+            continue
+        if msg.get("id") == 2 and isinstance(msg.get("result"), dict):
+            tools = msg["result"].get("tools") or []
+            if tools:
+                return len(tools), len(_json.dumps(tools))
+    return 0, None
+
+
+def mcp_schema_report():
+    """Print the measured schema band for every MCP server tezgah registers.
+
+    The app-analysis servers run through `npx`, so measuring them needs node and
+    a (one-time) registry fetch; a server that cannot start is reported as not
+    measured rather than silently left out of the band."""
+    servers = []
+    if tp.codegraph_bin():
+        servers.append(("codegraph", graph_command(),
+                        dict(os.environ, **GRAPH_ENV)))
+    # tezgah's own surface is registered in all six hosts, so it rides the band
+    # like any other server: a tool set that grew past the recorded ceiling has
+    # to show up in the measurement that ceiling is written against.
+    servers.append((TEZGAH_MCP_NAME, tezgah_mcp_command(), None))
+    for srv in app_servers():
+        servers.append((srv["name"], list(srv["command"]), None))
+    print("\nMCP tool-schema band (measured by an initialize + tools/list handshake):")
+    total_tools = total_bytes = 0
+    for name, command, env in servers:
+        tools, size = mcp_tool_schemas(command, env=env)
+        if size is None:
+            print("     %-24s not measured (the server did not answer tools/list)"
+                  % name)
+            continue
+        total_tools += tools
+        total_bytes += size
+        print("     %-24s %3d tools  %7d bytes  ~%4.1fk tok"
+              % (name, tools, size, size / 4 / 1000.0))
+    if not servers:
+        print("     no MCP server binary found on this machine")
+    else:
+        print("     %-24s %3d tools  %7d bytes  ~%4.1fk tok"
+              % ("total", total_tools, total_bytes, total_bytes / 4 / 1000.0))
+    print("     These bytes ride every request unless the host fetches schemas "
+          "on demand.")
+
+
+def context_budget_report():
+    rows, on_demand = context_budget()
+    print("\ncontext budget (always-on text; ~tokens = chars/4):")
+    for label, chars in rows:
+        print("     %-34s ~%4.1fk tok  %6d chars"
+              % (label, (chars + 3) // 4 / 1000.0, chars))
+    print("     %-34s ~%4.1fk tok  (only when the skill is read)"
+          % ("full contract (on demand)", (on_demand + 3) // 4 / 1000.0))
+    print("     %-34s run --mcp-schemas to measure" % "MCP tool schemas")
+
+
+def report(hosts):
+    print("tezgah checkout: %s\n" % HERE)
+    print("roots (%s):" % ("TEZGAH_ROOTS" if os.environ.get("TEZGAH_ROOTS")
+                           else "config" if os.path.exists(tp.CONFIG) else "default"))
+    for r in tp.roots():
+        print("  %s %s" % (OK if os.path.isdir(r) else NO, r))
+    print("\ncommon:")
+    rows = [
+        ("config %s" % tp.CONFIG, os.path.exists(tp.CONFIG)),
+        ("%s on PATH" % tp.CODEGRAPH, bool(tp.codegraph_bin())),
+        ("consult/codegen provider key (OpenRouter, DeepSeek or Inception)",
+         tp.have_consult_key()),
+        ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
+        ("npx on PATH (app-analysis MCP servers)", bool(shutil.which("npx"))),
+        ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
+         os.path.isdir(tezgah_apps.ARTIFACTS)),
+        ("git", bool(shutil.which("git"))),
+        ("local plugin manifest consistent when present (untracked)",
+         versions_agree()),
+    ]
+    for label, good in rows:
+        print("  %s %s" % (OK if good else NO, label))
+    if contract_stale():
+        print("  %s %s" % (NO, "opencode contract stale - re-run --install"))
+    pred = predecessors()
+    if pred:
+        print("\npredecessor wiring still present (retire with --adopt):")
+        for p in pred:
+            print("  ?    %s" % p)
+    for h in hosts:
+        print("\n%s:" % h)
+        for label, good in HOST_CHECKS[h]():
+            print("  %s %s" % (OK if good else NO, label))
+    context_budget_report()
+
+
+def mcp_rows(wired, where):
+    """One report row per known server: `wired == selected` is what green means.
+
+    A per-host `all(...)` over the always-on pair could not see either failure
+    in the other direction - a server the user turned off that is still wired
+    (the ghost an older release left) or one that is selected and missing - and
+    chrome-devtools was reported by no row at all."""
+    selected = set(app_server_names())
+    rows = []
+    for name in app_mcp_names():
+        want, got = name in selected, name in wired
+        if want and got:
+            rows.append(("app MCP %s (selected, wired)" % name, True))
+        elif not want and not got:
+            rows.append(("app MCP %s (deselected, absent)" % name, True))
+        elif want:
+            rows.append(("app MCP %s (selected, not wired in %s)" % (name, where),
+                         False))
+        else:
+            rows.append(("app MCP %s (deselected, ghost in %s)"
+                         % (name, where), False))
+    return rows
+
+
+def toml_servers(path):
+    """The [mcp_servers.*] tables a toml file carries."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return set()
+    return set(re.findall(r"(?m)^\s*\[mcp_servers\.([^\]]+)\]", text))
+
+
+def dsh_servers(path):
+    """The serverName values the dsh patch file declares."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return set()
+    return set(re.findall(r"(?m)^\s*serverName:\s*(\S+)", text))
+
+
+def host_checks_claude():
+    copies = plugin_copies()
+    return [
+        ("statusline wired (link or copy)",
+         is_tezgah_entry(os.path.join(CLAUDE, "statusline.py"))),
+        ("statusLine in settings.json", statusline_wired()),
+        ("workflows in ~/.claude/workflows",
+         all(is_tezgah_entry(os.path.join(CLAUDE, "workflows", w))
+             for w in WORKFLOW_FILES)),
+        ("bin on ~/.claude/bin",
+         all(is_tezgah_entry(os.path.join(CLAUDE, "bin", b))
+             for b in ("consult", "codegen", "tezgah-render-table"))),
+        # Claude runs the plugin COPY, not this checkout, so a copy that lags it
+        # is the one gap the other four rows cannot see. An absent copy is not
+        # current either: all([]) is True, and a row that stays green on a
+        # machine with no tezgah plugin at all is not a check.
+        ("plugin copy current (every copied file matches)",
+         bool(copies) and all(plugin_copy_current(t) for t in copies)),
+    ] + claude_mcp_rows(copies)
+
+
+def mcp_entry_argv(entry):
+    """(command, args) an MCP entry declares, whichever shape its host uses.
+
+    opencode keeps the whole argv in `command`; codex's toml, Claude, Cursor and
+    omp split it into `command` + `args`. One reader, so a row that checks the
+    argv cannot answer differently per host."""
+    if not isinstance(entry, dict):
+        return None, []
+    command = entry.get("command")
+    if isinstance(command, list):
+        return (command[0] if command and isinstance(command[0], str) else None), \
+            [a for a in command[1:] if isinstance(a, str)]
+    if isinstance(command, str):
+        args = entry.get("args")
+        return command, ([a for a in args if isinstance(a, str)]
+                         if isinstance(args, list) else [])
+    return None, []
+
+
+def mcp_row(name, entry, where, argv):
+    """The report row for one named server: it is wired with exactly `argv`.
+
+    Presence alone is not the check. A row written by an older tezgah pins the
+    interpreter of another machine or a tree that has moved, and `name in
+    servers` reads green while the process it names cannot start. Keys the host
+    adds (omp's `type`, opencode's `enabled`) are not ours and do not fail it.
+    The written value may carry the `${HOME}` template the render puts in for a
+    tracked file; the host resolves that template at read time, so the check
+    compares the path the host resolves - `_host_value` is that read half."""
+    command, args = mcp_entry_argv(entry)
+    command, args = _host_value(command), [_host_value(a) for a in args]
+    return ("MCP %s server wired with this tree's argv in %s" % (name, where),
+            command == argv[0] and args == list(argv[1:]))
+
+
+def _toml_unquote(value):
+    """The value `_toml_str` wrote, read back."""
+    return value.replace('\\"', '"').replace("\\\\", "\\")
+
+
+def toml_mcp_entry(path, name):
+    """The `command` and `args` a `[mcp_servers.<name>]` table declares, or None.
+
+    A reader for the check side only: the writer appends a table, and a report
+    that only asked whether the name is in the text could not see a table
+    pointing at another machine's interpreter."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    block = re.search(r"(?ms)^[ \t]*\[mcp_servers\.%s\][ \t]*$(.*?)(?=^[ \t]*\[|\Z)"
+                      % re.escape(name), text)
+    if not block:
+        return None
+    command = re.search(r'(?m)^\s*command\s*=\s*"((?:[^"\\]|\\.)*)"', block.group(1))
+    if not command:
+        return None
+    args = re.search(r"(?m)^\s*args\s*=\s*\[(.*?)\]", block.group(1))
+    return {"command": _toml_unquote(command.group(1)),
+            "args": [_toml_unquote(a) for a in
+                     re.findall(r'"((?:[^"\\]|\\.)*)"',
+                                args.group(1) if args else "")]}
+
+
+def dsh_mcp_entry(text, name):
+    """The argv one `serverName: <name>` row of the dsh patch block declares.
+
+    Same reason as `toml_mcp_entry`: the block is generated text, and a row that
+    asked only whether the name appears would pass on a block still pointing at
+    a moved tree."""
+    block = re.search(r"(?ms)^\s*serverName:\s*%s\s*$(.*?)(?=^\s*serverName:|\Z)"
+                      % re.escape(name), text)
+    if not block:
+        return None
+    command = re.search(r"(?m)^\s*command:\s*(\S+)\s*$", block.group(1))
+    if not command:
+        return None
+    args = re.search(r"(?m)^\s*args:\s*\[(.*?)\]\s*$", block.group(1))
+    return {"command": command.group(1),
+            "args": re.findall(r"'([^']*)'", args.group(1) if args else "")}
+
+
+def claude_mcp_rows(copies):
+    """The MCP row Claude never had: the copy it loads, its server set, and
+    whether that set equals the selection.
+
+    Claude reads `.mcp.json` from the plugin COPY (nothing else writes the file
+    for it), so the row names the copy by path and prints both sets - a copy
+    holding a server the user turned off is the one shape that looks wired while
+    the selection says otherwise. The set is the graph row, tezgah's own MCP
+    surface and the selected app servers, because this file is Claude's only MCP
+    channel: a name missing here is a name Claude never gets at all, while the
+    graph row lives in the other five hosts from their own writers."""
+    selected = sorted(set(["codegraph", TEZGAH_MCP_NAME] + app_server_names()))
+    rows = []
+    for t in copies:
+        servers = (read_json(os.path.join(t, MCP_JSON), {}) or {}).get("mcpServers")
+        wired = sorted(servers) if isinstance(servers, dict) else []
+        rows.append(("MCP server set in %s (%s) equals the selection (%s)"
+                     % (t, ", ".join(wired) or "none", ", ".join(selected) or "none"),
+                     wired == selected))
+        rows.append(mcp_row(TEZGAH_MCP_NAME, (servers or {}).get(TEZGAH_MCP_NAME),
+                            t, tezgah_mcp_command(t)))
+    if not copies:
+        rows.append(("MCP server set in an installed plugin copy "
+                     "(no tezgah plugin copy found)", False))
+    return rows
+
+
+def _hooks_has(path, marker, events=None):
+    """True when `marker` is wired under every event in `events`, or under any
+    event when `events` is None.
+
+    A row that one event can satisfy answers the wrong question: a manifest
+    carrying tezgah's command under SessionStart and not under Stop reads as
+    wired, and Stop is the integrity refusal."""
+    hooks = (read_json(path, {}) or {}).get("hooks") or {}
+    if events is None:
+        return any(marker in json.dumps(e) for arr in hooks.values() for e in arr)
+    return all(any(marker in json.dumps(e) for e in (hooks.get(ev) or []))
+               for ev in events)
+
+
+def host_checks_codex():
+    cmd = "tezgah-codex-hook"
+    # a relocated home is named, so a report can never show ~/.codex while these
+    # rows read the tree codex actually loads
+    where = (" in %s" % CODEX
+             if CODEX != os.path.join(tp.HOME, ".codex") else "")
+    toml_path = os.path.join(CODEX, "config.toml")
+    try:
+        with open(toml_path, encoding="utf-8") as fh:
+            toml = fh.read()
+    except OSError:
+        toml = ""
+    return [
+        ("hooks.json wired%s" % where,
+         _hooks_has(os.path.join(CODEX, "hooks.json"), cmd,
+                    [ev for ev, _matcher in CODEX_HOOK_EVENTS])),
+        ("skills linked%s" % where,
+         skills_linked(os.path.join(CODEX, "skills"))),
+        ("MCP in config.toml", "mcp_servers.codegraph" in toml),
+    ] + mcp_rows(toml_servers(toml_path), "config.toml") + [
+        mcp_row(TEZGAH_MCP_NAME, toml_mcp_entry(toml_path, TEZGAH_MCP_NAME),
+                "config.toml", tezgah_mcp_command()),
+    ]
+
+
+def host_checks_opencode():
+    cfg = read_json(os.path.join(OPENCODE, "opencode.json"), {})
+    tui = read_json(os.path.join(OPENCODE, "tui.json"), {})
+    instr = cfg.get("instructions") or []
+    specs = [p if isinstance(p, str) else p[0] for p in (tui.get("plugin") or [])]
+    return [
+        ("plugin wired (link or copy)",
+         any(is_tezgah_entry(os.path.join(OPENCODE, d, "tezgah.js"))
+             for d in ("plugins", "plugin"))),
+        ("skills linked", skills_linked(os.path.join(OPENCODE, "skills"))),
+        ("contract in instructions", any("tezgah" in i for i in instr)),
+        ("skill router in instructions + written",
+         SKILL_ROUTER in instr and os.path.isfile(SKILL_ROUTER)),
+        ("full skill router written (on demand)",
+         os.path.isfile(SKILL_ROUTER_FULL)),
+        ("permission.skill denied", (cfg.get("permission") or {}).get("skill") == "deny"),
+        ("MCP in opencode.json", "codegraph" in (cfg.get("mcp") or {})),
+    ] + mcp_rows(set(cfg.get("mcp") or {}), "opencode.json") + [
+        mcp_row(TEZGAH_MCP_NAME, (cfg.get("mcp") or {}).get(TEZGAH_MCP_NAME),
+                "opencode.json", tezgah_mcp_command()),
+        ("context pruning armed (compaction.prune)",
+         (cfg.get("compaction") or {}).get("prune") is True),
+        ("watcher ignores noisy trees",
+         bool(set(OPENCODE_IGNORE)
+              & set(((cfg.get("watcher") or {}).get("ignore") or [])))),
+        ("status line plugin in tui.json + linked",
+         any("tezgah-tui" in s for s in specs)
+         and os.path.exists(os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx"))),
+        # opencode's own registry declares INCEPTION_API_KEY for the inception
+        # provider, so nothing needs adding to opencode.json - but the route is
+        # only usable once a key resolves, and that is what this reports.
+        ("Inception provider key resolvable (env or auth store)",
+         opencode_key_resolvable("inception", "INCEPTION_API_KEY")),
+    ]
+
+
+def host_checks_cursor():
+    mcp = read_json(os.path.join(CURSOR, "mcp.json"), {})
+    cli = read_json(os.path.join(CURSOR, "cli-config.json"), {})
+    return [
+        ("hooks.json wired", _hooks_has(os.path.join(CURSOR, "hooks.json"),
+                                        "tezgah-cursor-hook",
+                                        list(CURSOR_HOOK_EVENTS))),
+        ("skills linked", skills_linked(os.path.join(CURSOR, "skills"))),
+        ("MCP in mcp.json", "codegraph" in (mcp.get("mcpServers") or {})),
+    ] + mcp_rows(set(mcp.get("mcpServers") or {}), "mcp.json") + [
+        mcp_row(TEZGAH_MCP_NAME, (mcp.get("mcpServers") or {}).get(TEZGAH_MCP_NAME),
+                "mcp.json", tezgah_mcp_command()),
+        ("statusLine in cli-config.json", "tezgah-statusline" in json.dumps(cli.get("statusLine") or {})),
+        ("cursor-agent CLI on PATH",
+         bool(tp.which_user("cursor-agent") or tp.which_user("cursor"))),
+    ]
+
+
+def host_checks_dsh():
+    try:
+        with open(DSH_PATCH, encoding="utf-8") as fh:
+            patched = fh.read()
+    except OSError:
+        patched = ""
+    try:
+        with open(DSH_WEB_PATCH, encoding="utf-8") as fh:
+            web_patch = fh.read()
+    except OSError:
+        web_patch = ""
+    linked = os.path.join(DSH_WEB, "node_modules", DSH_STATUSLINE)
+    return [
+        ("claude-code hooks bridge in cordis.patch.yml", "dsh-hooks-claude-code" in patched),
+        ("MCP bridge in cordis.patch.yml", "dsh-mcp-client" in patched),
+        # codegraph's own installer does not know dsh, so this row is written by
+        # hand here and nothing else would report it missing
+        ("code graph row in cordis.patch.yml", "serverName: codegraph" in patched),
+    ] + mcp_rows(dsh_servers(DSH_PATCH), "cordis.patch.yml") + [
+        mcp_row(TEZGAH_MCP_NAME, dsh_mcp_entry(patched, TEZGAH_MCP_NAME),
+                "cordis.patch.yml", tezgah_mcp_command()),
+        ("OpenRouter + DeepSeek + Inception routes in cordis.patch.yml",
+         "openrouter" in patched and "DEEPSEEK_API_KEY" in patched
+         and "INCEPTION_API_KEY" in patched),
+        dsh_launcher_row(),
+        ("skills linked", skills_linked(os.path.join(DSH, "skills"))),
+        ("OpenRouter route key resolvable (env, ~/.config/openrouter/key or store)",
+         dsh_key_resolvable("OPENROUTER_API_KEY")),
+        ("DeepSeek route key resolvable (env, ~/.config/deepseek/key or store)",
+         dsh_key_resolvable("DEEPSEEK_API_KEY")),
+        ("Inception route key resolvable (env, ~/.config/inception/key or store)",
+         dsh_key_resolvable("INCEPTION_API_KEY")),
+        ("status-line plugin linked into the web profile",
+         os.path.exists(linked)),
+        ("status-line row in the web cordis.patch.yml", DSH_STATUSLINE in web_patch),
+    ]
+
+
+
+def omp_hook_answers():
+    """Run the omp hook once: it must answer the status event with the marks.
+
+    The installed extension is a bridge, so the only honest check is that the
+    python half starts and answers; a hook that cannot start is the difference
+    between a status line and an empty line.
+    """
+    path = os.path.join(HERE, "hosts", "omp", "hook.py")
+    try:
+        proc = subprocess.run([sys.executable, path],
+                              input=json.dumps({"event": "status",
+                                                "cwd": os.getcwd()}),
+                              capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    try:
+        return bool(json.loads(proc.stdout or "{}").get("status"))
+    except ValueError:
+        return False
+
+
+def host_checks_omp():
+    rules = os.path.join(OMP_AGENT, "RULES.md")
+    try:
+        with open(rules, encoding="utf-8") as fh:
+            rules_text = fh.read()
+    except OSError:
+        rules_text = ""
+    try:
+        with open(os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts"), encoding="utf-8") as fh:
+            hook_text = fh.read()
+    except OSError:
+        hook_text = ""
+    mcp = read_json(os.path.join(OMP_AGENT, "mcp.json"), {})
+    servers = mcp.get("mcpServers") or {}
+    agents_dir = os.path.join(OMP_AGENT, "agents")
+    agents = ([n for n in os.listdir(agents_dir)
+               if n.startswith("tezgah-") and n.endswith(".md")]
+              if os.path.isdir(agents_dir) else [])
+    return [
+        ("RULES.md carries the contract",
+         "tezgah:start" in rules_text and "Ponytail" in rules_text),
+        ("skill metadata band present", "Ponytail" in rules_text),
+        ("output-shape rule present", "ADHD-friendly" in rules_text),
+        ("skills linked", skills_linked(os.path.join(OMP_AGENT, "skills"))),
+        ("subagents generated", len(agents) >= 4),
+        ("MCP in mcp.json", "codegraph" in servers),
+    ] + mcp_rows(set(servers), "mcp.json") + [
+        mcp_row(TEZGAH_MCP_NAME, servers.get(TEZGAH_MCP_NAME),
+                "mcp.json", tezgah_mcp_command()),
+        ("app MCP command is one executable",
+         all(isinstance((servers.get(n) or {}).get("command"), str)
+             for n in app_server_names())),
+        ("session, prompt, tool and stop hooks wired",
+         all(k in hook_text for k in ("session_start", "before_agent_start",
+                                      "tool_call", "session_stop",
+                                      "setWidget", "setStatus"))),
+        # omp is the host that spends this key: judge(), auto thinking,
+        # unexpected-stop and AI staging fall back to a chat model without it.
+        # What resolves it is the env it reads or its own login store, not
+        # tezgah's key-file convention, which omp never opens.
+        ("TypeSafe (Jev) key resolvable (env or omp login store)",
+         tp.have_typesafe_key()),
+        # One row per channel: the two disagree in both directions - a key file
+        # alone serves the seam, an omp login-store record alone serves omp.
+        ("judgement seam key resolvable (env or key file)",
+         tp.have_judge_key()),
+        ("status line answers", omp_hook_answers()),
+    ]
+
+
+HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
+               "opencode": host_checks_opencode, "cursor": host_checks_cursor,
+               "dsh": host_checks_dsh, "omp": host_checks_omp}
+
+
+def versions_agree():
+    """Do the local manifest's two files carry one version?
+
+    Both are untracked (they are the maintainer's), so an absent pair is normal
+    and only a present-but-disagreeing pair is a failure."""
+    try:
+        v = []
+        for f in ("plugin.json", "marketplace.json"):
+            with open(os.path.join(HERE, ".claude-plugin", f), encoding="utf-8") as fh:
+                d = json.load(fh)
+            v.append(d["plugins"][0]["version"] if f == "marketplace.json" else d["version"])
+        return v[0] == v[1]
+    except FileNotFoundError:
+        return True
+    except Exception:
+        return False
+
+
+# ------------------------------------------------------------------- sync ----
+
+# One file any revision of the checkout carries, so a directory in the plugin
+# cache is RECOGNISED as a tezgah copy; freshness is a separate question, asked
+# over the whole tree by plugin_copy_current.
+PLUGIN_FINGERPRINT = os.path.join("hooks", "tezgah_policy.py")
+
+# The MCP config Claude Code reads, at the plugin root: written into the checkout
+# by `--write-mcp-json` (a release step, from the declared default selection) and
+# re-rendered into the plugin copy by `sync()`, because the copy is what Claude
+# actually loads and a per-user selection cannot live in a committed file.
+MCP_JSON = ".mcp.json"
+
+# The files that live at the tree root, are not part of the managed listing, and
+# are therefore compared and carried specially by the plugin copy. Three kinds:
+# the maintainer's local manifests (the version signal this check exists to
+# replace, so a copy without one is still a copy), the generated `VERSION` a
+# release artifact carries at its root (a release tree answers `--version` from
+# it, a checkout has none), and the generated `.mcp.json` Claude reads from the
+# copy - `sync()` re-renders that one from the selection rather than copying the
+# checkout's, because the checkout's answers a release-time default. One
+# constant, so `plugin_copy_current` and `sync` cannot drift apart on which files
+# they treat specially.
+PLUGIN_ROOT_FILES = (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json",
+                     "VERSION", MCP_JSON)
+
+# The tracked listing of the tree, written by `--write-manifest` at release time.
+# A checkout lists itself through git, which cannot go stale; an unpacked release
+# tarball has no `.git` and reads this instead, so `plugin_files()` answers in
+# both shapes. It is not a file a copy carries, so `managed()` excludes it and
+# the listing therefore never lists itself.
+MANIFEST = "MANIFEST"
+
+
+def managed(rel):
+    """True for a relpath a copy is expected to hold: the tracked tree minus the
+    maintainer's `.tezgah/plans/` (never shipped), any bytecode cache, the
+    manifest itself, and a `<file>.tezgah-bak` backup - the installer keeps one
+    of a file it overwrote, and a backup is no more a copy member than it is
+    product code. Shared by plugin_files() and the copy listing, so the two
+    cannot drift."""
+    return (bool(rel) and not rel.startswith(".tezgah/plans/") and rel != MANIFEST
+            and not rel.endswith(".tezgah-bak") and "__pycache__" not in rel)
+
+
+def plugin_files():
+    """The relpaths `sync` copies, sorted; None when the tree lists none.
+
+    git is the listing that cannot go stale, so a checkout uses it and the
+    `--write-manifest` output is regenerated from the same filter. An unpacked
+    release has no `.git` and reads the tracked MANIFEST instead; a tree with
+    neither (an unpacked copy from before the manifest existed) is None, which
+    is what makes `sync` refuse rather than empty a copy it cannot refill."""
+    tracked = subprocess.run(
+        ["git", "-C", HERE, "ls-files", "--cached", "--others", "--exclude-standard"],
+        capture_output=True, text=True)
+    if tracked.returncode == 0:
+        # --others includes a new source file that is not committed yet; a plain
+        # `ls-files` would drop it from the copy (and delete it from the plugin cache)
+        return sorted(f for f in tracked.stdout.splitlines() if managed(f))
+    try:
+        with open(os.path.join(HERE, MANIFEST), encoding="utf-8") as fh:
+            listed = [line.strip() for line in fh]
+    except OSError:
+        return None
+    # an empty or truncated manifest is not a listing: `sync()` deletes what the
+    # copy holds and re-copies this, so an unreadable manifest must refuse, not
+    # wipe. `tests/test_packaging.py` holds the file to the git listing.
+    return sorted(f for f in listed if managed(f)) or None
+
+
+def write_manifest():
+    """Regenerate the tracked MANIFEST from git: the release step, its only writer.
+
+    One filter for both sides - `managed()` - so the generated listing and the
+    reader that trusts it cannot disagree about what a copy holds."""
+    tracked = subprocess.run(
+        ["git", "-C", HERE, "ls-files", "--cached", "--others", "--exclude-standard"],
+        capture_output=True, text=True)
+    if tracked.returncode != 0:
+        print("%s %s needs a git checkout to regenerate" % (NO, MANIFEST))
+        return 1
+    files = sorted(f for f in tracked.stdout.splitlines() if managed(f))
+    with open(os.path.join(HERE, MANIFEST), "w", encoding="utf-8") as fh:
+        fh.write("".join(f + "\n" for f in files))
+    print("%s %s (%d paths)" % (OK, MANIFEST, len(files)))
+    return 0
+
+
+def tree_sha(root, files):
+    """sha256 over each relpath and its bytes, or None when one is unreadable."""
+    h = hashlib.sha256()
+    for rel in files:
+        h.update(rel.encode() + b"\0")
+        try:
+            with open(os.path.join(root, rel), "rb") as fh:
+                h.update(fh.read())
+        except OSError:
+            return None
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def plugin_copies():
+    """Every installed tezgah plugin copy under ~/.claude/plugins/cache.
+
+    Claude Code runs the plugin from a COPY, never from this checkout, so this
+    is the tree its hooks and skills actually come from. A copy is recognised by
+    the hook file `sync` writes into it, not by the plugin manifest: the manifest
+    is the maintainer's local, untracked file, so a fresh clone (and CI) has
+    none and a copy made from it would go unrecognised."""
+    cache = os.path.join(HOME, ".claude", "plugins", "cache")
+    out = []
+    for dirpath, dirnames, _files in os.walk(cache):
+        dirnames.sort()
+        if os.path.isfile(os.path.join(dirpath, PLUGIN_FINGERPRINT)):
+            out.append(dirpath)
+    return sorted(out)
+
+
+def copy_files(target):
+    """Every managed relpath the copy holds.
+
+    A hash over the relpaths the checkout still has cannot see a file the
+    checkout STOPPED shipping: the ghost is absent from `files`, so it cannot
+    move the hash, and Claude keeps being served a skill that no longer exists.
+    Only a `.git` or a bytecode cache a copy accumulated is ignored."""
+    out = set()
+    for dirpath, dirnames, filenames in os.walk(target):
+        dirnames[:] = [d for d in dirnames if d != ".git" and d != "__pycache__"]
+        for name in filenames:
+            rel = os.path.relpath(os.path.join(dirpath, name), target)
+            if managed(rel):
+                out.add(rel)
+    return out
+
+
+def _home_relative(value):
+    """A string pointing under this machine's home dir, written as `${HOME}/...`.
+
+    The rendered `.mcp.json` is TRACKED and read on another machine, so a value
+    naming this machine's home is wrong there; Claude Code expands `${VAR}` in
+    this file, which is also how the app servers' output dir is written."""
+    return value.replace(HOME, "${HOME}") if value.startswith(HOME) else value
+
+
+def _host_value(value):
+    """`_home_relative` read back: the path the host resolves that string to.
+
+    A check that compared the written string against the argv would report MISS
+    on a correctly wired file, so every reader of a written value goes through
+    this - it is the same `${HOME}` half of the pair. A None value (no entry to
+    compare) passes through unchanged, so the caller reports MISS rather than
+    crashing on a host that has no row."""
+    if value is None:
+        return None
+    return value.replace("${HOME}", HOME)
+
+
+def render_mcp_json(selected=None, root=HERE, templated=True):
+    """`.mcp.json` for Claude, rendered from the registry and the selection.
+
+    Hand-kept, this file was the one wiring nobody validated: nothing under bin/
+    or hooks/ read or wrote it, so a changed pin reached five hosts and not the
+    sixth. Environment values are written with `${HOME}` in place of this
+    machine's home dir, because the rendered file is tracked and read on another
+    machine (Claude Code expands `${VAR}` in this file).
+
+    The graph row and tezgah's own MCP surface are part of the same render: this
+    file is Claude's ONLY MCP channel (no `install_claude` writer exists), so a
+    name left out here is a name Claude never gets while the other five hosts
+    carry it. `root` is the tree the reader will have - `sync()` renders into the
+    plugin copy, and tezgah's row there must name that copy's own
+    `bin/tezgah-mcp` rather than a checkout the copy's machine may not have. A
+    render into a copy passes `templated=False`: the copy is read on this very
+    machine, so `${HOME}` would only stand between it and the file it names."""
+    rows = [("codegraph", graph_command(), dict(GRAPH_ENV)),
+            (TEZGAH_MCP_NAME, tezgah_mcp_command(root), {})]
+    rows += [(srv["name"], list(srv["command"]), srv["env"])
+             for srv in app_servers(selected)]
+    servers = {}
+    for name, argv, env in rows:
+        # Every string this file carries goes through the one rule above: a value
+        # pointing under this machine's home is written as `${HOME}/...`. The argv
+        # is where that rule earns its keep - the graph binary, the interpreter
+        # and the checkout are all absolute paths that mean nothing on the machine
+        # that reads this tracked file.
+        if templated:
+            argv = [_home_relative(a) for a in argv]
+            env = {k: _home_relative(v) for k, v in env.items()}
+        entry = {"command": argv[0], "args": list(argv[1:])}
+        if env:
+            entry["env"] = env
+        servers[name] = entry
+    return json.dumps({"mcpServers": servers}, indent=2) + "\n"
+
+
+def write_mcp_json(path=None, selected=None, root=HERE, templated=True):
+    """Write the rendered file. Returns 0, or 1 when the tree has no registry
+    row to render (which would otherwise write an empty file over a good one).
+    A render into a plugin copy passes `templated=False`: the copy is read on
+    this machine, so `${HOME}` would only stand between it and the file it
+    names."""
+    if not app_server_names(selected):
+        print("%s no MCP server is selected; %s left alone" % (NO, MCP_JSON))
+        return 1
+    path = path or os.path.join(HERE, MCP_JSON)
+    mkdirp(os.path.dirname(path))
+    if write_if_changed(path, render_mcp_json(selected, root, templated)):
+        print("%s %s" % (OK, path))
+    else:
+        print("%s %s already current" % (OK, path))
+    return 0
+
+
+def plugin_copy_current(target):
+    """True when the copy holds this checkout's whole tracked tree, byte for byte.
+
+    The copy is what Claude runs, so a one-file hash cannot see a change to
+    another hook: with hooks/tezgah_policy.py equal on both sides, --install
+    reported `ok` while the copy still ran the previous hooks/tezgah_gate.py.
+    Both directions are compared: a listed file missing from the copy is caught
+    by the hash (`tree_sha` returns None for an unreadable source), and a file
+    the copy holds and the checkout does not is caught by the listing, which is
+    the direction a hash over existing relpaths can never see."""
+    files = [f for f in plugin_files() or [] if f not in PLUGIN_ROOT_FILES]
+    if not files:
+        return False
+    want = tree_sha(HERE, files)
+    if want is None or want != tree_sha(target, files):
+        return False
+    return copy_files(target) - set(PLUGIN_ROOT_FILES) == set(files)
+
+
+def sync():
+    """Copy this checkout over the installed Claude plugin, which is a COPY."""
+    cache = os.path.join(HOME, ".claude", "plugins", "cache")
+    targets = plugin_copies()
+    if not targets:
+        print("no installed tezgah found under %s (nothing to sync)" % cache)
+        return 1
+    files = plugin_files()
+    if files is None:
+        print("nothing to sync from: %s lists no files (no git checkout, no %s)"
+              % (HERE, MANIFEST))
+        return 1
+    for t in targets:
+        # A copy that contains this checkout IS this checkout, so emptying it
+        # would delete the tree being copied from (someone running the copy's own
+        # bin/tezgah-setup). The documented path never does; this says no.
+        real = os.path.realpath(t)
+        if real == HERE or HERE.startswith(real + os.sep):
+            print("%s skip %s (it holds this checkout)" % (NO, t))
+            continue
+        for name in os.listdir(t):
+            if name != ".git":
+                path = os.path.join(t, name)
+                shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) \
+                    else os.remove(path)
+        for f in files:
+            src = os.path.join(HERE, f)
+            if not os.path.isfile(src):
+                # ls-files lists a path deleted in the working tree until the
+                # deletion is staged; copying it would crash the sync (measured
+                # when the README translations were reduced).
+                continue
+            dst = os.path.join(t, f)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+        # The files that live at the tree root rather than in the listing: the
+        # plugin manifest is the maintainer's local, untracked file and a copy
+        # without one is not a plugin Claude can load, and `VERSION` is the
+        # release artifact's version file, which a copy made from one has to
+        # answer `--version` with. Carry each over when this checkout has it,
+        # and copy nothing when it does not (a checkout has no VERSION).
+        for rel in PLUGIN_ROOT_FILES:
+            if rel == MCP_JSON:
+                continue  # rendered below, from the selection rather than the tree's copy
+            src = os.path.join(HERE, rel)
+            if os.path.isfile(src):
+                dst = os.path.join(t, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
+        # Claude reads the MCP config from THIS copy, so it is rendered from the
+        # selection after the copy rather than carried from the checkout, whose
+        # file answers the release-time default and would undo a disable. The
+        # copy is also the tree that will read it, so tezgah's own row names the
+        # copy's bin/tezgah-mcp - the one path that exists on this machine.
+        write_mcp_json(os.path.join(t, MCP_JSON), root=t)
+        print("%s synced %s (%d files)" % (OK, t, len(files)))
+    print("\nrestart Claude Code: hooks are read once per session.")
+    return 0
+
+
+def refresh_plugin_copy(hosts):
+    """A stale plugin copy is the one gap --install would otherwise leave behind,
+    because Claude runs that copy and not this checkout: refresh it exactly as
+    `--sync` does rather than duplicating the copy logic.
+
+    The render after the refresh is the half that staleness check cannot see:
+    `.mcp.json` is excluded from `plugin_copy_current` in both directions on
+    purpose - rendering into the copy must not make a current copy read stale -
+    which also means a copy carrying no tezgah row at all is still judged
+    current. So a claude install always renders the file into every copy with
+    that copy as the root, the same half `sync()` performs."""
+    if "claude" in hosts:
+        for t in plugin_copies():
+            write_mcp_json(path=os.path.join(t, MCP_JSON), selected=selection(), root=t)
+        if any(not plugin_copy_current(t) for t in plugin_copies()):
+            print()
+            sync()
+
+
+# ----------------------------------------------------------------- wizard ----
+
+class WizardAbort(Exception):
+    """No answer could be collected: EOF on stdin, or a non-answer repeated past
+    WIZ_TRIES. The wizard writes nothing before its final yes, so an abort
+    leaves the machine as it was."""
+
+
+WIZ_TRIES = 5
+
+
+def _ask(prompt, default, input_fn):
+    """One line of input. Empty takes the default; an unusable stdin aborts
+    instead of hanging or dumping a traceback, which is what makes a piped or
+    already-closed stdin safe."""
+    text = "%s [%s] " % (prompt, default) if default else "%s " % prompt
+    try:
+        raw = input_fn(text)
+    except (EOFError, OSError, ValueError, RuntimeError) as exc:
+        raise WizardAbort("stdin unusable (%s)" % (str(exc) or "closed"))
+    return raw.strip() or default
+
+
+def _ask_bool(prompt, default, input_fn):
+    hint = "[Y/n]" if default else "[y/N]"
+    for _ in range(WIZ_TRIES):
+        raw = _ask("%s %s " % (prompt, hint), "", input_fn).lower()
+        if not raw:
+            return default
+        if raw in ("y", "yes"):
+            return True
+        if raw in ("n", "no"):
+            return False
+        print("  answer y or n")
+    raise WizardAbort("no yes/no answer for %r" % prompt)
+
+
+def parse_hosts(raw):
+    """Names, 1-based numbers, or `all` -> host list. None when anything is
+    unknown, so the caller re-asks instead of arming half the selection."""
+    if raw.strip().lower() == "all":
+        return list(ALL_HOSTS)
+    picked = []
+    for tok in re.split(r"[,\s]+", raw.strip()):
+        if not tok:
+            continue
+        if tok.isdigit() and 1 <= int(tok) <= len(ALL_HOSTS):
+            tok = ALL_HOSTS[int(tok) - 1]
+        if tok not in ALL_HOSTS:
+            return None
+        if tok not in picked:
+            picked.append(tok)
+    return picked or None
+
+
+def _ask_hosts(default, input_fn):
+    present = detected()
+    print("\nhosts (%s detected here):" % (", ".join(
+        h for h in ALL_HOSTS if present[h]) or "none"))
+    for i, h in enumerate(ALL_HOSTS, 1):
+        print("  %d) %-9s %s" % (i, h, "detected" if present[h] else "not detected"))
+    for _ in range(WIZ_TRIES):
+        raw = _ask("arm which hosts?", ",".join(default), input_fn)
+        picked = parse_hosts(raw)
+        if picked:
+            return picked
+        if not default and not raw.strip():
+            # nothing is detectable here: an empty answer means "arm none", the
+            # end state a bare `--install` reaches, not a dead end
+            return []
+        print("  unknown host; choose from %s" % ", ".join(ALL_HOSTS))
+    raise WizardAbort("no valid host selection")
+
+
+def _ask_features(default, input_fn):
+    """Which optional features to wire: one question listing every id's state.
+
+    Replaces the single chrome-devtools yes/no, so a new optional feature joins
+    the registry table and appears here instead of growing a sixth question."""
+    print("\noptional features (each is wired only when it is selected):")
+    for row in tezgah_apps.REGISTRY:
+        print("  %-20s %s" % (row["id"],
+                              "selected" if row["id"] in default else "not selected"))
+    for _ in range(WIZ_TRIES):
+        raw = _ask("features (`all`, `none`, or ids separated by commas)",
+                   ",".join(default), input_fn)
+        if not raw.strip():
+            return list(default)
+        if raw.strip().lower() == "all":
+            return list(tezgah_apps.IDS)
+        if raw.strip().lower() == "none":
+            return []
+        picked = parse_feature_ids(raw)
+        if picked is not None:
+            return picked
+        print("  unknown feature; choose from %s" % ", ".join(tezgah_apps.IDS))
+    raise WizardAbort("no valid feature selection")
+
+
+def _ask_roots(default, input_fn):
+    print("\nroots are the directories your repos live in; context and subagents "
+          "are scoped to them")
+    for _ in range(WIZ_TRIES):
+        raw = _ask("roots (%s-separated)" % os.pathsep, os.pathsep.join(default), input_fn)
+        picked = [expand(p) for p in raw.split(os.pathsep) if p.strip()]
+        # a relative path would be resolved against whatever cwd a later session
+        # happens to have, and a file can hold no repos, so both are re-asked
+        if picked and all(os.path.isabs(p) and not os.path.isfile(p) for p in picked):
+            for p in picked:
+                # a root that does not exist yet is legitimate: the repos may not
+                # be cloned yet. tezgah never creates it, so say so once.
+                if not os.path.isdir(p):
+                    print("  note: %s does not exist yet; tezgah will not create it, "
+                          "and generates nothing under it until it does" % p)
+            return picked
+        print("  use absolute paths to directories, e.g. %s/work" % HOME)
+    raise WizardAbort("no valid root directory")
+
+
+def wizard_plan(hosts, roots, deps_off, features, adopt_now):
+    """What the wizard is about to do, printed before it does any of it."""
+    print("\nthe plan:")
+    print("  %s arm: %s" % (OK, ", ".join(hosts) or "none detected"))
+    for r in roots:
+        print("  %s root %s" % (OK if os.path.isdir(r) else NO, r))
+    print("  %s optional tools: %s" % (OK, "skip" if deps_off else
+          "install the missing ones over the network (orx, cursor-agent, dsh, pnpm)"))
+    # One line per feature id, beside the hosts and the roots: the plan has to
+    # name what is about to be wired, and the choice is now a selection rather
+    # than one boolean.
+    for row in tezgah_apps.REGISTRY:
+        print("  %s feature %-20s %s"
+              % (OK, row["id"], "wire" if row["id"] in features else "skip"))
+    if adopt_now:
+        print("  %s retire the predecessor wiring (moved aside, not deleted)" % OK)
+    print("  files tezgah rewrites are backed up once as <file>.tezgah-bak")
+
+
+def wizard(default_hosts, default_roots, deps_off_default, default_features,
+           dry_run=False, input_fn=input):
+    """Every question first, then the plan, then the shared apply path. The flags
+    supply the defaults, so `--wizard --hosts omp` only asks the rest."""
+    print("tezgah setup - press enter to take the value in brackets\n")
+    hosts = _ask_hosts(default_hosts, input_fn)
+    roots = _ask_roots(default_roots, input_fn)
+    deps_off = not _ask_bool("install the missing optional tools (needs the network)?",
+                             not deps_off_default, input_fn)
+    features = _ask_features(default_features, input_fn)
+    pred = predecessors()
+    if pred:
+        print("\npredecessor wiring still present:")
+        for p in pred:
+            print("  ?    %s" % p)
+    adopt_now = _ask_bool("retire it (moved aside under ~/.config/tezgah/adopted/)?",
+                          True, input_fn) if pred else False
+    wizard_plan(hosts, roots, deps_off, features, adopt_now)
+    if not _ask_bool("\nproceed?", True, input_fn):
+        print("nothing was installed; `tezgah-setup --install` runs the same steps "
+              "with no questions")
+        return 0
+    global FEATURES
+    FEATURES = list(tezgah_apps.selected_ids(features))
+    if adopt_now:
+        adopt()
+    return install_all(hosts, roots, deps_off, dry_run, redetect=False)
+
+
+# ------------------------------------------------------------------- main ----
+
+# packaging/upgrade.sh owns the whole version move: fetch, checksum, unpack,
+# flip `current`. install.sh (a first install) and `tezgah-setup --upgrade` both
+# call it rather than re-implementing it, so a version is unpacked in one place.
+UPGRADE = os.path.join(HERE, "packaging", "upgrade.sh")
+
+
+def upgrade(version, dry_run):
+    """Move the install tree to `version` and re-arm the hosts that are armed.
+
+    Two steps, and the second is why this is one command: `packaging/upgrade.sh`
+    unpacks the release and flips `<prefix>/current`, and the NEW tree's
+    installer then re-runs the wiring - this process started from the old tree,
+    so its farm links would point back into it. The hosts and roots come from
+    config.json, so an upgrade does not re-ask the install questions. Nothing
+    else calls this: a flag never upgrades tezgah as a side effect of another
+    (hooks/tezgah_policy.py:812). Prints every step before running it, and
+    `--dry-run` stops after the printing."""
+    cfg = tp.config()
+    hosts = cfg.get("hosts") or detected_hosts()
+    roots = cfg.get("roots") or []
+    cmd = ["bash", UPGRADE, "--prefix", INSTALL_PREFIX]
+    if version:
+        cmd += ["--version", version]
+    print("upgrade: %s -> %s" % (version or "the newest release", INSTALL_PREFIX))
+    print("  fetch/unpack: %s" % " ".join(cmd))
+    print("  re-arm: %s (roots: %s)"
+          % (", ".join(hosts) or "no host", ", ".join(roots) or "default"))
+    if dry_run:
+        print("  --dry-run: nothing fetched, nothing unpacked, nothing re-armed")
+        return 0
+    if not os.path.isfile(UPGRADE):
+        print("%s no %s - this tree carries no packaging/ layer, so it cannot "
+              "upgrade itself" % (NO, UPGRADE))
+        return 1
+    proc = subprocess.run(cmd)
+    if proc.returncode != 0:
+        print("%s %s exited %d; tezgah was not re-armed"
+              % (NO, UPGRADE, proc.returncode))
+        return proc.returncode
+    launcher = os.path.join(INSTALL_PREFIX, "current", "bin", "tezgah-setup")
+    if not os.path.isfile(launcher):
+        # a prefix with no `current` tree to run (a machine upgraded from a
+        # checkout): re-arm from this tree rather than leave the hosts wired to
+        # a tree the flip just moved away from
+        print("%s %s is absent; re-arming from %s" % (NO, launcher, HERE))
+        launcher = os.path.join(HERE, "bin", "tezgah-setup")
+    argv = [sys.executable, launcher, "--install", "--no-deps",
+            "--prefix", INSTALL_PREFIX]
+    if hosts:
+        argv += ["--hosts", ",".join(hosts)]
+    if roots:
+        argv += ["--roots", os.pathsep.join(roots)]
+    print()
+    return subprocess.run(argv).returncode
+
+
+def detected_hosts():
+    """The hosts present here, in ALL_HOSTS order."""
+    return [h for h, present in detected().items() if present]
+
+
+def unarmed_new_hosts(armed, before, after):
+    """Hosts that only appeared while the tools were being installed and are not
+    in `armed`. `before` keeps this to what the install itself made available,
+    so the hosts the user deliberately left out are not reported back at them."""
+    return [h for h in after if h not in before and h not in armed]
+
+
+def install_all(hosts, new_roots, deps_off, dry_run, redetect):
+    """The one install path, shared by `--install` and the wizard: the wizard
+    decides the answers, never how they are applied."""
+    late = []
+    if not deps_off:
+        before = detected_hosts()
+        install_deps(dry_run=dry_run)
+        if redetect:
+            # a just-installed tool can enable a host we did not detect at start
+            hosts = detected_hosts()
+        else:
+            late = unarmed_new_hosts(hosts, before, detected_hosts())
+    print("installing for: %s\n" % (", ".join(hosts) or "none detected"))
+    if late:
+        print("%s %s appeared while the tools were being installed, but only the "
+              "hosts in the plan were armed; add it with "
+              "`tezgah-setup --install --hosts %s`" % (NO, ", ".join(late), ",".join(late)))
+    install_common(new_roots, hosts)
+    # before the host installers: opencode's generated skill router indexes
+    # the orx skill dir, so the shim must exist when the router is written.
+    # The registry is the one place orx is described, so its row is the switch:
+    # a deselected orx runs no command, and the line says so rather than the
+    # step being stepped over in silence.
+    if "orx" in tezgah_apps.selected_ids(selection()):
+        install_openresearch(hosts)
+    else:
+        print("\nopenresearch (orx):\n%s skipped: orx is not selected" % NO)
+    for h in hosts:
+        INSTALLERS[h]()
+    refresh_plugin_copy(hosts)
+    print()
+    if deps_off:
+        print("(deps skipped; run `tezgah-setup --deps` to install orx, "
+              "cursor-agent and dsh)")
+    return report(hosts)
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(description="arm tezgah in every installed host")
+    ap.add_argument("--install", action="store_true")
+    ap.add_argument("--wizard", action="store_true",
+                    help="ask the install questions (a bare run on a terminal does this)")
+    ap.add_argument("--report", action="store_true",
+                    help="report what is armed, per host (a bare run on a pipe does this)")
+    ap.add_argument("--refresh", action="store_true",
+                    help="re-render generated contract artifacts when the policy changed")
+    ap.add_argument("--uninstall", action="store_true")
+    ap.add_argument("--adopt", action="store_true")
+    ap.add_argument("--sync", action="store_true")
+    ap.add_argument("--status", nargs="?", const=os.getcwd())
+    ap.add_argument("--agents", nargs="?", const=os.getcwd(),
+                    help="regenerate this repo's subagent set (default: cwd)")
+    ap.add_argument("--write-manifest", action="store_true",
+                    help="release: regenerate the tracked MANIFEST from git")
+    ap.add_argument("--deps", action="store_true")
+    ap.add_argument("--mcp-schemas", action="store_true",
+                    help="measure the MCP tool-schema band by asking each server")
+    ap.add_argument("--no-deps", action="store_true")
+    ap.add_argument("--devtools", action="store_true",
+                    help="sugar for --enable %s" % DEVTOOLS_FEATURE)
+    ap.add_argument("--features", action="store_true",
+                    help="list every feature id with its default, its selection "
+                         "and its dependency state")
+    ap.add_argument("--enable", metavar="ID[,ID]",
+                    help="select features and persist the choice (config.json)")
+    ap.add_argument("--disable", metavar="ID[,ID]",
+                    help="deselect features and persist the choice; unwires them, "
+                         "uninstalls nothing")
+    ap.add_argument("--write-mcp-json", action="store_true",
+                    help="release: re-render the tracked .mcp.json from the "
+                         "registry and the declared default selection")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="preview: the optional-tool install runs nothing, and "
+                         "--uninstall prints what it would remove")
+    # the install prefix a released artifact unpacks into, and the root
+    # `is_tezgah_link` judges a farm link against besides this checkout
+    ap.add_argument("--prefix", metavar="DIR",
+                    help="install prefix (default: TEZGAH_PREFIX, else what "
+                         "this tree or an earlier install recorded, else "
+                         "XDG_DATA_HOME/tezgah, else ~/.local/share/tezgah)")
+    # bare `--upgrade` takes the newest release; the version is optional because
+    # a team that pins one passes it and everyone else takes what is current
+    ap.add_argument("--upgrade", nargs="?", const="", metavar="VERSION",
+                    help="fetch and unpack a release (default: the newest) into "
+                         "the prefix, flip `current`, re-arm the installed hosts")
+    # the one version reader (hooks/tezgah_context.py): the status line's prefix
+    # prints the same value, and `unknown` is what a checkout carrying neither
+    # the local manifest nor a changelog answers
+    ap.add_argument("--version", action="version",
+                    version=tezgah_context.version() or "unknown")
+    ap.add_argument("--roots")
+    ap.add_argument("--hosts")
+    # `--version` is argparse's print-and-exit action, so `--upgrade --version V`
+    # would print the current version, exit 0 and move nothing at all - the
+    # "reads as done, did nothing" shape this repo hunts. Refused by name here,
+    # before parse_args can swallow it: the version goes positionally.
+    if "--version" in argv[1:] and any(a.startswith("--upgrade") for a in argv[1:]):
+        sys.stderr.write(
+            "tezgah-setup: --version prints the current version and stops, so it "
+            "cannot name the version to upgrade to; write "
+            "`tezgah-setup --upgrade VERSION`\n")
+        return 2
+    args = ap.parse_args(argv[1:])
+    global FEATURES, INSTALL_PREFIX
+    # --devtools is --enable <id> and nothing else: one code path, so the flag
+    # cannot reach the selection in a way the explicit command does not.
+    enable = args.enable or (DEVTOOLS_FEATURE if args.devtools else None)
+    if args.prefix:
+        # the flag wins over TEZGAH_PREFIX, which won over the rest at import:
+        # an argument typed for this run is the most specific answer
+        INSTALL_PREFIX = os.path.realpath(expand(args.prefix))
+    elif not PREFIX_PINNED:
+        # nothing explicit was given, so an install's own answer decides: the
+        # tree this process runs from (a release tree says where it lives, and
+        # `packaging/install.sh` starts the installer without a --prefix), then
+        # the prefix a previous install recorded, then the XDG default
+        INSTALL_PREFIX = (running_prefix()
+                          or tp.config().get("prefix") or INSTALL_PREFIX)
+
+    # before every other branch: an upgrade is asked for by name or not at all,
+    # and --dry-run must reach it without fetching anything
+    if args.upgrade is not None:
+        return upgrade(args.upgrade, args.dry_run)
+
+    if args.sync:
+        return sync()
+    if args.write_mcp_json:
+        return write_mcp_json()
+    if args.features:
+        features_report()
+        return 0
+    if args.refresh:
+        path = refresh_contract()
+        print("%s refreshed %s" % (OK, path) if path else "contract is current")
+        return 0
+    if args.write_manifest:
+        return write_manifest()
+    if args.status:
+        print(tezgah_context.health_lines(os.path.realpath(expand(args.status))))
+        return 0
+    if args.deps and not args.install:
+        install_deps(dry_run=args.dry_run)
+        return 0
+    if args.mcp_schemas:
+        mcp_schema_report()
+        return 0
+
+    if args.agents:
+        repo = tezgah_context.repo_root(os.path.realpath(expand(args.agents)))
+        note = tezgah_agents.sync_root(repo, report_steady=True)
+        print(note or "no agents generated (outside a root, or no capability)")
+        return 0
+
+    hosts = [h.strip() for h in args.hosts.split(",")] if args.hosts else detected_hosts()
+    bad = [h for h in hosts if h not in ALL_HOSTS]
+    if bad:
+        sys.exit("unknown host(s): %s (choose from %s)" % (", ".join(bad), ", ".join(ALL_HOSTS)))
+
+    # A bare run in a terminal is a person, so it gets the wizard; a piped,
+    # agent or CI run keeps the non-interactive report.
+    bare_tty = not argv[1:] and sys.stdin.isatty() and sys.stdout.isatty()
+    wizard_mode = (args.wizard or bare_tty) and not args.report
+
+    if args.uninstall:
+        uninstall(hosts, dry_run=args.dry_run)
+        return 0
+
+    # A selection change is its own command: it persists the choice and brings
+    # every host the install recorded along, so `--enable`/`--disable` reach the
+    # writers without re-deciding which hosts are armed. `--install` given beside
+    # it continues into the install path with the new selection in force.
+    if (enable or args.disable) and not wizard_mode:
+        picked = parse_feature_ids(enable)
+        dropped = parse_feature_ids(args.disable)
+        if (enable and picked is None) or (args.disable and dropped is None):
+            bad = enable if (enable and picked is None) else args.disable
+            sys.stderr.write("unknown feature id in %r; choose from %s\n"
+                             % (bad, ", ".join(tezgah_apps.IDS)))
+            return 1
+        recorded = tp.config().get("hosts") or []
+        # TEZGAH_NO_DEPS is the CI/test escape hatch, mirroring --no-deps; it has
+        # to cover this path too, since this is the one that installs on demand
+        deps_off = args.no_deps or os.environ.get("TEZGAH_NO_DEPS",
+                                                  "").strip() not in ("", "0")
+        code = select_features(picked, dropped,
+                               hosts if args.hosts else (recorded or hosts),
+                               args.dry_run, deps_off)
+        if code or not (args.install or args.report):
+            return code
+
+    # --adopt retires the predecessor wiring before an install, but under the
+    # wizard it waits: the wizard asks about it and adopts only after the yes, so
+    # nothing is written before the plan is confirmed.
+    if args.adopt and not wizard_mode:
+        adopt()
+        if not args.install:
+            return 0
+
+    new_roots = [r for r in args.roots.split(os.pathsep) if r.strip()] if args.roots else []
+    # TEZGAH_NO_DEPS is the CI/test escape hatch, mirroring --no-deps
+    deps_off = args.no_deps or os.environ.get("TEZGAH_NO_DEPS", "").strip() not in ("", "0")
+
+    if wizard_mode:
+        try:
+            # The flags supply the defaults, so --devtools pre-answers the
+            # feature question rather than being a second path through it.
+            default_features = list(tezgah_apps.selected_ids(selection()))
+            if args.devtools and DEVTOOLS_FEATURE not in default_features:
+                default_features.append(DEVTOOLS_FEATURE)
+            return wizard(hosts, new_roots or tp.roots() or [tp.DEFAULT_ROOT],
+                          deps_off, default_features, args.dry_run)
+        except WizardAbort as exc:
+            print("wizard: %s" % exc)
+            print("nothing was installed; `tezgah-setup --install` runs the same "
+                  "steps with no questions")
+            return 1
+
+    if args.install:
+        return install_all(hosts, new_roots, deps_off, args.dry_run, redetect=not args.hosts)
+
+    if args.roots:
+        sys.exit("--roots only means something with --install")
+    return report(hosts)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,18 @@
+P5 via check: exit=0 | warn q: state.json evaluation locks no metric, baseline, locked_at: a criterion chosen after seeing the results is not a criterion
+P6 via claim: exit=0 | ['claim C1 recorded']
+P6 via check: exit=0 | warn q: state.json evaluation locks no metric, baseline, locked_at: a criterion chosen after seeing the results is not a criterion
+P7 via check: exit=1 | FAIL q: state.json sessions[1] tag 'user-typed-it' is not one of user, ai-suggested, ai-executed, user-revised
+
+-- P5 full check output --
+exit=0
+warn q: state.json evaluation locks no metric, baseline, locked_at: a criterion chosen after seeing the results is not a criterion
+warn q: claim C1 cites experiment E1, whose results.jsonl holds no row, so the evidence claim is bound to a run that recorded nothing
+warn q: experiment E1: git could not be asked about the order (fatal: your current branch 'master' does not have any commits yet)
+research: 1 line(s) ok
+strict exit=1 | ['FAIL q: claim C1 cites experiment E1, whose results.jsonl holds no row, so the evidence claim is bound to a run that recorded nothing']
+
+-- P6 full check output --
+exit=0
+warn q: state.json evaluation locks no metric, baseline, locked_at: a criterion chosen after seeing the results is not a criterion
+research: 1 line(s) ok
+strict exit=1 | []

@@ -1,0 +1,84 @@
+commit   nogit
+model    deepseek/deepseek-flash
+repeats  50   timeout 300s
+tasks    e01-silent-one-liner, e05-three-call-sites
+arm      omp+tezgah          harness=tezgah   toggle=default install: ~/.omp/agent/RULES.md carries the tezgah core, plus the 5 tezgah subagents and the pre-tool h
+arm      omp-bare            harness=none     toggle=an empty agent dir via PI_CODING_AGENT_DIR, so there is no RULES.md, no tezgah subagents and no pre-tool hook
+arm      orx-mp-prove        harness=tezgah   toggle=the armed contract plus one clause: make the check fail once on purpose before trusting its success (E4 pre-re
+cells    6 (2 tasks x 3 arms), 60 jobs of 5 repeats, 20 in parallel
+  e01-silent-one-liner           omp+tezgah          rc=0 omp+tezgah             e01-silent-one-liner     r5 pass  131.6s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=0 omp+tezgah             e01-silent-one-liner     r10 pass   57.4s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r15 FAIL  300.0s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=0 omp+tezgah             e01-silent-one-liner     r20 pass   70.9s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=0 omp+tezgah             e01-silent-one-liner     r25 pass   60.5s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r30 pass   55.4s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=0 omp+tezgah             e01-silent-one-liner     r35 pass   48.8s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=0 omp+tezgah             e01-silent-one-liner     r40 pass   47.2s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=0 omp+tezgah             e01-silent-one-liner     r45 pass   49.7s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r50 FAIL  300.0s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r5 FAIL   19.4s usage=yes
+  e01-silent-one-liner           omp-bare            rc=0 omp-bare               e01-silent-one-liner     r10 pass   15.4s usage=yes
+  e01-silent-one-liner           omp-bare            rc=0 omp-bare               e01-silent-one-liner     r15 pass   18.0s usage=yes
+  e01-silent-one-liner           omp-bare            rc=0 omp-bare               e01-silent-one-liner     r20 pass   17.8s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r25 pass   17.6s usage=yes
+  e01-silent-one-liner           omp-bare            rc=0 omp-bare               e01-silent-one-liner     r30 pass   13.7s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r35 pass   17.1s usage=yes
+  e01-silent-one-liner           omp-bare            rc=0 omp-bare               e01-silent-one-liner     r40 pass   11.5s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r45 pass   16.0s usage=yes
+  e01-silent-one-liner           omp-bare            rc=0 omp-bare               e01-silent-one-liner     r50 pass   45.4s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=0 orx-mp-prove           e01-silent-one-liner     r5 pass   36.1s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=1 orx-mp-prove           e01-silent-one-liner     r10 pass   62.0s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=0 orx-mp-prove           e01-silent-one-liner     r15 pass   57.0s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=1 orx-mp-prove           e01-silent-one-liner     r20 pass   44.6s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=0 orx-mp-prove           e01-silent-one-liner     r25 pass   55.3s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=1 orx-mp-prove           e01-silent-one-liner     r30 pass   56.9s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=0 orx-mp-prove           e01-silent-one-liner     r35 pass   33.9s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=1 orx-mp-prove           e01-silent-one-liner     r40 pass   72.8s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=1 orx-mp-prove           e01-silent-one-liner     r45 pass   40.7s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=1 orx-mp-prove           e01-silent-one-liner     r50 pass   46.4s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r5 pass   70.9s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=0 omp+tezgah             e05-three-call-sites     r10 pass  111.6s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=0 omp+tezgah             e05-three-call-sites     r15 pass   72.8s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r20 pass   38.4s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=0 omp+tezgah             e05-three-call-sites     r25 pass   51.4s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r30 pass   41.8s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r35 pass   28.3s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r40 pass   53.9s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r45 FAIL  300.0s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r50 pass   58.4s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r5 pass   14.8s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r10 pass   13.2s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r15 pass   18.4s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r20 pass   18.3s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r25 pass   16.3s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r30 pass   18.6s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r35 pass   13.4s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r40 pass   19.9s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r45 pass   17.9s usage=yes
+  e05-three-call-sites           omp-bare            rc=0 omp-bare               e05-three-call-sites     r50 pass   21.1s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r5 pass   50.1s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r10 pass   45.8s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r15 pass   57.8s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r20 pass   48.8s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r25 pass   30.7s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r30 pass   28.0s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r35 pass   49.0s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r40 pass   60.0s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r45 pass   35.3s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=0 orx-mp-prove           e05-three-call-sites     r50 pass   43.2s usage=yes
+
+per arm
+  omp+tezgah          89/100  0.89 (0.81-0.94)  $0.4498  cps=$0.00505
+  omp-bare            93/100  0.93 (0.86-0.97)  $0.2788  cps=$0.00300
+  orx-mp-prove        94/100  0.94 (0.88-0.97)  $0.3711  cps=$0.00395
+
+per task (passes / repeats)
+  task                           omp+tezgah           omp-bare             orx-mp-prove       
+  e01-silent-one-liner           47/50                43/50                44/50              
+  e05-three-call-sites           42/50                50/50                50/50              
+
+paired against omp-bare (harness minus anchor, mean over tasks)
+  omp+tezgah          -0.040 over 2 tasks
+  orx-mp-prove        +0.010 over 2 tasks
+
+Summary {"arms": {"omp+tezgah": {"cost": 0.4498, "cps": 0.00505, "delta_vs_anchor": -0.04, "n": 100, "pass": 89, "rate": 0.89, "wilson": [0.8137, 0.9375]}, "omp-bare": {"cost": 0.2788, "cps": 0.003, "n": 100, "pass": 93, "rate": 0.93, "wilson": [0.8625, 0.9657]}, "orx-mp-prove": {"cost": 0.3711, "cps": 0.00395, "delta_vs_anchor": 0.01, "n": 100, "pass": 94, "rate": 0.94, "wilson": [0.8752, 0.9722]}}, "cells": 60, "commit": "nogit", "model": "deepseek/deepseek-flash", "repeats": 50, "runs": 300}

@@ -1,0 +1,82 @@
+commit   nogit
+model    openrouter/deepseek/deepseek-v4-flash
+repeats  50   timeout 300s
+tasks    e01-silent-one-liner, e05-three-call-sites
+arm      omp+tezgah          harness=tezgah   toggle=default install: ~/.omp/agent/RULES.md carries the tezgah core, plus the 5 tezgah subagents and the pre-tool h
+arm      omp-bare            harness=none     toggle=an empty agent dir via PI_CODING_AGENT_DIR, so there is no RULES.md, no tezgah subagents and no pre-tool hook
+arm      orx-mp-prove        harness=tezgah   toggle=the armed contract plus one clause: make the check fail once on purpose before trusting its success (E4 pre-re
+cells    6 (2 tasks x 3 arms), 60 jobs of 5 repeats, 20 in parallel
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r5 FAIL    2.0s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r10 FAIL    1.9s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r15 FAIL  121.9s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r20 FAIL    2.0s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r25 FAIL  121.9s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r30 FAIL  300.0s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r35 FAIL    1.9s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r40 FAIL  121.9s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r45 FAIL  300.0s usage=yes
+  e01-silent-one-liner           omp+tezgah          rc=1 omp+tezgah             e01-silent-one-liner     r50 FAIL  122.1s usage=yes
+  e01-silent-one-liner           omp-bare            rc=0 omp-bare               e01-silent-one-liner     r5 pass  229.4s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r10 FAIL  300.0s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r15 FAIL  300.0s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r20 FAIL  300.0s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r25 FAIL   57.8s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r30 FAIL   35.9s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r35 FAIL   83.7s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r40 FAIL  214.0s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r45 pass  176.2s usage=yes
+  e01-silent-one-liner           omp-bare            rc=1 omp-bare               e01-silent-one-liner     r50 FAIL   62.4s usage=yes
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e01-silent-one-liner           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r5 FAIL    1.5s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r10 FAIL    1.8s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r15 FAIL    1.6s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r20 FAIL    1.6s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r25 FAIL    2.0s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r30 FAIL    1.6s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r35 FAIL    1.4s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r40 FAIL    1.7s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r45 FAIL    1.7s usage=yes
+  e05-three-call-sites           omp+tezgah          rc=1 omp+tezgah             e05-three-call-sites     r50 FAIL    2.3s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r5 FAIL    0.8s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r10 FAIL    0.7s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r15 FAIL    0.8s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r20 FAIL    0.8s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r25 FAIL    0.9s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r30 FAIL    1.0s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r35 FAIL    1.5s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r40 FAIL    1.6s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r45 FAIL    1.2s usage=yes
+  e05-three-call-sites           omp-bare            rc=1 omp-bare               e05-three-call-sites     r50 FAIL    0.8s usage=yes
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+  e05-three-call-sites           orx-mp-prove        rc=1 not armed: arm orx-mp-prove points at /Users/rizax/.local/share/openresearch/loc
+
+per arm
+  omp+tezgah           5/100  0.05 (0.02-0.11)  $0.5381  cps=$0.10762
+  omp-bare            25/100  0.25 (0.18-0.34)  $0.2270  cps=$0.00908
+
+per task (passes / repeats)
+  task                           omp+tezgah           omp-bare           
+  e01-silent-one-liner           4/50                 25/50              
+  e05-three-call-sites           1/50                 0/50               
+
+paired against omp-bare (harness minus anchor, mean over tasks)
+  omp+tezgah          -0.200 over 2 tasks
+
+Summary {"arms": {"omp+tezgah": {"cost": 0.5381, "cps": 0.10762, "delta_vs_anchor": -0.2, "n": 100, "pass": 5, "rate": 0.05, "wilson": [0.0215, 0.1118]}, "omp-bare": {"cost": 0.227, "cps": 0.00908, "n": 100, "pass": 25, "rate": 0.25, "wilson": [0.1755, 0.343]}}, "cells": 60, "commit": "nogit", "model": "openrouter/deepseek/deepseek-v4-flash", "repeats": 50, "runs": 200}

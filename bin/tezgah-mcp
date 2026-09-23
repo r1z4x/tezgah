@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""tezgah-mcp - tezgah's own MCP surface, one stdio server for every host.
+
+A host draws a collapsed tool-call card for its own tools and for MCP tools, and
+nothing else: tezgah's actions ran as `bash` calls, so the whole command line and
+its output landed in the transcript. This server is the same work behind a tool
+call - `initialize`, `tools/list`, `tools/call` over newline-delimited JSON-RPC
+2.0, the framing `bin/tezgah-setup --mcp-schemas` probes with, so the server and
+the probe agree by construction.
+
+Five tools, one leg of tezgah's CLI each: the server never re-implements a rule,
+it runs the installed command and returns its output as text - one summary line,
+then the log line by line, so the collapsed card and its expanded body are the
+same data. A tool that fails is the tool's own exit status (`isError`), not a
+hidden error: what the command said is the answer.
+
+A malformed line is answered with a JSON-RPC parse error and the loop keeps
+reading, because a host writing one bad frame must not end the session.
+"""
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_paths as tp  # noqa: E402
+
+PROTOCOL_VERSION = "2024-11-05"
+SERVER_VERSION = "1"
+# A delegate that never returns would hang the host's tool call: the ceiling is
+# per tool, because `consult` waits on remote models and the rest do not.
+TIMEOUT = 120
+CONSULT_TIMEOUT = 600
+
+
+def tool_status(args):
+    """`tezgah-status`: no argument, an optional directory to report on."""
+    path = args.get("path")
+    return [tp.tool("tezgah-status")] + ([path] if path else []), None, None
+
+
+def tool_gate_check(args):
+    """`tezgah-gate check`: the call a host would gate, as its stdin JSON."""
+    call = {"tool": "Bash", "input": {"command": args["command"]},
+            "cwd": args.get("path") or os.getcwd()}
+    return [tp.tool("tezgah-gate"), "check"], json.dumps(call), None
+
+
+def tool_features(args):
+    """`tezgah-setup --features`: the feature table and this run's selection."""
+    return [tp.tool("tezgah-setup"), "--features"], None, None
+
+
+def tool_consult(args):
+    """`consult`: the question the external models answer, then the referee."""
+    return [tp.tool("consult"), args["question"]], None, None
+
+
+def tool_research_check(args):
+    """`tezgah-research check`: the line's citations, in the repo asked about."""
+    path = args.get("path")
+    return [tp.tool("tezgah-research"), "check"], None, path or None
+
+
+# The surface. `properties` is both the schema and the list `arguments` is
+# validated against, so a property the tool does not read cannot be declared
+# here and a property declared here cannot arrive unread. `delegate` is the
+# tezgah command the tool answers from, and it is what the summary line names.
+SPECS = (
+    {"name": "tezgah_status",
+     "description": "Which tezgah contracts are armed in a directory, which "
+                    "were used this session, and which are off. Answers from "
+                    "`tezgah-status` - one segment per line, with its marks.",
+     "delegate": "tezgah-status",
+     "run": tool_status,
+     "properties": {
+         "path": ("string", "Directory to report on; defaults to the server's "
+                            "own working directory.")}},
+    {"name": "tezgah_gate_check",
+     "description": "Ask the gate what it would decide about one shell "
+                    "command, without running it: the refusal reason, or "
+                    "nothing when the call passes. Answers from "
+                    "`tezgah-gate check`.",
+     "delegate": "tezgah-gate check",
+     "run": tool_gate_check,
+     "properties": {
+         "command": ("string", "The shell command a host is about to run."),
+         "path": ("string", "The directory the command would run in; its "
+                            "scope is what the gate judges.")},
+     "required": ("command",)},
+    {"name": "tezgah_features",
+     "description": "Every tezgah feature id with its default, its selection "
+                    "and whether its dependency is installed. Answers from "
+                    "`tezgah-setup --features`.",
+     "delegate": "tezgah-setup --features",
+     "run": tool_features,
+     "properties": {}},
+    {"name": "tezgah_consult",
+     "description": "A second opinion on one question: independent answers "
+                    "from external models, then one referee. Answers from "
+                    "`consult`; needs a provider key.",
+     "delegate": "consult",
+     "run": tool_consult,
+     "timeout": CONSULT_TIMEOUT,
+     "properties": {
+         "question": ("string", "The question, stated so a model can answer "
+                                "it without the session's context.")},
+     "required": ("question",)},
+    {"name": "tezgah_research_check",
+     "description": "Check a repository's research lines - their predictions, "
+                    "citations and receipts - from their own manifest. Answers "
+                    "from `tezgah-research check`.",
+     "delegate": "tezgah-research check",
+     "run": tool_research_check,
+     "properties": {
+         "path": ("string", "The repository to check; defaults to the "
+                            "server's own working directory.")}},
+)
+
+
+def schema(spec):
+    """The tool's `inputSchema`, built only from the properties it declares."""
+    return {
+        "type": "object",
+        "properties": {name: {"type": ptype, "description": desc}
+                       for name, (ptype, desc) in spec["properties"].items()},
+        "required": list(spec.get("required", ())),
+        "additionalProperties": False,
+    }
+
+
+def declared(spec):
+    """The tool's JSON-RPC descriptor."""
+    return {"name": spec["name"], "description": spec["description"],
+            "inputSchema": schema(spec)}
+
+
+def spec_for(name):
+    return next((s for s in SPECS if s["name"] == name), None)
+
+
+def arguments_for(spec, raw):
+    """(validated arguments, refusal) for one call.
+
+    Every declared property is a string here, and the set of keys is closed in
+    both directions: a required property must arrive non-empty, a property the
+    schema does not declare is refused rather than ignored, because a host
+    sending one is a host whose call would otherwise be answered about
+    something other than what it asked."""
+    args = {}
+    for name in spec["properties"]:
+        value = raw.get(name)
+        needed = name in spec.get("required", ())
+        if value is None or (needed and not str(value).strip()):
+            if needed:
+                return None, "missing required property %r" % name
+            continue
+        if not isinstance(value, str):
+            return None, "property %r must be a string" % name
+        args[name] = value
+    unknown = sorted(set(raw) - set(spec["properties"]))
+    if unknown:
+        return None, "unknown property %s" % ", ".join(repr(u) for u in unknown)
+    return args, None
+
+
+def run(argv, stdin_text, cwd, timeout):
+    """One delegate run: (exit status, the log's lines).
+
+    stdout then stderr: a command that fails explains itself on stderr, and the
+    card is the only place a host shows it. stdin is /dev/null unless the tool
+    feeds the command something - an inherited pipe would let a delegate read
+    the host's own JSON-RPC stream, which is the session, not its input."""
+    kwargs = {"capture_output": True, "text": True, "timeout": timeout,
+              "cwd": cwd}
+    if stdin_text is None:
+        kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        kwargs["input"] = stdin_text
+    try:
+        proc = subprocess.run(argv, **kwargs)
+    except OSError as exc:
+        return None, ["%s did not start: %s" % (argv[0], exc)]
+    except subprocess.TimeoutExpired:
+        return None, ["%s did not finish within %ss" % (argv[0], timeout)]
+    return proc.returncode, proc.stdout.splitlines() + proc.stderr.splitlines()
+
+
+def summary(spec, status, lines):
+    """The one line a host collapses to, before the log."""
+    return "%s: %s %s, %d line(s)" % (
+        spec["name"], spec["delegate"],
+        "exited %d" % status if status is not None else "did not run",
+        len(lines))
+
+
+def call(spec, args):
+    """The `tools/call` result: the summary line, then the log line by line."""
+    argv, stdin_text, cwd = spec["run"](args)
+    status, lines = run(argv, stdin_text, cwd,
+                        spec.get("timeout", TIMEOUT))
+    text = "\n".join([summary(spec, status, lines)] + lines)
+    result = {"content": [{"type": "text", "text": text}]}
+    if status != 0:
+        result["isError"] = True
+    return result
+
+
+def ok(msg_id, result):
+    return {"jsonrpc": "2.0", "id": msg_id, "result": result}
+
+
+def error(msg_id, code, message):
+    return {"jsonrpc": "2.0", "id": msg_id,
+            "error": {"code": code, "message": message}}
+
+
+def dispatch(msg):
+    """The reply for one message, or None when it wants none.
+
+    A notification (no id) is not answered; neither is a client's reply to a
+    request of ours. Every failure is a JSON-RPC error rather than an exception,
+    because the loop has to survive the frame that caused it."""
+    method = msg.get("method")
+    if not isinstance(method, str) or msg.get("id") is None:
+        return None
+    msg_id = msg["id"]
+    params = msg.get("params")
+    params = params if isinstance(params, dict) else {}
+    if method == "initialize":
+        return ok(msg_id, {
+            "protocolVersion": params.get("protocolVersion") or PROTOCOL_VERSION,
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "tezgah", "version": SERVER_VERSION}})
+    if method == "tools/list":
+        return ok(msg_id, {"tools": [declared(s) for s in SPECS]})
+    if method == "tools/call":
+        spec = spec_for(params.get("name"))
+        if spec is None:
+            return error(msg_id, -32602, "unknown tool %r (have: %s)"
+                         % (params.get("name"),
+                            ", ".join(s["name"] for s in SPECS)))
+        raw = params.get("arguments")
+        raw = raw if isinstance(raw, dict) else {}
+        args, refusal = arguments_for(spec, raw)
+        if refusal:
+            return error(msg_id, -32602, refusal)
+        return ok(msg_id, call(spec, args))
+    if method == "ping":
+        return ok(msg_id, {})
+    return error(msg_id, -32601, "method not found: %s" % method)
+
+
+def serve(stdin, stdout):
+    """Read one JSON object per line, answer each, exit 0 at EOF."""
+    for line in stdin:
+        if not line.strip():
+            continue
+        try:
+            msg = json.loads(line)
+            if not isinstance(msg, dict):
+                raise ValueError("not a JSON object")
+        except ValueError as exc:
+            reply = error(None, -32700, "parse error: %s" % exc)
+        else:
+            reply = dispatch(msg)
+        if reply is None:
+            continue
+        stdout.write(json.dumps(reply) + "\n")
+        stdout.flush()
+    return 0
+
+
+def main():
+    try:
+        return serve(sys.stdin, sys.stdout)
+    except BrokenPipeError:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

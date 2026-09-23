@@ -1,0 +1,42 @@
+== cell A: the registered orx project ==
+[
+  {
+    "baselineBranch": "main",
+    "id": "999e0be3-a339-4874-9b13-23e6a9a92483",
+    "name": "tezgah-harness-research",
+    "paperId": null,
+    "path": "/Users/rizax/Projects/tezgah"
+  }
+]
+tezgah-harness-research (local)
+  id:      999e0be3-a339-4874-9b13-23e6a9a92483
+  repo:    /Users/rizax/Projects/tezgah
+  branch:  main (baseline)
+  command: bash benchmarks/arm-bench/orx-run.sh
+
+
+== cell B: does the project's run command path exist? ==
+ls: benchmarks/arm-bench/orx-run.sh: No such file or directory
+-- the commit that took it out of the tree:
+5af240b chore: move the benchmark tree to benchmarks/lab
+5af240b chore: move the benchmark tree to benchmarks/lab
+5015bbb bench: set up the clause-ablation experiment for the quality question
+-- tracked files under benchmarks/ at HEAD:
+       0
+
+== cell C: orx run or experiment ids inside research lines ==
+       7
+-- mentions of the word orx anywhere under .tezgah/research:
+      12
+
+== cell D: code in tezgah that consumes orx output ==
+hooks/tezgah_agents.py:81:        "orx": bool(orx_bin()),
+hooks/tezgah_agents.py:155:    orx = orx_bin() or "orx"
+hooks/tezgah_paths.py:255:def orx_bin():
+hooks/tezgah_context.py:116:                .replace("{ORX_BIN}", orx_bin() or "orx")
+hooks/tezgah_context.py:868:    if not off("research-off") and not orx_bin():
+hooks/tezgah_context.py:1272:        ("research", not off("research-off") and bool(orx_bin()), "research"),
+bin/tezgah-setup:1201:    orx = tp.orx_bin()
+bin/tezgah-setup:1847:        ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
+-- subprocess calls naming orx:
+36

@@ -1,0 +1,34 @@
+{
+  "question": "Which layer does tezgah sit in, and how is that boundary drawn against a host, a framework, an SDK, an IDE plugin, an eval harness, an orchestrator and MCP?",
+  "phase": "concluded",
+  "direction": "conclude",
+  "created": "2026-09-20",
+  "evaluation": {
+    "metric": "sources screened: one note per source under literature/ with one literature/INDEX.jsonl row each (6 notes, 6 rows), at zero refusals from `bin/tezgah-research check layer-map --strict`",
+    "baseline": "no run: no model call, no protocol, nothing filed under experiments/, no predictions.jsonl; no number in this line is a measurement of this repository - it is a deliverable count, not a behavioural metric",
+    "locked_at": "2026-09-20, the date the screening the criterion counts was run; written into state.json at the close-out on 2026-09-22, so it is a criterion over an artifact already in the tree rather than a pre-registered behavioural metric",
+    "environment": {
+      "model": "none (no model call was made)",
+      "harness": "bin/tezgah-research, the research layer only",
+      "prompt": "bin/tezgah-research init layer-map --question <the question above>"
+    }
+  },
+  "hypotheses": [],
+  "sessions": [
+    {
+      "date": "2026-09-20",
+      "tag": "user",
+      "what": "plan 005 directs the research half: the five boundary sources (AHE, Harness-R1, Ecdysis, EnvHarness, the definition paper) plus the UHP spec go into the research layer's literature index, one note per source, before any page claims a boundary"
+    },
+    {
+      "date": "2026-09-20",
+      "tag": "ai-executed",
+      "what": "read the five arXiv records and the UHP protocol/README at first hand, wrote one note per source and one INDEX.jsonl row per note, recorded six literature claims, and left the line at bootstrap with experiments/ empty because screening sources is not a run"
+    },
+    {
+      "date": "2026-09-22",
+      "tag": "ai-executed",
+      "what": "closed the line: locked the screening-discipline evaluation (6 notes, 6 index rows, zero refusals under --strict) in place of the empty object the bootstrap left, moved phase to concluded / direction conclude, and wrote the missing to_human/report.md (the boundary question answered on the page, its two unanswered parts named, and the reading-depth limits) and to_human/review.json, whose findings each quote the file they target verbatim. Nothing new was measured and no note, INDEX row or claim was edited in place."
+    }
+  ]
+}
