@@ -1,0 +1,66 @@
+name: release
+
+# Runs when a release is published on GitHub.
+# Publishes to npm and updates the brew formula sha256 in the tap repo.
+#
+# One-time setup (repo Settings → Secrets and variables → Actions):
+#   NPM_TOKEN  : npm automation token from npmjs.com → Access Tokens
+#   TAP_TOKEN  : GitHub Personal Access Token with repo scope on r1z4x/homebrew-tezgah
+#
+# Without these secrets the jobs skip cleanly.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  npm-publish:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.NPM_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  brew-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tarball and update tap formula
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          bash packaging/build.sh --version "$VERSION" --out /tmp/tz-rel
+          SHA=$(shasum -a 256 /tmp/tz-rel/tezgah-"$VERSION".tar.gz | cut -d' ' -f1)
+          # Clone the tap, update the formula, push
+          git clone https://"$TAP_TOKEN"@github.com/r1z4x/homebrew-tezgah.git /tmp/tap
+          cd /tmp/tap
+          cat > Formula/tezgah.rb <<RUBY
+          class Tezgah < Formula
+            desc "One shared working contract for every AI coding assistant you run"
+            homepage "https://github.com/r1z4x/tezgah"
+            url "https://github.com/r1z4x/tezgah/releases/download/v${VERSION}/tezgah-${VERSION}.tar.gz"
+            sha256 "${SHA}"
+            license "MIT"
+            depends_on "python@3.10"
+
+            def install
+              bin.install "bin/tezgah-setup"
+              libexec.install Dir["*"]
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/tezgah-setup --version")
+            end
+          end
+          RUBY
+          git add -A && git commit -m "tezgah ${VERSION}" && git push origin main
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
