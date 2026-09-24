@@ -49,6 +49,9 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           bash packaging/build.sh --version "$VERSION" --out /tmp/tz-rel
           SHA=$(shasum -a 256 /tmp/tz-rel/tezgah-"$VERSION".tar.gz | cut -d' ' -f1)
+          # the runner has no git identity; the tap commit needs one
+          git config --global user.email "rizax@tuta.io"
+          git config --global user.name "r1z4x"
           # Clone the tap, update the formula, push
           git clone https://"$TAP_TOKEN"@github.com/r1z4x/homebrew-tezgah.git /tmp/tap
           cd /tmp/tap

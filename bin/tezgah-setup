@@ -3648,6 +3648,10 @@ def render_mcp_json(selected=None, root=HERE, templated=True):
         # untouched - they keep the resolved absolute argv.
         if templated and name == "codegraph":
             argv = [tp.CODEGRAPH] + list(argv[1:])
+        # the tezgah row's interpreter is the same machine-local answer: the
+        # template carries the portable `python3` and the reader resolves it
+        if templated and name == TEZGAH_MCP_NAME:
+            argv = ["python3"] + list(argv[1:])
         if templated:
             argv = [_home_relative(a) for a in argv]
             env = {k: _home_relative(v) for k, v in env.items()}
