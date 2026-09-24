@@ -17,16 +17,20 @@ permissions:
   contents: write
 
 jobs:
+  # The secrets context is not available in a job-level `if`, so a guard there
+  # is a workflow-file parse failure and every event dies at 0s - the guards
+  # live on the steps, where secrets read fine.
   npm-publish:
     runs-on: ubuntu-latest
-    if: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
-      - run: npm publish --access public
+      - name: Publish (skipped without NPM_TOKEN)
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -34,7 +38,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build tarball and update tap formula
+      - name: Build tarball and update tap formula (skipped without TAP_TOKEN)
+        if: ${{ secrets.TAP_TOKEN != '' }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           bash packaging/build.sh --version "$VERSION" --out /tmp/tz-rel

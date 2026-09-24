@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "codegraph": {
-      "command": "${HOME}/.local/bin/codegraph",
+      "command": "codegraph",
       "args": [
         "serve",
         "--mcp"

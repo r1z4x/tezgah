@@ -111,8 +111,10 @@ class Manifest(unittest.TestCase):
                 else:
                     self.fail("%s declares a path that does not exist: %s"
                               % (c["key"], path))
-        # stated, not hidden: whatever the allowance covered is in the message
-        self.assertLessEqual(len(ignored), 1,
+        # stated, not hidden: whatever the allowance covered is in the message.
+        # Two per-checkout states are declared and both are legitimate to be
+        # absent on a clean checkout: the research lines and the lessons ledger.
+        self.assertLessEqual(len(ignored), 2,
                              "the ignored-path allowance grew: %s" % ignored)
 
     def test_editable_agrees_with_the_frozen_set(self):
