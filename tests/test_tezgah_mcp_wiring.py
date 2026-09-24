@@ -273,17 +273,74 @@ class Rows(WiringBase):
                     else json.dumps(self.read_json(self.config_paths()[host])))
             self.assertIn(GRAPH, text, "%s lost the graph row" % host)
 
-    def test_uninstall_drops_the_tezgah_row_from_the_claude_copy_only(self):
-        """Claude's row lives in the copy's `.mcp.json`, which no `~/.claude`
-        key reaches - so this is the one host whose MCP cleanup is a file edit,
-        and it has to be as narrow as the others'."""
+    def test_uninstall_removes_the_claude_copy_and_its_rows(self):
+        """Claude runs the plugin COPY and reads its `.mcp.json` from there, so
+        removing a single row would leave Claude loading tezgah's hooks and
+        skills from the same tree. The copy is wholly tezgah-generated (`sync()`
+        empties and rewrites it), so a claude uninstall takes the whole tree -
+        the one host whose uninstall is a removal, not an edit."""
         path = self.claude_copy_with_user_rows()
         proc = self.setup("--uninstall", "--hosts", "claude")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        servers = self.read_json(path)["mcpServers"]
-        self.assertNotIn(SERVER, servers)
-        self.assertIn("mine", servers, "the user's own server was removed")
-        self.assertIn(GRAPH, servers, "the graph row was removed")
+        self.assertFalse(os.path.exists(self.copy), "the plugin copy survived")
+        self.assertFalse(os.path.exists(path))
+
+    def test_uninstall_clears_the_plugin_registry_rows(self):
+        """installed_plugins.json is what makes Claude keep loading the copy and
+        known_marketplaces.json rows sourced from a tezgah tree keep the install
+        channel open - both go, and a row of the user's own and a marketplace
+        that is not tezgah's stay."""
+        self.make_plugin_copy()
+        self.write_json(
+            self.path(".claude", "plugins", "installed_plugins.json"),
+            {"version": 2, "plugins": {
+                "tezgah@rizacan-local": [{"scope": "user",
+                                          "installPath": self.copy}],
+                "mine@rizacan-local": [{"scope": "user",
+                                        "installPath": self.path("elsewhere")}],
+                "other@official": [{"scope": "user",
+                                    "installPath": self.path("cache", "x")}],
+            }})
+        self.write_json(
+            self.path(".claude", "plugins", "known_marketplaces.json"),
+            {"rizacan-local": {"source": {"source": "directory",
+                                          "path": REPO}},
+             "official": {"source": {"source": "github",
+                                     "repo": "anthropics/claude-plugins-official"},
+                          "installLocation": self.path("marketplaces", "o")}})
+        proc = self.setup("--uninstall", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        plugins = self.read_json(
+            self.path(".claude", "plugins", "installed_plugins.json"))["plugins"]
+        self.assertNotIn("tezgah@rizacan-local", plugins)
+        self.assertIn("mine@rizacan-local", plugins)
+        self.assertIn("other@official", plugins)
+        markets = self.read_json(
+            self.path(".claude", "plugins", "known_marketplaces.json"))
+        # the marketplace stays while a plugin of the user's still installs
+        # from it, even though its source is a tezgah tree
+        self.assertIn("rizacan-local", markets)
+        self.assertIn("official", markets)
+
+    def test_uninstall_drops_a_tezgah_sourced_marketplace_with_no_rows_left(self):
+        self.make_plugin_copy()
+        self.write_json(
+            self.path(".claude", "plugins", "installed_plugins.json"),
+            {"version": 2, "plugins": {
+                "tezgah@rizacan-local": [{"scope": "user",
+                                          "installPath": self.copy}]}})
+        self.write_json(
+            self.path(".claude", "plugins", "known_marketplaces.json"),
+            {"rizacan-local": {"source": {"source": "directory",
+                                          "path": REPO}},
+             "official": {"source": {"source": "github",
+                                     "repo": "anthropics/claude-plugins-official"}}})
+        proc = self.setup("--uninstall", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        markets = self.read_json(
+            self.path(".claude", "plugins", "known_marketplaces.json"))
+        self.assertNotIn("rizacan-local", markets)
+        self.assertIn("official", markets)
 
 
 class Report(WiringBase):

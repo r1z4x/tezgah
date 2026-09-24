@@ -8,7 +8,7 @@
   tezgah-setup --install --hosts omp
   tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh
   tezgah-setup --roots ~/work:~/oss --install
-  tezgah-setup --uninstall             remove only tezgah-managed wiring
+  tezgah-setup --uninstall             remove everything tezgah installed
   tezgah-setup --version               print the plugin version
   tezgah-setup --adopt                 move the predecessor wiring aside
   tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
@@ -145,6 +145,39 @@ SKILL_ROUTER = os.path.join(tp.CONFIG_DIR, "opencode-skills.md")
 # Where `link()` records the entries it had to materialise instead of
 # symlinking; see materialised_paths() for why the fact has to be written down.
 MATERIALISED = os.path.join(tp.CONFIG_DIR, "materialised")
+# Every kill switch the core reads (`off("...")` under hooks/). The canonical
+# copies die with ~/.config/tezgah; the pre-multi-host setup wrote them to
+# ~/.claude, which OFF_DIRS still honors, so a full uninstall sweeps those by
+# name too - a switch left behind is a rule that stays silent after a reinstall
+# with no file anywhere saying why.
+OFF_SWITCH_NAMES = ("adhd-off", "agents-off", "consult-off", "exec-mode.off",
+                    "judge-off", "lang-off", "orchestrate-off",
+                    "ponytail-auto.off", "pretooluse-off", "reminder-off",
+                    "research-off", "spec-off", "task-off", "verify-off")
+# The ~/.config/tezgah entries this installer generates. A full uninstall
+# removes exactly these (plus any `*.off` switch and the `.tezgah-bak` of one of
+# these names) and keeps anything else: a file the user put there is not
+# tezgah's to delete, and `adopted/` holds the predecessor originals --adopt
+# moved aside - the only copy of them on disk.
+GENERATED_STATE = frozenset((
+    "bin", "config.json", "contract.sha256", "install.log", "materialised",
+    "opencode-contract.md", "opencode-skills.md", "opencode-skills.full.md",
+    "ponytail.level", "state"))
+# The predecessor harness's marker in an AGENTS.md under a root: the block tells
+# every session to read a POLICY.md inside ~/.codex/projects-harness, so a
+# marker left behind after an uninstall is a standing dead pointer.
+HARNESS_MARKER_START = "<!-- codex-projects-harness:start -->"
+HARNESS_MARKER_END = "<!-- codex-projects-harness:end -->"
+HARNESS_MARKER_RE = re.compile(
+    r"<!-- codex-projects-harness:start -->.*?"
+    r"<!-- codex-projects-harness:end -->\n?", re.S)
+# Claude Code's plugin registry. The cache copy is what the plugin runs and the
+# installed_plugins.json row is what makes Claude keep loading it - an
+# uninstall that left either in place left Claude applying tezgah's rules with
+# nothing left to show for it.
+CLAUDE_PLUGINS_DIR = os.path.join(CLAUDE, "plugins")
+INSTALLED_PLUGINS = os.path.join(CLAUDE_PLUGINS_DIR, "installed_plugins.json")
+KNOWN_MARKETPLACES = os.path.join(CLAUDE_PLUGINS_DIR, "known_marketplaces.json")
 # The relay `_materialise` writes where a symlink is refused: it runs the real
 # script with __file__ and sys.argv[0] pointing at it, so a script that finds
 # its own tree by walking up from __file__ still finds the install tree.
@@ -1963,18 +1996,23 @@ def install_deps(dry_run=False, only=None):
 # ---------------------------------------------------------------- uninstall ----
 
 def is_tezgah_link(path):
-    """A symlink is tezgah-managed when it resolves inside this checkout or
-    inside the install prefix.
+    """A symlink is tezgah-managed when it resolves inside this checkout,
+    inside the install prefix, or into the farm.
 
-    Both roots count: an install unpacked from a release tarball links into
-    <prefix>/<version>/, a checkout install links into the checkout. Recognising
-    only the checkout orphaned every link at a version flip - uninstall kept
-    them, and the report called tezgah's own wiring the user's."""
+    Both install roots count: an install unpacked from a release tarball links
+    into <prefix>/<version>/, a checkout install links into the checkout.
+    The farm counts because some entries hop through it - `~/.codex/bin/consult`
+    resolves to `~/.config/tezgah/bin/consult`, which itself resolves here - and
+    uninstall sweeps the farm first, so by the time a host uninstaller judges
+    the hop the middle link is gone and a checkout-only answer reads the hop as
+    a dangling stranger. Recognising only the checkout orphaned every link at a
+    version flip - uninstall kept them, and the report called tezgah's own
+    wiring the user's."""
     if not os.path.islink(path):
         return False
     target = os.path.realpath(path)
     return any(target == root or target.startswith(root + os.sep)
-               for root in (HERE, INSTALL_PREFIX))
+               for root in (HERE, INSTALL_PREFIX, tp.BIN_DIR))
 
 
 def is_tezgah_entry(path):
@@ -2052,8 +2090,14 @@ def remove_managed_block(path, start="# tezgah:start", end="# tezgah:end"):
         if stripped.startswith(end):
             skip = False
             continue
-        if not skip:
+        # the header line set_managed_block writes for a dsh patch layer is
+        # tezgah's own: an uninstall that kept it left a file whose only
+        # content named a tool that is no longer there
+        if not skip and not stripped.startswith(
+                "# dsh home patch layer - tezgah-setup manages"):
             out.append(ln)
+        elif stripped.startswith("# dsh home patch layer"):
+            changed = True
     if not changed:
         print("%s no tezgah block in %s" % (OK, path))
         return
@@ -2074,6 +2118,311 @@ def uninstall_common():
     removed = tezgah_agents.cleanup()
     if removed:
         print("%s removed %d generated repo agent file(s)" % (OK, removed))
+
+
+def _is_tezgah_marketplace_row(row):
+    """True when a known_marketplaces.json entry points into a tezgah tree.
+
+    A marketplace whose source is the checkout or the install prefix exists to
+    serve the tezgah plugin; removing its registry row never removes the tree it
+    names."""
+    if not isinstance(row, dict):
+        return False
+    src = (row.get("source") or {}).get("path") or ""
+    loc = row.get("installLocation") or ""
+    for value in (src, loc):
+        if not value:
+            continue
+        real = os.path.realpath(expand(value))
+        for root in (os.path.realpath(HERE), INSTALL_PREFIX):
+            if real == root or real.startswith(root + os.sep):
+                return True
+    return False
+
+
+def remove_plugin_copies():
+    """Remove the Claude plugin copy and its registry rows: the wiring that
+    outlived every other removal.
+
+    Claude runs the plugin from the COPY under ~/.claude/plugins/cache and reads
+    installed_plugins.json to keep loading it, so an uninstall that stopped at
+    the symlinks left Claude applying tezgah's rules with nothing left in any
+    report. The copy is wholly tezgah-generated - `sync()` empties and rewrites
+    it on every run - so removing it takes nothing the user authored; the
+    checkout itself is never a target."""
+    data = read_json(INSTALLED_PLUGINS, None)
+    dropped = []
+    if isinstance(data, dict) and isinstance(data.get("plugins"), dict):
+        dropped = [k for k in list(data["plugins"])
+                   if k.split("@", 1)[0] == TEZGAH_MCP_NAME]
+        for key in dropped:
+            del data["plugins"][key]
+        if dropped:
+            write_json(INSTALLED_PLUGINS, data)
+            print("%s removed %s from %s"
+                  % (OK, ", ".join(dropped), INSTALLED_PLUGINS))
+        # A marketplace stays only while something still installs from it: the
+        # rows just dropped named theirs, and one whose source is a tezgah tree
+        # has nothing left to serve.
+        refs = {k.split("@", 1)[1] for k in data["plugins"] if "@" in k}
+        markets = {k.split("@", 1)[1] for k in dropped if "@" in k}
+        known = read_json(KNOWN_MARKETPLACES, None)
+        if isinstance(known, dict):
+            stale = [name for name in markets
+                     if name not in refs and _is_tezgah_marketplace_row(known.get(name))]
+            for name in stale:
+                del known[name]
+            if stale:
+                write_json(KNOWN_MARKETPLACES, known)
+                print("%s removed marketplace row(s) %s from %s"
+                      % (OK, ", ".join(stale), KNOWN_MARKETPLACES))
+    for target in plugin_copies():
+        real = os.path.realpath(target)
+        if real == HERE or HERE.startswith(real + os.sep):
+            print("%s kept %s (it holds this checkout)" % (NO, target))
+            continue
+        try:
+            shutil.rmtree(target)
+        except OSError as exc:
+            print("%s %s (%s)" % (NO, target, exc))
+            continue
+        print("%s removed plugin copy %s" % (OK, target))
+
+
+def sweep_legacy_switches():
+    """Remove the kill switches the pre-multi-host setup wrote to ~/.claude.
+
+    OFF_DIRS still reads that directory, so a switch left behind keeps its rule
+    silent after a reinstall, with no file in the canonical place saying why."""
+    legacy = os.path.join(HOME, ".claude")
+    for name in OFF_SWITCH_NAMES:
+        path = os.path.join(legacy, name)
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+            except OSError as exc:
+                print("%s %s (%s)" % (NO, path, exc))
+                continue
+            print("%s removed legacy switch %s" % (OK, path))
+
+
+def _drop_state_entry(path):
+    try:
+        shutil.rmtree(path) if os.path.isdir(path) and not os.path.islink(path) \
+            else os.remove(path)
+    except OSError as exc:
+        print("%s %s (%s)" % (NO, path, exc))
+        return
+    print("%s removed %s" % (OK, path))
+
+
+def remove_generated_state(full):
+    """Take tezgah's state back: the cache dirs always, the config dir's
+    generated contents when the uninstall is full.
+
+    `full` means the run covers every host config.json records - the armed set.
+    A partial uninstall keeps the config: the hosts still armed read their roots
+    and feature selection from it at runtime, and deleting it would degrade
+    wiring this run did not touch. `adopted/` and any entry that is not one of
+    tezgah's generated names survive in both cases."""
+    for d in (tp.CACHE, tp.fallback_cache()):
+        if os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)
+            print("%s removed %s" % (OK, d))
+    if not full:
+        return
+    try:
+        names = sorted(os.listdir(tp.CONFIG_DIR))
+    except OSError as exc:
+        print("%s %s (%s)" % (NO, tp.CONFIG_DIR, exc))
+        return
+    kept = []
+    for name in names:
+        path = os.path.join(tp.CONFIG_DIR, name)
+        if name == "adopted":
+            kept.append((path, "predecessor originals --adopt moved here"))
+            continue
+        if name in GENERATED_STATE or name.endswith((".off", "-off")) \
+                or (name.endswith(".tezgah-bak")
+                    and name[:-len(".tezgah-bak")] in GENERATED_STATE):
+            if name == "bin":
+                unlink_dir(path)  # a user's own file in the farm is not tezgah's
+                if os.path.isdir(path) and os.listdir(path):
+                    kept.append((path, "holds files tezgah did not write"))
+                    continue
+            _drop_state_entry(path)
+        else:
+            kept.append((path, "not a tezgah-generated name"))
+    for path, why in kept:
+        print("%s kept %s (%s)" % (NO, path, why))
+    if os.path.isdir(tp.CONFIG_DIR) and not os.listdir(tp.CONFIG_DIR):
+        os.rmdir(tp.CONFIG_DIR)
+        print("%s removed %s" % (OK, tp.CONFIG_DIR))
+
+
+def remove_install_tree():
+    """Remove the versioned install tree: every version and the `current` flip.
+
+    The tree is tezgah's own product, unpacked by packaging/upgrade.sh and
+    serving nothing once the wiring is gone - leaving it behind left a full
+    `bin/tezgah-setup` on disk that a stray PATH hit could re-arm. Only a
+    recognizable layout goes: version dirs that carry `bin/tezgah-setup` plus
+    the `current` link into them. When this process runs from inside the tree,
+    its own version dir goes last, with a warning - on POSIX the running script
+    survives the removal of its file."""
+    if not os.path.isdir(INSTALL_PREFIX):
+        return
+    running = running_prefix()
+    self_removal = bool(running) and os.path.realpath(running) == \
+        os.path.realpath(INSTALL_PREFIX)
+    if self_removal:
+        print("%s this installer runs from %s; its tree goes last" % (NO, HERE))
+    try:
+        entries = os.listdir(INSTALL_PREFIX)
+    except OSError as exc:
+        print("%s %s (%s)" % (NO, INSTALL_PREFIX, exc))
+        return
+    versions = [name for name in sorted(entries)
+                if os.path.isfile(os.path.join(INSTALL_PREFIX, name, "bin",
+                                               "tezgah-setup"))
+                and not os.path.islink(os.path.join(INSTALL_PREFIX, name))]
+    if not versions:
+        print("%s kept %s (no tezgah version tree recognised)" % (NO, INSTALL_PREFIX))
+        return
+    current = os.path.join(INSTALL_PREFIX, "current")
+    if os.path.islink(current):
+        try:
+            os.unlink(current)
+            print("%s removed %s" % (OK, current))
+        except OSError as exc:
+            print("%s %s (%s)" % (NO, current, exc))
+    for name in versions:
+        _drop_state_entry(os.path.join(INSTALL_PREFIX, name))
+    try:
+        rest = os.listdir(INSTALL_PREFIX)
+    except OSError as exc:
+        print("%s %s (%s)" % (NO, INSTALL_PREFIX, exc))
+        return
+    if not rest:
+        try:
+            os.rmdir(INSTALL_PREFIX)
+        except OSError as exc:
+            print("%s %s (%s)" % (NO, INSTALL_PREFIX, exc))
+            return
+        print("%s removed %s" % (OK, INSTALL_PREFIX))
+    else:
+        print("%s kept %s (holds %s)" % (NO, INSTALL_PREFIX, ", ".join(sorted(rest))))
+
+
+def _text_clean(path, needle="tezgah"):
+    """(True, "") when `path` is gone or carries no `needle`; else the leftover."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+    except OSError:
+        return True, ""
+    return needle not in body, path
+
+
+def verify_uninstall(hosts, full):
+    """Re-derive the removal from the filesystem alone and print the result.
+
+    This is the proof the run did what it printed: every path the uninstallers
+    own is checked for absence (or for the exact residue that is by design), and
+    the summary line counts what is left. Returns the number of claims that did
+    not hold - 0 is a complete removal."""
+    rows = []
+
+    def claim(label, paths):
+        left = [p for p in paths if os.path.lexists(p)]
+        rows.append((label, left))
+        if left:
+            print("%s still present: %s" % (NO, ", ".join(left)))
+        else:
+            print("%s %s" % (OK, label))
+
+    def clean(label, paths):
+        left = []
+        for p in paths:
+            ok, leftover = _text_clean(p)
+            if not ok:
+                left.append(leftover)
+        rows.append((label, left))
+        if left:
+            print("%s still wired: %s" % (NO, ", ".join(left)))
+        else:
+            print("%s %s" % (OK, label))
+
+    # common state
+    farm = [os.path.join(tp.BIN_DIR, n)
+            for n in (os.listdir(tp.BIN_DIR) if os.path.isdir(tp.BIN_DIR) else [])]
+    claim("config/bin farm holds no tezgah entry",
+          [p for p in farm if is_tezgah_entry(p)])
+    claim("materialised ledger gone", [MATERIALISED] if full else [])
+    claim("state caches gone", [tp.CACHE, tp.fallback_cache()])
+    if full:
+        try:
+            has_tree = os.path.isdir(INSTALL_PREFIX) and any(
+                os.path.isfile(os.path.join(INSTALL_PREFIX, n, "bin", "tezgah-setup"))
+                for n in os.listdir(INSTALL_PREFIX))
+        except OSError:
+            has_tree = False
+        claim("install tree gone", [INSTALL_PREFIX] if has_tree else [])
+    if "claude" in hosts:
+        claim("claude plugin copy gone", plugin_copies())
+        registry = read_json(INSTALLED_PLUGINS, {}) or {}
+        claim("claude plugin registry has no tezgah row",
+              [INSTALLED_PLUGINS] if any(k.split("@", 1)[0] == TEZGAH_MCP_NAME
+                                         for k in (registry.get("plugins") or {}))
+              else [])
+    if "codex" in hosts:
+        clean("codex hooks.json unwired", [os.path.join(CODEX, "hooks.json")])
+        claim("codex skills unlinked",
+              [os.path.join(CODEX, "skills", s) for s in SKILLS
+               if os.path.lexists(os.path.join(CODEX, "skills", s))])
+        clean("codex config.toml unwired", [os.path.join(CODEX, "config.toml")])
+        claim("codex consult link gone", [os.path.join(CODEX, "bin", "consult")])
+    if "opencode" in hosts:
+        claim("opencode plugin unlinked",
+              [os.path.join(OPENCODE, d, "tezgah.js") for d in ("plugins", "plugin")]
+              + [os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")])
+        clean("opencode opencode.json unwired",
+              [os.path.join(OPENCODE, "opencode.json")])
+        claim("opencode generated routers gone", [SKILL_ROUTER, SKILL_ROUTER_FULL])
+    if "cursor" in hosts:
+        clean("cursor hooks.json unwired", [os.path.join(CURSOR, "hooks.json")])
+        clean("cursor mcp.json unwired", [os.path.join(CURSOR, "mcp.json")])
+        clean("cursor cli-config.json unwired",
+              [os.path.join(CURSOR, "cli-config.json")])
+    if "dsh" in hosts:
+        clean("dsh patch layers unwired", [DSH_PATCH, DSH_WEB_PATCH])
+        claim("dsh launcher gone", [dsh_launcher()[1]])
+    if "omp" in hosts:
+        clean("omp RULES.md unwired", [os.path.join(OMP_AGENT, "RULES.md")])
+        claim("omp hook script gone",
+              [os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")])
+        agents = os.path.join(OMP_AGENT, "agents")
+        claim("omp subagents gone",
+              [os.path.join(agents, n) for n in
+               (os.listdir(agents) if os.path.isdir(agents) else [])
+               if n.startswith("tezgah-") and n.endswith(".md")])
+        clean("omp mcp.json unwired", [os.path.join(OMP_AGENT, "mcp.json")])
+        claim("omp skills unlinked",
+              [os.path.join(OMP_AGENT, "skills", s) for s in SKILLS
+               if os.path.lexists(os.path.join(OMP_AGENT, "skills", s))])
+    if "claude" in hosts:
+        clean("claude settings.json unwired",
+              [os.path.join(CLAUDE, "settings.json")])
+    claim("legacy kill switches gone",
+          [os.path.join(HOME, ".claude", n) for n in OFF_SWITCH_NAMES
+           if os.path.exists(os.path.join(HOME, ".claude", n))])
+    remaining = sum(len(left) for _label, left in rows)
+    if remaining:
+        print("%s uninstall incomplete: %d tezgah path(s) remain" % (NO, remaining))
+    else:
+        print("%s uninstall complete: %d checks, nothing tezgah wrote is left"
+              % (OK, len(rows)))
+    return remaining
 
 
 def unwire_claude_settings():
@@ -2207,6 +2556,7 @@ def uninstall_codex():
     drop_managed_hook_entries(os.path.join(CODEX, "hooks.json"))
     strip_toml_mcp(os.path.join(CODEX, "config.toml"),
                    app_mcp_names() + [TEZGAH_MCP_NAME])
+    unlink_tezgah(os.path.join(CODEX, "bin", "consult"))
 
 
 def uninstall_opencode():
@@ -2240,6 +2590,13 @@ def uninstall_cursor():
         if removed:
             write_json(mpath, mcfg)
             print("%s removed app MCP server(s) from %s" % (OK, mpath))
+    cc = os.path.join(CURSOR, "cli-config.json")
+    cfg = read_json(cc, None)
+    if isinstance(cfg, dict) and "tezgah-statusline" in json.dumps(
+            cfg.get("statusLine") or {}):
+        cfg.pop("statusLine", None)
+        write_json(cc, cfg)
+        print("%s removed tezgah statusLine from %s" % (OK, cc))
 
 
 def uninstall_dsh():
@@ -2272,11 +2629,22 @@ def uninstall_omp():
     mcp_path = os.path.join(OMP_AGENT, "mcp.json")
     cfg = read_json(mcp_path, None)
     if isinstance(cfg, dict):
-        servers = cfg.get("mcpServers") or {}
-        for name in ["codegraph", TEZGAH_MCP_NAME] + app_mcp_names():
-            servers.pop(name, None)
-        write_json(mcp_path, cfg)
-        print("%s dropped tezgah servers from %s" % (OK, mcp_path))
+        servers = cfg.get("mcpServers")
+        if isinstance(servers, dict):
+            for name in ["codegraph", TEZGAH_MCP_NAME] + app_mcp_names():
+                servers.pop(name, None)
+            if not servers:
+                cfg.pop("mcpServers", None)
+        # $schema was written by install_omp and nothing else: a file left
+        # holding only it would read as a wired-but-empty registration.
+        if cfg.get("$schema") == OMP_MCP_SCHEMA:
+            cfg.pop("$schema", None)
+        if cfg:
+            write_json(mcp_path, cfg)
+            print("%s dropped tezgah servers from %s" % (OK, mcp_path))
+        else:
+            os.remove(mcp_path)
+            print("%s removed %s (nothing left but tezgah's keys)" % (OK, mcp_path))
     rules = os.path.join(OMP_AGENT, "RULES.md")
     try:
         with open(rules, encoding="utf-8") as fh:
@@ -2301,18 +2669,34 @@ UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
 
 
 def uninstall(hosts, dry_run=False):
-    """Remove only tezgah's own wiring, per host.
+    """Remove everything tezgah installed, then prove the removal.
 
     The first thing a real run does is stand the tool gate down
     (`pretooluse-off`): an uninstall is itself a stream of destructive
     commands, and a gate that outlives the consent binary it needs would turn
-    the user's own teardown into a series of refusals. The switch file goes
-    away with `~/.config/tezgah` when whoever cleans that up gets to it."""
+    the user's own teardown into a series of refusals. A FULL run - one covering
+    every host config.json records as armed - then takes the state with it: the
+    generated config files and kill switches, both cache dirs, the Claude plugin
+    copy with its registry rows, and the versioned install tree. Nothing
+    tezgah wrote outlives the command, and the verify pass at the end re-derives
+    that from the disk.
+
+    What never goes, in any run: the user's own files, `.tezgah-bak` backups
+    outside the config dir, the `adopted/` predecessor snapshots, and every
+    repository's `.tezgah/` research state. A partial run (some armed hosts
+    stay) also keeps config.json and the install tree, because the hosts still
+    armed read both at runtime."""
+    armed = tp.config().get("hosts") or []
+    full = not armed or set(hosts) >= set(armed)
     if dry_run:
-        print("uninstall preview (nothing written): hosts=%s"
-              % (", ".join(hosts) or "none detected"))
+        print("uninstall preview (nothing written): hosts=%s (%s run)"
+              % (", ".join(hosts) or "none detected",
+                 "full" if full else "partial"))
         print("  the removal itself runs without --dry-run: hooks, skills, MCP")
-        print("  rows, status line, launchers - and the gate stands down first")
+        print("  rows, status line, launchers, the Claude plugin copy and its")
+        print("  registry rows%s - and the gate stands down first"
+              % (", the config state, the caches and the install tree"
+                 if full else ""))
         return 0
     mkdirp(tp.CONFIG_DIR)
     stand_down = os.path.join(tp.CONFIG_DIR, "pretooluse-off")
@@ -2320,11 +2704,36 @@ def uninstall(hosts, dry_run=False):
         fh.write("")
     print("%s gate stood down (%s); this session will not be asked again"
           % (OK, stand_down))
-    print("uninstalling for: %s\n" % (", ".join(hosts) or "none detected"))
+    print("uninstalling for: %s (%s run)\n"
+          % (", ".join(hosts) or "none detected", "full" if full else "partial"))
     uninstall_common()
     for h in hosts:
         UNINSTALLERS[h]()
-    print("\nnon-tezgah files and .tezgah-bak backups were left untouched.")
+    if "claude" in hosts:
+        print("\nclaude plugin copy:")
+        remove_plugin_copies()
+    remove_generated_state(full)
+    sweep_legacy_switches()
+    if full:
+        remove_install_tree()
+    elif armed:
+        rest = sorted(set(armed) - set(hosts))
+        print("\n%s still armed: %s keeps its config and the install tree"
+              % (NO, ", ".join(rest)))
+    remaining = verify_uninstall(hosts, full)
+    print("\nrestart each host so in-memory wiring unloads.")
+    pred = predecessors()
+    if pred:
+        for p in pred:
+            print("?    %s" % p)
+        print("predecessor wiring is still present; `tezgah-setup --adopt` "
+              "retires it.")
+    dev_mcp = os.path.join(HERE, MCP_JSON)
+    if TEZGAH_MCP_NAME in json.dumps(read_json(dev_mcp, {}).get("mcpServers", {})):
+        print("note: this checkout's own %s registers the tezgah MCP server for "
+              "sessions run inside the checkout - it is the source tree's dev "
+              "config, not an install artifact." % MCP_JSON)
+    return 0 if remaining == 0 else 1
 
 
 # ------------------------------------------------------------------ adopt ----
@@ -2339,9 +2748,9 @@ def _move(path, dest_dir):
 
 def adopt():
     """Retire the pre-tezgah wiring: the Codex projects-harness, the ~/.claude
-    cbm-* hook files an older harness wrote and their settings.json entries.
-    Nothing is deleted - it is moved under
-    ~/.config/tezgah/adopted/<timestamp>/."""
+    cbm-* hook files an older harness wrote, their settings.json entries, and
+    the projects-harness marker block in a root's AGENTS.md. Nothing is deleted
+    - it is moved under ~/.config/tezgah/adopted/<timestamp>/."""
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = os.path.join(tp.CONFIG_DIR, "adopted", stamp)
     print("adopt: moving predecessor wiring to %s\n" % dest)
@@ -2404,10 +2813,50 @@ def adopt():
             print("%s cleaned cbm hook entries from %s" % (OK, sp))
         else:
             print("%s no cbm hook entries in %s" % (OK, sp))
+    # Roots: the predecessor's AGENTS.md marker points every session at a
+    # POLICY.md inside ~/.codex/projects-harness, so once the harness moves the
+    # block is a standing dead pointer. Adopt moves, never deletes: the original
+    # file goes to the snapshot first, then the cleaned text is written back.
+    for agents in _marker_agents_files():
+        try:
+            with open(agents, encoding="utf-8") as fh:
+                body = fh.read()
+        except OSError:
+            continue
+        if not _move(agents, dest):
+            continue
+        kept = HARNESS_MARKER_RE.sub("", body).strip()
+        if kept:
+            with open(agents, "w", encoding="utf-8") as fh:
+                fh.write(kept + "\n")
+            print("%s stripped the projects-harness marker from %s "
+                  "(original moved aside)" % (OK, agents))
+        else:
+            print("%s removed %s (it held nothing but the marker; original "
+                  "moved aside)" % (OK, agents))
     print("\nrestart each host for the hooks to reload.")
 
 
 # ----------------------------------------------------------------- report ----
+
+def _marker_agents_files():
+    """AGENTS.md files under the roots carrying the predecessor's marker block.
+
+    The block points every session at a POLICY.md inside ~/.codex/projects-harness,
+    so once the harness itself is gone the marker is a standing dead pointer -
+    report it and let --adopt retire it with the rest."""
+    out = []
+    for root in (tp.roots() or [tp.DEFAULT_ROOT]):
+        path = os.path.join(root, "AGENTS.md")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                body = fh.read()
+        except OSError:
+            continue
+        if HARNESS_MARKER_START in body:
+            out.append(path)
+    return out
+
 
 def predecessors():
     """Pre-tezgah wiring still present; --adopt retires it.
@@ -2427,6 +2876,8 @@ def predecessors():
         out.append("~/.claude/hooks/cbm-* present")
     if "cbm-" in json.dumps(read_json(os.path.join(CLAUDE, "settings.json"), {})):
         out.append("cbm hook entries in ~/.claude/settings.json")
+    for path in _marker_agents_files():
+        out.append("projects-harness marker in %s" % path)
     return out
 
 

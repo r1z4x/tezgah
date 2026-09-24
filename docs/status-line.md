@@ -35,7 +35,7 @@ omitted (hooks/tezgah_context.py:1332-1340, tests/test_statusline.py:12-13,tests
 ### The version prefix
 
 The line opens with `tezgah v0.12.1` (`version_segment()`, hooks/tezgah_context.py:1420-1435): not a [mark](glossary.md#mark) — no glyph, and `info`, the state that reports none — with a group of its own, so the marks separate from it the way the groups separate from each other; its segment carries the number as `version` for a program reading `--json`.
-The number is the one reader `bin/tezgah-setup --version` also calls (`version()`, hooks/tezgah_context.py:1403-1419, bin/tezgah-setup:180): the local plugin manifest, else the newest `CHANGELOG.md` release, read bounded and never raising; unreadable, the prefix keeps the bare name rather than a placeholder.
+The number is the one reader `bin/tezgah-setup --version` also calls (`version()`, hooks/tezgah_context.py:1403-1419, bin/tezgah-setup:213): the local plugin manifest, else the newest `CHANGELOG.md` release, read bounded and never raising; unreadable, the prefix keeps the bare name rather than a placeholder.
 
 ## States
 
@@ -204,7 +204,7 @@ substring would also count a commit message that says "judge"
 (hooks/tezgah_integrity.py:743-749). It is in neither `STEP_KINDS` nor the check
 set: a judgement is a cost, and a model answer must never license a "done" claim
 (`STEP_KINDS`, hooks/tezgah_integrity.py:673). `tezgah-setup --status <path>` prints the plain line for a
-repo (bin/tezgah-setup:2805-2807). A wrong or missing line usually ends in one of
+repo (bin/tezgah-setup:4117-4119). A wrong or missing line usually ends in one of
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a
 sandboxed host could not write (hooks/tezgah_paths.py:120-133).

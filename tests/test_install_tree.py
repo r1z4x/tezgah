@@ -94,10 +94,62 @@ class PrefixRecognition(SetupBase):
             fh.write("mine\n")
         proc = self.setup("--uninstall", "--prefix", self.prefix(),
                           "--hosts", "codex")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertTrue(os.path.islink(self.farm("tezgah-status")), proc.stdout)
         self.assertTrue(os.path.isfile(self.farm("tezgah-pony")), proc.stdout)
         self.assertIn("kept", proc.stdout)
+
+
+class TreeRemoval(SetupBase):
+    """A full uninstall takes the versioned install tree with it.
+
+    The tree is tezgah's own product and serves nothing once the wiring is
+    gone; leaving it behind left a working `bin/tezgah-setup` on disk after the
+    user had uninstalled. Only a recognizable layout goes - version dirs
+    carrying `bin/tezgah-setup` plus the `current` link - and a partial run
+    (some armed hosts stay) keeps it, because the links that remain resolve
+    into it."""
+
+    def prefix(self):
+        return self.path(".local", "share", "tezgah")
+
+    def version_tree(self, name="1.2.3"):
+        path = os.path.join(self.prefix(), name, "bin", "tezgah-setup")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("#!/bin/sh\ntrue\n")
+        current = os.path.join(self.prefix(), "current")
+        os.symlink(os.path.join(self.prefix(), name), current)
+        return current
+
+    def test_a_full_uninstall_removes_the_versions_and_current(self):
+        self.version_tree()
+        proc = self.setup("--uninstall", "--prefix", self.prefix(),
+                          "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.lexists(self.prefix()), proc.stdout)
+        self.assertIn("uninstall complete", proc.stdout)
+
+    def test_an_unrecognized_prefix_layout_is_kept(self):
+        os.makedirs(os.path.join(self.prefix(), "1.2.3", "bin"), exist_ok=True)
+        with open(os.path.join(self.prefix(), "1.2.3", "bin", "other"), "w") as fh:
+            fh.write("not tezgah\n")
+        proc = self.setup("--uninstall", "--prefix", self.prefix(),
+                          "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.isdir(self.prefix()))
+        self.assertIn("no tezgah version tree recognised", proc.stdout)
+
+    def test_a_partial_uninstall_keeps_the_tree(self):
+        self.version_tree()
+        self.write_json(self.path(".config", "tezgah", "config.json"),
+                        {"hosts": ["codex", "omp"], "roots": []})
+        proc = self.setup("--uninstall", "--prefix", self.prefix(),
+                          "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.isdir(self.prefix()))
+        self.assertTrue(os.path.islink(os.path.join(self.prefix(), "current")))
+        self.assertIn("still armed: omp", proc.stdout)
 
 
 class Upgrade(SetupBase):

@@ -395,7 +395,7 @@ knowing:
 | `/tezgah:plan-sync` | Close out finished plans |
 | `bin/tezgah-setup --version` | Print the plugin version |
 | `bin/tezgah-setup --upgrade [VERSION]` | Fetch, checksum-verify and unpack a release under `<prefix>/<version>`, flip `current` and re-run the install for the hosts already armed; `--dry-run` prints and changes nothing, and it never runs on its own |
-| `bin/tezgah-setup --uninstall` | Remove only tezgah's symlinks, host hook entries, and the dsh managed block |
+| `bin/tezgah-setup --uninstall` | Remove everything tezgah installed — host wiring, the Claude plugin copy with its registry rows, generated state, caches, the install tree — then verify the removal |
 
 The status line marks each rule with its state first: a check means armed and
 in force this session (or always-on), a circle means armed but on demand - not

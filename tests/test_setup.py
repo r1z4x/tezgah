@@ -935,6 +935,96 @@ class Uninstall(SetupBase):
         for name in ("opencode-skills.md", "opencode-skills.full.md"):
             self.assertFalse(os.path.exists(self.path(".config", "tezgah", name)), name)
 
+    def test_full_uninstall_takes_the_generated_state_and_proves_it(self):
+        """A full run (every armed host) ends with nothing tezgah generated on
+        disk - the config, the contract hash, the generated opencode contract,
+        the caches, the kill switches - and the verify pass says so. The exit
+        code is the proof's contract: nonzero when anything tezgah wrote
+        survives, so a leftover can never read as a clean uninstall."""
+        self.setup("--install", "--hosts", ALL)
+        self.assertTrue(os.path.exists(self.path(".config", "tezgah", "config.json")))
+        self.assertTrue(os.path.exists(self.path(".config", "tezgah",
+                                                 "opencode-contract.md")))
+        # the app artifacts dir lives under the cache and the install creates it
+        self.assertTrue(os.path.isdir(self.path(".cache", "tezgah")))
+        proc = self.setup("--uninstall", "--hosts", ALL)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("uninstall complete", proc.stdout)
+        self.assertFalse(os.path.exists(self.path(".config", "tezgah",
+                                                  "opencode-contract.md")))
+        self.assertFalse(os.path.exists(self.path(".config", "tezgah",
+                                                  "contract.sha256")))
+        self.assertFalse(os.path.exists(self.path(".cache", "tezgah")))
+        self.assertFalse(os.path.exists(self.path(".config", "tezgah",
+                                                  "pretooluse-off")))
+
+    def test_full_uninstall_keeps_a_users_own_config_dir_entry(self):
+        self.setup("--install", "--hosts", "codex")
+        mine = self.path(".config", "tezgah", "my-notes.txt")
+        with open(mine, "w") as fh:
+            fh.write("mine\n")
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.isfile(mine), "the user's file was deleted")
+        self.assertIn("kept", proc.stdout)
+
+    def test_partial_uninstall_keeps_the_config_for_the_still_armed(self):
+        """Uninstalling one of two armed hosts may not take the state: the
+        remaining host reads its roots and feature selection from config.json at
+        runtime, and the install tree still serves its links."""
+        self.setup("--install", "--hosts", "codex,omp")
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("still armed: omp", proc.stdout)
+        self.assertTrue(os.path.exists(self.path(".config", "tezgah",
+                                                 "config.json")))
+
+    def test_omp_mcp_json_is_removed_when_only_tezgah_keys_remain(self):
+        """install_omp writes `$schema` and `mcpServers` into a file it may have
+        created; an uninstall that left those two behind left a wired-but-empty
+        registration omp would still read."""
+        self.setup("--install", "--hosts", "omp")
+        mcp = self.path(".omp", "agent", "mcp.json")
+        self.assertTrue(os.path.exists(mcp))
+        proc = self.setup("--uninstall", "--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.exists(mcp), proc.stdout)
+
+    def test_omp_mcp_json_keeps_the_users_own_servers(self):
+        self.write_json(self.path(".omp", "agent", "mcp.json"),
+                        {"mcpServers": {"mine": {"type": "stdio",
+                                                 "command": "echo",
+                                                 "args": ["kept"]}}})
+        self.setup("--install", "--hosts", "omp")
+        proc = self.setup("--uninstall", "--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        servers = self.read_json(self.path(".omp", "agent", "mcp.json"))["mcpServers"]
+        self.assertIn("mine", servers)
+        self.assertNotIn("tezgah", servers)
+        self.assertNotIn("codegraph", servers)
+
+    def test_uninstall_unwires_the_cursor_status_line(self):
+        """install_cursor writes a `statusLine` into cli-config.json and no
+        uninstaller touched it - the one key that kept Cursor drawing the tezgah
+        line after a clean uninstall."""
+        self.setup("--install", "--hosts", "cursor")
+        cc = self.path(".cursor", "cli-config.json")
+        self.assertIn("tezgah-statusline", json.dumps(self.read_json(cc)))
+        proc = self.setup("--uninstall", "--hosts", "cursor")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("tezgah-statusline", json.dumps(self.read_json(cc)))
+
+    def test_uninstall_sweeps_a_legacy_kill_switch_from_claude(self):
+        """The pre-multi-host setup wrote switches to ~/.claude, which the core
+        still reads: a switch left behind keeps its rule silent after a
+        reinstall, with nothing anywhere saying why."""
+        legacy = self.path(".claude", "consult-off")
+        with open(legacy, "w") as fh:
+            fh.write("")
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.exists(legacy), proc.stdout)
+
 
 class ContractParity(unittest.TestCase):
     """policy.CONTRACT and skills/tezgah-contract/SKILL.md are two hand-kept
@@ -1078,6 +1168,49 @@ class Adopt(SetupBase):
         s = self.read_json(self.path(".claude", "settings.json"))
         self.assertNotIn("hooks", s)
         self.assertEqual(s["theme"], "dark")
+
+    def marker_agents(self, body):
+        os.makedirs(self.path("Projects"), exist_ok=True)
+        path = self.path("Projects", "AGENTS.md")
+        with open(path, "w") as fh:
+            fh.write(body)
+        return path
+
+    def test_adopt_strips_the_projects_harness_marker_but_keeps_the_rest(self):
+        """The marker block points every session at a POLICY.md inside
+        ~/.codex/projects-harness, so after the harness moves the block is a
+        dead pointer - stripped, with the file it came from moved aside first
+        (adopt moves, never deletes)."""
+        path = self.marker_agents(
+            "# My notes\n\n"
+            "<!-- codex-projects-harness:start -->\n"
+            "read /home/x/.codex/projects-harness/POLICY.md\n"
+            "<!-- codex-projects-harness:end -->\n\nmore\n")
+        proc = self.setup("--adopt")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("codex-projects-harness", self.read_text(path))
+        self.assertIn("# My notes", self.read_text(path))
+        self.assertIn("more", self.read_text(path))
+        adopted = []
+        for root, _dirs, files in os.walk(self.path(".config", "tezgah", "adopted")):
+            adopted += files
+        self.assertIn("AGENTS.md", adopted)
+
+    def test_predecessors_and_adopt_handle_a_marker_only_agents_file(self):
+        path = self.marker_agents(
+            "<!-- codex-projects-harness:start -->\n"
+            "read POLICY.md\n"
+            "<!-- codex-projects-harness:end -->\n")
+        report = self.setup("--report", "--hosts", "codex")
+        self.assertIn("projects-harness marker", report.stdout)
+        proc = self.setup("--adopt")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.exists(path),
+                         "a marker-only file must not be left as an empty shell")
+        adopted = []
+        for root, _dirs, files in os.walk(self.path(".config", "tezgah", "adopted")):
+            adopted += files
+        self.assertIn("AGENTS.md", adopted)
 
 
 class DshStatusline(SetupBase):
@@ -1251,8 +1384,10 @@ class OmpHost(SetupBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertFalse(
             os.path.islink(self.path(".omp", "agent", "skills", "harness")))
-        mcp = self.read_json(self.path(".omp", "agent", "mcp.json"))
-        self.assertNotIn("codegraph", mcp.get("mcpServers") or {})
+        # the file held nothing but tezgah's keys ($schema, mcpServers), so the
+        # uninstall removes it: leaving an empty registration is the shape that
+        # reads as wired
+        self.assertFalse(os.path.exists(self.path(".omp", "agent", "mcp.json")))
         self.assertFalse(os.path.exists(
             self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts")))
 

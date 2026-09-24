@@ -102,6 +102,7 @@ defines a `TestCase`.
 | `e2e_analyze_mobile.py` | `TEZGAH_E2E_APPS=1`, npx, a booted simulator or emulator (`:9-14`) | the same, or no running device |
 | `e2e_dsh_statusline.py` | the `dsh` binary, Playwright, a Chromium build, a persisted session (`:90-138`) | any of them is missing (`:93`, `:97`, `:108`, `:118`) |
 | `e2e_omp_statusline.py` | the `omp` binary and the extension `tezgah-setup` installs, plus a pty (`:101-108`) | either is missing (`:103-107`) |
+| `e2e_docker_cycle.py` | a running Docker daemon; the image is `python:3.12-slim` unless `TEZGAH_E2E_DOCKER_IMAGE` says otherwise (`:27-28`) | docker or its daemon is missing (`:53-60`) |
 
 `SKIP` is the designed answer, not a hideout: these scripts test that a wire or a
 render works, and a missing prerequisite says nothing about the repository. Two
