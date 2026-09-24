@@ -1,10 +1,15 @@
 {
   "name": "@r1z4x/tezgah",
-  "version": "0.17.1",
+  "version": "0.17.2",
   "description": "One shared working contract for every AI coding assistant you run: Claude Code, Codex, Cursor, opencode, dsh and oh-my-pi (omp).",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/r1z4x/tezgah.git" },
-  "bin": { "tezgah": "bin/tezgah.js" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/r1z4x/tezgah.git"
+  },
+  "bin": {
+    "tezgah": "bin/tezgah.js"
+  },
   "files": [
     "bin/",
     "hooks/",
@@ -21,5 +26,7 @@
     ".mcp.json",
     "packaging/"
   ],
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

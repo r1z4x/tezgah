@@ -4,6 +4,56 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2] - 2026-09-24
+
+### Changed
+
+- **`--uninstall` removes everything tezgah installed, then proves the
+  removal.** A full run — one covering every host `config.json` records as
+  armed — takes, beside the per-host wiring: the Claude plugin copy with its
+  `installed_plugins.json` rows and a marketplace row sourced from a tezgah
+  tree once nothing else installs from it (`remove_plugin_copies()`,
+  `bin/tezgah-setup:2143`); the generated `~/.config/tezgah` state and the
+  kill switches, the legacy `~/.claude` copies by name
+  (`remove_generated_state()`, `bin/tezgah-setup:2219`;
+  `sweep_legacy_switches()`, `bin/tezgah-setup:2192`); both state caches; and
+  the versioned install tree, every version plus the `current` flip
+  (`remove_install_tree()`, `bin/tezgah-setup:2263`). A partial run — some
+  armed hosts stay — keeps config.json and the tree for them and says so.
+  Kept in every run: the user's own files, `.tezgah-bak` backups outside the
+  config dir, `adopted/` and every repo's `.tezgah/` research state. The run
+  ends in `verify_uninstall()`, which re-derives the removal from the
+  filesystem alone and exits 1 while anything tezgah wrote survives
+  (`bin/tezgah-setup:2327`).
+
+### Fixed
+
+- **A full uninstall could still leave tezgah talking.** `~/.codex/bin/consult`
+  was written by `install_codex` and read by no uninstaller
+  (`bin/tezgah-setup:2552`); Cursor's `statusLine` in `cli-config.json` was
+  likewise never unwired (`bin/tezgah-setup:2578`); omp's `mcp.json` was left
+  holding the `$schema` and an empty `mcpServers` — the shape that reads as a
+  wired-but-empty registration (`bin/tezgah-setup:2613`); and links that hop
+  through the farm (`~/.codex/bin/consult` → `~/.config/tezgah/bin/consult` →
+  here) read as the user's once the middle link was swept, so
+  `is_tezgah_link()` now counts the farm as its own
+  (`bin/tezgah-setup:1998`).
+- **A predecessor pointer survived the harness it named.** The
+  `codex-projects-harness` marker block in a root's `AGENTS.md` points every
+  session at a POLICY.md inside `~/.codex/projects-harness`, so after the
+  harness moved the block was a standing dead pointer: `predecessors()`
+  reports it and `--adopt` retires it, the file moving aside first
+  (`bin/tezgah-setup:2749`, `bin/tezgah-setup:2861`).
+
+### Added
+
+- **A container cycle for the uninstall contract.**
+  `tests/e2e_docker_cycle.py` installs, uninstalls and reinstalls inside a
+  clean `python:3.12-slim` container and scans the leftovers from paths alone,
+  importing nothing of tezgah's; `TEZGAH_E2E_DOCKER_DEPS=1` installs node
+  first and runs `--install` without `--no-deps`, so the vendor install
+  channel (orx, cursor-agent, pnpm, dsh) is exercised over the network.
+
 ## [0.16.1] - 2026-09-22
 
 ### Added
