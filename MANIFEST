@@ -6,7 +6,6 @@
 .github/workflows/release.yml
 .gitignore
 .mcp.json
-.omp/hooks/pre/tezgah-hook.ts
 AGENTS.md
 CHANGELOG.md
 CODE_OF_CONDUCT.md
