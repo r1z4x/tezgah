@@ -30,12 +30,21 @@ jobs:
           registry-url: https://registry.npmjs.org/
       - name: Publish (skipped without NPM_TOKEN)
         # the secrets context is unreadable in `if` at any level; the gate
-        # reads the env mapping, which is the one place secrets surface
+        # reads the env mapping, which is the one place secrets surface.
+        # Re-firing a release must not turn red on the version it already
+        # published, so an exact-match live version counts as done.
         if: ${{ env.NPM_TOKEN != '' }}
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already published"
+          else
+            npm publish --access public
+          fi
 
   brew-formula:
     runs-on: ubuntu-latest

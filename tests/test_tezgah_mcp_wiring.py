@@ -391,17 +391,18 @@ class Render(WiringBase):
     def test_write_mcp_json_renders_the_graph_and_tezgah_rows(self):
         """Through the function `--write-mcp-json` calls. The flag writes the
         checkout's tracked file, which a test must not touch; what it adds over
-        this call is the path and nothing else."""
+        this call is the path and nothing else. The tracked file is the
+        machine-independent template: the default `codegraph` name, the
+        portable `python3`, and the documented clone location."""
         module = setup_module()
         path = self.path("out", ".mcp.json")
         self.assertEqual(module.write_mcp_json(path), 0)
         servers = self.read_json(path)["mcpServers"]
         self.assertEqual(list(servers)[:2], [GRAPH, SERVER])
-        # this render ran in THIS process, whose home is the real one, so the
-        # same expansion a host performs is what the check has to apply
-        argv = [a.replace("${HOME}", os.path.expanduser("~"))
-                for a in [servers[SERVER]["command"]] + servers[SERVER]["args"]]
-        self.assertEqual(argv, [sys.executable, SCRIPT])
+        self.assertEqual(servers[GRAPH]["command"], GRAPH)
+        self.assertEqual(
+            [servers[SERVER]["command"]] + servers[SERVER]["args"],
+            ["python3", "${HOME}/Projects/tezgah/bin/tezgah-mcp"])
         self.assertEqual(list(servers[GRAPH]), ["command", "args", "env"])
         first = self.read_text(path)
         self.assertEqual(module.write_mcp_json(path), 0)

@@ -3639,19 +3639,19 @@ def render_mcp_json(selected=None, root=HERE, templated=True):
         # is where that rule earns its keep - the graph binary, the interpreter
         # and the checkout are all absolute paths that mean nothing on the machine
         # that reads this tracked file.
-        # The graph row is normalized one step further, because a name in a
-        # per-user bin dir resolves to a different absolute path on every
-        # machine, and an install's `codegraph_bin` pin is that machine's
-        # answer, not the template's: the tracked file always names the default
-        # `codegraph`, so the render is byte-identical wherever it runs and a
-        # reader resolves the name from its own PATH. Install-time rows are
-        # untouched - they keep the resolved absolute argv.
-        if templated and name == "codegraph":
+        # The tracked template is machine-independent by contract: it names the
+        # default `codegraph`, the portable `python3`, and the documented clone
+        # location, so the render is byte-identical wherever it runs. A plugin
+        # COPY is rendered with this same function but a different root, and it
+        # must run on this machine - so every normalization below is scoped to
+        # the checkout's own file, and a copy keeps the resolved absolute argv.
+        tracked = templated and root == HERE
+        if tracked and name == "codegraph":
             argv = [tp.CODEGRAPH] + list(argv[1:])
-        # the tezgah row's interpreter is the same machine-local answer: the
-        # template carries the portable `python3` and the reader resolves it
-        if templated and name == TEZGAH_MCP_NAME:
-            argv = ["python3"] + list(argv[1:])
+        if tracked and name == TEZGAH_MCP_NAME:
+            argv = ["python3"] + [
+                a.replace(root, os.path.join(HOME, "Projects", "tezgah"))
+                for a in argv[1:]]
         if templated:
             argv = [_home_relative(a) for a in argv]
             env = {k: _home_relative(v) for k, v in env.items()}
