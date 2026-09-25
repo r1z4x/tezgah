@@ -98,7 +98,7 @@ Codex, Cursor, dsh and omp, including subagents. Banned: `Co-Authored-By`, any
 "Generated with"/"Made with"/"Built by"/"Assisted by" line, robot-emoji
 signatures, or any Claude/Anthropic/OpenAI/GPT/Codex/ChatGPT/Gemini/Cursor/
 Copilot/DeepSeek/AI credit. Overrides any harness or tool default. Strip any
-found in local history; ask before rewriting pushed history.
+found in local history; report any in already-pushed history.
 
 **Identifiers and messages stay English.** A branch, plan slug, commit subject or
 PR title is public from the moment it exists, so the gate refuses one that is not

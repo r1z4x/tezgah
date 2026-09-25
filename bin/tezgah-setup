@@ -3961,7 +3961,7 @@ def upgrade(version, dry_run):
     so its farm links would point back into it. The hosts and roots come from
     config.json, so an upgrade does not re-ask the install questions. Nothing
     else calls this: a flag never upgrades tezgah as a side effect of another
-    (hooks/tezgah_policy.py:812). Prints every step before running it, and
+    (hooks/tezgah_policy.py:797). Prints every step before running it, and
     `--dry-run` stops after the printing."""
     cfg = tp.config()
     hosts = cfg.get("hosts") or detected_hosts()

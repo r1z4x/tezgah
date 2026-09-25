@@ -495,8 +495,7 @@ revision came to quote a core band smaller than the one it installs.
 **The arming floor.** The invariants are always-on - execution mode, ponytail,
 deliver-the-whole-ask, integrity, loop discipline, the lessons ledger, the attribution
 ban and the session-scope boundary (tezgah's own install is the user's to tend, not the
-session's) - and the safety rule ("irreversible or outward-facing actions need an explicit ask
-first") is one of them, so it never depends on a classifier. Each advisory rule keeps an
+session's) - so none of them depends on a classifier. Each advisory rule keeps an
 actionable one-line pointer always-on, so a missed match costs detail, never the rule, and a
 host hook that fails falls back to the pointers plus the on-demand skill rather than to no
 contract. False negatives are auditable: every prompt appends `armed=<rules|none> chars=<n>`

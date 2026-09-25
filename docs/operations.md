@@ -151,7 +151,7 @@ manifest is present, else in the newest `## [x.y.z]` heading of `CHANGELOG.md`
 
 An installed version moves with one command, and nothing moves it on tezgah's own
 initiative: a session may not install, upgrade or restart tezgah's own
-installation (`hooks/tezgah_policy.py:802-808`). `bin/tezgah-setup --upgrade
+installation (`hooks/tezgah_policy.py:794-801`). `bin/tezgah-setup --upgrade
 [VERSION]` runs `packaging/upgrade.sh --version V --prefix P`, then re-runs the
 installer **from the new tree** — this process started from the old one, so its
 farm links would point back into it — with the hosts and roots already in
@@ -306,9 +306,9 @@ a copy that holds this very checkout (`bin/tezgah-setup:3675-3682`) — and
 `--prune-sessions` and `--clean` delete session rows and index logs. Two things
 this tool never does. It never force-pushes, rewrites pushed history, deletes a
 repo or branch, applies a migration to a live database, deploys, or touches a
-live account: those need the user's explicit ask. And it never upgrades itself,
+live account. And it never upgrades itself,
 or its optional tools and config, on its own initiative
-(`hooks/tezgah_policy.py:802-808`).
+(`hooks/tezgah_policy.py:794-801`).
 
 ## Triage: `tezgah-triage` and the `judge-off` switch
 

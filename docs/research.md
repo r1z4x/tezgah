@@ -7,7 +7,7 @@ research task to OpenResearch instead of ad-hoc scripting. Read this page before
 you start a line, before you change what `check` refuses, and when a session
 reported a result you have to re-verify. The workspace and the checks live in
 `hooks/tezgah_research.py`; the session-facing rule is `RESEARCH`
-(`hooks/tezgah_policy.py:386-452`) and the tool is `bin/tezgah-research`.
+(`hooks/tezgah_policy.py:378-444`) and the tool is `bin/tezgah-research`.
 
 The layer exists because a claim is only auditable if the repository holds the
 prediction it was tested against. `protocol.md` is committed **before** the run
@@ -504,7 +504,7 @@ supply stays unscoped, and `check` names it by count.
 The rule, conditionally: the prompt classifier arms `research` on a research
 question - the hints are the words a reader would use, not the tool's name
 (`PROMPT_HINTS`, `hooks/tezgah_context.py:50`) - and the armed paragraph is
-`RESEARCH` (`hooks/tezgah_policy.py:386-452`), which names `{RESEARCH_BIN}` (the
+`RESEARCH` (`hooks/tezgah_policy.py:378-444`), which names `{RESEARCH_BIN}` (the
 installed `bin/tezgah-research`) and the `orx` manual step.
 
 The note, when orx is absent or a line is broken: a session is told that `orx` is

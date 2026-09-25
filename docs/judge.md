@@ -7,7 +7,7 @@ callers, when you need to say what leaves the machine, or when you have to tell 
 user how to switch it off. It is an on-demand capability, not a rule: no paragraph
 of it is injected into a session, and a session that never asks pays one clause in
 the kill-switch paragraph and nothing else (`CORE`,
-`hooks/tezgah_policy.py:768-777`).
+`hooks/tezgah_policy.py:803-812`).
 
 ## What it is
 
@@ -99,7 +99,7 @@ capability can be disarmed without the others - `triage-off` for
 channel is an opt-in marker rather than a kill switch: it is off until
 `skill-suggest-on` is armed (`ARM`, `hooks/tezgah_skill_pick.py:41-45`). Every
 switch is listed in the `**Kill switches:**` paragraph every session receives
-(`CORE`, `hooks/tezgah_policy.py:768-777`), mirrored into `tezgah-contract`, and
+(`CORE`, `hooks/tezgah_policy.py:803-812`), mirrored into `tezgah-contract`, and
 pinned by `tests/test_skills.py`.
 
 ## What a judgement costs
@@ -124,7 +124,7 @@ known (`note`, `hooks/tezgah_integrity.py:511-523`), counted by the row's kind
 
 1. **No always-on rule paragraph.** It is on-demand, and the conditional keys
    exist exactly so a session that never asks does not carry the text
-   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:827-831`). Naming it buys discovery
+   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:819-823`). Naming it buys discovery
    for one clause; a paragraph would cost the always-on block.
 2. **Nothing in the gate, the Stop rule, the shortcut parser or
    the PreToolUse hot path.** Refusal reproducibility is an invariant with tests

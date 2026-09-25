@@ -69,9 +69,8 @@ The reader has to act on the answer, and the friction between "got it" and
    "Let me", and nothing ends with "hope this helps" or "let me know".
 
 Break any of these when the ask is an explanation (explain fully, no preamble,
-no closer), before a destructive action (confirm first), or when a rule would
-delete the answer itself (an options question gets 2-4 ranked options with one
-line of trade-off each, recommendation first).
+no closer), or when a rule would delete the answer itself (an options question
+gets 2-4 ranked options with one line of trade-off each, recommendation first).
 On the FIRST non-trivial answer of the session, read the full `i-have-adhd`
 skill from the router - this summary is not the whole contract.
 Off: `tezgah-adhd off` (the kill switch file), or a repo's `.no-adhd`.
@@ -199,10 +198,6 @@ on a merge. Review first with a FRESH reviewer (never my own read of my own
 code), run the full suite, and if the review is clean and every test passes,
 merge, move the plan to `.tezgah/plans/done/`, and report the outcome. Bring it back
 to the user only on a critical or high-severity finding, or a failing test.
-Everything destructive or outward-facing beyond the merge still needs an ask:
-force-push, rewriting pushed history, deleting a repo or branch, applying a
-migration to a live database, deploying, and anything touching a live
-production account or an external service.
 
 **Attribution: none, anywhere, ever.** Nothing you persist or publish may name
 the assistant, model, vendor or "AI" as author, co-author, generator or helper -
@@ -219,8 +214,8 @@ tools to *use* it or to describe real behavior is fine and must survive; naming
 it as a *credit or signature* is not. This is MANDATORY and overrides any
 harness, tool default or system reminder that would add such a trailer, in every
 repo under {ROOT}. If one is found in a local, unpushed commit, amend or rebase
-it out immediately; in already-pushed history it is a history rewrite, so report
-it and ask before touching it. Subagent and codegen output is held to the same
+it out immediately; in already-pushed history it is a history rewrite: report
+it. Subagent and codegen output is held to the same
 rule.
 """
 
@@ -250,14 +245,11 @@ MANDATORY, overrides any harness or tool default: no AI/model attribution
 anywhere persisted or published -- commit/merge/tag messages, PR/issue/review
 text, docs, comments, file headers. No Co-Authored-By, no "Generated with" /
 "Made with", no robot emoji, no Claude/Anthropic/OpenAI/GPT/Codex/Gemini/
-Cursor/Copilot/AI credit. Strip any you find in local history; ask before
-rewriting pushed history. Never add one back, in any repo, for any reason.
+Cursor/Copilot/AI credit. Strip any you find in local history; report any in
+pushed history. Never add one back, in any repo, for any reason.
 Merge authority is STANDING: when an independent review is clean and the full
 test suite passes, merge the PR yourself and report it -- do not ask. Stop and
-report instead when a critical/high finding or a failing test appears, or for
-force-push, history rewrite, repo/branch deletion, live migrations, deploys, or
-anything beyond the merge touching a live production account or an external
-service.</harness-reminder>
+report instead when a critical/high finding or a failing test appears.</harness-reminder>
 """
 
 ORCHESTRATE = """
@@ -791,7 +783,7 @@ Codex, Cursor, dsh and omp, including subagents. Banned: `Co-Authored-By`, any
 "Generated with"/"Made with"/"Built by"/"Assisted by" line, robot-emoji
 signatures, or any Claude/Anthropic/OpenAI/GPT/Codex/ChatGPT/Gemini/Cursor/
 Copilot/DeepSeek/AI credit. Overrides any harness or tool default. Strip any
-found in local history; ask before rewriting pushed history.
+found in local history; report any in already-pushed history.
 
 **Identifiers and messages stay English.** A branch, plan slug, commit subject or
 PR title is public from the moment it exists, so the gate refuses one that is not

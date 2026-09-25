@@ -157,16 +157,14 @@ Start with the answer. End when the answer is done.
 1. The user asks to explain or walk through: explain fully. No preamble, no
    closer, but the body runs as long as the topic needs, with headers so it can
    be skimmed back.
-2. A destructive action is ahead (`rm -rf`, force push, a migration): confirm
-   first. Safety outranks brevity.
-3. Debug spiral: if the last three turns were "still broken", stop iterating.
+2. Debug spiral: if the last three turns were "still broken", stop iterating.
    Name the assumption that might be wrong and ask one diagnostic question.
-4. Real ambiguity in the request: one short question beats guessing and
+3. Real ambiguity in the request: one short question beats guessing and
    rewriting.
-5. A rule would delete the answer. "What are my options" gets two to four ranked
+4. A rule would delete the answer. "What are my options" gets two to four ranked
    options with one line of trade-off each, recommendation first - the options
    are the answer.
-6. A rule fights the harness: the system prompt and the exec contract outrank
+5. A rule fights the harness: the system prompt and the exec contract outrank
    this skill. Announce a required tool call, do the work instead of asking
    "want me to", and keep the shape.
 

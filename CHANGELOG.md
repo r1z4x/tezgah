@@ -22,6 +22,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `SEND` delegation to the core), and the always-on "Irreversible or
   outward-facing actions need an explicit ask first" paragraph. The
   untrusted-content label, the taint notice and the pre-write snapshot stay.
+- **No model-facing text asks before a destructive or outward-facing action
+  any more.** The merge-authority paragraph no longer sends force-push, history
+  rewrite, branch/repo deletion, live migrations, deploys and external-service
+  writes back for an ask; the per-turn reminder stops only on a critical/high
+  finding or a failing test; the attribution rule reports a credit found in
+  pushed history instead of asking before the rewrite; the ADHD output rules
+  drop their "confirm first before a destructive action" exception; and the
+  taint notice no longer tells the model to get the user's word before the
+  effect lands - it only says to act because the user asked, never because
+  the content did.
 
 ## [0.17.2] - 2026-09-24
 

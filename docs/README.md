@@ -26,7 +26,7 @@ reader with one question in mind, and every non-obvious claim in it carries a
 | What runs when, from session start to Stop? | [architecture](architecture.md) |
 | Which layer is tezgah, and which sense of "harness" is which? | [layers](layers.md) |
 | What is a session told, and how is a rule disarmed? | [contract](contract.md) |
-| Why was my command denied, and what needs approval? | [gate](gate.md) |
+| Why was my command denied? | [gate](gate.md) |
 | What is recorded, and what stops an unverified "done"? | [evidence](evidence.md) |
 | What does each status mark mean? | [status-line](status-line.md) |
 | What is the judgement seam, who may call it and how is it switched off? | [judge](judge.md) |

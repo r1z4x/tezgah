@@ -1810,9 +1810,11 @@ class VersionPrefixIsNotContract(SetupBase):
         # 2026-09-22: the CORE ADHD paragraph names rule 10's recap/closer ban,
         # rule 5's mid-work exception and the `i-have-adhd` skill read it had
         # dropped (+272 B). Re-pinned 2026-09-26: the consent paragraph left
-        # CORE with the consent gate (-575 B). The band is here to catch an
+        # CORE with the consent gate (-575 B). Re-pinned 2026-09-26: the
+        # attribution paragraph reports a credit in pushed history instead of
+        # asking before the rewrite (+1 B). The band is here to catch an
         # accidental move, so a deliberate one is recorded.
-        self.assertEqual(8077, band, "the always-on band moved")
+        self.assertEqual(8078, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

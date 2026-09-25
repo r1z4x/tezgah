@@ -184,8 +184,8 @@ invocation that reaches a provider) — and tells the model to treat instruction
 The call's own row carries the channel in `source` (`:1419`).
 
 After that read, the first effect the turn makes — a shell call or a write
-(`hooks/tezgah_untrusted.py:39-44`) — carries a taint notice instead (`marks` `:81-93`,
-`taint_notice` `:69-79`, `turn_channel` `:47-66`) — which reads the ledger through `turn_rows`
+(`hooks/tezgah_untrusted.py:39-44`) — carries a taint notice instead (`marks` `:79-91`,
+`taint_notice` `:69-78`, `turn_channel` `:47-66`) — which reads the ledger through `turn_rows`
 (`hooks/tezgah_integrity.py:634`): the whole file's lines, but only the current turn's rows
 parsed, so a taint check costs the length of the turn and not the length of the session. It names
 the turn, never a cause: whether the

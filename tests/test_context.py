@@ -1765,33 +1765,6 @@ class IndexMarkUncompared(TempHome):
         self.assertIn("unknown", out)
 
 
-class MergeCarveOut(unittest.TestCase):
-    """C11: the contract grants standing merge authority, and a PR merge is a
-    write to an external service, so the rule that sends outward-facing actions
-    back for an ask has to carve the merge out. Without the carve-out the
-    exception swallows the authority stated beside it: the same text both grants
-    the merge and demands an ask for it."""
-
-    @classmethod
-    def setUpClass(cls):
-        sys.path.insert(0, support.HOOKS)
-        import tezgah_context as tc  # noqa: E402
-        import tezgah_policy as policy  # noqa: E402
-        cls.tc, cls.policy = tc, policy
-
-    @staticmethod
-    def sentence(text, needle):
-        """The sentence carrying `needle`, or "". The claim is made by one
-        sentence, and the paragraph it sits in names other rules too."""
-        return next((s for s in text.replace("\n", " ").split(". ")
-                     if needle in s), "")
-
-    def test_the_standing_reminder_does_not_ask_for_the_merge(self):
-        carries = self.sentence(self.policy.REMINDER, "external service")
-        self.assertTrue(carries, "no sentence names an external-service write")
-        self.assertIn("merge", carries)
-
-
 class SubagentBriefHeader(unittest.TestCase):
     """C12: the brief's own header says every rule below is in force, so the two
     always-on blocks that are not CORE_RULES paragraphs have to ride with it -

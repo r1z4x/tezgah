@@ -23,9 +23,9 @@ host installs them (`commands/` appears nowhere in `bin/tezgah-setup`). Its name
 is prefixed with the plugin's, so the command is `/tezgah:plan-sync` and a bare
 `/plan-sync` does not exist ([tests/test_skills.py:130-145]). An **always-on
 rule** is text injected into every turn by the client hooks, defined in
-`hooks/tezgah_policy.py:598` (`CORE`); the model cannot choose not to load it,
+`hooks/tezgah_policy.py:613` (`CORE`); the model cannot choose not to load it,
 and only the on-demand tail of it points at a skill, `tezgah-contract`
-(`hooks/tezgah_policy.py:833`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
+(`hooks/tezgah_policy.py:825`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
 skill is simply not read.
 
 ## The router
@@ -83,7 +83,7 @@ plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/rizacan-local/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
 `bin/tezgah-setup:3663-3721`, `bin/tezgah-setup:3723-3729`). On Claude the plugin name prefixes the skill name -
-`Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:27-29]).
+`Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:32-35]).
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host

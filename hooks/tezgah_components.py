@@ -37,7 +37,7 @@ subscription, so no edit in this checkout changes it:
 
 | AHE component | This repository |
 |---|---|
-| system prompt | owned - `hooks/tezgah_policy.py:598` (`CORE`), injected by `hooks/tezgah_context.py:596` (`core_for`) |
+| system prompt | owned - `hooks/tezgah_policy.py:613` (`CORE`), injected by `hooks/tezgah_context.py:596` (`core_for`) |
 | tool descriptions | not-owned - each MCP server authors its own schema and this layer mounts it (`bin/tezgah-setup`); no text here reaches a model as a tool description |
 | tool implementations | not-owned - the tool body runs inside the host CLI and this layer only refuses a call before it (`hooks/tezgah_gate.py:1581`) |
 | middleware | not-owned - the host's own agent loop; this layer subscribes to the host's hook events and never sits in the loop |
