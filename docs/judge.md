@@ -34,7 +34,7 @@ answer is a `None`, never an exception.
 A judgement is an aid, never the claim. It ranks units or names a page; the agent
 still reads the selected refs and owns the finding, and the ledger's step kinds
 are untouched, so a model answer can never license a "done" (`STEP_KINDS`,
-`hooks/tezgah_integrity.py:855-857`).
+`hooks/tezgah_integrity.py:854-856`).
 
 The state leaves the machine. A judgement sends the state and the questions to
 `api.typesafe.ai` - for the triage that is the screen's own text, so a screen
@@ -117,16 +117,16 @@ measured rather than assumed - 0 of 184 live calls returned `None` - so the seco
 attempt costs a healthy call nothing (`_transient`,
 `hooks/tezgah_judge.py:261-273`); `docs/operations.md` records the run. Each
 caller also records one `judge` row of cost on the ledger when a session id is
-known (`note`, `hooks/tezgah_integrity.py:512-524`), counted by the row's kind
-(`counters`, `hooks/tezgah_integrity.py:858-877`).
+known (`note`, `hooks/tezgah_integrity.py:511-523`), counted by the row's kind
+(`counters`, `hooks/tezgah_integrity.py:857-876`).
 
 ## What the seam never does
 
 1. **No always-on rule paragraph.** It is on-demand, and the conditional keys
    exist exactly so a session that never asks does not carry the text
-   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:836-840`). Naming it buys discovery
+   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:827-831`). Naming it buys discovery
    for one clause; a paragraph would cost the always-on block.
-2. **Nothing in the gate, the Stop rule, the shortcut parser, the consent path or
+2. **Nothing in the gate, the Stop rule, the shortcut parser or
    the PreToolUse hot path.** Refusal reproducibility is an invariant with tests
    behind it, and a probabilistic answer on a denial path is a policy bug.
 3. **No seam-level cache, and no caller cache beyond the prompt-keyed one that
@@ -143,7 +143,7 @@ known (`note`, `hooks/tezgah_integrity.py:512-524`), counted by the row's kind
    the tools' own docstrings, and the user-facing surface is already the two tool
    names.
 7. **A judgement never counts as a check or a step.** The step kinds stay as they
-   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:855-857`); the cost row is a
+   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:854-856`); the cost row is a
    counter, not evidence.
 
 ## Source of truth

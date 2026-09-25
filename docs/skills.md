@@ -25,38 +25,38 @@ is prefixed with the plugin's, so the command is `/tezgah:plan-sync` and a bare
 rule** is text injected into every turn by the client hooks, defined in
 `hooks/tezgah_policy.py:598` (`CORE`); the model cannot choose not to load it,
 and only the on-demand tail of it points at a skill, `tezgah-contract`
-(`hooks/tezgah_policy.py:800-805`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
+(`hooks/tezgah_policy.py:833`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
 skill is simply not read.
 
 ## The router
 
 opencode's plugin does inject prompt-time text - the builder's per-turn block,
 the conditional rules included
-([hosts/opencode/plugins/tezgah.js:2209-2230]) - but that text names at most one
+([hosts/opencode/plugins/tezgah.js:1709-1730]) - but that text names at most one
 skill (the hint), never the roster, so the installer writes one:
 `~/.config/tezgah/opencode-skills.md` always-on and
 `opencode-skills.full.md` on demand ([bin/tezgah-setup:106-109]), the first
-listed in opencode's `instructions` ([bin/tezgah-setup:990-994]). Its native
+listed in opencode's `instructions` ([bin/tezgah-setup:989-993]). Its native
 skill list and `skill` tool are switched off in the same pass -
-`permission.skill = "deny"` ([bin/tezgah-setup:1014]) - so the generated file is
+`permission.skill = "deny"` ([bin/tezgah-setup:1013]) - so the generated file is
 the only list that host has.
 
 The router is generated, not written: `skill_groups()` walks the installed skill
 directories in precedence order - this checkout's `skills/`, then opencode's,
 Claude's and `~/.agents/skills` - takes the first directory that defines a name,
 buckets each by `skill_category()` and returns the groups
-([bin/tezgah-setup:873-894]). Buckets are `tezgah core`, `code & host tooling`,
+([bin/tezgah-setup:872-893]). Buckets are `tezgah core`, `code & host tooling`,
 `research & papers`, `AI research & engineering`, `marketing & growth`; the first
 two are listed always-on and the rest collapse to a count line pointing at the
-full file ([bin/tezgah-setup:867-870], `bin/tezgah-setup:949-964`). `ai-research` is the one
+full file ([bin/tezgah-setup:866-869], `bin/tezgah-setup:948-963`). `ai-research` is the one
 exception: it stays named in the always-on file under `research (tezgah's own)`
 because a library a session is never told about is one it answers from memory -
 measured on a live opencode turn that read nothing and answered anyway
-([bin/tezgah-setup:943-948]).
+([bin/tezgah-setup:942-947]).
 
 Each line is `name - trigger - path`, and the trigger is one sentence pulled from
-the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:815-841],
-`bin/tezgah-setup:913-922`). **The sentence carrying the `Use when ...` trigger wins over the
+the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:814-840],
+`bin/tezgah-setup:912-921`). **The sentence carrying the `Use when ...` trigger wins over the
 opening one.** A line built from the first sentence is what shipped, and it
 stripped `tezgah-contract` and `ponytail` of every word a session matches on -
 `tezgah-contract`'s description opens with "The full tezgah working contract." -
@@ -69,7 +69,7 @@ trigger sentence keeps its first sentence.
 Every other host gets the same idea natively: the skills are linked into the
 directory that host reads, and the host lists `name` + `description` itself -
 which is why the installer counts that metadata as an always-on cost
-([bin/tezgah-setup:2037-2045]).
+([bin/tezgah-setup:2036-2044]).
 
 ## How a skill reaches a host
 
@@ -77,18 +77,18 @@ which is why the installer counts that metadata as an always-on cost
 definition of "a tezgah skill": the router, the per-host linking, the uninstall
 and the context budget all read it. Each install function links those
 directories into the host's own skill directory - Codex
-([bin/tezgah-setup:601-631]), opencode (`bin/tezgah-setup:979-980`), Cursor (`bin/tezgah-setup:1075-1076`), dsh
-(`bin/tezgah-setup:1231-1232`), omp (`bin/tezgah-setup:1295-1297`). Claude is the exception: it installs from a
+([bin/tezgah-setup:601-631]), opencode (`bin/tezgah-setup:978-979`), Cursor (`bin/tezgah-setup:1074-1075`), dsh
+(`bin/tezgah-setup:1230-1231`), omp (`bin/tezgah-setup:1294-1296`). Claude is the exception: it installs from a
 plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/rizacan-local/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
-`bin/tezgah-setup:3664-3722`, `bin/tezgah-setup:3724-3730`). On Claude the plugin name prefixes the skill name -
+`bin/tezgah-setup:3663-3721`, `bin/tezgah-setup:3723-3729`). On Claude the plugin name prefixes the skill name -
 `Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:27-29]).
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
 directory ([bin/tezgah-setup:76-82]), and it is used for every host row
-([bin/tezgah-setup:2504-2505], `bin/tezgah-setup:2520`, `bin/tezgah-setup:2553`, `bin/tezgah-setup:2592`, `bin/tezgah-setup:2677`). It was
+([bin/tezgah-setup:3258-3259], `bin/tezgah-setup:3276`, `bin/tezgah-setup:3310`, `bin/tezgah-setup:3346`, `bin/tezgah-setup:3404`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
 it ([tests/test_skills.py:54-69]).
@@ -147,14 +147,14 @@ beside them; the entry point `SKILL.md` is tezgah's own and is not in it.
 1. Write `skills/<name>/SKILL.md` with frontmatter carrying `name` and a
    `description` whose **later** sentence begins `Use when ...` - that sentence
    is the router line, and it must carry the words a session would match on
-   ([bin/tezgah-setup:815-841]).
+   ([bin/tezgah-setup:814-840]).
 2. Add the name to `SKILLS` ([bin/tezgah-setup:76-78]). `SKILLS` drives the
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
 3. Expect `tests/test_skills.py:54-69` to fail if the two disagree, and
    `tests/test_setup.py:589-609` to fail if the generated router line lost its
    trigger words. Re-run `--install` (or opencode's `--refresh`,
-   [bin/tezgah-setup:807-811]) so the written routers pick the skill up.
+   [bin/tezgah-setup:806-810]) so the written routers pick the skill up.
 4. Quote examples in a form the tests accept: no floating `@latest` package tag
    and any pinned package spec must match the one tezgah wires
    ([tests/test_skills.py:90-97]); slash commands carry the `tezgah:` prefix

@@ -1381,8 +1381,7 @@ class StatusCli(TempHome):
 
 
 class ArmingConformance(TempHome):
-    """The same prompt must arm the same advisory rules on every host, and the
-    safety rule must never depend on the classifier at all."""
+    """The same prompt must arm the same advisory rules on every host."""
 
     LABELS = {"spec": "**Spec before building.**",
               "consult": "**Consult before irreversible.**",
@@ -1452,18 +1451,6 @@ class ArmingConformance(TempHome):
         for needle in ("Spec-first", "second opinion", "OpenResearch",
                        "Product analysis", "code graph"):
             self.assertIn(needle, core)
-
-    def test_irreversible_actions_stay_on_without_the_classifier(self):
-        repo = self.make_repo()
-        out, _ = run_json([support.PROBE_CONTEXT],
-                          {"fn": "context_for", "event": "session_start",
-                           "cwd": repo}, env=self.env())
-        self.assertIn("Irreversible or outward-facing actions", out)
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        sys.path.insert(0, os.path.join(root, "hooks"))
-        import tezgah_context as tc  # noqa: E402
-        self.assertIn("Irreversible or outward-facing actions",
-                      tc.always_on_core())
 
 
 class OutputShapeParagraphPinsItsRules(unittest.TestCase):
@@ -1572,9 +1559,6 @@ class SubagentBrief(unittest.TestCase):
             if key in self.tc.CONDITIONAL_KEYS:
                 self.assertNotIn(label, brief,
                                  "a conditional rule rode into the brief: %s" % key)
-
-    def test_the_safety_rule_survives_the_shortening(self):
-        self.assertIn("Irreversible or outward-facing", self.tc.subagent_core())
 
 
 
@@ -1801,11 +1785,6 @@ class MergeCarveOut(unittest.TestCase):
         sentence, and the paragraph it sits in names other rules too."""
         return next((s for s in text.replace("\n", " ").split(". ")
                      if needle in s), "")
-
-    def test_the_always_on_invariant_does_not_ask_for_the_merge(self):
-        carries = self.sentence(self.tc.always_on_core(), "external service")
-        self.assertTrue(carries, "no sentence names an external-service write")
-        self.assertIn("merge", carries)
 
     def test_the_standing_reminder_does_not_ask_for_the_merge(self):
         carries = self.sentence(self.policy.REMINDER, "external service")

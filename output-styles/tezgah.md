@@ -106,15 +106,6 @@ English - a non-ASCII letter anywhere, or a Turkish word it knows - and prints t
 English to write instead (heuristic: the user's own term is theirs). Kill switch:
 `lang-off`.
 
-**Irreversible or outward-facing actions need an explicit ask first.** Force-push,
-rewriting pushed history, deleting a repo or branch, applying a migration to a
-live database, deploying, and anything beyond the merge touching a live
-production account or an external service. This one is an invariant: it stays
-armed whatever a prompt classifier decides. When the gate refuses a command for
-consent, put the exact command and what it cannot undo in front of the user, and
-name `tezgah-consent --last` (or the digest the refusal prints) as what the user
-runs to approve it.
-
 **Session scope: the user's repo, not tezgah.** Tezgah's own installation is
 not this session's work: its optional tools (codegraph, orx, consult, codegen),
 its config and its version state are the user's to arm, never the session's.

@@ -168,7 +168,7 @@ cost evidence, which is a separate question from enforcement.
 | **Claude Code** | local plugin marketplace: hooks, commands, two read-only agents, output style |
 | **Codex** | `hooks.json` + skills + MCP, including a `PreToolUse` gate |
 | **Cursor** | `hooks.json` + skills + MCP; needs a cursor-agent build with CLI hooks and `statusLine` - the 2025.09 build predates both, so this adapter is inert until Cursor ships them |
-| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message; the plugin enforces the gate itself - attribution, explorer, the grep nudge, consent, secret and the loop/retry ceilings - and puts every write to the core through `~/.config/tezgah/bin/tezgah-gate check`, so the active-task rule and any rule added later arrive from the core rather than from a second implementation |
+| **opencode** | plugin + instructions + MCP + generated skill router (native skill list denied), repo auto-index on the first message; the plugin enforces the gate itself - attribution, explorer, the grep nudge, secret and the loop/retry ceilings - and puts every write to the core through `~/.config/tezgah/bin/tezgah-gate check`, so the active-task rule and any rule added later arrive from the core rather than from a second implementation |
 | **dsh** | Claude Code hook bridge + managed patch block (hooks, MCP, LLM routes, an out-of-tree Web status line) |
 
 The Codex gate runs Bash, `exec_command`, `apply_patch`, Edit/Write, MCP tools,
@@ -212,25 +212,17 @@ written before this rule existed are still accepted, so upgrading never blocks
 an open session on its own history. opencode has no end-of-turn surface to
 block, so it records the evidence and the reply claim stays unenforced there.
 
-A consent ask is three rows, never one: the gate's refusal writes `consent` (the
-action's digest and its effect class), the user's approval writes `grant`, and a
-repeat the gate allowed without either writes `repeat-allowed`. The approval is
-`tezgah-consent <digest>` for the action a refusal named, or
-`tezgah-consent --last` for the newest ask no grant answers yet - the form that
-costs no copy-paste. The grant lands in the ledger that carries the ask, which is
-the session the gate reads it from, so "who approved what" is a query over the
-ledger rather than a claim about it. A command can name its own class with
-`tezgah:effect=<class>` (outward, publish, deploy, schema, destructive) when no
-pattern can see the effect; the declaration holds only at or above the class the
-command text derives, so it can tighten the rule and never loosen it - a
-downgrade is ignored and named in the refusal and the deny row. The declaration
-is read off the raw command, so a trailing `# tezgah:effect=deploy` counts, and a
-command that merely quotes the form is held to it too. One floor sits under the
-user: a `rm -rf` whose every target is under a temp root (`$TMPDIR` or `/tmp`) is
-scratch, so a session clearing its own fixtures is not held to an ask - the temp
-root itself, an unresolved `$VAR`/`~` target and anything that escapes it still
-are, and the untrusted-content rule reads the class conservatively so an effect
-after a fetched page is refused whether or not its target is scratch.
+The consent rule is gone (2026-09-26), removed on purpose. It refused every
+irreversible or outward-facing command - a force-push, a migration, a deploy,
+`ssh`, `scp`, a `curl` write, a `gh pr` write - until the user ran
+`tezgah-consent <digest>` in a terminal, and no approval given in chat could
+lift it. In practice every server-side session paid a round-trip per effect and
+the CLI step was the only key, so the rule, its effect-class table, the sink
+rule that extended it to untrusted reads and the `bin/tezgah-consent` CLI were
+deleted together. Those commands now run like any other: the untrusted-content
+label and the taint notice still mark a turn that read outside text, and the
+snapshot still keeps pre-write bytes, but nothing asks before an outward effect
+lands.
 
 ### App analysis
 
@@ -432,7 +424,7 @@ text injected into the session, so the rule actually stops:
 | `reminder-off` | the per-turn reminder text |
 | `verify-off` | the integrity rule: its prompt text, the shortcut denials, the Stop gate and the ordering rule |
 | `task-off` | the task rule's four refusals: the phase, the allowlist, the record and a shell write |
-| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, consent, secret, shortcut, loop, race, sink, drift, nudge, order, task) |
+| `pretooluse-off` | the PreToolUse gate itself (attribution, explorer, secret, shortcut, loop, race, drift, nudge, order, task) |
 
 Per repo, `.no-ponytail`, `.no-adhd`, `.no-graph` and `.no-lessons` turn off the
 minimal-code rule, the act-on-it output shape, the code-graph rule (and its

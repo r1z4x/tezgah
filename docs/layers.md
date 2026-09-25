@@ -23,7 +23,7 @@ Here tezgah only *configures* servers and classifies a call by its name: the
 app-analysis servers are rendered into each host's own config from one spec
 (`hooks/tezgah_apps.py:1-5`), Codex's rows are appended by `ensure_toml_mcp`
 (`bin/tezgah-setup:641-673`), and a tool name starting `mcp__` is classified
-`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:1137`).
+`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:1136`).
 
 ## Agent framework
 
@@ -65,11 +65,11 @@ host.
 
 ## tezgah's policy and evidence layer
 
-Owns the rule text (`CORE` `hooks/tezgah_policy.py:621-831`), the per-turn reminder
-(`PROMPT_REMINDER` `hooks/tezgah_policy.py:847-867`), the refusal before a call
-(`decision()` `hooks/tezgah_gate.py:1608-1848`), the record after one (`note()`
-`hooks/tezgah_integrity.py:512`), the end-of-turn verdict (`stop_reason()`
-`hooks/tezgah_integrity.py:1694`), the pre-write snapshots (`capture()`
+Owns the rule text (`CORE` `hooks/tezgah_policy.py:621-822`), the per-turn reminder
+(`PROMPT_REMINDER` `hooks/tezgah_policy.py:838-858`), the refusal before a call
+(`decision()` `hooks/tezgah_gate.py:1045-1202`), the record after one (`note()`
+`hooks/tezgah_integrity.py:511`), the end-of-turn verdict (`stop_reason()`
+`hooks/tezgah_integrity.py:1693`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:191`), the status marks, and the per-repo plans,
 lessons and research lines.
 
@@ -102,7 +102,7 @@ frameworks.
 
 Under that test tezgah is not one: it holds no loop. It subscribes to a host's
 events (`hooks/hooks.json:2-26`), is handed the injected text at the host's
-session-start and prompt points (`context_for` `hooks/tezgah_context.py:802-978`),
+session-start and prompt points (`context_for` `hooks/tezgah_context.py:800-976`),
 refuses a call before the host runs it (`hooks/projects-pretooluse.py:24`) and
 answers in the host's own output envelope. It has no model, no tool set and no
 context window of its own.
@@ -118,7 +118,7 @@ by solving the task.
 
 | Sense | What it names | Where it is defined |
 |---|---|---|
-| tezgah's own | the wrapper around a host - the injected contract, the per-turn text still travelling in the `<harness-reminder>` envelope (`hooks/tezgah_policy.py:806-807`), the gate and the ledger | [glossary](glossary.md#harness) |
+| tezgah's own | the wrapper around a host - the injected contract, the per-turn text still travelling in the `<harness-reminder>` envelope (`hooks/tezgah_policy.py:839`), the gate and the ledger | [glossary](glossary.md#harness) |
 | the literature's | the host itself: a "complete agent runtime", which the README's host list also calls a harness for dsh (`README.md:42-43`) | [hosts](hosts.md) |
 | the skill's | multi-agent harness selection: which graph workflow or subagent set runs a task too wide for one window (`skills/harness/SKILL.md:2-8`, [skills](skills.md)) | [glossary](glossary.md#harness-skill) |
 
@@ -131,14 +131,14 @@ one.
 
 This is the checkable consequence of the transport layer here. A hook is handed
 the call, so that is all the classification can use (`untrusted_source`
-`hooks/tezgah_integrity.py:1192-1195`): an MCP answer enters the ledger as an
+`hooks/tezgah_integrity.py:1191-1194`): an MCP answer enters the ledger as an
 untrusted channel, the channel being `mcp` (`untrusted_source`
-`hooks/tezgah_integrity.py:1200-1202`), and an answer that is no step of work
+`hooks/tezgah_integrity.py:1199-1201`), and an answer that is no step of work
 of its own earns a row of kind `external` (`note_tool`
-`hooks/tezgah_integrity.py:1364-1370`). The compensating control is the sink
-rule: an effect in a turn that has read an untrusted channel is refused until
-the user approves it afterwards (`UNTRUSTED_DENY` `hooks/tezgah_gate.py:1004-1014`,
-`sink_check` `hooks/tezgah_gate.py:1037-1070`, [gate](gate.md)).
+`hooks/tezgah_integrity.py:1363-1369`). The compensating control is the taint
+notice: the first effect in a turn that has read an untrusted channel carries
+it (`hooks/tezgah_untrusted.py:2-22`); nothing refuses that effect since the
+sink rule was removed ([gate](gate.md)).
 
 The structural limit is that the write tools and the shell tools are disjoint
 tuples (`WRITE_TOOLS` `hooks/tezgah_integrity.py:172-174`, `BASH_TOOLS`

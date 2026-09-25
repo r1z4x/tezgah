@@ -1,4 +1,4 @@
-"""hooks/tezgah_gate.py: the attribution, explore, shortcut, consent, secret and
+"""hooks/tezgah_gate.py: the attribution, explore, shortcut, secret and
 language refusals, the first-grep nudge, the concurrent-write refusal, the
 long-turn re-statement and the task-phase refusal."""
 import json
@@ -500,299 +500,9 @@ class Gate(TempHome):
         self.assertIsNone(
             self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
 
-    # ---- consent: an irreversible or outward-facing call -------------------
-    def test_a_force_push_denies_and_a_re_issue_is_not_an_answer(self):
-        # The gate sees one call and cannot ask the user, so the refusal is the
-        # ask: it lands in the transcript and names the digest the user approves.
-        # What it must NOT do is treat the agent re-issuing the command as the
-        # user's answer - that is the agent approving its own effect (B7).
-        for command in ("git push --force origin main",
-                        "git push -f origin main",
-                        "git push --force-with-lease origin main",
-                        "git push --force-with-lease=origin/main origin main",
-                        "git -C /tmp/repo push --force origin master"):
-            session = "ask-" + command
-            for attempt in range(1, 4):
-                reason = self.decide("Bash", {"command": command},
-                                     session_id=session)
-                self.assertIsNotNone(reason, "%s attempt %d" % (command, attempt))
-                self.assertIn("Consent", reason)
-                self.assertIn("tezgah-consent", reason)
-                self.assertIn("re-issued command is not that decision", reason)
-            # one ask row, then one deny row per attempt: no row claims a pass
-            # the user never approved
-            kinds = [r["kind"] for r in self.rows(session)]
-            self.assertEqual(kinds, ["consent", "deny", "deny", "deny"], kinds)
-            # the second refusal says the ask is already on record
-            self.assertIn("The ask is on record already",
-                          self.decide("Bash", {"command": command},
-                                      session_id=session))
-
-    def test_a_force_push_to_a_scratch_branch_passes(self):
-        for command in ("git push -f origin tmp/scratch",
-                        "git push --force origin wip-parser",
-                        "git push origin main"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
-    def test_branch_deletes_deny(self):
-        for command in ("git branch -D main",
-                        "git branch --delete feature",
-                        "git branch -rd origin/feature",
-                        "git push origin --delete feature",
-                        "git push origin -d feature"):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("Consent", reason)
-
-    def test_branch_reads_are_not_deletes(self):
-        # `--merged` carries a `d`, so the delete flag is matched by shape
-        for command in ("git branch --merged", "git branch -a",
-                        "git branch --contains HEAD", "git branch -vv"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
-    def test_rm_rf_outside_the_run_directory_denies(self):
-        # Every target is outside the run directory AND outside a temp root. A
-        # path built from self.home would not be: the sandbox itself lives under
-        # TMPDIR, so on Linux CI it sat inside the floor this rule carves out
-        # (macOS hid that - the sandbox is under /var/folders there).
-        for command in ("rm -rf /opt/data",
-                        "rm -rf /etc/tezgah-elsewhere",
-                        "rm -rf ~/Downloads/junk",
-                        "rm -rf $BUILD_DIR",
-                        "rm -rf .",
-                        # the temp root itself is not scratch, a path that only
-                        # escapes through it is not under it, and one scratch
-                        # target does not license a second one
-                        "rm -rf /tmp",
-                        "rm -rf /tmp/../etc",
-                        "rm -rf /tmp/scratch /opt/data"):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("Consent", reason)
-
-    def test_a_delete_inside_the_run_directory_passes(self):
-        # both flags are required (`rm -f` / `rm -r` alone are not this rule's),
-        # a path under the run directory is the agent's own workspace, and a path
-        # under a temp root is scratch: the ask would protect nothing there
-        for command in ("rm -rf build", "rm -rf node_modules && npm ci",
-                        'rm -rf "./dist"', "rm -f /tmp/scratch", "rm -r /tmp/x",
-                        "rm -rf /tmp/scratch",
-                        "rm -rf /tmp/tezgah-fixture/nested"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
-    def test_a_migration_or_a_deploy_denies(self):
-        for command in ("alembic upgrade head", "python3 manage.py migrate",
-                        "bin/rails db:migrate", "prisma migrate deploy",
-                        "vercel deploy --prod", "terraform apply -auto-approve",
-                        "kubectl apply -f k8s/",
-                        "npm publish --access public",
-                        "docker push registry/img:tag"):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("Consent", reason)
-
-    def test_a_shared_resource_destroyed_at_a_service_denies(self):
-        # The four the table was blind to that leave this machine or take a
-        # resource other people share: a remote repository, an S3 bucket or the
-        # prefix under it, and a schema dropped by the runner's own verb. Each is
-        # read as its class, not as the pattern that matched.
-        for command, klass in (
-                ("gh repo delete me/x --yes", "destructive"),
-                ("gh repo archive me/x", "destructive"),
-                ("aws s3 rb s3://bucket --force", "destructive"),
-                ("aws s3 rm s3://bucket/prefix --recursive", "destructive"),
-                ("flyway clean", "schema")):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("`%s` effect" % klass, reason)
-
-    def test_a_command_that_only_names_a_shared_destroy_denies_nothing(self):
-        # found on the masked text like the rest of the table, so a message that
-        # describes the command is not the command
-        for command in ('git commit -m "gate: deny gh repo delete me/x"',
-                        "echo 'aws s3 rb s3://b' >> notes.md"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
-    def test_a_local_or_narrow_delete_still_asks_nobody(self):
-        # Deliberately left out of the class table: each is either local and
-        # recoverable from disk, or narrow enough that the round-trip costs the
-        # user more than the effect does. The rule the four added commands pass
-        # is "the effect leaves this machine or destroys a resource others
-        # share"; these fail it.
-        for command in ("git reset --hard HEAD~3", "git tag -d v1",
-                        "docker compose down -v", "chmod -R 000 /etc",
-                        "git push origin main", "aws s3 rm s3://bucket/key.txt",
-                        "gh repo view me/x", "aws s3 ls s3://bucket"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
-    def test_ordinary_work_passes_the_consent_rule(self):
-        for command in ("npm run build", "pytest -q", "git status",
-                        "docker build -t img .", "alembic revision -m add_col",
-                        "python3 manage.py makemigrations"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
-    def test_a_message_that_names_an_irreversible_command_passes(self):
-        # the patterns run on the masked text, so a commit message that describes
-        # a force-push or an `rm -rf` is not doing it
-        self.assertIsNone(self.decide("Bash", {
-            "command": 'git commit -m "gate: ask before rm -rf /tmp/x"'}))
-
-    def test_consent_is_a_command_rule(self):
-        # writing a migration file is not applying it
-        self.assertIsNone(self.decide("Write", {
-            "file_path": "migrations/0002_add_col.py",
-            "content": "def upgrade():\n    op.add_column('t', sa.Column('c'))\n"}))
-
-    def test_the_refusal_names_the_effect_class_not_the_pattern(self):
-        # what an action IS, not which regex caught it: one class per command,
-        # and the deny says which
-        for command, klass in (
-                ("git push --force origin main", "destructive"),
-                ("git branch -D main", "destructive"),
-                ("git push origin --delete feature", "destructive"),
-                ("rm -rf /opt/tezgah-sibling", "destructive"),
-                ("alembic upgrade head", "schema"),
-                ("python3 manage.py migrate", "schema"),
-                ("vercel deploy --prod", "deploy"),
-                ("terraform apply -auto-approve", "deploy"),
-                ("npm publish --access public", "publish"),
-                ("docker push registry/img:tag", "publish"),
-                ("gh release create v1.2.0", "publish"),
-                ("git push heroku main", "outward"),
-                ("git push origin production", "outward")):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("`%s` effect" % klass, reason)
-            self.assertNotIn("force-push to a shared branch", reason)
-
-    def test_the_refusal_records_the_effect_class_as_a_consent_row(self):
-        # "who was asked to confirm what" is a query over rows: kind consent, the
-        # class in the detail, the action in the id - not a string match on a
-        # deny message a later reword would silently break. The row's workspace
-        # is the directory the call runs in - the scope the lease is bound to,
-        # which is why the same text in another directory is another ask.
-        self.decide("Bash", {"command": "git push --force origin main"},
-                    session_id="asked")
-        self.decide("Bash", {"command": "npm publish"}, session_id="asked")
-        rows = [r for r in self.rows("asked") if r["kind"] == "consent"]
-        self.assertEqual([r["detail"] for r in rows],
-                         ["destructive", "publish"])
-        self.assertEqual(rows[0]["workspace"], self.repo)
-        for r in rows:
-            self.assertEqual(len(r["id"]), 12)
-            self.assertEqual(r["kind"], "consent")
-        self.assertNotEqual(rows[0]["id"], rows[1]["id"])
-        # the row names the refused action: its id is the denial's id
-        denials = [r for r in self.rows("asked") if r["kind"] == "deny"]
-        self.assertEqual([r["id"] for r in denials], [r["id"] for r in rows])
-        self.assertEqual(
-            [r["detail"].split(":", 1)[0] for r in denials], ["consent", "consent"])
-
-    def test_the_consent_row_is_the_ask_and_is_written_once(self):
-        # the classification row IS the mark, so the ask cannot be answered and
-        # the row fall out of step: one row per action, however many times the
-        # command is re-issued. A second `consent` row would read as a second
-        # question the user still has to answer.
-        command = "npm publish --access public"
-        for _ in range(3):
-            reason = self.decide("Bash", {"command": command},
-                                 session_id="oneshot")
-            self.assertIsNotNone(reason)
-        rows = [r for r in self.rows("oneshot") if r["kind"] == "consent"]
-        self.assertEqual(len(rows), 1, rows)
-        self.assertEqual(rows[0]["detail"], "publish")
-
-    def test_a_grant_is_spent_by_the_effect_it_authorised(self):
-        # B7 + D7, one code path: the user's approval is a lease on one effect,
-        # not a standing permit. This is also the whole of the checkpoint a shell
-        # effect can have - a force-push changes a remote this ledger holds no
-        # pre-state for, so nothing here can be rolled back, and the row that
-        # authorised the run is the record. The effect spends it (the PostToolUse
-        # row a host writes after the run carries the same id and an outcome), and
-        # the next identical command is asked about again.
-        command = "git push --force origin main"
-        session = "lease"
-        digest = ti.call_id("Bash", {"command": command})
-        self.assertIsNotNone(self.decide("Bash", {"command": command},
-                                         session_id=session))       # the ask
-        self.seed_grant(session, digest)                            # the answer
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id=session))
-        # the effect ran: the row a real PostToolUse hook leaves for it
-        self.seed_run(command, session)
-        self.assertIsNotNone(self.decide("Bash", {"command": command},
-                                         session_id=session))
-        rows = self.rows(session)
-        self.assertEqual([r["kind"] for r in rows],
-                         ["consent", "deny", "grant", "run", "deny"], rows)
-        # and the user can approve it again, by the digest the refusal names
-        self.seed_grant(session, digest)
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id=session))
-        self.assertNotIn("repeat-allowed",
-                         [r["kind"] for r in self.rows(session)])
-
-    def test_a_grant_is_spent_by_an_outcome_row_with_no_exit_on_it(self):
-        # The spender is the outcome row, not the `exit` key inside it. Cursor's
-        # `afterShellExecution` carries no outcome signal and records `run`/
-        # `verify` with no key at all, so a lease only `exit` could spend never
-        # was spent there - one approval became a standing permit, which is not
-        # the documented model (one grant, one effect).
-        command = "git push --force origin main"
-        session = "no-exit-lease"
-        digest = ti.call_id("Bash", {"command": command})
-        self.decide("Bash", {"command": command}, session_id=session)
-        self.seed_grant(session, digest)
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id=session))
-        self.seed_run(command, session, failed=None)  # the cursor shape
-        outcome = [r for r in self.rows(session) if r["kind"] == "run"][-1]
-        self.assertNotIn("exit", outcome)
-        self.assertIsNotNone(self.decide("Bash", {"command": command},
-                                         session_id=session))
-
-    def test_a_grant_does_not_answer_the_same_text_in_another_directory(self):
-        # The action's identity cannot be the text alone: `call_id` has no cwd -
-        # it is the loop guard's key too, so it stays what it is - while the
-        # effect is resolved against the directory the call runs in, and
-        # `rm -rf ../victim` from a checkout and the same text one directory
-        # deeper drop different trees. The ask row records the directory, so the
-        # grant answers the one it was asked about and the other call is asked
-        # about afresh instead of running on an approval for somewhere else.
-        command = "rm -rf ../victim"
-        session = "lease-scope"
-        digest = ti.call_id("Bash", {"command": command})
-        deeper = os.path.join(self.repo, "sub")
-        os.makedirs(deeper, exist_ok=True)
-        self.assertIsNotNone(self.decide("Bash", {"command": command},
-                                         session_id=session))     # the ask
-        self.seed_grant(session, digest)                          # the answer
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id=session))
-        reason = self.decide("Bash", {"command": command}, cwd=deeper,
-                             session_id=session)
-        self.assertIn("`destructive` effect", reason)
-        # one ask per (action, directory), so the user can answer this one too
-        asks = [r for r in self.rows(session) if r["kind"] == "consent"]
-        self.assertEqual([r["workspace"] for r in asks], [self.repo, deeper])
-        self.seed_grant(session, digest)
-        self.assertIsNone(self.decide("Bash", {"command": command}, cwd=deeper,
-                                      session_id=session))
-
-    # ---- consent: the rows it may leave behind ----------------------------
-    def seed_grant(self, session_id, digest):
-        """The row bin/tezgah-consent writes when the user approves an action:
-        the same writer, the same shape, and never a row the gate could write
-        for itself."""
-        out, proc = run_json([support.PROBE_INTEGRITY],
-                             {"fn": "note", "session": session_id,
-                              "kind": "grant", "detail": "cli", "id": digest},
-                             env=self.envv)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-
     def seed_run(self, command, session_id, failed=False, error=None):
         """The row a real PostToolUse hook writes after the call ran: the same
-        id, an outcome on it, and no `grant`. It is what spends a grant."""
+        id and an outcome on it."""
         out, proc = run_json([support.PROBE_INTEGRITY],
                              {"fn": "note_tool", "session": session_id,
                               "tool": "Bash", "input": {"command": command},
@@ -800,286 +510,12 @@ class Gate(TempHome):
                              env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_a_grant_answers_the_ask_the_gate_recorded(self):
-        # ask, then the user's grant, then the command: the grant is the record
-        # of the pass, and the gate writes no `repeat-allowed` beside it - that
-        # row named a repeat where the user had in fact approved the action, and
-        # the action is the same one row whether they approved it or not.
-        command = "git push --force origin main"
-        session = "granted-late"
-        self.assertIsNotNone(self.decide("Bash", {"command": command},
-                                         session_id=session))
-        asked = [r for r in self.rows(session) if r["kind"] == "consent"][0]
-        self.seed_grant(session, asked["id"])
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id=session))
-        self.assertEqual([r["kind"] for r in self.rows(session)],
-                         ["consent", "deny", "grant"])
-
-    def test_a_grant_the_agent_could_forge_is_not_this_rule_s(self):
-        # The lease rests on one row the gate cannot write: a `consent` ask (the
-        # gate's own) never lifts the refusal, however many of them there are.
-        # Only `grant` - bin/tezgah-consent's row - is an answer.
-        command = "npm publish"
-        session = "forged"
-        digest = ti.call_id("Bash", {"command": command})
-        for _ in range(3):
-            self.assertIsNotNone(self.decide("Bash", {"command": command},
-                                             session_id=session))
-        rows = self.rows(session)
-        self.assertEqual([r["kind"] for r in rows if r["kind"] == "consent"],
-                         ["consent"])
-        self.assertEqual(rows[0]["id"], digest)
-        self.assertEqual(rows[0]["workspace"], self.repo)
-        self.assertNotIn("exit", rows[0])
-
-    # ---- consent: a declared effect, which may only tighten the class ------
-    def test_a_declared_effect_at_or_above_the_class_is_used(self):
-        # The patterns here cannot see someone's own script, so the command is
-        # asked to say what it is - and a class below the one the text derives
-        # is not on offer.
-        for command, klass in (
-                ("./ship.sh  # tezgah:effect=deploy", "deploy"),
-                ("git push origin production  # tezgah:effect=destructive",
-                 "destructive")):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("`%s` effect" % klass, reason)
-            self.assertNotIn("declared", reason)
-
-    def test_a_declared_effect_below_the_class_is_ignored(self):
-        # A declaration that can lower a class is a bypass of the rule that
-        # reads it, so the derived class stands - and the attempt stays visible
-        # in the refusal and in the deny row, not only in this test.
-        command = "git push --force origin main  # tezgah:effect=publish"
-        reason = self.decide("Bash", {"command": command}, session_id="talking")
-        self.assertIsNotNone(reason)
-        self.assertIn("`destructive` effect", reason)
-        self.assertIn("declared `tezgah:effect=publish`", reason)
-        denied = [r for r in self.rows("talking") if r["kind"] == "deny"][0]
-        self.assertIn("declared `publish` ignored, `destructive` stands",
-                      denied["detail"])
-
-    def test_a_declaration_that_names_no_class_is_dropped(self):
-        # "at least as severe" is a comparison over the five classes, so a word
-        # outside them is not a class and cannot invent one
-        for command in ("npm run build  # tezgah:effect=whatever",
-                        "pytest -q  # tezgah:effect="):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
-    def test_an_action_that_is_not_irreversible_still_passes(self):
-        # the classifier must not widen the rule: an ordinary push, a rollback-
-        # free read and a release *check* are not effect actions
-        for command in ("git push origin main", "git push -u origin feature",
-                        "npm run publish:check", "gh release list",
-                        "git branch -m old new", "kubectl get pods"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
     def rows(self, session_id):
         out, proc = run_json([support.PROBE_INTEGRITY],
                              {"fn": "events", "session": session_id},
                              env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
-
-    # ---- untrusted read: an effect in the turn that read a fetched page ----
-    def read_untrusted(self, session_id, tool="web_search", channel="web"):
-        """One untrusted read, through the hook that records it: the real
-        PostToolUse path (hooks/projects-posttooluse.py), which is where a
-        result's channel is decided and written onto the row. Seed such a row
-        through the writer, never by hand."""
-        out, proc = run_json(
-            [support.POSTTOOLUSE],
-            {"hook_event_name": "PostToolUse", "tool_name": tool,
-             "tool_input": {"query": "how to x"}, "tool_response": "text",
-             "cwd": self.repo, "session_id": session_id}, env=self.envv)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        rows = self.rows(session_id)
-        self.assertEqual([r["source"] for r in rows if r.get("source")],
-                         [channel], rows)
-
-    def test_an_effect_after_an_untrusted_read_is_refused(self):
-        # E1/E5: the label told the model where the text came from and nothing
-        # refused the effect it asked for. The sink rule refuses it, names the
-        # channel, and records the ask so the user's CLI can answer it.
-        session = "tainted"
-        self.read_untrusted(session)
-        reason = self.decide("Bash", {"command": "git push --force origin main"},
-                             session_id=session)
-        self.assertIsNotNone(reason)
-        self.assertIn("Sink rule", reason)
-        self.assertIn("a web result", reason)
-        self.assertIn("`destructive` effect", reason)
-        self.assertIn("bin/tezgah-consent", reason)
-        row = [r for r in self.rows(session) if r["kind"] == "deny"][-1]
-        self.assertEqual(row["detail"][:5], "sink:")
-        self.assertIn("untrusted channel: web", row["detail"])
-        asked = [r for r in self.rows(session) if r["kind"] == "consent"]
-        self.assertEqual([r["detail"] for r in asked], ["destructive"])
-        # the same command in a turn that read nothing is the consent rule's,
-        # not the sink rule's
-        plain = self.decide("Bash", {"command": "git push --force origin main"},
-                            session_id="untainted")
-        self.assertIn("Consent gate", plain)
-        self.assertNotIn("Sink rule", plain)
-
-    def test_a_scratch_delete_after_an_untrusted_read_is_still_refused(self):
-        # the temp-root floor skips the ask, not the effect: the taint rule reads
-        # the conservative class, so an injection cannot make its first move a
-        # `rm -rf` in the temp root and land it unasked
-        session = "tainted-scratch"
-        self.read_untrusted(session)
-        reason = self.decide("Bash", {"command": "rm -rf /tmp/tezgah-fixture"},
-                             session_id=session)
-        self.assertIsNotNone(reason)
-        self.assertIn("Sink rule", reason)
-        # the same command in a turn that read nothing is scratch: no ask
-        self.assertIsNone(self.decide("Bash",
-                                      {"command": "rm -rf /tmp/tezgah-fixture"},
-                                      session_id="clean-scratch"))
-
-    def test_an_approval_written_before_the_read_does_not_cover_it(self):
-        # The half that gives the sink rule teeth: a grant the user wrote before
-        # the page arrived is an answer about the command, not about what the
-        # page asked for, so it does not lift the refusal - the taxonomy's
-        # "the user's own word", which is the only exemption reachable from here
-        # (the prompt itself is not: no host hook sees it, and the ledger keeps
-        # only sha1(prompt)[:12]).
-        session = "stale-grant"
-        command = "npm publish"
-        digest = ti.call_id("Bash", {"command": command})
-        self.seed_grant(session, digest)
-        self.read_untrusted(session)
-        stale = self.decide("Bash", {"command": command}, session_id=session)
-        self.assertIsNotNone(stale)
-        self.assertIn("Sink rule", stale)
-        self.assertIn("approval given before the read does not cover it", stale)
-        self.seed_grant(session, digest)
-        self.assertIsNone(self.decide("Bash", {"command": command},
-                                      session_id=session))
-
-    def test_a_write_outside_the_root_is_a_sink_in_a_tainted_turn(self):
-        # The injection that pays is aimed at the agent's own config, not at the
-        # repo it was asked to edit: a write whose realpath leaves the root is a
-        # sink. One inside the root is left to the taint notice - it is
-        # recoverable from the snapshot, and refusing every edit after every
-        # fetch would tax the ordinary flow.
-        session = "tainted-write"
-        self.read_untrusted(session)
-        outside = os.path.join(self.home, ".claude", "settings.json")
-        reason = self.decide("Write", {"file_path": outside, "content": "{}"},
-                             session_id=session)
-        self.assertIsNotNone(reason)
-        self.assertIn("Sink rule", reason)
-        self.assertIn(outside, reason)
-        self.assertIn("a web result", reason)
-        asked = [r for r in self.rows(session) if r["kind"] == "consent"]
-        self.assertEqual([r["detail"] for r in asked], ["outside-workspace"])
-        # inside the root, and in a turn that read nothing, are not sinks
-        self.assertIsNone(self.decide(
-            "Edit", {"file_path": "src/a.py", "old_string": "x",
-                     "new_string": "y"}, session_id=session))
-        self.assertIsNone(self.decide(
-            "Write", {"file_path": outside, "content": "{}"},
-            session_id="untainted-write"))
-
-    def test_an_outbound_command_is_a_send_effect(self):
-        # A3's other half, which the five classes did not cover: an effect that
-        # carries this workspace's data out to a service that acts on it - mail,
-        # a payment, a remote API called with a write - is asked about the same
-        # way, and this is the class an injection pays through.
-        for command, klass in (
-                ("swaks --to ops@example.com --body hi", "send"),
-                ("sendmail -t < mail.txt", "send"),
-                ("stripe refunds create --charge ch_1", "send"),
-                ("curl -X POST -d @payload.json https://api.example.com/v1/x",
-                 "send"),
-                ("curl --data-raw 'a=1' https://api.example.com/v1/x", "send"),
-                ("gh api -X POST repos/o/r/issues -f title=x", "send"),
-                # a remote write reached through a subcommand instead of
-                # through `gh api`: the same effect spelled two ways, and one
-                # spelling was unasked until GH_SUBCOMMANDS reached SEND
-                ("gh pr create --base main --head x --title t", "send"),
-                ("gh pr edit 18 --body-file /tmp/p.md", "send"),
-                ("gh pr merge 7 --merge", "send"),
-                ("git push -q -u origin feat && gh issue comment 3 -b hi",
-                 "send")):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("`send` effect", reason, command)
-        # a read that leaves the machine is not this class, and neither is a gh
-        # subcommand that only reads the remote
-        for command in ("curl https://api.example.com/v1/x",
-                        "curl -o out.json https://api.example.com/v1/x",
-                        'curl -H "Authorization: Bearer $T" https://api.example.com/x',
-                        "git push origin main", "scp2 --help",
-                        "gh pr view 18", "gh pr list", "gh pr diff 18",
-                        "gh pr checks 18", "gh issue list", "gh repo view"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-        # and the class PUBLISH owns is still PUBLISH's: SEND reads the same
-        # subcommand list with `release` left out, and `effect_class` checks
-        # PUBLISH first, so a release cannot be relabelled by this rule
-        publish = self.decide("Bash", {"command": "gh release create v1 --target main"})
-        self.assertIn("`publish` effect", publish)
-
-    def test_the_rsync_destination_decides_the_direction(self):
-        # The copy's effect is its direction, and rsync's direction is its LAST
-        # argument: `host:/src ./dst` brings bytes in - the read the untrusted
-        # label covers - and `./dst host:/dst` carries them out, which is this
-        # class. The pattern read the first token with a colon instead, so the
-        # read was refused and the egress passed, and options in front of the
-        # arguments defeated it in both directions.
-        for command, klass in (
-                ("rsync host:/src ./dst", None),
-                ("rsync ./dst host:/dst", "send"),
-                ("rsync -avz host:/src ./dst", None),
-                ("rsync -avz ./dst host:/dst", "send"),
-                # options sit on either side of the arguments
-                ("rsync --exclude .git ./dst host:/dst", "send"),
-                ("rsync -avz ./dst host:/dst --delete", "send"),
-                # a copy between two local paths is nobody's effect
-                ("rsync -avz ./src ./dst", None),
-                # scp keeps the shape match its own branch documents: both
-                # directions, which is the safe one and a single re-ask
-                ("scp host:/src ./dst", "send"),
-                ("scp -r ./dst host:/dst", "send")):
-            self.assertEqual(tg.effect_class(command, self.repo, self.roots),
-                             klass, command)
-        # and the two results reach the caller: the egress is refused as `send`,
-        # the read of the same shape passes
-        self.assertIn("`send` effect",
-                      self.decide("Bash", {"command": "rsync -avz ./dst host:/dst"}))
-        self.assertIsNone(self.decide("Bash", {"command": "rsync -avz host:/src ./dst"}))
-
-    def test_ssh_is_the_same_egress_scp_is(self):
-        # The miner found `ssh host cmd` deriving no class in this machine's real
-        # traffic, while `scp` - the same connection, reached with a command
-        # instead of a copy - was already `send`. The call reaches a machine this
-        # ledger holds no pre-state for, and an interactive login is the same
-        # call with the command left out: one class for both spellings, and the
-        # refusal is one-shot like every other connection tool's.
-        for command in ("ssh host uptime", "ssh -p 2222 host 'cat /etc/x'",
-                        "ssh build@host 'make deploy'", "ssh host"):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("`send` effect", reason, command)
-        # and the shape test still leaves the names that merely start with it
-        for command in ("sshd -T", "ssh-keygen -t ed25519", "grep -rn ssh docs/"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
-
-    def test_a_ci_run_or_cache_dropped_at_the_service_is_destructive(self):
-        # The miner's other two: `gh run delete` and `gh cache delete` are the
-        # same class as `gh repo delete` - a record other people read stops
-        # existing - and neither derived a class before this.
-        for command in ("gh run delete 12345", "gh cache delete --all",
-                        "gh run delete --repo o/r 12345"):
-            reason = self.decide("Bash", {"command": command})
-            self.assertIsNotNone(reason, command)
-            self.assertIn("`destructive` effect", reason, command)
-        # reading the same records is not this rule's, and neither is the local
-        # delete the class deliberately leaves out
-        for command in ("gh run view 12345", "gh cache list", "gh run list"):
-            self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
     # ---- ordering: a commit while the newest check failed ------------------
     def test_a_commit_is_refused_while_the_newest_check_failed(self):
@@ -1101,7 +537,7 @@ class Gate(TempHome):
         reason = self.decide("Bash", {"command": "git commit --amend --no-edit"},
                              session_id="order")
         self.assertIsNotNone(reason)
-        for unlock in ("tezgah-consent", "--no-verify", "verify-off",
+        for unlock in ("--no-verify", "verify-off",
                        "tezgah-task", "tezgah-setup"):
             self.assertNotIn(unlock, reason)
 
@@ -1151,27 +587,6 @@ class Gate(TempHome):
         self.assertIsNone(self.decide("Bash", {"command": "git commit -m x"},
                                       session_id="order"))
 
-    # ---- the gate's own blind spot, mined (bin/tezgah-status) --------------
-    def test_the_miner_folds_the_calls_the_class_table_cannot_place(self):
-        # C15: the reader the class table grows from, and the three shapes have to
-        # come apart - a shell call the table cannot read, one it reads, and one
-        # the gate refused (a refused call was never an allowed one, and counting
-        # it would report a closed hole as open).
-        self.seed_run("gh repo view me/x", "mine", failed=False)
-        self.seed_run("gh repo delete me/x --yes", "mine", failed=False)
-        digest = ti.call_id("Bash", {"command": "spin -x"})
-        for kind, detail in (("run", "spin -x"), ("deny", "loop: too many")):
-            run_json([support.PROBE_INTEGRITY],
-                     {"fn": "note", "session": "mine", "kind": kind,
-                      "detail": detail, "id": digest}, env=self.envv)
-        out, proc = run_json(
-            [os.path.join(support.REPO, "bin", "tezgah-status"),
-             "--unclassified", "--json"], None, env=self.envv)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(out["rows"], 1, out)
-        self.assertEqual(list(out["commands"]), ["gh repo view me/x"])
-        self.assertEqual(out["programs"].get("gh"), 1)
-
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):
         for command in (
@@ -1215,7 +630,7 @@ class Gate(TempHome):
         self.assertIn("Credential", reason)
 
     def test_a_credential_write_has_no_repeat_escape(self):
-        # unlike consent, this rule keeps refusing: the deny text names the
+        # this rule keeps refusing: the deny text names the
         # rephrase (a name, a length, a fingerprint), so the write is replaced
         # rather than repeated
         command = 'echo "api_key=sk-live-abc123" > out.txt'
@@ -1224,12 +639,10 @@ class Gate(TempHome):
             self.assertIsNotNone(reason)
             self.assertIn("Credential", reason)
 
-    def test_consent_and_secret_are_their_own_rules(self):
-        # `verify-off` removes the shortcut and loop halves only; these are not
-        # the integrity rule's, so they stay armed
+    def test_secret_stays_armed_under_verify_off(self):
+        # `verify-off` removes the shortcut and loop halves only; this is not
+        # the integrity rule's, so it stays armed
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
-        self.assertIsNotNone(
-            self.decide("Bash", {"command": "git push --force origin main"}))
         self.assertIsNotNone(
             self.decide("Bash", {"command": 'echo "api_key=x" >> log'}))
 
@@ -1356,7 +769,7 @@ class Gate(TempHome):
         # and a shell call the gate refuses is captured nowhere, like a refused
         # write tool
         self.assertIsNotNone(self.decide(
-            "Bash", {"command": "git push --force origin main && printf x > b.md"},
+            "Bash", {"command": "echo \"api_key=sk-live-abc123\" > b.md"},
             session_id="shellcap", capture_log=log))
         self.assertEqual(len(calls()), 1, calls())
 
@@ -1779,7 +1192,7 @@ class TaskGate(TempHome):
         scope_reason = self.write_path("src/y.py")
         self.assertIsNotNone(scope_reason)
         for reason in (phase_reason, scope_reason):
-            for command in ("tezgah-task", "tezgah-consent", "bin/tezgah"):
+            for command in ("tezgah-task", "bin/tezgah"):
                 self.assertNotIn(command, reason, reason)
 
     def test_both_write_phases_allow_a_write_inside_the_allowlist(self):
@@ -2013,10 +1426,9 @@ class LangGate(TempHome):
                         'git commit -m "verify the retry budget"',
                         "git commit --amend --no-edit"):
             self.assertIsNone(self.decide(command), command)
-        # The title shapes are refused by the consent rule before this one is
-        # reached (`gh pr create` carries a message out to a service), so the
-        # language answer for them is read in process: the rule allows the
-        # English title, and the gate's refusal is another rule's.
+        # The title shapes are read in process for the language answer: the
+        # rule allows the English title, and any gate refusal is another
+        # rule's.
         for command in ('gh pr create --title "Add the status repair" --body "x"',
                         'gh issue create --title "Review the index"'):
             self.assertIsNone(tg.lang_reason(command, self.repo), command)
@@ -2054,45 +1466,6 @@ class LangGate(TempHome):
         self.touch(os.path.join(self.home, ".config", "tezgah",
                                 "pretooluse-off"))
         self.assertIsNone(self.decide("git commit -m durum"))
-
-
-class RmOutsideFloor(unittest.TestCase):
-    """`rm_outside`'s scratch floor, read in process.
-
-    A gate test that builds its targets from the sandbox cannot see this floor:
-    the sandbox lives under TMPDIR, so on Linux every path it can name is
-    scratch and the floor swallows the case. Absolute targets against an
-    explicit run directory are the same answer on every platform."""
-
-    def outside(self, target, cwd="/srv/app", scratch_ok=True):
-        command = "rm -rf %s" % target
-        return tg.rm_outside(tg.mask(command), command, cwd, cwd, scratch_ok)
-
-    def test_a_target_under_a_temp_root_is_scratch(self):
-        for target in ("/tmp/x", "/tmp/tezgah-fixture/nested", "/tmp/a/b/c"):
-            self.assertFalse(self.outside(target), target)
-
-    def test_a_target_outside_the_temp_root_is_an_effect(self):
-        for target in ("/srv/other", "../sibling", "/etc/x", "/opt/data",
-                       "/tmp/../etc", "/tmp", "$VAR/x", "~/Downloads/x"):
-            self.assertTrue(self.outside(target), target)
-
-    def test_the_run_directory_itself_is_always_an_effect(self):
-        # even when it sits under a temp root: deleting where the command runs
-        # is not a delete inside it, and a repo checked out in /tmp is work
-        for cwd in ("/srv/app", "/tmp/app"):
-            self.assertTrue(self.outside(cwd, cwd=cwd), cwd)
-            self.assertTrue(self.outside(".", cwd=cwd), cwd)
-
-    def test_a_target_inside_the_run_directory_is_not_this_rule(self):
-        for target in ("build", "./dist", "/srv/app/sub"):
-            self.assertFalse(self.outside(target), target)
-
-    def test_the_conservative_reader_keeps_scratch_as_an_effect(self):
-        # the taint rule's half: a scratch delete is still an effect there, which
-        # is what stops an injection making its first move a `rm -rf` in /tmp
-        self.assertTrue(self.outside("/tmp/x", scratch_ok=False))
-
 
 if __name__ == "__main__":
     unittest.main()

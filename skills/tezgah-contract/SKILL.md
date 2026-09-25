@@ -506,9 +506,9 @@ unjudged, exactly as when the referee call itself fails - the tool never prints
 an unheadlined paragraph as a verdict.
 
 A consult or codegen answer is a read from outside the user and this workspace:
-the turn is tainted, so an effect that leaves the workspace after it waits for
-the user's own approval (`bin/tezgah-consent`) - read the answer and expect
-that. `-h`, `--help` and a bare invocation reach no provider and are not reads.
+the turn is tainted, so an effect that leaves the workspace after it carries the
+untrusted notice - read the answer and expect that. `-h`, `--help` and a bare
+invocation reach no provider and are not reads.
 
 Add `--online` (live web search) ONLY when the question needs facts newer or
 wider than the codebase - current versions, CVEs,

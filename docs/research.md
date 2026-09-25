@@ -422,8 +422,8 @@ pre-rule row is in, because a writer stricter than the checker refuses what the
 checker only reports.
 
 **An append starts at the committed boundary.** `committed_size`
-(`hooks/tezgah_integrity.py:408`) is the offset just past the last `\n` in a file,
-and `truncate_to_committed` (`hooks/tezgah_integrity.py:434`) cuts a descriptor
+(`hooks/tezgah_integrity.py:407`) is the offset just past the last `\n` in a file,
+and `truncate_to_committed` (`hooks/tezgah_integrity.py:433`) cuts a descriptor
 back to it; all three writers truncate first and write after
 (`append_claim`, `tezgah_research.py:1324`; `_append_row`; `append_prediction`,
 `tezgah_research.py:2844`). A fragment a killed writer left behind - no newline
@@ -509,17 +509,17 @@ installed `bin/tezgah-research`) and the `orx` manual step.
 
 The note, when orx is absent or a line is broken: a session is told that `orx` is
 not installed and to fall back to a host subagent rather than improvise the
-protocol (`context_for`, `hooks/tezgah_context.py:802-978`), and at session start and
+protocol (`context_for`, `hooks/tezgah_context.py:800-976`), and at session start and
 after a compaction a line with structural problems is named with its first error
 and the advice to run `check` before reporting a result (the note
-`research_broken` in `context_for`, `hooks/tezgah_context.py:802-978`).
+`research_broken` in `context_for`, `hooks/tezgah_context.py:800-976`).
 
 The mark: `research` in the status line. It is armed when `research-off` is
 absent and the research tooling is present (`health_segments`,
-`hooks/tezgah_context.py:1299-1367`) and turns used when a shell command really ran
+`hooks/tezgah_context.py:1297-1365`) and turns used when a shell command really ran
 the layer - `orx` or `tezgah-research`
 in a command position, classified by the shared tokenizer
-(`shell_kind`, `hooks/tezgah_context.py:1059-1084`), so a command that merely mentions
+(`shell_kind`, `hooks/tezgah_context.py:1057-1082`), so a command that merely mentions
 either name marks nothing. That is the same reader every host's status segment
 uses ([status line](status-line.md)).
 
@@ -528,7 +528,7 @@ uses ([status line](status-line.md)).
 `research-off` is the kill switch: with it armed the `RESEARCH` paragraph is
 dropped, the session note is not built, and the mark reads `off` rather than
 armed. It removes the rule, not just the mark - the diff is in `core_split`,
-`hooks/tezgah_context.py:554-610` ([kill switch](glossary.md#kill-switch)).
+`hooks/tezgah_context.py:552-608` ([kill switch](glossary.md#kill-switch)).
 
 ## Source of truth
 

@@ -12,19 +12,10 @@
 //     native allow/deny path where a build emits it; tool.execute.before is the
 //     always-available fallback (1.18.30 never emits permission.ask, so the
 //     fallback is what enforces today).
-//   - tool.execute.before also carries the rules that need the ledger: consent
-//     for an unasked irreversible or outward-facing shell command (refused once
-//     per action, so the ask reaches the user), secret for a credential on its
-//     way into a file, the untrusted sink (a write outside the workspace, or a
-//     shell effect, in a turn that read text tezgah cannot vouch for, waits for
-//     the user's own approval written after that read), the two repeat ceilings
-//     (loop per user turn, retry per session), and the one ordering obligation
-//     (a commit while the newest check in this session failed). One class of
-//     that rule is not derived here: an outbound `send` (mail, a payment, a
-//     remote API called with a write, a copy to another host, a `gh pr`/`gh
-//     issue` write) has no pattern in this file at all - a command that looks
-//     like one is put to the core through the same gate CLI, so the SEND pattern
-//     stays in exactly one place and this host cannot drift from it.
+//   - tool.execute.before also carries the rules that need the ledger: secret
+//     for a credential on its way into a file, the two repeat ceilings (loop
+//     per user turn, retry per session), and the one ordering obligation (a
+//     commit while the newest check in this session failed).
 //   - a write is put to the core itself, through bin/tezgah-gate: the active
 //     task's phase and path allowlist is a rule of hooks/tezgah_gate.py, and
 //     this host asks for its answer rather than keeping a JS copy of it (the
@@ -55,10 +46,10 @@
 //     effect a turn makes after such a read (hooks/tezgah_untrusted.marks).
 //
 // Known gap: every rule of hooks/tezgah_gate.py is enforced here, but the ledger
-// the counters read is complete only for the rules ported last - consent, secret,
-// sink, loop, retry and order write the rows the Python gate's `_deny` writes,
-// while the explorer, attribution and shortcut refusals (and the nudge, marked
-// by its cache-dir file alone) still leave no row of their own.
+// the counters read is complete only for the rules ported last - secret, loop,
+// retry and order write the rows the Python gate's `_deny` writes, while the
+// explorer, attribution and shortcut refusals (and the nudge, marked by its
+// cache-dir file alone) still leave no row of their own.
 //
 // Every path fails open: if anything here throws unexpectedly, the tool runs.
 // Hook names a given opencode build does not know are skipped by the runtime
@@ -70,7 +61,7 @@ import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { homedir, tmpdir } from "node:os"
-import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from "node:path"
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path"
 
 const HOME = homedir()
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "tezgah")
@@ -211,118 +202,6 @@ const ATTRIB_DENY =
   "the commit, PR, issue or review text and re-run. Naming a tool in order to " +
   "use it or describe real behavior is fine; crediting it as author is not."
 
-// --- consent: an irreversible or outward-facing command ---------------------
-// A `git push` carrying a force flag, to a branch that is not scratch: a scratch
-// branch is disposable, so the history it loses costs nobody else anything. The
-// flag has to sit in the push segment the command's own separators bound.
-const GIT_PUSH =
-  /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*push\b([^|;&]*)/gi
-const FORCE_FLAG =
-  /(?:^|\s)(?:-f|--force|--force-with-lease|--force-if-includes)(?=[\s=]|$)/
-const SCRATCH =
-  /\b(?:tmp|temp|scratch|wip|spike|throwaway|trash|sandbox)[-/][\w./-]*/i
-// `git branch -D`/`--delete`, and the remote delete `git push --delete`/`-d`. The
-// delete flag is matched by shape, because `--merged` also carries a `d`.
-const BRANCH_DELETE =
-  /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*(?:branch\s+(?:-[A-Za-z]*[dD]\b|--delete\b)|push\b[^|;&]*(?:--delete\b|-d\b))/i
-// The destructive effect that lands on a shared resource at a service instead of
-// on this machine (hooks/tezgah_gate.REMOTE_DESTROY): the remote repository
-// `gh repo delete|archive` closes for everyone, the bucket `aws s3 rb` removes,
-// the prefix `aws s3 rm --recursive` empties, and `gh run delete`/`gh cache
-// delete` drop a CI run's record and the caches other runs read. Read as
-// `destructive` beside the branch delete, never as a `send`: nothing of this
-// workspace's is carried out, something both parties owned stops existing.
-// `aws s3 rm` without `--recursive` is the shape of `rm` on one file and stays
-// out.
-const REMOTE_DESTROY =
-  /(?:^|[|;&]\s*|\s)(?:gh\s+repo\s+(?:delete|archive)\b|gh\s+(?:run|cache)\s+delete\b|aws\s+s3\s+rb\b)/i
-const AWS_S3_RM = /(?:^|[|;&]\s*|\s)aws\s+s3\s+rm\b/gi
-const AWS_RECURSIVE = /--recursive\b/
-// A recursive force-delete: both flags have to be there (`rm -f` and `rm -r` on
-// their own are not this rule's), and the targets come from the raw text so a
-// quoted path still resolves - the `rm` itself is matched on the masked text, so
-// a message that describes the command is not the command.
-const RM = /(?:^|[|;&]\s*|\s)rm\s+((?:-\S+\s+)*)([^|;&]*)/g
-// The same pattern anchored at one offset, for the raw-text read in rmOutside.
-const RM_AT = new RegExp(RM.source, "y")
-const RM_RECURSIVE = /-[A-Za-z]*r[A-Za-z]*\b|--recursive\b/i
-const RM_FORCE = /-[A-Za-z]*f[A-Za-z]*\b|--force\b/
-// Applying a migration, by the runners that name it. `clean` is here with the
-// upgrade/down words because `flyway clean` drops every object in the configured
-// schemas - the same class, reached by the runner's own verb rather than by a
-// downgrade (hooks/tezgah_gate.MIGRATION).
-// ponytail: a hand-written `psql -c "ALTER TABLE ..."` is not caught - reading
-// SQL intent is not a regex.
-const MIGRATION =
-  /(?:^|[|;&]\s*|\s)(?:(?:alembic|flyway|goose|dbmate|sqitch)\s+(?:upgrade|up|migrate|deploy|down|downgrade|rollback|reset|redo|clean)\b|(?:knex|prisma|sequelize|typeorm)\s+\S*migrat\S*|(?:django-admin|manage\.py)\s+migrate\b|python\d?\s+-m\s+django\s+migrate\b|(?:bin\/)?rails\s+db:(?:migrate|rollback|reset|schema:load)\b)/i
-// A deploy: putting code in front of users, by the runners that name it.
-const DEPLOY =
-  /(?:^|[|;&]\s*|\s)(?:(?:vercel|netlify|fly|flyctl|railway|render|wrangler|firebase|gcloud|eb)\b[^|;&]*?\bdeploy\b|(?:serverless|sls)\s+deploy\b|terraform\s+(?:apply|destroy)\b|helm\s+(?:install|upgrade|uninstall)\b|kubectl\s+(?:apply|delete|rollout|scale)\b|ansible-playbook\b)/i
-// Shipping an artifact outward: a registry, a release, an image.
-const PUBLISH =
-  /(?:^|[|;&]\s*|\s)(?:(?:npm|yarn|pnpm|bun)\s+publish\b|twine\s+upload\b|docker\s+push\b|gh\s+release\s+create\b)/i
-// A push to a target that is live rather than a branch under review.
-const OUTWARD =
-  /(?:^|[|;&]\s*|\s)git\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*push\s+\S*\s*(?:heroku|production|prod)\b/i
-// A command that could be carrying data out to a service that acts on it: mail,
-// a payment, a remote API called with a write, a copy to another host. This is
-// a PRE-FILTER and not the rule - the rule is hooks/tezgah_gate.py's SEND
-// pattern, and a command this sees is put to the core through bin/tezgah-gate
-// (see the header). So it is deliberately looser than the pattern: a match here
-// costs one spawn and the core's answer, a miss costs the ask that does not
-// happen, which is the failure this pre-filter exists to avoid.
-const SEND_CANDIDATE =
-  /(?:^|[|;&(]\s*)(?:sendmail|msmtp|mutt|mailx|swaks|mail\s|aws\s+ses\b|stripe\b|paypal\b|nc\b|ncat\b|scp\b|ssh\b|rsync\b|curl\b|gh\s+api\b|gh\s+(?:pr|issue)\s+(?:create|edit|comment|review|merge|close)\b)/i
-// The classes a refused command's effect belongs to, and what each one is. The
-// refusal names the class and this clause, never the pattern that matched: the
-// agent has to see what it is about to do, not which regex caught it.
-const EFFECTS = {
-  destructive: "this one rewrites or drops history, a branch, files outside " +
-    "the run directory, or a resource other people share - a repository, a " +
-    "bucket, a CI run or its cache",
-  schema: "this one changes the shape of a database",
-  deploy: "this one puts code in front of users",
-  publish: "this one ships an artifact to a registry or a release",
-  outward: "this one pushes to a live target rather than a branch under review",
-  // No pattern of its own here (SEND_CANDIDATE asks the core instead), but the
-  // class has to be named: the refusal quotes this clause, and a declaration
-  // reads this table to know which classes exist.
-  send: "this one carries data out to a service that acts on it - mail, a " +
-    "payment, a remote API called with a write, a copy to another host",
-}
-const CONSENT_DENY =
-  "Consent gate (`%s` effect): %s. The contract requires the user's own " +
-  "decision before an irreversible or outward-facing action, and a re-issued " +
-  "command is not that decision: the ledger holds no approval for this action, " +
-  "so this keeps refusing. Put the exact command and what it cannot undo in " +
-  "front of the user; `bin/tezgah-consent %s` writes their approval - `--last` " +
-  "answers the newest ask - and the command passes once. No checkpoint can be " +
-  "taken for a shell effect (a force-push, a migration or a deploy changes a " +
-  "remote or a live system this ledger holds no pre-state for), so their " +
-  "approval is the whole record on the rollback side."
-// Appended when this gate's own refusal is on record already: the second refusal
-// reads as "still waiting for the user", not as a fresh ask.
-const ASK_STANDS_NOTE =
-  " The ask is on record already (`consent`, this action's id); what is " +
-  "missing is the user's own answer, and a repeat is not it."
-// The classes from the one that cannot be walked back at all to the one a
-// reviewer can still catch. It is the order "at least as severe" is read in (see
-// consentEffect), which is what keeps a declared effect a way to raise a
-// command's class and never a way to lower it.
-const EFFECT_RANK = ["send", "outward", "publish", "deploy", "schema", "destructive"]
-// The class a command declares for itself. Read off the RAW text, not the masked
-// text: the natural place for the declaration is a trailing `#` comment, and
-// maskText blanks comments. ponytail: a command that merely quotes the form - a
-// commit message documenting this rule - is held to the declared class too; the
-// direction is the safe one (the class can only go up) and the refusal is
-// one-shot.
-const DECLARED_EFFECT = /tezgah:effect\s*=\s*([A-Za-z]+)/
-// Appended to the refusal when the command declared a lower class than the one it
-// is held to: the attempt to talk the class down is the user's to see, in the
-// refusal and in the deny row's detail.
-const DOWNGRADE_NOTE =
-  " The command declared `tezgah:effect=%s`; a declaration can only make this " +
-  "stricter, so `%s` stands."
 // --- secret: a credential on its way into a file ----------------------------
 // Only the two shapes the contract names: a bearer header, or a `name=value`
 // assignment. `:` is NOT a separator here - `{"api_key": "x"}` is a JSON field in
@@ -370,9 +249,9 @@ const NO_CLASS_NOTE = "the host reported no error text for it, so the class " +
 // common work loop (edit, test, edit, test reaches two identical test runs, and
 // a session's third `git status` still passes) so only a genuine spin reaches it.
 const RETRY_CEILING = 3
-// How much of the ledger tail the one-shot consent mark and the repeat guards
-// read before an action is visible again (hooks/tezgah_gate.CONSENT_TAIL and the
-// tail tezgah_integrity.prior_calls reads its attempts from).
+// How much of the ledger tail the repeat guards read before an action is
+// visible again (the tail tezgah_integrity.prior_calls reads its attempts
+// from).
 const LEDGER_TAIL = 200
 // Anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
 // failure disappears. Ported from hooks/tezgah_integrity.py so opencode denies
@@ -731,7 +610,7 @@ const DETAIL_MAX = 200
 // left out of the row for every result that is the user's or the workspace's -
 // which is what every reader assumes of a missing field. A call with no kind of
 // work of its own but an untrusted result - an MCP answer, a fetched page -
-// records as `external`, so the read is on the ledger the sink rule consults.
+// records as `external`, so the read is on the ledger the taint notice reads.
 async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
                               source) {
   if (!sessionID) return
@@ -863,8 +742,8 @@ async function postWrite(sessionID, args, cwd) {
 
 // One row appended to a session's ledger, the same JSONL the Python gate and the
 // Stop hook read (hooks/tezgah_integrity.note). Best effort: a write failure is
-// not fatal, and the one caller that needs the row to exist - the consent mark -
-// then refuses again next time rather than letting the action through.
+// not fatal, and a reader that needs the row to exist simply reads the tail
+// without it rather than letting the action through.
 //
 // The line is written by one write(2) of the whole row on an O_APPEND handle,
 // which is not the flock the Python writer takes: node core exposes no flock(2)
@@ -924,8 +803,8 @@ async function ledgerTail(sessionID, tail) {
 // (attempts in the current user turn, attempts over the whole tail, the newest
 // attempt's exit, its failure class) for one action identity - the Python
 // guard's tezgah_integrity.prior_calls. Only rows that carry an `exit` are
-// attempts: a `deny` row and the consent mark carry the same id with no outcome,
-// so counting them would leave the refusal itself as the newest row, read as "no
+// attempts: a `deny` row carries the same id with no outcome, so counting it
+// would leave the refusal itself as the newest row, read as "no
 // failure" and disarm the ceiling on every second repeat. A `turn` row opens the
 // current user turn; when the ledger carries none, the whole window is the turn.
 function priorCalls(rows, digest) {
@@ -1039,78 +918,10 @@ function orderReason(args, rows) {
   return ORDER_DENY.replace("%s", failedCheck(rows))
 }
 
-// The kinds a PostToolUse hook writes after a call ran, whatever the host
-// reported about the outcome (hooks/tezgah_integrity.STEP_KINDS). What spends a
-// grant is one of these, never the presence of `exit`: this host records no exit
-// for a shell call whose result carries no `metadata.exit`, and a lease only
-// `exit` could spend would be a standing permit there.
-// `interrupted` is in the set because this file mirrors that constant and a
-// mirror that lags its original is worse than no mirror. This host cannot write
-// it - opencode exposes no interruption signal, which the comment at the
-// tool.execute.after handler already records - so for opencode the entry is
-// inert and costs one Set member.
-const STEP_KINDS = new Set(["run", "edit", "verify", "verify_ok", "verify_fail",
-                            "interrupted"])
-
-// Which consent record this action already carries in this workspace: "grant"
-// when bin/tezgah-consent recorded the user's own approval and the effect has
-// not spent it yet, "ask" when only the gate's refusal is on record for this
-// workspace, null when neither is (hooks/tezgah_gate.consent_mark).
-//
-// A grant is a lease on ONE effect, not a standing permit: the row the effect
-// leaves behind - the same id carrying an outcome - is what proves it ran, so the
-// next identical command goes back to the user instead of running on the first
-// approval forever (hooks/tezgah_gate.unspent_grant). The lease also belongs to
-// one workspace: the action id is tool plus args with no cwd (the loop guard's
-// key too), while the effect is resolved against the directory the call runs in,
-// so the ask row records that directory and a grant answers the action there and
-// not the same text somewhere else. Two rows, two facts, never one row
-// conflating them: the gate writes `consent` (it asked) and never `grant` - a
-// grant is the user's, written by the CLI, so the approval cannot be forged by
-// the rule it constrains. Read by kind, id and that workspace, so "who was asked
-// to confirm what, and who answered" is a query over rows rather than a match on
-// a deny message a later reword would silently break.
-async function consentMark(sessionID, digest, workspace) {
-  if (!sessionID || !digest) return null
-  const rows = await ledgerTail(sessionID, LEDGER_TAIL)
-  const asked = rows.map((row) => row.kind === "consent" && row.id === digest)
-    .lastIndexOf(true)
-  const mine = asked === -1 || (rows[asked].workspace ?? null) === workspace
-  if (unspentGrant(rows, digest, workspace) !== null) return "grant"
-  if (asked !== -1 && mine) return "ask"
-  return null
-}
-
-// The directory a call runs in, as the lease's scope: hooks/tezgah_gate.py
-// records os.path.realpath(cwd) on the ask row and compares the same value, so
-// this half resolves the path the same way - a row written here is then one the
-// Python reader honours, and vice versa (bin/tezgah-gate is handed the same dir
-// as cwd). Falls back to the raw string, and the lease then simply does not
-// match: a scope that cannot be resolved must never be a standing permit.
-function leaseScope(dir) {
-  try {
-    return realpathSync(dir)
-  } catch {
-    return String(dir || "")
-  }
-}
-
-// A consent row: the gate's own fact, `consent` (it asked). `detail` is the
-// effect class and `id` the action digest, so both are read back by kind and id.
-// The gate writes no `grant` - that row belongs to the user.
-async function noteConsentRow(sessionID, kind, klass, digest, workspace) {
-  if (!sessionID) return
-  await appendRow(sessionID, {
-    kind, ts: Math.floor(Date.now() / 1000), detail: klass,
-    id: digest, workspace: workspace || null,
-  })
-}
-
 // The refusal recorded before it is returned, as the Python gate's `_deny` does:
 // a deny nobody counts is a rule whose effect can never be argued about, and the
 // row says which action the rule stopped and where. `extra` appends a fact the
-// row must keep beyond the 80 characters of the reason it truncates, which is
-// where a declaration the class refused stays visible (consentEffect).
+// row must keep beyond the 80 characters of the reason it truncates.
 async function noteDeny(sessionID, rule, reason, tool, args, workspace, extra) {
   if (!sessionID) return
   let detail = rule + ": " + String(reason).slice(0, 80)
@@ -1121,73 +932,11 @@ async function noteDeny(sessionID, rule, reason, tool, args, workspace, extra) {
   })
 }
 
-// Consent, then secret: the two shell rules that need the ledger. The class is
-// the one the command text derives, raised by a `tezgah:effect=` declaration that
-// is at least as severe and never lowered by one that is not (consentEffect);
-// what the ledger then holds is one row per fact - `consent` for the ask, and,
-// written by bin/tezgah-consent and never here, the user's own `grant`. An
-// action already asked about falls through to the secret scan exactly as it does
-// in the Python gate. Both stay armed under `verify-off`: that kill switch
-// removes the shortcut
-// and repeat rules, not the consent the user owes.
+// The one shell rule that needs the ledger: a credential on its way into a file
+// (the secret scan and its heredoc half). Stays armed under `verify-off`: that
+// kill switch removes the shortcut and repeat rules, not this one.
 async function shellRules(tool, args, sessionID, base, dir) {
   const cmd = String(args.command || args.cmd || "")
-  const digest = actionID(tool, args)
-  // The lease's scope, the directory this call runs in - the digest carries the
-  // command text and not the place, so the ask row records the place (see
-  // consentMark).
-  const scope = leaseScope(dir)
-  // Two readings of one command, as the Python gate has them: the taint rule
-  // wants the conservative one (scratchOk=false), because a delete is an effect
-  // whatever it targets, so a scratch `rm -rf` cannot be an injection's silent
-  // first step; the ask is skipped when every effect the command has is scratch.
-  const [klass, ignored] = consentEffect(cmd, dir, base, false)
-  const [asking, askedIgnored] = consentEffect(cmd, dir, base)
-  const mark = asking ? await consentMark(sessionID, digest, scope) : null
-  // The sink rule is checked first where both apply: the untrusted read is the
-  // fact that refusal has to name, and it rests on the same rows and the same
-  // approval (hooks/tezgah_gate.decision).
-  if (klass) {
-    const [channel, sink] = await sinkCheck(sessionID, digest, klass, null, scope)
-    if (sink) {
-      if (mark === null) {
-        await noteConsentRow(sessionID, "consent", klass, digest, scope)
-      }
-      await noteDeny(sessionID, "sink", sink, tool, args, base,
-                     "untrusted channel: " + channel)
-      return sink
-    }
-  }
-  if (asking && mark === null) {
-    await noteConsentRow(sessionID, "consent", asking, digest, scope)
-    const reason = consentReason(asking, askedIgnored, false, digest)
-    await noteDeny(sessionID, "consent", reason, tool, args, base,
-                   askedIgnored ? "declared `" + askedIgnored + "` ignored, `" +
-                                  asking + "` stands" : null)
-    return reason
-  }
-  if (asking && mark === "ask") {
-    // The ask is on record and no approval came back, so a bare re-issue is
-    // refused again rather than passing on its own earlier refusal - the Python
-    // gate does the same (hooks/tezgah_gate.decision). No second `consent` row:
-    // one question, asked once. A `grant` here would claim a consent the user
-    // never gave.
-    const reason = consentReason(asking, askedIgnored, true, digest)
-    await noteDeny(sessionID, "consent", reason, tool, args, base,
-                   askedIgnored ? "declared `" + askedIgnored + "` ignored, `" +
-                                  asking + "` stands" : null)
-    return reason
-  }
-  if (asking === null && SEND_CANDIDATE.test(cmd)) {
-    // The one class this file does not derive, asked of the core that owns the
-    // SEND pattern: bin/tezgah-gate runs hooks/tezgah_gate.decision, whose
-    // refusal is used here verbatim, and that side writes its own `consent` and
-    // `deny` rows - so this half writes none. An empty answer (a CLI that is not
-    // installed, or a command the core lets through) falls through to the
-    // credential scan exactly as before.
-    const fromCore = await gateReason(tool, args, dir, sessionID)
-    if (fromCore) return fromCore
-  }
   const reason = secretCommand(cmd)
   if (reason) {
     await noteDeny(sessionID, "secret", reason, tool, args, base)
@@ -1260,150 +1009,6 @@ function realPath(p) {
   }
 }
 
-// The temp roots (SCRATCH_ROOTS in the Python gate): a `rm -rf` under one is
-// scratch, not an irreversible effect - the directory exists to be thrown away,
-// so the user's ask would protect nothing and a session clearing its own
-// fixtures is held to none. The root itself is NOT scratch (deleting all of
-// /tmp is not a cleanup) and neither is a path that only escapes through it:
-// both sides are realpath'd before the test, so `/tmp/../etc` escapes.
-const SCRATCH_ROOTS = [realPath(tmpdir()), realPath("/tmp")]
-
-// True when this line recursively force-deletes a path outside the run directory
-// (`cwd`, the directory the command runs in). The `rm` is found on the masked
-// text - a message that names the command deletes nothing - while the flags and
-// targets are read from the raw text at the same offset, so a quoted path still
-// resolves. The run directory itself counts as outside: deleting where the
-// command runs is not a delete inside it. A target this cannot resolve (`$VAR`,
-// `~`, a URL) counts as outside too; the conservative direction is the one that
-// stops to ask. A target UNDER a temp root is neither, with `scratchOk`: that is
-// the session's own scratch, and the taint rule's half passes false so a scratch
-// `rm -rf` is still an effect (hooks/tezgah_gate.rm_outside). ponytail: a target
-// behind a `cd` in the same line resolves against `cwd`, not against the `cd`,
-// so that case can pass - it fails open.
-function rmOutside(masked, raw, cwd, base, scratchOk = true) {
-  const root = realPath(cwd || base)
-  for (const m of masked.matchAll(RM)) {
-    // The args come from the raw text at the offset the masked match proved is a
-    // real `rm`: on the masked text a blanked target reads as more flags.
-    RM_AT.lastIndex = m.index
-    const r = RM_AT.exec(raw)
-    if (!r) continue
-    if (!(RM_RECURSIVE.test(r[1]) && RM_FORCE.test(r[1]))) continue
-    for (const flagless of r[2].split(/\s+/)) {
-      if (!flagless || flagless.startsWith("-")) continue
-      const tok = flagless.replace(/^['"]+|['"]+$/g, "")
-      if (!tok) continue
-      if (tok.includes("$") || tok.includes("~") || tok.includes("://")) return true
-      const p = realPath(isAbsolute(tok) ? tok : resolve(root, tok))
-      if (p === root) return true
-      if (p.startsWith(root + sep)) continue
-      if (scratchOk && SCRATCH_ROOTS.some((s) => p.startsWith(s + sep))) continue
-      return true
-    }
-  }
-  return false
-}
-
-// The effect class of an irreversible or outward-facing command, or null:
-// `destructive` rewrites or drops history, a branch or files outside the run
-// directory; `schema` changes the shape of a database; `deploy` puts code in
-// front of users; `publish` ships an artifact to a registry or a release;
-// `outward` pushes to a live target rather than a branch under review. A command
-// carries the first class that matches, so the refusal says what the action is
-// instead of listing the patterns it hit.
-//
-// One call is all the gate sees and it cannot ask, so the ask becomes a refusal
-// the user reads. What the ledger then says is the point: the `consent` row
-// records the ask, and a `grant` - the user's own approval, written by
-// bin/tezgah-consent and never here - records a pass the user authorised before
-// the command ran, for one effect (see consentMark). That is the least friction
-// that still stops an agent spending someone else's branch, database or
-// deployment unasked: the refusal stands until the user answers, and a bare
-// re-issue is refused again rather than passing on its own earlier refusal. A
-// session whose ledger cannot be written refuses every time, so there the ask has
-// to happen outside the agent.
-// True when this line destroys a shared resource at a service: the remote
-// repository `gh repo delete|archive`, the bucket `aws s3 rb`, or the prefix
-// `aws s3 rm --recursive` (hooks/tezgah_gate.remote_destroy).
-//
-// The command is found on the masked text - a message that names it destroys
-// nothing - while the `--recursive` flag is read from the raw text at the same
-// offset, because the masker blanks a `//` comment tail and takes the flag with
-// it. The flag has to sit in the same simple command.
-function remoteDestroy(masked, raw) {
-  if (REMOTE_DESTROY.test(masked)) return true
-  for (const m of masked.matchAll(AWS_S3_RM)) {
-    const tail = raw.slice(m.index)
-    const end = tail.search(/[;&\n]/)
-    if (AWS_RECURSIVE.test(end === -1 ? tail : tail.slice(0, end))) return true
-  }
-  return false
-}
-
-function effectClass(command, cwd, base, scratchOk = true) {
-  const c = String(command || "")
-  if (!c) return null
-  const masked = maskText(c)
-  for (const m of masked.matchAll(GIT_PUSH)) {
-    if (FORCE_FLAG.test(m[1]) && !SCRATCH.test(m[1])) return "destructive"
-  }
-  if (BRANCH_DELETE.test(masked) || remoteDestroy(masked, c)
-      || rmOutside(masked, c, cwd, base, scratchOk)) {
-    return "destructive"
-  }
-  if (MIGRATION.test(masked)) return "schema"
-  if (DEPLOY.test(masked)) return "deploy"
-  if (PUBLISH.test(masked)) return "publish"
-  if (OUTWARD.test(masked)) return "outward"
-  return null
-}
-
-// The class this command declares for itself with `tezgah:effect=<class>`, or
-// null when it declares nothing or nothing this gate knows how to rank.
-function declaredEffect(command) {
-  const m = DECLARED_EFFECT.exec(String(command || ""))
-  const klass = m ? m[1].toLowerCase() : ""
-  return Object.prototype.hasOwnProperty.call(EFFECTS, klass) ? klass : null
-}
-
-// The class to hold this command to, and the declaration it ignored, as the
-// Python gate's consent_effect decides it.
-//
-// A command may declare `tezgah:effect=<class>`, which is how an effect no
-// pattern here can see - someone's own deploy script, a migration runner this
-// module does not know - still gets asked about. The declaration is taken only
-// when it stands at or above the class the command text derives along
-// EFFECT_RANK, and one that would stand below it is ignored: a declaration able
-// to lower a class is a bypass of the very gate that reads it. So the declaration
-// can tighten the rule and never loosen it. Returns [class, ignored declaration].
-function consentEffect(command, cwd, base, scratchOk = true) {
-  const derived = effectClass(command, cwd, base, scratchOk)
-  const declared = declaredEffect(command)
-  if (declared === null) return [derived, null]
-  if (derived !== null &&
-      EFFECT_RANK.indexOf(declared) < EFFECT_RANK.indexOf(derived)) {
-    return [derived, declared]
-  }
-  return [declared, null]
-}
-
-// The refusal for one effect class: the class, what it means, and what to ask,
-// never the list of patterns the command happened to match. An ignored
-// declaration is named with it, so an attempt to talk the class down reaches the
-// user instead of failing silently.
-function consentReason(klass, ignored, asked, digest) {
-  let reason = CONSENT_DENY.replace("%s", klass)
-    .replace("%s", EFFECTS[klass])
-    .replace("%s", digest || "?")
-  if (asked) {
-    reason += ASK_STANDS_NOTE
-  }
-  if (ignored) {
-    reason += DOWNGRADE_NOTE.replace("%s", ignored).replace("%s", klass)
-  }
-  return reason
-}
-
 // The refusal when this command would write a credential into a file, or null.
 // Reading an env var or running a tool with a key in its env is the normal work
 // this must not touch, so a token only counts next to a write sink, and a sink
@@ -1424,14 +1029,12 @@ function secretCommand(command) {
   return null
 }
 
-// --- untrusted content: the channel, the label, the sink --------------------
-// The three halves the Python hosts get from
-// hooks/tezgah_integrity.untrusted_source, hooks/tezgah_untrusted.marks and
-// hooks/tezgah_gate.sink_check, mirrored here because this plugin cannot call
-// the core in process. A result that arrived from outside the user and this
-// workspace carries a provenance label on the result itself, the call's own row
-// carries the channel, and - while such a read is live - an effect that leaves
-// the workspace waits for the user's own approval written after that read.
+// --- untrusted content: the channel and the label ---------------------------
+// The two halves the Python hosts get from
+// hooks/tezgah_integrity.untrusted_source and hooks/tezgah_untrusted.marks,
+// mirrored here because this plugin cannot call the core in process. A result
+// that arrived from outside the user and this workspace carries a provenance
+// label on the result itself, and the call's own row carries the channel.
 const UNTRUSTED_CHANNEL = {web: "a web result", mcp: "an MCP server",
   network: "a network read", tier: "an external model answer"}
 // The calls whose result is someone else's text: a web result, an MCP server's
@@ -1689,100 +1292,6 @@ function turnChannel(rows) {
     else if (source === channel) channel = null
   }
   return channel
-}
-
-// The index of the newest `grant` row for this action in this workspace that the
-// effect has not spent yet, or null (hooks/tezgah_gate.unspent_grant). One
-// definition, read by the consent mark and by the sink rule below: the lease's
-// scope, the spend - the row the effect leaves behind - and the newest-grant
-// rule.
-function unspentGrant(rows, digest, workspace) {
-  const granted = []
-  const asks = []
-  rows.forEach((row, i) => {
-    if (row.id !== digest) return
-    if (row.kind === "grant") granted.push(i)
-    else if (row.kind === "consent") asks.push(i)
-  })
-  if (!granted.length) return null
-  if (asks.length
-      && (rows[asks[asks.length - 1]].workspace ?? null) !== workspace) {
-    return null
-  }
-  const at = granted[granted.length - 1]
-  if (rows.slice(at + 1).some(
-    (row) => row.id === digest && STEP_KINDS.has(row.kind))) {
-    return null
-  }
-  return at
-}
-
-// The label the ask row carries for a write that only the realpath makes a sink
-// (hooks/tezgah_gate.SINK_WRITE), so the CLI answers it exactly as it answers a
-// consent refusal.
-const SINK_WRITE = "outside-workspace"
-const UNTRUSTED_DENY =
-  "Sink rule: this call is %s, and this user turn has already read %s - " +
-  "content from outside the user and this workspace, which can carry an " +
-  "instruction the user never gave. The ledger holds no approval for this " +
-  "effect written after that read, so it waits: put it in front of the user, " +
-  "and `bin/tezgah-consent %s` (or --last) writes their answer and the call " +
-  "passes once. Content is not the user - an approval given before the read " +
-  "does not cover it."
-
-// (the untrusted channel, the deny reason) for the sink rule, or (null, null)
-// when this effect is not one to refuse (hooks/tezgah_gate.sink_check).
-//
-// `klass` is the command's effect class, `target` the realpath of a write that
-// left the root; a write inside the root and a command of no class are not
-// sinks. An unspent grant does not lift this on its own: it has to be newer than
-// the read, which is the one fact separating the user's approval of THIS turn
-// from an approval of the same command before the untrusted text arrived. The
-// tail is the window, like the consent marks: a read older than the window
-// leaves no source row in it, and then every row here is newer than the read, so
-// any unspent grant counts.
-async function sinkCheck(sessionID, digest, klass, target, workspace) {
-  if (!sessionID || !digest) return [null, null]
-  const rows = await ledgerTail(sessionID, LEDGER_TAIL)
-  const channel = turnChannel(rows)
-  if (!channel) return [null, null]
-  const start = turnStart(rows)
-  let read = -1
-  rows.forEach((row, i) => { if (i >= start && row.source) read = i })
-  const granted = unspentGrant(rows, digest, workspace)
-  if (granted !== null && granted > read) return [null, null]
-  const named = klass ? "a `" + klass + "` effect" : "a write to " + target
-  return [channel, UNTRUSTED_DENY.replace("%s", named)
-    .replace("%s", UNTRUSTED_CHANNEL[channel] || channel)
-    .replace("%s", digest)]
-}
-
-// The sink half for a write tool, or null: a file whose realpath leaves the
-// rule's own root, in a turn that read content tezgah cannot vouch for, waits
-// for the user's own approval written after that read (hooks/tezgah_gate
-// .decision). Inside the root the taint notice is the whole of it - those bytes
-// are recoverable from the snapshot the gate already takes, and refusing every
-// edit after every fetch would tax the ordinary flow with no decidable reason.
-// The target is the one reader this file already has (`writtenPath`), resolved
-// the way the Python half resolves it: realpath, not the verbatim string, so
-// `~/.config/x`, `/etc/x` and `../sib/x` are one sink however they are spelled.
-async function sinkWrite(tool, args, sessionID, base, dir) {
-  const target = writtenPath(args)
-  if (!target) return null
-  const real = realPath(isAbsolute(target) ? target
-                                          : resolve(dir || base, target))
-  const root = realPath(base)
-  if (real === root || real.startsWith(root + sep)) return null
-  const digest = actionID(tool, args)
-  const scope = leaseScope(dir)
-  const [channel, reason] = await sinkCheck(sessionID, digest, null, real, scope)
-  if (!reason) return null
-  if ((await consentMark(sessionID, digest, scope)) === null) {
-    await noteConsentRow(sessionID, "consent", SINK_WRITE, digest, scope)
-  }
-  await noteDeny(sessionID, "sink", reason, tool, args, base,
-                 "untrusted channel: " + channel)
-  return reason
 }
 
 // The notice in front of the result itself. The object this hook is handed is
@@ -2132,14 +1641,6 @@ export const Tezgah = async ({ directory }) => {
           if (!deny) {
             deny = await gateReason(tool, args, dir, sessionID)
           }
-          // The untrusted sink for a write: a file outside the rule's root, in a
-          // turn that read content tezgah cannot vouch for, waits for the user's
-          // own approval written after that read. Checked after the task rule,
-          // where the Python gate has it (hooks/tezgah_gate.decision), so a call
-          // two rules would refuse is counted as the first one.
-          if (!deny) {
-            deny = await sinkWrite(tool, args, sessionID, base, dir)
-          }
         } else if (shortcuts && BASH_TOOLS.has(tool)) {
           deny = shortcutCommand(args.command || args.cmd || "")
           if (!deny) {
@@ -2160,8 +1661,8 @@ export const Tezgah = async ({ directory }) => {
         // record and a non-English artifact get - and this file keeps neither
         // rule. The core masks the command, so one that only mentions the CLI
         // comes back empty and falls through to the rules below. Asked ahead of
-        // the shell rules for the same reason the Python gate orders them there
-        // (hooks/tezgah_gate.decision: shortcut, attribution, lang, task, consent,
+        // shell rules for the same reason the Python gate orders them there
+        // (hooks/tezgah_gate.decision: shortcut, attribution, lang, task, secret,
         // repeat): a call another rule would refuse is counted as that rule and
         // never as a repeat.
         const cmd = BASH_TOOLS.has(tool)
@@ -2169,10 +1670,9 @@ export const Tezgah = async ({ directory }) => {
         if (!deny && cmd && (TASK_CLI.test(cmd) || IDENT_CMD.test(cmd))) {
           deny = await gateReason(tool, args, dir, sessionID)
         }
-        // Consent and the credential sink, then the two repeat ceilings, then
-        // the nudge: the Python gate's own order (hooks/tezgah_gate.decision),
-        // so a call another rule would refuse is counted as that rule and never
-        // as a repeat.
+        // The credential rule, then the two repeat ceilings, then the nudge: the
+        // Python gate's own order (hooks/tezgah_gate.decision), so a call another
+        // rule would refuse is counted as that rule and never as a repeat.
         if (!deny && BASH_TOOLS.has(tool)) {
           deny = await shellRules(tool, args, sessionID, base, dir)
         }

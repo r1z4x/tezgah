@@ -1396,7 +1396,7 @@ class PowershellMatcher(SetupBase):
     """A PowerShell call is a shell call, so every shell rule has to reach it.
 
     `powershell` is in `BASH_TOOLS` (`hooks/tezgah_integrity.py:113-114`),
-    which the consent, secret, shortcut, loop, retry, task-shell and sink rules
+    which the secret, shortcut, loop, retry and task-shell rules
     are all keyed on - so refusing one is the design. What decides whether the
     gate sees the call at all is the host's own matcher (Claude's manifest, the
     dsh manifest) or omp's `GATED` list: a name the PostToolUse side carries
@@ -1809,9 +1809,10 @@ class VersionPrefixIsNotContract(SetupBase):
         # shorter than the codebase-memory-mcp wording it replaced. Re-pinned
         # 2026-09-22: the CORE ADHD paragraph names rule 10's recap/closer ban,
         # rule 5's mid-work exception and the `i-have-adhd` skill read it had
-        # dropped (+272 B). The band is here to catch an accidental move, so a
-        # deliberate one is recorded.
-        self.assertEqual(8652, band, "the always-on band moved")
+        # dropped (+272 B). Re-pinned 2026-09-26: the consent paragraph left
+        # CORE with the consent gate (-575 B). The band is here to catch an
+        # accidental move, so a deliberate one is recorded.
+        self.assertEqual(8077, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

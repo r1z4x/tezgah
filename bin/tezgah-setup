@@ -762,7 +762,6 @@ def install_common(new_roots, hosts):
             ("tezgah-adhd", os.path.join(HERE, "bin", "tezgah-adhd")),
             ("tezgah-docs", os.path.join(HERE, "bin", "tezgah-docs")),
             ("tezgah-index", os.path.join(HERE, "bin", "tezgah-index")),
-            ("tezgah-consent", os.path.join(HERE, "bin", "tezgah-consent")),
             ("tezgah-rollback", os.path.join(HERE, "bin", "tezgah-rollback")),
             ("tezgah-agents", os.path.join(HERE, "bin", "tezgah-agents")),
             ("tezgah-context", os.path.join(HERE, "bin", "tezgah-context")),
@@ -2673,8 +2672,8 @@ def uninstall(hosts, dry_run=False):
 
     The first thing a real run does is stand the tool gate down
     (`pretooluse-off`): an uninstall is itself a stream of destructive
-    commands, and a gate that outlives the consent binary it needs would turn
-    the user's own teardown into a series of refusals. A FULL run - one covering
+    commands, and a gate left armed over them would turn the user's own
+    teardown into a series of refusals. A FULL run - one covering
     every host config.json records as armed - then takes the state with it: the
     generated config files and kill switches, both cache dirs, the Claude plugin
     copy with its registry rows, and the versioned install tree. Nothing

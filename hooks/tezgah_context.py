@@ -105,8 +105,6 @@ CORE_RULES = (
     ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
     ("integrity", '**Integrity: evidence, or "doğrulanmadı".**'),
     ("loop", "**Loop discipline.**"),
-    ("safety", "**Irreversible or outward-facing actions need an explicit ask "
-               "first.**"),
     ("scope", "**Session scope: the user's repo, not tezgah.**"),
     ("spec", "**Spec before building.**"),
     ("lessons", "**Lessons ledger: stop repeating mistakes.**"),

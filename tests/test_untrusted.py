@@ -155,8 +155,8 @@ class PostToolUseProvenance(TempHome):
     def test_asking_the_tier_for_its_usage_is_not_a_read_of_a_model(self):
         # `consult --help` runs the program but reaches no model: it prints its
         # usage and exits. Calling that an external answer tainted the turn, and
-        # every write after it waited on a consent the user gives for a help
-        # screen - measured on a live turn before this rule existed.
+        # every effect after it carried a notice for a help screen - measured on
+        # a live turn before this rule existed.
         for i, cmd in enumerate(('consult --help',
                                  'bin/consult -h',
                                  '~/.config/tezgah/bin/codegen --help',
@@ -165,14 +165,6 @@ class PostToolUseProvenance(TempHome):
                 session = "s-help-%d" % i
                 self.assertEqual(self.line("Bash", {"command": cmd}, session=session), "")
                 self.assertEqual([r for r in self.rows(session) if r.get("source")], [])
-
-    def test_a_write_after_a_help_invocation_is_not_held(self):
-        # The same case read at the sink: no channel was read, so the gate's
-        # sink rule has nothing to hold the next write for.
-        self.post("Bash", {"command": "bin/consult --help"})
-        self.assertIsNone(
-            self.refuse("Write", {"file_path": os.path.join(self.home, "out.py"),
-                                  "content": "x = 1\n"}))
 
     def test_an_effect_after_an_untrusted_read_is_noticed_once(self):
         # The second half of the control: an action taken in a turn that has read
@@ -198,20 +190,15 @@ class PostToolUseProvenance(TempHome):
         self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
                          [("run", "tier"), ("edit", "tier")])
 
-    def test_a_write_outside_the_workspace_waits_for_the_user_after_a_consult(self):
-        """What the next write in a turn that consulted costs.
-
-        The gate's sink rule reads the channel off the same rows, so an effect
-        that leaves this workspace is refused until the user's own approval is
-        on the ledger: consulting buys a consent ask, not a label the model may
-        read past. A write inside the root is left to the notice - the snapshot
-        already keeps those bytes - and that half is asserted here too, so the
-        cost of the channel is bounded and visible rather than assumed."""
+    def test_a_write_after_a_consult_is_labelled_not_refused(self):
+        """What the next write in a turn that consulted costs: the notice, and
+        nothing else. The sink rule that held a write leaving the workspace
+        until the user's own approval was on the ledger is gone, so neither
+        write is refused - inside the root or out of it."""
         self.post("Bash", {"command": 'consult "q"'})
-        reason = self.refuse("Write", {"file_path": os.path.join(self.home, "out.py"),
-                                       "content": "x = 1\n"})
-        self.assertIsNotNone(reason)
-        self.assertIn("an external model answer", reason)
+        self.assertIsNone(
+            self.refuse("Write", {"file_path": os.path.join(self.home, "out.py"),
+                                  "content": "x = 1\n"}))
         self.assertIsNone(
             self.refuse("Write", {"file_path": os.path.join(self.repo, "in.py"),
                                   "content": "x = 1\n"}))

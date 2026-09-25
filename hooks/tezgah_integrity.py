@@ -340,8 +340,7 @@ def _path(session_id):
 # `curl -H 'Authorization: Bearer ...'`, an `sk-...` pasted into a test. Written
 # verbatim, the trace is a plain-text file in the cache holding the secret the
 # module exists to keep out of files. The scan runs in `note_path`, the one
-# append every writer goes through (`note()` and the consent CLI), so one rule
-# covers every host.
+# append every writer goes through (`note()`), so one rule covers every host.
 MARKED = "[redacted:%d]"
 # A named key: the name survives and only the value is replaced, so the row still
 # says a credential was there instead of hiding that it was. `Bearer` is part of
@@ -491,8 +490,8 @@ def note_path(path, kind, detail="", **fields):
     """Append one evidence event to an explicit ledger path. Same row contract
     and same best-effort write as `note`.
 
-    The consent CLI answers an ask it did not witness, so it resolves the ledger
-    it must write into without ever holding a session id - a ledger filename
+    A caller that answers an event it did not witness resolves the ledger it
+    must write into without ever holding a session id - a ledger filename
     carries a hash of the id and cannot be turned back into one.
 
     The detail is redacted before it is stored (see `redact`), over the WHOLE
@@ -1130,8 +1129,8 @@ def classify(tool, inp):
 # these can carry instructions the user never gave, and
 # nothing else on tezgah's surfaces says so: the gate reads the call's own
 # arguments and never where the text in them came from. The label is the half a
-# host can put in front of the model; the sink rule that would deny a later write
-# over an untrusted read is a gate rule, not this module's.
+# host can put in front of the model; the taint notice that flags a later effect
+# in such a turn is the untrusted module's own, not the gate's.
 WEB_TOOLS = ("web_search", "websearch", "web_fetch", "webfetch", "fetch",
              "browser", "browse")
 MCP_TOOL = re.compile(r"^mcp__", re.I)
@@ -1155,8 +1154,8 @@ TIER_PROGRAMS = ("consult", "codegen")
 # these - it becomes the question and spends 3 panel calls, so it stays a read;
 # `codegen --version` exits 1 on the missing --files and is still counted).
 # Reading the usage is not reading an answer, and marking it taints the turn -
-# every write after it then waits on a consent the user gives for a help screen
-# (measured: a `consult --help` held a whole turn's writes). Matched on the raw
+# every effect after it then carries the notice for a help screen
+# (measured: a `consult --help` held a whole turn's effects). Matched on the raw
 # text because `mask` blanks the question itself, and only after the
 # program-position test above has said this line really runs the tool.
 # ponytail: this is the argv, not the tools' argument parsers, so a question that
@@ -1364,8 +1363,8 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     (`untrusted_source`), recorded only when there was one: a missing field means
     the user or this workspace, which is what every reader assumes. A call with
     no kind of work of its own but an untrusted result - an MCP answer, a fetched
-    page - is recorded as `external`, so the read is on the ledger a sink rule
-    would consult rather than in nothing at all. A name outside every list - a
+    page - is recorded as `external`, so the read is on the ledger the taint
+    notice reads rather than in nothing at all. A name outside every list - a
     tool the host does not have, or one it added - is recorded as `unknown` with
     the name in the detail, and only the read/search tools record nothing. A
     write also carries the target's after-state (`_post_write`)."""

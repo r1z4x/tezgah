@@ -41,8 +41,6 @@ bin/tezgah-agents
 bin/tezgah-agents.py
 bin/tezgah-capture
 bin/tezgah-capture.py
-bin/tezgah-consent
-bin/tezgah-consent.py
 bin/tezgah-context
 bin/tezgah-context.py
 bin/tezgah-docs

@@ -93,14 +93,13 @@
    "audience": "agent, reviewer, maintainer",
    "answers": [
     "why was my command denied",
-    "which decisions need the user's explicit approval and how is it given",
+    "which commands run without an ask and why the consent rule was removed",
     "what does the gate not catch on purpose",
     "how do I add a gate rule"
    ],
    "sources": [
     "hooks/tezgah_gate.py",
     "hooks/projects-pretooluse.py",
-    "bin/tezgah-consent",
     "hosts/opencode/plugins/tezgah.js",
     "tests/test_gate.py"
    ]

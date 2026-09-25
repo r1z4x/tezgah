@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **The consent gate and the untrusted sink rule are gone.** The gate refused
+  every irreversible or outward-facing shell command - a force-push, a branch
+  delete, a migration, a deploy, a publish, `ssh`/`scp`/`rsync` to a host, a
+  `curl`/`gh api` write, a `gh pr`/`gh issue` write - until the user ran
+  `bin/tezgah-consent <digest>` in a terminal, and the sink rule held the same
+  effects, plus a write leaving the root, after any untrusted read. Approval in
+  chat could never lift either, so a server-side session met the same refusal
+  once per command (21 refusals in one hour of a deploy, answered 13 times in
+  chat and never lifted). Removed together: the effect-class table, the
+  `consent`/`grant` ledger rows, `bin/tezgah-consent`, the
+  `tezgah-status --unclassified` miner, the opencode mirror (including the
+  `SEND` delegation to the core), and the always-on "Irreversible or
+  outward-facing actions need an explicit ask first" paragraph. The
+  untrusted-content label, the taint notice and the pre-write snapshot stay.
+
 ## [0.17.2] - 2026-09-24
 
 ### Changed
