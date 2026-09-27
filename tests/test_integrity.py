@@ -2247,6 +2247,20 @@ class CountersAll(TempHome):
         self.assertEqual(out["kinds"], {"verify_ok": 1})
         self.assertEqual(out["claims"], 0)
 
+    def test_the_session_id_is_found_whichever_order_it_comes_in(self):
+        # the help says `--counters [SESSION_ID] [PATH]`, the docs say path
+        # first: both orders, and the id alone, must read the same ledger,
+        # without TEZGAH_SESSION standing in for a misread argument
+        env = dict(self.envv)
+        env.pop("TEZGAH_SESSION", None)
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note", "session": "s-order", "kind": "verify_ok",
+                  "detail": "pytest -q", "exit": 0}, env=env)
+        for args in (["s-order"], ["s-order", self.home], [self.home, "s-order"]):
+            out, proc = run_json([self.cli, "--counters", *args, "--json"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(out["events"], 1, args)
+
     def test_the_judge_count_folds_like_every_other_number(self):
         # both readers fold through `_counts`, so the corpus total and the
         # sessions it sums cannot disagree about the seam's spend

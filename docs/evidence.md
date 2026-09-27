@@ -217,7 +217,7 @@ without failing the other's test (`tests/test_opencode_plugin.py:1285`).
 
 ## The counters a maintainer reads
 
-`tezgah-status --counters [path] [session]` (`bin/tezgah-status:60-82`) prints `counters(session)`
+`tezgah-status --counters [session] [path]` (`bin/tezgah-status:72-97`) prints `counters(session)`
 (`hooks/tezgah_integrity.py:857-872`) over one session's whole ledger, and `tezgah-status --counters
 --all` prints `counters_all()` (`hooks/tezgah_integrity.py:917`) over every real-session ledger on the machine, adding `ledgers`, the
 number of files it read, and `fixtures`, the ledgers left out because every workspace they name is a temp, OpenResearch run or arm-bench tree (`fixture_ledger`). Both fold their rows through `_counts` (`hooks/tezgah_integrity.py:937`), the one implementation

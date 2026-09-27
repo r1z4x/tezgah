@@ -67,7 +67,7 @@ every detected host, regenerates the generated contract files and the subagent
 sets, and reports what is armed (`bin/tezgah-setup:2-25`). The rest are the small
 stable CLIs the contract cites by absolute path because a session shell has no
 interactive PATH: `bin/tezgah-status` (the checklist in any host,
-`bin/tezgah-status:2-14`), `bin/tezgah-rollback`,
+`bin/tezgah-status:2-16`), `bin/tezgah-rollback`,
 `bin/tezgah-capture`, `bin/tezgah-context`, `bin/tezgah-index`,
 `bin/tezgah-agents`, and the optional `bin/consult` / `bin/codegen`.
 

@@ -65,7 +65,7 @@ The label on an evidence [row](#row) saying what happened: `classify()` gives `e
 A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:279-283`, `:43`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:803-812`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
 
 ### legend
-The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hooks/tezgah_context.py:1303-1328`), printed by `tezgah-status --legend` (`bin/tezgah-status:63-64`). Not the marks themselves.
+The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hooks/tezgah_context.py:1303-1328`), printed by `tezgah-status --legend` (`bin/tezgah-status:65-66`). Not the marks themselves.
 
 ### mark
 One item of the armed/used checklist as a host shows it, a segment carrying `key`, `state`, `glyph`, `text` and `group` from `health_segments()` (`hooks/tezgah_context.py:1332-1400`, `hooks/tezgah_context.py:1347-1348`), for example `pony✓` or `consult○`. Not a [kind](#kind), which is a ledger row, and not the [state](#state), which is the value one mark carries.

@@ -28,7 +28,7 @@ The middle five marks (`consult`, `research`, `graph`, `orch`, `judge`) are tool
 any adapter that sees its host's tool calls can light them by calling
 `record()` (`hooks/tezgah_context.py:1111`). CLI-side, `tezgah-status` reads
 the same core and takes the session id as an argument or `TEZGAH_SESSION`
-(`bin/tezgah-status:123`).
+(`bin/tezgah-status:128`).
 
 ## What each host gets, and where it is written
 

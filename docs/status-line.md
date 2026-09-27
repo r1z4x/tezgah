@@ -108,7 +108,7 @@ python is asked (hooks/tezgah_context.py:145-149). A surface that cannot see one
 was never opened", so it declares what it can see and those marks render `info`
 (dim, no glyph) instead of `ready` (`observable`, hooks/tezgah_context.py:1287-1292; the set constant
 `TOOL_USE_MEASURES`, hooks/tezgah_context.py:1262). The `--observable=` flag carries it on the CLI
-(bin/tezgah-status:18-22,52-53,120-123). Two callers pass the tool-use set: Cursor's
+(bin/tezgah-status:30-34,56-57,129-132). Two callers pass the tool-use set: Cursor's
 status line (statusline.py:109-114) and Codex, which renders the line plain into
 `systemMessage` (hosts/codex/hook.py:197-199,195-198); dsh passes the literal flag
 string (hosts/dsh/statusline/lib/index.js:18,47-48), which names the five marks its
@@ -187,13 +187,13 @@ tezgah-status --legend                       # what each mark means
 ```
 
 The session id is the second positional argument or `TEZGAH_SESSION`; without it
-the used marks cannot light up (bin/tezgah-status:123). `--color`/`--no-color` force ANSI or plain,
-`--observable=` narrows the measures as above, and an unknown flag exits 2 (bin/tezgah-status:41-46,120-127).
+the used marks cannot light up (bin/tezgah-status:128). `--color`/`--no-color` force ANSI or plain,
+`--observable=` narrows the measures as above, and an unknown flag exits 2 (bin/tezgah-status:56-61,129-137).
 
 `--counters` is not the marks: it prints `tezgah_integrity.counters(session)` —
 `steps`, `tool_error_rate`, `claims`, `false_completion`, `shape_blocked`,
 `denies`, `nudges`, `fanout`, `consult`, `codegen`, `codegen_failed`, `judge`,
-`replies`, `shape` and the `kinds` seen (bin/tezgah-status:60-82); with `--json`
+`replies`, `shape` and the `kinds` seen (bin/tezgah-status:72-97); with `--json`
 as JSON. `replies` counts the `shape` rows, one per reply the Stop rule judged,
 and `shape` those that carried a report-only flag - `table-open`,
 `preamble-open`, `recap-close` (`shape_flags`, hooks/tezgah_integrity.py:1772-1803)

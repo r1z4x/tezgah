@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`tezgah-status --counters` finds the session whichever order the id and the
+  path come in.** The counters branch read the id as the second positional - the
+  plain form's `[PATH] [SESSION_ID]` order - while its own `--help` documents
+  `--counters [SESSION_ID] [PATH]`, so the id alone read `session (none)` and
+  `--counters <id> <path>` read the path as the id: both printed `0 events` for a
+  session whose ledger holds 79 rows, and only `--counters <path> <id>` printed
+  79. The id is now the positional that is not a directory, PATH is accepted and
+  ignored, and `TEZGAH_SESSION` is still the fallback.
+
 ## [0.18.0] - 2026-09-27
 
 ### Added
