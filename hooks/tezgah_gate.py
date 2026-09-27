@@ -406,12 +406,12 @@ def first_nudge(session_id):
         return False
 
 
-def nudge_reason():
-    return ("Code graph index is ready for this repo. For a definition, its "
-            "callers or blast radius use the codegraph tools: "
-            "`codegraph_explore` over MCP, or `codegraph callers|impact|node` "
-            "from a shell. If you need literal text, re-run this search "
-            "unchanged; it will pass - this nudge fires once per session.")
+def nudge_reason(symbol):
+    return ("Code graph index is ready for this repo. Run `codegraph explore %s` (source, callers, "
+            "blast radius in one call) or `codegraph callers %s` / `codegraph impact %s` from a shell; "
+            "an omp subagent must use this CLI, not the MCP device, because omp's MCP device refuses "
+            "concurrent writes. If you need literal text, re-run this search unchanged; it will pass - "
+            "this nudge fires once per session." % (symbol, symbol, symbol))
 
 
 # The identical attempts a call gets before the loop guard refuses it, whatever
@@ -1158,12 +1158,12 @@ def decision(tool, inp, cwd, session_id=None):
         reason = retry_reason(tool, inp, session_id)
         if reason:
             return _deny(session_id, "retry", reason, tool, inp, base)
-    if searched_identifier(tool, inp):
+    if symbol := searched_identifier(tool, inp):
         slug = index_slug(cwd, base)
         if slug and first_nudge(session_id):
             note(session_id, "nudge", slug, id=call_id(tool, inp),
                  workspace=base)
-            return nudge_reason()
+            return nudge_reason(symbol)
     # Constraint drift is deliberately NOT refused here. The re-statement (see
     # drift_reason) is about the turn, not about this call, so it rides the
     # tool-result channel each host already has for tezgah_untrusted's label and

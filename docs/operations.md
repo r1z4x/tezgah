@@ -105,6 +105,10 @@ the plan, and writes only after a yes (`bin/tezgah-setup:3123-3148`). A pre-tezg
 named under `predecessor wiring still present` and retired by `--adopt`
 (`bin/tezgah-setup:2723-2814`); narrow it with `--hosts omp`, `--roots ~/work:~/oss`, `--dry-run`.
 
+An install from a checkout is a live symlink into that working tree, so a half-finished edit or a branch switch there crashes the sessions running on it (the `crash` ledger rows of 09-20..09-21 were names removed mid-edit) - do tezgah maintenance in a `git worktree`, never in the installed checkout.
+
+The `~/.config/tezgah/bin` farm carries `tezgah-mcp` beside the other CLIs; two are left out on purpose: `tezgah-dsh` is wired as `~/.local/bin/dsh` (`dsh_launcher`), and `tezgah-import-ai-research` is dev-time only (its docstring). The report's `config.json hosts (...) match the hosts wired (...)` row (`hosts_row`) reads `MISS` when the recorded host list differs from the hosts whose wiring is on disk; `--upgrade`, `--enable`/`--disable` and a full uninstall act on the recorded list, so the row only reports it - `--install --hosts ...` records the list you choose.
+
 A successful run prints, in order: `dependencies:`, a line per missing optional
 tool with the vendor command it runs — over the network, no sudo
 (`:1200-1240`) — or `all optional tools present` (the run is appended to

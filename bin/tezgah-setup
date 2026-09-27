@@ -774,7 +774,7 @@ def install_common(new_roots, hosts):
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
-            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations
+            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")), ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations. Not here on purpose: tezgah-dsh (wired as ~/.local/bin/dsh, see dsh_launcher) and tezgah-import-ai-research (dev-time only, its docstring)
         print(link(src, os.path.join(tp.BIN_DIR, name)))
     mkdirp(tezgah_apps.ARTIFACTS)
     print("%s app artifacts -> %s" % (OK, tezgah_apps.ARTIFACTS))
@@ -3030,7 +3030,7 @@ def report(hosts):
         ("npx on PATH (app-analysis MCP servers)", bool(shutil.which("npx"))),
         ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
          os.path.isdir(tezgah_apps.ARTIFACTS)),
-        ("git", bool(shutil.which("git"))),
+        ("git", bool(shutil.which("git"))), hosts_row(),
         ("local plugin manifest consistent when present (untracked)",
          versions_agree()),
     ]
@@ -4237,6 +4237,19 @@ def main(argv):
     if args.roots:
         sys.exit("--roots only means something with --install")
     return report(hosts)
+
+
+def hosts_row():
+    """config.json's `hosts` against the hosts whose wiring is on disk (each
+    host's first HOST_CHECKS row), as one report row. Reported, never changed:
+    `--upgrade`, `--enable`/`--disable` and a full uninstall act on the recorded
+    list, so a host wired but not recorded is one they skip, and which list is
+    right is the user's call (`--install --hosts ...` records it)."""
+    recorded = sorted(tp.config().get("hosts") or [])
+    wired = sorted(h for h in ALL_HOSTS if HOST_CHECKS[h]()[0][1])
+    return ("config.json hosts (%s) match the hosts wired (%s)"
+            % (", ".join(recorded) or "none", ", ".join(wired) or "none"),
+            recorded == wired)
 
 
 if __name__ == "__main__":

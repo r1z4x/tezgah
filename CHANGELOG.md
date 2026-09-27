@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The code-graph nudge names the command to run.** The refused search's
+  identifier becomes `codegraph explore <X>` / `codegraph callers <X>` /
+  `codegraph impact <X>`, and the text says an omp subagent must use this CLI
+  because omp's MCP device refuses concurrent writes. The generic tool list was
+  ignored: the nudge fired in 514 sessions and the graph was used in 8.
+- **`tezgah-status --counters --all` leaves fixture ledgers out.** A ledger
+  whose every workspace is a temp tree, an OpenResearch run copy, an arm-bench
+  run or tezgah's own cache is counted under the new `fixtures` key instead of
+  the corpus, so `false_completion / claims` reflects real sessions.
+- **`tezgah-mcp` is linked into `~/.config/tezgah/bin`.** `tezgah-dsh` (wired as
+  `~/.local/bin/dsh`) and `tezgah-import-ai-research` (dev-time only) stay out
+  on purpose, now said at the link list and in docs/operations.md.
+- **The report names a host-list mismatch.** `tezgah-setup --report` gains the
+  row `config.json hosts (...) match the hosts wired (...)`, `MISS` when the
+  recorded list differs from the wiring on disk; it reports and changes nothing.
+
 ### Removed
 
 - **The consent gate and the untrusted sink rule are gone.** The gate refused

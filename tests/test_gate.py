@@ -192,7 +192,7 @@ class Gate(TempHome):
         first = self.decide("Bash", {"command": "git grep some_identifier"},
                             session_id="gg")
         self.assertIsNotNone(first)
-        self.assertIn("codegraph_explore", first)
+        self.assertIn("`codegraph callers some_identifier`", first)
         self.assertIsNone(self.decide("Bash", {"command": "git grep some_identifier"},
                                       session_id="gg"))
 
@@ -1072,7 +1072,11 @@ class Gate(TempHome):
         self.make_index()
         first = self.decide("Grep", {"pattern": "some_identifier"})
         self.assertIsNotNone(first)
-        self.assertIn("codegraph_explore", first)
+        # the denied search becomes the command to run instead, and omp
+        # subagents are told the CLI is their route (its MCP device refuses
+        # concurrent writes)
+        self.assertIn("`codegraph explore some_identifier`", first)
+        self.assertIn("omp subagent must use this CLI", first)
         self.assertIsNone(self.decide("Grep", {"pattern": "some_identifier"}))
 
     def test_bash_grep_identifier_uses_the_same_nudge(self):
@@ -1081,7 +1085,7 @@ class Gate(TempHome):
         self.make_index()
         first = self.decide("Bash", {"command": "grep some_identifier src/x.py"},
                             session_id="b1")
-        self.assertIsNotNone(first)
+        self.assertIn("`codegraph callers some_identifier`", first)
         self.assertIsNone(self.decide("Bash", {"command": "grep some_identifier src/x.py"},
                                       session_id="b1"))
 
@@ -1108,7 +1112,7 @@ class Gate(TempHome):
             "TEZGAH_FALLBACK_CACHE": os.path.join(self.home, "fallback")})
         first = self.decide("Grep", {"pattern": "some_identifier"}, session_id="sb")
         self.assertIsNotNone(first)
-        self.assertIn("codegraph_explore", first)
+        self.assertIn("`codegraph explore some_identifier`", first)
         self.assertIsNone(
             self.decide("Grep", {"pattern": "some_identifier"}, session_id="sb"))
 

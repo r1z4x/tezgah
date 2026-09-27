@@ -875,22 +875,22 @@ def counters(session_id):
 
 
 def counters_all():
-    """Every ledger on this machine in one set of counters, plus `ledgers`, the
-    number of files that went into it.
+    """Every real-session ledger on this machine in one set of counters, plus
+    `ledgers`, the files that went into it, and `fixtures`, the ones left out
+    because every workspace they name is a probe or benchmark tree (see
+    `fixture_ledger`) - a corpus ratio over those measures the harness, not use.
 
-    `counters` answers "how did this session go", which is what the ledger was
-    built for. The one number the module calls a measure of the layer's effect -
-    `false_completion / claims` - is a corpus question, and without this reader
-    the corpus could only be totalled by hand.
+    `counters` answers "how did this session go"; `false_completion / claims`,
+    the one number the module calls a measure of the layer's effect, is a corpus
+    question, and without this reader it could only be totalled by hand.
 
     Bound: none, deliberately. A window or a row cap would make the total
-    contradict the sum of the per-session numbers it claims to be, and a cap a
-    reader cannot see is worse than a slow answer. Every ledger this machine had
-    - 1166 of them, 17k rows, 6.5 MB - folded in 0.17 s, one pass; a corpus that
-    outgrows a single pass wants an index, not a silent cap."""
-    files = ledgers()
-    out = _counts(row for path in files for row in events_path(path))
-    out["ledgers"] = len(files)
+    contradict the per-session numbers it sums, and a cap a reader cannot see is
+    worse than a slow answer (1166 ledgers, 6.5 MB folded in 0.17 s)."""
+    read = [events_path(path) for path in ledgers()]
+    real = [rows for rows in read if not fixture_ledger(rows)]
+    out = _counts(row for rows in real for row in rows)
+    out["ledgers"], out["fixtures"] = len(real), len(read) - len(real)
     return out
 
 
@@ -1877,3 +1877,21 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
             "calling it done, complete or verified. Run the real check and report "
             "its output, or mark the claim \"doğrulanmadı\". Do not describe a "
             "check you did not run as if it ran.")
+
+
+# The workspaces a probe or a benchmark runs in rather than a user: the temp
+# trees (/tmp, macOS's /var/folders), an OpenResearch run copy (`local-runs/`)
+# and the arm-bench instrument's run tree. tezgah's own cache is the fourth,
+# read from cache_dir() at call time.
+FIXTURE_WORKSPACE = re.compile(
+    r"^(?:/private)?/tmp/|/var/folders/|/local-runs/|/benchmarks/arm-bench(?:/|$)")
+
+
+def fixture_ledger(rows):
+    """True when every workspace a ledger's rows name is a fixture tree. A ledger
+    naming no workspace (the rows written before the field existed) is kept: it
+    cannot be told apart, and dropping it would hide real sessions."""
+    cache = os.path.realpath(cache_dir()) + "/"
+    spaces = {str(r["workspace"]) for r in rows if r.get("workspace")}
+    return bool(spaces) and all(FIXTURE_WORKSPACE.search(w) or (w + "/").startswith(cache)
+                                for w in spaces)
