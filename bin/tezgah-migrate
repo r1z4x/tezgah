@@ -1,0 +1,351 @@
+#!/usr/bin/env python3
+"""tezgah-migrate [--apply] [--repo PATH ...] - move legacy tezgah state into <repo>/.tezgah.
+
+Without --repo it looks at every git repository directly under each configured
+root (a directory with its own `.git` directory; the tezgah checkout itself is
+skipped). Without --apply it only prints what it would do. With --apply it first
+writes a backup tarball of every path it touches to
+~/.config/tezgah/backups/<repo>-<UTC stamp>.tar.gz, then:
+
+  1. untracks a `.tezgah/` the project repo tracks (`git rm -r --cached`; the
+     files stay on disk);
+  2. moves a root `plans/` in tezgah plan format into `.tezgah/plans/`;
+  3. moves a root `analysis/` into `.tezgah/analysis/`;
+  4. moves a root `research/` into `.tezgah/analysis/imported-research/`;
+  5. writes `.tezgah/analysis/project-knowledge.md`, an index of the
+     project-owned knowledge that stays where it is (CLAUDE.md, AGENTS.md,
+     docs/research/, .claude/agents ...);
+  6. ensures the workspace (`/.tezgah/` and `/.codegraph/` in .gitignore, a
+     private git repository at `.tezgah/.git`) and commits the imported content
+     there.
+
+A file whose name already exists at the destination with other content is
+reported and left where it is. Nothing is committed in the project repository and
+nothing is pushed: the result is an uncommitted change for the user to review.
+A re-run after a clean apply finds nothing to do.
+
+Exit codes: 0 ok, 1 an apply step failed, 2 misuse.
+"""
+import datetime
+import os
+import subprocess
+import sys
+import tarfile
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_paths as tp  # noqa: E402
+
+try:
+    from tezgah_paths import ensure_workspace, ws_git  # noqa: E402
+except ImportError:
+    # ponytail: local copy of the workspace contract until hooks/tezgah_paths.py
+    # ships ensure_workspace/ws_git; drop this block once it does.
+    def ws_git(repo, *args, **kw):
+        cmd = ["git", "-C", os.path.join(repo, ".tezgah"), "-c", "user.name=tezgah",
+               "-c", "user.email=tezgah@localhost", "-c", "commit.gpgsign=false"]
+        return subprocess.run(cmd + list(args), capture_output=True, text=True, **kw)
+
+    def ensure_workspace(repo):
+        ws = os.path.join(repo, ".tezgah")
+        try:
+            os.makedirs(ws, exist_ok=True)
+            if in_work_tree(repo):
+                missing = missing_ignores(repo)
+                if missing:
+                    path = os.path.join(repo, ".gitignore")
+                    text = read(path)
+                    with open(path, "a", encoding="utf-8") as fh:
+                        fh.write(("\n" if text and not text.endswith("\n") else "")
+                                 + "".join(line + "\n" for line in missing))
+            if not os.path.exists(os.path.join(ws, ".git")):
+                subprocess.run(["git", "init", "-q", ws], capture_output=True, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return ws
+
+IGNORES = ("/.tezgah/", "/.codegraph/")
+KNOWLEDGE = ("CLAUDE.md", "AGENTS.md", "GEMINI.md", "docs/research", ".claude/agents",
+             ".claude/skills", ".claude/commands", ".agents", "skills")
+RULE_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
+INDEX = os.path.join(".tezgah", "analysis", "project-knowledge.md")
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def git(repo, *args):
+    return subprocess.run(["git", "-C", repo] + list(args), capture_output=True, text=True)
+
+
+def in_work_tree(repo):
+    return git(repo, "rev-parse", "--is-inside-work-tree").stdout.strip() == "true"
+
+
+def missing_ignores(repo):
+    lines = {line.strip() for line in read(os.path.join(repo, ".gitignore")).splitlines()}
+    return [want for want in IGNORES
+            if not lines & {want, want.strip("/"), want.rstrip("/"), want.lstrip("/")}]
+
+
+def tracked(repo, path):
+    out = git(repo, "ls-files", "-z", "--", path).stdout
+    return [p for p in out.split("\0") if p]
+
+
+def files_under(root):
+    """Every file (and symlink) below `root`, relative to it, sorted."""
+    found = []
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d != ".git" or base != root]
+        for name in files + [d for d in dirs if os.path.islink(os.path.join(base, d))]:
+            found.append(os.path.relpath(os.path.join(base, name), root))
+    return sorted(found)
+
+
+def same(a, b):
+    try:
+        with open(a, "rb") as fa, open(b, "rb") as fb:
+            return fa.read() == fb.read()
+    except OSError:
+        return False
+
+
+def is_plan_tree(path):
+    return (os.path.isdir(os.path.join(path, "open")) or os.path.isdir(os.path.join(path, "done"))
+            or "<!-- status:start -->" in read(os.path.join(path, "README.md")))
+
+
+def first_heading(path):
+    """The first markdown heading of a file, or of a directory's README.md (else
+    its first .md file); '-' when there is none."""
+    if os.path.isdir(path):
+        mds = [f for f in files_under(path) if f.endswith(".md")]
+        if not mds:
+            return "-"
+        path = os.path.join(path, "README.md" if "README.md" in mds else mds[0])
+    lines = read(path).splitlines()
+    if lines and lines[0].strip() == "---":
+        end = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), 0)
+        lines = lines[end + 1:]
+    for line in lines:
+        if line.startswith("#"):
+            return line.lstrip("#").strip() or "-"
+    return "-"
+
+
+def knowledge_index(repo):
+    """The index text, or '' when the repo has no project-owned knowledge."""
+    paths = [p for p in KNOWLEDGE if os.path.lexists(os.path.join(repo, p))]
+    paths += sorted(p for p in tracked(repo, ".")
+                    if "/" in p and os.path.basename(p) in RULE_FILES and p not in paths)
+    if not paths:
+        return ""
+    rows = ["# Project knowledge", "",
+            "Project-owned knowledge that stays where it is. tezgah-migrate wrote this",
+            "index so a session finds it; the project's git owns the files.", "",
+            "| path | files | first heading |", "|---|---|---|"]
+    for p in paths:
+        full = os.path.join(repo, p)
+        count = len(files_under(full)) if os.path.isdir(full) else 1
+        rows.append("| `%s` | %d | %s |" % (p, count, first_heading(full).replace("|", "\\|")))
+    return "\n".join(rows) + "\n"
+
+
+class Plan:
+    """What one repo needs: printable steps, the paths a backup must hold, and
+    the callables that perform the steps."""
+
+    def __init__(self, repo):
+        self.repo = repo
+        self.steps = []      # (text, callable)
+        self.skipped = []    # text
+        self.backup = set()  # repo-relative paths
+        self.imported = False
+
+    def add(self, text, fn, *backup):
+        self.steps.append((text, fn))
+        self.backup.update(backup)
+
+
+def plan_move(plan, src, dest):
+    """Move every file of root `src` under `dest`; a differing name collision is
+    skipped and stays in place, an identical one only drops the source."""
+    repo = plan.repo
+    root = os.path.join(repo, src)
+    if not os.path.isdir(root) or os.path.islink(root):
+        return
+    known = set(tracked(repo, src))
+    moves = []
+    for rel in files_under(root):
+        target = os.path.join(repo, dest, rel)
+        if os.path.lexists(target) and not same(os.path.join(root, rel), target):
+            plan.skipped.append("%s/%s: %s/%s exists with other content" % (src, rel, dest, rel))
+            continue
+        moves.append(rel)
+    if not moves:
+        return
+    untrack = [p for p in (os.path.join(src, rel) for rel in moves) if p in known]
+
+    def run():
+        for rel in moves:
+            source, target = os.path.join(root, rel), os.path.join(repo, dest, rel)
+            if os.path.lexists(target):
+                os.remove(source)  # identical copy already there; the backup holds it
+            else:
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                os.rename(source, target)
+        if untrack:
+            out = git(repo, "rm", "-q", "--cached", "--", *untrack)
+            if out.returncode:
+                raise RuntimeError(out.stderr.strip())
+        for base, _dirs, _files in sorted(os.walk(root), reverse=True):
+            if not os.listdir(base):
+                os.rmdir(base)
+
+    plan.add("move %s/ -> %s/ (%d files, %d tracked)" % (src, dest, len(moves), len(untrack)),
+             run, src)
+    plan.imported = True
+
+
+def make_plan(repo):
+    plan = Plan(repo)
+    ws = os.path.join(repo, ".tezgah")
+    ours = tracked(repo, ".tezgah")
+    if ours:
+        def untrack():
+            out = git(repo, "rm", "-r", "-q", "--cached", ".tezgah")
+            if out.returncode:
+                raise RuntimeError(out.stderr.strip())
+        plan.add("untrack .tezgah/ (%d tracked files; they stay on disk)" % len(ours),
+                 untrack, ".tezgah")
+    if os.path.isdir(os.path.join(repo, "plans")):
+        if is_plan_tree(os.path.join(repo, "plans")):
+            plan_move(plan, "plans", ".tezgah/plans")
+        else:
+            plan.skipped.append("plans/: not in tezgah plan format, left alone")
+    plan_move(plan, "analysis", ".tezgah/analysis")
+    plan_move(plan, "research", ".tezgah/analysis/imported-research")
+
+    text = knowledge_index(repo)
+    if text and read(os.path.join(repo, INDEX)) != text:
+        def index():
+            os.makedirs(os.path.dirname(os.path.join(repo, INDEX)), exist_ok=True)
+            with open(os.path.join(repo, INDEX), "w", encoding="utf-8") as fh:
+                fh.write(text)
+        plan.add("index project knowledge (%d paths) -> %s" % (text.count("\n| `"), INDEX),
+                 index, INDEX)
+        plan.imported = True
+
+    missing = missing_ignores(repo) if in_work_tree(repo) else []
+    fresh = not os.path.isdir(os.path.join(ws, ".git"))
+    if missing or fresh:
+        def ensure():
+            if ensure_workspace(repo) is None:
+                raise RuntimeError("ensure_workspace failed")
+        parts = (["add %s to .gitignore" % " ".join(missing)] if missing else []) + \
+            (["git init .tezgah"] if fresh else [])
+        plan.add("ensure workspace: %s" % "; ".join(parts), ensure, ".gitignore", ".tezgah")
+    if fresh or plan.imported or ws_git(repo, "rev-parse", "-q", "--verify", "HEAD").returncode:
+        head = git(repo, "rev-parse", "--short", "HEAD").stdout.strip() or "none"
+        message = "import from project history %s" % head
+
+        def commit():
+            # without its own .git, `git -C .tezgah` would reach the project repo
+            if not os.path.isdir(os.path.join(ws, ".git")):
+                raise RuntimeError("%s/.git is missing" % ws)
+            ws_git(repo, "add", "-A")
+            out = ws_git(repo, "commit", "-q", "--allow-empty", "-m", message)
+            if out.returncode:
+                raise RuntimeError((out.stderr or out.stdout or "").strip())
+        plan.add("commit .tezgah content in its private repo: %r" % message, commit)
+    return plan
+
+
+def write_backup(plan):
+    repo = plan.repo
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
+    folder = os.path.join(tp.CONFIG_DIR, "backups")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "%s-%s.tar.gz" % (os.path.basename(repo), stamp))
+    with tarfile.open(path, "w:gz") as tar:
+        for rel in sorted(plan.backup):
+            if os.path.lexists(os.path.join(repo, rel)):
+                tar.add(os.path.join(repo, rel), arcname=rel)
+    return path
+
+
+def migrate(repo, apply):
+    plan = make_plan(repo)
+    print("%s (%s)" % (os.path.basename(repo), repo))
+    for text, _fn in plan.steps:
+        print("  %s %s" % ("do" if apply else "would", text))
+    for text in plan.skipped:
+        print("  skip %s" % text)
+    backup, failed = "none", False
+    if plan.steps and apply:
+        backup = write_backup(plan)
+        for text, fn in plan.steps:
+            try:
+                fn()
+            except (OSError, RuntimeError) as exc:
+                print("  FAIL %s: %s" % (text, exc))
+                failed = True
+                break
+    elif plan.steps:
+        backup = "would write %s" % os.path.join(tp.CONFIG_DIR, "backups",
+                                                  os.path.basename(repo) + "-<stamp>.tar.gz")
+    print("= %s: %d %s, %d skipped, backup %s" % (
+        os.path.basename(repo), len(plan.steps), "done" if apply and not failed else
+        "failed" if failed else "planned", len(plan.skipped), backup))
+    return not failed
+
+
+def discover():
+    repos = []
+    for root in tp.roots():
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.realpath(os.path.join(root, name))
+            if not os.path.isdir(os.path.join(path, ".git")):
+                continue
+            if path == tp.PLUGIN_ROOT or os.path.isfile(os.path.join(path, "hooks", "tezgah_policy.py")):
+                continue
+            repos.append(path)
+    return repos
+
+
+def main(argv):
+    apply, repos, i = False, [], 0
+    while i < len(argv):
+        if argv[i] == "--apply":
+            apply = True
+        elif argv[i] == "--repo" and i + 1 < len(argv):
+            repos.append(os.path.realpath(argv[i + 1]))
+            i += 1
+        else:
+            print(__doc__, file=sys.stderr)
+            return 2
+        i += 1
+    for repo in repos:
+        if not os.path.isdir(os.path.join(repo, ".git")):
+            print("tezgah-migrate: %s is not a git repository root" % repo, file=sys.stderr)
+            return 2
+    ok = True
+    for repo in repos or discover():
+        ok = migrate(repo, apply) and ok
+    if not apply:
+        print("dry run: nothing changed; re-run with --apply to perform it")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

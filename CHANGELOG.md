@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`tezgah-migrate` moves legacy per-project state into `<repo>/.tezgah/`.**
+  A `.tezgah/` the project tracked is untracked (files stay on disk), a root
+  `plans/` in plan format, `analysis/` and `research/` move under `.tezgah/`
+  (a differing name collision is reported and left in place), project-owned
+  knowledge (`CLAUDE.md`, `AGENTS.md`, `docs/research/`, `.claude/agents` ...)
+  stays and is indexed in `.tezgah/analysis/project-knowledge.md`, and the
+  workspace gets its `.gitignore` lines and a private `.tezgah/.git` with an
+  import commit. Dry run by default; `--apply` writes a backup tarball to
+  `~/.config/tezgah/backups/` first and never commits in the project repo.
+
 ### Removed
 
 - **The consent gate and the untrusted sink rule are gone.** The gate refused

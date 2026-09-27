@@ -249,6 +249,46 @@ the report prints and what adopt retires (`bin/tezgah-setup:2835-2856`). Under t
 waits for the yes: a declined plan leaves the predecessor wiring exactly where it
 was (`bin/tezgah-setup:3895-3901`).
 
+## Migrate legacy state: `tezgah-migrate`
+
+Per-project tezgah state lives only under `<repo>/.tezgah/`, ignored by the
+project and versioned by its own private repository at `.tezgah/.git`. Older
+installs left it elsewhere: a `.tezgah/` the project tracked, a root `plans/`,
+`analysis/` or `research/`. `bin/tezgah-migrate` finds those and moves them
+(`bin/tezgah-migrate:216-267`):
+
+- a tracked `.tezgah/` is untracked with `git rm -r --cached` and stays on disk;
+- a root `plans/` in tezgah plan format (an `open/` or `done/` directory, or a
+  README with the status markers, `bin/tezgah-migrate:119-121`) goes into
+  `.tezgah/plans/`, `analysis/` into `.tezgah/analysis/`, and `research/` into
+  `.tezgah/analysis/imported-research/`; a tracked source is removed from the
+  index, an untracked one is moved;
+- project-owned knowledge (`CLAUDE.md`, `AGENTS.md`, nested rule files,
+  `docs/research/`, `.claude/agents|skills|commands`, `.agents/`, `skills/`)
+  stays where it is and is indexed in `.tezgah/analysis/project-knowledge.md`
+  with its file count and first heading (`bin/tezgah-migrate:142-157`);
+- the workspace is ensured (`/.tezgah/` and `/.codegraph/` in `.gitignore`,
+  `git init` in `.tezgah`) and its content committed there as `import from
+  project history <short sha>`.
+
+A file whose name already exists at the destination with other content is
+reported as `skip` and left in place; an identical duplicate only loses its
+source (`bin/tezgah-migrate:176-213`).
+
+With no `--repo` it walks every repository directly under each configured root
+whose `.git` is a directory, skipping the tezgah checkout
+(`bin/tezgah-migrate:309-323`). It is a dry run by default: one `would` line per
+action and a `=` summary per repo. `--apply` first writes every path it will
+touch to `~/.config/tezgah/backups/<repo>-<UTC stamp>.tar.gz`
+(`bin/tezgah-migrate:270-280`), then performs the actions. It never commits in the
+project repository and never pushes: the result is an uncommitted change to
+review. A second `--apply` finds nothing to do.
+
+```sh
+tezgah-migrate                      # dry run over every root
+tezgah-migrate --apply --repo ~/Projects/app
+```
+
 ## Health pass: `tezgah-doctor`
 
 `bin/tezgah-doctor` reports the stores that grow without bound — opencode's SQLite
