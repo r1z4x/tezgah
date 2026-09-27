@@ -2026,6 +2026,26 @@ class CountersAll(TempHome):
         # one of the three rows carrying an exit failed
         self.assertEqual(counts["tool_error_rate"], 0.3333)
 
+    def test_fixture_workspaces_are_left_out_of_the_corpus(self):
+        # a probe in a temp tree, an OpenResearch run copy and an arm-bench run
+        # are the harness, not use: their claims must not move the corpus ratio.
+        # A ledger that also names a real workspace, or none at all, stays in.
+        real = "/Users/u/Projects/app"
+        for name, space in (
+                ("tmp.jsonl", "/private/tmp/probe-e2e"),
+                ("folders.jsonl", "/private/var/folders/rf/x/T/repo"),
+                ("runs.jsonl", "/Users/u/.local/share/openresearch/local-runs/3eb8/repo"),
+                ("bench.jsonl", "/Users/u/orca/tezgah/benchmarks/arm-bench/.runs/c01/repo")):
+            self.ledger(name, [{"kind": "claim", "detail": "blocked: x",
+                                "workspace": space}])
+        self.ledger("real.jsonl", [{"kind": "claim", "detail": "ok", "workspace": real}])
+        self.ledger("mixed.jsonl", [{"kind": "claim", "detail": "ok", "workspace": real},
+                                    {"kind": "run", "detail": "ls", "workspace": "/tmp/s"}])
+        self.ledger("old.jsonl", [{"kind": "claim", "detail": "ok"}])
+        counts = self.counts()
+        self.assertEqual((counts["ledgers"], counts["fixtures"]), (3, 4))
+        self.assertEqual((counts["claims"], counts["false_completion"]), (3, 0))
+
     def test_a_ledger_without_a_claim_row_or_an_exit_does_not_divide_by_zero(self):
         # the rate has no decided row to divide by and the claim share has no
         # denominator: neither may raise, and neither may invent a number

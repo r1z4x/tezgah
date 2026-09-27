@@ -115,7 +115,7 @@ Trigger: the same call has been attempted more than `RETRY_CEILING = 3` times in
 
 Trigger: a `Grep` whose pattern, or a `grep`/`rg` argument (`BASH_SEARCH` `hooks/tezgah_gate.py:117`), matches `IDENT` (`^[A-Za-z_][A-Za-z0-9_]{2,}$`, `hooks/tezgah_gate.py:114`), in a repo whose
 codegraph index exists (`<repo>/.codegraph/codegraph.db`; `searched_identifier`
-`hooks/tezgah_gate.py:357`). Told: the index path and the graph tools
+`hooks/tezgah_gate.py:357`). Told: the runnable command built from the denied search (`codegraph explore <X>`, `codegraph callers <X>`, `codegraph impact <X>`), and that an omp subagent uses this CLI because omp's MCP device refuses concurrent writes
 (`nudge_reason` `hooks/tezgah_gate.py:409`).
 Once-only: the mark in `cache_dir()/nudged/<session>` is written *before* the refusal, so re-issuing the search passes (`first_nudge` `hooks/tezgah_gate.py:392`).
 

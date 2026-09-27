@@ -71,7 +71,7 @@ def main():
         import tezgah_integrity as ti
         if "--all" in flags:
             counts = ti.counters_all()
-            head = "all %d ledgers" % counts["ledgers"]
+            head = "all %d ledgers (%d fixture ledgers left out)" % (counts["ledgers"], counts["fixtures"])
         else:
             session = pos[1] if len(pos) > 1 else os.environ.get("TEZGAH_SESSION")
             counts = ti.counters(session)

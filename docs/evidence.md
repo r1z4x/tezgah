@@ -209,8 +209,8 @@ without failing the other's test (`tests/test_opencode_plugin.py:1285`).
 
 `tezgah-status --counters [path] [session]` (`bin/tezgah-status:60-82`) prints `counters(session)`
 (`hooks/tezgah_integrity.py:857-872`) over one session's whole ledger, and `tezgah-status --counters
---all` prints `counters_all()` (`hooks/tezgah_integrity.py:877`) over every ledger on the machine, adding `ledgers`, the
-number of files it read. Both fold their rows through `_counts` (`hooks/tezgah_integrity.py:897`), the one implementation
+--all` prints `counters_all()` (`hooks/tezgah_integrity.py:877`) over every real-session ledger on the machine, adding `ledgers`, the
+number of files it read, and `fixtures`, the ledgers left out because every workspace they name is a temp, OpenResearch run or arm-bench tree (`fixture_ledger`). Both fold their rows through `_counts` (`hooks/tezgah_integrity.py:897`), the one implementation
 of the arithmetic, so a total cannot drift from the sessions it sums - the `:NNN` rows below are that
 fold. `counters_all` bounds nothing: a window or a row cap would make the total contradict the
 per-session numbers it claims to be, and the whole corpus here folds in 0.17 s.

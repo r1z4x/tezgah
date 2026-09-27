@@ -114,7 +114,8 @@ class Install(SetupBase):
         self.assertEqual(sorted(cfg["hosts"]), sorted(ALL.split(",")))
         for name in ("consult", "codegen", "tezgah-status", "tezgah-index",
                      "tezgah-pony", "tezgah-adhd", "tezgah-docs",
-                     "tezgah-codex-hook", "tezgah-cursor-hook", "tezgah-statusline"):
+                     "tezgah-codex-hook", "tezgah-cursor-hook", "tezgah-statusline",
+                     "tezgah-mcp"):
             self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin", name)),
                             name)
 
@@ -883,6 +884,21 @@ class CodexHome(SetupBase):
         self.assertTrue(row.strip().startswith("MISS"),
                         "a host wired for every event but Stop was reported as "
                         "wired: %r" % row)
+
+    def test_the_report_names_a_wired_host_config_does_not_record(self):
+        # the audited machine: codex wired while config.json records omp alone.
+        # --upgrade and a full uninstall read the recorded list, so the report
+        # has to name the gap - and leave the list for the user to decide.
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+        label = "config.json hosts"
+        self.assertTrue(self.row(self.setup("--hosts", "codex").stdout, label)
+                        .strip().startswith("ok"))
+        path = self.path(".config", "tezgah", "config.json")
+        self.write_json(path, dict(self.read_json(path), hosts=["omp"]))
+        row = self.row(self.setup("--hosts", "codex").stdout, label)
+        self.assertTrue(row.strip().startswith("MISS"), row)
+        self.assertIn("(omp) match the hosts wired (codex)", row)
+        self.assertEqual(self.read_json(path)["hosts"], ["omp"])
 
 
 class CursorMatcher(SetupBase):
