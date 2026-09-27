@@ -93,7 +93,8 @@ calls (`check_line`, `tezgah_research.py:1855`).
 
 | Command | What it does | Exit |
 |---|---|---|
-| `tezgah-research init <slug> [--question "..."] [--tracked] [--allow-open "<reason>"]` | scaffolds the line, then prints a TRACKING block when git ignores its path; `--tracked` appends the lines that re-include it - one negation, or the chain when an ancestor directory is excluded - to the file carrying the ignore, never rewriting another line, never staging, and not at all when that file is outside the repository. It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. Its next-step message names the commit loop: the protocol committed normally, the results added by explicit path (`report_tracking`, `bin/tezgah-research:127`; `cmd_init`, `bin/tezgah-research:89`) | 0, 1 refused, 2 misuse |
+| `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
+| `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
 | `tezgah-research check [<slug>] [--json] [--strict] [--orx]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `tezgah_research.py:2115`) | 0 clean, 1 a line failed a rule or names no line |
 | `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `tezgah_research.py:2091`) | 0 |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
@@ -121,18 +122,22 @@ this?*, which git's `check-ignore` answers as no for a path the index already
 holds - and reports the pair that is ignored.
 
 The loop that keeps the order decidable, stated once here because the failure is
-silent: **commit the protocol normally** (that commit is the prediction), **then
-add the results by explicit path**:
+silent: **commit the protocol** (that commit is the prediction), **run, then
+commit the results in a later commit**. Both commits land in `.tezgah`'s private
+repository - the project ignores `.tezgah/` and never stages it:
 
 ```sh
-git add .tezgah/research/<slug>/experiments/<h>/protocol.md && git commit ...
+tezgah-research commit <slug> "protocol <h>"   # = git -C .tezgah add ... && git -C .tezgah commit
 # run it
-git add -f .tezgah/research/<slug>/experiments/<h>/results.jsonl && git commit ...
+tezgah-research commit <slug> "results <h>"
 ```
 
-A plain `git add <results.jsonl>` stages nothing while the path is ignored, and
-that silent no-op looks exactly like a commit - which is why the warning carries
-the `git add -f <path>` that fixes it rather than the pattern alone.
+`_ignored` asks the repository that commits the file - the private one when it
+exists, else the project's - and the history helpers (`added_commits`,
+`last_touch`, `is_ancestor`) read the private history first and fall back to the
+project's, so a line the project committed before the move still proves its
+order. A prediction's `commit` names a product commit and is placed only in the
+project's history.
 
 ## Two gates, when one locked metric is not enough
 
@@ -312,9 +317,9 @@ this layer cannot decide on, not a defect:
   deliberate: `predict` refuses a row being written now that names no component
   (`new` on the same function), because the writer of a new row can name it and
   the reader of an old one cannot;
-- a pair the order rule compares that git ignores and does not track, so the
+- a pair the order rule compares that no repository can commit, so the
   protocol order will never be decidable for it; the message names the
-  `git add -f <path>` that fixes it (`_check_tracking`,
+  `git -C .tezgah add -f <path>` or `tezgah-research commit` that fixes it (`_check_tracking`,
   `tezgah_research.py:1453`);
 - a `protocol.md` that answers neither what it predicts nor what would falsify it
   - the marker is a prediction word and a falsifier word anywhere in the file,

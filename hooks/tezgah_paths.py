@@ -379,3 +379,68 @@ def tool(name):
         if os.path.exists(p):
             return p
     return os.path.join(BIN_DIR, name)
+
+
+# --- the per-project workspace: <repo>/.tezgah, the only place tezgah writes
+# project state. It is ignored by the project's own git and carries a private
+# git repository of its own, so the evidence that needs history (a research
+# protocol committed before its results, a plan moved to done/) has one without
+# ever entering the project's history.
+WORKSPACE = ".tezgah"
+WORKSPACE_IGNORES = ("/.tezgah/", "/.codegraph/")
+# Commits in the private repository need an identity whatever the user's git
+# config holds, and must not wait on a signing agent.
+WS_IDENTITY = ("-c", "user.name=tezgah", "-c", "user.email=tezgah@localhost",
+               "-c", "commit.gpgsign=false")
+
+
+def workspace(repo):
+    """`<repo>/.tezgah`: every per-project file tezgah keeps lives under it."""
+    return os.path.join(repo, WORKSPACE)
+
+
+def ensure_workspace(repo):
+    """`<repo>/.tezgah`, created, ignored by the project and holding its own git
+    repository; None when `repo` is not a git work tree or a step failed.
+
+    The ignore lines are appended to the project's `.gitignore` only when
+    missing, after every line the user wrote, and nothing is staged. A second
+    call costs three stats and one file read: the subprocess runs only when
+    `.tezgah/.git` does not exist yet. Fail-open: a read-only tree returns None
+    and the session goes on."""
+    if not os.path.exists(os.path.join(repo, ".git")):
+        return None
+    ws = workspace(repo)
+    try:
+        os.makedirs(ws, exist_ok=True)
+        path = os.path.join(repo, ".gitignore")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                body = fh.read()
+        except FileNotFoundError:
+            body = ""
+        have = {line.strip().strip("/") for line in body.splitlines()}
+        missing = [line for line in WORKSPACE_IGNORES if line.strip("/") not in have]
+        if missing:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(("\n" if body and not body.endswith("\n") else "")
+                         + "".join(line + "\n" for line in missing))
+        if not os.path.exists(os.path.join(ws, ".git")):
+            import subprocess  # deferred: the gate imports this module per call
+            if subprocess.run(["git", "init", "-q", ws],
+                              capture_output=True).returncode:
+                return None
+    except (OSError, ValueError):
+        return None
+    return ws
+
+
+def ws_git(repo, *args, **kw):
+    """`git -C <repo>/.tezgah <args>` with tezgah's commit identity, as a
+    CompletedProcess (text, captured unless `kw` says otherwise). Raises OSError
+    when git is not installed, like subprocess.run."""
+    import subprocess  # deferred: see ensure_workspace
+    kw.setdefault("capture_output", True)
+    kw.setdefault("text", True)
+    return subprocess.run(["git", "-C", workspace(repo)] + list(WS_IDENTITY)
+                          + list(args), **kw)

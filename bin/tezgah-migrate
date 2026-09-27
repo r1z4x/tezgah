@@ -35,36 +35,9 @@ import tarfile
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_paths as tp  # noqa: E402
+from tezgah_paths import ensure_workspace, ws_git  # noqa: E402
 
-try:
-    from tezgah_paths import ensure_workspace, ws_git  # noqa: E402
-except ImportError:
-    # ponytail: local copy of the workspace contract until hooks/tezgah_paths.py
-    # ships ensure_workspace/ws_git; drop this block once it does.
-    def ws_git(repo, *args, **kw):
-        cmd = ["git", "-C", os.path.join(repo, ".tezgah"), "-c", "user.name=tezgah",
-               "-c", "user.email=tezgah@localhost", "-c", "commit.gpgsign=false"]
-        return subprocess.run(cmd + list(args), capture_output=True, text=True, **kw)
-
-    def ensure_workspace(repo):
-        ws = os.path.join(repo, ".tezgah")
-        try:
-            os.makedirs(ws, exist_ok=True)
-            if in_work_tree(repo):
-                missing = missing_ignores(repo)
-                if missing:
-                    path = os.path.join(repo, ".gitignore")
-                    text = read(path)
-                    with open(path, "a", encoding="utf-8") as fh:
-                        fh.write(("\n" if text and not text.endswith("\n") else "")
-                                 + "".join(line + "\n" for line in missing))
-            if not os.path.exists(os.path.join(ws, ".git")):
-                subprocess.run(["git", "init", "-q", ws], capture_output=True, check=True)
-        except (OSError, subprocess.CalledProcessError):
-            return None
-        return ws
-
-IGNORES = ("/.tezgah/", "/.codegraph/")
+IGNORES = tp.WORKSPACE_IGNORES
 KNOWLEDGE = ("CLAUDE.md", "AGENTS.md", "GEMINI.md", "docs/research", ".claude/agents",
              ".claude/skills", ".claude/commands", ".agents", "skills")
 RULE_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")

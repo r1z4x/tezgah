@@ -463,5 +463,36 @@ class CodegraphBin(TempHome):
         self.assertIsNone(self.resolved())
 
 
+class EnsureWorkspace(TempHome):
+    """`ensure_workspace`: `.tezgah/` created, ignored by the project with every
+    user line kept, given its own git repository, and nothing outside a work tree."""
+
+    def test_creates_ignores_and_inits_once(self):
+        repo = self.make_repo("proj")
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        gi = os.path.join(repo, ".gitignore")
+        with open(gi, "w") as fh:
+            fh.write("node_modules\n.codegraph")  # no trailing newline
+        ws = tp.ensure_workspace(repo)
+        self.assertEqual(ws, os.path.join(repo, ".tezgah"))
+        self.assertTrue(os.path.isdir(os.path.join(ws, ".git")))
+        with open(gi) as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(lines, ["node_modules", ".codegraph", "/.tezgah/"])
+        self.assertEqual(tp.ensure_workspace(repo), ws)
+        with open(gi) as fh:
+            self.assertEqual(fh.read().splitlines(), lines)
+        status = subprocess.run(["git", "-C", repo, "status", "--porcelain"],
+                                capture_output=True, text=True).stdout
+        self.assertNotIn(".tezgah", status)
+        self.assertEqual(subprocess.run(["git", "-C", repo, "diff", "--cached",
+                                         "--name-only"], capture_output=True,
+                                        text=True).stdout, "")
+
+    def test_not_a_work_tree_is_left_alone(self):
+        plain = self.make_repo("plain")
+        self.assertIsNone(tp.ensure_workspace(plain))
+        self.assertEqual(os.listdir(plain), [])
+
 if __name__ == "__main__":
     unittest.main()

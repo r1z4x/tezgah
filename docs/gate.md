@@ -81,6 +81,10 @@ Trigger: one simple command (split on `&&`, `||`, `;`, newline — `SEGMENT` `ho
 tool's environment (`SECRET_DENY` `hooks/tezgah_gate.py:194`). Standing, no escape hatch. The shell's own write route is the third twin: a credential inside a heredoc body
 is refused from the body (`hooks/tezgah_gate.py:1136-1137`), because `mask()` blanks that body and the text-level scan above cannot see it.
 
+### Workspace — tezgah state outside `.tezgah/`
+
+Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write. A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
+
 ### Ordering — a commit while the newest check failed
 
 The one rule here that asserts a relation between two actions rather than reading one call plus a ledger tail, and the shape FAVA found in 90% of real

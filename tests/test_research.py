@@ -113,8 +113,19 @@ class Workspace(TempHome):
         return [os.path.relpath(p, repo) for p in paths]
 
     def commit(self, repo, message, when=None):
-        self.git(repo, "add", "-A", "-f")
-        self.git(repo, "-c", "commit.gpgsign=false", "commit", "-q",
+        """One commit in each history: the line's files in `.tezgah`'s private
+        repository when `init` made one, everything else in the project's - which
+        is where a session's own two commits land."""
+        ws = os.path.join(repo, ".tezgah")
+        if os.path.isdir(os.path.join(ws, ".git")):
+            self.git(ws, "add", "-A", "-f")
+            self.git(ws, "-c", "commit.gpgsign=false", "-c", "user.name=Test",
+                     "-c", "user.email=test@example.invalid", "commit", "-q",
+                     "--allow-empty", "-m", message, when=when)
+            self.git(repo, "add", "-A", "-f", "--", ".", ":(exclude).tezgah")
+        else:
+            self.git(repo, "add", "-A", "-f")
+        self.git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty",
                  "-m", message, when=when)
 
     def write(self, path, text):
@@ -725,8 +736,9 @@ class Experiments(Workspace):
         self.write(os.path.join(d, "results-v1.jsonl"), '{"run": 1}\n')
         self.write(os.path.join(d, "analysis.md"), "# Analysis\n\nheld.\n")
         self.commit(repo, "results under a working name", when=BEFORE)
-        self.git(repo, "mv", *self.rel(repo, os.path.join(d, "results-v1.jsonl"),
-                                       os.path.join(d, "results.jsonl")))
+        ws = os.path.join(repo, ".tezgah")
+        self.git(ws, "mv", *self.rel(ws, os.path.join(d, "results-v1.jsonl"),
+                                     os.path.join(d, "results.jsonl")))
         self.commit(repo, "rename the results into place", when=BEFORE)
         self.protocol(repo)
         self.commit(repo, "protocol", when=AFTER)
@@ -746,8 +758,9 @@ class Experiments(Workspace):
         self.write(os.path.join(d, "results-v1.jsonl"), '{"run": 1}\n')
         self.write(os.path.join(d, "analysis.md"), "# Analysis\n\nheld.\n")
         self.commit(repo, "results under a working name", when=BEFORE)
-        self.git(repo, "mv", *self.rel(repo, os.path.join(d, "results-v1.jsonl"),
-                                       os.path.join(d, "results.jsonl")))
+        ws = os.path.join(repo, ".tezgah")
+        self.git(ws, "mv", *self.rel(ws, os.path.join(d, "results-v1.jsonl"),
+                                     os.path.join(d, "results.jsonl")))
         self.commit(repo, "rename the results into place", when=AFTER)
         errors, warnings = tr.check_line(repo, "q")
         self.assertEqual(errors, [])
@@ -1284,138 +1297,144 @@ class ClaimAppend(Workspace):
 class Tracking(Workspace):
     """I1: the tracking requirement, named rather than assumed.
 
-    A line under an ignored path is a line whose protocol order can never be
-    proved and whose artifacts no other session can read - the flagship rule of
-    this layer is unreachable exactly where it is supposed to fire."""
+    The project ignores `.tezgah/`, and the commits the order rule reads are made
+    in `.tezgah`'s own private repository; a line the project committed before
+    the move keeps its proof in the project's history."""
 
-    def ignore(self, repo, *lines):
-        self.write(os.path.join(repo, ".gitignore"),
-                   "".join(line + "\n" for line in lines))
-        return os.path.join(repo, ".gitignore")
+    def ws_log(self, repo, rel):
+        return self.git(os.path.join(repo, ".tezgah"), "log", "--all",
+                        "--format=%H", "--", rel).split()
 
-    def test_init_names_the_ignore_and_the_negation_chain(self):
-        # the chain, not one line: git cannot re-include a path under an excluded
-        # directory, so `!` on its own would be a printed promise that does not
-        # work - measured on a scratch repo before this was written
+    def unmoved(self, repo):
+        """A line whose `.tezgah` has no repository yet: the layout before the move."""
+        self.line(repo)
+        shutil.rmtree(os.path.join(repo, ".tezgah", ".git"))
+
+    def test_init_makes_the_private_repository_and_keeps_the_project_clean(self):
         repo = self.repo()
-        self.ignore(repo, "/.tezgah/")
-        self.commit(repo, "ignore the state dir", when=BEFORE)
+        self.write(os.path.join(repo, ".gitignore"), "# mine\n/build/")
+        self.commit(repo, "the user's ignore", when=BEFORE)
         proc = self.cli(repo, "init", "q")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("TRACKING: .tezgah/research/q/ is ignored by", proc.stdout)
-        self.assertIn(".gitignore:1:/.tezgah/", proc.stdout)
-        for line in ("!.tezgah/", ".tezgah/*", "!.tezgah/research/",
-                     ".tezgah/research/*", "!.tezgah/research/q/"):
-            self.assertIn(line, proc.stdout, proc.stdout)
+        self.assertTrue(os.path.isdir(os.path.join(repo, ".tezgah", ".git")))
+        body = read(os.path.join(repo, ".gitignore"))
+        self.assertTrue(body.startswith("# mine\n/build/\n"), body)
+        self.assertIn("/.tezgah/\n", body)
+        # the project sees one changed line of its own ignore file and nothing
+        # of the line, and nothing was staged
+        self.assertEqual(self.git(repo, "status", "--porcelain").split(),
+                         ["M", ".gitignore"])
+        self.assertEqual(self.git(repo, "diff", "--cached", "--name-only").strip(), "")
+        self.assertIn("tezgah-research commit q", proc.stdout)
 
-    def test_check_warns_for_the_pair_it_cannot_order_and_strict_refuses_it(self):
+    def test_a_line_in_the_private_repository_is_not_called_unorderable(self):
+        # the project ignores `.tezgah/`, and that is not the private repository's
+        # business: the pair is committable there, and ordered from there
         repo = self.repo()
-        self.ignore(repo, "/.tezgah/")
-        self.commit(repo, "ignore the state dir", when=BEFORE)
         self.line(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=AFTER)
+        self.assertFalse(hit("ignored by", self.warnings(repo)), self.warnings(repo))
+        self.assertEqual(self.errors(repo), [])
+        rel = "research/q/experiments/h1/results.jsonl"
+        self.assertEqual(len(self.ws_log(repo, rel)), 1)
+        self.assertEqual(self.git(repo, "log", "--format=%H", "--", ".tezgah").strip(), "")
+
+    def test_the_private_repository_decides_the_order(self):
+        repo = self.repo()
+        self.line(repo)
+        self.results(repo)
+        self.commit(repo, "results first", when=BEFORE)
+        self.protocol(repo)
+        self.commit(repo, "protocol after", when=AFTER)
+        self.assertTrue(hit(NOT_A_PREDICTION, self.errors(repo)), self.errors(repo))
+
+    def test_a_line_the_project_committed_before_the_move_keeps_its_order(self):
+        # the move imports the whole line in one private commit; the project's
+        # history still holds the two commits that order it, and the import is
+        # not read as one commit adding both files
+        repo = self.repo()
+        self.unmoved(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=AFTER)
+        self.git(os.path.join(repo, ".tezgah"), "init", "-q")
+        self.commit(repo, "import", when=AFTER)
+        self.assertEqual(len(self.ws_log(repo, "research/q/experiments/h1/protocol.md")), 1)
+        errors = self.errors(repo)
+        self.assertFalse(hit(BOTH_TOGETHER, errors), errors)
+        self.assertEqual(errors, [])
+
+    def test_a_project_commit_precedes_a_private_one(self):
+        repo = self.repo()
+        self.unmoved(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol, before the move", when=BEFORE)
+        self.git(os.path.join(repo, ".tezgah"), "init", "-q")
+        self.results(repo)
+        self.commit(repo, "results, after it", when=AFTER)
+        self.assertEqual(self.errors(repo), [])
+
+    def test_a_private_protocol_does_not_precede_project_results(self):
+        repo = self.repo()
+        self.unmoved(repo)
+        self.results(repo)
+        self.commit(repo, "results, before the move", when=BEFORE)
+        self.git(os.path.join(repo, ".tezgah"), "init", "-q")
+        self.protocol(repo)
+        self.commit(repo, "protocol, after it", when=AFTER)
+        self.assertTrue(hit(NOT_A_PREDICTION, self.errors(repo)), self.errors(repo))
+
+    def test_a_file_the_private_repository_ignores_warns_with_its_fix(self):
+        repo = self.repo()
+        self.line(repo)
+        self.write(os.path.join(repo, ".tezgah", ".gitignore"), "*.jsonl\n")
         self.protocol(repo)
         self.results(repo)
         warnings = self.warnings(repo)
-        self.assertTrue(hit("results.jsonl is ignored by .gitignore:1:/.tezgah/, so "
-                            "no commit a tracked tree holds can show the protocol "
-                            "predates the results", warnings), warnings)
-        # the message carries the command that fixes it: `git add` on an ignored
-        # path stages nothing, and that silent no-op looks exactly like a commit
-        self.assertTrue(hit("commit the protocol normally, then `git add -f "
-                            ".tezgah/research/q/experiments/h1/results.jsonl`",
-                            warnings), warnings)
+        self.assertTrue(hit("results.jsonl is ignored by .gitignore:1:*.jsonl", warnings),
+                        warnings)
+        self.assertTrue(hit("`git -C .tezgah add -f "
+                            "research/q/experiments/h1/results.jsonl`", warnings),
+                        warnings)
         self.assertEqual(self.errors(repo), [])
-        strict = self.errors(repo, strict=True)
-        self.assertTrue(hit("no commit a tracked tree holds can show", strict), strict)
+        self.assertTrue(hit("ignored by", self.errors(repo, strict=True)))
         # the same line checked without git pays nothing for the rule
         self.assertFalse(hit("ignored by", self.warnings(repo, git=False)))
 
-    def test_a_tracked_pair_is_not_called_unorderable_by_an_ignored_state_file(self):
-        # the false positive this probe was rewritten for, in this repository's
-        # own layout: the ignore rule covers the line's contents, the pair the
-        # order rule compares is committed with `-f`, and the state files stay
-        # ignored and untracked - so the old probe, which asked the line's
-        # directory and fell back to `state.json`, reported a line whose order is
-        # decidable as unverifiable
+    def test_no_private_repository_names_the_subcommand_that_makes_one(self):
         repo = self.repo()
-        self.ignore(repo, "/.tezgah/")
-        self.commit(repo, "ignore the state dir", when=BEFORE)
-        self.line(repo)
-        d = self.protocol(repo)
-        self.results(repo)
-        for message, name, when in (("the protocol", "protocol.md", BEFORE),
-                                    ("the results, forced past the ignore rule",
-                                     "results.jsonl", AFTER)):
-            rel = os.path.relpath(os.path.join(d, name), repo)
-            self.git(repo, "add", "-f", "--", rel)
-            self.git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m",
-                     message, when=when)
-        # the state files are still ignored, and that is the whole point: they
-        # are not the two paths the order rule compares
-        self.assertTrue(tr.ignored_by(repo, tr.line_dir(repo, "q")))
-        self.assertFalse(hit("ignored by", self.warnings(repo)), self.warnings(repo))
+        self.unmoved(repo)
+        self.protocol(repo)
+        warnings = self.warnings(repo)
+        self.assertTrue(hit("protocol.md is ignored by .gitignore", warnings), warnings)
+        self.assertTrue(hit('`tezgah-research commit q "<message>"`', warnings), warnings)
 
     def test_a_line_with_no_experiment_has_no_pair_to_order(self):
         # nothing to prove yet, so nothing is claimed either way
         repo = self.repo()
-        self.ignore(repo, "/.tezgah/")
-        self.commit(repo, "ignore the state dir", when=BEFORE)
-        self.line(repo)
+        self.unmoved(repo)
         self.assertFalse(hit("ignored by", self.warnings(repo)))
 
-    def test_tracked_appends_the_chain_and_git_stops_ignoring_the_line(self):
-        repo = self.repo()
-        path = self.ignore(repo, "/.tezgah/", "# a line the user wrote", "/other/")
-        self.commit(repo, "ignore the state dir", when=BEFORE)
-        proc = self.cli(repo, "init", "q", "--tracked")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("tracked: appended 5 line(s)", proc.stdout)
-        body = read(path)
-        # the user's own lines are untouched, and nothing was staged
-        self.assertIn("/.tezgah/\n# a line the user wrote\n/other/\n", body)
-        self.assertIn("\n!.tezgah/research/q/\n", body)
-        self.assertEqual(self.git(repo, "diff", "--cached", "--name-only").strip(), "")
-        self.assertIsNone(tr.ignored_by(repo, os.path.join(
-            tr.line_dir(repo, "q"), "state.json")))
-        self.assertFalse(hit("ignored by", self.warnings(repo)), self.warnings(repo))
-        # and the pair the order rule reads is committable, file by file: this is
-        # the probe the re-inclusion exists for, asked per path
-        self.protocol(repo)
-        self.results(repo)
-        self.assertFalse(hit("no commit a tracked tree holds can show",
-                             self.warnings(repo)), self.warnings(repo))
-
-    def test_tracked_is_idempotent(self):
-        repo = self.repo()
-        self.ignore(repo, "/.tezgah/")
-        self.commit(repo, "ignore the state dir", when=BEFORE)
-        self.cli(repo, "init", "q", "--tracked")
-        before = read(os.path.join(repo, ".gitignore"))
-        proc = self.cli(repo, "init", "q", "--tracked")
-        self.assertEqual(read(os.path.join(repo, ".gitignore")), before)
-        # the second run finds nothing to re-include, so it prints no block: the
-        # negation chain is written once, not once per init
-        self.assertNotIn("TRACKING:", proc.stdout)
-
-    def test_the_negation_is_one_line_when_no_directory_depth_is_readable(self):
-        # a file-shaped pattern leaves the depth underivable: the plain negation
-        # is printed and nothing is invented about the chain it would need
+    def test_commit_orders_the_line_in_the_private_repository(self):
         repo = self.repo()
         self.line(repo)
-        self.assertEqual(tr.negations(repo, "q", ".tezgah"),
-                         ["!.tezgah/research/q/"])
-        self.assertIsNone(tr.ignored_ancestor("*.jsonl"))
-        self.assertEqual(tr.ignored_ancestor("/.tezgah/"), 0)
-        # `dir/*` excludes the entries one level below the directory itself
-        self.assertEqual(tr.ignored_ancestor("/.tezgah/*"), 1)
-        self.assertEqual(tr.ignore_source("nonsense"), None)
-
-    def test_a_line_whose_path_is_not_ignored_prints_no_tracking_block(self):
-        repo = self.repo()
-        self.ignore(repo, "/build/")
-        self.commit(repo, "ignore a build dir", when=BEFORE)
-        proc = self.cli(repo, "init", "q")
-        self.assertNotIn("TRACKING:", proc.stdout)
+        self.protocol(repo)
+        first = self.cli(repo, "commit", "q", "protocol h1")
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.results(repo)
+        second = self.cli(repo, "commit", "q", "results h1")
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertEqual(len(self.ws_log(repo, "research/q")), 2)
+        self.assertEqual(self.errors(repo), [])
+        # the project's own index is never touched
+        self.assertEqual(self.git(repo, "diff", "--cached", "--name-only").strip(), "")
+        # nothing left to commit is a failure, not a silent success
+        self.assertEqual(self.cli(repo, "commit", "q", "again").returncode, 1)
+        self.assertEqual(self.cli(repo, "commit", "nope", "x").returncode, 2)
 
 
 class LockedEvaluation(Workspace):
@@ -2675,9 +2694,9 @@ class StrictMode(Workspace):
         # one line of each class, and the strict run has to name every one of
         # them
         repo = self.repo()
-        self.write(os.path.join(repo, ".gitignore"), "/.tezgah/\n")
-        self.commit(repo, "ignore the state dir", when=BEFORE)
         base = self.line(repo, phase="concluded")
+        # the private repository ignores the results, so no commit can order them
+        self.write(os.path.join(repo, ".tezgah", ".gitignore"), "*.jsonl\n")
         self.write(os.path.join(base, "to_human", "report.md"), "# Report\n")
         claim = dict(CLAIM)
         del claim["kind"]
@@ -2693,8 +2712,8 @@ class StrictMode(Workspace):
         warnings = self.warnings(repo)
         strict = self.errors(repo, strict=True)
         self.assertEqual(self.errors(repo), [])
-        for needle in ("results.jsonl is ignored by .gitignore:1:/.tezgah/, so no "
-                       "commit a tracked tree holds can show",
+        for needle in ("results.jsonl is ignored by .gitignore:1:*.jsonl, so no "
+                       "commit can show",
                        "carries no kind",
                        "results.jsonl:1 carries no source",
                        "grey source with no quality note",
@@ -3413,7 +3432,8 @@ class UnitEdges(Workspace):
             os.environ["PATH"] = saved
         self.assertEqual(words, [])
         self.assertTrue(err, "a missing git was reported as an empty answer")
-        self.assertIsNone(tr.ignored_by(repo, base))
+        self.assertIsNone(tr._ignored(repo, os.path.join(
+            base, "experiments", "h1", "results.jsonl")))
         self.assertEqual(errors, [])
         self.assertTrue(hit("git could not be asked about the order", warnings),
                         warnings)

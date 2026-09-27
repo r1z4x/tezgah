@@ -115,6 +115,13 @@ use the documented fallback (grep/find, or the second opinion skipped), and carr
 on with the task in hand. Tezgah maintenance is in scope when the user asks for
 it, or when the repo IS the tezgah checkout.
 
+**Workspace: `.tezgah/` only.** Every per-project tezgah artifact - plans,
+research lines, analysis, lessons - lives under `<repo>/.tezgah/`, which the
+project's `.gitignore` excludes and which keeps its own private git repository
+(`git -C .tezgah ...`). Never create `plans/`, `research/` or `analysis/` at the
+project root and never `git add -f` anything under `.tezgah/`. Off:
+`workspace-off`.
+
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`,
@@ -122,7 +129,8 @@ status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 denials and the Stop gate), `task-off` (the task rule), `judge-off` (the
 judgement seam: the triage, the docs fallback and the skill hint), `triage-off`,
 `docs-judge-off` (the docs fallback alone), `lang-off` (the English-identifier
-rule), `pretooluse-off` (the whole gate);
+rule), `workspace-off` (the root plans/research/analysis refusal),
+`pretooluse-off` (the whole gate);
 per-repo `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons`.
 The ponytail intensity level is not a switch: `tezgah-pony lite|full|ultra`.
 

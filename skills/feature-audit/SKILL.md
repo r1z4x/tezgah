@@ -246,7 +246,9 @@ scroll container.
 
 ## Coverage, not just findings
 
-The artifact states, per matrix, how many rows were checked and how many could not
+The artifact lives at `<repo>/.tezgah/analysis/<feature>/` (never a root
+`analysis/`: the project ignores `.tezgah/` and the gate refuses the root one).
+It states, per matrix, how many rows were checked and how many could not
 be (no credential, no running app, no data in that state), and what would change
 the conclusion. A silently missing matrix section reads as a covered one - the same
 defect as a screenshot saved and never read.
