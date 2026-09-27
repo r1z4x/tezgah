@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Per-project state lives only under `<repo>/.tezgah/`, and the project never
+  tracks it.** Session start (and `tezgah-research init`) now creates `.tezgah/`,
+  appends `/.tezgah/` and `/.codegraph/` to the project's `.gitignore` when
+  missing (user lines kept, nothing staged) and gives `.tezgah/` its own private
+  git repository (`tezgah_paths.ensure_workspace`, `ws_git`). The research order
+  rule reads that private history first and the project's second, so a line
+  committed in the project before the move still proves its order;
+  `tezgah-research commit <slug> "<msg>"` is the new commit step, and
+  `init --tracked` with its `.gitignore` negations is gone. A new gate rule
+  refuses a write to a root `plans/`, `research/` or `analysis/` the project does
+  not track (`workspace-off` lifts it), and the contract says so in one line.
+
 ### Removed
 
 - **The consent gate and the untrusted sink rule are gone.** The gate refused

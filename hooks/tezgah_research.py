@@ -20,10 +20,12 @@ that makes it auditable lives next to the repository it is about:
 
 `check` enforces the rules an agent can otherwise cheat on. The flagship one is
 the order rule - a protocol committed after its results is not a prediction - and
-it can only fire for a line git actually tracks, which is why the check asks
-whether the paths it orders - each experiment's `protocol.md` and
-`results.jsonl` - can be committed at all rather than whether the line's
-directory matches an ignore pattern. Beside it stand the completeness rules that
+it reads the history of `.tezgah`'s own private git repository (the project
+ignores `.tezgah/`), falling back to the project's history for a line committed
+there before it moved; the check asks whether the paths it orders - each
+experiment's `protocol.md` and `results.jsonl` - can be committed at all rather
+than whether the line's directory matches an ignore pattern. Beside it stand the
+completeness rules that
 make the rest readable a week later: a protocol that answers neither what it
 predicts nor what would falsify it; a claim with no falsification criterion or no
 evidence, a claim whose provenance is unstated or whose `kind` is not one of the
@@ -52,7 +54,7 @@ frozen path without a human `granted_by`, or a `claim` id the line does not hold
 
 Two classes of finding, and `--strict` decides which is which. A rule the checker
 can decide is an error, and `check` exits 1. A guarantee the checker cannot
-decide - the line's path is gitignored, so the order rule has nothing to order; a
+decide - an experiment file no repository can commit, so the order rule has nothing to order; a
 prediction whose commit git cannot place or read; a grey source with no quality
 judgement; an evidence claim bound to a run that
 recorded no row; a claim written before `kind` existed, or a results row written
@@ -94,6 +96,7 @@ import time
 # definition of where a file's records end, used by every reader and writer here
 # that has to agree about it.
 from tezgah_integrity import committed_size, truncate_to_committed
+import tezgah_paths as tp
 
 try:
     import fcntl
@@ -301,111 +304,100 @@ def _git_out(repo, *args):
     return _run(["git", "-C", repo] + list(args))
 
 
+# --- which history proves an order ------------------------------------------
+# A line lives under `<repo>/.tezgah`, which the project ignores and which holds a
+# private git repository of its own (`tezgah_paths.ensure_workspace`), so the
+# commits that order a protocol before its results are that repository's. A line
+# committed in the project itself before the move keeps its proof there: the
+# helpers below read both histories, the private one first, and every order check
+# (this module's and any added later) asks them rather than `_git` directly.
+
+def _ws_rel(repo, path):
+    """`path` relative to `<repo>/.tezgah`, or None when it is outside it or the
+    workspace has no repository of its own - `git -C .tezgah` would then climb to
+    the project's repository and answer for it."""
+    ws = tp.workspace(repo)
+    rel = os.path.relpath(path, ws)
+    if rel == os.pardir or rel.startswith(os.pardir + os.sep):
+        return None
+    return rel if os.path.exists(os.path.join(ws, ".git")) else None
+
+
+def _ws_log(repo, path, *args):
+    """(shas, error) of the private repository's `git log <args> -- path`, ([],
+    None) when `path` is not in one. `--all` because a repository with no commit
+    yet answers a plain `log` with a fatal, and the private one keeps one line of
+    history, not branches."""
+    rel = _ws_rel(repo, path)
+    if rel is None:
+        return [], None
+    out, err = _run(["git", "-C", tp.workspace(repo), "log", "--all"] + list(args)
+                    + ["--format=%H", "--", rel])
+    return out.split(), err
+
 
 def _ignored(repo, path):
     """The `file:line:pattern` that git ignores this exact path by, or None.
 
-    Whether the path is ignored at all is decided by the plain form, not `-v`:
-    for a directory whose last matching pattern is a negation, `check-ignore -v`
-    prints that pattern and exits 0 while the directory is not ignored - measured
-    on a scratch repo, and the reason a tracked line was reported as ignored."""
-    rel = os.path.relpath(path, repo)
-    plain, err = _git_out(repo, "check-ignore", "--", rel)
+    Asked of the repository that commits the path: the private `.tezgah` one when
+    it exists (the project's own ignore of `.tezgah/` is not its business), else
+    the project's. Whether the path is ignored at all is decided by the plain
+    form, not `-v`: for a directory whose last matching pattern is a negation,
+    `check-ignore -v` prints that pattern and exits 0 while the directory is not
+    ignored - measured on a scratch repo, and the reason a tracked line was
+    reported as ignored."""
+    rel = _ws_rel(repo, path)
+    top = tp.workspace(repo) if rel is not None else repo
+    rel = rel if rel is not None else os.path.relpath(path, repo)
+    plain, err = _git_out(top, "check-ignore", "--", rel)
     if err or not plain.strip():
         return None
-    named, verr = _git_out(repo, "check-ignore", "-v", "--", rel)
+    named, verr = _git_out(top, "check-ignore", "-v", "--", rel)
     if not verr and named.strip():
         return named.splitlines()[0].split("\t")[0].strip()
     return rel
 
 
-def ignored_by(repo, path):
-    """The `file:line:pattern` that git ignores `path` by, or None.
-
-    A research line under an ignored path is a line whose two central guarantees
-    are unprovable: the order rule has no commit to order, and no session reading
-    the repository later can see the protocol at all. The pattern is read from git
-    rather than guessed from `.gitignore`, so one inherited from a parent file or
-    from an `excludesFile` is named as the source it is.
-
-    The directory is asked first and then the state file inside it, because a tree
-    can ignore a line's contents while leaving the directory itself alone. Callers
-    that need one exact path - the pair the order rule orders - probe it with
-    `_ignored`: appending a state file to a file path asks git about a path under
-    a file."""
-    for candidate in (path, os.path.join(path, STATE_FILES[0])):
-        found = _ignored(repo, candidate)
-        if found:
-            return found
-    return None
-
-
-def ignored_ancestor(pattern):
-    """The depth, in path components below the repository root, at which
-    `pattern` stops git from descending; None when that cannot be read.
-
-    Git cannot re-include a file whose parent directory is excluded, so undoing
-    an ignore means replacing the exclusion of the directory itself with an
-    exclusion of its contents and repeating that down to the line. Two shapes are
-    readable: `dir/`, which excludes the directory at its own depth, and `dir/*`,
-    which excludes the entries one level below it. Anything else - a mid-path
-    `**`, an extension glob - is reported rather than guessed at."""
-    pattern = pattern.strip()
-    if not pattern or pattern.startswith("!"):
-        return None
-    parts = [p for p in pattern.strip("/").split("/") if p not in ("", ".")]
-    if not parts:
-        return None
-    if parts[-1] == "*":
-        return len(parts) - 1
-    if pattern.endswith("/") and all("*" not in p for p in parts):
-        return len(parts) - 1
-    return None
-
-
-def ignore_source(raw):
-    """(file, line, pattern) out of the `file:line:pattern` git reports, or None
-    when that is not the shape it came in."""
-    if not raw or raw.count(":") < 2:
-        return None
-    path, line, pattern = raw.rsplit(":", 2)
-    if not line.isdigit() or not os.path.isfile(path):
-        return None
-    return path, int(line), pattern
-
-
-def negations(repo, slug, pattern):
-    """The `.gitignore` lines that re-include this line under `pattern`, in the
-    order they must be appended; the last of them is the plain `!<rel>/`.
-
-    One line is not enough whenever an ancestor directory is excluded: git stops
-    at the excluded directory and never reads a later negation of a path inside
-    it. So each step down is paired - re-include the directory, keep ignoring its
-    other entries - which is the idiom git's own documentation prescribes."""
-    parts = os.path.relpath(line_dir(repo, slug), repo).split(os.sep)
-    start = ignored_ancestor(pattern)
-    if start is None or start >= len(parts):
-        return ["!" + "/".join(parts) + "/"]
-    out = []
-    for i in range(start, len(parts)):
-        partial = "/".join(parts[:i + 1])
-        out.append("!" + partial + "/")
-        if i < len(parts) - 1:
-            out.append(partial + "/*")
-    return out
-
-
 def added_commits(repo, path):
-    """The commits that added (or renamed into) `path`, newest first."""
-    rel = os.path.relpath(path, repo)
-    return _git(repo, "log", "--diff-filter=AR", "--format=%H", "--", rel)
+    """((shas, newest first), error): the commits that added (or renamed into)
+    `path` - the private repository's, then the project's. The last one is the
+    oldest add, so a line the project committed before the move proves its order
+    from there, and the private repository's import commit does not read as the
+    add of both files at once."""
+    ws, err = _ws_log(repo, path, "--diff-filter=AR")
+    if err:
+        return [], err
+    out, err = _git(repo, "log", "--diff-filter=AR", "--format=%H", "--",
+                    os.path.relpath(path, repo))
+    return ws + out, (None if ws else err)
 
 
 def last_touch(repo, path):
-    """The newest commit that touched `path`, or None."""
-    rel = os.path.relpath(path, repo)
-    out, err = _git(repo, "log", "-1", "--format=%H", "--", rel)
+    """(sha, error): the newest commit that changed `path`, or None - a
+    modification in the private repository, else the project's newest touch. The
+    private repository's add is not a change: a migration imports a protocol
+    older than the import commit."""
+    ws, err = _ws_log(repo, path, "-1", "--diff-filter=M")
+    if err or ws:
+        return (ws[0] if ws else None), err
+    out, err = _git(repo, "log", "-1", "--format=%H", "--", os.path.relpath(path, repo))
     return (out[0] if out else None), err
+
+
+def _ancestor(top, older, newer):
+    """True/False, or None when the repository at `top` cannot answer."""
+    try:
+        proc = subprocess.run(["git", "-C", top, "merge-base", "--is-ancestor",
+                               older, newer], capture_output=True, text=True)
+    except OSError:
+        return None
+    if proc.returncode == 0:
+        return True
+    return False if proc.returncode == 1 else None
+
+
+def _holds(top, sha):
+    return not _run(["git", "-C", top, "cat-file", "-e", sha + "^{commit}"])[1]
 
 
 def is_ancestor(repo, older, newer):
@@ -413,15 +405,24 @@ def is_ancestor(repo, older, newer):
 
     The order rule is decided by the commit graph, not by timestamps: two commits
     in the same second are still two commits, a rebase rewrites dates but not
-    ancestry, and a backdated GIT_COMMITTER_DATE changes nothing."""
-    try:
-        proc = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor",
-                               older, newer], capture_output=True, text=True)
-    except OSError:
+    ancestry, and a backdated GIT_COMMITTER_DATE changes nothing. Two commits of
+    one history are ordered by it; a project commit and a private-repository
+    commit are ordered by the move, because the project history a line was
+    committed in before it predates the repository it moved into."""
+    answer = _ancestor(repo, older, newer)
+    if answer is not None:
+        return answer
+    ws = tp.workspace(repo)
+    if not os.path.exists(os.path.join(ws, ".git")):
         return None
-    if proc.returncode == 0:
+    answer = _ancestor(ws, older, newer)
+    if answer is not None:
+        return answer
+    if _holds(repo, older) and _holds(ws, newer):
         return True
-    return False if proc.returncode == 1 else None
+    if _holds(ws, older) and _holds(repo, newer):
+        return False
+    return None
 
 
 def _read_json(path):
@@ -1453,21 +1454,19 @@ def _check_protocol(h, path, errors, warnings, strict):
 def _check_tracking(repo, base, errors, warnings, strict):
     """The order rule needs a commit, so the check asks about the paths it orders.
 
-    A directory-level ignore says nothing about the files inside it. This
-    repository's own `.gitignore` re-includes every `protocol.md` and
-    `analysis.md` while leaving each `results.jsonl` to the session that runs the
-    experiment, and probing the line's directory - or its `state.json`, which the
-    old probe fell back to - reported a line whose pair is fully committable as
-    unverifiable. What is probed instead is the two files the rule compares.
+    The two files the rule compares are probed, not the line's directory: a
+    directory-level ignore says nothing about the files inside it. They are asked
+    of the repository that commits them (`_ignored`): the private `.tezgah` one,
+    which the project's own ignore of `.tezgah/` does not reach, so a line there is
+    reported only when that repository - or a global excludes file - ignores the
+    file. With no private repository the project's is asked, and an ignored pair
+    there is told the subcommand that creates the private one and commits into it.
 
-    `_ignored` is the plain question *can `git add` stage this?*: `check-ignore`
-    does not report a path the index already holds (measured on a scratch repo),
-    so an ignored-but-committed `results.jsonl` is not reported and neither is the
-    line that holds it. The message carries the command that fixes the pair that
-    is reported, because `git add <results.jsonl>` stages nothing while the path
-    is ignored and a silent no-op looks exactly like a commit: the protocol goes
-    in normally - that commit is the prediction - the results are added by
-    explicit path afterwards, and the order is then decidable."""
+    `check-ignore` does not report a path the index already holds (measured on a
+    scratch repo), so a pair committed before the move is not reported. The
+    message carries the command that fixes the pair it reports, because a plain
+    `git add` stages nothing while the path is ignored and a silent no-op looks
+    exactly like a commit."""
     experiments = os.path.join(base, "experiments")
     try:
         names = sorted(os.listdir(experiments))
@@ -1484,11 +1483,15 @@ def _check_tracking(repo, base, errors, warnings, strict):
             pattern = _ignored(repo, path)
             if not pattern:
                 continue
+            rel = _ws_rel(repo, path)
+            fix = ("`git -C .tezgah add -f %s`" % rel if rel is not None else
+                   "`.tezgah` has no git repository of its own - `tezgah-research "
+                   "commit %s \"<message>\"` creates it and commits the line there"
+                   % os.path.basename(base))
             _soft(errors, warnings, strict,
-                  "experiment %s: %s is ignored by %s, so no commit a tracked tree "
-                  "holds can show the protocol predates the results; commit the "
-                  "protocol normally, then `git add -f %s`"
-                  % (h, name, pattern, os.path.relpath(path, repo)))
+                  "experiment %s: %s is ignored by %s, so no commit can show the "
+                  "protocol predates the results; %s"
+                  % (h, name, pattern, fix))
 
 
 def _check_rows(path, label, errors, warnings, strict):
@@ -2613,6 +2616,7 @@ def init(repo, slug, question="", created=""):
     write a line that `check`, `status` and `claim` never see."""
     if not valid_slug(slug):
         raise ValueError("not a research slug: %r" % slug)
+    tp.ensure_workspace(repo)
     base = line_dir(repo, slug)
     made = []
     for sub in ("experiments", "literature", "to_human"):
@@ -2751,7 +2755,9 @@ def prediction_problems(pred, base, repo, git=True, new=True):
     elif not isinstance(commit, str) or not SHA.fullmatch(commit):
         problems.append("commit %r is not a 40-character sha" % (commit,))
     elif git:
-        ancestor = is_ancestor(repo, commit, "HEAD")
+        # a prediction names a product commit, so only the project's history
+        # places it - never the private `.tezgah` one (see is_ancestor)
+        ancestor = _ancestor(repo, commit, "HEAD")
         if ancestor is None:
             undecided.append("commit %s cannot be placed against HEAD, so "
                              "whether it is an ancestor is unverified"

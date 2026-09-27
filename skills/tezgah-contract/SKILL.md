@@ -41,6 +41,19 @@ Tezgah maintenance is in scope when the user asks for it, when the repo IS the
 tezgah checkout, or when tezgah's own check (`tezgah-setup --status`) is the
 requested task.
 
+## Workspace: `.tezgah/` only
+
+Every per-project tezgah artifact - plans, research lines, analysis, lessons -
+lives under `<repo>/.tezgah/`. Session start creates it, appends `/.tezgah/` and
+`/.codegraph/` to the project's `.gitignore` (user lines kept, nothing staged)
+and gives it a private git repository, so evidence that needs history - a
+research protocol committed before its results, a plan moved to `done/` - is
+committed with `git -C .tezgah ...` (or `tezgah-research commit <slug> "<msg>"`)
+and never enters the project's history. Never create `plans/`, `research/` or
+`analysis/` at the project root and never `git add -f` a path under `.tezgah/`:
+the gate refuses a write whose first path segment is one of those three unless
+the project itself already tracks files there. Off: `workspace-off`.
+
 ## Kill switches (auto-armed, tezgah roots only)
 
 Each one removes its own rule from the injected text, not just a status mark. In
@@ -53,7 +66,8 @@ record and a shell write), `judge-off` (the judgement seam: `bin/tezgah-triage`,
 the `bin/tezgah-docs` fallback and the skill hint), `triage-off` (the
 `bin/tezgah-triage` triage alone), `docs-judge-off` (the `bin/tezgah-docs`
 fallback alone), `lang-off` (the English-identifier rule in the gate),
-`pretooluse-off` (the whole gate); per repo:
+`workspace-off` (the gate's refusal of a root `plans/`, `research/` or
+`analysis/` write), `pretooluse-off` (the whole gate); per repo:
 `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons`. The ponytail intensity
 level is not a switch: `tezgah-pony lite|full|ultra` (or `/tezgah:ponytail` on
 Claude) sets it and a bare call shows it.

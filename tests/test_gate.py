@@ -3,6 +3,7 @@ language refusals, the first-grep nudge, the concurrent-write refusal, the
 long-turn re-statement and the task-phase refusal."""
 import json
 import os
+import subprocess
 import sys
 import time
 import unittest
@@ -1466,6 +1467,49 @@ class LangGate(TempHome):
         self.touch(os.path.join(self.home, ".config", "tezgah",
                                 "pretooluse-off"))
         self.assertIsNone(self.decide("git commit -m durum"))
+
+
+class WorkspaceGate(TempHome):
+    """Tezgah state belongs under `.tezgah/`: a root `plans/`, `research/` or
+    `analysis/` the project does not track is refused, one it tracks is the
+    project's own and passes."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self.envv = self.env()
+
+    def decide(self, tool, inp):
+        out, proc = run_json([support.PROBE_GATE],
+                             {"tool": tool, "input": inp, "cwd": self.repo,
+                              "session_id": "ws"}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_untracked_root_kinds_are_refused_for_tools_and_redirects(self):
+        for kind in ("plans", "research", "analysis"):
+            reason = self.decide("Write", {"file_path": os.path.join(
+                self.repo, kind, "x.md"), "content": "x"})
+            self.assertIn(".tezgah/%s/" % kind, reason or "")
+        self.assertIsNotNone(self.decide(
+            "Bash", {"command": "echo x > research/notes.md"}))
+
+    def test_workspace_other_paths_and_tracked_dirs_pass(self):
+        self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
+            self.repo, ".tezgah", "research", "q", "x.md"), "content": "x"}))
+        self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
+            self.repo, "src", "plans.py"), "content": "x"}))
+        own = os.path.join(self.repo, "analysis", "tool.py")
+        self.touch(own)
+        subprocess.run(["git", "-C", self.repo, "add", "analysis/tool.py"], check=True)
+        self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
+            self.repo, "analysis", "new.py"), "content": "x"}))
+
+    def test_kill_switch_lifts_the_rule(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "workspace-off"))
+        self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
+            self.repo, "plans", "x.md"), "content": "x"}))
 
 if __name__ == "__main__":
     unittest.main()

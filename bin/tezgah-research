@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """tezgah-research - the research workspace CLI.
 
-  tezgah-research init <slug> [--question "..."] [--tracked] [--allow-open "<why>"]
+  tezgah-research init <slug> [--question "..."] [--allow-open "<why>"]
                                                           scaffold a line
+  tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
   tezgah-research check [<slug>] [--json] [--strict] [--orx]  the discipline checks
   tezgah-research status                           one line per research line
   tezgah-research claim <slug>                     record one claim from stdin
@@ -18,10 +19,13 @@ claims with their kind, falsification criteria and evidence, the predictions bou
 to the commits that carried each proposed change, one directory per
 experiment whose protocol is committed before its results, the literature index,
 and the review a concluded line reports. `check` exits 1 when a line breaks those
-rules, so a hook or a person can act on it.
+rules, so a hook or a person can act on it. The project ignores `.tezgah/`; the
+commits the order rule reads are made in `.tezgah`'s own private git repository,
+which `init` creates and `commit` writes to, and a line the project itself
+committed before the move keeps its order proof in the project's history.
 
 `check --strict` also fails the guarantees the checker cannot decide - an
-experiment path git ignores and does not track, a protocol that answers neither
+experiment file no repository can commit, a protocol that answers neither
 what it predicts nor what would falsify it, a report a concluded line owes that
 states nowhere what the evidence does not show, a claim written before `kind`
 existed, a results row written before `source` did, a results file whose rows
@@ -86,7 +90,10 @@ def repo_root(path):
         out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True)
         if out.returncode == 0 and out.stdout.strip():
-            return out.stdout.strip()
+            top = out.stdout.strip()
+            # inside `.tezgah` git answers with the private repository; the line
+            # belongs to the project around it
+            return os.path.dirname(top) if os.path.basename(top) == tp.WORKSPACE else top
     except OSError:
         pass
     return os.path.realpath(path)
@@ -108,19 +115,16 @@ def cmd_init(args):
         # `check`, `status` and `claim` can never see.
         return misuse("init <slug>: %r is not a slug - lowercase letters, digits "
                       "and dashes" % args[0])
-    question, tracked, allow = "", False, None
+    question, allow = "", None
     rest = args[1:]
     while rest:
         flag = rest.pop(0)
         if flag == "--question" and rest:
             question = rest.pop(0)
-        elif flag == "--tracked":
-            tracked = True
         elif flag == "--allow-open" and rest:
             allow = rest.pop(0)
         else:
-            return misuse('init <slug> [--question "..."] [--tracked] '
-                          '[--allow-open "<reason>"]')
+            return misuse('init <slug> [--question "..."] [--allow-open "<reason>"]')
     if allow is not None and not allow.strip():
         return misuse("--allow-open needs the reason the new line is worth opening "
                       "over the unfinished ones")
@@ -147,85 +151,48 @@ def cmd_init(args):
     print("research line: %s" % tr.line_dir(repo, slug))
     for path in made:
         print("  wrote %s" % path)
-    report_tracking(repo, slug, tracked)
     print("\nnext: write experiments/<hypothesis>/protocol.md - what the change is, "
           "what it predicts, what result would falsify it, why - and COMMIT it "
-          "before the run. Then record the run in results.jsonl and commit it: "
-          "`git add -f experiments/<hypothesis>/results.jsonl` after the protocol "
-          "is in history, because a path git ignores is staged by no plain `git "
-          "add` and that silent no-op looks exactly like a commit. Then analyse it "
-          "in analysis.md, and put the claim in claims.jsonl with its kind, "
-          "falsification criterion and evidence.")
+          "before the run: `tezgah-research commit %s \"protocol <hypothesis>\"`. "
+          "Then record the run in results.jsonl and commit it the same way, in a "
+          "later commit. The commits land in `.tezgah`'s own git repository (the "
+          "project ignores `.tezgah/`); `git -C .tezgah add ... && git -C .tezgah "
+          "commit` is the same step by hand. Then analyse it in analysis.md, and "
+          "put the claim in claims.jsonl with its kind, falsification criterion and "
+          "evidence." % slug)
     print("kill switch: research-off")
     return 0
 
 
-def report_tracking(repo, slug, tracked):
-    """Print the TRACKING block for a line whose path git ignores, and with
-    `tracked` append the lines that re-include it.
-
-    Naming the ignore source matters twice over: an ignored line cannot show that
-    its protocol predates its results, because the commit the rule compares
-    against will never exist, and the next session cannot read the line at all.
-    The negation is one line only when no ancestor directory is excluded; when one
-    is, git stops there and the whole chain down to the line is what makes the
-    re-inclusion work, which is why `--tracked` writes the chain it printed."""
-    base = tr.line_dir(repo, slug)
-    raw = tr.ignored_by(repo, base)
-    if not raw:
-        return
-    rel = os.path.relpath(base, repo)
-    source = tr.ignore_source(raw)
-    if source is None:
-        lines = ["!%s/" % rel]
-    else:
-        lines = tr.negations(repo, slug, source[2])
-    print("\nTRACKING: %s/ is ignored by %s, so the protocol order can never be "
-          "verified for this line and no other session can read it." % (rel, raw))
-    if len(lines) == 1:
-        print("  append this line to the file that ignores it (--tracked does it):")
-    else:
-        print("  git cannot re-include a path under an excluded directory, so these "
-              "lines, in this order, are what makes the negation work (--tracked "
-              "appends them):")
-    for line in lines:
-        print("    %s" % line)
-    if not tracked:
-        print("  re-run with --tracked to append them to the file that ignores it.")
-        return
-    if source is None or not os.path.realpath(source[0]).startswith(
-            os.path.realpath(repo) + os.sep):
-        print("  not appended: the ignore comes from %s, outside the repository - "
-              "add the lines there." % (source[0] if source else raw))
-        return
-    added = append_lines(source[0], lines)
-    print("  tracked: appended %d line(s) to %s" % (len(added), source[0]))
-    still = tr.ignored_by(repo, os.path.join(base, "state.json"))
-    if still:
-        print("  WARNING: %s/state.json is still ignored by %s" % (rel, still))
-
-
-def append_lines(path, lines):
-    """Append the lines this file does not already have, and nothing else: the
-    other lines of a `.gitignore` are the user's, and nothing here stages them."""
+def cmd_commit(args):
+    """Commit one line in the private `.tezgah` repository - the commit the order
+    rule reads. Only the line's own path is staged and committed."""
+    if len(args) != 2 or not args[1].strip():
+        return misuse('commit <slug> "<message>"')
+    slug, message = args
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if slug not in known:
+        return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    ws = tp.ensure_workspace(repo)
+    if ws is None:
+        print("commit refused: %s is not a git work tree (or .tezgah could not be "
+              "set up), so there is no private repository to commit into" % repo)
+        return 1
+    rel = os.path.relpath(tr.line_dir(repo, slug), ws)
     try:
-        with open(path, encoding="utf-8") as fh:
-            body = fh.read()
-    except OSError:
-        body = ""
-    present = {line.strip() for line in body.splitlines()}
-    added = [line for line in lines if line not in present]
-    if not added:
-        return []
-    try:
-        with open(path, "a", encoding="utf-8") as fh:
-            if body and not body.endswith("\n"):
-                fh.write("\n")
-            fh.write("".join(line + "\n" for line in added))
+        done = tp.ws_git(repo, "add", "-A", "--", rel)
+        if not done.returncode:
+            done = tp.ws_git(repo, "commit", "-q", "-m", message, "--", rel)
     except OSError as exc:
-        print("  WARNING: %s could not be written (%s)" % (path, exc))
-        return []
-    return added
+        print("commit failed: %s" % exc)
+        return 1
+    if done.returncode:
+        print("commit failed: %s" % (done.stderr or done.stdout).strip())
+        return 1
+    sha = tp.ws_git(repo, "rev-parse", "HEAD").stdout.strip()
+    print("committed %s in %s at %s" % (rel, ws, sha))
+    return 0
 
 
 def cmd_check(args):
@@ -499,6 +466,8 @@ def main(argv):
     cmd, rest = argv[1], argv[2:]
     if cmd == "init":
         return cmd_init(rest)
+    if cmd == "commit":
+        return cmd_commit(rest)
     if cmd == "check":
         return cmd_check(rest)
     if cmd == "status":
@@ -513,7 +482,7 @@ def main(argv):
         return cmd_migrate(rest)
     if cmd == "source":
         return cmd_source(rest)
-    return misuse("unknown command %r (init, check, status, claim, predict, "
+    return misuse("unknown command %r (init, commit, check, status, claim, predict, "
                   "components, migrate, source)" % cmd)
 
 

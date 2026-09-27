@@ -763,6 +763,43 @@ def task_reason(inp, cwd, base):
     return None
 
 
+# --- workspace: per-project tezgah state lives under <repo>/.tezgah only ------
+# What this closes: sessions wrote `plans/`, `research/` and `analysis/` at the
+# project root (observed in ~/Projects: Ustam, codexit, sharelinks-intelligence),
+# where the project's own git picks them up. A root directory the project itself
+# already tracks files under is the project's own and is left alone.
+# ponytail: `mkdir research` and a positional shell target (`cp x research/`) are
+# not read, the same ceiling as write_paths; the first file written through a
+# tool or a redirect is.
+WORKSPACE_KINDS = ("plans", "research", "analysis")
+WORKSPACE_DENY = (
+    "Workspace gate: %s puts tezgah state in the project's own `%s/`. Per-project "
+    "plans, research and analysis live under `.tezgah/%s/` - ignored by the "
+    "project, committed with `git -C .tezgah ...` - so write it there.")
+
+
+def workspace_reason(inp, cwd, base):
+    """A deny reason when this write lands in a root `plans/`, `research/` or
+    `analysis/` the project does not track, else None."""
+    if tezgah_task is None:
+        return None
+    for path in write_paths(inp):
+        rel = tezgah_task.relative(path, cwd, base)
+        seg = rel.split("/", 1)[0] if rel and "/" in rel else None
+        if seg not in WORKSPACE_KINDS:
+            continue
+        import subprocess  # deferred: only a write under one of the three pays
+        try:
+            listed = subprocess.run(
+                ["git", "-C", tezgah_task.repo_root(cwd, base), "ls-files", "--", seg],
+                capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if listed.returncode == 0 and not listed.stdout.strip():
+            return WORKSPACE_DENY % (path, seg, seg)
+    return None
+
+
 # --- the shell's write body: three write-tool rules reached through a heredoc -
 # What this closes (the route E7c measured): SKIP_TEST, ATTRIB_LINE and the
 # credential scan are attached to WRITE_TOOLS, which is disjoint from BASH_TOOLS,
@@ -1124,6 +1161,12 @@ def decision(tool, inp, cwd, session_id=None):
             reason = task_reason(inp, cwd, base)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
+    # Workspace: tezgah state belongs under .tezgah/, never a root plans/,
+    # research/ or analysis/ the project does not own (see workspace_reason).
+    if not off("workspace-off") and t in WRITE_TOOLS + BASH_TOOLS:
+        reason = workspace_reason(inp, cwd, base)
+        if reason:
+            return _deny(session_id, "workspace", reason, tool, inp, base)
     # A credential on its way into a file. No escape hatch: the deny text
     # names the rephrase (a name, a length, a fingerprint), so the write can
     # be replaced rather than repeated. The body a heredoc writes is read

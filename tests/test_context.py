@@ -394,10 +394,14 @@ class GitSpawnBudget(TempHome):
                               capture_output=True, text=True, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         with open(log) as fh:
-            asked = [line.split(" rev-parse ", 1)[1] for line in fh.read().splitlines()
-                     if line]
+            lines = [line for line in fh.read().splitlines() if line]
+        asked = [line.split(" rev-parse ", 1)[1] for line in lines
+                 if " rev-parse " in line]
         # one top-level and one HEAD, however often the line is rendered
         self.assertEqual(sorted(asked), ["--show-toplevel", "HEAD"], asked)
+        # the only other fork is the workspace's one-time private `git init`
+        self.assertEqual([line for line in lines if " rev-parse " not in line],
+                         ["init -q %s" % os.path.join(self.repo, ".tezgah")])
 
 
 class IndexRedraw(unittest.TestCase):

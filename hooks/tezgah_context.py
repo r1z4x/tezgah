@@ -20,8 +20,9 @@ from tezgah_integrity import cut, note_turn, scratch_evidence
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            open_lines_note, pony_level_line)
 from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
-                          have_consult_key, have_judge_key, off, orx_bin,
-                          pony_level, root_for, roots, tool, writable_dir)
+                          ensure_workspace, have_consult_key, have_judge_key, off,
+                          orx_bin, pony_level, root_for, roots, tool,
+                          writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
     # once per user prompt for the phase line. The module is newer than some
@@ -933,6 +934,11 @@ def context_for(event, cwd, payload=None, with_core=True):
             parts.append(("subagents",
                           "Subagents (this repo, generated): %s" % note))
     if event in ("session_start", "post_compact"):
+        # The workspace every per-project artifact lands in: created, ignored by
+        # the project and given its private git before anything writes there.
+        # A root is not a project, and the helper returns None outside a work tree.
+        if root not in roots():
+            ensure_workspace(root)
         plans = open_plans(root)
         if plans:
             parts.append(("plans", plans))

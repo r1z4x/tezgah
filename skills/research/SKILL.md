@@ -55,30 +55,30 @@ One directory per research line, `<repo>/.tezgah/research/<slug>/`:
 | `literature/` | one note per source, saved when you read it, not later, and each named by its row in `literature/INDEX.jsonl` |
 | `to_human/` | reports for the person paying for the research - `report.md`, whose findings state what the evidence does not show - plus `review.json`, the six-dimension review a concluded line reports |
 
-The tree is worth only what git can see of it. A line whose path is gitignored -
-`.gitignore` holds `/.tezgah/`, so this is the default unless the negation is
-added - can never show that its protocol predates its results, because the commit
-the order rule compares against will never exist, and no later session can read it
-at all. `init` prints a TRACKING block naming the pattern that ignores the path
-(and the negation lines that undo it); `init --tracked` appends them.
+The tree is worth only what git can see of it, and the project never sees it:
+`.gitignore` holds `/.tezgah/`, and `.tezgah/` carries its own private git
+repository (created at session start and by `init`). The commits the order rule
+compares are made there, never in the project and never with `git add -f`:
 
-`check` asks the question the order rule means - can the two files it compares be
-committed? - by probing each experiment's `protocol.md` and `results.jsonl`
-rather than the line's directory, so a line whose ignore rules cover the
-directory while the pair is tracked is not reported. For the pair it does report
-it prints the command that fixes it, `git add -f <results.jsonl>`, because the
-loop that keeps the order decidable is exact: **commit the protocol normally**
-(that commit is the prediction), **then add the results by explicit path** - a
-plain `git add <results.jsonl>` stages nothing while the path is ignored, and
-that silent no-op looks exactly like a commit - and the order is verifiable from
-then on. `check --strict` refuses a pair that is still ignored.
+```sh
+~/.config/tezgah/bin/tezgah-research commit my-line "protocol h1"   # before the run
+# run it, append results.jsonl
+~/.config/tezgah/bin/tezgah-research commit my-line "results h1"    # a later commit
+```
+
+`git -C .tezgah add <path> && git -C .tezgah commit -m ...` is the same step by
+hand. A line the project itself committed before it moved keeps its order proof
+in the project's history; `check` reads the private history first, then that one.
+It probes each experiment's `protocol.md` and `results.jsonl`, not the line's
+directory, and reports a pair no repository can commit together with the command
+that fixes it. `check --strict` refuses a pair that is still uncommittable.
 
 Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 `bin/tezgah-research` in the checkout):
 
 ```sh
 ~/.config/tezgah/bin/tezgah-research init my-line --question "does X hold under Y?"
-~/.config/tezgah/bin/tezgah-research init my-line --tracked   # re-include an ignored path
+~/.config/tezgah/bin/tezgah-research commit my-line "<message>"   # commit in .tezgah's repo
 ~/.config/tezgah/bin/tezgah-research check    # 0 clean, 1 broken rule, 2 misuse
 ~/.config/tezgah/bin/tezgah-research check --strict   # the unprovable becomes a refusal
 ~/.config/tezgah/bin/tezgah-research check --orx      # the run command registered here
