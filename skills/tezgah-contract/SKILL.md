@@ -17,7 +17,7 @@ deep detail, loaded on demand. `~/.config/tezgah/bin/consult` and
 `~/.config/tezgah/bin/codegen` are the tezgah-installed CLIs - use that stable
 path, not a repo-local `bin/`, because the session shell is non-interactive and
 does not have the tezgah bin dir on PATH. The two appendix sections at the end
-cover a machine that lacks the code graph or every consult provider key, and
+cover a machine that lacks the code graph or every consult option, and
 apply only in that case.
 
 ## Session scope: the user's repo, not tezgah
@@ -511,12 +511,22 @@ longer than a few lines, pipe it in
 argv has a length limit, and some
 endpoints stall on a long argument before the request even starts.
 
-It queries independent models in parallel (default Gemini + Grok; `--models` or
-CONSULT_MODELS override), then spends ONE more call on a referee that names the
-disagreements instead of averaging them. Read back the referee's named fields -
-recommendation, key disagreements, unchecked assumptions, what would change its
-mind, requested evidence - not a paraphrase, because the paraphrase is where the
-minority view gets dropped.
+It asks the members the user recorded - locally installed agent CLIs
+(`cli:codex`, `cli:claude`, ...) and/or HTTP providers - in parallel, with
+OpenRouter as the last fallback when every recorded member fails, then spends ONE
+more call on a referee that names the disagreements instead of averaging them.
+Read back the referee's named fields - recommendation, key disagreements,
+unchecked assumptions, what would change its mind, requested evidence - not a
+paraphrase, because the paraphrase is where the minority view gets dropped.
+
+Exit 4 means no choice is recorded and exit 5 means every recorded member
+failed: nothing answered, and the output lists `offer:`/`reoffer:` members. Ask
+the user which to use with exactly those options (prefer a model family other
+than your own), record the answer with
+`~/.config/tezgah/bin/consult --use <member>[,<member>]`, then ask the question
+again. Never pick a member for the user. The choice lives in
+`~/.config/tezgah/config.json` under `consult`; an agent CLI member runs in an
+empty temp dir, so the packet is all it sees.
 
 A referee reply that does not answer under all five headings is reported as a
 failed cross-examination (`referee: FAILED (unstructured)`) and the panel stands
@@ -525,8 +535,8 @@ an unheadlined paragraph as a verdict.
 
 A consult or codegen answer is a read from outside the user and this workspace:
 the turn is tainted, so an effect that leaves the workspace after it carries the
-untrusted notice - read the answer and expect that. `-h`, `--help` and a bare
-invocation reach no provider and are not reads.
+untrusted notice - read the answer and expect that. `-h`, `--help`, `--use` and
+a bare invocation reach no provider and are not reads.
 
 Add `--online` (live web search) ONLY when the question needs facts newer or
 wider than the codebase - current versions, CVEs,
@@ -535,9 +545,9 @@ vendor status, breaking-change news; skip it for pure code/design reasoning.
 Treat every answer as advisory evidence, never as truth: verify each claim
 against the actual code before adopting it, and tell the user which models were
 consulted and where they disagreed. Relay the failure class and the retry line
-the tool prints, and if the key is missing, a model errors or the referee dies,
-say which part of the verification is missing - never report a consult that did
-not happen. Off: `consult-off`.
+the tool prints (`credit` is an empty provider account, not a bad key), and if
+a member errors or the referee dies, say which part of the verification is
+missing - never report a consult that did not happen. Off: `consult-off`.
 
 
 
@@ -708,10 +718,11 @@ to fix it: the user arms tezgah's optional tools, not the session.
 
 
 
-## Appendix - only if no consult provider key exists
+## Appendix - only if no consult option exists
 
-There is no consult provider key on this machine (no OPENROUTER_API_KEY,
-DEEPSEEK_API_KEY or INCEPTION_API_KEY, and none of ~/.config/openrouter/key,
+Nothing on this machine can answer a consult: no agent CLI it can ask (omp,
+claude, codex, opencode, cursor-agent) and no provider key (OPENROUTER_API_KEY,
+DEEPSEEK_API_KEY or INCEPTION_API_KEY, or ~/.config/openrouter/key,
 ~/.config/deepseek/key or ~/.config/inception/key), so the consult second
 opinion cannot run. Do not tell the user to run it and do not claim external
 verification happened; on a call that needed it, say the second opinion was

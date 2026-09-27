@@ -20,7 +20,7 @@ from tezgah_integrity import cut, note_turn, scratch_evidence
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            open_lines_note, pony_level_line)
 from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
-                          ensure_workspace, have_consult_key, have_judge_key, off,
+                          consult_options, ensure_workspace, have_judge_key, off,
                           orx_bin, pony_level, root_for, roots, tool,
                           writable_dir)
 
@@ -930,11 +930,12 @@ def context_for(event, cwd, payload=None, with_core=True):
         parts.append(("graph", "Graph: codegraph is not installed, so use "
                                "grep/find and say the answer came from text "
                                "search; never claim the index answered."))
-    if not off("consult-off") and not have_consult_key():
+    if not off("consult-off") and not consult_options():
         parts.append(("consult",
-                      "Consult: no provider key (OpenRouter, DeepSeek or "
-                      "Inception), so the second opinion cannot run; on a call "
-                      "that needed it, say it was skipped and why."))
+                      "Consult: no consult option (no agent CLI such as omp, "
+                      "claude or codex, and no OpenRouter, DeepSeek or "
+                      "Inception key), so the second opinion cannot run; on a "
+                      "call that needed it, say it was skipped and why."))
     if not off("research-off") and not orx_bin():
         parts.append(("research",
                       "Research: orx (OpenResearch) is not installed, so route "
@@ -1367,7 +1368,7 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
          "pony"),
         ("exec", not off("exec-mode.off"), None),
         ("adhd", not off("adhd-off") and ".no-adhd" not in marks, "adhd"),
-        ("consult", not off("consult-off") and have_consult_key(), "consult"),
+        ("consult", not off("consult-off") and bool(consult_options()), "consult"),
         ("research", not off("research-off") and bool(orx_bin()), "research"),
         ("graph", ".no-graph" not in marks, "graph"),
         ("orch", not off("orchestrate-off"), "orch"),

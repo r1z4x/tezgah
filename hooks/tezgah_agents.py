@@ -27,7 +27,7 @@ import re
 import subprocess
 
 from tezgah_paths import (CONFIG_DIR, HOME, ai_research_dir, codegraph_bin,
-                          have_consult_key, host_installed, off, orx_bin,
+                          consult_options, host_installed, off, orx_bin,
                           root_for, tool)
 
 MARKER = "# tezgah: managed by tezgah-agents; do not edit"
@@ -110,7 +110,7 @@ def detect_infra(root):
         "graph": bool(codegraph_bin()) and not os.path.exists(
             os.path.join(root, ".no-graph")),
         "orx": bool(orx_bin()),
-        "consult": have_consult_key(),
+        "consult": bool(consult_options()),
     }
     try:
         cfg = json.load(open(os.path.join(CONFIG_DIR, "config.json"), encoding="utf-8"))
@@ -223,7 +223,10 @@ def _verifier_body(_host):
         "paraphrase, and never drop the minority view it preserved. Treat the answers\n"
         "as advisory and verify each claim against the code; never adopt an\n"
         "unverified claim. Relay the failure class and the retry line the tool\n"
-        "prints. If the key is missing, a model errors or all models fail, say\n"
+        "prints. On exit 4 (no recorded choice) or 5 (every recorded member\n"
+        "failed) return the `offer:`/`reoffer:` lines as they are, so the main\n"
+        "thread asks the user and records the answer with `--use`; never record a\n"
+        "choice yourself. If a member errors or all members fail, say\n"
         "exactly which part of the second opinion is missing - never report one that\n"
         "did not happen - and if the referee died, say the panel answers stand\n"
         "unjudged. Skip trivial local edits.\n\n"

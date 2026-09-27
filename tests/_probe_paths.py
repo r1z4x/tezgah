@@ -27,8 +27,8 @@ elif op == "which_user":
     out = tp.which_user(sys.argv[2])
 elif op == "orx_bin":
     out = tp.orx_bin()
-elif op == "have_consult_key":
-    out = tp.have_consult_key()
+elif op == "consult_options":
+    out = tp.consult_options()
 elif op == "have_typesafe_key":
     out = tp.have_typesafe_key()
 elif op == "codegraph_bin":

@@ -187,32 +187,51 @@ class ConcurrentProbe(TempHome):
         self.assertEqual(tp.cache_dir(), self.cache)
 
 
-class ConsultKey(TempHome):
-    """A DeepSeek-only setup counts as having a consult key, since both consult
-    and codegen accept --provider deepseek."""
+class ConsultOptions(TempHome):
+    """`consult_options()` is every surface's answer to "can the second opinion
+    run": an agent CLI on this machine counts as much as a provider key. The
+    suite's CLI pin is lifted here and PATH is the system dirs, so only the
+    fixtures' CLIs can count."""
 
-    def test_deepseek_key_file_counts(self):
-        p = os.path.join(self.home, ".config", "deepseek", "key")
+    def options(self, pin=None):
+        env = self.env()
+        env["PATH"] = "/usr/bin:/bin"
+        if pin is None:
+            del env["TEZGAH_CONSULT_CLIS"]
+        else:
+            env["TEZGAH_CONSULT_CLIS"] = pin
+        out, proc = run_json([support.PROBE_PATHS, "consult_options"], env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def put(self, *parts, mode=0o644):
+        p = os.path.join(self.home, *parts)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         open(p, "w").close()
-        out, proc = run_json([support.PROBE_PATHS, "have_consult_key"],
-                             env=self.env())
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertTrue(out)
+        os.chmod(p, mode)
 
-    def test_inception_key_file_counts(self):
-        p = os.path.join(self.home, ".config", "inception", "key")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "w").close()
-        out, proc = run_json([support.PROBE_PATHS, "have_consult_key"],
-                             env=self.env())
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertTrue(out)
+    def test_a_deepseek_or_inception_key_file_counts(self):
+        self.put(".config", "deepseek", "key")
+        self.put(".config", "inception", "key")
+        self.assertEqual(self.options(), ["deepseek", "inception"])
 
-    def test_no_key_is_false(self):
-        out, _ = run_json([support.PROBE_PATHS, "have_consult_key"],
-                          env=self.env())
-        self.assertFalse(out)
+    def test_an_agent_cli_counts_with_no_key(self):
+        self.put(".local", "bin", "codex", mode=0o755)
+        self.put(".opencode", "bin", "opencode", mode=0o755)
+        self.assertEqual(self.options(), ["cli:codex", "cli:opencode"])
+
+    def test_a_non_executable_file_is_not_a_cli(self):
+        self.put(".local", "bin", "claude")
+        self.assertEqual(self.options(), [])
+
+    def test_the_pin_limits_which_clis_count(self):
+        self.put(".local", "bin", "codex", mode=0o755)
+        self.put(".local", "bin", "claude", mode=0o755)
+        self.assertEqual(self.options(pin="codex"), ["cli:codex"])
+        self.assertEqual(self.options(pin=""), [])
+
+    def test_nothing_is_empty(self):
+        self.assertEqual(self.options(), [])
 
 
 class TypeSafeKey(TempHome):

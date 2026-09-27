@@ -156,9 +156,11 @@ class PostToolUseProvenance(TempHome):
         # `consult --help` runs the program but reaches no model: it prints its
         # usage and exits. Calling that an external answer tainted the turn, and
         # every effect after it carried a notice for a help screen - measured on
-        # a live turn before this rule existed.
+        # a live turn before this rule existed. `consult --use` likewise only
+        # records the user's choice of members.
         for i, cmd in enumerate(('consult --help',
                                  'bin/consult -h',
+                                 'consult --use cli:codex,openrouter',
                                  '~/.config/tezgah/bin/codegen --help',
                                  'consult')):
             with self.subTest(cmd=cmd):

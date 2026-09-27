@@ -66,7 +66,7 @@ measure the surface cannot see, then armed-and-used or armed-not-used.
 | `pony` | the full ponytail skill text was read this session | `ponytail-auto.off`, or `.no-ponytail` |
 | `exec` | never used-gated: `on` as soon as armed | `exec-mode.off` |
 | `adhd` | `skills/i-have-adhd/SKILL.md` was read this session | `adhd-off`, or `.no-adhd` |
-| `consult` | a shell command really ran `consult` | `consult-off`, or no OpenRouter/DeepSeek/Inception key |
+| `consult` | a shell command really ran `consult` | `consult-off`, or no consult option: no agent CLI it can ask (omp, claude, codex, opencode, cursor-agent) and no OpenRouter/DeepSeek/Inception key |
 | `research` | a command really ran the research CLI | `research-off`, or `orx` not installed |
 | `graph` | a code-graph tool call (an `mcp__…codegraph…` tool) | `.no-graph` — a missing binary is `idx`'s report, not this mark's |
 | `orch` | a delegate call (`Task`/`Agent`/`spawn_agent`) or a subagent start | `orchestrate-off` |
@@ -74,8 +74,8 @@ measure the surface cannot see, then armed-and-used or armed-not-used.
 
 Read `on` for `consult`/`research`/`judge` as "installed and usable", not "you
 must use it": a missing key or binary reads the same red as a kill switch
-(`have_consult_key()`, `orx_bin()`, `have_judge_key()`, hooks/tezgah_context.py:1306-1308,
-hooks/tezgah_paths.py:213-230, hooks/tezgah_paths.py:249-278). `judge` is the seam
+(`consult_options()`, `orx_bin()`, `have_judge_key()`, hooks/tezgah_context.py:1337-1341,
+hooks/tezgah_paths.py:304-309, hooks/tezgah_paths.py:335-361). `judge` is the seam
 behind `bin/tezgah-triage`, `bin/tezgah-docs` and the skill picker
 ([judge](judge.md)), and its credential is the seam's own two channels, never
 omp's login store. `graph` and `orch` are the two switch-only marks: nothing at

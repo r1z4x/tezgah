@@ -38,7 +38,9 @@ ORX = "orx"
 # Tools installed by their own installers land here without the user's shell PATH
 # being updated (non-interactive hook/CI shells), so a lookup falls back to these
 # per-user bin dirs before declaring a tool missing.
-USER_BINS = (os.path.join(HOME, ".local", "bin"), os.path.join(HOME, ".cargo", "bin"))
+USER_BINS = (os.path.join(HOME, ".local", "bin"), os.path.join(HOME, ".cargo", "bin"),
+             # opencode's own installer puts its binary here
+             os.path.join(HOME, ".opencode", "bin"))
 # canonical kill switches live in CONFIG_DIR; the pre-multi-host setup wrote
 # them to ~/.claude, so that stays a recognized channel
 OFF_DIRS = (CONFIG_DIR, os.path.join(HOME, ".claude"))
@@ -259,16 +261,58 @@ def codegraph_bin():
                       or config().get("codegraph_bin") or CODEGRAPH)
 
 
-def have_consult_key():
-    """True when a consult/codegen provider key is present: OpenRouter,
-    DeepSeek or Inception, since both `consult` and `codegen` accept
-    `--provider deepseek` / `--provider inception`."""
-    return bool(os.environ.get("OPENROUTER_API_KEY")
-                or os.environ.get("DEEPSEEK_API_KEY")
-                or os.environ.get("INCEPTION_API_KEY")
-                or os.path.exists(os.path.join(HOME, ".config", "openrouter", "key"))
-                or os.path.exists(os.path.join(HOME, ".config", "deepseek", "key"))
-                or os.path.exists(os.path.join(HOME, ".config", "inception", "key")))
+# consult's HTTP providers: name -> (key env var, key file under HOME). codegen
+# accepts the same three with `--provider`.
+PROVIDER_KEYS = {
+    "openrouter": ("OPENROUTER_API_KEY", os.path.join(".config", "openrouter", "key")),
+    "deepseek": ("DEEPSEEK_API_KEY", os.path.join(".config", "deepseek", "key")),
+    "inception": ("INCEPTION_API_KEY", os.path.join(".config", "inception", "key")),
+}
+# The agent CLIs consult can ask non-interactively: name -> (argv before the
+# model flag and the prompt, the model flag, the model family it answers with).
+# Every flag was read from the CLI's own `--help` (omp 18.3.1, claude 2.1.283,
+# codex-cli 0.153.4 `exec`, opencode 1.18.31 `run`, cursor-agent 2025.09.12);
+# gemini is absent because no install was there to read. The prompt goes last
+# as one argument and stdin is /dev/null, so a CLI that wants a login prints
+# and exits instead of waiting for a key.
+CONSULT_CLIS = {
+    "omp": (["omp", "-p", "--no-tools", "--no-session", "--no-rules",
+             "--no-skills", "--no-extensions", "--no-title"], "--model",
+            "whichever model omp is configured for"),
+    # `--tools` is variadic, so a boolean flag must follow it before the prompt
+    "claude": (["claude", "-p", "--tools", "", "--no-session-persistence"],
+               "--model", "Anthropic Claude"),
+    "codex": (["codex", "exec", "--skip-git-repo-check", "--ephemeral",
+               "-s", "read-only", "--color", "never"], "-m", "OpenAI GPT"),
+    "opencode": (["opencode", "run", "--pure"], "-m",
+                 "whichever provider/model opencode is configured for"),
+    "cursor-agent": (["cursor-agent", "-p", "--output-format", "text"],
+                     "--model", "whichever model Cursor is configured for"),
+}
+
+
+def have_provider_key(provider=None):
+    """True when an HTTP provider key is present (env var or key file): for
+    `provider`, else for any of them. codegen's question, and one half of
+    consult's."""
+    names = [provider] if provider else list(PROVIDER_KEYS)
+    return any(os.environ.get(PROVIDER_KEYS[p][0])
+               or os.path.exists(os.path.join(HOME, PROVIDER_KEYS[p][1]))
+               for p in names)
+
+
+def consult_options():
+    """The consult members this machine can run now: `cli:<name>` for each
+    agent CLI found, then each HTTP provider whose key is present. Empty means
+    the second opinion cannot run at all; every surface asks this.
+
+    TEZGAH_CONSULT_CLIS, when set, is the comma list of CLIs that may count
+    (empty: none) - the pin a test or CI job needs, as TEZGAH_CODEGRAPH_BIN is
+    for the graph, so the machine's own agent CLIs cannot answer for it."""
+    pin = os.environ.get("TEZGAH_CONSULT_CLIS")
+    allowed = CONSULT_CLIS if pin is None else pin.split(",")
+    return (["cli:" + n for n in CONSULT_CLIS if n in allowed and which_user(n)]
+            + [p for p in PROVIDER_KEYS if have_provider_key(p)])
 
 
 def have_typesafe_key():

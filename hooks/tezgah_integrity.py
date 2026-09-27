@@ -1262,7 +1262,9 @@ TIER_PROGRAMS = ("consult", "codegen")
 # no --files), are missed - the module's own direction, where a missed read costs
 # a label and a false one costs the turn.
 TIER_CALL = re.compile(r"\b(?:consult|codegen)\b(?P<args>[^|;&<>()\n]*)", re.I)
-TIER_LOCAL_ARGS = ("-h", "--help")
+# `consult --use M` records the user's choice and asks nobody; ponytail: a
+# `--use M "q"` that records and asks in one line is missed the same way.
+TIER_LOCAL_ARGS = ("-h", "--help", "--use")
 UNTRUSTED_CHANNEL = {"web": "a web result", "mcp": "an MCP server",
                      "network": "a network read",
                      "tier": "an external model answer"}

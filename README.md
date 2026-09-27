@@ -107,16 +107,23 @@ same text.
   `analyze-app` covers a browser (Playwright MCP), an iOS Simulator or Android
   emulator (Mobile MCP), and optional web diagnostics (Chrome DevTools MCP); a
   screenshot is an explicit, on-demand action for what the tree cannot answer.
-- **External second opinion.** `~/.config/tezgah/bin/consult` asks independent
-  models in parallel (OpenRouter by default, `--provider deepseek` or
-  `--provider inception` for the DeepSeek and Inception Labs APIs), then spends
-  one more call on a referee that names where the
+- **External second opinion.** `~/.config/tezgah/bin/consult` asks the members
+  the user recorded - locally installed agent CLIs (`cli:omp`, `cli:claude`,
+  `cli:codex`, `cli:opencode`, `cli:cursor-agent`, each run non-interactively
+  in an empty temp dir) and/or the OpenRouter, DeepSeek and Inception HTTP
+  APIs - in parallel, then spends one more call on a referee that names where the
   panel disagreed, what all of them assumed, what would change the
-  recommendation and what evidence it still wants. Each failure is classed with
-  the one variable to change on a retry, a dead or unheadlined referee is disclosed
-  as an unjudged panel, and a packet too long for argv goes in with `consult -`. The
-  agent reports where the models disagreed and verifies their claims against the
-  code.
+  recommendation and what evidence it still wants. The first run records
+  nothing and exits 4 with one `offer:` line per member this machine can run;
+  the agent asks the user, then `consult --use cli:codex,openrouter` writes the
+  choice to `~/.config/tezgah/config.json` (`consult`). When every recorded
+  member fails, OpenRouter answers as the last fallback if it is keyed and was
+  not already asked; otherwise it exits 5 with `reoffer:` lines naming what is
+  left. Each failure is classed with the one variable to change on a retry (an
+  HTTP 402 is `credit`, not a bad key), a dead or unheadlined referee is
+  disclosed as an unjudged panel, and a packet too long for argv goes in with
+  `consult -`. The agent reports where the models disagreed and verifies their
+  claims against the code.
 - **Research via OpenResearch.** When the router judges a task is research — a
   literature review, forming and testing hypotheses, running experiments, a
   research artifact — it drives the work through alphaXiv's OpenResearch (`orx`)
@@ -273,8 +280,9 @@ browser build or a device is missing.
 
 Requires Python 3.10+ (the floor CI byte-compiles and tests on). node + npm are needed for the dsh host and, with `pnpm`,
 for its web status line. The optional integrations degrade gracefully:
-`codegraph` on PATH powers the graph; a model key powers `consult`
-and `codegen` — OpenRouter by default (`OPENROUTER_API_KEY` or
+`codegraph` on PATH powers the graph; an agent CLI (omp, claude, codex,
+opencode, cursor-agent) or a model key powers `consult`, and a model key powers
+`codegen` — OpenRouter by default (`OPENROUTER_API_KEY` or
 `~/.config/openrouter/key`), the DeepSeek API with `--provider deepseek`
 (`DEEPSEEK_API_KEY` or `~/.config/deepseek/key`), or Inception Labs with
 `--provider inception` (`INCEPTION_API_KEY` or `~/.config/inception/key`); and
