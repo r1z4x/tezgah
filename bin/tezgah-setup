@@ -813,6 +813,17 @@ def install_claude():
         print(link(src, os.path.join(CLAUDE, "bin", b)))
     wire_claude_statusline()
     wire_claude_attribution()
+    # The always-on core as a managed block in Claude's own global memory file.
+    # The plugin's SessionStart hook delivers it into one message, where this file
+    # is the instructions Claude keeps for the whole session - and Claude reads
+    # the user-level file into every session, so the core arrives there whatever
+    # the hook does. Global, like codex's and omp's: a per-project file would be a
+    # tracked project file. Claude's hook drops the core when the block is there
+    # (`TEZGAH_CORE_IN_FILE`, hooks/projects-auto-init.py), so a session pays for
+    # the contract once.
+    set_managed_md(CLAUDE_RULES, tezgah_context.render(
+        tezgah_context.always_on_core(), (tp.roots() or [tp.DEFAULT_ROOT])[0]))
+    print("%s %s (always-on contract)" % (OK, CLAUDE_RULES))
 
 
 def wire_claude_attribution():
@@ -1752,6 +1763,13 @@ def codex_rules():
     return os.path.join(CODEX, CODEX_RULES[-1])
 
 
+# Claude's global memory file: the user-level instructions file Claude Code reads
+# into every session, whichever project it starts in. One path, not a precedence
+# list like Codex's - Claude has no override spelling - and install_claude writes
+# the always-on block there the way install_omp writes omp's RULES.md.
+CLAUDE_RULES = os.path.join(CLAUDE, "CLAUDE.md")
+
+
 def install_omp():
     print("\nomp:")
     mkdirp(OMP_AGENT)
@@ -2518,6 +2536,9 @@ def verify_uninstall(hosts, full):
               [INSTALLED_PLUGINS] if any(k.split("@", 1)[0] == TEZGAH_MCP_NAME
                                          for k in (registry.get("plugins") or {}))
               else [])
+        # the user's own CLAUDE.md may name tezgah; only the block is ours
+        clean("claude global CLAUDE.md block gone", [CLAUDE_RULES],
+              needle="<!-- tezgah:start")
     if "codex" in hosts:
         clean("codex hooks.json unwired", [os.path.join(CODEX, "hooks.json")])
         claim("codex skills unlinked",
@@ -2673,6 +2694,7 @@ def uninstall_claude():
         unlink_tezgah(os.path.join(CLAUDE, "bin", b))
     unwire_claude_settings()
     drop_claude_mcp_row()
+    strip_managed_md(CLAUDE_RULES)
 
 
 def drop_claude_mcp_row():
@@ -3257,6 +3279,8 @@ def host_checks_claude():
         # machine with no tezgah plugin at all is not a check.
         ("plugin copy current (every copied file matches)",
          bool(copies) and all(plugin_copy_current(t) for t in copies)),
+        ("CLAUDE.md carries the contract",
+         not _text_clean(CLAUDE_RULES, "<!-- tezgah:start")[0]),
     ] + claude_mcp_rows(copies)
 
 
@@ -4311,6 +4335,14 @@ def main(argv):
         return write_manifest()
     if args.status:
         print(tezgah_context.health_lines(os.path.realpath(expand(args.status))))
+        # The install-health half of this report, from the same function the
+        # `--report` row uses (hosts_row), printed here because a session checks
+        # its own health with --status rather than with a full report. Only when
+        # it fails: the marks above are this branch's answer, and a row that can
+        # only say `ok` is a line every run pays for and nobody reads.
+        label, ok = hosts_row()
+        if not ok:
+            print("%s%s" % (NO, label))
         return 0
     if args.deps and not args.install:
         install_deps(dry_run=args.dry_run)

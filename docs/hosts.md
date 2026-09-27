@@ -17,7 +17,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 
 | Host | Hook events it fires | Always-on contract | Per-turn reminder | Status surface, how drawn | Measures |
 |---|---|---|---|---|---|
-| claude | SessionStart, SubagentStart, PostCompact, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop - `hooks/hooks.json:2-26` | both: SessionStart hook context (`hooks/projects-auto-init.py:1-6`) and the static `output-styles/tezgah.md` mirror (`README.md:507-508`) | UserPromptSubmit -> `additionalContext` (`hooks/hooks.json:12-14`, `hooks/projects-auto-init.py:38-41`) | `statusLine` command in `~/.claude/settings.json` (`bin/tezgah-setup:527-548`), ANSI, forwards Orca first (`statusline.py:30-48`) | all seven: the transcript parse covers the two skill reads, `graph`, `orch` and the three shell kinds - `consult`, `research` and the judgement callers (`statusline.py:58-107`, `observable=None` at `:112`) |
+| claude | SessionStart, SubagentStart, PostCompact, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop - `hooks/hooks.json:2-26` | the managed block in `~/.claude/CLAUDE.md` (`CLAUDE_RULES`), Claude's global memory file; the SessionStart/PostCompact hook rows declare `TEZGAH_CORE_IN_FILE` (`hooks/hooks.json:4`) and the hook drops the core when the block is there, so the contract is paid for once (`hooks/projects-auto-init.py:1-6`; the static `output-styles/tezgah.md` mirror, `README.md:507-508`, is the hookless build's copy) | UserPromptSubmit -> `additionalContext` (`hooks/hooks.json:12-14`, `hooks/projects-auto-init.py:38-41`) | `statusLine` command in `~/.claude/settings.json` (`bin/tezgah-setup:527-548`), ANSI, forwards Orca first (`statusline.py:30-48`) | all seven: the transcript parse covers the two skill reads, `graph`, `orch` and the three shell kinds - `consult`, `research` and the judgement callers (`statusline.py:58-107`, `observable=None` at `:112`) |
 | codex | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, PostCompact, Stop (`bin/tezgah-setup:129-131`; named in `hosts/codex/hook.py:6-7`) | hook: the normalized events inject `context_for` (`hosts/codex/hook.py:204-210`) | UserPromptSubmit -> `additionalContext` (`hosts/codex/hook.py:204-210`) | no custom footer item (`tui.status_line` is a closed enum) - the line rides `systemMessage`, plain, at SessionStart and Stop (`hosts/codex/hook.py:10-12,182-184,195-198`) | five tool-use (`TOOL_USE_MEASURES` at `hosts/codex/hook.py:197,196`) |
 | cursor | 13 events: sessionStart, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, beforeSubmitPrompt, stop, beforeMCPExecution, afterShellExecution, afterMCPExecution, afterFileEdit, afterAgentResponse (`bin/tezgah-setup:132-182`) | hook: sessionStart -> `additional_context` (`hosts/cursor/hook.py:244-246`) | beforeSubmitPrompt -> `additional_context` plus `{"continue": true}` (`hosts/cursor/hook.py:358-364`) | `statusLine` in `~/.cursor/cli-config.json` -> `tezgah-statusline --cursor` (`bin/tezgah-setup:1101-1109`), ANSI (`statusline.py:116-117`) | five tool-use (`statusline.py:112`) |
 | opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1559-1826`) - `tool.execute.before` carries the whole gate, `tool.execute.after` the channel on the row, the provenance label on the result and the taint notice on the next effect (`untrustedSource` `hosts/opencode/plugins/tezgah.js:1228`, `labelResult` `:1303`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:905-938`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:1756-1801`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:969-980`) | all seven: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1455-1473`) |
@@ -37,11 +37,13 @@ except claude, whose skills arrive with the plugin. `install_common` writes the
 shared config, contract hash and the CLI symlinks every host shell can call
 (`bin/tezgah-setup:438-487`).
 
-- **claude** - `install_claude` (`bin/tezgah-setup:493-503`): `~/.claude/statusline.py`,
+- **claude** - `install_claude` (`bin/tezgah-setup:805-828`): `~/.claude/statusline.py`,
   `~/.claude/workflows/{graph-map,graph-review,graph-impact}.js`, the
-  `~/.claude/bin/{consult,codegen,tezgah-render-table}` links, and two keys in
+  `~/.claude/bin/{consult,codegen,tezgah-render-table}` links, two keys in
   `~/.claude/settings.json` - `statusLine` (`bin/tezgah-setup:527-548`) and the attribution
-  off-switch (`bin/tezgah-setup:506-526`). Its hook manifest is the plugin's own
+  off-switch (`bin/tezgah-setup:506-526`) - and the always-on block in
+  `~/.claude/CLAUDE.md` (`CLAUDE_RULES`), Claude's own user-level memory file.
+  Its hook manifest is the plugin's own
   `hooks/hooks.json`; no `hooks.json` is written into `~/.claude`. Claude runs a
   **copy** of the checkout under `~/.claude/plugins/cache`, refreshed by
   `--sync` (`bin/tezgah-setup:3701-3759`).
@@ -95,12 +97,12 @@ pays for it once.
 
 | host | how the core arrives |
 |---|---|
-| claude | the plugin's own `hooks/hooks.json` fires `SessionStart` -> `context_for` writes it into the session (`hosts/`-adjacent adapter, plugin cache) |
+| claude | the managed block in `~/.claude/CLAUDE.md` (`CLAUDE_RULES`), Claude's global memory file, which Claude reads into every session; its `SessionStart`/`PostCompact` hook rows declare `TEZGAH_CORE_IN_FILE` and the hook drops the core, so the contract is paid for once |
 | codex | the managed block in the global instructions file (`codex_rules`, `CODEX_RULES` = `AGENTS.override.md` then `AGENTS.md`); its `SessionStart` hook runs with `with_core=False` because a hook context is one message where this file is the instructions Codex keeps |
 | cursor | `~/.cursor/hooks.json` fires `sessionStart` -> `context_for` (`hosts/cursor/hook.py:240-241`) |
 | opencode | no stdout-inject hook: `install_opencode` writes the generated `~/.config/tezgah/opencode-contract.md` and references it from `opencode.json` `instructions` |
 | omp | the managed block in `~/.omp/agent/RULES.md` |
-| dsh | the managed block in `~/.dsh/cordis.patch.yml`, mounting the Claude-code hook bridge |
+| dsh | the session's own hook context: `hosts/dsh/hooks.json` runs the Claude-family scripts through the bridge, and no dsh file carries the core, so dsh's `SessionStart` row declares nothing and still gets it here (`~/.dsh/cordis.patch.yml` mounts that bridge) |
 
 An installed host whose core line is missing is a health check's business
 (`host_checks_<host>`), not a second copy: two delivery paths for one host is the

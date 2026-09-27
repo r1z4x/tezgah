@@ -59,8 +59,8 @@ class DshManifest(unittest.TestCase):
     def test_every_group_matches_claude_and_its_script_exists(self):
         # The dsh manifest stays Claude's manifest: one group per event, the same
         # matcher and the same script, so what the bridge runs is what Claude runs
-        # - the one deliberate difference is the outcome declaration the next test
-        # pins, and a command that could drift anywhere else would desynchronise
+        # - the deliberate differences are the declarations the two tests below
+        # pin, and a command that could drift anywhere else would desynchronise
         # them silently.
         claude = self.load(CLAUDE_MANIFEST)
         for event, groups in self.load(DSH_MANIFEST).items():
@@ -84,8 +84,20 @@ class DshManifest(unittest.TestCase):
         ours = self.command("PostToolUse")
         self.assertIn("TEZGAH_CALL_OUTCOME=none ", ours)
         self.assertNotIn("TEZGAH_CALL_OUTCOME", self.claude_command("PostToolUse"))
-        for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"):
+        for event in ("UserPromptSubmit", "PreToolUse", "Stop"):
             self.assertEqual(self.command(event), self.claude_command(event), event)
+
+    def test_the_core_carrying_events_declare_the_file_channel_on_claude_only(self):
+        # install_claude writes the always-on core into ~/.claude/CLAUDE.md,
+        # which Claude reads into every session, so the two events that inject
+        # the core declare it and the hook drops the core instead of paying for
+        # the contract twice. dsh runs this same script through its claude-code
+        # bridge and has no such file: its session still gets the core from the
+        # hook, so its manifest carries no declaration.
+        for event in ("SessionStart", "PostCompact"):
+            self.assertIn("TEZGAH_CORE_IN_FILE=1 ", self.claude_command(event),
+                          event)
+        self.assertNotIn("TEZGAH_CORE_IN_FILE", self.command("SessionStart"))
 
     def command(self, event, path=None):
         with open(path or DSH_MANIFEST) as fh:

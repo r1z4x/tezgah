@@ -98,10 +98,13 @@ one line each saying the rule exists and where its full text lives — spec-firs
 a second opinion, OpenResearch routing, product analysis, the code graph. That is
 what a host with no prompt-time hook writes into a static file: opencode's
 `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:788-792`) and omp's
-managed `RULES.md` (`bin/tezgah-setup:1299-1301`). Claude applies
-`output-styles/tezgah.md` as a plugin output style instead
-(`output-styles/tezgah.md:11-12`); Codex and Cursor receive the same core from
-their session-start hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
+managed `RULES.md` (`bin/tezgah-setup:1299-1301`). Claude gets it from the
+managed block in `~/.claude/CLAUDE.md` (its global memory file, and the reason
+its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
+`output-styles/tezgah.md` where a build loads plugin output styles
+(`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
+global instructions file; Cursor receives the same core from its session-start
+hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
 (`hooks/tezgah_context.py:622-630`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 

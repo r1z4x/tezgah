@@ -550,8 +550,12 @@ together — they must agree.
 
 `codegraph` is installed by the user. Orca's hooks and files are not
 part of this project and are left untouched. Claude receives the always-on core
-from the SessionStart hook; `output-styles/tezgah.md` is a duplicate for builds
-that load plugin output styles, so the hook is the authoritative path.
+from the managed block in `~/.claude/CLAUDE.md`, which the install writes and
+Claude reads into every session; the two hook events that carry the core
+(`SessionStart`, `PostCompact`) declare `TEZGAH_CORE_IN_FILE`, so the hook
+delivers the live state and not a second copy of the contract.
+`output-styles/tezgah.md` is a duplicate for builds that load plugin output
+styles.
 
 <a id="contributing"></a>
 

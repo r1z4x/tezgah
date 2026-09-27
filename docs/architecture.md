@@ -91,7 +91,9 @@ One session, in order. Each step names the file that handles the event on Claude
    `context_for("session_start", …)` (`hooks/tezgah_context.py:812`), which builds
    the always-on CORE (`hooks/tezgah_context.py:621`) plus this repo's live state:
    the graph index status and the detached index spawn (`hooks/tezgah_context.py:223`),
-   the open plans, the lessons ledger, and the active kill switches. Outside a
+   the open plans, the lessons ledger, and the active kill switches. The CORE is
+   dropped when the host's own file already carries it (`TEZGAH_CORE_IN_FILE`,
+   declared by that manifest row: `~/.claude/CLAUDE.md` on Claude). Outside a
    configured root it returns `None` and the session is untouched
    (`hooks/tezgah_context.py:823-824`).
 2. **UserPromptSubmit** — the same file, `context_for("user_prompt", …)`

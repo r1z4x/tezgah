@@ -938,6 +938,84 @@ class CodexGlobalRules(SetupBase):
         self.assertEqual(self.read_text(override), "override line\n")
 
 
+class ClaudeGlobalRules(SetupBase):
+    """Claude's core had one channel: the plugin's SessionStart hook message. The
+    install writes the same managed block into `~/.claude/CLAUDE.md` - Claude's
+    own global memory file, which Claude reads into every session, and not a
+    project file - keeping the user's own lines; the uninstall takes exactly the
+    block back. The hook stops repeating the core once the file carries it
+    (`TEZGAH_CORE_IN_FILE`, hooks/projects-auto-init.py)."""
+
+    def rules(self):
+        return self.path(".claude", "CLAUDE.md")
+
+    def test_the_block_is_written_beside_the_users_lines_and_removed(self):
+        with open(self.rules(), "w") as fh:
+            fh.write("# mine\nkeep this line\n")
+        self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
+        first = self.read_text(self.rules())
+        self.assertIn("keep this line", first)
+        self.assertIn("<!-- tezgah:start", first)
+        self.assertIn("**Turkish, BLUF.**", first)
+        # a second install replaces the block rather than stacking another, and
+        # leaves the file byte-identical
+        self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
+        self.assertEqual(self.read_text(self.rules()).count("<!-- tezgah:start"), 1)
+        self.assertEqual(self.read_text(self.rules()), first)
+        self.assertTrue(self.row(self.setup("--hosts", "claude").stdout,
+                                 "CLAUDE.md carries the contract")
+                        .strip().startswith("ok"))
+        proc = self.setup("--uninstall", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read_text(self.rules()), "# mine\nkeep this line\n")
+        self.assertIn("claude global CLAUDE.md block gone", proc.stdout)
+
+    def test_a_file_holding_only_the_block_is_removed_with_it(self):
+        self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
+        self.assertTrue(os.path.exists(self.rules()))
+        proc = self.setup("--uninstall", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.exists(self.rules()))
+
+    def test_the_report_names_a_block_that_was_taken_away(self):
+        """The checker half, pinned to the write path: with the block gone the
+        SessionStart hook injects the core again, so a report that read `ok` here
+        would call a host armed whose session pays for the contract twice."""
+        self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
+        self.assertTrue(self.row(self.setup("--hosts", "claude").stdout,
+                                 "CLAUDE.md carries the contract")
+                        .strip().startswith("ok"))
+        os.remove(self.rules())
+        row = self.row(self.setup("--hosts", "claude").stdout,
+                       "CLAUDE.md carries the contract")
+        self.assertTrue(row.strip().startswith("MISS"), row)
+
+
+class StatusNamesTheHostListGap(SetupBase):
+    """The host-list row has to reach the surface a session checks its own health
+    with, and `--report` is not it. `--status` prints the same row from the same
+    function (`hosts_row`), and nothing when the two lists agree - the marks are
+    that branch's answer."""
+
+    def record(self, hosts):
+        path = self.path(".config", "tezgah", "config.json")
+        self.write_json(path, dict(self.read_json(path), hosts=hosts))
+
+    def test_status_names_a_wired_host_config_does_not_record(self):
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+        self.record(["omp"])
+        out = self.setup("--status", self.home).stdout
+        self.assertIn("config.json hosts (omp) match the hosts wired (codex)", out)
+        self.assertTrue(self.row(out, "config.json hosts").strip().startswith("MISS"),
+                        out)
+
+    def test_status_prints_the_marks_alone_when_the_lists_agree(self):
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+        out = self.setup("--status", self.home).stdout
+        self.assertEqual(len(out.strip().splitlines()), 1, out)
+        self.assertNotIn("config.json hosts", out)
+
+
 class CursorMatcher(SetupBase):
     """Cursor runs a preToolUse hook only for the tool types its matcher names,
     so a matcher that omits the write tools leaves the gate's edit branches

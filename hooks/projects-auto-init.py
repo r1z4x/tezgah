@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_context import context_for, record  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
+from tezgah_paths import HOST_DIRS  # noqa: E402
 
 EVENTS = {
     "SessionStart": "session_start",
@@ -20,6 +21,29 @@ EVENTS = {
     "SubagentStart": "subagent_start",
     "PostCompact": "post_compact",
 }
+
+# Claude's global memory file, where install_claude writes the always-on core as
+# a managed block: the file Claude reads into every session, so the core is
+# already in the session's instructions.
+CORE_IN_FILE = os.path.join(HOST_DIRS["claude"], "CLAUDE.md")
+
+
+def core_is_in_a_file():
+    """True when the core reaches this session from a file the host keeps, so
+    this hook must not pay for the contract a second time in its one message.
+
+    The host declares it in its manifest (`TEZGAH_CORE_IN_FILE`, the same shape
+    as the dsh rows' `TEZGAH_CALL_OUTCOME`) rather than this file guessing from
+    the payload: dsh runs this very script through its claude-code bridge and has
+    no such file, so its session still gets the core from here. The file is read
+    as well as assumed - a user who deleted it falls back to the hook."""
+    if os.environ.get("TEZGAH_CORE_IN_FILE") != "1":
+        return False
+    try:
+        with open(CORE_IN_FILE, encoding="utf-8", errors="ignore") as fh:
+            return "<!-- tezgah:start" in fh.read()
+    except OSError:
+        return False
 
 
 def main():
@@ -35,7 +59,10 @@ def main():
         # the kind from, so the store is the only channel its line has.
         safe(payload.get("session_id"), record, payload.get("session_id"), "orch")
     text = safe(payload.get("session_id"), context_for,
-                EVENTS.get(event, "session_start"), cwd, payload)
+                EVENTS.get(event, "session_start"), cwd, payload,
+                # the brief is a subagent's own text, never the file's; every
+                # other event drops the core when the host's file carries it
+                with_core=(event == "SubagentStart" or not core_is_in_a_file()))
     if text:
         json.dump({"hookSpecificOutput": {
             "hookEventName": event,

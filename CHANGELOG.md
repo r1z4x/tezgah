@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Claude gets the always-on core as a managed block in `~/.claude/CLAUDE.md`.**
+  Claude's core rode only the plugin's `SessionStart` hook message; the install
+  now writes the same `always_on_core()` block into Claude's global memory file -
+  the file Claude reads into every session, and not a project file - keeping the
+  user's own lines, and the uninstall takes exactly the block back (a file
+  holding nothing else goes with it). The hook stops repeating the core once the
+  file carries it: the `SessionStart`/`PostCompact` rows declare
+  `TEZGAH_CORE_IN_FILE` and `hooks/projects-auto-init.py` drops the core, while
+  dsh - which runs the same script through its claude-code bridge and has no such
+  file - still gets it there (a deleted file falls back to the hook). The report
+  gains the row `CLAUDE.md carries the contract`.
 - **`tezgah-migrate` moves legacy per-project state into `<repo>/.tezgah/`.**
   A `.tezgah/` the project tracked is untracked (files stay on disk), a root
   `plans/` in plan format, `analysis/` and `research/` move under `.tezgah/`
@@ -74,6 +85,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The report names a host-list mismatch.** `tezgah-setup --report` gains the
   row `config.json hosts (...) match the hosts wired (...)`, `MISS` when the
   recorded list differs from the wiring on disk; it reports and changes nothing.
+- **`tezgah-setup --status` names that mismatch too.** The same row, from the same
+  `hosts_row`, prints after the marks when the recorded list and the wiring on
+  disk disagree, and nothing when they agree - install health where a session
+  checks it rather than only in a full report. The status line's own marks and
+  `bin/tezgah-doctor` are unchanged, and `docs/operations.md` says why.
 - **A plan names its own scope.** plan-add writes `allowed_paths:`;
   `tezgah-task start` without `--allow` keeps it, and `implementation` or
   `verification` with an empty allowlist is refused unless `--any-path` is

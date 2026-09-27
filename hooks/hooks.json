@@ -1,13 +1,13 @@
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
+      { "hooks": [ { "type": "command", "command": "TEZGAH_CORE_IN_FILE=1 \"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
     ],
     "SubagentStart": [
       { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
     ],
     "PostCompact": [
-      { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
+      { "hooks": [ { "type": "command", "command": "TEZGAH_CORE_IN_FILE=1 \"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
     ],
     "UserPromptSubmit": [
       { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }

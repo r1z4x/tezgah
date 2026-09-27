@@ -21,7 +21,7 @@ before an install is considered.
 | `--uninstall` | Remove everything tezgah installed — per host the wiring it wrote, plus (a full run) the Claude plugin copy with its registry rows, the generated config state, the kill switches, the caches and the versioned install tree — then verify the removal; nonzero exit while anything tezgah wrote survives (`bin/tezgah-setup:4180-4182`, `bin/tezgah-setup:2696-2757`). |
 | `--adopt` | Move pre-tezgah wiring aside instead of deleting it; alone it stops there, with `--install` it runs first (`bin/tezgah-setup:3241`, `bin/tezgah-setup:2759-2850`). |
 | `--sync` | Copy this checkout over every installed Claude plugin [copy](glossary.md#plugin-copy) (`bin/tezgah-setup:3242`, `bin/tezgah-setup:3701-3759`). |
-| `--status [PATH]` | Print the armed/used checklist for PATH (default cwd) and stop — the same line as `bin/tezgah-status` (`bin/tezgah-setup:3243`, `bin/tezgah-setup:4154-4156`). |
+| `--status [PATH]` | Print the armed/used checklist for PATH (default cwd) and stop — the same line as `bin/tezgah-status` (`bin/tezgah-setup:3243`, `bin/tezgah-setup:4154-4156`). It also prints the report's `config.json hosts (...) match the hosts wired (...)` row when the recorded list and the wiring on disk disagree (`hosts_row`), and nothing when they agree: install health is checked here, not only in a full report. |
 | `--agents [PATH]` | Regenerate PATH's per-repo subagent set (default cwd); outside a [root](glossary.md#root) it prints `no agents generated` (`bin/tezgah-setup:3244-3245`, `bin/tezgah-setup:4164-4168`). |
 | `--write-manifest` | Regenerate the tracked `MANIFEST` from `git ls-files` and stop — the release step, its only writer, and it says so on a tree with no `.git` rather than writing an empty listing (`bin/tezgah-setup:4069-4072`, `bin/tezgah-setup:3225-3242`). |
 | `--deps` | Install the missing optional tools and stop; with `--install` the install already does it (`bin/tezgah-setup:4157-4159`, `bin/tezgah-setup:4157-4159`). |
@@ -144,7 +144,15 @@ current one (`bin/tezgah-setup:3682-3700`).
 repo — as one line of marks rendered by the same code every status line uses
 (`hooks/tezgah_context.py:1314-1382`, `hooks/tezgah_context.py:1402-1410`). Mark meanings are in
 [status-line.md](status-line.md); `bin/tezgah-status` is that checklist with
-`--json`, `--legend` and `--observable=`.
+`--json`, `--legend` and `--observable=`. It carries the report's host-list row
+too, from the same `hosts_row`, so the mismatch reaches the surface a session
+checks its own health with. Two places deliberately do not: the status line's
+marks are the armed/used checklist and are redrawn by a fresh process on every
+host (omp re-renders per tool result), while "wired" is `HOST_CHECKS`, the
+installer's own reading of six host files — a second reading of it in `hooks/`
+would be the drift `AGENTS.md` names as the report's source of truth; and
+`bin/tezgah-doctor` accounts for the bytes the hosts' stores hold and never reads
+a host's config, so a wiring row there would belong to a different tool.
 
 ## Upgrading
 
