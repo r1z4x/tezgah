@@ -125,7 +125,29 @@ KINDS = ("evidence", "code", "literature", "derivation")
 # A source is either a paper record (formal) or the practice channel - a vendor
 # page, a report, a tool's own documentation - which the layer allows and which
 # has to be labelled, because a grey source carries no peer review to inherit.
-SOURCE_CLASSES = ("formal", "grey")
+# `agent-report` is a third class: a summary an agent wrote of what it read. It is
+# kept and indexed like any note, and it cannot alone carry a `literature` claim,
+# because an agent's paraphrase is not the paper or the page it paraphrased.
+SOURCE_CLASSES = ("formal", "grey", "agent-report")
+
+# The rule set a line was opened under. `init` writes the current value; a line
+# without it predates the standards rules below (evaluation lock order, results
+# append-only, review integrity, ask traceability, variants), and each of those
+# warns on it instead of refusing - its rows were written before the rule existed.
+RULES = 2
+
+# What a line delivers, and how many compared variants that takes. `finding` is a
+# line whose deliverable is its claims; the other four are an artifact a reader
+# acts on, and one design with no compared alternative is the serial fixation the
+# variants rule exists against.
+DELIVERABLE_KINDS = ("design", "plan", "code", "analysis", "finding")
+VARIANT_KINDS = ("design", "plan", "code", "analysis")
+CRITERION_KINDS = ("measured", "judged")
+CRITERION_DIRECTIONS = ("max", "min", "pass")
+VARIANT_STATUSES = ("produced", "dropped")
+DECISION_FILES = ("criteria.json", "variants.jsonl", "comparison.jsonl",
+                  "decision.md")
+VALIDITY_TYPES = ("internal", "external", "construct", "conclusion")
 FORMAL_HOSTS = ("arxiv.org", "alphaxiv.org", "doi.org", "aclanthology.org",
                 "openreview.net", "ieee.org", "acm.org", "springer.com",
                 "nature.com", "sciencedirect.com", "jmlr.org", "neurips.cc",
@@ -1051,6 +1073,7 @@ def _check_claims(base, errors, warnings, roots=(), strict=False):
                           % (cid, claim.get("status"), ", ".join(STATUSES)))
         _check_claim_scope(cid, claim, base, repo, errors, warnings, strict)
         _check_claim_numbers(cid, claim, base, repo, errors, warnings, strict)
+        _check_claim_raters(cid, claim, base, errors, warnings, strict)
     _check_supersedes(parsed, errors, warnings, strict)
     if not count:
         warnings.append("no claims recorded yet")
@@ -1192,11 +1215,51 @@ def _check_proof(cid, claim, base, repo, errors, warnings, strict):
             if token.startswith("literature/") and not _under_literature(token, base):
                 errors.append("claim %s cites %s, which is not a note under "
                               "literature/" % (cid, token))
+        problem = agent_only_problem(cid, claim, base)
+        if problem:
+            errors.append(problem)
     elif kind == "derivation":
         for token in named:
             if not _resolves(token, (base,)):
                 errors.append("claim %s is a derivation and cites %s, which the "
                               "line itself does not hold" % (cid, token))
+
+
+def agent_only_problem(cid, claim, base):
+    """The refusal of a literature claim whose every cited note is indexed as an
+    `agent-report`, or None. Shared by the writer and the checker: an agent's
+    summary of a source is not the source, so it can back a literature claim only
+    beside a note on the paper or page itself."""
+    if claim.get("kind") != "literature" or not claim.get("proof"):
+        return None
+    classes = {str(row.get("note", "")).strip(): row.get("class") for row in
+               _row_objects(os.path.join(base, "literature", "INDEX.jsonl"))}
+    cited = []
+    for token in _cited(claim["proof"]):
+        token = token.rstrip(".,;:)")
+        if _under_literature(token, base):
+            cited.append(token[len("literature/"):]
+                         if token.startswith("literature/") else token)
+    if cited and all(classes.get(note) == "agent-report" for note in cited):
+        return ("claim %s is a literature claim resting only on agent reports (%s): "
+                "cite the note on the paper or page the agent read"
+                % (cid, ", ".join(cited)))
+    return None
+
+
+def _check_claim_raters(cid, claim, base, errors, warnings, strict):
+    """A claim resting only on judged rows - rows that carry a `rater` - rests on
+    at least two raters, or it is one reader's opinion counted as a measurement."""
+    rows = []
+    for experiment in _experiments_named(_cited(claim.get("proof"))):
+        rows += _row_objects(os.path.join(base, "experiments", experiment,
+                                          "results.jsonl"))
+    raters = {str(r["rater"]) for r in rows if "rater" in r}
+    if rows and all("rater" in r for r in rows) and len(raters) < 2:
+        _soft(errors, warnings, strict,
+              "claim %s rests only on judged rows from %d rater, so no agreement "
+              "between readers can be shown" % (cid, len(raters)))
+
 
 
 def derive_kind(claim, roots):
@@ -1273,6 +1336,9 @@ def claim_problems(claim, base, repo, held=None):
                 problems.append("claim %s cites orx:%s, and no raw/%s.log is under "
                                 "this line or the repository, so the receipt is "
                                 "missing" % (cid, run, run))
+        problem = agent_only_problem(cid, claim, base)
+        if problem:
+            problems.append(problem)
     if claim.get("provenance") not in PROVENANCE:
         problems.append("claim %s provenance %r is not one of %s"
                         % (cid, claim.get("provenance"), ", ".join(PROVENANCE)))
@@ -1648,25 +1714,32 @@ def _check_literature(base, errors, warnings, strict):
     `id`, `source`, `inclusion` - is reported once per index rather than
     invented, which is also what `migrate` says about it."""
     literature = os.path.join(base, "literature")
-    try:
-        notes = sorted(n for n in os.listdir(literature)
-                       if n.endswith(".md")
-                       and os.path.isfile(os.path.join(literature, n)))
-    except OSError:
+    if not os.path.isdir(literature):
         return
+    notes = []
+    for here, dirs, files in os.walk(literature):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        notes += [os.path.relpath(os.path.join(here, f), literature)
+                  for f in files if not f.startswith(".")]
+    notes = sorted(n for n in notes if n != "INDEX.jsonl")
+    # A top-level `.md` note was always read; a nested file or another extension
+    # is read since the standards rules, and a line opened before them warns.
+    newer = _rules(_state(base)) >= RULES or strict
+    legacy = [n for n in notes if n.endswith(".md") and os.sep not in n]
     index = os.path.join(literature, "INDEX.jsonl")
     if not os.path.isfile(index):
-        if notes:
-            errors.append("literature/ holds %d note(s) and no INDEX.jsonl, so "
-                          "nothing says which sources were screened, included or "
-                          "left out; migrate writes what the notes already carry"
-                          % len(notes))
+        if legacy or notes:
+            _soft(errors, warnings, bool(legacy) or newer,
+                  "literature/ holds %d note(s) and no INDEX.jsonl, so nothing says "
+                  "which sources were screened, included or left out; migrate writes "
+                  "what the notes already carry" % len(notes))
         return
     rows, named = _read_index(index, literature, errors, warnings, strict)
     for note in notes:
         if note not in named:
-            errors.append("literature/%s is not in INDEX.jsonl: a note the index "
-                          "does not name is a source no reader can weigh" % note)
+            _soft(errors, warnings, note in legacy or newer,
+                  "literature/%s is not in INDEX.jsonl: a note the index does not "
+                  "name is a source no reader can weigh" % note)
     _index_fields(rows, errors, warnings, strict)
 
 
@@ -1751,7 +1824,7 @@ def _check_review(base, phase, errors, warnings, strict):
     write one for them."""
     path = os.path.join(base, "to_human", "review.json")
     if not os.path.isfile(path):
-        if phase == "concluded":
+        if phase == "concluded" or _concluding(base, _state(base)):
             _soft(errors, warnings, strict,
                   "to_human/review.json is missing: a concluded line reports the "
                   "six-dimension review of its claims, and no migration can write "
@@ -1827,7 +1900,7 @@ def _check_report(repo, base, phase, errors, warnings, strict):
     A concluded line with no report at all warns with exactly that reason: there
     is no report in which to state the limits, so the file the rule reads does not
     exist yet."""
-    if phase != "concluded":
+    if phase != "concluded" and not _concluding(base, _state(base)):
         return
     path = os.path.join(base, "to_human", "report.md")
     if not os.path.isfile(path):
@@ -1846,6 +1919,15 @@ def _check_report(repo, base, phase, errors, warnings, strict):
         _soft(errors, warnings, strict,
               "to_human/report.md states nowhere what the evidence does not show, "
               "so its findings travel without the bound they were measured under")
+    stated = " ".join(line for line in text.lower().splitlines() if "validity" in line)
+    unnamed = [t for t in VALIDITY_TYPES if not re.search(r"\b%s\b" % t, stated)]
+    if unnamed:
+        _soft(errors, warnings, strict,
+              "to_human/report.md names no %s validity threat: a report says what "
+              "could bias the result (internal), where it stops generalising "
+              "(external), whether the measure is the thing asked (construct) and "
+              "whether the numbers carry the conclusion (conclusion)"
+              % ", ".join(unnamed))
     fixtures = _fixture_claims(base, repo)
     if fixtures and "fixture" not in text.lower():
         _soft(errors, warnings, strict,
@@ -1853,6 +1935,682 @@ def _check_report(repo, base, phase, errors, warnings, strict):
               "and never says so, so a reader of the report alone takes a generated "
               "input for the running system"
               % (len(fixtures), ", ".join(fixtures[:4])))
+
+
+# --- the standards rules (RULES >= 2) -----------------------------------------
+# What the checks above read is the form of a line: files present, fields filled,
+# the protocol committed before the results. What they could not read is its
+# design: the evaluation locked before the first result, the results left as the
+# run wrote them, a review by someone other than the producer, every item of the
+# ask answered, and a deliverable produced as compared variants rather than as one
+# design redone serially. A line opened before `rules` existed is judged by them
+# too, and each finding warns for it instead of refusing: its rows were written
+# before the rule existed, and no migration can re-run them in order.
+
+# A commit a session may cite in prose: seven to forty hex characters holding at
+# least one digit and one letter, so a date or an English word is not read as one.
+SHA_TOKEN = re.compile(r"(?<![\w-])(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])"
+                       r"[0-9a-f]{7,40}(?![\w-])")
+
+# The phrases the order rules refuse with, so a review scored in the same run can
+# be compared against them. Read from the error text because the order rules are
+# spread over several functions and each speaks its own sentence.
+ORDER_MARKS = ("precede the run", "entered the history after",
+               "changed after the run", "came before the run",
+               "rewritten after the run", "did not enter the history before",
+               "was not locked before")
+
+URL = re.compile(r"\S+://\S+")
+
+
+def _rules(state):
+    """The rule set a line was opened under; 1 for a line that predates `rules`."""
+    value = state.get("rules") if isinstance(state, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else 1
+
+
+def _state(base):
+    """state.json as an object, or {} when it is missing or unreadable."""
+    state, exc = _read_json(os.path.join(base, "state.json"))
+    return state if isinstance(state, dict) and not exc else {}
+
+
+def _concluding(base, state):
+    """True once a line is delivering: concluded, deciding to conclude, or holding
+    its report. The review and report rules read this rather than `phase` alone:
+    a line that ships `to_human/report.md` and stays at `outer` was never asked for
+    either, which is how a line passed `check --strict` with no review at all."""
+    return (state.get("phase") == "concluded" or state.get("direction") == "conclude"
+            or os.path.isfile(os.path.join(base, "to_human", "report.md")))
+
+
+def file_versions(repo, path):
+    """[(sha, text)] of every committed version of `path`, oldest first; [] when git
+    cannot say. The evaluation-lock and append-only rules compare versions, which
+    the added/last-touched pair cannot. The project's history is read first and the
+    private `.tezgah` repository's after it, like `added_commits`: a line committed
+    in the project before the move has its older versions there."""
+    versions = []
+    ws_rel = _ws_rel(repo, path)
+    for top, rel, extra in ((repo, os.path.relpath(path, repo), ()),
+                            (tp.workspace(repo), ws_rel, ("--all",))):
+        if rel is None:
+            continue
+        out, err = _git_out(top, "log", *extra, "--format=%H", "--", rel)
+        if err:
+            continue
+        for sha in reversed(out.split()):
+            text, err = _git_out(top, "show", "%s:%s" % (sha, rel))
+            if not err:
+                versions.append((sha, text))
+    return versions
+
+
+def _commit_before(repo, first, then):
+    """True when commit `first` is a strict ancestor of `then`, None when git
+    cannot say. One commit is not before itself: a plan and a result added
+    together cannot show which came first."""
+    return False if first == then else is_ancestor(repo, first, then)
+
+
+def _check_order(repo, label, before, after, errors, warnings, hard):
+    """`before` entered the history in a commit strictly before the one that added
+    `after`: the protocol-before-results rule, for any pair of files."""
+    b_add, b_err = added_commits(repo, before)
+    a_add, a_err = added_commits(repo, after)
+    if b_err or a_err:
+        warnings.append("%s: git could not be asked about the order (%s)"
+                        % (label, b_err or a_err))
+        return
+    if not a_add:
+        return
+    names = (os.path.basename(before), os.path.basename(after))
+    if not b_add:
+        _soft(errors, warnings, hard, "%s: %s is not committed, so it cannot show it "
+              "came before %s" % ((label,) + names))
+        return
+    ordered = _commit_before(repo, b_add[-1], a_add[-1])
+    if ordered is None:
+        warnings.append("%s: git could not order %s against %s" % ((label,) + names))
+    elif not ordered:
+        _soft(errors, warnings, hard, "%s: %s did not enter the history before %s, so "
+              "it cannot be shown to precede what it judges" % ((label,) + names))
+
+
+def _check_append_only(repo, label, path, errors, warnings, hard):
+    """Every committed version of `path` starts with the rows of the one before it,
+    and so does the working copy: a row changed or removed after it was committed
+    is a result rewritten after the run, and nothing else in the line shows it."""
+    versions = [text for _sha, text in file_versions(repo, path)]
+    current, exc = _committed_text(path)
+    if not exc:
+        versions.append(current)
+    for older, newer in zip(versions, versions[1:]):
+        old = [line for line in older.splitlines() if line.strip()]
+        new = [line for line in newer.splitlines() if line.strip()]
+        if new[:len(old)] != old:
+            _soft(errors, warnings, hard, "%s was rewritten after the run: a committed "
+                  "row changed or went missing, and results are append-only - a "
+                  "correction is a new row" % label)
+            return
+
+
+def _evaluation_commit(repo, path):
+    """The first commit whose state.json locks a metric and a baseline, or None."""
+    for sha, text in file_versions(repo, path):
+        try:
+            state = json.loads(text)
+        except ValueError:
+            continue
+        evaluation = state.get("evaluation") if isinstance(state, dict) else None
+        if isinstance(evaluation, dict) and all(
+                str(evaluation.get(k, "")).strip() for k in ("metric", "baseline")):
+            return sha
+    return None
+
+
+def _check_evaluation_order(repo, base, state, errors, warnings, strict):
+    """The evaluation is locked before the first result, and `locked_at` names a
+    commit the history holds. `_check_evaluation` reads that the fields are filled;
+    this reads when: a metric and a baseline committed after the results are the
+    criterion the results were measured against after the fact."""
+    hard = strict or _rules(state) >= RULES
+    evaluation = state.get("evaluation")
+    if not isinstance(evaluation, dict):
+        return
+    for token in SHA_TOKEN.findall(str(evaluation.get("locked_at", ""))):
+        if is_ancestor(repo, token, "HEAD") is not True:
+            _soft(errors, warnings, hard,
+                  "state.json evaluation locked_at names %s, which is not a commit "
+                  "this history reaches, so the lock it claims cannot be read" % token)
+    locked = None
+    checked = False
+    for h in _experiment_names(base):
+        added, err = added_commits(repo, os.path.join(base, "experiments", h,
+                                                      "results.jsonl"))
+        if err or not added:
+            continue
+        if not checked:
+            locked, checked = _evaluation_commit(
+                repo, os.path.join(base, "state.json")), True
+        if locked is None or _commit_before(repo, locked, added[-1]) is False:
+            _soft(errors, warnings, hard,
+                  "experiment %s: the evaluation was not locked before the first "
+                  "results row - no committed state.json holding the metric and the "
+                  "baseline precedes the commit that added its results.jsonl" % h)
+
+
+def _experiment_names(base):
+    exps = os.path.join(base, "experiments")
+    try:
+        names = sorted(os.listdir(exps))
+    except OSError:
+        return []
+    return [h for h in names if not h.startswith(".")
+            and os.path.isdir(os.path.join(exps, h))]
+
+
+def _check_results_append_only(repo, base, state, errors, warnings, strict):
+    hard = strict or _rules(state) >= RULES
+    for h in _experiment_names(base):
+        path = os.path.join(base, "experiments", h, "results.jsonl")
+        if os.path.isfile(path):
+            _check_append_only(repo, "experiment %s: results.jsonl" % h, path,
+                               errors, warnings, hard)
+
+
+# --- variants ------------------------------------------------------------------
+# A deliverable a reader acts on - a design, a plan, an analysis, code - is
+# produced as variants and compared under criteria committed before any variant
+# was scored, and the decision names every variant it rejected and the criterion
+# that rejected it. One design gets inflated ratings beside nothing (Tohidi et al.
+# 2006), and serial versions fixate on the first option (Dow et al. 2010); the
+# layer used to hold exactly that, v3 -> v4 -> v5 of one plan never compared.
+
+def deliverable_problems(deliverable):
+    """(problems, variants needed) for `state.json`'s deliverable declaration."""
+    if not isinstance(deliverable, dict):
+        return (["state.json deliverable is a %s, not the object naming what the line "
+                 "delivers" % type(deliverable).__name__], 0)
+    problems = []
+    kind = deliverable.get("kind")
+    if kind not in DELIVERABLE_KINDS:
+        problems.append("state.json deliverable kind %r is not one of %s"
+                        % (kind, ", ".join(DELIVERABLE_KINDS)))
+    ask = deliverable.get("ask")
+    if ask is not None and (not isinstance(ask, list) or not all(
+            isinstance(item, str) and item.strip() for item in ask)):
+        problems.append("state.json deliverable ask is not a list of the ask's items")
+    default = {"code": 2}.get(kind, 3) if kind in VARIANT_KINDS else 0
+    need = deliverable.get("min_variants", default)
+    if not isinstance(need, int) or isinstance(need, bool) or need < 0:
+        problems.append("state.json deliverable min_variants %r is not a count"
+                        % (need,))
+        need = default
+    elif need < default and not str(deliverable.get("single_variant_reason",
+                                                    "")).strip():
+        problems.append("state.json deliverable min_variants %d is below the %d a %s "
+                        "takes, and no single_variant_reason says why no alternative "
+                        "was considered" % (need, default, kind))
+    return problems, need
+
+
+def _decision_dirs(base):
+    root_dir = os.path.join(base, "decisions")
+    try:
+        names = sorted(os.listdir(root_dir))
+    except OSError:
+        return []
+    return [(n, os.path.join(root_dir, n)) for n in names
+            if not n.startswith(".") and os.path.isdir(os.path.join(root_dir, n))]
+
+
+def load_decision(ddir):
+    """(criteria by id, variants by id, problems) of one decision directory. The
+    comparison writer and the checker both start here, so a cell is judged against
+    the same criteria and the same variants on both paths."""
+    problems, criteria, variants = [], {}, {}
+    doc, exc = _read_json(os.path.join(ddir, "criteria.json"))
+    if exc or not isinstance(doc, dict):
+        problems.append("criteria.json does not parse (%s)" % (exc or "not an object"))
+        doc = {}
+    rows = doc.get("criteria") if doc else []
+    if doc and (not isinstance(rows, list) or not rows):
+        problems.append("criteria.json names no criteria")
+        rows = []
+    for n, row in enumerate(rows, 1):
+        cid = str(row.get("id", "")).strip() if isinstance(row, dict) else ""
+        if not cid:
+            problems.append("criteria.json criterion %d carries no id" % n)
+            continue
+        if cid in criteria:
+            problems.append("criteria.json repeats criterion %s" % cid)
+        if row.get("kind") not in CRITERION_KINDS:
+            problems.append("criterion %s kind %r is not one of %s"
+                            % (cid, row.get("kind"), ", ".join(CRITERION_KINDS)))
+        if row.get("direction") not in CRITERION_DIRECTIONS:
+            problems.append("criterion %s direction %r is not one of %s"
+                            % (cid, row.get("direction"),
+                               ", ".join(CRITERION_DIRECTIONS)))
+        criteria[cid] = row
+    for n, row in enumerate(_row_objects(os.path.join(ddir, "variants.jsonl")), 1):
+        vid = str(row.get("id", "")).strip()
+        if not vid:
+            problems.append("variants.jsonl row %d carries no id" % n)
+            continue
+        if vid in variants:
+            problems.append("variants.jsonl repeats variant %s" % vid)
+        status = row.get("status")
+        if status not in VARIANT_STATUSES:
+            problems.append("variant %s status %r is not one of %s"
+                            % (vid, status, ", ".join(VARIANT_STATUSES)))
+        elif status == "dropped" and not str(row.get("drop_reason", "")).strip():
+            problems.append("variant %s is dropped and says not why" % vid)
+        elif status == "produced" and not str(row.get("artifact", "")).strip():
+            problems.append("variant %s is produced and names no artifact" % vid)
+        variants[vid] = row
+    if doc and doc.get("baseline_variant") not in variants:
+        problems.append("criteria.json baseline_variant %r is not a variant in "
+                        "variants.jsonl: the status quo every option is compared "
+                        "against is one of the variants" % (doc.get("baseline_variant"),))
+    return criteria, variants, problems
+
+
+def comparison_problems(row, criteria, variants, base, repo):
+    """The reasons one variants x criteria cell cannot be recorded; [] when it can.
+    The writer (`append_comparison`) and the checker (`_check_decision`) both call
+    this, so neither can accept a cell the other refuses."""
+    if not isinstance(row, dict):
+        return ["a comparison cell is a JSON object, not a %s" % type(row).__name__]
+    problems = []
+    vid, cid = row.get("variant"), row.get("criterion")
+    variant = variants.get(vid) if isinstance(vid, str) else None
+    if variant is None or variant.get("status") != "produced":
+        problems.append("cell names variant %r, which is not a produced variant in "
+                        "variants.jsonl" % (vid,))
+    if not isinstance(cid, str) or cid not in criteria:
+        problems.append("cell names criterion %r, which criteria.json does not "
+                        "define" % (cid,))
+    has_value, skipped = "value" in row, row.get("not_checked")
+    if has_value == (skipped is not None):
+        problems.append("cell carries %s: a cell is a value with its source, or "
+                        "not_checked with the reason"
+                        % ("both value and not_checked" if has_value
+                           else "neither value nor not_checked"))
+    elif not has_value and (not isinstance(skipped, str) or not skipped.strip()):
+        problems.append("cell is not_checked and gives no reason")
+    elif has_value:
+        source = row.get("source")
+        if not isinstance(source, str) or not source.strip():
+            problems.append("cell carries a value and no source")
+        else:
+            for token in _cited(URL.sub(" ", source)):
+                if not _resolves(token, (base, repo)):
+                    problems.append("cell source %s is not in this line or the "
+                                    "repository" % token)
+    rater = row.get("rater")
+    if rater is not None and (not isinstance(rater, str) or not rater.strip()):
+        problems.append("cell carries an empty rater")
+    return problems
+
+
+def append_comparison(repo, slug, decision, row):
+    """problems; [] exactly when the cell was appended to
+    `decisions/<decision>/comparison.jsonl`. Judged under the lock, by the rule the
+    checker applies, against the criteria and variants read inside it."""
+    if not valid_slug(slug) or not valid_slug(decision):
+        return ["not a research slug and decision id: %r %r" % (slug, decision)]
+    ddir = os.path.join(line_dir(repo, slug), "decisions", decision)
+    if not os.path.isdir(ddir):
+        return ["decisions/%s does not exist: write and commit its criteria.json "
+                "and variants.jsonl first" % decision]
+    path = os.path.join(ddir, "comparison.jsonl")
+    created = not os.path.isfile(path)
+    with open(path, "a+b") as handle:
+        problem = _locked(handle, "comparison.jsonl")
+        if problem:
+            return [problem]
+        criteria, variants, _ = load_decision(ddir)
+        problems = comparison_problems(row, criteria, variants, line_dir(repo, slug),
+                                       repo)
+        if problems:
+            if created and os.path.getsize(path) == 0:
+                os.remove(path)
+            return problems
+        truncate_to_committed(handle)
+        handle.write(json.dumps(row).encode("utf-8") + b"\n")
+    return []
+
+
+def _score(rows):
+    """The mean numeric value of a cell's rows, or None when none is a number."""
+    values = []
+    for row in rows:
+        value = row.get("value")
+        if isinstance(value, bool):
+            continue
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            pass
+    return sum(values) / len(values) if values else None
+
+
+def dominated_by(chosen, produced, criteria, cells):
+    """The produced variant at least as good as `chosen` on every criterion and
+    better on one, or None. Decided only when every criterion is numeric with a
+    max/min direction; a pass/fail or unscored criterion may be what it won on."""
+    if not criteria or any(c.get("direction") not in ("max", "min")
+                           for c in criteria.values()):
+        return None
+
+    def vector(vid):
+        out = []
+        for cid, crit in criteria.items():
+            score = _score(cells.get((vid, cid), []))
+            if score is None:
+                return None
+            out.append(score if crit["direction"] == "max" else -score)
+        return out
+
+    mine = vector(chosen)
+    if mine is None:
+        return None
+    for other in produced:
+        theirs = vector(other) if other != chosen else None
+        if theirs and all(t >= m for t, m in zip(theirs, mine)) \
+                and any(t > m for t, m in zip(theirs, mine)):
+            return other
+    return None
+
+
+def _artifact_path(artifact, base, repo):
+    for root_dir in (base, repo):
+        path = os.path.join(root_dir, artifact)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _digest(path):
+    import hashlib
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def _mentions(token, text):
+    return re.search(r"(?<![\w.-])%s(?![\w.-])" % re.escape(token), text) is not None
+
+
+def _check_decision(repo, base, name, ddir, need, errors, warnings, strict, git,
+                    concluding):
+    label = "decisions/%s" % name
+    missing = [f for f in DECISION_FILES[:2]
+               if not os.path.isfile(os.path.join(ddir, f))]
+    if missing:
+        errors.append("%s is missing %s: the criteria and the variants are written "
+                      "before any cell" % (label, " and ".join(missing)))
+        return
+    criteria, variants, problems = load_decision(ddir)
+    errors.extend("%s: %s" % (label, p) for p in problems)
+    produced = [v for v, row in variants.items() if row.get("status") == "produced"]
+    if len(produced) < need:
+        errors.append("%s: %d produced variant(s), and this deliverable is compared "
+                      "across at least %d - one option with nothing beside it is not "
+                      "a comparison" % (label, len(produced), need))
+    digests = {}
+    for vid in produced:
+        artifact = str(variants[vid].get("artifact", "")).strip()
+        if artifact.startswith("orx:"):
+            continue
+        if artifact.startswith("git:"):
+            if git and _git(repo, "rev-parse", "--verify", "-q",
+                            artifact[4:] + "^{commit}")[1]:
+                errors.append("%s: variant %s names %s, which this history does not "
+                              "hold" % (label, vid, artifact))
+            continue
+        path = _artifact_path(artifact, base, repo)
+        if path is None:
+            errors.append("%s: variant %s artifact %s is not in this line or the "
+                          "repository" % (label, vid, artifact))
+        elif os.path.isfile(path):
+            digest = _digest(path)
+            if digest in digests:
+                errors.append("%s: variants %s and %s are the same file, and a "
+                              "renamed copy is not an alternative"
+                              % (label, digests[digest], vid))
+            digests.setdefault(digest, vid)
+    cpath = os.path.join(ddir, "comparison.jsonl")
+    decided = os.path.isfile(os.path.join(ddir, "decision.md"))
+    cells = {}
+    text, _exc = _committed_text(cpath)
+    for n, raw in enumerate((text or "").splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except ValueError as exc:
+            errors.append("%s: comparison.jsonl:%d does not parse (%s)" % (label, n, exc))
+            continue
+        for problem in comparison_problems(row, criteria, variants, base, repo):
+            errors.append("%s: comparison.jsonl:%d %s" % (label, n, problem))
+        if isinstance(row, dict):
+            cells.setdefault((row.get("variant"), row.get("criterion")), []).append(row)
+    gaps = ["%s x %s" % (v, c) for v in produced for c in criteria
+            if (v, c) not in cells]
+    if gaps:
+        _soft(errors, warnings, strict or decided or concluding,
+              "%s: %d cell(s) of the variants x criteria matrix are neither measured "
+              "nor marked not_checked (%s)" % (label, len(gaps), ", ".join(gaps[:6])))
+    thin = []
+    for (vid, cid), rows in sorted(cells.items(), key=str):
+        valued = [r for r in rows if "value" in r]
+        raters = {r.get("rater") for r in valued if isinstance(r.get("rater"), str)
+                  and r["rater"].strip()}
+        if valued and criteria.get(cid, {}).get("kind") == "judged" and len(raters) < 2:
+            thin.append("%s x %s" % (vid, cid))
+    if thin:
+        _soft(errors, warnings, strict,
+              "%s: %d judged cell(s) carry fewer than two distinct raters (%s), so "
+              "no agreement between readers can be shown"
+              % (label, len(thin), ", ".join(thin[:6])))
+    if git and os.path.isfile(cpath):
+        _check_order(repo, label, os.path.join(ddir, "criteria.json"), cpath,
+                     errors, warnings, True)
+        _check_append_only(repo, "%s: comparison.jsonl" % label, cpath, errors,
+                           warnings, True)
+    if not decided:
+        _soft(errors, warnings, strict or concluding,
+              "%s has no decision.md, so no variant is chosen and no rejected one "
+              "says what ruled it out" % label)
+        return
+    body = _note_text(os.path.join(ddir, "decision.md"))
+    found = re.search(r"(?im)^\W*chosen\W*:\s*`?([\w.-]+)", body)
+    chosen = found.group(1) if found else None
+    if chosen not in produced:
+        errors.append("%s: decision.md chosen %r is not a produced variant"
+                      % (label, chosen))
+    for vid in produced:
+        if vid == chosen:
+            continue
+        lines = [line for line in body.splitlines() if _mentions(vid, line)]
+        if not any(_mentions(cid, line) for line in lines for cid in criteria):
+            errors.append("%s: decision.md rejects %s on no criterion: name the "
+                          "criterion id that ruled it out on its line" % (label, vid))
+    if not re.search(r"(?im)^\W*flip\W*:", body):
+        errors.append("%s: decision.md names no `flip:` condition - the result that "
+                      "would reverse the choice" % label)
+    if chosen in produced:
+        better = dominated_by(chosen, produced, criteria, cells)
+        if better:
+            errors.append("%s: the chosen variant %s is dominated by %s, which is at "
+                          "least as good on every criterion and better on one"
+                          % (label, chosen, better))
+
+
+def _deliverable_path(state):
+    deliverable = state.get("deliverable")
+    return (deliverable.get("path") if isinstance(deliverable, dict) else None) or None
+
+
+def serial_twins(repo, slug, state):
+    """The other lines sharing this one's deliverable path or its question: the
+    serial versions of one piece of work, which are compared, not replaced."""
+    def key(st):
+        return (_deliverable_path(st),
+                " ".join(str(st.get("question", "")).lower().split()))
+
+    mine = key(state)
+    out = []
+    for other in slugs(repo):
+        if other == slug:
+            continue
+        theirs = key(_state(line_dir(repo, other)))
+        if (mine[0] and mine[0] == theirs[0]) or (mine[1] and mine[1] == theirs[1]):
+            out.append(other)
+    return out
+
+
+def _check_serial(repo, slug, base, state, errors, warnings, strict):
+    """A line that supersedes another carries the old line's deliverable as a
+    variant, and a line repeating another's deliverable or question says so."""
+    hard = strict or _rules(state) >= RULES
+    old = state.get("supersedes")
+    carried = {row.get("line") for _n, ddir in _decision_dirs(base)
+               for row in _row_objects(os.path.join(ddir, "variants.jsonl"))}
+    if old is not None:
+        if old not in slugs(repo):
+            errors.append("state.json supersedes %r, which is not a research line "
+                          "here" % (old,))
+        elif old not in carried:
+            _soft(errors, warnings, strict or _concluding(base, state),
+                  "state.json supersedes %s and no variant carries its deliverable "
+                  "(a variants.jsonl row with \"line\": %s): the old version is "
+                  "compared, not silently replaced" % (old, json.dumps(old)))
+    mine = (str(state.get("created", "")), slug)
+    path = _deliverable_path(state)
+    for twin in serial_twins(repo, slug, state):
+        theirs = _state(line_dir(repo, twin))
+        if twin == old or theirs.get("supersedes") == slug:
+            continue
+        if (str(theirs.get("created", "")), twin) < mine:
+            # one deliverable path is one piece of work; one question may be two
+            # lines on purpose, which only a reader can tell
+            same = bool(path) and path == _deliverable_path(theirs)
+            _soft(errors, warnings, strict or (hard and same),
+                  "shares its %s with line %s and does not supersede it: open it "
+                  "with `init --supersedes %s` and compare %s's deliverable as a "
+                  "variant instead of redoing it"
+                  % ("deliverable" if same else "question", twin, twin, twin))
+
+
+def _check_decisions(repo, slug, base, state, errors, warnings, strict, git):
+    concluding = _concluding(base, state)
+    need = 0
+    deliverable = state.get("deliverable")
+    if deliverable is None:
+        if concluding:
+            _soft(errors, warnings, strict or _rules(state) >= RULES,
+                  "state.json declares no deliverable, so nothing says whether this "
+                  "line delivers a design, plan, analysis or code that is owed "
+                  "compared variants, or only findings")
+    else:
+        problems, need = deliverable_problems(deliverable)
+        errors.extend(problems)
+    decisions = _decision_dirs(base)
+    if need > 1 and not decisions:
+        _soft(errors, warnings, strict or (concluding and _rules(state) >= RULES),
+              "state.json deliverable is a %s and decisions/ holds no comparison: "
+              "one version with no compared alternative is not a finished line "
+              "(%d variants, criteria committed before any cell)"
+              % (deliverable.get("kind"), need))
+    for name, ddir in decisions:
+        _check_decision(repo, base, name, ddir, max(need, 2), errors, warnings,
+                        strict, git, concluding)
+    _check_serial(repo, slug, base, state, errors, warnings, strict)
+    closed = state.get("closed")
+    if closed is not None and (not isinstance(closed, dict)
+                               or not str(closed.get("limit", "")).strip()):
+        errors.append("state.json closed records no limit: a line closed over "
+                      "unfinished work says what was left and why")
+
+
+def _ask_traced(n, item, texts, claims):
+    aid = "A%d" % n
+    norm = " ".join(item.lower().split())
+    if any(_mentions(aid, t) or norm in " ".join(t.lower().split()) for t in texts):
+        return True
+    for claim in claims:
+        trace = claim.get("trace")
+        for entry in trace if isinstance(trace, list) else [trace]:
+            if isinstance(entry, str) and entry.strip() in (aid, item.strip()):
+                return True
+    return False
+
+
+def _check_trace(base, state, errors, warnings, strict):
+    """Every item of the ask is answered: in the report, a decision, or a claim's
+    `trace` - or written as `A<n> not delivered: <reason>`. A report that answers
+    three of four asks reads as a complete answer unless something counts them."""
+    deliverable = state.get("deliverable")
+    ask = deliverable.get("ask") if isinstance(deliverable, dict) else None
+    if not isinstance(ask, list) or not _concluding(base, state):
+        return
+    texts = [_note_text(os.path.join(base, "to_human", "report.md"))]
+    texts += [_note_text(os.path.join(d, "decision.md")) for _n, d in _decision_dirs(base)]
+    claims = _row_objects(os.path.join(base, "claims.jsonl"))
+    lost = ["A%d" % n for n, item in enumerate(ask, 1)
+            if isinstance(item, str) and item.strip()
+            and not _ask_traced(n, item, texts, claims)]
+    if lost:
+        _soft(errors, warnings, strict or _rules(state) >= RULES,
+              "state.json deliverable ask item(s) %s appear in no report, decision or "
+              "claim trace: each item is delivered, or written as `A<n> not "
+              "delivered: <reason>`" % ", ".join(lost))
+
+
+def _check_standards(repo, slug, base, errors, warnings, strict, git):
+    """Every standards rule that reads the line as a whole, in one place."""
+    state = _state(base)
+    _check_decisions(repo, slug, base, state, errors, warnings, strict, git)
+    _check_trace(base, state, errors, warnings, strict)
+    if git:
+        _check_evaluation_order(repo, base, state, errors, warnings, strict)
+        _check_results_append_only(repo, base, state, errors, warnings, strict)
+
+
+def _check_review_integrity(base, errors, warnings, strict):
+    """A review names who wrote the line and who judged it, and they differ; it
+    records what it found; and it does not score the line's integrity above what
+    this same run found. Read last, because the last rule compares the review with
+    every order finding the run collected."""
+    review, exc = _read_json(os.path.join(base, "to_human", "review.json"))
+    if exc or not isinstance(review, dict):
+        return
+    state = _state(base)
+    reviewer = str(review.get("reviewer") or "").strip()
+    producer = str(review.get("producer") or state.get("producer") or "").strip()
+    if not reviewer or not producer:
+        _soft(errors, warnings, strict or _rules(state) >= RULES,
+              "to_human/review.json names no %s: a review says who produced the line "
+              "and who judged it, and those are two readers"
+              % ("reviewer" if not reviewer else "producer"))
+    elif reviewer == producer:
+        errors.append("to_human/review.json reviewer %r is the producer: a line graded "
+                      "by the session that wrote it is not reviewed" % reviewer)
+    if review.get("findings") == []:
+        _soft(errors, warnings, strict,
+              "to_human/review.json records no finding at all: a review that found "
+              "nothing is indistinguishable from one that did not look")
+    dims = review.get("dimensions") if isinstance(review.get("dimensions"), dict) else {}
+    high = [d for d in ("exploration_integrity", "methodological_rigour")
+            if isinstance(dims.get(d), int) and dims[d] > 3]
+    order = [e for e in errors if any(mark in e for mark in ORDER_MARKS)]
+    if order and high:
+        errors.append("to_human/review.json scores %s above 3 while this check refuses "
+                      "the line's order (%d finding(s), first: %s): a review cannot "
+                      "grade higher than the checker found"
+                      % (" and ".join(high), len(order), order[0][:80]))
 
 
 def check_line(repo, slug, git=True, strict=False):
@@ -1875,8 +2633,10 @@ def check_line(repo, slug, git=True, strict=False):
     phase = _phase(base)
     _check_review(base, phase, errors, warnings, strict)
     _check_report(repo, base, phase, errors, warnings, strict)
+    _check_standards(repo, slug, base, errors, warnings, strict, git)
     if git:
         _check_tracking(repo, base, errors, warnings, strict)
+    _check_review_integrity(base, errors, warnings, strict)
     return errors, warnings
 
 
@@ -2009,8 +2769,16 @@ def _open_reasons(base):
     state, exc = _read_json(os.path.join(base, "state.json"))
     if exc or not isinstance(state, dict):
         reasons.append("phase unreadable")
+    elif isinstance(state.get("closed"), dict) \
+            and str(state["closed"].get("limit", "")).strip():
+        # `close --limit` concluded it on purpose, and what was left is written
+        # in the record itself: the line is finished as a deliberate limit.
+        return []
     elif state.get("phase") != "concluded":
         reasons.append("phase %s" % (state.get("phase") or "unset"))
+    owed = _variants_owed(base, state) if isinstance(state, dict) else None
+    if owed:
+        reasons.append(owed)
     rows = _row_objects(os.path.join(base, "claims.jsonl"))
     replaced = set()
     for claim in rows:
@@ -2057,6 +2825,62 @@ def _open_reasons(base):
                         reasons.append("to_human/review.json finding %d carries "
                                        "no status" % n)
     return reasons
+
+
+def _variants_owed(base, state):
+    """The reason a line whose deliverable needs compared variants is unfinished,
+    or None: no decision holds the variants it takes and a decision.md."""
+    deliverable = state.get("deliverable")
+    if not isinstance(deliverable, dict):
+        return None
+    _problems, need = deliverable_problems(deliverable)
+    if need < 2:
+        return None
+    for _name, ddir in _decision_dirs(base):
+        produced = [r for r in _row_objects(os.path.join(ddir, "variants.jsonl"))
+                    if r.get("status") == "produced"]
+        if len(produced) >= need and os.path.isfile(os.path.join(ddir, "decision.md")):
+            return None
+    return ("deliverable %s has no decision comparing %d variants"
+            % (deliverable.get("kind"), need))
+
+
+def broken_open_lines(repo):
+    """[(slug, errors)] for the open lines `check` refuses: what `init
+    --allow-open` will not open a new line beside, because a hatch past broken
+    lines is how they stayed broken."""
+    out = []
+    for slug, _reasons in open_lines(repo):
+        errors, _ = check_line(repo, slug)
+        if errors:
+            out.append((slug, errors))
+    return out
+
+
+def close_line(repo, slug, limit, date=""):
+    """(reasons left, problem): conclude `slug` as a deliberate limit. The open
+    reasons at the moment of closing are written into `state.json` `closed` and
+    into `log.md`, so the limit says exactly what was left and why, and the line
+    stops counting as open. Nothing else is rewritten: its errors, if any, still
+    show in `check`."""
+    base = line_dir(repo, slug)
+    path = os.path.join(base, "state.json")
+    state, exc = _read_json(path)
+    if exc or not isinstance(state, dict):
+        return [], "state.json does not parse (%s)" % (exc or "not an object")
+    reasons = _open_reasons(base)
+    state.update(phase="concluded", direction="conclude",
+                 closed={"limit": limit, "date": date, "left": reasons})
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(state, indent=2) + "\n")
+        with open(os.path.join(base, "log.md"), "a", encoding="utf-8") as fh:
+            fh.write("- %s closed as a deliberate limit: %s (left: %s)\n"
+                     % (date, limit, "; ".join(reasons) or "nothing"))
+    except OSError as exc:
+        return reasons, str(exc)
+    return reasons, None
+
 
 
 def open_lines(repo):
@@ -2586,6 +3410,7 @@ STATE_TEMPLATE = {
     "phase": "bootstrap",
     "direction": "undecided",
     "created": "",
+    "rules": RULES,
     "evaluation": {"metric": "", "baseline": "", "locked_at": ""},
     "hypotheses": [],
     "sessions": [],
@@ -2609,7 +3434,7 @@ evidence that drove it.
 """
 
 
-def init(repo, slug, question="", created=""):
+def init(repo, slug, question="", created="", supersedes=None):
     """Scaffold a research line. Returns the paths created (never overwrites).
 
     Refuses a slug `slugs()` cannot list - see `valid_slug` - so no caller can
@@ -2625,6 +3450,8 @@ def init(repo, slug, question="", created=""):
     state = dict(STATE_TEMPLATE)
     state["question"] = question
     state["created"] = created
+    if supersedes:
+        state["supersedes"] = supersedes
     files = {
         "state.json": json.dumps(state, indent=2) + "\n",
         "findings.md": FINDINGS_TEMPLATE,

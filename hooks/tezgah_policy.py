@@ -411,27 +411,27 @@ improvise its protocol; fall back to a host subagent and say so. Kill switch:
 Keep the line auditable in the repository, not in your head:
 `<repo>/.tezgah/research/<slug>/` holds the question, the decision log, the
 findings, the claims with their kind, falsification criteria, evidence and - when
-one replaces an earlier claim - the `supersedes` id it replaces, and one directory
-per experiment whose `protocol.md` is committed BEFORE its results, states what it
-predicts and what result would falsify it, and whose `results.jsonl` is then added
-by explicit path (`git add -f <path to results.jsonl>`: a plain `git add` stages
-nothing while the path is ignored, and that silent no-op looks exactly like a
-commit). A protocol written after the run is not a prediction, and
-`{RESEARCH_BIN} check` enforces the order, the protocol's content and the rest;
-`{RESEARCH_BIN} init <slug>` scaffolds the line. Two facts decide whether that
-enforcement can reach you at all: the order rule needs the pair committable, so
-`init` names the pattern that ignores the line and `init --tracked` appends the
-negation that re-includes it, while `check` probes the two files the rule compares
-- the experiment's `protocol.md` and `results.jsonl` - rather than the line's
-directory, and prints the `git add -f` that fixes the pair it reports; and `check`
-reports the guarantees it cannot decide as warnings, while `check --strict` is
-what turns that whole class - that pair, a protocol that is a brief rather than a
-prediction, a claim with no `kind`, a results row with no `source`, a claim that
-supersedes another (reported naming both ids), a grey source with no quality note,
-a `Patterns` bullet with no source, a review a concluded line never wrote, and a
-concluded report that names no limit - into a refusal. Load the `research` skill
-for the two-loop rhythm, the ideation step, the six-dimension review a claim passes
-before it is reported, and the provenance tags the session records at the end.
+one replaces an earlier claim - the `supersedes` id, and one directory per
+experiment whose `protocol.md` is committed BEFORE its results in `.tezgah`'s own
+repository (`{RESEARCH_BIN} commit <slug> "<msg>"`) and states what it predicts and
+what would falsify it. `{RESEARCH_BIN} check` enforces that order, the evaluation
+(metric, baseline) committed before the first results row, results rows left
+append-only, and the rest; `check --strict` turns every guarantee it cannot decide
+into a refusal. A report owes an independent review (`reviewer` is not the
+`producer`, `findings` not empty) and names its limits and the internal, external,
+construct and conclusion validity threats, whatever `phase` says. `state.json`
+`deliverable` names what the line delivers and lists the ask's items, each
+answered in the report, a decision or a claim `trace`, or written `A<n> not
+delivered: <reason>`. A design, plan or analysis is produced as >= 3 variants in
+`decisions/<id>/` - `criteria.json` committed before any cell, `variants.jsonl`
+(V0 the status quo), cells appended by `{RESEARCH_BIN} compare`, `decision.md`
+naming the chosen id, each rejected id with the criterion that ruled it out, and a
+`flip:` condition; a new version of a line is opened `init --supersedes <old>` and
+carries the old one as a variant. Code or config variants are sibling orx nodes
+under one head node. Literature is found with `{ORX_BIN} discover` and read with
+`{ORX_BIN} paper`; an agent's summary is indexed as `agent-report` and never alone
+carries a literature claim. Load the `research` skill for the two-loop rhythm, the
+ideation step, the six-dimension review and the provenance tags.
 
 The domain machinery ships with tezgah too: `{AI_RESEARCH_DIR}` holds the
 vendored AI-research-SKILLs library (98 entries, 23 categories, revision in its
@@ -464,9 +464,9 @@ The five axes, none optional:
   Hutchinson, Fu, CHI 2010): a metric with no goal above it is dropped, and raw
   counts are refused - "ratios, percentages, or averages per user are often more
   useful". An opportunity is a user need and never a feature, and at least three
-  candidate solutions are compared against a criterion written before the scores
-  (Torres' Opportunity Solution Tree; the opportunity score Importance x
-  (1 - Satisfaction) is Olsen's).
+  candidate solutions are compared against a criterion written before the scores,
+  recorded as the line's `decisions/` (Torres' Opportunity Solution Tree; the
+  opportunity score Importance x (1 - Satisfaction) is Olsen's).
 - **Usability - can a person actually use it.** Read the running app (the
   `analyze-app` skill drives a web or mobile surface from its DOM / accessibility
   tree, from screenshots of the rendered screen, and from measurements taken in the
@@ -732,13 +732,13 @@ experiments, producing a research artifact - drive it through the OpenResearch
 CLI (`{ORX_BIN}`) and load its manual first (`{ORX_BIN} skill`), following its
 experiment-tree rules instead of improvising the protocol. Plain code discovery
 stays on the code graph, not OpenResearch. At most one line is open at a time:
-while an existing line is under way - not `concluded`, or carrying a live
-proposal, an unrun experiment, a missing report or review, or an unlabelled
-review finding - a new line is not opened until that one is closed or what is
-left of it is recorded as a deliberate limit. `{RESEARCH_BIN} init` refuses on
-that rule, names the open lines and their reasons one line each, and its
-`--allow-open "<reason>"` is the only way past it - it writes the reason into
-the new line's `log.md`.{OPEN_LINES}
+while one is under way - not `concluded`, or carrying a live proposal, an unrun
+experiment, a missing report or review, an unlabelled review finding - no new line
+opens until it is closed or `{RESEARCH_BIN} close <slug> --limit "<reason>"` records
+what is left. `{RESEARCH_BIN} init` refuses on that rule and names each open line;
+`--allow-open "<reason>"` passes it (never beside a line `check` fails) and logs why.
+A plan, design or analysis is >= 3 variants compared under criteria committed
+first (`decisions/`); one version is not a finished line.{OPEN_LINES}
 If the CLI is not installed, say the research tooling is unavailable and fall
 back to a host subagent. Off: `research-off`.
 

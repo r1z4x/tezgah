@@ -47,13 +47,14 @@ One directory per research line, `<repo>/.tezgah/research/<slug>/`:
 
 | Path | What it holds |
 |---|---|
-| `state.json` | the question, phase, direction, the locked evaluation (`metric`, `baseline`, `locked_at`, optional `environment`, and the optional two-gate pair `capability_tolerance` + `counter_metric`) and the hypothesis list |
+| `state.json` | the question, phase, direction, the locked evaluation (`metric`, `baseline`, `locked_at`, optional `environment`, and the optional two-gate pair `capability_tolerance` + `counter_metric`), the hypothesis list, `rules` (the rule set the line was opened under), `deliverable` (`kind`: design, plan, analysis, code or finding; `path`; `ask`, the ask's items one per entry; `min_variants`), and `supersedes` when it is a new version of an older line |
 | `log.md` | the decision timeline: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | `## What we know`, `## Patterns`, `## Lessons`, `## Open questions` |
 | `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `kind`, `falsification`, `proof`, `dependencies`, `scope` (what the claim's numbers were measured on, and it may not be wider than the rows it rests on), and `supersedes` when the claim replaces an earlier one - recorded with `tezgah-research claim <slug>`, never by editing the file |
 | `experiments/<hypothesis>/` | `protocol.md`, `results.jsonl` (one JSON object per row, each carrying its `source`, its `scope` - what the numbers were measured on - and, when that scope is `fixture`, the `fixture` description of the input that was generated), `analysis.md`, and `raw/<runId>.log` for a run read back from the engine |
-| `literature/` | one note per source, saved when you read it, not later, and each named by its row in `literature/INDEX.jsonl` |
-| `to_human/` | reports for the person paying for the research - `report.md`, whose findings state what the evidence does not show - plus `review.json`, the six-dimension review a concluded line reports |
+| `literature/` | one file per source, saved when you read it, not later, and each named by its row in `literature/INDEX.jsonl` - every file under it, at any depth and of any extension, is a source the index names |
+| `decisions/<id>/` | one comparison of the deliverable's variants: `criteria.json`, `variants.jsonl`, `comparison.jsonl` and `decision.md` - see "Variants" below |
+| `to_human/` | reports for the person paying for the research - `report.md`, whose findings state what the evidence does not show and the four validity threats - plus `review.json`, the six-dimension review by a second reader that every line holding a report owes |
 
 The tree is worth only what git can see of it, and the project never sees it:
 `.gitignore` holds `/.tezgah/`, and `.tezgah/` carries its own private git
@@ -213,14 +214,19 @@ rules the domain library enforces on a compiled artifact apply here:
 
 ## The loop
 
-**Bootstrap.** Search the literature with more than one source, save every source
+**Bootstrap.** Search the literature with more than one source - `orx discover
+keyword|embedding|openalex "<query>"` first, `orx paper <id>` to read one (the
+`orx skill lit-review` module is the procedure) - save every source
 to `literature/` as you go, identify the gap, form testable hypotheses (see
 Ideation below), and lock the evaluation before running anything: the metric, the
-baseline, the threshold. Write it into `state.json` - a criterion chosen after
-seeing results is not a criterion. `check` reads all three: past `bootstrap` a
-line with an empty `metric`, `baseline` or `locked_at` is refused, and at
-`bootstrap` it is warned about, which is the prompt to lock it rather than a
-verdict. Add `environment` beside them when the numbers depend on one - the model,
+baseline, the threshold. Write it into `state.json` and commit it before the first
+results row - a criterion chosen after seeing results is not a criterion, and
+`check` refuses a line whose first commit holding a metric and a baseline does not
+precede the commit that added an experiment's `results.jsonl`, and a `locked_at`
+naming a commit the history does not reach. It also reads that all three are set:
+past `bootstrap` a line with an empty `metric`, `baseline` or `locked_at` is
+refused, and at `bootstrap` it is warned about, which is the prompt to lock it
+rather than a verdict. Add `environment` beside them when the numbers depend on one - the model,
 the prompt, the harness - as an object, because a string records none of them.
 
 **A second gate is available, and it is the one a harness change needs.** Beside
@@ -260,8 +266,11 @@ ids quoted in briefs before the notes existed. Then index the note: one
 `literature/INDEX.jsonl` row per note and one note per row, with `note`, `id`,
 `class`, `source`, `inclusion` and `verified` (the two records you checked it
 against), plus `quality` for anything that is not a paper. A source is `formal`
-when it is a paper record - a DOI, an arXiv id, a venue's own page - and `grey`
-otherwise: a vendor page, a product report, a tool's documentation. The grey
+when it is a paper record - a DOI, an arXiv id, a venue's own page - `grey`
+otherwise: a vendor page, a product report, a tool's documentation - and
+`agent-report` when it is a summary a subagent or scout wrote of what it read. An
+agent report is kept and indexed, and it cannot alone carry a `literature` claim:
+cite the note on the paper or page itself beside it. The grey
 channel is allowed and often the only evidence a practice question has, so it is
 labelled and judged (`quality`) rather than skipped, and a row that records it as
 verified by fewer than two sources is reported: an unlabelled grey source is how a
@@ -287,7 +296,10 @@ they do not carry.
    means in `analysis.md`. Label each outcome CONFIRMATORY (predicted by the
    protocol) or EXPLORATORY (noticed during the run). A run the engine owns is
    recorded with `tezgah-research source <slug> <hypothesis> --run <orxRunId>`,
-   which files the log under `raw/` and appends the row that names it.
+   which files the log under `raw/` and appends the row that names it. Rows are
+   append-only once committed: a correction is a new row, and `check` refuses a
+   committed row changed or removed afterwards (a line opened before `rules`
+   existed is warned instead, like every rule of this rule set).
 5. A negative result is a result: record what it rules out. When the line locked
    the two-gate pair (Bootstrap above), a run is a survivor only when it is inside
    the `capability_tolerance` **and** moves the `counter_metric`, and survivors are
@@ -400,7 +412,13 @@ and what would fix it. Report the per-dimension score and the severity-ranked
 findings; state plainly what the evidence does not show - in `to_human/report.md`,
 because that is the file `check` reads once the phase is `concluded`: a report
 that names no limit anywhere warns, one that was never written warns with that
-reason, and `--strict` refuses both. Do not soften a null
+reason, and `--strict` refuses both. The report also names the four validity
+threats, each on a line that says `validity`: internal (what could bias the
+result), external (where it stops generalising), construct (whether the measure is
+the thing asked) and conclusion (whether the numbers carry the conclusion); a
+report missing any warns. These report and review rules apply once
+`to_human/report.md` exists or `direction` is `conclude`, whatever `phase` says: a
+line that ships its report and stays at `outer` is still owed them. Do not soften a null
 result, and do not promote an exploratory finding to confirmatory after the fact.
 
 The review is an artifact, not a paragraph in the session that wrote it: a
@@ -410,8 +428,59 @@ above, each an integer 1-5) and `findings[]` (each with `severity`, `target` and
 missing a dimension or scoring outside 1-5, because two reviews only compare if
 they answer the same six questions on the same scale, and it refuses a finding
 whose quote is not in its target - a finding that cannot quote its evidence is not
-a finding. It reports a concluded line with no review at all, and `--strict`
+a finding. It reports a line with a report and no review at all, and `--strict`
 refuses it: a review is a judgement, so nothing can migrate one into existence.
+The review names its `producer` (the session that wrote the line) and its
+`reviewer`, and they differ - a line graded by the session that wrote it is not
+reviewed, so run the review as a fresh subagent or a `consult`. `findings: []`
+warns and `--strict` refuses it, and a review scoring `exploration_integrity` or
+`methodological_rigour` above 3 while `check` refuses the line's order is refused.
+
+Every item of `deliverable.ask` is answered: its text or its id (`A1`, `A2`, ...
+in order) appears in `report.md`, a `decision.md` or a claim's `trace`, or the
+report says `A<n> not delivered: <reason>`. A line that delivers the report
+answering three of four asks is refused, because it reads as a complete answer.
+A claim resting only on judged rows (rows carrying a `rater`) from one rater warns
+and `--strict` refuses it; two raters at least, and state their agreement.
+
+## Variants
+
+A deliverable a reader acts on - a design, a plan, an analysis, code - is not one
+version redone until it looks right. Serial versions fixate on the first option
+and a design shown alone gets inflated ratings (Dow et al. 2010, Tohidi et al.
+2006). Produce at least three variants (two for `code`; `min_variants` in
+`deliverable`, and below the default only with a `single_variant_reason`) and
+compare them under criteria fixed first, in `decisions/<id>/`:
+
+| File | What it holds |
+|---|---|
+| `criteria.json` | `question`, `baseline_variant` (V0, the status quo or current design) and `criteria[]`, each with `id` (`K1`), `name`, `kind` (`measured` or `judged`), `direction` (`max`, `min` or `pass`), optional `threshold` and `guardrail` |
+| `variants.jsonl` | one row per variant: `id`, `title`, `artifact` (a path in the line or the repository, `git:<branch>` or `orx:<expId>`), `status` (`produced` or `dropped` with `drop_reason`), and `line` when it is an older line's deliverable |
+| `comparison.jsonl` | one row per cell: `variant`, `criterion`, `value` with its `source`, or `not_checked` with the reason; `rater` on a judged cell. Append with `tezgah-research compare <slug> <id>` (one JSON object on stdin), which refuses what `check` refuses |
+| `decision.md` | `chosen: V2`, one line per rejected id naming the criterion id that ruled it out, and `flip:` - the result that would reverse the choice |
+
+`check` refuses: fewer produced variants than the deliverable takes; two produced
+files with the same content (a renamed copy is not an alternative); `criteria.json`
+not committed before the first `comparison.jsonl` commit; a comparison row changed
+after it was committed; a missing cell once `decision.md` exists or the line is
+delivering; a `chosen` that is not a produced variant, a rejected variant with no
+criterion, no `flip:`; and a chosen variant another one beats or ties on every
+numeric criterion. A judged cell with fewer than two raters warns (`--strict`
+refuses). A design, plan or analysis with no `decisions/` warns while the line
+runs, is refused once it delivers, and keeps the line open.
+
+When the variants are code or config, they are sibling orx nodes under one head
+node (orx cardinal rule 4: fan within a round, then descend onto the winner), and
+each row points at `orx:<expId>`. A new version of an existing line is opened with
+`init --supersedes <old>`, and one of its variants carries the old line's
+deliverable (`"line": "<old>"`); `init` refuses a line asking an existing line's
+question without it, and `check` refuses a line sharing another's
+`deliverable.path` that does not supersede it.
+
+A line that cannot finish is closed on purpose: `tezgah-research close <slug>
+--limit "<what is left and why>"` concludes it, writes the reasons it was still open
+into `state.json` `closed` and `log.md`, and stops it counting as open. `init
+--allow-open` is refused while an open line has `check` errors.
 
 Finally, a `## Patterns` bullet names what it generalises from - a claim id, a
 `literature/` note or a run - because a pattern is the one finding a reader carries

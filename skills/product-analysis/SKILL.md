@@ -232,12 +232,19 @@ ones the product's stage justifies, and say which were skipped.
 
 Run it as a research line, not a monologue: `tezgah-research init <slug>
 --question "..."` under the repository's `.tezgah/research/`, then `check` before
-reporting. On top of what `check` already enforces, the analysis contains:
+reporting. Declare the line's `deliverable` in `state.json` as `{"kind":
+"analysis", "path": "<where the analysis lands>", "ask": [<the ask's items>]}`, so
+`check` holds it to three compared solutions and to answering every ask item. On
+top of what `check` already enforces, the analysis contains:
 
 1. Measurement readiness: what is observable today, and what is not.
 2. The objective: one measurable outcome and its Goal -> Signal -> Metric chain.
-3. Opportunities with their evidence class; the candidate solutions and the
-   criterion they were compared against.
+3. Opportunities with their evidence class; the candidate solutions recorded as
+   `decisions/<id>/` (the research skill's "Variants"): at least three produced
+   solutions plus the status quo as V0, the criterion set committed in
+   `criteria.json` before any solution is scored, every cell appended with
+   `tezgah-research compare` (a judged cell with two raters), and `decision.md`
+   naming the chosen solution, what ruled out each other one and the `flip:`.
 4. Risks by class - value, usability, viability, feasibility - each with the
    cheapest test that would falsify it.
 5. The usability section: scope (task, section, device, breakpoints), the heuristics
