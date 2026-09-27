@@ -56,6 +56,8 @@ bin/tezgah-import-ai-research.py
 bin/tezgah-index
 bin/tezgah-index.py
 bin/tezgah-mcp
+bin/tezgah-migrate
+bin/tezgah-migrate.py
 bin/tezgah-pony
 bin/tezgah-pony.py
 bin/tezgah-research
@@ -569,6 +571,7 @@ tests/test_judge.py
 tests/test_lang.py
 tests/test_mcp_features.py
 tests/test_mcp_server.py
+tests/test_migrate.py
 tests/test_omp_extension.py
 tests/test_omp_hook.py
 tests/test_opencode_plugin.py
