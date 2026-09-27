@@ -67,31 +67,96 @@ function motionOn(): boolean {
 
 // The busy prefix for one frame: spinner, then the running tool (or "thinking"
 // between tools) and the whole run's seconds, then a dim bar before the marks.
+// `bare` keeps the spinner alone, for a width that has no room for the rest.
 export function busyPrefix(frame: number, tool: string, secs: number,
-                           color: boolean): string {
+                           color: boolean, bare = false): string {
   const spin = FRAMES[((frame % FRAMES.length) + FRAMES.length) % FRAMES.length];
+  if (bare) return color ? "\u001b[1;35m" + spin + "\u001b[0m " : spin + " ";
   const what = (tool || "thinking") + " " + Math.max(0, Math.floor(secs)) + "s";
   if (!color) return spin + " " + what + " | ";
   return "\u001b[1;35m" + spin + "\u001b[0m \u001b[35m" + what +
     "\u001b[0m \u001b[2m\u2502\u001b[0m ";
 }
 
+// Cells a rendered line takes: the python renderer draws only one-cell glyphs,
+// so stripping the escapes is the whole measure (hooks/tezgah_context.cells).
+const ANSI = /\u001b\[[0-9;?]*[A-Za-z]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+
+// An inline image (the logo, OSC 1337) is an escape that still takes cells.
+const IMAGE = "\u001b]1337;File=";
+const IMAGE_CELLS = 2;
+
+export function cellsOf(text: string): number {
+  return Array.from(text.replace(ANSI, "")).length +
+    IMAGE_CELLS * text.split(IMAGE).length - IMAGE_CELLS;
+}
+
+// Cut a colored line to `max` cells, escapes kept whole, with an ellipsis and a
+// reset at the cut - the last resort when not even the narrowest tier fits.
+export function cut(text: string, max: number): string {
+  if (max <= 0) return "";
+  if (cellsOf(text) <= max) return text;
+  let out = "";
+  let used = 0;
+  let i = 0;
+  while (i < text.length && used < max - 1) {
+    ANSI.lastIndex = i;
+    const m = ANSI.exec(text);
+    if (m && m.index === i) {
+      const pic = m[0].startsWith(IMAGE);
+      if (pic && used + IMAGE_CELLS > max - 1) break;
+      out += m[0];
+      i += m[0].length;
+      if (pic) used += IMAGE_CELLS;
+      continue;
+    }
+    const ch = String.fromCodePoint(text.codePointAt(i) as number);
+    out += ch;
+    i += ch.length;
+    used += 1;
+  }
+  return out + "\u2026\u001b[0m";
+}
+
+// The widest tier ([line, cells], widest first) that fits `room`, else the
+// narrowest cut to it: a narrow terminal gets a shorter line, never a wrapped
+// one - the wrap was the second row the line used to spill onto.
+export function fit(tiers: Array<[string, number]>, room: number): string {
+  for (const [line, width] of tiers) {
+    if (width <= room) return line;
+  }
+  const last = tiers[tiers.length - 1];
+  return last ? cut(last[0], room) : "";
+}
+
 // omp sanitizes what `setStatus` stores (ANSI/VT sequences stripped), so the
 // per-mark colors the hook returns survive only through the widget path, which
 // renders the string as it is. The status key stays as the fallback for a build
-// without setWidget: the text is then uncolored, never wrong.
-function draw(ctx: any, line: string): void {
+// without setWidget: the text is then uncolored, never wrong. `sized` is the
+// width-aware body: the widget is a component whose render(width) asks it for
+// the one line that fits, so the host's own width decides and nothing wraps.
+function draw(ctx: any, line: string, sized?: (width: number) => string): void {
   // The widget is drawn by the host, not by the hook, so it is the one surface
   // a broken hook cannot take away - and talking to a host UI is where a build
   // can refuse. Nothing here may throw: the line is cosmetic, and the caller's
   // message (the session brief, the failure notice) still has to go out.
   try {
     if (!line || !ctx?.ui) return;
-    if (typeof ctx.ui.setWidget === "function") {
-      ctx.ui.setWidget("tezgah", [line], { placement: "belowEditor" });
-    } else {
+    if (typeof ctx.ui.setWidget !== "function") {
       ctx.ui.setStatus("tezgah", line);
+      return;
     }
+    if (sized) {
+      try {
+        // one column of padding, the way omp pads its string widgets
+        ctx.ui.setWidget("tezgah", () => ({
+          render: (width: number) => [" " + sized(Math.max(0, width - 1))],
+          invalidate: () => {},
+        }), { placement: "belowEditor" });
+        return;
+      } catch { /* a build without component widgets takes the string below */ }
+    }
+    ctx.ui.setWidget("tezgah", [line], { placement: "belowEditor" });
   } catch { /* a host that refuses the widget keeps the message instead */ }
 }
 
@@ -255,18 +320,30 @@ export default function tezgahOmp(pi: any): void {
   // running, the tool in flight and when the run began. A frame repaints from
   // these alone, so it forks nothing.
   let line = "";
+  let tiers: Array<[string, number]> = [];
   let busy = false;
   let tool = "";
   let since = 0;
   let frame = 0;
   let timer: any;
   let timerCtx: any;
+  // One frame at the width the host hands the widget: the busy prefix first
+  // (just the spinner when the tool name would leave the marks no room), then
+  // the widest tier that still fits beside it.
+  const sized = (width: number): string => {
+    const moving = busy && timer !== undefined;
+    let pre = moving
+      ? busyPrefix(frame, tool, (Date.now() - since) / 1000, colorOn()) : "";
+    if (moving && width - cellsOf(pre) < 24) {
+      pre = busyPrefix(frame, tool, 0, colorOn(), true);
+    }
+    const room = width - cellsOf(pre);
+    return pre + (tiers.length ? fit(tiers, room) : cut(line, room));
+  };
   const paint = (ctx: any): void => {
     if (hookError) return markBroken(ctx);
     if (!line) return;
-    draw(ctx, busy && timer !== undefined
-      ? busyPrefix(frame, tool, (Date.now() - since) / 1000, colorOn()) + line
-      : line);
+    draw(ctx, line, sized);
   };
   const stopMotion = (): void => {
     if (timer !== undefined) {
@@ -305,6 +382,7 @@ export default function tezgahOmp(pi: any): void {
     if (res.idx) idxGlyph = res.idx;
     if (res.status) {
       line = res.status;
+      tiers = Array.isArray(res.tiers) ? res.tiers : [];
       paint(ctx);
     }
   };
@@ -347,8 +425,14 @@ export default function tezgahOmp(pi: any): void {
 
   pi.on("session_start", async (_event: any, ctx: any) => {
     const session = sessionOf(ctx);
+    const subagent = isSubagent(ctx);
+    // The judgement seam's own CLIs (tezgah-triage, tezgah-docs) record their
+    // row under TEZGAH_SESSION, and omp's shells inherit this process's env - so
+    // the main session exports its id once. A subagent shares the process and
+    // must not repoint its parent's shells at itself.
+    if (session && !subagent) process.env.TEZGAH_SESSION = String(session);
     const res = ask({ event: "session_start", cwd: cwdOf(ctx),
-                      session_id: session, subagent: isSubagent(ctx) });
+                      session_id: session, subagent });
     if (hookError) {
       const notice = failureNotice(ctx, session);
       if (notice) {

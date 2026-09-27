@@ -38,7 +38,11 @@ try {
   // looks: the extension must fall back to setStatus instead of going silent.
   const ui = { setStatus: (key, text) => statuses.push([key, text]) }
   if (!spec.noWidget) {
-    ui.setWidget = (key, content, options) => widgets.push([key, content, options])
+    // a component widget is rendered the way omp renders it: at the width the
+    // host hands it (spec.width, default a wide terminal), one line per row
+    ui.setWidget = (key, content, options) => widgets.push([key,
+      typeof content === "function" ? content({}, {}).render(spec.width ?? 240) : content,
+      options])
   }
   // spec.widgetThrows is a build whose UI surface refuses the call: the
   // extension must not lose the rest of the event to a cosmetic failure.
@@ -90,7 +94,8 @@ try {
     }
   }
   out = { handlers: Object.keys(handlers), results, sent, statuses, widgets,
-          timers: timers.map((t) => ({ ms: t.ms, live: t.live })) }
+          timers: timers.map((t) => ({ ms: t.ms, live: t.live })),
+          tezgahSession: process.env.TEZGAH_SESSION ?? null }
 } catch (err) {
   out = { fatal: String(err && err.stack ? err.stack : err) }
 }

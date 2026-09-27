@@ -183,6 +183,31 @@ class OmpHook(TempHome):
         out, proc = self.event({"event": "status", "cwd": self.home})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("\033[33m\u2702 pony\u25cb\033[0m", out["status"])
+        # the widget picks by width at draw time, so the answer carries every
+        # tier, widest first, the first being the line itself
+        self.assertEqual(out["tiers"][0][0], out["status"])
+        widths = [w for _, w in out["tiers"]]
+        self.assertEqual(widths, sorted(widths, reverse=True))
+        self.assertGreater(widths[0], widths[-1])
+
+    def test_the_logo_is_an_inline_image_only_where_the_terminal_draws_one(self):
+        def status(extra):
+            out, proc = run_json([support.OMP_HOOK],
+                                 {"event": "status", "cwd": self.home},
+                                 env=self.env(extra=extra))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return out
+        image = "\033]1337;File="
+        orca = status({"TERM_PROGRAM": "Orca"})
+        self.assertTrue(orca["status"].startswith(image), orca["status"][:40])
+        self.assertNotIn(image, status({"TERM_PROGRAM": "Apple_Terminal"})["status"])
+        # the user's word wins over the terminal list, both ways
+        self.assertNotIn(image, status({"TERM_PROGRAM": "Orca",
+                                        "TEZGAH_STATUS_LOGO": "text"})["status"])
+        self.assertIn(image, status({"TERM_PROGRAM": "Apple_Terminal",
+                                     "TEZGAH_STATUS_LOGO": "image"})["status"])
+        # and never on a plain line
+        self.assertNotIn(image, status({"TERM_PROGRAM": "Orca", "NO_COLOR": "1"})["status"])
 
     def test_status_drops_color_when_the_environment_opts_out(self):
         # NO_COLOR must strip the escapes at the source, so a terminal that

@@ -113,7 +113,7 @@ class OmpExtension(TempHome):
                            {"event": "__tick"}, {"event": "__tick"}])
         self.results(out)
         self.assertEqual([t["ms"] for t in out["timers"]], [100])
-        frames = [w[1][0] for w in out["widgets"]]
+        frames = [w[1][0][1:] for w in out["widgets"]]  # one column of padding
         last = frames[-1]
         self.assertTrue(last.endswith("LINE"), last)
         self.assertIn("bash", last)
@@ -129,7 +129,7 @@ class OmpExtension(TempHome):
                            {"event": "agent_end", "arg": {}}])
         self.results(out)
         self.assertEqual([t["live"] for t in out["timers"]], [False])
-        frames = [w[1][0] for w in out["widgets"]]
+        frames = [w[1][0][1:] for w in out["widgets"]]  # one column of padding
         # a non-terminal end keeps the motion; the terminal one leaves the bare line
         self.assertIn("thinking", frames[-2])
         self.assertEqual(frames[-1], "LINE")
@@ -149,7 +149,52 @@ class OmpExtension(TempHome):
         out = self.motion([{"event": "session_start"}, {"event": "agent_start"}],
                           env=self.env(extra={"TEZGAH_STATUS_ANIMATE": "0"}))
         self.assertEqual(out["timers"], [])
-        self.assertEqual(out["widgets"][-1][1][0], "LINE")
+        self.assertEqual(out["widgets"][-1][1][0], " LINE")
+
+    # ---- width: the widget draws the widest tier that fits ---------------
+    def tiers_ext(self):
+        hook, _ = self.fake_hook({"status": "F" * 60, "tiers": [
+            ["F" * 60, 60], ["M" * 20, 20], ["S" * 5, 5]]})
+        self.ext = self.make_ext(hook, name="tiers-hook.ts")
+
+    def test_the_widest_tier_that_fits_is_drawn_and_never_wraps(self):
+        self.tiers_ext()
+        for width, want in ((200, "F" * 60), (30, "M" * 20), (8, "S" * 5)):
+            out = self.drive([{"event": "session_start"}], width=width)
+            self.results(out)
+            lines = out["widgets"][-1][1]
+            self.assertEqual(lines, [" " + want], width)
+
+    def test_nothing_fits_so_the_narrowest_is_cut_with_an_ellipsis(self):
+        self.tiers_ext()
+        out = self.drive([{"event": "session_start"}], width=4)
+        line = out["widgets"][-1][1][0]
+        self.assertTrue(line.startswith(" SS\u2026"), repr(line))
+        # one row, at most the width it was given (escapes are not cells)
+        self.assertEqual(len(out["widgets"][-1][1]), 1)
+
+    def test_a_narrow_run_keeps_the_spinner_and_drops_the_tool_name(self):
+        self.tiers_ext()
+        out = self.drive([{"event": "session_start"}, {"event": "agent_start"},
+                          {"event": "tool_execution_start",
+                           "arg": {"toolName": "bash"}}, {"event": "__tick"}],
+                         width=30)
+        line = out["widgets"][-1][1][0]
+        self.assertNotIn("bash", line)
+        self.assertIn("M" * 20, line)
+
+    def test_the_main_session_exports_its_id_to_the_shells_it_spawns(self):
+        # tezgah-triage and tezgah-docs record under TEZGAH_SESSION; omp's shell
+        # inherits the process env, and a subagent must not repoint it
+        hook, _ = self.fake_hook({"status": "LINE"})
+        self.ext = self.make_ext(hook, name="env-hook.ts")
+        out = self.drive([{"event": "session_start"}])
+        self.assertEqual(out["tezgahSession"], "s")
+        root = os.path.join(self.home, "sessions", "parent")
+        out = self.drive([{"event": "session_start"}],
+                         sessionFile=root + "/Agent.jsonl",
+                         parentSession=root + ".jsonl")
+        self.assertIsNone(out["tezgahSession"])
 
     def test_before_agent_start_returns_a_hidden_reminder(self):
         out = self.drive([{"event": "before_agent_start",
@@ -278,7 +323,7 @@ class OmpExtension(TempHome):
         self.assertNotIn("idx", asked[0])
         self.assertEqual(asked[1]["idx"], "\u21bb")
         self.assertNotIn("idx", asked[2])
-        self.assertEqual(out["widgets"][-1][1], ["line"])
+        self.assertEqual(out["widgets"][-1][1], [" line"])
 
     def test_a_watched_tool_result_refreshes_the_status_line(self):
         # the used marks move as tools run, so the evidence call that records

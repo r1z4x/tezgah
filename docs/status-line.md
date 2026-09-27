@@ -58,7 +58,11 @@ state, mapped back by `IDX_STATE` (hooks/tezgah_context.py:1235).
 On a colored surface the line opens with the logo (`LOGO`): three upper half
 blocks draw the amber worktop of `assets/logo/tezgah-logo.svg` (#FFC55C) and the
 middle one's background (#2A4657) is its single support, so it reads as the
-logo's `t`; the name follows in bold amber. Each other chip leads with its icon
+logo's `t`; the name follows in bold amber. Where the terminal draws inline
+images (iTerm2's OSC 1337: iTerm2, WezTerm, Orca's xterm image addon - `images_ok`,
+overridden by `TEZGAH_STATUS_LOGO=image|text`) the omp widget draws the real
+2.5D logo instead: `assets/logo/tezgah-logo-32.png` fitted into two cells of one
+row, the height of every other icon. Each other chip leads with its icon
 (`ICONS`): `✂` pony, `▶` exec, `◎` adhd, `⚖` consult, `⚗` research, `⌬` graph, `⎇` orch,
 `⚑` judge, `⌕` idx, `☰` plans. Every icon is a text-presentation symbol one cell
 wide - never an emoji - so a terminal does not overflow the line. The plain line
@@ -175,6 +179,13 @@ Every other surface reads the store.
   never ask the hook; they stop at the terminal end, a session switch and
   `session_shutdown`. No widget (the `setStatus` fallback) means no motion, and
   `TEZGAH_STATUS_ANIMATE=0` keeps the colors and drops the motion.
+  **Width:** the hook answers every width tier (`render_tiers`: the full line;
+  no version; icons standing for names; the logo alone at the head, groups
+  split by a space) with the cells each takes, and the widget is a component
+  whose `render(width)` draws the widest tier that fits beside the busy prefix -
+  which shrinks to the spinner alone when it would leave the marks under 24
+  cells - and cuts the narrowest with `…` when nothing fits. A narrow terminal
+  gets a shorter line, never a second row.
 - **opencode** — hosts/opencode/tui/tezgah-tui.tsx: a local TUI plugin
   (`tui.json`'s `plugin` array, not the server plugin) registering an `app_bottom`
   slot, shelling out to `tezgah-status <dir> --json <sessionID>`, coloring each

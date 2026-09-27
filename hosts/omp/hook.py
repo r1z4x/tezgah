@@ -46,8 +46,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import (  # noqa: E402
-    color_default, command_text, context_for, health_segments, record,
-    render_line, shell_kind, skill_read_kind)
+    color_default, command_text, context_for, health_segments, images_ok,
+    record, render_tiers, shell_kind, skill_read_kind)
 from tezgah_gate import decision, drift_reason  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
@@ -92,19 +92,26 @@ def status_line(cwd, session_id, idx=None):
     stamp probe behind it is the line's only subprocess, so the redraw that
     follows every watched tool sends it back and forks nothing, while the used
     marks, the plans and the kill-switch state stay live. Anything that is not a
-    mark is ignored rather than drawn as one that states nothing."""
+    mark is ignored rather than drawn as one that states nothing.
+
+    Returns the width tiers too (render_tiers): the widget knows its width only
+    when it draws, so it picks the widest line that fits there."""
     segs = health_segments(cwd, session_id,
                            idx_override=idx if idx in IDX_GLYPHS else None)
     glyph = next((s["glyph"] for s in segs if s["key"] == "idx"), None)
-    return render_line(segs, color=color_default()), glyph
+    color = color_default()
+    tiers = render_tiers(segs, color=color, image=color and images_ok())
+    return tiers[0][0], glyph, tiers
 
 
-def answered(line, glyph):
-    """The status fields one answer carries: the line, and the glyph the next
-    cheap redraw should reuse."""
+def answered(line, glyph, tiers=None):
+    """The status fields one answer carries: the line, the glyph the next
+    cheap redraw should reuse, and the tiers ([line, cells] widest first)."""
     out = {"status": line} if line else {}
     if glyph:
         out["idx"] = glyph
+    if tiers:
+        out["tiers"] = [[text, width] for text, width in tiers]
     return out
 
 

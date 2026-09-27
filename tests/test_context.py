@@ -192,6 +192,51 @@ class HealthLines(TempHome):
                           env=self.env())
         self.assertIn("graph\u2717", out)
 
+    def test_tiers_narrow_step_by_step_and_measure_their_cells(self):
+        # a narrow surface must get a shorter line, never a wrapped one: each
+        # tier is strictly narrower, its measure is what a terminal counts, and
+        # every glyph the renderer draws is one cell wide
+        import unicodedata
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        segs = [{"key": "tezgah", "state": "info", "glyph": "",
+                 "text": "tezgah v9.9.9", "group": -1},
+                {"key": "pony", "state": "ready", "glyph": "\u25cb",
+                 "text": "pony", "group": 0},
+                {"key": "exec", "state": "on", "glyph": "\u2713",
+                 "text": "exec", "group": 0},
+                {"key": "graph", "state": "off", "glyph": "\u2717",
+                 "text": "graph", "group": 1},
+                {"key": "plans", "state": "info", "glyph": "",
+                 "text": "plans 13", "group": 3}]
+        for color in (True, False):
+            tiers = tc.render_tiers(segs, color=color)
+            widths = [w for _, w in tiers]
+            self.assertEqual(widths, sorted(widths, reverse=True), tiers)
+            if color:
+                self.assertEqual(len(set(widths)), len(widths), widths)
+            # the inline logo is measured as the cells it takes
+            if color:
+                pic = tc.render_tiers(segs, color=True, image=True)
+                self.assertIn(tc._IMAGE_MARK, pic[0][0])
+                self.assertEqual([w + 1 for _, w in pic], widths)
+            for line, width in tiers:
+                bare = tc._ANSI.sub("", line)
+                self.assertEqual(width, len(bare))
+                self.assertFalse([c for c in bare if unicodedata.east_asian_width(c)
+                                  in ("W", "F")], bare)
+        full, short, compact, narrow = [t[0] for t in tc.render_tiers(segs, color=True)]
+        self.assertIn("tezgah v9.9.9", full)
+        self.assertNotIn("v9.9.9", short)
+        self.assertIn("pony", short)                      # names outlive the version
+        self.assertIn("\u2630" + "13", compact)          # the plans count stays
+        self.assertNotIn("pony", compact)                 # the icon names it
+        self.assertNotIn("tezgah", narrow)                # the logo alone heads it
+        # the plain line keeps its exact old shape at full width
+        self.assertEqual(tc.render_tiers(segs)[0][0],
+                         "tezgah v9.9.9  \u00b7  pony\u25cb exec\u2713  \u00b7  "
+                         "graph\u2717  \u00b7  plans 13")
+
     def test_color_paints_the_whole_mark_by_state(self):
         # the glyph is still there, so color is a second channel and never the
         # only one (WCAG 1.4.1); the separator is dimmed, not colored

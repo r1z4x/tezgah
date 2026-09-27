@@ -18,6 +18,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a one-cell icon (`✂ ▶ ◎ ⚖ ⚗ ⌬ ⎇ ⚑ ⌕ ☰`), and the line opens with the logo
   drawn in three half-block cells in its own colors (amber worktop, slate
   support) before `tezgah vX.Y.Z` in bold amber; the plain line is unchanged.
+  Where the terminal draws inline images (iTerm2, WezTerm, Orca) the omp widget
+  shows the real 2.5D logo in two cells instead; `TEZGAH_STATUS_LOGO=image|text`
+  overrides the guess.
+- **The omp status line fits its width.** It used to spill its last marks onto a
+  second row on a narrow terminal. The widget now draws the widest of four tiers
+  that fits (full; no version; icons for names; logo alone), keeps the spinner
+  and drops the tool name when room is short, and cuts with `…` only when even
+  the narrowest does not fit.
 
 ## [0.18.0] - 2026-09-27
 
@@ -164,6 +172,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`tezgah-triage` and `tezgah-docs` count on omp.** They record their `judge`
+  row under `TEZGAH_SESSION`, which omp's shells never had, so the judge counter
+  stayed 0 there. The omp extension now exports the main session's id at
+  session start (a subagent does not repoint it).
 - **An untracked or deleted protocol is not a protocol changed after the run.**
   The order rule's second half asked which commit touched `protocol.md` last, and
   `git rm --cached` counts as a touch - so the 2026-09-24 commit that untracked
