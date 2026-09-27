@@ -1197,6 +1197,20 @@ class ClaimAppend(Workspace):
         self.assertIn(proof, proc.stdout)
         self.assertEqual(read(path), "")
 
+    def test_a_proof_citing_a_path_whose_directory_has_parentheses_resolves(self):
+        # measured on Ustam 2026-09-27: a Next.js route group is a real
+        # directory name, and a proof naming one was read as naming nothing
+        repo = self.repo()
+        path = self.evidence(repo)
+        base = self.line(repo, "q")
+        self.write(os.path.join(base, "experiments", "(v2)", "results.jsonl"),
+                   '{"run": 1}\n')
+        proof = "experiments/(v2)/results.jsonl (p95 -12% over 7 runs)"
+        proc = self.cli(repo, "claim", "q", payload=self.valid(proof=proof))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("claim C1 recorded", proc.stdout)
+        self.assertNotEqual(read(path), "")
+
     def test_an_append_starts_at_the_last_newline_the_file_ended_on(self):
         # a hand edit can leave the file ending mid-line; the boundary the reader
         # and the writer now share is the last newline, so the append starts there
