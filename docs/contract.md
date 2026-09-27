@@ -17,11 +17,11 @@ host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 
 | Surface | Text | Paid |
 |---|---|---|
-| always-on core | `CORE` (`hooks/tezgah_policy.py:613-814`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
-| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:819-823`) | only on the turn whose prompt matches its task class |
-| per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:830-850`) | every user prompt |
+| always-on core | `CORE` (`hooks/tezgah_policy.py:622-838`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
+| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:839-843`) | only on the turn whose prompt matches its task class |
+| per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:850-870`) | every user prompt |
 | skill suggestion | one `<skill_relevance>` line naming at most one installed skill, written by `suggest` (`hooks/tezgah_skill_pick.py:207`); off unless `skill-suggest-on` is armed | only on a turn the judgement answers with a skill |
-| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:851-875`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
+| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:871-895`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
 
 The skill suggestion is the one surface a judgement writes rather than a constant.
 The roster reaches a session as an index of host-truncated one-liners, so which
@@ -64,11 +64,11 @@ One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
 `fixture`/`fake`/`stub`/`sample`/`demo` (`SCRATCH_PATH`,
-`hooks/tezgah_integrity.py:1592-1593`; `scratch_evidence`,
-`hooks/tezgah_integrity.py:1601-1623`) - the turn is told the command and the
+`hooks/tezgah_integrity.py:1645-1650`; `scratch_evidence`,
+`hooks/tezgah_integrity.py:1654-1678`) - the turn is told the command and the
 rule: evidence from a scratch path is evidence about the code path, so a claim
 about the running system needs a check that ran against it (`SCRATCH_REMINDER`,
-`hooks/tezgah_context.py:802-808`, appended at `hooks/tezgah_context.py:875-879`).
+`hooks/tezgah_context.py:803-809`, appended at `hooks/tezgah_context.py:875-879`).
 It is a reminder and not a block because whether a scratch script exercises the
 real system is not decidable from the command; one passing check against a real
 path makes the reader answer `None`, so a session that also ran the real thing is
@@ -92,8 +92,8 @@ analysis: five axes, one evidence class per finding.**` :745 *(conditional)*,
 stay English.**` :788, `**Session scope: the user's repo, not tezgah.**` :794,
 `**Kill switches:**` :803.
 
-`always_on_core()` (`hooks/tezgah_context.py:630-640`) drops the five
-conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:824-829`):
+`always_on_core()` (`hooks/tezgah_context.py:631-641`) drops the five
+conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:844-849`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, product analysis, the code graph. That is
 what a host with no prompt-time hook writes into a static file: opencode's
@@ -102,7 +102,7 @@ managed `RULES.md` (`bin/tezgah-setup:1299-1301`). Claude applies
 `output-styles/tezgah.md` as a plugin output style instead
 (`output-styles/tezgah.md:11-12`); Codex and Cursor receive the same core from
 their session-start hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
-(`hooks/tezgah_context.py:621-629`) is that text with the kill-switch filtering
+(`hooks/tezgah_context.py:622-630`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
@@ -183,9 +183,9 @@ they survive every other switch being off.
 
 1. Write the full text as a constant in `hooks/tezgah_policy.py`.
 2. If not every session should pay it, add the key to `CONDITIONAL_KEYS`
-   (`hooks/tezgah_policy.py:819-823`), a pattern to `PROMPT_HINTS`
+   (`hooks/tezgah_policy.py:839-843`), a pattern to `PROMPT_HINTS`
    (`hooks/tezgah_context.py:50-90`) and a line to `POINTERS`
-   (`hooks/tezgah_policy.py:824-829`); the two halves are asserted together
+   (`hooks/tezgah_policy.py:844-849`); the two halves are asserted together
    (`tests/test_context.py:1226-1233`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
    pair to `CORE_RULES` (`hooks/tezgah_context.py:102`). The label is the
@@ -198,7 +198,7 @@ they survive every other switch being off.
    `output-styles/tezgah.md` from a fresh Python process when the paragraph is
    always-on — a warm interpreter serves a stale `CORE`.
 6. Last step, the tests that pin it: add the label to `KillSwitchEnforcement`
-   (`tests/test_context.py:507`) and, for a conditional rule, to the
+   (`tests/test_context.py:511`) and, for a conditional rule, to the
    `ArmingConformance` label map (`tests/test_context.py:1219-1224`); then run the mirror pair —
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py:1331-1339`) and

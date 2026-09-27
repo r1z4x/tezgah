@@ -124,7 +124,7 @@ known (`note`, `hooks/tezgah_integrity.py:551-563`), counted by the row's kind
 
 1. **No always-on rule paragraph.** It is on-demand, and the conditional keys
    exist exactly so a session that never asks does not carry the text
-   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:819-823`). Naming it buys discovery
+   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:839-843`). Naming it buys discovery
    for one clause; a paragraph would cost the always-on block.
 2. **Nothing in the gate, the Stop rule, the shortcut parser or
    the PreToolUse hot path.** Refusal reproducibility is an invariant with tests
