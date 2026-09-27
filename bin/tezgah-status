@@ -81,8 +81,8 @@ def main():
             return 0
         print("%s: %d events" % (head, counts["events"]))
         for key in ("steps", "tool_error_rate", "claims", "false_completion",
-                    "denies", "nudges", "fanout", "consult", "codegen",
-                    "codegen_failed", "judge", "shape"):
+                    "shape_blocked", "denies", "nudges", "fanout", "consult",
+                    "codegen", "codegen_failed", "judge", "replies", "shape"):
             value = counts[key]
             if key == "denies":
                 value = ", ".join("%s=%d" % kv for kv in sorted(value.items())) or "none"

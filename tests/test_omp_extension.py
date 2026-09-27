@@ -50,9 +50,10 @@ class OmpExtension(TempHome):
         with open(log) as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
-    def drive(self, calls, cwd=None, no_widget=False, widget_throws=False):
+    def drive(self, calls, cwd=None, no_widget=False, widget_throws=False,
+              **extra):
         spec = {"extension": self.ext, "dir": cwd or self.make_repo(),
-                "session": "s", "calls": calls}
+                "session": "s", "calls": calls, **extra}
         if no_widget:
             spec["noWidget"] = True
         if widget_throws:
@@ -61,6 +62,7 @@ class OmpExtension(TempHome):
                               input=json.dumps(spec), capture_output=True,
                               text=True, env=self.env(), timeout=120)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.stderr = proc.stderr
         out = json.loads(proc.stdout)
         self.assertNotIn("fatal", out, out.get("fatal"))
         return out
@@ -151,6 +153,56 @@ class OmpExtension(TempHome):
         self.assertIs(message["display"], True)
         self.assertIn("/nonexistent/tezgah-hook.py", message["content"])
         self.assertIn("--report", message["content"])
+
+    def test_a_crashing_hooks_stderr_stays_off_the_screen(self):
+        # an inherited stderr printed the hook's traceback into omp's TUI on
+        # every redraw; the reason it carries is the traceback's last line
+        path = os.path.join(self.home, "crash-hook.py")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("import sys\n"
+                     "sys.stderr.write('Traceback (most recent call last):\\n'\n"
+                     "                 '  File \"hook.py\", line 1\\n'\n"
+                     "                 'ImportError: cannot import name ws\\n')\n"
+                     "sys.exit(1)\n")
+        self.ext = self.make_ext(path, "crash.ts")
+        out = self.drive([{"event": "session_start"}, {"event": "turn_end"}])
+        self.results(out)
+        self.assertNotIn("Traceback", self.stderr)
+        notice = out["sent"][0]["message"]["content"]
+        self.assertIn("Reason: ImportError: cannot import name ws.", notice)
+
+    def test_a_task_subagent_is_told_apart_from_a_main_session_and_a_fork(self):
+        # omp keeps a child's transcript inside its parent's session directory;
+        # a fork carries the same header link but sits beside the parent
+        parent = os.path.join(self.home, "sessions", "2026_abc.jsonl")
+        cases = {"subagent": (os.path.join(self.home, "sessions", "2026_abc",
+                                           "Scout.jsonl"), parent),
+                 "fork": (os.path.join(self.home, "sessions", "2026_def.jsonl"),
+                          parent),
+                 "main": (parent, None)}
+        seen = {}
+        for name, (file, link) in cases.items():
+            hook, log = self.fake_hook({})
+            self.ext = self.make_ext(hook, name + ".ts")
+            self.results(self.drive([{"event": "session_start"}],
+                                    sessionFile=file, parentSession=link))
+            seen[name] = self.asked(log)[0]["subagent"]
+            os.remove(log)
+        self.assertEqual(seen, {"subagent": True, "fork": False, "main": False})
+
+    def test_a_skill_url_read_reaches_the_hook(self):
+        # omp's read takes `skill://<name>`: that read of the ponytail skill
+        # must move its mark, and an ordinary read still never spawns python
+        hook, log = self.fake_hook({})
+        self.ext = self.make_ext(hook, "skill.ts")
+        self.results(self.drive([
+            {"event": "tool_result", "arg": {"toolName": "read",
+                                             "input": {"path": "skill://ponytail"}}},
+            {"event": "tool_result", "arg": {"toolName": "read",
+                                             "input": {"path": "skill://other"}}},
+        ]))
+        self.assertEqual([p["input"]["path"] for p in self.asked(log)],
+                         ["skill://ponytail"])
 
     def test_the_idx_glyph_rides_the_per_tool_redraw(self):
         # the redraw after a watched tool must not pay for the git probe: the

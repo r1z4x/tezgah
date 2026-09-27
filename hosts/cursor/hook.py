@@ -353,7 +353,7 @@ def dispatch(payload):
         if (payload.get("status") in (None, "completed")
                 and not payload.get("stop_hook_active") and not off("verify-off")
                 and under(cwd)):
-            reason = stop_reason(last_answer(session_id), session_id)
+            reason = stop_reason(last_answer(session_id), session_id, cwd=cwd)
             if reason:
                 out = {"decision": "block", "reason": reason}
     elif event == "beforeSubmitPrompt":

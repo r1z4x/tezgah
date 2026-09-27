@@ -209,6 +209,14 @@ class Gate(TempHome):
             self.assertIsNotNone(reason, sub)
             self.assertIn("grep-only explorer", reason)
 
+    def test_omps_task_names_the_agent_in_agent(self):
+        # omp's task tool: `agent` on a flat call, on each item of a batch
+        self.assertIsNotNone(self.decide("task", {"agent": "explore", "task": "x"}))
+        self.assertIsNotNone(self.decide("task", {"context": "c", "tasks": [
+            {"agent": "task", "task": "a"}, {"agent": "Explore", "task": "b"}]}))
+        self.assertIsNone(self.decide("task", {"context": "c", "tasks": [
+            {"agent": "scout", "task": "a"}, {"task": "b"}]}))
+
     def test_general_purpose_subagent_passes(self):
         self.assertIsNone(self.decide("Agent", {"subagent_type": "general-purpose"}))
 

@@ -7,8 +7,9 @@ The envelope is omp's own - its event fields are not Claude's - but the contract
 the gate and the evidence ledger underneath are the shared core in `hooks/`,
 the same code every other host runs.
 
-    {"event": "session_start", "cwd": ..., "session_id": ...}
-        -> {"context": <this repo's live state>, "status": "pony✓ ...", "idx": glyph}
+    {"event": "session_start", "cwd": ..., "session_id": ..., "subagent": bool}
+        -> {"context": <this repo's live state, or the subagent brief>,
+            "status": "pony✓ ...", "idx": glyph}
     {"event": "status", "cwd": ..., "session_id": ...}
         -> {"status": "pony✓ ...", "idx": glyph}  (ANSI-colored; see status_line)
     {"event": "user_prompt", "cwd": ..., "prompt": ...}
@@ -124,9 +125,15 @@ def handle(payload):
     if event == "session_start":
         # omp's always-on RULES.md already carries the core contract, so the
         # session payload is the part a static file cannot know: this repo's
-        # index, its open plans, its lessons and the live kill switches.
+        # index, its open plans, its lessons and the live kill switches. A task
+        # subagent (`subagent`, detected by the bridge) gets the subagent brief
+        # instead: no indexer, no agent regeneration, no plan-status line, and
+        # the line that tells it it is a subagent. `host` points the specialist
+        # line at omp's user agent dir.
         out = {}
-        context = context_for("session_start", cwd, payload, with_core=False)
+        kind = "subagent_start" if payload.get("subagent") else "session_start"
+        context = context_for(kind, cwd, dict(payload, host="omp"),
+                              with_core=False)
         if context:
             out["context"] = context
         out.update(answered(*status_line(cwd, session_id)))
@@ -171,7 +178,8 @@ def handle(payload):
     if event == "stop":
         if payload.get("stop_hook_active") or off("verify-off"):
             return {}
-        reason = stop_reason(payload.get("last_assistant_message"), session_id)
+        reason = stop_reason(payload.get("last_assistant_message"), session_id,
+                             cwd=cwd)
         return {"decision": "block", "reason": reason} if reason else {}
     return {}
 

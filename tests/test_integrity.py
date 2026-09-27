@@ -1569,10 +1569,12 @@ class StopHook(TempHome):
         self.stop(self.BAD)
         self.assertEqual(self.counts()["shape"], 1)
 
-    def test_a_good_reply_writes_no_shape_row(self):
+    def test_a_good_reply_writes_an_unflagged_shape_row(self):
+        # every judged reply leaves one row, so the flag rate has a denominator
         self.assertIsNone(self.stop(self.GOOD))
-        self.assertEqual(self.shape_rows(), [])
-        self.assertEqual(self.counts()["shape"], 0)
+        self.assertEqual(self.shape_rows(), ["ok"])
+        counts = self.counts()
+        self.assertEqual((counts["shape"], counts["replies"]), (0, 1))
 
     # P5: the reply's size and lead ride the `claim` row `stop_reason` already
     # writes - `lines`, `chars`, `items`, `answer_first`, additively and on the
@@ -1603,9 +1605,60 @@ class StopHook(TempHome):
                 "  - girintili, sayılmaz\n"
                 "| --- | --- |\n"
                 "Next: run `pytest -q`.")
-        self.assertEqual(ti.reply_shape(text),
-                         {"lines": 6, "chars": len(text), "items": 2,
+        shape = ti.reply_shape(text)
+        self.assertEqual({k: shape[k] for k in ("lines", "items", "longest_list",
+                                                "answer_first")},
+                         {"lines": 6, "items": 2, "longest_list": 2,
                           "answer_first": True})
+
+    # The shape blocks: a list over the cap (rule 8) and prose that is not
+    # Turkish (the exec rule), each with its own switch.
+    LONG_LIST = ("Yedi bulgu var:\n\n"
+                 + "\n".join("%d. bulgu %d" % (i, i) for i in range(1, 8)))
+    ENGLISH = ("Everything the omp session uses runs the checkout, and it is "
+               "current. The live proof feeds the commands the session was "
+               "refused on in September through the installed gate, and each "
+               "one is refused again with the same reason.")
+
+    def test_a_list_over_the_cap_blocks_with_its_size(self):
+        out = self.stop(self.LONG_LIST)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("7 items", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: list cap"])
+        # a shape block is not a false completion: no claim was made
+        counts = self.counts()
+        self.assertEqual((counts["shape_blocked"], counts["false_completion"]),
+                         (1, 0))
+
+    def test_the_adhd_switches_lift_the_shape_blocks(self):
+        # `adhd-off` removes the output-shape text, so it removes its blocks too
+        self.touch(os.path.join(self.home, ".config", "tezgah", "adhd-off"))
+        self.assertIsNone(self.stop(self.LONG_LIST))
+        self.assertIsNone(self.stop("Let me check. Toplam 5 dosya."))
+
+    def test_a_repos_no_adhd_mark_lifts_them_there(self):
+        self.touch(os.path.join(self.repo, ".no-adhd"))
+        self.assertIsNone(self.stop(self.LONG_LIST))
+
+    def test_english_prose_blocks_and_names_the_language(self):
+        out = self.stop(self.ENGLISH)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Turkish", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: reply language"])
+
+    def test_the_exec_switch_lifts_the_language_block(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "exec-mode.off"))
+        self.assertIsNone(self.stop(self.ENGLISH))
+
+    def test_a_nested_tezgah_session_is_not_judged_for_shape(self):
+        # consult runs agent CLIs with TEZGAH_NESTED=1: their English answer is
+        # read by code, not by the user
+        payload = {"hook_event_name": "Stop", "cwd": self.repo,
+                   "session_id": self.session,
+                   "last_assistant_message": self.ENGLISH}
+        out, _ = run_json([support.STOP_HOOK], payload,
+                          env=dict(self.envv, TEZGAH_NESTED="1"))
+        self.assertIsNone(out)
 
     def test_stop_hook_active_passes(self):
         self.seed("Bash", {"command": "ls"})
@@ -1622,6 +1675,83 @@ class StopHook(TempHome):
                    "last_assistant_message": "Done."}
         out, _ = run_json([support.STOP_HOOK], payload, env=self.envv)
         self.assertIsNone(out)
+
+
+class ReplyShapeCorpus(unittest.TestCase):
+    """The two blocking shape numbers over realistic replies: which ones the
+    thresholds refuse. The Turkish replies are the owner's own style - Turkish
+    prose dense with English identifiers, quoted English titles, code blocks -
+    because those are the replies a language check can wrongly refuse."""
+
+    PASS = {
+        "turkish with identifiers and a short list": (
+            "Stop kuralı artık beşten uzun listeyi ve Türkçe olmayan düzyazıyı "
+            "engelliyor; `tests/test_integrity.py` içindeki korpus testi yeşil.\n\n"
+            "1. `hooks/tezgah_integrity.py:1802` liste sınırı\n"
+            "2. `hooks/tezgah_integrity.py:1860` dil kontrolü\n"
+            "3. `hosts/omp/hook.py` subagent yönlendirmesi\n\n"
+            "Sıradaki adım: `python3 -m unittest test_integrity` çalıştır."),
+        "turkish around a quoted english sentence": (
+            "Düzeltildi: repo açıklaması artık \"One shared working contract for "
+            "every AI coding assistant you run: Claude Code, Codex, Cursor, "
+            "opencode, dsh and oh-my-pi (omp).\""),
+        "turkish around english titles": (
+            "lit2b dolu (tam isabet: \"A Few Pages of Markdown Committed AI "
+            "Configuration\", \"The reach of a verification tool decides its "
+            "value\"). Kalan iki sorguyu koşuyorum."),
+        "turkish prose over an english code block": (
+            "Hata `auth.spec.ts:42` satırında: başlık eksik.\n\n```\n"
+            "Error: expected 200 but the server answered 401 because the "
+            "request carried no Authorization header and the middleware "
+            "rejected it before the handler ran at all\n```\n\n"
+            "Düzeltme: isteğe başlığı ekle."),
+        "short english claim": "Done. All tests pass.",
+        "two headed groups of four": (
+            "## Açık\n- a\n- b\n- c\n- d\n\n## Kapalı\n- e\n- f\n- g\n- h"),
+        "a restarted numbered list": (
+            "1. bir\n2. iki\n3. üç\n\nSonra:\n\n1. dört\n2. beş\n3. altı"),
+        "nested items under five": (
+            "- a\n  - a1\n  - a2\n- b\n  - b1\n- c\n- d\n- e"),
+        "a long list inside a fence": (
+            "Çıktı:\n\n```\n" + "\n".join("- satır %d" % i for i in range(9))
+            + "\n```"),
+    }
+    BLOCK = {
+        "english prose": (
+            "Both commits are pushed to origin, and local main now matches the "
+            "remote. Your edit is still local and uncommitted; the push did not "
+            "include it, so restart the host once to load the new hooks."),
+        "english that quotes a turkish word": (
+            "The reply says the check was not run and marks it doğrulanmadı, "
+            "which is the one escape the rule allows, so the turn passes and "
+            "the claim row records ok for the counter to read later."),
+        "six ranked items": "\n".join("%d. madde" % i for i in range(1, 7)),
+        "seven bullets across blank lines": "\n\n".join(
+            "- madde %d" % i for i in range(7)),
+    }
+
+    def blocked(self, text):
+        # the real rule, every switch armed and no nested-session marker
+        env = {k: v for k, v in os.environ.items() if k != "TEZGAH_NESTED"}
+        with mock.patch.object(ti, "off", return_value=False), \
+                mock.patch.dict(os.environ, env, clear=True):
+            return ti._shape_block(text, None)[0] is not None
+
+    def test_the_turkish_and_structured_replies_pass(self):
+        wrong = [name for name, text in self.PASS.items() if self.blocked(text)]
+        self.assertEqual(wrong, [])
+
+    def test_the_english_and_long_list_replies_block(self):
+        wrong = [name for name, text in self.BLOCK.items()
+                 if not self.blocked(text)]
+        self.assertEqual(wrong, [])
+
+    def test_a_preamble_lead_is_flagged_and_an_answer_is_not(self):
+        self.assertIn("preamble-open",
+                      ti.shape_flags("Here is what changed:\n\n- a\n- b"))
+        self.assertIn("preamble-open",
+                      ti.shape_flags("Değişenler şunlar:\n- a\n- b"))
+        self.assertEqual(ti.shape_flags("Üç dosya değişti.\n- a\n- b"), [])
 
 
 class PromptTurn(TempHome):

@@ -30,7 +30,7 @@ from tezgah_context import (  # noqa: E402
 from tezgah_gate import decision, drift_reason  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import note_tool, stop_reason  # noqa: E402
-from tezgah_paths import off, root_for  # noqa: E402
+from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
 from tezgah_untrusted import marks  # noqa: E402
 
 EVENTS = {
@@ -66,6 +66,21 @@ def classify(payload):
         if kind:
             return kind
     return None
+
+
+def rules_carry_core():
+    """True when the global instructions file Codex loads holds tezgah-setup's
+    managed block: `AGENTS.override.md` in its home when that exists (Codex
+    reads it instead), else `AGENTS.md`."""
+    for name in ("AGENTS.override.md", "AGENTS.md"):
+        path = os.path.join(HOST_DIRS["codex"], name)
+        if os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    return "<!-- tezgah:start" in fh.read()
+            except OSError:
+                return False
+    return False
 
 
 def gate_name(name):
@@ -185,7 +200,8 @@ def main():
         if (not payload.get("stop_hook_active") and not off("verify-off")
                 and root_for(cwd)):
             reason = safe(session_id, stop_reason,
-                          payload.get("last_assistant_message"), session_id)
+                          payload.get("last_assistant_message"), session_id,
+                          cwd=cwd)
             if reason:
                 out["decision"] = "block"
                 out["reason"] = reason
@@ -199,7 +215,11 @@ def main():
     normalized = EVENTS.get(event)
     if not normalized:
         return
-    text = safe(session_id, context_for, normalized, cwd, payload)
+    # the global AGENTS.md block tezgah-setup writes already carries the core,
+    # so a session or compaction payload that repeats it pays for it twice
+    core = normalized == "subagent_start" or not rules_carry_core()
+    text = safe(session_id, context_for, normalized, cwd, payload,
+                with_core=core)
     out = {}
     if text:
         out["hookSpecificOutput"] = {"hookEventName": event, "additionalContext": text}

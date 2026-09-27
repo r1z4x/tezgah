@@ -79,12 +79,15 @@ const SKILL_MARKS: Record<string, string> =
   { ponytail: "pony", "i-have-adhd": "adhd" };
 const READ_TOOLS = ["read", "read_file", "readfile", "view_file"];
 
+// omp's read tool also takes the internal URL `skill://<name>`, which is the
+// same SKILL.md: both shapes earn the mark.
 function skillRead(tool: string, args: any): boolean {
   if (!READ_TOOLS.includes(tool.toLowerCase())) return false;
   const raw = args?.filePath ?? args?.file_path ?? args?.path ?? "";
   const path = String(raw).replace(/\\/g, "/");
   return Object.keys(SKILL_MARKS).some(
-    (name) => path.endsWith("skills/" + name + "/SKILL.md"));
+    (name) => path.endsWith("skills/" + name + "/SKILL.md")
+      || path === "skill://" + name || path === "skill://" + name + "/SKILL.md");
 }
 
 // The gate is only consulted for the tools the shared rule knows: the refusal
@@ -120,17 +123,27 @@ let toldSession: string | undefined;
 
 const FAIL = "\u001b[31mhook\u2717\u001b[0m tezgah hook failed";
 
+// The reason names the hook's own last stderr line (a traceback ends on the
+// exception, e.g. the ImportError), and falls back to node's message for a
+// failure with no stderr: no interpreter, a timeout.
 function why(err: any): string {
-  const text = String(err?.message ?? err ?? "");
-  return text.split("\n")[0].slice(0, 160) || "no answer";
+  const lines = String(err?.stderr ?? "").split("\n")
+    .map((line) => line.trim()).filter(Boolean);
+  const text = lines.length ? lines[lines.length - 1]
+    : String(err?.message ?? err ?? "").split("\n")[0];
+  return text.slice(0, 160) || "no answer";
 }
 
 function ask(payload: Record<string, unknown>): any {
   try {
+    // stderr is piped, not inherited: an inherited stream writes the hook's
+    // traceback straight into omp's TUI, over the screen, on every redraw. It
+    // is read back by why() instead.
     const out = execFileSync(pythonBin(), [HOOK], {
       input: JSON.stringify(payload),
       encoding: "utf8",
       timeout: 10000,
+      stdio: ["pipe", "pipe", "pipe"],
     });
     hookError = "";
     toldSession = undefined;
@@ -176,6 +189,28 @@ function sessionOf(ctx: any): string | undefined {
   }
 }
 
+// A task subagent runs in its own session with the same extensions, so it gets
+// session_start too. It must get the subagent brief, not the parent's payload:
+// the parent's runs the indexer, regenerates the agents and tells the model to
+// run plan-status, which a fan-out of subagents would each do again. omp writes
+// the child's transcript inside the parent's session directory
+// (`<parent>.jsonl` -> `<parent>/<AgentId>.jsonl`) with `parentSession` naming
+// the parent in its header. A fork also carries `parentSession`, but its file
+// sits beside the parent, not inside it, so it stays a main session.
+function isSubagent(ctx: any): boolean {
+  try {
+    const sm = ctx?.sessionManager;
+    const file = String(sm?.getSessionFile?.() ?? "").replace(/\\/g, "/");
+    const parent = String(sm?.getHeader?.()?.parentSession ?? "")
+      .replace(/\\/g, "/");
+    if (!file || !parent) return false;
+    const root = parent.endsWith(".jsonl") ? parent.slice(0, -6) : parent;
+    return file.startsWith(root + "/");
+  } catch {
+    return false;
+  }
+}
+
 export default function tezgahOmp(pi: any): void {
   // The idx glyph the last probed answer carried. omp redraws the line after
   // every watched tool and the stamp probe behind that mark is the line's only
@@ -199,7 +234,7 @@ export default function tezgahOmp(pi: any): void {
   pi.on("session_start", async (_event: any, ctx: any) => {
     const session = sessionOf(ctx);
     const res = ask({ event: "session_start", cwd: cwdOf(ctx),
-                      session_id: session });
+                      session_id: session, subagent: isSubagent(ctx) });
     if (hookError) {
       const notice = failureNotice(ctx, session);
       if (notice) {

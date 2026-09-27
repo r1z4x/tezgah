@@ -33,7 +33,7 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
-from tezgah_paths import cache_dir, root_for
+from tezgah_paths import cache_dir, off, root_for
 
 # A command that actually checks the change, as opposed to one that merely runs.
 VERIFY = re.compile(
@@ -168,6 +168,44 @@ SHAPE_LINES = 15
 # numbered step, a bullet). An indented marker belongs to the item above it and
 # is not counted, and neither is a table's `| --- |` row or a `---` rule.
 ITEM = re.compile(r"^(?:\d+[.)]|[-*+])\s")
+# Rule 8 of skills/i-have-adhd/SKILL.md: "Rank by relevance and show at most
+# five per group". Enforced per contiguous list, not per reply: the rule's own
+# escape for a list whose completeness is the point is "headers so it can be
+# skimmed", and a heading ends the run below, as does any prose line.
+LIST_CAP = 5
+# The reply-language half of the exec rule ("Every user-facing reply in
+# Turkish"). A word list and six letters are not a language detector; they only
+# have to separate Turkish prose from English prose, which differ sharply on
+# both. Calibrated on the owner's omp transcripts (2026-09-27: 16,511 assistant
+# messages, 1,495 with at least LANG_MIN_WORDS prose words): English prose
+# scored 0.000-0.026, the most English-heavy Turkish reply 0.077 and the bulk
+# 0.3-0.7, so the cut sits between the two; 24 of the 1,495 fall under it, all
+# English or Chinese prose. Prose shorter than LANG_MIN_WORDS is not judged - a
+# one-line answer, a path or a command list is too short to call.
+TR_LETTERS = re.compile(r"[çğıöşüÇĞİÖŞÜ]")
+TR_WORDS = frozenset((
+    "ve", "bir", "bu", "şu", "için", "ile", "da", "de", "ama", "fakat", "ya",
+    "veya", "ne", "mi", "mı", "mu", "mü", "çok", "daha", "en", "gibi", "kadar",
+    "sonra", "önce", "var", "yok", "değil", "olarak", "olan", "her", "hem",
+    "ise", "ki", "artık", "hâlâ", "hala", "şimdi", "yani", "diye", "tüm",
+    "bütün", "kalan", "neden", "nasıl", "yeni", "eski", "evet", "hayır"))
+PROSE_WORD = re.compile(r"[^\W\d_]+", re.U)
+# Text inside a reply that is not prose in any language: inline code, a URL,
+# a path, a dotted or snake_case identifier, a `path:line` citation.
+NOT_PROSE = re.compile(r"`[^`\n]*`|\S+://\S+|\S*[/\\]\S*|\S*[._:]\w\S*")
+LANG_MIN_WORDS = 25
+LANG_MIN_SHARE = 0.06
+# A lead that announces what follows instead of being it (rule 1 "Lead with the
+# answer", rule 10 "No preamble"). Report-only: "Sonuç:" over a list is an
+# answer label, not a preamble, and the two read the same to a regex.
+PREAMBLE = re.compile(
+    r"(?i)^\s*(?:here(?:'s| is| are)\b|below\b|the following\b|"
+    r"aşağıda|şöyle\b|öncelikle\b|şimdi\b)")
+# The Stop classes that judge how a reply is written, not whether its claim has
+# evidence. They stay `claim` rows (the verdict is one row per reply) but are not
+# false completions: counters folds them into `shape_blocked` instead.
+SHAPE_BLOCKS = frozenset(("placating opener", "forbidden closer", "list cap",
+                          "reply language"))
 
 WRITE_TOOLS = ("edit", "write", "multiedit", "notebookedit", "apply_patch",
                "str_replace_editor", "create_file", "str_replace", "edit_file",
@@ -207,11 +245,13 @@ PERMANENT_ERROR = re.compile(
 # the fields the ledger contract adds to {kind, ts, detail, v}. Every reader
 # treats a missing key as None, so a writer leaves out what it did not know rather
 # than writing nulls into the file it reads back on every gated call. The four
-# `reply_shape` names (`lines`, `chars`, `items`, `answer_first`) are the claim
-# row's own addition: the reply's size and lead, recorded beside the verdict.
+# `reply_shape` names (`lines`, `chars`, `items`, `longest_list`, `tr_share`,
+# `answer_first`) are the shape and claim rows' own addition: the reply's size,
+# lead, longest list and Turkish share, recorded beside the verdict.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed",
-                           "lines", "chars", "items", "answer_first"))
+                           "lines", "chars", "items", "longest_list",
+                           "tr_share", "answer_first"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -900,7 +940,8 @@ def _counts(rows):
     apart."""
     out = {"events": 0, "denies": {}, "nudges": 0, "kinds": {},
            "consult": 0, "codegen": 0, "codegen_failed": 0, "judge": 0,
-           "shape": 0, "fanout": 0, "steps": 0, "tool_error_rate": None,
+           "shape": 0, "replies": 0, "shape_blocked": 0, "fanout": 0,
+           "steps": 0, "tool_error_rate": None,
            "claims": 0, "false_completion": 0}
     decided = errors = 0
     for entry in rows:
@@ -922,17 +963,25 @@ def _counts(rows):
         elif kind == "claim":
             out["claims"] += 1
             if detail.startswith("blocked"):
-                out["false_completion"] += 1
+                # a reply blocked for its shape made no false claim: the rate
+                # the module calls its effect must not count a list cap
+                if detail[len("blocked: "):] in SHAPE_BLOCKS:
+                    out["shape_blocked"] += 1
+                else:
+                    out["false_completion"] += 1
         if kind == "judge":
             # by the row's kind, not a `detail` substring like the two below: a
             # judgement's detail carries the caller and the model, so a substring
             # would also count a commit message that merely says "judge"
             out["judge"] += 1
         if kind == "shape":
-            # the report-only reply-shape rows (`shape_flags`), counted by kind
-            # like `judge`: a flag that never fires has to read as a zero beside
-            # the one that does, or a wrong rule looks like an unused one
-            out["shape"] += 1
+            # one row per judged reply (`stop_reason`), so `replies` is the
+            # denominator and `shape` the replies that carried a report-only
+            # flag: a flag that never fires has to read as a zero beside the
+            # one that does, or a wrong rule looks like an unused one
+            out["replies"] += 1
+            if detail and detail != "ok":
+                out["shape"] += 1
         if "consult" in detail:
             out["consult"] += 1
         if "codegen" in detail:
@@ -1690,20 +1739,72 @@ def _closing_prose(lines):
     return last
 
 
-def reply_shape(text):
-    """The reply's size and lead, as the `claim` row records them: `lines`
-    (line count), `chars` (character count), `items` (top-level list items - a
-    marker in column 0, the shape rules 2 and 8 count), and `answer_first`
-    (whether the first non-blank, non-heading line reads as the answer rather
-    than a table row, which is `table-open` stated as a fact about the lead).
+def longest_list(text):
+    """The item count of the reply's longest contiguous list, outside fences.
 
-    Additive fields on the row `stop_reason` already writes, and recorded only:
-    nothing here refuses. A five-item cap or a lead that is not the answer cannot
-    cost a turn until this row supplies the rate that would justify it - the
-    skill's own carve-outs (an explain/walkthrough run, a question the user
-    raised mid-work) change what a good reply looks like, so a refusal would be
-    wrong before that rate is known. The fields describe the text the rule judged,
-    which on Cursor is the head+tail it stored."""
+    A run is a sequence of column-0 items (`ITEM`) of one kind - numbered or
+    bulleted. Blank lines and indented continuation lines keep it going, as they
+    do in markdown; a heading, a prose line, a table row, a fence or a switch of
+    marker kind ends it, and so does a numbered item that restarts at 1 - the
+    shape of two separate lists."""
+    best = run = 0
+    kind, inside = None, False
+    for line in str(text or "").split("\n"):
+        if FENCE.match(line):
+            inside, run = not inside, 0
+            continue
+        if inside or not line.strip() or line[:1] in (" ", "\t"):
+            continue
+        if not ITEM.match(line):
+            run = 0
+            continue
+        this = "n" if line[:1].isdigit() else "b"
+        restart = this == "n" and re.match(r"1[.)]\s", line)
+        run = run + 1 if this == kind and run and not restart else 1
+        kind = this
+        best = max(best, run)
+    return best
+
+
+def prose_words(text):
+    """The reply's prose words: outside fences and table rows, with inline code,
+    URLs, paths and identifiers removed, lowercased."""
+    words, inside = [], False
+    for line in str(text or "").split("\n"):
+        if FENCE.match(line):
+            inside = not inside
+            continue
+        if inside or TABLE_ROW.match(line):
+            continue
+        words += PROSE_WORD.findall(NOT_PROSE.sub(" ", line).lower())
+    return words
+
+
+def turkish_share(words):
+    """The share of `words` that mark Turkish: a Turkish letter in the word, or
+    a word from TR_WORDS. None for an empty list."""
+    if not words:
+        return None
+    hits = sum(1 for w in words if w in TR_WORDS or TR_LETTERS.search(w))
+    return round(hits / len(words), 3)
+
+
+def reply_shape(text):
+    """The reply's size and lead, as the `shape` row records them for every
+    judged reply and the `claim` row beside its verdict: `lines` (line count),
+    `chars` (character count), `items` (top-level list items - a marker in
+    column 0, the shape rules 2 and 8 count), `longest_list` (the longest
+    contiguous list, the number the list cap reads), `tr_share` (the Turkish
+    share of the prose words, None when there are none - the number the language
+    check reads) and `answer_first` (whether the first non-blank, non-heading
+    line reads as the answer rather than a table row, which is `table-open`
+    stated as a fact about the lead).
+
+    Recorded on every reply so the rates exist: the two numbers the Stop rule
+    refuses on are published beside the replies they passed, and a threshold
+    that is wrong shows up as a distribution, not as a complaint. The fields
+    describe the text the rule judged, which on Cursor is the head+tail it
+    stored."""
     text = str(text or "")
     lines = text.split("\n")
     answer_first = True
@@ -1714,36 +1815,120 @@ def reply_shape(text):
         break
     return {"lines": len(lines), "chars": len(text),
             "items": sum(1 for line in lines if ITEM.match(line)),
+            "longest_list": longest_list(text),
+            "tr_share": turkish_share(prose_words(text)),
             "answer_first": answer_first}
 
 
 def shape_flags(text):
-    """The reply-shape flags, in the order the row's detail carries them:
-    `table-open` when the first non-blank, non-heading line is a table row, and
-    `recap-close` when the reply is longer than SHAPE_LINES lines and its last
-    non-blank line is prose naming no next action.
+    """The report-only reply-shape flags, in the order the row's detail carries
+    them: `table-open` when the first non-blank, non-heading line is a table
+    row, `preamble-open` when that line announces what follows instead of being
+    it (`PREAMBLE`, or a short line ending in ":" over a list, table or fence),
+    and `recap-close` when the reply is longer than SHAPE_LINES lines and its
+    last non-blank line is prose naming no next action.
 
-    Report-only, on purpose: `stop_reason` records these as a `shape` row and
-    refuses nothing on them. A table answers some questions best and a long reply
-    sometimes needs no next step, so the counter (counters) has to publish the
-    flag rate before either flag is allowed to cost a turn."""
+    Report-only, on purpose: `stop_reason` records these on the `shape` row and
+    refuses nothing on them. A table answers some questions best, "Sonuç:" over
+    a list is an answer label and not a preamble, and a long reply sometimes
+    needs no next step, so the counter has to publish the flag rate before any
+    of them may cost a turn."""
     lines = str(text or "").split("\n")
     flags = []
-    for line in lines:
-        if not line.strip() or HEADING.match(line):
-            continue
-        if TABLE_ROW.match(line):
+    body = [line for line in lines if line.strip()]
+    lead = next((i for i, line in enumerate(body)
+                 if not HEADING.match(line)), None)
+    if lead is not None:
+        first = body[lead]
+        after = body[lead + 1] if lead + 1 < len(body) else ""
+        if TABLE_ROW.match(first):
             flags.append("table-open")
-        break
+        elif PREAMBLE.match(first) or (
+                first.rstrip().endswith(":") and len(first.split()) <= 12
+                and (ITEM.match(after) or TABLE_ROW.match(after)
+                     or FENCE.match(after))):
+            flags.append("preamble-open")
     last = _closing_prose(lines) if len(lines) > SHAPE_LINES else None
     if last is not None and not NEXT_ACTION.search(last):
         flags.append("recap-close")
     return flags
 
 
-def stop_reason(text, session_id, edited_hint=None):
+def _adhd_armed(cwd):
+    """The output-shape rule's own switches, `adhd-off` and a repo's `.no-adhd`:
+    the text they remove is the text the shape blocks enforce."""
+    if off("adhd-off"):
+        return False
+    if not cwd:
+        return True
+    try:
+        from tezgah_context import repo_marks
+        return ".no-adhd" not in repo_marks(cwd)[1]
+    except Exception:
+        return True
+
+
+def _shape_block(text, cwd):
+    """The reply-shape half of the Stop rule as (class, reason), or (None, None).
+
+    Everything here is about how the reply is written, so it is judged before
+    the evidence and is not cleared by "doğrulanmadı". A nested session tezgah
+    started itself (`TEZGAH_NESTED`, set by consult on the agent CLIs it runs) is
+    a tool answering a tool: its reply is read by code, in English, so neither
+    half applies there. Subagent sessions never reach this: omp documents that
+    `session_stop` does not fire for task sessions, Claude and Cursor send a
+    subagent's end to SubagentStop/subagentStop, which runs no Stop rule."""
+    if os.environ.get("TEZGAH_NESTED"):
+        return (None, None)
+    lines = text.split("\n")
+    if _adhd_armed(cwd):
+        if SYCOPHANT.search(text):
+            return ("placating opener",
+                    "Reply opens with preamble or placation, which the output "
+                    "contract bans (rule 10: no preamble, no recap, no closer). "
+                    "Start with the answer: \"Great question\" / \"Let me...\" / "
+                    "\"I'll...\" / \"Sure!\" / \"Looking at your...\" are never "
+                    "the first line. If the user is right, state the fact and the "
+                    "fix in one plain sentence - never \"haklısın\" / \"you're "
+                    "right\" / \"detaylı bakmadım\" / an apology.")
+        # only the last prose line is read, so a reply that ends on a code
+        # block, a heading or a table is not judged here at all
+        last = _closing_prose(lines)
+        if last and CLOSER.search(last):
+            return ("forbidden closer",
+                    "Reply closes with a sign-off the output contract bans "
+                    "(rule 10: no preamble, no recap, no closer): \"Let me know "
+                    "if you need anything else\" / \"Hope this helps\" / \"Happy "
+                    "to clarify\". End when the answer is done; if something is "
+                    "still open, name the one next step instead.")
+        longest = longest_list(text)
+        if longest > LIST_CAP:
+            return ("list cap",
+                    "Reply has a list of %d items; the output contract caps a "
+                    "list at %d (rule 8: rank by relevance, show at most five per "
+                    "group, keep the rest in reserve). Rewrite it: keep the five "
+                    "that matter most and say how many are held back. If the "
+                    "whole enumeration is the point, split it under headings of "
+                    "at most five items each, or give it as a table."
+                    % (longest, LIST_CAP))
+    if not off("exec-mode.off"):
+        words = prose_words(text)
+        share = turkish_share(words)
+        if len(words) >= LANG_MIN_WORDS and share < LANG_MIN_SHARE:
+            return ("reply language",
+                    "Reply prose is not in Turkish (%d prose words, %.0f%% of "
+                    "them Turkish). The contract's first rule: every user-facing "
+                    "reply is in Turkish, even when the user writes English. "
+                    "Rewrite the prose in Turkish; code, commands, paths, "
+                    "identifiers and quoted output stay as they are (put them in "
+                    "backticks or a code block)." % (len(words), share * 100))
+    return (None, None)
+
+
+def stop_reason(text, session_id, edited_hint=None, cwd=None):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
+    `cwd` is the session's directory, read for the repo's `.no-adhd` mark.
 
     The verdict is read off the current turn's rows (`turn_rows`) and not the
     whole ledger: the file grows with the session, the handler runs once per
@@ -1752,33 +1937,30 @@ def stop_reason(text, session_id, edited_hint=None):
     ledger here, which is what it got before the scope; it loses the bound and
     nothing else.
 
-    The verdict is recorded either way, as a `claim` row: a blocked stop leaves
-    no trace otherwise, and the false-completion rate (counters) needs both the
-    refusals and the claims that were allowed through. `detail` carries the
-    reason class - `blocked: no verify_ok`, `blocked: check failed`,
-    `blocked: partial failure`, `blocked: stale evidence`, `blocked: placating
-    opener`, `blocked: forbidden closer`, or `ok` - so which
-    branch refused a turn is readable without parsing the block text. One row
-    per reply per turn: an identical row for the same key is skipped. The row
-    also carries `reply_shape`'s four fields (lines, chars, items,
-    answer_first): the size and lead of the reply beside its verdict, recorded
-    and refused on by nothing.
+    The verdict is recorded as a `claim` row when the reply was blocked or made
+    a claim: a blocked stop leaves no trace otherwise, and the false-completion
+    rate (counters) needs both the refusals and the claims that were allowed
+    through. `detail` carries the reason class - `blocked: no verify_ok`,
+    `blocked: check failed`, `blocked: partial failure`, `blocked: stale
+    evidence`, the shape classes in SHAPE_BLOCKS, or `ok` - so which branch
+    refused a turn is readable without parsing the block text. One row per reply
+    per turn: an identical row for the same key is skipped.
 
-    A `shape` row is written from `shape_flags` before the claim row is decided,
-    and it is report-only: a flagged reply is still allowed, so the counter can
-    show the flags' false-positive rate before either one is allowed to refuse."""
+    Every judged reply also leaves one `shape` row: `detail` is its report-only
+    `shape_flags` (or `ok`) and the row carries `reply_shape`'s fields, so the
+    list and language numbers the rule refuses on have a published rate over
+    every reply, not only over the ones that made a claim."""
     rows, turns = turn_rows(session_id, turns=True)
-    cls, reason = _stop_block(text, session_id, edited_hint, rows=rows)
+    cls, reason = _stop_block(text, session_id, edited_hint, rows=rows, cwd=cwd)
     key = _claim_key(text, turns)
-    # Report-only: this row records the flags and nothing here refuses on them -
-    # the counter has to publish the false-positive rate first. It sits above the
-    # early return, so a reply with no claim vocabulary still leaves its row, and
-    # it is keyed like the claim row, so Cursor's re-run of the handler on a
-    # follow-up does not count the same reply twice.
-    flags = shape_flags(text)
-    if flags and not any(entry.get("kind") == "shape"
-                         and entry.get("id") == key for entry in rows):
-        note(session_id, "shape", ",".join(flags), id=key)
+    # Keyed like the claim row, so Cursor's re-run of the handler on a follow-up
+    # does not count the same reply twice; above the early return, so a reply
+    # with no claim vocabulary still leaves its row.
+    shape = reply_shape(text)
+    if not any(entry.get("kind") == "shape"
+               and entry.get("id") == key for entry in rows):
+        note(session_id, "shape", ",".join(shape_flags(text)) or "ok", id=key,
+             **shape)
     if reason:
         detail = "blocked: %s" % cls
     elif any(claims(text)):
@@ -1787,7 +1969,7 @@ def stop_reason(text, session_id, edited_hint=None):
         return None
     if not any(entry.get("kind") == "claim" and entry.get("id") == key
                for entry in rows):
-        note(session_id, "claim", detail, id=key, **reply_shape(text))
+        note(session_id, "claim", detail, id=key, **shape)
     return reason
 
 
@@ -1804,12 +1986,13 @@ def _failed_check(rows):
     return "a check"
 
 
-def _stop_block(text, session_id, edited_hint=None, rows=None):
+def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     """stop_reason's decision as (reason class, block text), without the ledger
     side effect. The class names the branch that refused the turn; the text is
     what the host shows the model.
 
-    Blocks only on evidence that is checkable: a forbidden opener or closer, a
+    Blocks only on what is checkable: the reply's shape (`_shape_block`: a
+    forbidden opener or closer, a list over the cap, prose not in Turkish), a
     completion/verification claim whose newest check did not pass, a check that
     passed before the newest write that changed the tree, or a turn that
     recorded a step and has no passing check - that last half is the
@@ -1817,13 +2000,10 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
     description is refused too. An explicit 'doğrulanmadı' clears the claim
     branches, so honest uncertainty is always allowed.
 
-    The two ends are judged before any evidence is read, the way the opener
-    always was: they are a rule about how the reply is written, so they hold for
-    a turn with no work in it too, and neither has a repair that depends on the
-    ledger. Both read the skill's own lists (`SYCOPHANT`, `CLOSER`); the opener
-    keeps its class name and the closer has its own, so the ledger tells the two
-    ends apart. Neither is cleared by the admission below: "doğrulanmadı"
-    excuses an unverified claim, not a sign-off.
+    The shape is judged before any evidence is read: it is a rule about how the
+    reply is written, so it holds for a turn with no work in it too, has no
+    repair that depends on the ledger, and is not cleared by the admission
+    below - "doğrulanmadı" excuses an unverified claim, not a sign-off.
 
     Branch order is the reason classes' contract: a new branch goes after the
     ones it overlaps, so it cannot swallow their class - the partial-failure
@@ -1837,26 +2017,9 @@ def _stop_block(text, session_id, edited_hint=None, rows=None):
     scoped the way `_partial_state`'s already was, and the Stop path still reads
     the file once per turn."""
     t = str(text or "")
-    if SYCOPHANT.search(t):
-        return ("placating opener",
-                "Reply opens with preamble or placation, which the output "
-                "contract bans (rule 10: no preamble, no recap, no closer). "
-                "Start with the answer: \"Great question\" / \"Let me...\" / "
-                "\"I'll...\" / \"Sure!\" / \"Looking at your...\" are never the "
-                "first line. If the user is right, state the fact and the fix in "
-                "one plain sentence - never \"haklısın\" / \"you're right\" / "
-                "\"detaylı bakmadım\" / an apology.")
-    # The reply's other end: only its last prose line is read, so a reply that
-    # ends on a code block, a heading or a table is not judged here at all, and a
-    # closer quoted inside a fence is not the reply's own.
-    last = _closing_prose(t.split("\n"))
-    if last and CLOSER.search(last):
-        return ("forbidden closer",
-                "Reply closes with a sign-off the output contract bans "
-                "(rule 10: no preamble, no recap, no closer): \"Let me know if "
-                "you need anything else\" / \"Hope this helps\" / \"Happy to "
-                "clarify\". End when the answer is done; if something is still "
-                "open, name the one next step instead.")
+    shaped = _shape_block(t, cwd)
+    if shaped[0]:
+        return shaped
     done, verified = claims(t)
     if NEGATED.search(t):
         return (None, None)

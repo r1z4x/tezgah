@@ -142,6 +142,41 @@ class OmpHook(TempHome):
         self.assertNotIn("**Turkish, BLUF.**", out["context"])
         self.assertIn("\033[33mpony\u25cb\033[0m", out["status"])
 
+    def test_a_subagent_gets_the_brief_not_the_parents_payload(self):
+        # a fan-out of task subagents each got the main payload: the indexer,
+        # the agent regeneration and the "run plan-status first" line
+        repo = self.make_repo()
+        plans = os.path.join(repo, ".tezgah", "plans", "open")
+        os.makedirs(plans)
+        with open(os.path.join(plans, "001-x.md"), "w") as fh:
+            fh.write("---\nid: 001\ntitle: x\n---\n## Next\ndo it\n")
+        main, _ = self.event({"event": "session_start", "cwd": repo,
+                              "session_id": "s"})
+        sub, proc = self.event({"event": "session_start", "cwd": repo,
+                                "session_id": "t", "subagent": True})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("plan-status", main["context"])
+        self.assertNotIn("plan-status", sub["context"])
+        self.assertIn("You are a subagent", sub["context"])
+        self.assertNotIn("You are a subagent", main["context"])
+
+    def test_session_start_names_the_specialists_omp_has(self):
+        repo = self.make_repo()
+        start = {"event": "session_start", "cwd": repo, "session_id": "s"}
+        out, _ = self.event(start)
+        self.assertNotIn("tezgah-explorer", out["context"])
+        agents = os.path.join(self.home, ".omp", "agent", "agents")
+        os.makedirs(agents)
+        for name in ("tezgah-explorer", "tezgah-orchestrator"):
+            open(os.path.join(agents, name + ".md"), "w").close()
+        out, _ = self.event(start)
+        self.assertIn("-> tezgah-explorer", out["context"])
+        # only the files that exist: no reviewer was installed
+        self.assertNotIn("tezgah-reviewer", out["context"])
+        self.touch(os.path.join(self.home, ".config", "tezgah", "orchestrate-off"))
+        out, _ = self.event(start)
+        self.assertNotIn("-> tezgah-explorer", out["context"])
+
     def test_status_answers_off_root(self):
         # the status line is the one global signal: tezgah loads as a globally
         # loaded rules file on omp, so the marks must not go silent off-root
@@ -246,6 +281,15 @@ class OmpHook(TempHome):
         self.assertEqual(len(files), 1, files)
         with open(os.path.join(ledger, files[0])) as fh:
             self.assertIn("orch", fh.read())
+
+    def test_a_skill_url_read_marks_the_skill_as_read(self):
+        # omp's read tool reaches a skill as `skill://<name>`, not as its path
+        repo = self.make_repo()
+        for path in ("skill://i-have-adhd", "skill://ponytail/SKILL.md",
+                     "skill://other"):
+            self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",
+                        "tool": "read", "input": {"path": path}})
+        self.assertEqual(self.kinds("s"), ["adhd", "pony"])
 
     def test_stop_blocks_a_done_claim_no_check_backs(self):
         repo = self.make_repo()
