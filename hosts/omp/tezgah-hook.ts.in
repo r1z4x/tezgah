@@ -42,7 +42,39 @@ function pythonBin(): string {
 
 // The status line refreshes on the events omp already emits - session start,
 // session switch, turn end, and the tool results that move a used mark - so the
-// extension polls nothing and holds no timer that a session switch could stale.
+// hook polls nothing. The one timer is the motion below: it runs only while the
+// agent works, redraws the line it already holds (no python per frame), goes
+// through omp's own isolated `ctx.setInterval`, and stops at the agent's
+// terminal end, a session switch and shutdown.
+
+// Motion: while the agent runs, the widget leads with a spinner, the tool that
+// is running and the seconds it has run - the way omp's own footer shows work.
+// The frames are braille, one cell each, and the prefix is dropped the moment
+// the agent stops, so an idle line never looks busy.
+const FRAMES = ["\u280b", "\u2819", "\u2839", "\u2838", "\u283c", "\u2834",
+  "\u2826", "\u2827", "\u2807", "\u280f"];
+const FRAME_MS = 100;
+
+// NO_COLOR / TEZGAH_STATUS_COLOR=0 are the same opt-outs the python renderer
+// reads; TEZGAH_STATUS_ANIMATE=0 keeps the colors and drops the motion.
+function colorOn(): boolean {
+  return process.env.NO_COLOR === undefined && process.env.TEZGAH_STATUS_COLOR !== "0";
+}
+
+function motionOn(): boolean {
+  return process.env.TEZGAH_STATUS_ANIMATE !== "0";
+}
+
+// The busy prefix for one frame: spinner, then the running tool (or "thinking"
+// between tools) and the whole run's seconds, then a dim bar before the marks.
+export function busyPrefix(frame: number, tool: string, secs: number,
+                           color: boolean): string {
+  const spin = FRAMES[((frame % FRAMES.length) + FRAMES.length) % FRAMES.length];
+  const what = (tool || "thinking") + " " + Math.max(0, Math.floor(secs)) + "s";
+  if (!color) return spin + " " + what + " | ";
+  return "\u001b[1;35m" + spin + "\u001b[0m \u001b[35m" + what +
+    "\u001b[0m \u001b[2m\u2502\u001b[0m ";
+}
 
 // omp sanitizes what `setStatus` stores (ANSI/VT sequences stripped), so the
 // per-mark colors the hook returns survive only through the widget path, which
@@ -219,9 +251,62 @@ export default function tezgahOmp(pi: any): void {
   // session switch still ask for the probe, so the mark is fresh at every turn
   // boundary - where it is read.
   let idxGlyph: string | undefined;
+  // The motion's state: the last line the hook drew, whether the agent is
+  // running, the tool in flight and when the run began. A frame repaints from
+  // these alone, so it forks nothing.
+  let line = "";
+  let busy = false;
+  let tool = "";
+  let since = 0;
+  let frame = 0;
+  let timer: any;
+  let timerCtx: any;
+  const paint = (ctx: any): void => {
+    if (hookError) return markBroken(ctx);
+    if (!line) return;
+    draw(ctx, busy && timer !== undefined
+      ? busyPrefix(frame, tool, (Date.now() - since) / 1000, colorOn()) + line
+      : line);
+  };
+  const stopMotion = (): void => {
+    if (timer !== undefined) {
+      try {
+        if (typeof timerCtx?.clearTimer === "function") timerCtx.clearTimer(timer);
+        else clearInterval(timer);
+      } catch { /* a timer the host already cleared is gone either way */ }
+    }
+    timer = undefined;
+    timerCtx = undefined;
+  };
+  // Only the widget renders a frame as it is; the setStatus fallback strips
+  // ANSI and would redraw the host's own status bar ten times a second, so a
+  // build without the widget keeps the still line.
+  const startMotion = (ctx: any): void => {
+    if (timer !== undefined || !motionOn()) return;
+    if (typeof ctx?.ui?.setWidget !== "function") return;
+    const tick = (): void => {
+      try {
+        frame += 1;
+        paint(ctx);
+      } catch { /* a frame is cosmetic; the next one tries again */ }
+    };
+    try {
+      timerCtx = ctx;
+      timer = typeof ctx.setInterval === "function"
+        ? ctx.setInterval(tick, FRAME_MS)
+        : setInterval(tick, FRAME_MS);
+      timer?.unref?.();
+    } catch {
+      timer = undefined;
+      timerCtx = undefined;
+    }
+  };
   const show = (ctx: any, res: any): void => {
     if (res.idx) idxGlyph = res.idx;
-    if (res.status) draw(ctx, res.status);
+    if (res.status) {
+      line = res.status;
+      paint(ctx);
+    }
   };
   // A failed hook answers nothing, so the last good line would keep claiming a
   // gate that is not running: the widget is repainted with the failure instead.
@@ -230,6 +315,35 @@ export default function tezgahOmp(pi: any): void {
     if (hookError) return markBroken(ctx);
     show(ctx, res);
   };
+
+  pi.on("agent_start", async (_event: any, ctx: any) => {
+    busy = true;
+    tool = "";
+    since = Date.now();
+    startMotion(ctx);
+    paint(ctx);
+  });
+  pi.on("tool_execution_start", async (event: any, ctx: any) => {
+    tool = String(event?.toolName ?? event?.name ?? "");
+    if (busy) paint(ctx);
+  });
+  pi.on("tool_execution_end", async (_event: any, ctx: any) => {
+    tool = "";
+    if (busy) paint(ctx);
+  });
+  // `isTerminal: false` means omp will resume the run (retry, compaction, a
+  // queued delivery), so the spinner keeps going; an absent field is terminal.
+  pi.on("agent_end", async (event: any, ctx: any) => {
+    if (event?.isTerminal === false) return;
+    busy = false;
+    tool = "";
+    stopMotion();
+    paint(ctx);
+  });
+  pi.on("session_shutdown", async () => {
+    busy = false;
+    stopMotion();
+  });
 
   pi.on("session_start", async (_event: any, ctx: any) => {
     const session = sessionOf(ctx);
@@ -265,7 +379,11 @@ export default function tezgahOmp(pi: any): void {
                                  display: true, attribution: "agent" } } : undefined;
   };
 
-  pi.on("session_switch", async (_event: any, ctx: any) => refresh(ctx));
+  pi.on("session_switch", async (_event: any, ctx: any) => {
+    busy = false;
+    stopMotion();
+    refresh(ctx);
+  });
   pi.on("turn_end", async (_event: any, ctx: any) => refresh(ctx));
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {

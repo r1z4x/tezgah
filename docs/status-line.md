@@ -55,6 +55,13 @@ color is additive, never the only carrier of the state — the accessibility rul
 (`_seg_text()`, hooks/tezgah_context.py:1341-1350). `idx` is the one exception: its glyph *is* the index's
 state, mapped back by `IDX_STATE` (hooks/tezgah_context.py:1235).
 
+On a colored surface each chip also leads with its icon (`ICONS`): `⚒` tezgah,
+`✂` pony, `▶` exec, `◎` adhd, `⚖` consult, `⚗` research, `⌬` graph, `⎇` orch,
+`⚑` judge, `⌕` idx, `☰` plans. Every icon is a text-presentation symbol one cell
+wide - never an emoji - so a terminal does not overflow the line. The plain line
+(pipes, `--status`, Codex's `systemMessage`, omp's `setStatus` fallback) carries
+no icons and keeps its exact shape.
+
 ## Per mark
 
 Flips come from the flag table (hooks/tezgah_context.py:1299-1309) and the
@@ -157,6 +164,14 @@ Every other surface reads the store.
   builds the line and carries `idx_override`, so a per-tool redraw forks no git
   (hosts/omp/hook.py:86-98); it redraws on session start, session switch, turn end
   and each watched tool result (hosts/omp/tezgah-hook.ts.in:233-234,245-249).
+  **Motion:** while the agent runs (`agent_start` until an `agent_end` whose
+  `isTerminal` is not `false`) the widget leads with a braille spinner, the tool
+  in flight (`tool_execution_start`/`_end`, "thinking" between tools) and the
+  run's seconds, then the marks. The frames (`FRAME_MS` = 100 ms) run on omp's
+  isolated `ctx.setInterval`, repaint the line the extension already holds and
+  never ask the hook; they stop at the terminal end, a session switch and
+  `session_shutdown`. No widget (the `setStatus` fallback) means no motion, and
+  `TEZGAH_STATUS_ANIMATE=0` keeps the colors and drops the motion.
 - **opencode** — hosts/opencode/tui/tezgah-tui.tsx: a local TUI plugin
   (`tui.json`'s `plugin` array, not the server plugin) registering an `app_bottom`
   slot, shelling out to `tezgah-status <dir> --json <sessionID>`, coloring each

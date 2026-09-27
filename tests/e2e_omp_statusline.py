@@ -38,7 +38,7 @@ TIMEOUT = 45.0
 # (hooks/tezgah_context.render_line): a fresh session has not read the skill's
 # full text yet, so the mark starts armed. omp 18.x renders the widget through
 # compound SGR (`\x1b[0;33m`), so the leading parameters are matched loosely.
-MARK = re.compile(r"\x1b\[[0-9;]*33mpony")
+MARK = re.compile(r"\x1b\[[0-9;]*33m(?:\S )?pony")
 
 
 def omp_bin():

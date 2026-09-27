@@ -202,12 +202,12 @@ class HealthLines(TempHome):
                               "session_id": "s", "color": True},
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("\033[32mexec\u2713\033[0m", out)      # always-on
-        self.assertIn("\033[33mpony\u25cb\033[0m", out)      # armed, not read
-        self.assertIn("\033[33madhd\u25cb\033[0m", out)      # armed, not read
-        self.assertIn("\033[33mconsult\u25cb\033[0m", out)   # armed, unused
-        self.assertIn("\033[31mresearch\u2717\033[0m", out)  # off
-        self.assertIn("\033[2midx\u2013\033[0m", out)        # no state
+        self.assertIn("\033[32m\u25b6 exec\u2713\033[0m", out)      # always-on
+        self.assertIn("\033[33m\u2702 pony\u25cb\033[0m", out)      # armed, not read
+        self.assertIn("\033[33m\u25ce adhd\u25cb\033[0m", out)      # armed, not read
+        self.assertIn("\033[33m\u2696 consult\u25cb\033[0m", out)   # armed, unused
+        self.assertIn("\033[31m\u2697 research\u2717\033[0m", out)  # off
+        self.assertIn("\033[2m\u2315 idx\u2013\033[0m", out)        # no state
         self.assertIn("\033[2m  \u00b7  \033[0m", out)
 
     def test_open_plans_segment(self):

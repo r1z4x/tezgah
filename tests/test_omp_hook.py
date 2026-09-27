@@ -140,7 +140,7 @@ class OmpHook(TempHome):
         # omp's managed RULES.md already carries the always-on core, so the
         # session payload must not pay for the contract a second time
         self.assertNotIn("**Turkish, BLUF.**", out["context"])
-        self.assertIn("\033[33mpony\u25cb\033[0m", out["status"])
+        self.assertIn("\033[33m\u2702 pony\u25cb\033[0m", out["status"])
 
     def test_a_subagent_gets_the_brief_not_the_parents_payload(self):
         # a fan-out of task subagents each got the main payload: the indexer,
@@ -182,7 +182,7 @@ class OmpHook(TempHome):
         # loaded rules file on omp, so the marks must not go silent off-root
         out, proc = self.event({"event": "status", "cwd": self.home})
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("\033[33mpony\u25cb\033[0m", out["status"])
+        self.assertIn("\033[33m\u2702 pony\u25cb\033[0m", out["status"])
 
     def test_status_drops_color_when_the_environment_opts_out(self):
         # NO_COLOR must strip the escapes at the source, so a terminal that

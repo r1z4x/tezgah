@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The status line moves while the agent works, and every mark has an icon.**
+  On omp the widget leads with a braille spinner, the tool in flight and the
+  run's seconds from `agent_start` to the terminal `agent_end`, repainted every
+  100 ms on omp's isolated timer from the line already held - no hook call per
+  frame; it stops on the terminal end, a session switch and shutdown, needs the
+  widget surface, and `TEZGAH_STATUS_ANIMATE=0` turns it off. On every colored
+  surface (omp's widget, the Claude and Cursor status lines) each chip leads with
+  a one-cell icon (`⚒ ✂ ▶ ◎ ⚖ ⚗ ⌬ ⎇ ⚑ ⌕ ☰`) and the version prefix is bold cyan;
+  the plain line is unchanged.
+
 ## [0.18.0] - 2026-09-27
 
 ### Added

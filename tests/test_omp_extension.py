@@ -51,7 +51,7 @@ class OmpExtension(TempHome):
             return [json.loads(line) for line in fh if line.strip()]
 
     def drive(self, calls, cwd=None, no_widget=False, widget_throws=False,
-              **extra):
+              env=None, **extra):
         spec = {"extension": self.ext, "dir": cwd or self.make_repo(),
                 "session": "s", "calls": calls, **extra}
         if no_widget:
@@ -60,7 +60,7 @@ class OmpExtension(TempHome):
             spec["widgetThrows"] = True
         proc = subprocess.run([self.node, support.OMP_HARNESS],
                               input=json.dumps(spec), capture_output=True,
-                              text=True, env=self.env(), timeout=120)
+                              text=True, env=env or self.env(), timeout=120)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.stderr = proc.stderr
         out = json.loads(proc.stdout)
@@ -76,8 +76,10 @@ class OmpExtension(TempHome):
         out = self.drive([])
         self.assertEqual(
             sorted(out["handlers"]),
-            ["before_agent_start", "session_start", "session_stop",
-             "session_switch", "tool_call", "tool_result", "turn_end"])
+            ["agent_end", "agent_start", "before_agent_start", "session_shutdown",
+             "session_start", "session_stop", "session_switch", "tool_call",
+             "tool_execution_end", "tool_execution_start", "tool_result",
+             "turn_end"])
 
     def test_session_start_draws_the_status_line_and_injects_the_state(self):
         out = self.drive([{"event": "session_start"}])
@@ -87,7 +89,7 @@ class OmpExtension(TempHome):
         # the whole first mark carries its state color: setStatus, omp's other
         # surface, sanitizes exactly these escapes away. Armed, not read: the
         # skill's full text is a read this session has not made yet.
-        self.assertIn("\u001b[33mpony\u25cb\u001b[0m", content[0])
+        self.assertIn("\u001b[33m\u2702 pony\u25cb\u001b[0m", content[0])
         self.assertEqual(options["placement"], "belowEditor")
         self.assertEqual(out["statuses"], [])
         message = out["sent"][0]["message"]
@@ -96,6 +98,58 @@ class OmpExtension(TempHome):
         self.assertNotIn("**Turkish, BLUF.**", message["content"])
         self.assertIs(message["display"], False)
         self.assertEqual(out["sent"][0]["options"]["deliverAs"], "nextTurn")
+
+    # ---- motion: the spinner while the agent works -------------------------
+    def motion(self, calls, **extra):
+        hook, _ = self.fake_hook({"status": "LINE"})
+        self.ext = self.make_ext(hook, name="motion-hook.ts")
+        return self.drive(calls, **extra)
+
+    def test_a_running_agent_draws_a_spinner_the_tool_and_the_line(self):
+        out = self.motion([{"event": "session_start"},
+                           {"event": "agent_start"},
+                           {"event": "tool_execution_start",
+                            "arg": {"toolName": "bash"}},
+                           {"event": "__tick"}, {"event": "__tick"}])
+        self.results(out)
+        self.assertEqual([t["ms"] for t in out["timers"]], [100])
+        frames = [w[1][0] for w in out["widgets"]]
+        last = frames[-1]
+        self.assertTrue(last.endswith("LINE"), last)
+        self.assertIn("bash", last)
+        # the frame moves: two ticks, two different spinner cells
+        spins = [f for f in frames if "bash" in f]
+        self.assertGreater(len({f.split(" ")[0] for f in spins}), 1, spins)
+
+    def test_the_spinner_stops_at_the_terminal_end_only(self):
+        out = self.motion([{"event": "session_start"},
+                           {"event": "agent_start"},
+                           {"event": "agent_end", "arg": {"isTerminal": False}},
+                           {"event": "__tick"},
+                           {"event": "agent_end", "arg": {}}])
+        self.results(out)
+        self.assertEqual([t["live"] for t in out["timers"]], [False])
+        frames = [w[1][0] for w in out["widgets"]]
+        # a non-terminal end keeps the motion; the terminal one leaves the bare line
+        self.assertIn("thinking", frames[-2])
+        self.assertEqual(frames[-1], "LINE")
+
+    def test_frames_ask_the_hook_nothing(self):
+        hook, log = self.fake_hook({"status": "LINE"})
+        self.ext = self.make_ext(hook, name="quiet-hook.ts")
+        out = self.drive([{"event": "session_start"}, {"event": "agent_start"}]
+                         + [{"event": "__tick"}] * 5)
+        self.results(out)
+        self.assertEqual([p["event"] for p in self.asked(log)], ["session_start"])
+
+    def test_motion_is_off_without_the_widget_and_when_opted_out(self):
+        out = self.motion([{"event": "session_start"}, {"event": "agent_start"}],
+                          no_widget=True)
+        self.assertEqual(out["timers"], [])
+        out = self.motion([{"event": "session_start"}, {"event": "agent_start"}],
+                          env=self.env(extra={"TEZGAH_STATUS_ANIMATE": "0"}))
+        self.assertEqual(out["timers"], [])
+        self.assertEqual(out["widgets"][-1][1][0], "LINE")
 
     def test_before_agent_start_returns_a_hidden_reminder(self):
         out = self.drive([{"event": "before_agent_start",

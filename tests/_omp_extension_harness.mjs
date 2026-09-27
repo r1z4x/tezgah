@@ -48,6 +48,7 @@ try {
   }
   // spec.sessionFile / spec.parentSession stand in for omp's session file and
   // header, which is how the extension tells a task subagent from a main session
+  const timers = []
   const ctx = {
     cwd: spec.dir,
     sessionManager: {
@@ -56,11 +57,24 @@ try {
       getHeader: () => (spec.parentSession ? { parentSession: spec.parentSession } : {}),
     },
     ui,
-    setInterval: () => ({ timer: true }),
-    clearTimer: () => {},
+    // omp's isolated timers, recorded so a call can tick them: the extension's
+    // motion must redraw from what it holds and stop when the agent does
+    setInterval: (fn, ms) => {
+      const t = { fn, ms, live: true }
+      timers.push(t)
+      return t
+    },
+    clearTimer: (t) => {
+      if (t) t.live = false
+    },
   }
   const results = []
   for (const call of spec.calls || []) {
+    if (call.event === "__tick") {
+      for (const t of timers) if (t.live) t.fn()
+      results.push({ event: "__tick" })
+      continue
+    }
     const fn = handlers[call.event]
     if (typeof fn !== "function") {
       results.push({ event: call.event, error: "no such handler" })
@@ -75,7 +89,8 @@ try {
       })
     }
   }
-  out = { handlers: Object.keys(handlers), results, sent, statuses, widgets }
+  out = { handlers: Object.keys(handlers), results, sent, statuses, widgets,
+          timers: timers.map((t) => ({ ms: t.ms, live: t.live })) }
 } catch (err) {
   out = { fatal: String(err && err.stack ? err.stack : err) }
 }

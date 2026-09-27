@@ -1299,6 +1299,16 @@ GLYPHS = {"on": "✓", "ready": "○", "off": "✗", "info": ""}
 COLORS = {"on": "\033[32m", "ready": "\033[33m", "off": "\033[31m", "info": "\033[2m"}
 DIM = "\033[2m"
 RESET = "\033[0m"
+# One icon per mark, drawn only where color is: a colored surface is a terminal
+# or a UI that renders the line as it is, so the icon reads the way omp's own
+# footer reads (`◒ model > 📁 dir > ⑂ branch`). Every icon is a text-presentation
+# symbol of East Asian width Neutral - never an emoji - so a terminal counts it
+# as one cell and the line does not overflow its width. The plain line (pipes,
+# Codex's systemMessage, omp's setStatus fallback) keeps its exact old shape.
+ICONS = {"tezgah": "\u2692", "pony": "\u2702", "exec": "\u25b6", "adhd": "\u25ce",
+         "consult": "\u2696", "research": "\u2697", "graph": "\u232c",
+         "orch": "\u2387", "judge": "\u2691", "idx": "\u2315", "plans": "\u2630"}
+HEAD = "\033[1;36m"
 IDX_STATE = {"✓": "on", "↻": "ready", "✗": "off", "?": "info", "–": "info"}
 LEGEND = """\
 tezgah status marks (state first, glyph after the name; the whole name+glyph is
@@ -1414,7 +1424,9 @@ def _seg_text(seg, color):
     chip = seg["text"] + seg["glyph"]
     if not color or not chip:
         return chip
-    return COLORS[seg["state"]] + chip + RESET
+    icon = ICONS.get(seg.get("key"), "")
+    chip = (icon + " " + chip) if icon else chip
+    return (HEAD if seg.get("key") == "tezgah" else COLORS[seg["state"]]) + chip + RESET
 
 
 def render_line(segs, color=False):
