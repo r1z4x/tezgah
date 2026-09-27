@@ -866,6 +866,43 @@ class CodexHome(SetupBase):
                         "wired: %r" % row)
 
 
+class CodexGlobalRules(SetupBase):
+    """Codex had no always-on file: the core rode only the SessionStart hook's
+    message. The install writes it as a managed block in the global AGENTS.md -
+    never a project file - keeping the user's own lines, and the uninstall
+    takes exactly the block back."""
+
+    def test_the_block_is_written_beside_the_users_lines_and_removed(self):
+        rules = self.path(".codex", "AGENTS.md")
+        with open(rules, "w") as fh:
+            fh.write("# mine\nkeep this line\n")
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+        text = self.read_text(rules)
+        self.assertIn("keep this line", text)
+        self.assertIn("<!-- tezgah:start", text)
+        self.assertIn("**Turkish, BLUF.**", text)
+        # a second install replaces the block rather than stacking another
+        self.setup("--install", "--hosts", "codex")
+        self.assertEqual(self.read_text(rules).count("<!-- tezgah:start"), 1)
+        self.assertTrue(self.row(self.setup("--hosts", "codex").stdout,
+                                 "AGENTS.md carries the contract")
+                        .strip().startswith("ok"))
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read_text(rules), "# mine\nkeep this line\n")
+
+    def test_an_existing_override_file_is_the_one_that_takes_the_block(self):
+        # Codex reads AGENTS.override.md instead of AGENTS.md when it exists
+        override = self.path(".codex", "AGENTS.override.md")
+        with open(override, "w") as fh:
+            fh.write("override line\n")
+        self.setup("--install", "--hosts", "codex")
+        self.assertIn("<!-- tezgah:start", self.read_text(override))
+        self.assertFalse(os.path.exists(self.path(".codex", "AGENTS.md")))
+        self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(self.read_text(override), "override line\n")
+
+
 class CursorMatcher(SetupBase):
     """Cursor runs a preToolUse hook only for the tool types its matcher names,
     so a matcher that omits the write tools leaves the gate's edit branches

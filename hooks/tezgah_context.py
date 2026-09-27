@@ -169,7 +169,10 @@ def skill_read_kind(tool, inp):
                    or inp.get("path") or "")
     path = path.replace("\\", "/")
     for name, mark in SKILL_MARKS.items():
-        if path.endswith("skills/%s/SKILL.md" % name):
+        # omp's read tool also takes the internal URL `skill://<name>`, which is
+        # the same SKILL.md
+        if (path.endswith("skills/%s/SKILL.md" % name)
+                or path in ("skill://" + name, "skill://%s/SKILL.md" % name)):
             return mark
     return None
 
@@ -287,6 +290,15 @@ def sync_agents(root):
     try:
         from tezgah_agents import sync_root
         return sync_root(root)
+    except Exception:
+        return None
+
+
+def steering(root, host):
+    """The one line naming the generated specialists (best effort)."""
+    try:
+        from tezgah_agents import steering as line
+        return line(root, host)
     except Exception:
         return None
 
@@ -712,7 +724,7 @@ DEFAULT_BUDGET = 12000
 # happens - then the delta, and the skill pointer last. A key absent from this
 # tuple is never dropped: the always-on core and the per-turn reminder ARE the
 # rules, and a budget that can spend them turns bloat into rule loss.
-DROP_ORDER = ("lessons", "plans", "subagents", "consult", "research",
+DROP_ORDER = ("lessons", "plans", "subagents", "steer", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate", "index",
               "scratch", "task", "delta", "pointer")
 
@@ -932,6 +944,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         if note:
             parts.append(("subagents",
                           "Subagents (this repo, generated): %s" % note))
+        # orchestrate-off says "do not delegate", so no line may name delegates
+        steer = (None if off("orchestrate-off")
+                 else steering(root, (payload or {}).get("host")))
+        if steer:
+            parts.append(("steer", steer))
     if event in ("session_start", "post_compact"):
         plans = open_plans(root)
         if plans:

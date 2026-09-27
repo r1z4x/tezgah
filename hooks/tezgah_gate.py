@@ -1050,13 +1050,18 @@ def decision(tool, inp, cwd, session_id=None):
     if not base:
         return None
     t = str(tool or "").lower()
-    sub = inp.get("subagent_type") or (inp.get("args") or {}).get("subagent_type")
+    # Claude's Task names the agent `subagent_type`; omp's task names it `agent`,
+    # on the call (flat shape) or on each `tasks[]` item (batch shape).
+    subs = [inp.get("subagent_type"),
+            (inp.get("args") or {}).get("subagent_type"), inp.get("agent")]
+    subs += [item.get("agent") for item in inp.get("tasks") or ()
+             if isinstance(item, dict)]
     # The body a shell call writes, read once: the three write-tool-only rules
     # below reach it through the shell (see the section above). None for every
     # tool that is not a shell, and for a shell line that writes no body.
     shell_body = (shell_write_body(inp.get("command"), cwd)
                   if t in BASH_TOOLS else None)
-    if t in ("agent", "task", "subagent") and explored(sub):
+    if t in ("agent", "task", "subagent") and any(explored(s) for s in subs):
         return _deny(session_id, "explorer", EXPLORE_DENY, tool, inp, base)
     # anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
     # failure disappears. This is the mechanical half of the integrity rule; the

@@ -190,6 +190,20 @@ class Generation(AgentsBase):
         self.assertIn("You may use: the `%s` CLI, read, grep and glob. Nothing else."
                       % sys.executable, body)
 
+    def test_omps_graph_roles_have_a_tool_that_runs_the_cli_they_name(self):
+        # omp's MCP device refuses a subagent's call while the parent holds the
+        # index, so the only graph such a role reaches is the CLI - and a tool
+        # list of read/grep/glob could not run it
+        out, proc = run_json([support.PROBE_AGENTS],
+                             {"fn": "omp", "root": self.repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for name in ("tezgah-explorer.md", "tezgah-reviewer.md"):
+            text = out[name]
+            head, _, body = text.partition("\n---\n")
+            self.assertIn("  - bash", head, name)
+            self.assertIn("`codegraph callers`", body, name)
+            self.assertNotIn("xd://mcp__codegraph_explore", body)
+
     def test_the_researcher_keeps_a_writable_sandbox_for_the_cli_it_drives(self):
         # The read-only flag is a behaviour, and for this role it must stay
         # false: the body tells it to run the orx CLI and to fall back to a host

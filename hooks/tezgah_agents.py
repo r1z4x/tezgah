@@ -26,7 +26,7 @@ import os
 import re
 import subprocess
 
-from tezgah_paths import (CONFIG_DIR, ai_research_dir, codegraph_bin,
+from tezgah_paths import (CONFIG_DIR, HOME, ai_research_dir, codegraph_bin,
                           have_consult_key, host_installed, off, orx_bin,
                           root_for, tool)
 
@@ -53,6 +53,13 @@ STACK_FILES = (("pyproject.toml", "python"), ("setup.py", "python"),
 GRAPH_TOOL = "codegraph_explore"
 GRAPH_CLI = ("callers", "callees", "impact", "affected", "node", "files")
 GRAPH_TOOLS = ", ".join("`codegraph %s`" % verb for verb in GRAPH_CLI)
+# The task class each generated specialist is for, in the order the steering
+# line names them. The orchestrator is not here: it is a primary agent, not one
+# the main thread delegates to.
+STEER = (("structure (who calls X, what breaks)", "tezgah-explorer"),
+         ("review of a diff", "tezgah-reviewer"),
+         ("second opinion", "tezgah-verifier"),
+         ("research", "tezgah-researcher"))
 
 
 def manifest_sha():
@@ -74,9 +81,27 @@ def _graph_howto(host):
         return ('Load the graph tool first: ToolSearch('
                 '"select:mcp__codegraph__%s"). For the rest use the CLI as a '
                 "shell command: %s." % (GRAPH_TOOL, GRAPH_TOOLS))
+    if host == "omp":
+        # omp's MCP device refuses a second session's call while another one
+        # holds the index ("Concurrent write refused"), and a subagent always
+        # runs beside its parent, so the CLI is the only graph it can reach.
+        return ("Use the codegraph CLI through bash (%s, `codegraph query`,\n"
+                "`codegraph status`). Do not call the `xd://mcp__codegraph_*`\n"
+                "devices: omp refuses them with \"Concurrent write refused\"\n"
+                "while the parent session holds the index." % GRAPH_TOOLS)
     return ("codegraph is registered as an MCP server (default tool\n"
             "`%s`) and the rest of the surface is the CLI (%s); use both as-is."
             % (GRAPH_TOOL, GRAPH_TOOLS))
+
+
+def _may_use(host):
+    """The read-only roles' tool sentence: on omp the graph is the CLI, so the
+    role has bash and the sentence bounds it to that CLI."""
+    if host == "omp":
+        return ("You may use: read, grep, glob, and bash for the `codegraph` CLI\n"
+                "only. Read-only: no writes, no edits, no other shell command.")
+    return ("You may use: the codegraph tools, read, grep and glob. Read-only:\n"
+            "no writes, no edits, no shell.")
 
 
 def detect_infra(root):
@@ -121,16 +146,17 @@ def _explorer_body(host):
         "the gaps: what `codegraph files` does not hold against `git ls-files`\n"
         "(extensionless scripts, dot-directories, generated code) and what a call\n"
         "graph is blind to (string dispatch, templates, dynamic calls). If the repo\n"
-        "has no index, say so and stop. Read-only: no writes, edits or shell.\n\n"
-        "You may use: the codegraph tools, read, grep and glob. Nothing else.\n\n"
+        "has no index, say so and stop.\n\n"
+        "%s\n\n"
         "Return the direct answer first in one or two sentences, then file:line\n"
-        "evidence, then a one-line Coverage note." % _graph_howto(host))
+        "evidence, then a one-line Coverage note."
+        % (_graph_howto(host), _may_use(host)))
 
 
 def _reviewer_body(host):
     return (
         "You are tezgah-reviewer, an adversarial code reviewer. Review a change,\n"
-        "not the whole repo. Load the graph tool and the codegraph CLI.\n\n"
+        "not the whole repo, with the code graph as below.\n\n"
         "%s\n\n"
         "Review the raw artifact, never a summary of it and never the author's\n"
         "self-assessment. Format, schema, frontmatter and spec-compliance problems\n"
@@ -157,8 +183,7 @@ def _reviewer_body(host):
         "suggestion (an improvement, not a flaw) - and a verbatim quote of the\n"
         "code it accuses; a finding about an absence carries no quote. Disclose\n"
         "the order you read the files in.\n\n"
-        "You may use: read, grep, glob, and the codegraph tools. Nothing else -\n"
-        "no writes, no edits, no shell. Read-only." % _graph_howto(host))
+        "%s" % (_graph_howto(host), _may_use(host)))
 
 
 def _researcher_body(_host):
@@ -291,13 +316,12 @@ def _toml_str(s):
     return "'''" + s.replace("'''", "''\\'") + "'''"
 
 
-def render_md_omp(name, description, readonly, body, tools=None):
+def render_md_omp(name, description, body, tools=("read", "grep", "glob", "bash")):
     """omp subagent markdown: name/description frontmatter plus a tool list.
 
-    omp has no `readonly` key, so a read-only role gets a read-only tool set."""
-    if tools is None:
-        tools = (["read", "grep", "glob"] if readonly
-                 else ["read", "grep", "glob", "bash"])
+    omp has no `readonly` key. Every role gets bash: the read-only ones are the
+    graph roles, whose graph on omp is the `codegraph` CLI (see _graph_howto),
+    and their body bounds the shell to that CLI."""
     lines = ["---", "name: %s" % name, "description: >"]
     lines += _fold(description)
     lines.append("tools:")
@@ -313,12 +337,33 @@ def omp_user_agents(root="~"):
     names = [r[0] for r in active]
     if not names:
         return {}
-    out = {name + ".md": render_md_omp(name, desc, readonly, body("omp"))
-           for name, desc, _cap, body, readonly in active}
+    out = {name + ".md": render_md_omp(name, desc, body("omp"))
+           for name, desc, _cap, body, _readonly in active}
     out["tezgah-orchestrator.md"] = render_md_omp(
-        "tezgah-orchestrator", ORCH_DESC, False, _orch_body(names),
-        tools=["read", "grep", "glob", "bash", "task"])
+        "tezgah-orchestrator", ORCH_DESC, _orch_body(names),
+        tools=("read", "grep", "glob", "bash", "task"))
     return out
+
+
+def steering(root, host=None):
+    """One line naming the generated specialists this host can spawn, or None.
+
+    Nothing else in the contract points the main agent at them, so a model
+    reached for the host's generic explorer instead. Existence is read from
+    disk, not from the capabilities: a specialist is named only when its file
+    is there for the host to load - omp's user agent dir on omp, the repo's
+    generated dirs everywhere else."""
+    if host == "omp":
+        dirs = [os.path.join(HOME, ".omp", "agent", "agents")]
+    else:
+        dirs = [os.path.join(root, d) for d in set(HOST_DIRS.values())]
+    have = {os.path.splitext(os.path.basename(p))[0]
+            for d in dirs for p in glob.glob(os.path.join(d, "tezgah-*.*"))}
+    pairs = ["%s -> %s" % (task, name) for task, name in STEER if name in have]
+    if not pairs:
+        return None
+    return ("Specialists for this host: %s. Spawn them by name instead of a "
+            "generic explorer or task agent." % "; ".join(pairs))
 
 
 def render_toml(name, description, readonly, body):

@@ -859,6 +859,15 @@ def install_codex():
     mcp = os.path.join(CODEX, "bin", "consult")
     print(link(os.path.join(tp.BIN_DIR, "consult"), mcp))
     ensure_toml_mcp(os.path.join(CODEX, "config.toml"))
+    # The always-on core as a managed block in Codex's global instructions: the
+    # SessionStart hook's context is one message, where this file is the
+    # instructions Codex keeps for the whole session. Global, like omp's
+    # RULES.md, because a per-project file would be a tracked project file.
+    rules = codex_rules()
+    root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
+    set_managed_md(rules, tezgah_context.render(
+        tezgah_context.always_on_core(), root))
+    print("%s %s (always-on contract)" % (OK, rules))
 
 
 def _toml_str(value):
@@ -1621,6 +1630,41 @@ def set_managed_md(path, block, start="<!-- tezgah:start -->",
     return write_if_changed(path, text)
 
 
+def strip_managed_md(path):
+    """Remove set_managed_md's block, keeping the user's lines; a file left
+    holding nothing else is removed."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return
+    kept = re.sub(r"<!-- tezgah:start -->.*?<!-- tezgah:end -->\n?",
+                  "", text, flags=re.S).strip()
+    if kept == text.strip():
+        return
+    if kept:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(kept + "\n")
+        print("%s stripped the tezgah block from %s" % (OK, path))
+    else:
+        os.remove(path)
+        print("%s removed %s" % (OK, path))
+
+
+# Codex's global instruction files in precedence order: it reads the override
+# instead of AGENTS.md when the override exists.
+CODEX_RULES = ("AGENTS.override.md", "AGENTS.md")
+
+
+def codex_rules():
+    """The global instructions file Codex loads (CODEX_RULES' first that
+    exists, else AGENTS.md)."""
+    for name in CODEX_RULES:
+        if os.path.exists(os.path.join(CODEX, name)):
+            return os.path.join(CODEX, name)
+    return os.path.join(CODEX, CODEX_RULES[-1])
+
+
 def install_omp():
     print("\nomp:")
     mkdirp(OMP_AGENT)
@@ -2340,10 +2384,10 @@ def verify_uninstall(hosts, full):
         else:
             print("%s %s" % (OK, label))
 
-    def clean(label, paths):
+    def clean(label, paths, needle="tezgah"):
         left = []
         for p in paths:
-            ok, leftover = _text_clean(p)
+            ok, leftover = _text_clean(p, needle)
             if not ok:
                 left.append(leftover)
         rows.append((label, left))
@@ -2381,6 +2425,10 @@ def verify_uninstall(hosts, full):
                if os.path.lexists(os.path.join(CODEX, "skills", s))])
         clean("codex config.toml unwired", [os.path.join(CODEX, "config.toml")])
         claim("codex consult link gone", [os.path.join(CODEX, "bin", "consult")])
+        # the user's own AGENTS.md may name tezgah; only the block is ours
+        clean("codex global AGENTS.md block gone",
+              [os.path.join(CODEX, n) for n in CODEX_RULES],
+              needle="<!-- tezgah:start")
     if "opencode" in hosts:
         claim("opencode plugin unlinked",
               [os.path.join(OPENCODE, d, "tezgah.js") for d in ("plugins", "plugin")]
@@ -2556,6 +2604,9 @@ def uninstall_codex():
     strip_toml_mcp(os.path.join(CODEX, "config.toml"),
                    app_mcp_names() + [TEZGAH_MCP_NAME])
     unlink_tezgah(os.path.join(CODEX, "bin", "consult"))
+    # both names: the override may have appeared, or gone, since the install
+    for name in CODEX_RULES:
+        strip_managed_md(os.path.join(CODEX, name))
 
 
 def uninstall_opencode():
@@ -2644,22 +2695,7 @@ def uninstall_omp():
         else:
             os.remove(mcp_path)
             print("%s removed %s (nothing left but tezgah's keys)" % (OK, mcp_path))
-    rules = os.path.join(OMP_AGENT, "RULES.md")
-    try:
-        with open(rules, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError:
-        text = ""
-    if text:
-        kept = re.sub(r"<!-- tezgah:start -->.*?<!-- tezgah:end -->\n?",
-                      "", text, flags=re.S).strip()
-        if kept:
-            with open(rules, "w", encoding="utf-8") as fh:
-                fh.write(kept + "\n")
-            print("%s stripped the tezgah block from %s" % (OK, rules))
-        else:
-            os.remove(rules)
-            print("%s removed %s" % (OK, rules))
+    strip_managed_md(os.path.join(OMP_AGENT, "RULES.md"))
 
 
 UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
@@ -3258,6 +3294,8 @@ def host_checks_codex():
         ("skills linked%s" % where,
          skills_linked(os.path.join(CODEX, "skills"))),
         ("MCP in config.toml", "mcp_servers.codegraph" in toml),
+        ("%s carries the contract" % os.path.basename(codex_rules()),
+         not _text_clean(codex_rules(), "<!-- tezgah:start")[0]),
     ] + mcp_rows(toml_servers(toml_path), "config.toml") + [
         mcp_row(TEZGAH_MCP_NAME, toml_mcp_entry(toml_path, TEZGAH_MCP_NAME),
                 "config.toml", tezgah_mcp_command()),

@@ -46,9 +46,15 @@ try {
     ui.setWidget = () => { throw new Error("widget refused") }
     ui.setStatus = () => { throw new Error("status refused") }
   }
+  // spec.sessionFile / spec.parentSession stand in for omp's session file and
+  // header, which is how the extension tells a task subagent from a main session
   const ctx = {
     cwd: spec.dir,
-    sessionManager: { getSessionId: () => spec.session },
+    sessionManager: {
+      getSessionId: () => spec.session,
+      getSessionFile: () => spec.sessionFile,
+      getHeader: () => (spec.parentSession ? { parentSession: spec.parentSession } : {}),
+    },
     ui,
     setInterval: () => ({ timer: true }),
     clearTimer: () => {},

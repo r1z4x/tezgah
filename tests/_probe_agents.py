@@ -21,6 +21,8 @@ elif fn == "cleanup":
     out = ta.cleanup()
 elif fn == "detect":
     out = ta.detect_infra(p["root"])
+elif fn == "omp":
+    out = ta.omp_user_agents(p["root"])
 else:
     raise SystemExit("unknown fn: %s" % fn)
 print(json.dumps(out))

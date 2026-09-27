@@ -18,6 +18,24 @@ class CodexHook(TempHome):
         self.assertEqual(hso["hookEventName"], "SessionStart")
         self.assertTrue(hso["additionalContext"].strip())
 
+    def test_the_core_is_not_repeated_once_the_global_block_carries_it(self):
+        # tezgah-setup writes the core into Codex's global AGENTS.md; the
+        # session payload then carries the live state only
+        repo = self.make_repo()
+        codex = os.path.join(self.home, ".codex")
+        env = self.env(extra={"CODEX_HOME": codex})
+        start = {"hook_event_name": "SessionStart", "cwd": repo, "session_id": "s"}
+        before, _ = run_json([support.CODEX_HOOK], start, env=env)
+        self.assertIn("**Turkish, BLUF.**",
+                      before["hookSpecificOutput"]["additionalContext"])
+        self.touch(os.path.join(codex, "AGENTS.md"))
+        with open(os.path.join(codex, "AGENTS.md"), "w") as fh:
+            fh.write("<!-- tezgah:start --> (managed)\ncore\n<!-- tezgah:end -->\n")
+        after, _ = run_json([support.CODEX_HOOK], start, env=env)
+        context = after["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("**Turkish, BLUF.**", context)
+        self.assertIn("Graph", context)
+
     def test_stop_emits_system_message(self):
         repo = self.make_repo()
         out, proc = run_json([support.CODEX_HOOK],

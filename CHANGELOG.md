@@ -6,6 +6,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The Stop rule holds the reply's shape, not only its claims.** A prose reply
+  is checked for a contiguous list longer than five items (`i-have-adhd` rule 8),
+  for English prose in a Turkish session, an opener or closer, and a preamble
+  first line that announces instead of answers; the ledger now carries a
+  `reply_shape` row for every reply, so the rate exists. `adhd-off`/`.no-adhd`
+  remove the shape half, the language switch the language half.
+- **The always-on core reaches Codex as a managed block in its global
+  instructions file** (`~/.codex/AGENTS.override.md` when it exists, else
+  `AGENTS.md`), written and stripped by `tezgah-setup`; the Codex hook stops
+  injecting the core when the file carries it, so the rules are paid for once.
+  Which host gets the core through which path is now a table in
+  [hosts](hosts.md).
+- **A session is told which generated specialists exist** for its host - one
+  line naming structure, diff review, second opinion and research - and no line
+  when `orchestrate-off` is armed.
+
+### Fixed
+
+- **A crashing omp hook no longer prints a traceback into the TUI.** The
+  extension runs the hook with `stderr` piped instead of inherited, and the
+  failure line names the hook's own last stderr line (the `ImportError`, say)
+  rather than `Command failed`.
+
 ### Removed
 
 - **The consent gate and the untrusted sink rule are gone.** The gate refused
