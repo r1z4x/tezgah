@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **consult asks locally installed agent CLIs, from a choice the user
+  records.** A member is `cli:<name>[:<model>]` - omp, claude, codex, opencode
+  or cursor-agent, run non-interactively (flags read from each CLI's own
+  `--help`) in an empty temp dir with stdin closed and `TEZGAH_NESTED=1` - or
+  an HTTP provider
+  `<provider>[:<model>]`. `consult --use <member>[,<member>] [--judge <member>]`
+  writes the choice to `~/.config/tezgah/config.json` under `consult` and asks
+  nobody. With no record, `consult` exits 4 and prints one `offer:` line per
+  member this machine can run (the calling host's own CLI last); when every
+  recorded member fails, OpenRouter's default panel answers as the last
+  fallback if keyed and not already asked, else it exits 5 with `reoffer:`
+  lines naming only what is available and did not fail. The agent asks the
+  user with those options and records the answer; consult never switches
+  members on its own. `--provider`/`--models`/`--online`/`CONSULT_MODELS` keep
+  the one-run HTTP panel and its exit codes.
+- **An HTTP 402 is classed `credit`, not a key failure,** and its retry line
+  says the account is empty rather than sending the caller to rotate a key.
+- **Every surface that asks "can consult run" counts an agent CLI as much as
+  a key.** `tezgah_paths.have_consult_key()` is replaced by `consult_options()`
+  (the runnable members; empty means none) for the session line, the status
+  mark, the static rule choice, the verifier subagent gate and the doctor row;
+  codegen's key check is `have_provider_key()`. `~/.opencode/bin` joins the
+  per-user bin dirs, and `TEZGAH_CONSULT_CLIS` (comma list, empty for none)
+  pins which CLIs may count - the test suite sets it empty. The CONSULT rule, the no-consult appendix, the verifier
+  body and the contract skill describe the exit 4/5 ask-and-record step, and
+  the `tezgah_consult` MCP tool takes an optional `use` that is passed as
+  `--use`. `consult --use` is not an untrusted model read.
+
 ### Removed
 
 - **The consent gate and the untrusted sink rule are gone.** The gate refused

@@ -53,6 +53,9 @@ def base_env(home, roots=None, extra=None):
         # likewise orx: research routing is off unless a test points it at a real
         # binary, so the machine's own orx cannot leak into the assertions
         "TEZGAH_ORX_BIN": os.path.join(home, "no-such-orx"),
+        # likewise the agent CLIs consult can ask: none counts unless a test
+        # lists it, so a developer's own omp/claude/codex is not a consult option
+        "TEZGAH_CONSULT_CLIS": "",
     }
     if roots:
         env["TEZGAH_ROOTS"] = os.pathsep.join(roots)

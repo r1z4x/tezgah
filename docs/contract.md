@@ -137,7 +137,7 @@ tests look for (`hooks/tezgah_policy.py:828-829`), with its `{PONY_LEVEL}` slot 
 (`hooks/tezgah_context.py:135-144`). The session-start text ends with the pointer
 telling the model to load `tezgah-contract` for the deep detail
 (`hooks/tezgah_context.py:952`), whose two appendixes apply only on a machine
-missing the code graph or every consult key (`hooks/tezgah_policy.py:530-549`).
+missing the code graph or every consult option (`hooks/tezgah_policy.py:538-558`).
 
 ## How a rule is disarmed
 

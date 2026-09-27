@@ -127,7 +127,7 @@ context budget (always-on text; ~tokens = chars/4):
 
 `--report` (or a piped bare run) answers one question per host: is it wired? It
 prints the checkout, the roots and where they came from (`TEZGAH_ROOTS`, `config`
-or `default`), a common block (config, the code-graph binary, a provider key,
+or `default`), a common block (config, the code-graph binary, the consult options, a codegen key,
 `orx`, `npx`, the artifacts dir, `git`, the manifest, a stale-contract line), one
 block per host, then the budget (`bin/tezgah-setup:2743-2778`). Each block is
 `host_checks_<host>` (`bin/tezgah-setup:2743-3108`), and those rows are the source of truth for

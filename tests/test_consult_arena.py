@@ -298,5 +298,179 @@ class StalledBody(ArenaCase):
         self.assertIn("retry: raise --timeout", p.stdout)
 
 
+class Credit(ArenaCase):
+    def test_a_402_is_classed_credit_not_a_key_failure(self):
+        # 402 is an empty account: read as http-4xx, the hint sent the caller
+        # to rotate a key that was fine.
+        Fake.answers = {"a": 402}
+        p = self.consult("q?", "--models", "a")
+        self.assertEqual(p.returncode, 3, p.stdout)
+        self.assertIn("failed: a (credit)", p.stdout)
+
+
+# A stand-in agent CLI: logs its argv and cwd, then answers, referees or fails
+# as FAKE_<NAME> says. The prompt is its last argument.
+FAKE_CLI = '''#!%s
+import json, os, sys
+name = os.path.basename(sys.argv[0])
+with open(os.environ["FAKE_LOG"], "a") as fh:
+    fh.write(json.dumps({"name": name, "argv": sys.argv[1:], "cwd": os.getcwd(),
+                         "nested": os.environ.get("TEZGAH_NESTED")}) + "\\n")
+if os.environ.get("FAKE_" + name.upper()) == "fail":
+    sys.stderr.write("not logged in\\n")
+    sys.exit(1)
+prompt = sys.argv[-1]
+print(%r if prompt.startswith(%r) else "cli answer from " + name)
+''' % (sys.executable, DIGEST, REFEREE)
+
+
+class CliMembers(ArenaCase):
+    """Recorded members, agent CLIs among them: the offer, the record, the
+    run, the OpenRouter fallback and the reoffer. PATH holds only the fakes and
+    the system dirs, so the developer's own CLIs cannot answer for a case."""
+
+    def setUp(self):
+        super().setUp()
+        self.bin = os.path.join(self.tmp.name, "fakebin")
+        os.makedirs(self.bin)
+        self.env["PATH"] = self.bin + ":/usr/bin:/bin"
+        self.env["FAKE_LOG"] = os.path.join(self.tmp.name, "cli.log")
+        self.config = os.path.join(self.env["HOME"], ".config", "tezgah", "config.json")
+
+    def cli(self, *names):
+        for name in names:
+            path = os.path.join(self.bin, name)
+            with open(path, "w") as fh:
+                fh.write(FAKE_CLI)
+            os.chmod(path, 0o755)
+
+    def runs(self):
+        try:
+            with open(self.env["FAKE_LOG"]) as fh:
+                return [json.loads(line) for line in fh]
+        except OSError:
+            return []
+
+    def recorded(self):
+        with open(self.config) as fh:
+            return json.load(fh)
+
+    def lines(self, out, word):
+        return [ln.split(":", 1)[1].split(" - ")[0].strip()
+                for ln in out.splitlines() if ln.startswith(word + ":")]
+
+    def test_no_record_offers_what_is_available_and_asks_nobody(self):
+        self.cli("codex", "claude")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 4, p.stdout + p.stderr)
+        self.assertEqual(self.lines(p.stdout, "offer"),
+                         ["cli:claude", "cli:codex", "openrouter"])
+        self.assertEqual([], Fake.seen)
+        self.assertEqual([], self.runs())
+
+    def test_the_calling_host_s_own_cli_is_offered_last(self):
+        self.cli("claude", "omp", "codex")
+        self.env["OMPCODE"] = "1"
+        p = self.consult("q?")
+        self.assertEqual(self.lines(p.stdout, "offer")[-1], "cli:omp")
+
+    def test_nothing_available_is_exit_2(self):
+        del self.env["OPENROUTER_API_KEY"]
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertEqual([], self.runs())
+
+    def test_use_records_the_choice_beside_the_other_keys_and_asks_nobody(self):
+        self.cli("codex", "claude")
+        os.makedirs(os.path.dirname(self.config))
+        with open(self.config, "w") as fh:
+            json.dump({"hosts": ["omp"]}, fh)
+        p = self.consult("--use", "cli:codex:gpt-x,openrouter", "--judge", "cli:claude")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.recorded(), {
+            "hosts": ["omp"],
+            "consult": {"members": ["cli:codex:gpt-x", "openrouter"],
+                        "judge": "cli:claude"}})
+        self.assertEqual([], Fake.seen)
+        self.assertEqual([], self.runs())
+        before = os.stat(self.config).st_mtime_ns
+        self.consult("--use", "cli:codex:gpt-x,openrouter", "--judge", "cli:claude")
+        self.assertEqual(os.stat(self.config).st_mtime_ns, before)
+
+    def test_use_refuses_a_member_this_machine_cannot_run(self):
+        self.cli("codex")
+        for member in ("cli:claude", "cli:nope", "deepseek"):
+            with self.subTest(member=member):
+                p = self.consult("--use", "cli:codex," + member)
+                self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+                self.assertFalse(os.path.exists(self.config))
+
+    def test_recorded_cli_members_answer_from_an_empty_dir_and_the_judge_referees(self):
+        self.cli("codex", "claude")
+        self.consult("--use", "cli:codex:gpt-x,cli:claude", "--judge", "cli:claude")
+        p = self.consult("q about X?")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual([], Fake.seen)
+        runs = self.runs()
+        # the panel runs in parallel, so only the referee's place is fixed
+        self.assertEqual(sorted(r["name"] for r in runs[:2]), ["claude", "codex"])
+        self.assertEqual(runs[2]["name"], "claude")
+        codex = next(r["argv"] for r in runs if r["name"] == "codex")
+        self.assertEqual(codex[codex.index("-m") + 1], "gpt-x")
+        self.assertIn("q about X?", codex[-1])
+        self.assertTrue(runs[2]["argv"][-1].startswith(REFEREE))
+        for run in runs:  # never the caller's dir, and gone afterwards
+            self.assertNotEqual(run["cwd"], os.getcwd())
+            self.assertFalse(os.path.exists(run["cwd"]))
+            # the child's own tezgah hooks read this to skip the reply-shape rules
+            self.assertEqual(run["nested"], "1")
+        self.assertIn("cli answer from codex", p.stdout)
+        self.assertIn("referee: cli:claude", p.stdout)
+        self.assertNotIn("reoffer:", p.stdout)
+
+    def test_a_failed_member_leaves_the_rest_answering(self):
+        self.cli("codex", "claude")
+        self.env["FAKE_CODEX"] = "fail"
+        self.consult("--use", "cli:codex,cli:claude")
+        p = self.consult("q?", "--no-referee")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("cli:codex (cli-exit-1)", p.stdout)
+        self.assertIn("cli answer from claude", p.stdout)
+
+    def test_openrouter_answers_last_when_every_recorded_member_failed(self):
+        self.cli("codex")
+        self.env["FAKE_CODEX"] = "fail"
+        self.consult("--use", "cli:codex")
+        p = self.consult("q?", "--no-referee")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(sorted(self.models()),
+                         ["google/gemini-2.5-pro", "x-ai/grok-4.3"])
+        self.assertIn("fallback: openrouter", p.stdout)
+
+    def test_every_member_failed_reoffers_only_what_did_not_fail(self):
+        # openrouter is recorded and out of credit, so it is neither asked a
+        # second time as the fallback nor offered again
+        self.cli("codex", "claude")
+        self.env["FAKE_CODEX"] = "fail"
+        Fake.answers = {"google/gemini-2.5-pro": 402, "x-ai/grok-4.3": 402}
+        self.consult("--use", "cli:codex,openrouter")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 5, p.stdout + p.stderr)
+        self.assertEqual(len(Fake.seen), 2)
+        self.assertIn("(credit)", p.stdout)
+        self.assertEqual(self.lines(p.stdout, "reoffer"), ["cli:claude"])
+
+    def test_a_member_gone_since_the_record_is_reported_and_reoffered_around(self):
+        self.cli("codex")
+        del self.env["OPENROUTER_API_KEY"]
+        self.consult("--use", "cli:codex")
+        os.remove(os.path.join(self.bin, "codex"))
+        self.cli("claude")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 5, p.stdout + p.stderr)
+        self.assertIn("cli:codex (missing)", p.stdout)
+        self.assertEqual(self.lines(p.stdout, "reoffer"), ["cli:claude"])
+
+
 if __name__ == "__main__":
     unittest.main()

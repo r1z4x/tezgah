@@ -53,8 +53,10 @@ def tool_features(args):
 
 
 def tool_consult(args):
-    """`consult`: the question the external models answer, then the referee."""
-    return [tp.tool("consult"), args["question"]], None, None
+    """`consult`: the question the external models answer, then the referee;
+    with `use`, the members the user picked are recorded first (`--use`)."""
+    use = args.get("use")
+    return [tp.tool("consult"), args["question"]] + (["--use", use] if use else []), None, None
 
 
 def tool_research_check(args):
@@ -99,13 +101,18 @@ SPECS = (
     {"name": "tezgah_consult",
      "description": "A second opinion on one question: independent answers "
                     "from external models, then one referee. Answers from "
-                    "`consult`; needs a provider key.",
+                    "`consult`; needs an agent CLI or a provider key. Exit 4/5 "
+                    "lists the members to offer the user; pass the choice as "
+                    "`use`.",
      "delegate": "consult",
      "run": tool_consult,
      "timeout": CONSULT_TIMEOUT,
      "properties": {
          "question": ("string", "The question, stated so a model can answer "
-                                "it without the session's context.")},
+                                "it without the session's context."),
+         "use": ("string", "Members the user chose, comma-separated (e.g. "
+                           "`cli:codex,openrouter`): recorded as consult's "
+                           "choice before the question is asked.")},
      "required": ("question",)},
     {"name": "tezgah_research_check",
      "description": "Check a repository's research lines - their predictions, "

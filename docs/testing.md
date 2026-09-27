@@ -78,7 +78,7 @@ into the test process would answer about the developer's real machine.
 
 | Probe | Command | Entry points |
 |---|---|---|
-| `tests/_probe_paths.py` | argv op, no payload (`:11`) | `roots`, `root_for`, `off`, `default_root`, `config`, `off_dirs`, `cache_dir`, `which_user`, `orx_bin`, `have_consult_key`, `have_typesafe_key`, `codegraph_bin` |
+| `tests/_probe_paths.py` | argv op, no payload (`:11`) | `roots`, `root_for`, `off`, `default_root`, `config`, `off_dirs`, `cache_dir`, `which_user`, `orx_bin`, `consult_options`, `have_typesafe_key`, `codegraph_bin` |
 | `tests/_probe_context.py` | JSON on stdin, `{"fn": ...}` (`:4-5`) | `context_for`, `health_lines`, `health_segments`, `record` |
 | `tests/_probe_integrity.py` | JSON on stdin (`:4-6`) | `note`, `note_tool`, `note_turn`, `kinds`, `events`, `prior_calls`, `counters`, `shortcut_command`, `shortcut_edit`, `stop_reason`, `verify_command` |
 | `tests/_probe_agents.py` | JSON on stdin (`:3-4`) | `sync_root`, `opencode_json`, `cleanup`, `detect` |
@@ -131,8 +131,9 @@ rule on a synthetic input, not only on the shipped pair
 
 **Stay deterministic and isolated.** A temp HOME is the mechanism
 (`support.py:3-5`); `base_env` also points `TEZGAH_CODEGRAPH_BIN` and `TEZGAH_ORX_BIN`
-at paths that do not exist, so the machine's own graph binary and orx cannot leak
-into an assertion (`support.py:49-53`). The installer suite sets
+at paths that do not exist and sets `TEZGAH_CONSULT_CLIS` empty, so the
+machine's own graph binary, orx and agent CLIs cannot leak into an assertion
+(`support.py:49-58`). The installer suite sets
 `TEZGAH_NO_DEPS=1` so `--install` fetches nothing (`test_setup.py:57-59`). No test
 reaches the network: where a provider is needed it is a loopback stub
 (`test_providers.py:106-108`, `test_consult_arena.py:72`).

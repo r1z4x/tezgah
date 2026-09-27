@@ -27,7 +27,7 @@ PROPERTIES = {
     "tezgah_status": {"path"},
     "tezgah_gate_check": {"command", "path"},
     "tezgah_features": set(),
-    "tezgah_consult": {"question"},
+    "tezgah_consult": {"question", "use"},
     "tezgah_research_check": {"path"},
 }
 
@@ -243,7 +243,8 @@ class Calls(McpTest):
             "tezgah_gate_check": ({"command": "echo mcp-gate", "path": asked},
                                   "echo mcp-gate", here),
             "tezgah_features": ({}, None, here),
-            "tezgah_consult": ({"question": "mcp consult question"}, None, here),
+            "tezgah_consult": ({"question": "mcp consult question",
+                                "use": "cli:codex"}, None, here),
             # tezgah-research check is repo-scoped, so the path is its cwd
             "tezgah_research_check": ({"path": asked}, None, asked),
         }
@@ -266,6 +267,17 @@ class Calls(McpTest):
             else:
                 # nothing to feed it: the delegate gets no pipe at all
                 self.assertNotIn("stdin: ", log, name)
+        self.assertEqual(srv.close(), 0)
+
+    def test_consult_use_records_the_choice_before_the_question(self):
+        # the exit 4/5 answer on a host that only has the MCP surface: the
+        # user's pick has to reach consult as --use, beside the question
+        srv = self.server()
+        log = "\n".join(self.log(self.call(
+            srv, "tezgah_consult", {"question": "q", "use": "cli:codex,openrouter"})))
+        self.assertIn("args: q --use cli:codex,openrouter", log)
+        plain = "\n".join(self.log(self.call(srv, "tezgah_consult", {"question": "q"})))
+        self.assertNotIn("--use", plain)
         self.assertEqual(srv.close(), 0)
 
     def test_a_property_absent_from_the_call_is_absent_from_the_delegate(self):

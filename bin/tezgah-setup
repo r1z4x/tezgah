@@ -1018,7 +1018,7 @@ def opencode_contract():
         # built, never a path or a slug of its own
         blocks = [CODEGRAPH_RULE % CODEGRAPH_STATIC,
                   WORKFLOWS, ORCHESTRATE, PONYTAIL, ADHD, EXEC,
-                  CONSULT if tp.have_consult_key() else NO_CONSULT]
+                  CONSULT if tp.consult_options() else NO_CONSULT]
     # opencode has no session-start inject hook, so the always-on file must
     # carry the same pointer every hook host appends: without it the two-tier
     # codegen routing and the consult detail are never in front of the session.
@@ -3024,8 +3024,11 @@ def report(hosts):
     rows = [
         ("config %s" % tp.CONFIG, os.path.exists(tp.CONFIG)),
         ("%s on PATH" % tp.CODEGRAPH, bool(tp.codegraph_bin())),
-        ("consult/codegen provider key (OpenRouter, DeepSeek or Inception)",
-         tp.have_consult_key()),
+        ("consult option (agent CLI or provider key): %s"
+         % (", ".join(tp.consult_options()) or "none"),
+         bool(tp.consult_options())),
+        ("codegen provider key (OpenRouter, DeepSeek or Inception)",
+         tp.have_provider_key()),
         ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
         ("npx on PATH (app-analysis MCP servers)", bool(shutil.which("npx"))),
         ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,

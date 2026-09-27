@@ -358,21 +358,29 @@ longer than a few lines, pipe it in (`{CONSULT_BIN} - < packet.md`) instead of
 pasting it into argv: argv has a length limit, and some endpoints stall on a
 long argument before the request even starts.
 
-It queries independent models in parallel (default Gemini + Grok; `--models` or
-CONSULT_MODELS override), then spends ONE more call on a referee that names the
-disagreements instead of averaging them. Read back the referee's named fields -
-recommendation, key disagreements, unchecked assumptions, what would change its
-mind, requested evidence - not a paraphrase, because the paraphrase is where the
-minority view gets dropped. Add `--online` (live web search) ONLY when the
+It asks the members the user recorded - locally installed agent CLIs
+(`cli:codex`, `cli:claude`, ...) and/or HTTP providers - in parallel, with
+OpenRouter as the last fallback when every recorded member fails, then spends ONE
+more call on a referee that names the disagreements instead of averaging them.
+Read back the referee's named fields - recommendation, key disagreements,
+unchecked assumptions, what would change its mind, requested evidence - not a
+paraphrase, because the paraphrase is where the minority view gets dropped. Add
+`--online` (live web search) ONLY when the
 question needs facts newer or wider than the codebase - current versions, CVEs,
 vendor status, breaking-change news; skip it for pure code/design reasoning.
+
+Exit 4 means no choice is recorded and exit 5 means every recorded member
+failed: nothing answered, and the output lists `offer:`/`reoffer:` members. Ask
+the user which to use with exactly those options (prefer a model family other
+than your own), record the answer with `{CONSULT_BIN} --use <member>[,<member>]`,
+then ask the question again. Never pick a member for the user.
 
 Treat every answer as advisory evidence, never as truth: verify each claim
 against the actual code before adopting it, and tell the user which models were
 consulted and where they disagreed. Relay the failure class and the retry line
-the tool prints, and if the key is missing, a model errors or the referee dies,
-say which part of the verification is missing - never report a consult that did
-not happen. Off: `consult-off`.
+the tool prints (`credit` is an empty provider account, not a bad key), and if
+a member errors or the referee dies, say which part of the verification is
+missing - never report a consult that did not happen. Off: `consult-off`.
 """
 
 RESEARCH = """
@@ -538,10 +546,11 @@ to fix it: the user arms tezgah's optional tools, not the session.
 """
 
 NO_CONSULT = """
-## Appendix - only if no consult provider key exists
+## Appendix - only if no consult option exists
 
-There is no consult provider key on this machine (no OPENROUTER_API_KEY,
-DEEPSEEK_API_KEY or INCEPTION_API_KEY, and none of ~/.config/openrouter/key,
+Nothing on this machine can answer a consult: no agent CLI it can ask (omp,
+claude, codex, opencode, cursor-agent) and no provider key (OPENROUTER_API_KEY,
+DEEPSEEK_API_KEY or INCEPTION_API_KEY, or ~/.config/openrouter/key,
 ~/.config/deepseek/key or ~/.config/inception/key), so the consult second
 opinion cannot run. Do not tell the user to run it and do not claim external
 verification happened; on a call that needed it, say the second opinion was
@@ -721,9 +730,11 @@ never your own summary, conclusion or self-assessment - a reviewer handed the
 author's framing finds measurably fewer defects. It answers with independent
 models, then one referee: read back the referee's named fields (recommendation,
 key disagreements, unchecked assumptions, what would change its mind, requested
-evidence), not a paraphrase. Relay the failure class and retry line it prints,
-verify every claim against the code, report which models disagreed, and if
-nothing answered say the second opinion was skipped. Skip trivial local edits.
+evidence), not a paraphrase. On exit 4/5 ask the user which `offer:`/`reoffer:`
+member to use and record it with `--use` before asking again. Relay the failure
+class and retry line it prints, verify every claim against the code, report
+which models disagreed, and if nothing answered say the second opinion was
+skipped. Skip trivial local edits.
 Off: `consult-off`.
 
 **Research: route it to OpenResearch.** When a task is research - a literature
