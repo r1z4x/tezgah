@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-27
+
 ### Added
 
 - **Claude gets the always-on core as a managed block in `~/.claude/CLAUDE.md`.**
@@ -2148,6 +2150,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.18.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.18.0
 [0.16.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.16.1
 [0.16.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.16.0
 [0.15.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.15.0
