@@ -91,8 +91,13 @@ same text.
   user's to change. The record is the user's own
   (`~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`), the agent
   never runs it, and an empty allowlist reads as any path in the repo rather
-  than as "nothing allowed". The phase also rides every user turn as one line,
-  so the refusal is never the first the session hears of the boundary.
+  than as "nothing allowed" - but the CLI refuses a writing phase without one
+  unless `--any-path` says so, and `start` keeps the `allowed_paths:` the plan
+  was created with. The phase also rides every user turn as one line,
+  so the refusal is never the first the session hears of the boundary. The
+  verification phase names what the plan owes before it is done - its
+  acceptance commands run unpiped and a fresh reviewer's read of the diff -
+  and `tezgah-task close NNN done` refuses a plan with no approving `review:`.
 - **Code-graph-first discovery.** "Where is X", "who calls Y", "what breaks if
   Z changes" go to the `codegraph` index (`codegraph_explore` over MCP, and the
   `codegraph callers|callees|impact|affected|node` CLI from a shell), not to
@@ -379,7 +384,7 @@ knowing:
 | `bin/tezgah-setup --status [PATH]` | Print the armed/used checklist |
 | `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status\|claim\|migrate\|source` | Runs and checks a research line: state, findings, claims with their kind and evidence, the protocol-before-results rule, and the literature index; `check --strict` refuses what the checker cannot verify, `migrate` fills the fields older lines lack |
-| `bin/tezgah-task start\|phase\|allow\|stop\|status` | The active task: one plan's `phase:` and its `allowed_paths:` globs, which the gate then enforces on every write - and the call itself, when a session makes it |
+| `bin/tezgah-task start\|phase\|allow\|stop\|status\|review\|close` | The active task: one plan's `phase:` and its `allowed_paths:` globs, which the gate then enforces on every write - and the call itself, when a session makes it; `review` records a fresh reviewer's verdict and `close` moves a plan to done only with an approve |
 | `bin/tezgah-gate check` | The gate's own decision for one call on stdin - what a host whose plugin is not Python asks instead of mirroring a rule |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
 | `/tezgah:plan-add` | Turn a piece of work into a tracked plan |

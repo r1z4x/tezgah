@@ -1,19 +1,32 @@
 #!/usr/bin/env python3
 """tezgah-task - the active task: one plan's phase and its path allowlist.
 
-  tezgah-task start <NNN|path> --phase P [--allow GLOB ...]   activate a plan
-  tezgah-task phase P                                         change the active task's phase
-  tezgah-task allow GLOB ...                                  replace the allowlist
+  tezgah-task start <NNN|path> --phase P [--allow GLOB ... | --any-path]   activate a plan
+  tezgah-task phase P [--any-path]                            change the active task's phase
+  tezgah-task allow GLOB ... | --any-path                     replace the allowlist
   tezgah-task stop                                            deactivate (clear phase)
   tezgah-task status [--json]                                 the active task, or "no active task"
+  tezgah-task review <NNN|path> <reviewer> approve|changes    record a fresh review's verdict
+  tezgah-task close <NNN|path> done|discarded                 move a plan to .tezgah/plans/done
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
 the scope a write has to stay inside, and at most one open plan carries a phase
 because `start` clears the others. That makes the gate's refusal a rule the user
-set in advance, so this CLI is the only writer and the agent never runs it -
-`stop` and a hand edit are equally valid ways to take the requirement away.
-`phase implementation` (or `verification`) is what lets a write through, so the
-phase changes when the work reaches that point and not before.
+set in advance, so this CLI is the only writer and the agent never runs its
+first four commands - `stop` and a hand edit are equally valid ways to take the
+requirement away. `phase implementation` (or `verification`) is what lets a write
+through, so the phase changes when the work reaches that point and not before.
+
+The allowlist is the plan's own: plan-add writes `allowed_paths:` when it
+creates the plan, and `start` without `--allow` keeps it. A writing phase with
+no allowlist is refused unless `--any-path` says so explicitly, and the record
+keeps where its scope came from (`allowed_from:`), which `status` prints.
+
+`review` and `close` are the session's: the verification phase asks for a
+fresh reviewer's read of the diff, `review` records its verdict as
+`review: <reviewer> <verdict> <date>`, and `close NNN done` refuses a plan whose
+review is missing or not `approve`. `close` refuses the active task - that one
+is the user's to stop first.
 
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
 with nothing written - 2 misuse.
@@ -106,21 +119,88 @@ def write_fields(path, **fields):
     return []
 
 
+ANY_PATH = "--any-path"
+VERDICTS = ("approve", "changes")
+
+
+def allow_source(text):
+    """The allowlist and where it came from, as the phrase `status` prints: the
+    plan's own `allowed_paths:` (written when the plan was created), the CLI's
+    `--allow`/`allow` (`allowed_from:` names which), or an explicit
+    `--any-path`. No list and no `--any-path` is what a writing phase refuses."""
+    allow = tt.allowed_paths(text)
+    source = tt.frontmatter(text).get("allowed_from") or ""
+    if allow:
+        return allow, ("from tezgah-task %s" % source) if source else "from the plan"
+    if source == ANY_PATH:
+        return allow, "any path in the repo (--any-path)"
+    return allow, "any path in the repo (no allowlist)"
+
+
 def show(path):
     """Print the record as it stands on disk, read back through the parser the
     gate uses: the CLI reports what was written, not what it meant to write."""
     text = read(path)
     fields = tt.frontmatter(text)
-    allow = tt.allowed_paths(text)
+    allow, source = allow_source(text)
+    phase = fields.get("phase") or ""
     print("task %s: phase %s" % (fields.get("id") or os.path.basename(path).split("-")[0],
-                                 fields.get("phase") or "(none)"))
-    print("  allowed: %s" % (", ".join(allow) if allow else "any path in the repo"))
+                                 phase or "(none)"))
+    print("  allowed: %s" % ("%s (%s)" % (", ".join(allow), source) if allow else source))
     print("  path: %s" % path)
+    if phase == "verification":
+        verification_steps(text, path)
     return 0
+
+
+def diff_base(root):
+    """The commit the plan's work branched from: the merge-base with the first
+    of main/master/origin/main that exists, else a placeholder."""
+    for ref in ("main", "master", "origin/main"):
+        out = subprocess.run(["git", "-C", root, "merge-base", "HEAD", ref],
+                             capture_output=True, text=True)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()[:12]
+    return "<base>"
+
+
+def verification_steps(text, path):
+    """What the verification phase requires before the plan is done: the plan's
+    own acceptance commands run unpiped, and a fresh reviewer's read of the
+    diff, recorded with `review` - `close NNN done` refuses without it."""
+    ident = tt.frontmatter(text).get("id") or os.path.basename(path).split("-")[0]
+    # every item, not only the ones the command reader recognises: `pnpm test`
+    # carries no option or path and would otherwise vanish from the list
+    items = ["%s%s" % (i["text"], "" if i["state"] == "checkable" else
+                       "  [%s]" % ("unverifiable" if i["state"] == "unverifiable"
+                                   else "names no command"))
+             for i in tt.acceptance_items(text)]
+    # the project, not the private repository `.tezgah` may hold
+    base = diff_base(os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", "..")))
+    print("verification - required before this plan is done:")
+    print("  1. prove each acceptance item, every command run unpiped "
+          "(`cmd > /tmp/check.log 2>&1`, then read the file):")
+    for item in items or ["(the plan has no Acceptance items)"]:
+        print("     - %s" % item)
+    print("  2. a fresh reviewer - the host's tezgah-reviewer subagent - "
+          "reads `git diff %s..HEAD`" % base)
+    print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`;"
+          " `tezgah-task close %s done` refuses without an approve" % (ident, ident))
 
 
 def bad_phase(phase):
     return "phase %r is not one of %s" % (phase, ", ".join(tt.TASK_PHASES))
+
+
+def scope_problem(phase, allow, any_path):
+    """A writing phase with nothing to hold its writes to is refused unless the
+    user said `--any-path`: an empty allowlist reads as "anywhere", and a plan
+    that forgot its scope must not grant that by omission."""
+    if phase in tt.WRITE_PHASES and not allow and not any_path:
+        return ["phase %s needs an allowlist: the plan has no `allowed_paths:` and "
+                "no --allow was given. Pass --allow GLOB ..., or --any-path to let "
+                "the task write anywhere in the repo" % phase]
+    return []
 
 
 def cmd_start(args):
@@ -130,6 +210,7 @@ def cmd_start(args):
     path, problem = plan_path(root, args[0])
     phase = None
     allow = []
+    any_path = False
     rest = args[1:]
     i = 0
     while i < len(rest):
@@ -139,25 +220,41 @@ def cmd_start(args):
             phase = rest[i + 1]
             i += 2
             continue
+        if rest[i] == ANY_PATH:
+            any_path = True
+            i += 1
+            continue
         if rest[i] == "--allow":
             i += 1
             first = i
             while i < len(rest) and not rest[i].startswith("--"):
                 i += 1
             if i == first:
-                return misuse("--allow needs at least one glob (omit it for any path)")
+                return misuse("--allow needs at least one glob (--any-path for any path)")
             allow += rest[first:i]
             continue
         return misuse("unknown argument %r" % rest[i])
     if phase is None:
         return misuse("start needs --phase %s" % "|".join(tt.TASK_PHASES))
+    if allow and any_path:
+        return misuse("--allow and --any-path contradict each other")
     if phase not in tt.TASK_PHASES:
         return problems([bad_phase(phase)])
     if problem:
         return problems([problem])
     fields = {"phase": phase, "updated": today()}
     if allow:
-        fields["allowed_paths"] = allow
+        fields.update(allowed_paths=allow, allowed_from="--allow")
+    elif any_path:
+        fields.update(allowed_paths=[], allowed_from=ANY_PATH)
+    else:
+        # the plan's own scope, as plan-add wrote it (or an earlier --allow)
+        text = read(path)
+        allow = tt.allowed_paths(text)
+        any_path = tt.frontmatter(text).get("allowed_from") == ANY_PATH
+    bad = scope_problem(phase, allow, any_path)
+    if bad:
+        return problems(bad)
     for other in plans(root):
         if other == path:
             continue
@@ -175,8 +272,10 @@ def cmd_start(args):
 
 
 def cmd_phase(args):
+    any_path = ANY_PATH in args
+    args = [a for a in args if a != ANY_PATH]
     if len(args) != 1:
-        return misuse("phase takes one of %s" % ", ".join(tt.TASK_PHASES))
+        return misuse("phase takes one of %s [--any-path]" % ", ".join(tt.TASK_PHASES))
     phase = args[0]
     if phase not in tt.TASK_PHASES:
         return problems([bad_phase(phase)])
@@ -184,24 +283,36 @@ def cmd_phase(args):
     if not task:
         return problems(["no active task: start one with "
                          "`tezgah-task start <id> --phase %s`" % phase])
-    bad = write_fields(task["path"], phase=phase, updated=today())
+    fields = {"phase": phase, "updated": today()}
+    if any_path:
+        fields.update(allowed_paths=[], allowed_from=ANY_PATH)
+    granted = (any_path or tt.frontmatter(read(task["path"])).get("allowed_from")
+               == ANY_PATH)
+    bad = (scope_problem(phase, task["allowed_paths"], granted)
+           or write_fields(task["path"], **fields))
     if bad:
         return problems(bad)
     return show(task["path"])
 
 
 def cmd_allow(args):
+    any_path = ANY_PATH in args
+    args = [a for a in args if a != ANY_PATH]
     for arg in args:
         if arg.startswith("--"):
             return misuse("allow takes globs, not %r" % arg)
+    if bool(args) == any_path:
+        return misuse("allow takes globs, or --any-path alone to lift the scope")
     task = active_here(repo_root(os.getcwd()))
     if not task:
         return problems(["no active task to widen: start one with "
                          "`tezgah-task start <id> --phase P --allow GLOB`"])
-    # No globs replaces the list with an empty one, which reads as "any path in
+    # --any-path replaces the list with an empty one, which reads as "any path in
     # the repo" - and the gate skips the scope check entirely then, so this is
-    # the way back out of a scope that turned out to be too narrow.
-    bad = write_fields(task["path"], allowed_paths=args, updated=today())
+    # the way back out of a scope that turned out to be too narrow. A flag and
+    # not an empty call, so lifting the scope is always said out loud.
+    bad = write_fields(task["path"], allowed_paths=args, updated=today(),
+                       allowed_from=ANY_PATH if any_path else "allow")
     if bad:
         return problems(bad)
     return show(task["path"])
@@ -220,6 +331,58 @@ def cmd_stop(args):
     return show(task["path"])
 
 
+def review_verdict(text):
+    """The verdict of the plan's `review: <reviewer> <verdict> <date>` line, or
+    None when it has none or names a verdict this CLI does not write."""
+    parts = (tt.frontmatter(text).get("review") or "").split()
+    return parts[1] if len(parts) >= 2 and parts[1] in VERDICTS else None
+
+
+def cmd_review(args):
+    if len(args) != 3 or args[2] not in VERDICTS:
+        return misuse("review takes <NNN|path> <reviewer> %s" % "|".join(VERDICTS))
+    path, problem = plan_path(repo_root(os.getcwd()), args[0])
+    if problem:
+        return problems([problem])
+    bad = write_fields(path, review="%s %s %s" % (args[1], args[2], today()),
+                       updated=today())
+    if bad:
+        return problems(bad)
+    print("review recorded: %s %s (%s)" % (args[1], args[2], path))
+    return 0
+
+
+def cmd_close(args):
+    if len(args) != 2 or args[1] not in ("done", "discarded"):
+        return misuse("close takes <NNN|path> done|discarded")
+    root = repo_root(os.getcwd())
+    path, problem = plan_path(root, args[0])
+    if problem:
+        return problems([problem])
+    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(open_dir(root)):
+        return problems(["%s is not under %s" % (path, open_dir(root))])
+    text = read(path)
+    ident = os.path.basename(path).split("-")[0]
+    if tt.frontmatter(text).get("phase"):
+        return problems(["%s is the active task: the user stops it first "
+                         "(`tezgah-task stop`)" % path])
+    if args[1] == "done" and review_verdict(text) != "approve":
+        return problems(["%s records no approving review: a fresh reviewer reads "
+                         "the diff, then `tezgah-task review %s <reviewer> approve`"
+                         % (path, ident)])
+    target = os.path.join(root, ".tezgah", "plans", "done", os.path.basename(path))
+    bad = write_fields(path, status=args[1], updated=today())
+    if bad:
+        return problems(bad)
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        os.replace(path, target)
+    except OSError as exc:
+        return problems(["cannot move %s: %s" % (path, exc)])
+    print("moved %s -> %s" % (path, target))
+    return 0
+
+
 def cmd_status(args):
     as_json = "--json" in args
     rest = [a for a in args if a != "--json"]
@@ -234,6 +397,8 @@ def cmd_status(args):
         if phase and phase not in tt.TASK_PHASES:
             bad.append({"id": fields.get("id") or os.path.basename(path).split("-")[0],
                         "phase": phase, "path": path})
+    if task:
+        task["allowed_from"] = allow_source(read(task["path"]))[1]
     if as_json:
         print(json.dumps({"active": task, "malformed": bad}, indent=2))
     else:
@@ -262,7 +427,12 @@ def main(argv):
         return cmd_stop(rest)
     if cmd == "status":
         return cmd_status(rest)
-    return misuse("unknown command %r (start, phase, allow, stop, status)" % cmd)
+    if cmd == "review":
+        return cmd_review(rest)
+    if cmd == "close":
+        return cmd_close(rest)
+    return misuse("unknown command %r (start, phase, allow, stop, status, review, "
+                  "close)" % cmd)
 
 
 if __name__ == "__main__":

@@ -57,6 +57,12 @@ Rules, all only inside a tezgah root:
      newest check both pass - a docs-only commit is not this rule's - and the
      refusal names the failed check and no command, because what lifts it is
      making the newest check green. It rides the `verify-off` switch.
+ 10. a check piped into a trimmer or filter (`pytest | tail`, `| grep`, `| wc`)
+     is refused (`piped`): the line's status is the trimmer's, so the ledger
+     records the check as ran and never as passed, and the Stop rule refuses
+     every claim the run was meant to carry. The refusal names both ways out -
+     output to a file that is then read, or a `set -o pipefail;` prefix, which
+     integrity reads as decisive. It rides the `verify-off` switch.
      The three rules that read the text a write tool would land - the shell half
      of the shortcut rule, of the attribution rule above and of the credential
      rule below - read the body a heredoc writes as well (shell_write_body). The
@@ -95,6 +101,12 @@ try:  # The bytes a write is about to change. The snapshot module is newer than
     from tezgah_snapshot import capture
 except ImportError:  # pragma: no cover - only where the module has not landed
     capture = None
+
+try:  # The piped-check rule's reader: newer than some integrity modules, and a
+    # missing name costs the rule, never the session.
+    from tezgah_integrity import piped_check
+except ImportError:  # pragma: no cover - only on an integrity module without it
+    piped_check = None
 
 
 try:  # The task rule reads the user's own per-task record (a plan file's
@@ -1071,6 +1083,9 @@ def decision(tool, inp, cwd, session_id=None):
             reason = shortcut_command(inp.get("command"))
             if reason:
                 return _deny(session_id, "shortcut", reason, tool, inp, base)
+            reason = piped_check and piped_check(inp.get("command"))
+            if reason:
+                return _deny(session_id, "piped", reason, tool, inp, base)
             if shell_body:
                 reason = shortcut_edit(shell_body)
                 if reason:

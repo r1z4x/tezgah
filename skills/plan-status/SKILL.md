@@ -3,7 +3,7 @@ name: plan-status
 description: >
   Reads every open plan under <git root>/.tezgah/plans/open/, enriches rows with live PR
   state from `gh`, rewrites the README status table, commits it as
-  `plan: update status`, and ends with a single recommendation for which plan to
+  `plan: update status` in the private .tezgah repository, and ends with a single recommendation for which plan to
   work on next. Use when the user says "/tezgah:plan-status", "what plans are open",
   "plan status", "where are we on the plans", or at the start of a session to pick
   work. Read-only except the README table and filling an empty `pr:` field.
@@ -27,9 +27,11 @@ description: >
 6. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). For plan-status pass
    `--pr-info NNN='(STATE | review | checks)'` per enriched plan.
-7. If `git status --porcelain plans` shows changes:
-   `git add .tezgah/plans/README.md <plan files you changed> && git commit -m "plan: update status" && git push
-   (explicit paths only, never `git add plans`)`.
+7. If `git -C "$ROOT/.tezgah" status --porcelain plans` shows changes, commit them in
+   the private repository (`.tezgah/` is gitignored in the project and never enters
+   its git): `git -C "$ROOT/.tezgah" add plans/README.md <plan files you changed, as plans/open/NNN-slug.md> &&
+   git -C "$ROOT/.tezgah" -c user.name=tezgah -c user.email=tezgah@localhost commit -q -m "plan: update status"`
+   (explicit paths only, never `git -C .tezgah add plans`; no remote, no push).
    The message must carry no AI/model attribution of any kind: no Co-Authored-By,
    no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
    GPT/Codex/Gemini/Cursor/Copilot credit.
@@ -43,7 +45,7 @@ description: >
 
 Plan file `.tezgah/plans/open/NNN-slug.md` (status open|blocked) or `.tezgah/plans/done/NNN-slug.md`
 (status done|discarded). Frontmatter: id, title, status, branch (`plan/NNN-slug`),
-pr, created, updated. Sections: `## Goal`, `## Acceptance` (checkboxes), `## State`
+pr, created, updated, allowed_paths, plus phase/allowed_from/review when set. Sections: `## Goal`, `## Acceptance` (checkboxes), `## State`
 (evidence), `## Next` (one action or `BLOCKED: <reason>`). README table lives between
 `<!-- status:start -->` and `<!-- status:end -->` with columns
 `| id | title | status | branch | pr | next |`.

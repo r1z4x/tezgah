@@ -1019,6 +1019,56 @@ def shortcut_command(cmd):
     return None
 
 
+# `set -o pipefail` (or `set -euo pipefail`) opening the line: a pipe's status
+# is then its first failing stage's, so a check piped through `tail` keeps its
+# own exit and the host's verdict is the check's.
+PIPEFAIL = re.compile(r"^\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\s*(?:;|&&|\n)")
+# the stages that trim or filter what a check printed; `|&` pipes stderr too
+TRIMMER = re.compile(r"^\s*&?\s*(tail|head|e?grep|fgrep|cut|wc|sed\s+-n)\b")
+
+
+def pipe_hides_status(cmd):
+    """True when a pipe owns this command's exit status: a `|` without a
+    leading `set -o pipefail`, or an `||`, whose right side answers for a failure
+    whatever pipefail says. Such a line's verdict says nothing about its check."""
+    cmd = str(cmd or "")
+    if "|" not in cmd:
+        return False
+    return "||" in cmd or not PIPEFAIL.match(cmd)
+
+
+def piped_check(cmd):
+    """A deny reason when a check is piped into a trimmer or filter (`pytest |
+    tail`), else None. The line's status is the trimmer's, so the ledger can only
+    record the check as ran, never as passed or failed, and the Stop rule then
+    refuses every claim the run was meant to support. A pipefail prefix keeps the
+    check's status and passes."""
+    c = mask(cmd)
+    if PIPEFAIL.match(c):
+        return None
+    raw = str(cmd or "")
+    pos, check = 0, None
+    # mask keeps every offset, so a stage's span in `c` is its text in `raw`
+    for part in re.split(r"(&&|\|\||;|\n|\|)", c):
+        if part in ("&&", "||", ";", "\n"):
+            check = None
+        elif part != "|":
+            m = TRIMMER.match(part)
+            if check and m:
+                trim = m.group(1).split()[0]
+                return ("Piped check denied: `%s` is piped into `%s`, so the "
+                        "line's exit status is `%s`'s and the check is recorded as "
+                        "ran, never as passed. Write the output to a file and read "
+                        "the file (`%s > /tmp/check.log 2>&1`, then read "
+                        "/tmp/check.log), or open the line with `set -o pipefail;` "
+                        "so the pipe keeps the check's status."
+                        % (check, trim, trim, check))
+            if not check and verify_command(part):
+                check = raw[pos:pos + len(part)].strip()
+        pos += len(part)
+    return None
+
+
 def _added(new, old):
     """The skip markers `new` introduces that `old` did not already carry.
 
@@ -1347,7 +1397,8 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     verify_ok for a check nobody saw succeed is the lie it exists to catch. The
     same holds for a check run through a pipe: the status belongs to the pipe's
     last stage, so `pytest | tail` records as a check that ran, whatever the
-    host reported for the line.
+    host reported for the line - unless the line opens with `set -o pipefail`,
+    which hands the status back to the check (`pipe_hides_status`).
 
     `interrupted=True` is the third outcome, and it is not a weaker failure: the
     host said the call was STOPPED - a user's cancel, a call a policy denied
@@ -1372,7 +1423,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     kind = classify(tool, inp)
     if kind == "verify":
-        if failed is None or "|" in cmd:
+        if failed is None or pipe_hides_status(cmd):
             kind = "verify"
         else:
             kind = "verify_fail" if failed else "verify_ok"
@@ -1442,14 +1493,14 @@ def passing_check(entry):
 
     A `verify_ok` is support only when the host reported exit 0, the tool
     returned something (an exit-0-but-empty result is the classic silent
-    failure) and the command was not piped - a pipe's status belongs to its last
-    stage, so `pytest | tail` proves nothing about pytest. Everything else is a
-    check that ran with an outcome nobody saw."""
+    failure) and no pipe owns the status - `pytest | tail` proves nothing about
+    pytest, `set -o pipefail; pytest | tail` does (`pipe_hides_status`).
+    Everything else is a check that ran with an outcome nobody saw."""
     if entry.get("kind") != "verify_ok":
         return False
     if entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
-    return "|" not in str(entry.get("detail") or "")
+    return not pipe_hides_status(entry.get("detail"))
 
 
 def _changed_write(row):

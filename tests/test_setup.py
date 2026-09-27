@@ -1812,9 +1812,11 @@ class VersionPrefixIsNotContract(SetupBase):
         # dropped (+272 B). Re-pinned 2026-09-26: the consent paragraph left
         # CORE with the consent gate (-575 B). Re-pinned 2026-09-26: the
         # attribution paragraph reports a credit in pushed history instead of
-        # asking before the rewrite (+1 B). The band is here to catch an
-        # accidental move, so a deliberate one is recorded.
-        self.assertEqual(8078, band, "the always-on band moved")
+        # asking before the rewrite (+1 B). Re-pinned 2026-09-27: the integrity
+        # paragraph names the piped-check denial and its two fixes (+81 B). The
+        # band is here to catch an accidental move, so a deliberate one is
+        # recorded.
+        self.assertEqual(8159, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

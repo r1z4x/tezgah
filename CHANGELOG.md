@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A plan names its own scope.** plan-add writes `allowed_paths:`;
+  `tezgah-task start` without `--allow` keeps it, and `implementation` or
+  `verification` with an empty allowlist is refused unless `--any-path` is
+  passed; `status` prints where the scope came from. A real omp session ran
+  with any path allowed and committed 6 files outside the plan's globs.
+- **Done needs a review.** `tezgah-task phase verification` lists the plan's
+  acceptance commands (run unpiped) and asks the host's `tezgah-reviewer` to
+  read `git diff <base>..HEAD`; `tezgah-task review NNN <reviewer>
+  approve|changes` records `review:`, and `tezgah-task close NNN done`, which
+  plan-sync now uses, refuses a plan without an approve.
+- **Plan skills commit in the private `.tezgah` repository** (`git -C
+  "$ROOT/.tezgah"`), never in the project's git.
+
+### Added
+
+- **The gate refuses a piped check (`piped`).** A check piped into `tail`,
+  `head`, `grep`, `sed -n`, `cut` or `wc` is denied with two fixes: output to a
+  file that is then read, or a `set -o pipefail;` prefix, which integrity (and
+  the opencode plugin) now records as `verify_ok`/`verify_fail`. Rides
+  `verify-off`.
+
 ### Removed
 
 - **The consent gate and the untrusted sink rule are gone.** The gate refused

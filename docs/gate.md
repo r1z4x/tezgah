@@ -51,6 +51,18 @@ armed session taking once the write tools were refused: a heredoc that writes a 
 command would land (`shell_write_body` `hooks/tezgah_gate.py:849`, read at `hooks/tezgah_gate.py:1075` — the body is the raw text, because `mask()` blanks
 heredoc bodies by design).
 
+### Piped — a check whose status a trimmer owns
+
+Trigger: a verification command (integrity's `VERIFY`) piped into a trimmer or filter — `tail`, `head`, `grep`/`egrep`/`fgrep`, `cut`, `wc`, `sed -n`, with
+`|` or `|&`, a `tee` in between included — in one `&&`/`;`-separated segment of the line (`piped_check` `hooks/tezgah_integrity.py:1040`, `TRIMMER`
+`hooks/tezgah_integrity.py:1027`). The line's exit status is the trimmer's, so the ledger can only record the check as ran, never as passed, and the Stop rule
+then refuses every claim the run was meant to carry — observed in a real omp session where 13 checks ran piped and 3 of 6 completion claims were blocked.
+Passes: a line that opens with `set -o pipefail` (`PIPEFAIL` `hooks/tezgah_integrity.py:1025`), which integrity then records as decisive
+(`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). Told: redirect the
+check to a file and read the file, or prefix `set -o pipefail;`, with the check named as it was typed. Standing, under `verify-off`
+(`hooks/tezgah_gate.py:1086`). opencode asks the core for this rule on any shell line that pipes a check
+(`hosts/opencode/plugins/tezgah.js:1677`) and records such a line as `verify` unless it opens with pipefail (`hosts/opencode/plugins/tezgah.js:628`).
+
 ### Attribution — an AI/model credit on its way into an artifact
 
 Trigger, shell: a write command (`WRITE_CMD` `hooks/tezgah_gate.py:161-166` — `git commit|merge|tag|notes`, `gh api`,

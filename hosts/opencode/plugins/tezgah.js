@@ -620,9 +620,14 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   let detail = String(args?.command || writtenPath(args) || "")
   if (WRITE_TOOLS.has(t)) kind = "edit"
   else if (BASH_TOOLS.has(t)) {
-    if (!verifyCommand(args?.command || args?.cmd || "")) kind = "run"
+    const cmd = String(args?.command || args?.cmd || "")
+    if (!verifyCommand(cmd)) kind = "run"
     else {
-      kind = typeof exit === "number"
+      // a pipe owns the status unless the line opens with `set -o pipefail`
+      // and has no `||` (hooks/tezgah_integrity.pipe_hides_status)
+      const hidden = cmd.includes("|") && (cmd.includes("||") ||
+        !/^\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\s*(?:;|&&|\n)/.test(cmd))
+      kind = typeof exit === "number" && !hidden
         ? (exit === 0 ? "verify_ok" : "verify_fail") : "verify"
     }
   } else if (!source) {
@@ -1665,7 +1670,11 @@ export const Tezgah = async ({ directory }) => {
         // never as a repeat.
         const cmd = BASH_TOOLS.has(tool)
           ? String(args.command || args.cmd || "") : ""
-        if (!deny && cmd && (TASK_CLI.test(cmd) || IDENT_CMD.test(cmd))) {
+        // A piped check (hooks/tezgah_integrity.piped_check) is the third: the
+        // core decides whether the pipe hides the check's status, and it rides
+        // `verify-off` like the other integrity denials.
+        if (!deny && cmd && (TASK_CLI.test(cmd) || IDENT_CMD.test(cmd) ||
+            (shortcuts && cmd.includes("|") && verifyCommand(cmd)))) {
           deny = await gateReason(tool, args, dir, sessionID)
         }
         // The credential rule, then the two repeat ceilings, then the nudge: the

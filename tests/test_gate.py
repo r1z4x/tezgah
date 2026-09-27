@@ -306,6 +306,21 @@ class Gate(TempHome):
             "command": 'git commit -m "x Co-Authored-By: Claude"'}))
         self.assertIsNotNone(self.decide("Agent", {"subagent_type": "Explore"}))
 
+    def test_a_piped_check_is_refused_and_pipefail_passes(self):
+        reason = self.decide("Bash", {"command": "pnpm test 2>&1 | tail -3"})
+        self.assertIsNotNone(reason)
+        self.assertIn("pipefail", reason)
+        denial = [r for r in self.rows("s1") if r["kind"] == "deny"][-1]
+        self.assertEqual(denial["detail"].split(":", 1)[0], "piped")
+        for command in ("set -o pipefail; pnpm test 2>&1 | tail -3",
+                        "pnpm test > /tmp/check.log 2>&1",
+                        "git log --oneline | head -5"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_verify_off_drops_the_piped_check_rule(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.assertIsNone(self.decide("Bash", {"command": "pytest -q | tail -3"}))
+
     def test_skip_env_mention_in_a_read_passes(self):
         self.assertIsNone(self.decide("Bash", {"command": 'grep -rn "SKIP=" .'}))
 
@@ -1231,7 +1246,8 @@ class TaskGate(TempHome):
         for command in ("python3 -m unittest discover -s tests",
                         "git status --short",
                         "grep -rn 'ROUTES' app/",
-                        "python3 -m unittest discover -s tests 2>&1 | tail -20",
+                        "set -o pipefail; python3 -m unittest discover -s tests "
+                        "2>&1 | tail -20",
                         "uvx ruff check . > /dev/null 2>&1",
                         "cat app/api.py",
                         "sed -n '1,5p' app/api.py",
@@ -1325,6 +1341,15 @@ class TaskGate(TempHome):
             reason = self.decide({"command": command}, tool="Bash")
             self.assertIsNotNone(reason, command)
             self.assertIn("record", reason)
+
+    def test_recording_a_review_and_closing_a_plan_are_the_sessions(self):
+        # neither moves the phase or the allowlist: `review` writes the verdict
+        # the verification phase asks for, and `close` refuses the active task
+        self.plan(phase="verification", allowed=("app/**",))
+        for command in ("bin/tezgah-task review 001 tezgah-reviewer approve",
+                        "tezgah-task close 002 done"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
 
     def test_naming_the_cli_in_prose_is_not_running_it(self):
         # the masked text again: a search, a read or a commit message that names

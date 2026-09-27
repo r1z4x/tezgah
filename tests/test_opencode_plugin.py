@@ -707,6 +707,18 @@ class OpenCodePlugin(TempHome):
             self.allowed(self.before("bash", {"command": command}))
         self.assertEqual(self.spy_calls(log), [])
 
+    def test_a_piped_check_asks_the_core_and_verify_off_skips_the_ask(self):
+        # hooks/tezgah_integrity.piped_check is the rule; this half only knows
+        # when a line could be its, and rides verify-off like the other denials
+        log = os.path.join(self.home, "gate.log")
+        self.spy_gate(log)
+        args = {"command": "pytest -q 2>&1 | tail -3"}
+        self.assertEqual(self.denied(self.before("bash", args)), SPY_REASON)
+        self.assertEqual(len(self.spy_calls(log)), 1)
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.allowed(self.before("bash", args))
+        self.assertEqual(len(self.spy_calls(log)), 1)
+
     def test_a_mention_of_the_cli_costs_one_ask_and_still_passes(self):
         # The pre-test is loose on purpose - the name in the raw command with an
         # argument, no attempt to read the shell - and this is what that costs: a
@@ -967,6 +979,16 @@ class OpenCodePlugin(TempHome):
     def test_check_without_exit_records_verify(self):
         self.after("bash", {"command": "pytest -q"})
         self.assertIn("verify", self.kinds())
+
+    def test_a_pipefail_piped_check_records_its_verdict(self):
+        # a pipe owns the status unless the line opens with pipefail and has no
+        # `||`: the same reading as hooks/tezgah_integrity.pipe_hides_status
+        self.after("bash", {"command": "pytest -q | tail -3"}, exit=0)
+        self.after("bash", {"command": "set -o pipefail; pytest -q | tail -3"},
+                   exit=1)
+        self.after("bash", {"command": "set -o pipefail; pytest | tail || echo x"},
+                   exit=0)
+        self.assertEqual(self.kinds(), ["verify", "verify_fail", "verify"])
 
     def test_non_check_command_records_run(self):
         self.after("bash", {"command": "ls -la"})

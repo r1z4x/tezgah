@@ -301,7 +301,7 @@ class Cli(TempHome):
     # ------------------------------------------------------- phase and allow
 
     def test_phase_moves_the_active_task_on(self):
-        self.plan("001-first.md", phase="implementation")
+        self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
         proc = self.task("phase", "verification")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.status()["phase"], "verification")
@@ -316,14 +316,109 @@ class Cli(TempHome):
             self.assertIn("FAIL no active task", proc.stdout)
         self.assertEqual(self.task("stop").returncode, 1)
 
-    def test_allow_replaces_the_allowlist_and_empties_it_when_given_nothing(self):
+    def test_allow_replaces_the_allowlist_and_lifts_it_only_when_told(self):
         self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
         proc = self.task("allow", "tests/**", "README.md")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.status()["allowed_paths"], ["tests/**", "README.md"])
-        self.assertEqual(self.task("allow").returncode, 0)
+        # an empty call is not a lift: the scope goes only when it is said
+        self.assertEqual(self.task("allow").returncode, 2)
+        self.assertEqual(self.status()["allowed_paths"], ["tests/**", "README.md"])
+        self.assertEqual(self.task("allow", "--any-path").returncode, 0)
         self.assertEqual(self.status()["allowed_paths"], [])
-        self.assertIn("any path in the repo", self.task("status").stdout)
+        self.assertIn("any path in the repo (--any-path)", self.task("status").stdout)
+
+    # ------------------------------------------------ the plan's own scope
+
+    def test_a_writing_phase_with_no_allowlist_is_refused_unless_any_path(self):
+        self.plan("001-first.md")
+        before = self.snapshot()
+        for phase in ("implementation", "verification"):
+            proc = self.task("start", "001", "--phase", phase)
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            self.assertIn("--any-path", proc.stdout)
+            self.assertEqual(self.snapshot(), before)
+        # discovery writes nothing, so it needs no scope
+        self.assertEqual(self.task("start", "001", "--phase", "discovery").returncode, 0)
+        refused = self.task("phase", "implementation")
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertEqual(self.status()["phase"], "discovery")
+        proc = self.task("phase", "implementation", "--any-path")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.status()["phase"], "implementation")
+        # the explicit grant is on the record, so the next phase keeps it
+        self.assertEqual(self.task("phase", "verification").returncode, 0)
+        self.assertEqual(self.task("start", "001", "--phase", "implementation",
+                                   "--any-path", "--allow", "x").returncode, 2)
+
+    def test_start_without_allow_takes_the_plans_own_allowlist(self):
+        self.plan("001-first.md", allowed=["apps/admin/**", "packages/ui/**"])
+        proc = self.task("start", "001", "--phase", "implementation")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.status()["allowed_paths"], ["apps/admin/**", "packages/ui/**"])
+        self.assertIn("(from the plan)", proc.stdout)
+        self.task("allow", "apps/**")
+        payload, _ = run_json([CLI, "status", "--json"], env=self.env(), cwd=self.repo)
+        self.assertEqual(payload["active"]["allowed_from"], "from tezgah-task allow")
+
+    # ---------------------------------------------- verification and close
+
+    def test_verification_lists_every_item_and_the_projects_diff_base(self):
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        with open(path, "a") as fh:
+            fh.write("## Acceptance\n" + COMMAND_ITEM + MISSING_ITEM)
+        env = dict(os.environ, **GIT_ENV)
+        ident = ["-c", "user.name=t", "-c", "user.email=t@localhost"]
+        heads = []
+        # the plan lives in `.tezgah`, which holds its own repository: the diff
+        # the reviewer reads is the project's, never the private one's
+        for repo in (self.repo, os.path.join(self.repo, ".tezgah")):
+            if repo != self.repo:
+                subprocess.run(["git", "init", "-q", repo], check=True, env=env)
+            subprocess.run(["git", "-C", repo] + ident +
+                           ["commit", "-q", "--allow-empty", "-m", repo],
+                           check=True, env=env)
+            heads.append(subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
+                                        capture_output=True, text=True, env=env)
+                         .stdout.strip()[:12])
+        proc = self.task("start", "001", "--phase", "verification")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("bin/tezgah-docs --citations", proc.stdout)
+        # an item the command reader does not recognise is still owed proof
+        self.assertIn("one reader", proc.stdout)
+        self.assertIn("tezgah-reviewer", proc.stdout)
+        self.assertIn("git diff %s..HEAD" % heads[0], proc.stdout)
+        self.assertNotIn(heads[1], proc.stdout)
+        self.assertIn("tezgah-task review 001", proc.stdout)
+
+    def test_close_done_needs_an_approving_review(self):
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        done = os.path.join(self.repo, ".tezgah", "plans", "done", "001-first.md")
+        refused = self.task("close", "001", "done")
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn("tezgah-task review 001", refused.stdout)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "changes").returncode, 0)
+        self.assertEqual(self.task("close", "001", "done").returncode, 1)
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "lgtm").returncode, 2)
+        self.task("review", "001", "tezgah-reviewer", "approve")
+        proc = self.task("close", "001", "done")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.exists(path))
+        fields = tt.frontmatter(read(done))
+        self.assertEqual(fields["status"], "done")
+        self.assertTrue(fields["review"].startswith("tezgah-reviewer approve "))
+
+    def test_close_refuses_the_active_task_and_discards_without_review(self):
+        self.plan("001-first.md", phase="discovery")
+        self.plan("002-second.md")
+        refused = self.task("close", "001", "discarded")
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn("active task", refused.stdout)
+        proc = self.task("close", "002", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        moved = os.path.join(self.repo, ".tezgah", "plans", "done", "002-second.md")
+        self.assertEqual(tt.frontmatter(read(moved))["status"], "discarded")
 
     # ----------------------------------------------------------------- stop
 

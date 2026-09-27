@@ -329,3 +329,21 @@ class ContractSkillMatchesTheRule(unittest.TestCase):
         # rule states it rather than leaving the twin as a surprise.
         for fact in ("codegraph.json", "`.py` twin", "bin/tezgah-setup.py"):
             self.assertIn(fact, flat(self.text), fact)
+
+
+class PlanSkillsStayInTheWorkspace(unittest.TestCase):
+    """`.tezgah/` is gitignored in the project and is its own repository, so a
+    plan skill's git step that ran against the project would either fail on an
+    ignored path or put plans into the project's history."""
+
+    def test_every_plan_git_write_runs_in_the_private_repository(self):
+        for name in ("plan-add", "plan-status", "plan-sync"):
+            text = read(os.path.join(SKILLS, name, "SKILL.md"))
+            project = re.findall(r"\bgit (?:add|mv|commit|push|status)\b", text)
+            self.assertEqual([], project, name)
+            private = re.findall(r'git -C "\$ROOT/\.tezgah"[^`]*? (?:add|commit|status)\b',
+                                 text)
+            self.assertTrue(private, name)
+            # a path handed to that repository is relative to it: `plans/...`
+            self.assertNotRegex(flat(text), r'git -C "\$ROOT/\.tezgah" add [^`]*\.tezgah/',
+                                name)

@@ -112,6 +112,38 @@ class ShortcutCommand(unittest.TestCase):
             ti.shortcut_command("git commit -F - <<'MSG'\n--no-verify\n"))
 
 
+class PipedCheck(unittest.TestCase):
+    def test_a_check_piped_into_a_trimmer_is_refused_with_both_fixes(self):
+        for c in ("pnpm test 2>&1 | tail -3",
+                  "cd app && python3 -m unittest discover -s tests | grep FAIL",
+                  "pytest -q |& head -20",
+                  "ruff check . | wc -l",
+                  "make test | tee out.log | sed -n '1,5p'",
+                  "npm run lint | cut -c1-80"):
+            reason = ti.piped_check(c)
+            self.assertIsNotNone(reason, c)
+            self.assertIn("pipefail", reason, c)
+        # the fix names the check as it was typed, quoted arguments included
+        self.assertIn('pytest -k "a b"', ti.piped_check('pytest -k "a b" | tail'))
+
+    def test_what_is_not_a_trimmed_check_passes(self):
+        for c in ("pytest -q > /tmp/x.log 2>&1",
+                  "set -o pipefail; pytest -q 2>&1 | tail -3",
+                  "set -euo pipefail && pnpm test | tail",
+                  "git log --oneline | head -5",
+                  "cat /tmp/x.log | tail -5",
+                  "pytest -q; tail -5 /tmp/x.log",
+                  "pytest -q | tee /tmp/x.log",
+                  "git commit -m 'run pytest | tail before this'"):
+            self.assertIsNone(ti.piped_check(c), c)
+
+    def test_pipe_hides_status(self):
+        self.assertTrue(ti.pipe_hides_status("pytest | tail"))
+        self.assertTrue(ti.pipe_hides_status("set -o pipefail; pytest || true"))
+        self.assertFalse(ti.pipe_hides_status("set -o pipefail; pytest | tail"))
+        self.assertFalse(ti.pipe_hides_status("pytest -q"))
+
+
 class ShortcutEdit(unittest.TestCase):
     TEST = {"file_path": "tests/test_x.py"}
 
@@ -1361,6 +1393,22 @@ class StopHook(TempHome):
         self.assertEqual(self.kinds(), ["edit", "verify"])
         out = self.stop("Done. All tests pass.")
         self.assertEqual(out.get("decision"), "block")
+
+    def test_a_pipefail_piped_check_is_decisive(self):
+        # `set -o pipefail` hands the pipe's status back to the check, so the
+        # host's verdict is the check's: a pass carries a claim, a fail blocks it
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "set -o pipefail; pytest -q 2>&1 | tail -3"})
+        self.assertEqual(self.kinds(), ["edit", "verify_ok"])
+        self.assertIsNone(self.stop("Done. All tests pass."))
+        self.seed("Bash", {"command": "set -euo pipefail\npytest -q | tail -3"},
+                  failed=True)
+        self.assertIn("verify_fail", self.kinds())
+
+    def test_pipefail_does_not_rescue_an_or_branch(self):
+        # `||` answers for the failure whatever pipefail says
+        self.seed("Bash", {"command": "set -o pipefail; pytest -q | tail || echo x"})
+        self.assertEqual(self.kinds(), ["verify"])
 
     def test_a_blocked_stop_is_recorded_as_a_false_completion(self):
         self.seed("Edit", {"file_path": "x.py"})

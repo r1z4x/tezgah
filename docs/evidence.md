@@ -61,9 +61,13 @@ attempts (`hooks/tezgah_integrity.py:713`) all read it as a stopped call rather 
 **The verify kinds are a tri-state, and an unread outcome is never a pass.** `note_tool`
 (`hooks/tezgah_integrity.py:1335`) records `verify` when the host reported no outcome at all (`failed is None`) or when
 the command is piped — a pipe's status belongs to its last stage, so `pytest | tail` proves nothing
-about pytest — and only otherwise splits it into `verify_ok`/`verify_fail`. `passing_check`
-(`hooks/tezgah_integrity.py:1440`) is stricter: a `verify_ok` counts only with `exit == 0`, a non-zero `out_bytes` (exit
-0 with an empty result is the classic silent failure) and no `|` in the detail. The `out_bytes` half
+about pytest — and only otherwise splits it into `verify_ok`/`verify_fail`. A line that opens with
+`set -o pipefail` (or `set -euo pipefail`) and carries no `||` is not piped for this purpose: the
+pipe's status is then its first failing stage's, so the host's verdict is the check's
+(`pipe_hides_status` `hooks/tezgah_integrity.py:1030`, read at `hooks/tezgah_integrity.py:1426`). `passing_check`
+(`hooks/tezgah_integrity.py:1491`) is stricter: a `verify_ok` counts only with `exit == 0`, a non-zero `out_bytes` (exit
+0 with an empty result is the classic silent failure) and no pipe owning the status. The gate refuses the
+trimmed form before it runs ([gate.md](gate.md), the `piped` rule). The `out_bytes` half
 bites only where the host reported a result size — Codex (`hosts/codex/hook.py:158`), Cursor
 (`hosts/cursor/hook.py:239,268`) and omp, whose bridge measures it and sends `result_len`
 (`hosts/omp/tezgah-hook.ts.in:251-255`), now do — and 6 of 1423 `verify_ok` rows across 1454 local ledgers carry the field
