@@ -91,14 +91,22 @@ that would move the record through the CLI. None of the four names the command
 that lifts it: the phase and the allowlist are the user's to change, so the way
 out of a refusal is to ask them, or to do the reading this phase asks for and
 say what the write was for. An absent or empty allowlist is no scope asked for rather than "nothing
-allowed", and no active task means no requirement at all. The record is the
+allowed", and no active task means no requirement at all - but the CLI will not
+enter `implementation` or `verification` with none: plan-add writes the plan's own
+`allowed_paths:`, `start` without `--allow` keeps them, and only an explicit
+`--any-path` grants every path, so hand the user the command with the plan's scope
+intact. The record is the
 user's own - `~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`
 writes it and the agent never runs it, which is why the rule refuses a session's
 own write to the record and a session's own call to the CLI that would change
 it, not just the write the phase or the globs block. The phase also rides every
 user prompt as one line naming the id, the phase and the globs - the only
 preventive surface, so the refusal is never the first the session hears of the
-boundary. Off: `task-off`, which removes all four refusals.
+boundary. Off: `task-off`, which removes all four refusals. `tezgah-task review`
+and `close` are the session's: the verification phase asks for the plan's
+acceptance commands run unpiped and a fresh reviewer (the host's `tezgah-reviewer`
+subagent) reading `git diff <base>..HEAD`; `review NNN <reviewer> approve|changes`
+records the verdict, and `close NNN done` refuses a plan without an approve.
 
 ## Code discovery: prefer the indexed graph over blind search
 
@@ -423,6 +431,7 @@ claim is true only if the check ran in THIS session and its output was seen;
 otherwise mark it "doğrulanmadı" instead of asserting it. The gate enforces the
 mechanical half and cannot be argued with: a check made unable to fail is denied
 - `--no-verify`, an env var that skips the hooks, `pytest || true` / `; true`,
+a check piped into `tail`/`grep` (to a file and read it, or `set -o pipefail;`),
 and a newly added skip/xfail/`.only` on a test (all in `hooks/tezgah_integrity.py`,
 enforced by `hooks/tezgah_gate.py` and the opencode plugin) - and the Stop hooks
 (`hooks/projects-stop.py` on Claude, `hosts/codex/hook.py` on Codex,

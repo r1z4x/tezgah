@@ -17,6 +17,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workspace gets its `.gitignore` lines and a private `.tezgah/.git` with an
   import commit. Dry run by default; `--apply` writes a backup tarball to
   `~/.config/tezgah/backups/` first and never commits in the project repo.
+- **The gate refuses a piped check (`piped`).** A check piped into `tail`,
+  `head`, `grep`, `sed -n`, `cut` or `wc` is denied with two fixes: output to a
+  file that is then read, or a `set -o pipefail;` prefix, which integrity (and
+  the opencode plugin) now records as `verify_ok`/`verify_fail`. Rides
+  `verify-off`.
 
 ### Changed
 
@@ -36,16 +41,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   session start adds one line telling the session to read the rows its task
   touches - the project's rule files, agents and skills - and that a nested
   `AGENTS.md`/`CLAUDE.md` binds its subtree.
-
-### Fixed
-
-- **The status line lost its version once the Unreleased section passed 4 KB.**
-  The changelog is now read line by line up to the first release heading instead
-  of a fixed 4 KB head, so `tezgah vX.Y.Z` and `tezgah-setup --version` stop
-  answering "unknown" when a release's notes grow.
-
-### Changed
-
 - **The code-graph nudge names the command to run.** The refused search's
   identifier becomes `codegraph explore <X>` / `codegraph callers <X>` /
   `codegraph impact <X>`, and the text says an omp subagent must use this CLI
@@ -61,6 +56,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The report names a host-list mismatch.** `tezgah-setup --report` gains the
   row `config.json hosts (...) match the hosts wired (...)`, `MISS` when the
   recorded list differs from the wiring on disk; it reports and changes nothing.
+- **A plan names its own scope.** plan-add writes `allowed_paths:`;
+  `tezgah-task start` without `--allow` keeps it, and `implementation` or
+  `verification` with an empty allowlist is refused unless `--any-path` is
+  passed; `status` prints where the scope came from. A real omp session ran
+  with any path allowed and committed 6 files outside the plan's globs.
+- **Done needs a review.** `tezgah-task phase verification` lists the plan's
+  acceptance commands (run unpiped) and asks the host's `tezgah-reviewer` to
+  read `git diff <base>..HEAD`; `tezgah-task review NNN <reviewer>
+  approve|changes` records `review:`, and `tezgah-task close NNN done`, which
+  plan-sync now uses, refuses a plan without an approve.
+- **Plan skills commit in the private `.tezgah` repository** (`git -C
+  "$ROOT/.tezgah"`), never in the project's git.
+
+### Fixed
+
+- **The status line lost its version once the Unreleased section passed 4 KB.**
+  The changelog is now read line by line up to the first release heading instead
+  of a fixed 4 KB head, so `tezgah vX.Y.Z` and `tezgah-setup --version` stop
+  answering "unknown" when a release's notes grow.
 
 ### Removed
 

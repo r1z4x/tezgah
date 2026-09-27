@@ -1932,10 +1932,10 @@ class VersionPrefixIsNotContract(SetupBase):
         # CORE with the consent gate (-575 B). Re-pinned 2026-09-26: the
         # attribution paragraph reports a credit in pushed history instead of
         # asking before the rewrite (+1 B). Re-pinned 2026-09-27: the workspace
-        # paragraph (`.tezgah/` only) and its `workspace-off` switch (+458 B).
-        # The band is here to catch an accidental move, so a deliberate one is
-        # recorded.
-        self.assertEqual(8536, band, "the always-on band moved")
+        # paragraph (`.tezgah/` only) and its `workspace-off` switch (+458 B),
+        # and the integrity paragraph's piped-check denial (+81 B). The band is
+        # here to catch an accidental move, so a deliberate one is recorded.
+        self.assertEqual(8617, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 
