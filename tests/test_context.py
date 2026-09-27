@@ -726,6 +726,12 @@ class LessonsLedger(TempHome):
         self.touch(os.path.join(repo, ".no-lessons"))
         self.assertNotIn("a lesson that must not leak", self.session(repo))
 
+    def test_project_knowledge_index_is_pointed_at_only_when_present(self):
+        repo = self.make_repo()
+        self.assertNotIn("project-knowledge.md", self.session(repo))
+        self.touch(os.path.join(repo, ".tezgah", "analysis", "project-knowledge.md"))
+        self.assertIn("project-knowledge.md", self.session(repo))
+
 
 class ChildCall(TempHome):
     """A hook call in a child process.

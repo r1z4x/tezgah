@@ -31,6 +31,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `init --tracked` with its `.gitignore` negations is gone. A new gate rule
   refuses a write to a root `plans/`, `research/` or `analysis/` the project does
   not track (`workspace-off` lifts it), and the contract says so in one line.
+- **A session is pointed at the project's own knowledge.** When
+  `.tezgah/analysis/project-knowledge.md` exists (written by `tezgah-migrate`),
+  session start adds one line telling the session to read the rows its task
+  touches - the project's rule files, agents and skills - and that a nested
+  `AGENTS.md`/`CLAUDE.md` binds its subtree.
+
+### Fixed
+
+- **The status line lost its version once the Unreleased section passed 4 KB.**
+  The changelog is now read line by line up to the first release heading instead
+  of a fixed 4 KB head, so `tezgah vX.Y.Z` and `tezgah-setup --version` stop
+  answering "unknown" when a release's notes grow.
 
 ### Removed
 

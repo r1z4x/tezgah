@@ -713,7 +713,7 @@ DEFAULT_BUDGET = 12000
 # happens - then the delta, and the skill pointer last. A key absent from this
 # tuple is never dropped: the always-on core and the per-turn reminder ARE the
 # rules, and a budget that can spend them turns bloat into rule loss.
-DROP_ORDER = ("lessons", "plans", "subagents", "consult", "research",
+DROP_ORDER = ("knowledge", "lessons", "plans", "subagents", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate", "index",
               "scratch", "task", "delta", "pointer")
 
@@ -942,6 +942,17 @@ def context_for(event, cwd, payload=None, with_core=True):
         plans = open_plans(root)
         if plans:
             parts.append(("plans", plans))
+        # The project's own rule files, agents and skills (tezgah-migrate's
+        # index): they stay where the project keeps them, and one line makes a
+        # session read the rows its task touches instead of never seeing them.
+        if os.path.isfile(os.path.join(root, ".tezgah", "analysis",
+                                       "project-knowledge.md")):
+            parts.append(("knowledge",
+                          "Project knowledge: this repo keeps its own rule files, "
+                          "agents and skills, indexed in "
+                          "`.tezgah/analysis/project-knowledge.md`. Read the rows "
+                          "the task touches before starting; a nested AGENTS.md or "
+                          "CLAUDE.md binds the subtree it sits in."))
         if ".no-lessons" not in marks:
             past = lessons(root)
             if past:
@@ -1423,13 +1434,13 @@ def health_lines(cwd, session_id=None, used_override=None, color=False,
 # carries at its root (the version it was built as - without it an unpacked
 # tree answers with the changelog head, which happens to agree on a normal
 # release and is a lie the moment the two are built apart), and the newest
-# release heading in CHANGELOG.md last. Bounded and never raising, because
+# release heading in CHANGELOG.md last. Never raising, because
 # health_segments() runs on every redraw, in a fresh process, on every host: a
-# raise here would cost a session its status line, and reading 100 KB of
-# changelog to find its first heading is not needed to answer.
+# raise here would cost a session its status line. The changelog is read line by
+# line and stops at the first release heading, so only the Unreleased section is
+# paid for.
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION_HEAD = 4096
-RELEASE = re.compile(r"^## \[(\d+\.\d+\.\d+)\]", re.M)
+RELEASE = re.compile(r"^## \[(\d+\.\d+\.\d+)\]")
 
 
 def version():
@@ -1451,8 +1462,13 @@ def version():
         pass
     try:
         with open(os.path.join(PLUGIN_ROOT, "CHANGELOG.md"), encoding="utf-8") as fh:
-            hit = RELEASE.search(fh.read(VERSION_HEAD))
-        return hit.group(1) if hit else None
+            # line by line up to the first release heading: a long Unreleased
+            # section pushed it past a fixed 4 KB read and the version vanished
+            for line in fh:
+                hit = RELEASE.match(line)
+                if hit:
+                    return hit.group(1)
+        return None
     except Exception:
         return None
 
