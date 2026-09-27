@@ -685,7 +685,11 @@ SITED = re.compile(
 # fraction in prose, not a path - stays out.
 BARE = re.compile(r"(?<![\w./-])[\w.-]+\.(?:md|jsonl|json|csv|tsv|py|txt|ya?ml"
                   r"|sh|toml)\b")
-PAIR = re.compile(r"(?<![\w./-])(?:[\w.-]+/)+[\w.-]+(?![\w./-])")
+# A path segment may carry parentheses: a Next.js route group is a real
+# directory name (`apps/admin/app/(dashboard)/organizations/page.tsx`), and a
+# pattern that stops at the `(` reads that citation - a `sha:path` pair, the
+# shape `_resolves` already supports - as a proof that names nothing.
+PAIR = re.compile(r"(?<![\w./-])(?:[\w.()-]+/)+[\w.()-]+(?![\w./-])")
 
 # The proof token that names an orx run: `source --run` files its log under the
 # experiment's `raw/`, and the token is the only link between a claim and the run

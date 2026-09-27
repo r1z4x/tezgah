@@ -116,6 +116,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A claim's proof is read when the path it cites has a parenthesised
+  directory.** A Next.js route group is a real directory name
+  (`apps/admin/app/(dashboard)/organizations/page.tsx`), and the citation reader
+  stopped at the `(`, so the rule reported a proof that names the file as a
+  proof that names nothing (measured on Ustam 2026-09-27: one claim's
+  `git show <sha>:<that path> lines 61-94` was refused).
+
 - **The status line lost its version once the Unreleased section passed 4 KB.**
   The changelog is now read line by line up to the first release heading instead
   of a fixed 4 KB head, so `tezgah vX.Y.Z` and `tezgah-setup --version` stop
