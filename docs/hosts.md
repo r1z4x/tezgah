@@ -66,10 +66,18 @@ shared config, contract hash and the CLI symlinks every host shell can call
   `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:1201-1227`) links the statusline
   package into the **web profile** and adds its row to
   `~/.dsh/profiles/web/cordis.patch.yml`.
-- **omp** - `install_omp` (`bin/tezgah-setup:1286-1340`): `~/.omp/agent/RULES.md`
+- **omp** - `install_omp` (`bin/tezgah-setup:1713-1773`): `~/.omp/agent/RULES.md`
   (managed block), `skills/*` symlinks, `agents/tezgah-*.md`, `mcp.json`
   (`$schema`, `mcpServers`), and `hooks/pre/tezgah-hook.ts` rendered from
   `hosts/omp/tezgah-hook.ts.in` with the python path substituted for `@HOOK@`.
+  That path is then named in omp's `extensions:` setting through `omp config`
+  (`register_omp_hook`, `bin/tezgah-setup:1684-1699`): omp 18.2.11 loaded
+  nothing from `hooks/pre/` by discovery, the same file named there drew the
+  status line, and omp dedupes a path that is both discovered and configured
+  (`OMP_EXTENSIONS`, `bin/tezgah-setup:1641-1651`). omp has no orx target of
+  its own: orx's `codex` target writes the shim to `~/.agents/skills/orx`,
+  omp's native `agents` skill root, so `install_openresearch` maps omp onto it
+  (`ORX_AGENTS`, `bin/tezgah-setup:155-157`).
 
 An adapter is responsible for its host's **envelope** and its **surface**: it
 translates the host's event and tool names into the shared vocabulary (one call
@@ -190,6 +198,13 @@ In order, each step verified by the one below it:
   `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1313-1315`),
   and `setStatus` strips ANSI, so only the widget path keeps the per-mark colors
   (`hosts/omp/tezgah-hook.ts.in:12-15`).
+- **omp drops browser MCP servers while its native browser is on**: a server
+  named `playwright`/`puppeteer`/... or running `@playwright/mcp`/... never
+  connects there (omp 18.2.11 `/mcp` listed codegraph, mobile-mcp and tezgah
+  only). `install_omp` therefore writes no Playwright row and sweeps one an older
+  release wrote, and the report calls that absence green
+  (`OMP_SUPERSEDED_MCP`, `bin/tezgah-setup:108-116`); `skills/analyze-app`
+  sends omp to the native `browser` instead.
 
 ## Source of truth
 

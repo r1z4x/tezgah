@@ -329,6 +329,16 @@ def orx_bin():
     return which_user(os.environ.get("TEZGAH_ORX_BIN") or ORX)
 
 
+def omp_bin():
+    """The omp CLI, or None when it is not installed.
+
+    TEZGAH_OMP_BIN points at a specific binary (tests, CI); otherwise the first
+    `omp` on PATH wins, then a known per-user bin dir - the lookup `orx_bin()`
+    makes. The installer registers its omp extension through `omp config`, so a
+    missing CLI has to be a clean None rather than a failed spawn."""
+    return which_user(os.environ.get("TEZGAH_OMP_BIN") or "omp")
+
+
 def off(name):
     """A kill switch, canonical (~/.config/tezgah) or legacy (~/.claude)."""
     return any(os.path.exists(os.path.join(d, name)) for d in OFF_DIRS)

@@ -105,6 +105,15 @@ OMP = tp.HOST_DIRS["omp"]
 OMP_AGENT = os.path.join(OMP, "agent")
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
+# App-analysis servers omp drops on its own. While its native `browser` (the eval
+# prelude) is on - the default - omp's MCP loader filters every browser server it
+# recognizes by name (`playwright`, `puppeteer`, ...) or by package
+# (`@playwright/mcp`, ...), so such an entry never connects: on omp 18.2.11 `/mcp`
+# listed codegraph, mobile-mcp and tezgah, and no playwright. Writing it there
+# only let the report claim a wiring omp ignores; the native browser is the omp
+# surface for the same work (skills/analyze-app). mobile-mcp and chrome-devtools
+# match neither list and stay wired.
+OMP_SUPERSEDED_MCP = frozenset({"playwright"})
 # The managed RULES.md still carries this one line: RULES.md is the always-on
 # file, so a session whose extension cannot start still learns the ledger
 # exists. The hook injects the actual lessons at session start.
@@ -136,10 +145,16 @@ OPENCODE_IGNORE = [".git/**", "node_modules/**", "dist/**", "build/**",
                    ".venv/**", "__pycache__/**", ".ruff_cache/**"]
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp"]
-# orx ships an installable skill shim for these four; dsh has no orx harness,
-# so research routing there falls back to `orx skill` on the shell.
+# orx ships an installable skill shim for four agents; dsh has no orx harness,
+# so research routing there falls back to `orx skill` on the shell. omp has no
+# orx target of its own, and needs none: orx's `codex` target writes its shim to
+# `~/.agents/skills/orx/SKILL.md`, and `~/.agents/skills` is omp's canonical
+# native skill root (its `agents` provider, on by default - omp docs/skills.md).
+# The shim is the same file for every agent, so omp gets orx's own copy from
+# orx's own installer, and tezgah owns no second copy that could drift.
 ORX_AGENTS = {"claude": "claude", "codex": "codex",
-              "opencode": "opencode", "cursor": "cursor"}
+              "opencode": "opencode", "cursor": "cursor", "omp": "codex"}
+ORX_AGENTS_SKILL = os.path.join(tp.HOME, ".agents", "skills", "orx", "SKILL.md")
 CONTRACT_SHA = os.path.join(tp.CONFIG_DIR, "contract.sha256")
 SKILL_ROUTER = os.path.join(tp.CONFIG_DIR, "opencode-skills.md")
 # Where `link()` records the entries it had to materialise instead of
@@ -629,15 +644,17 @@ def app_mcp_names():
     return tezgah_apps.names(tezgah_apps.MCP_IDS)
 
 
-def reconcile_json_servers(holder):
+def reconcile_json_servers(holder, superseded=()):
     """Converge a JSON host's MCP holder on the selection, in both directions.
 
     Every writer used to be add-or-refresh only, so a server the user turns off
     stayed in the host file as a ghost. A name tezgah may have written but does
     not wire this run is dropped; a name tezgah never owned (`codegraph`, or a
-    server of the user's own) is not in that list and stays. Returns the names
-    dropped, so the caller can say the file changed."""
-    wanted = app_server_names()
+    server of the user's own) is not in that list and stays. A name in
+    `superseded` is one the host drops by itself (OMP_SUPERSEDED_MCP), so it is
+    swept like a deselected one. Returns the names dropped, so the caller can
+    say the file changed."""
+    wanted = [n for n in app_server_names() if n not in superseded]
     dropped = [n for n in app_mcp_names() if n not in wanted and n in holder]
     for name in dropped:
         holder.pop(name)
@@ -1621,6 +1638,78 @@ def set_managed_md(path, block, start="<!-- tezgah:start -->",
     return write_if_changed(path, text)
 
 
+# The hook as an explicit `extensions:` entry in omp's own config. omp documents
+# `<agentDir>/hooks/pre/` as a discovery root, but on a live omp 18.2.11 install
+# nothing placed there loaded: the same file handed over with `--hook`, or named
+# in `extensions:`, drew the status line on the first frame, and without either
+# the footer stayed empty (tests/e2e_omp_statusline.py). A configured path is the
+# documented route that does not ride the discovery glob, and omp dedupes a path
+# that is both discovered and configured by its absolute path, so a build whose
+# discovery works still loads the bridge once. The key is written through `omp
+# config`, the owner's own writer: config.yml is YAML the user edits, and tezgah
+# has no parser for it that would keep the rest of the file intact.
+OMP_EXTENSIONS = "extensions"
+
+
+def omp_config(*args):
+    """Run `omp config <args>` against the agent dir tezgah writes into, or None.
+
+    PI_CODING_AGENT_DIR pins the CLI to OMP_AGENT, so the registration lands
+    beside the hook it names whatever profile the calling shell selected."""
+    omp = tp.omp_bin()
+    if not omp:
+        return None
+    env = dict(os.environ, PI_CODING_AGENT_DIR=OMP_AGENT)
+    try:
+        proc = subprocess.run([omp, "config", *args], capture_output=True,
+                              text=True, timeout=30, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc if proc.returncode == 0 else None
+
+
+def omp_extensions():
+    """The `extensions` list omp reads (an unset key reads as []), or None when
+    the CLI is missing or its answer cannot be parsed."""
+    proc = omp_config("get", OMP_EXTENSIONS, "--json")
+    if proc is None:
+        return None
+    try:
+        value = json.loads(proc.stdout).get("value")
+    except (ValueError, AttributeError):
+        return None
+    return [str(v) for v in value] if isinstance(value, list) else None
+
+
+def register_omp_hook(hook_dst):
+    """Name the bridge in omp's `extensions`, keeping every entry the user has."""
+    current = omp_extensions()
+    if current is None:
+        print("%s omp CLI not answering `omp config`: %s is left to directory "
+              "discovery, which omp 18.2.11 did not load" % (NO, hook_dst))
+        return
+    if hook_dst in current:
+        print("%s %s registered in omp extensions" % (OK, hook_dst))
+        return
+    if omp_config("set", OMP_EXTENSIONS, json.dumps(current + [hook_dst])) is None:
+        print("%s could not add %s to omp extensions" % (NO, hook_dst))
+        return
+    print("%s %s registered in omp extensions" % (OK, hook_dst))
+    restart_hint("omp", os.path.join(OMP_AGENT, "config.yml"))
+
+
+def unregister_omp_hook(hook_dst):
+    """Drop the bridge from omp's `extensions`; the user's entries stay."""
+    current = omp_extensions()
+    if not current or hook_dst not in current:
+        return
+    rest = [p for p in current if p != hook_dst]
+    done = (omp_config("set", OMP_EXTENSIONS, json.dumps(rest)) if rest
+            else omp_config("reset", OMP_EXTENSIONS))
+    print("%s %s %s omp extensions" % (OK if done else NO, hook_dst,
+                                       "dropped from" if done else "still in"))
+
+
 def install_omp():
     print("\nomp:")
     mkdirp(OMP_AGENT)
@@ -1644,7 +1733,8 @@ def install_omp():
     servers.setdefault("codegraph", {"type": "stdio", "command": argv[0],
                                      "args": argv[1:],
                                      "env": dict(GRAPH_ENV)})
-    for srv in list(app_servers()) + [tezgah_mcp_server()]:
+    for srv in [s for s in app_servers() if s["name"] not in OMP_SUPERSEDED_MCP] + [
+            tezgah_mcp_server()]:
         # omp spawns `command` as ONE executable and takes the rest in `args`
         # (its mcp-schema.json); the whole argv in `command` is spawned as the
         # comma-joined string and fails with ENOENT.
@@ -1659,11 +1749,15 @@ def install_omp():
         entry["args"] = list(srv["command"][1:])
         if srv["env"]:
             entry.setdefault("env", {}).update(srv["env"])
-    dropped = reconcile_json_servers(servers)
+    dropped = reconcile_json_servers(servers, OMP_SUPERSEDED_MCP)
     changed = write_json(mcp_path, cfg)
     print("%s %s (mcpServers)" % (OK, mcp_path))
     if dropped:
-        print("%s removed %s from %s (not selected)" % (OK, ", ".join(dropped), mcp_path))
+        for name in dropped:
+            print("%s removed %s from %s (%s)" % (
+                OK, name, mcp_path,
+                "omp's native browser supersedes it" if name in OMP_SUPERSEDED_MCP
+                else "not selected"))
     if changed or dropped:
         restart_hint("omp", mcp_path)
     try:
@@ -1676,6 +1770,7 @@ def install_omp():
         hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
         if write_if_changed(hook_dst, hook):
             print("%s %s (contract + gate + status line)" % (OK, hook_dst))
+        register_omp_hook(hook_dst)
 
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
@@ -1690,23 +1785,30 @@ def install_openresearch(hosts):
     The shim files (a real `skills/orx/SKILL.md`, not a tezgah symlink) are owned
     by orx, so tezgah only runs its installer and never lists them for uninstall.
     dsh has no orx harness; the rule there falls back to `orx skill` on the
-    shell."""
+    shell. omp shares codex's target (see ORX_AGENTS), so each orx agent runs
+    once however many hosts map onto it."""
     print("\nopenresearch (orx):")
     orx = tp.orx_bin()
     if not orx:
         print("%s orx not on PATH - skipped; run `tezgah-setup --deps` to install "
               "it, or see https://github.com/alphaXiv/OpenResearch" % NO)
         return
+    ran = {}
     for h in hosts:
         agent = ORX_AGENTS.get(h)
         if not agent:
             print("%s %s: orx has no harness for this host" % (NO, h))
             continue
-        proc = subprocess.run([orx, "install-skills", "--agent", agent],
-                              capture_output=True, text=True)
-        last = (proc.stdout or proc.stderr).strip().splitlines()
-        print("%s %s: %s" % (OK if proc.returncode == 0 else NO, h,
-                             last[-1] if last else "exit %d" % proc.returncode))
+        if agent not in ran:
+            proc = subprocess.run([orx, "install-skills", "--agent", agent],
+                                  capture_output=True, text=True)
+            last = (proc.stdout or proc.stderr).strip().splitlines()
+            ran[agent] = (proc.returncode == 0,
+                          last[-1] if last else "exit %d" % proc.returncode)
+        ok, line = ran[agent]
+        if h == "omp":
+            line = "%s (shim at %s, omp's native agents root)" % (line, ORX_AGENTS_SKILL)
+        print("%s %s: %s" % (OK if ok else NO, h, line))
 
 
 # ------------------------------------------------------------ dependencies ----
@@ -2625,6 +2727,7 @@ def uninstall_omp():
         print("%s removed %s" % (OK, hook))
     else:
         unlink_tezgah(hook)
+    unregister_omp_hook(hook)
     mcp_path = os.path.join(OMP_AGENT, "mcp.json")
     cfg = read_json(mcp_path, None)
     if isinstance(cfg, dict):
@@ -3050,7 +3153,7 @@ def report(hosts):
     context_budget_report()
 
 
-def mcp_rows(wired, where):
+def mcp_rows(wired, where, superseded=()):
     """One report row per known server: `wired == selected` is what green means.
 
     A per-host `all(...)` over the always-on pair could not see either failure
@@ -3061,6 +3164,11 @@ def mcp_rows(wired, where):
     rows = []
     for name in app_mcp_names():
         want, got = name in selected, name in wired
+        if want and name in superseded:
+            # the host drops it itself (OMP_SUPERSEDED_MCP): green means absent
+            rows.append(("app MCP %s (selected, superseded by the host's native "
+                         "browser)" % name, not got))
+            continue
         if want and got:
             rows.append(("app MCP %s (selected, wired)" % name, True))
         elif not want and not got:
@@ -3385,8 +3493,9 @@ def host_checks_omp():
             rules_text = fh.read()
     except OSError:
         rules_text = ""
+    hook_path = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
     try:
-        with open(os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts"), encoding="utf-8") as fh:
+        with open(hook_path, encoding="utf-8") as fh:
             hook_text = fh.read()
     except OSError:
         hook_text = ""
@@ -3396,7 +3505,7 @@ def host_checks_omp():
     agents = ([n for n in os.listdir(agents_dir)
                if n.startswith("tezgah-") and n.endswith(".md")]
               if os.path.isdir(agents_dir) else [])
-    return [
+    rows = [
         ("RULES.md carries the contract",
          "tezgah:start" in rules_text and "Ponytail" in rules_text),
         ("skill metadata band present", "Ponytail" in rules_text),
@@ -3404,16 +3513,20 @@ def host_checks_omp():
         ("skills linked", skills_linked(os.path.join(OMP_AGENT, "skills"))),
         ("subagents generated", len(agents) >= 4),
         ("MCP in mcp.json", "codegraph" in servers),
-    ] + mcp_rows(set(servers), "mcp.json") + [
+    ] + mcp_rows(set(servers), "mcp.json", OMP_SUPERSEDED_MCP) + [
         mcp_row(TEZGAH_MCP_NAME, servers.get(TEZGAH_MCP_NAME),
                 "mcp.json", tezgah_mcp_command()),
         ("app MCP command is one executable",
          all(isinstance((servers.get(n) or {}).get("command"), str)
-             for n in app_server_names())),
+             for n in app_server_names() if n not in OMP_SUPERSEDED_MCP)),
         ("session, prompt, tool and stop hooks wired",
          all(k in hook_text for k in ("session_start", "before_agent_start",
                                       "tool_call", "session_stop",
                                       "setWidget", "setStatus"))),
+        # the bridge loads from `extensions:`, not from the directory it sits in
+        # (see OMP_EXTENSIONS); a hook file that is not named there draws nothing
+        ("hook registered in omp extensions (config.yml)",
+         hook_path in (omp_extensions() or [])),
         # omp is the host that spends this key: judge(), auto thinking,
         # unexpected-stop and AI staging fall back to a chat model without it.
         # What resolves it is the env it reads or its own login store, not
@@ -3426,6 +3539,12 @@ def host_checks_omp():
          tp.have_judge_key()),
         ("status line answers", omp_hook_answers()),
     ]
+    # omp reads orx's shim from its native `~/.agents/skills` root (ORX_AGENTS);
+    # the row is asked only where orx is selected, as the install is
+    if "orx" in tezgah_apps.selected_ids(selection()):
+        rows.append(("orx skill in ~/.agents/skills (omp's native agents root)",
+                     os.path.isfile(ORX_AGENTS_SKILL)))
+    return rows
 
 
 HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,

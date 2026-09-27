@@ -54,6 +54,10 @@ class SetupBase(unittest.TestCase):
             # orx off by default so an installed orx on the test machine cannot
             # run its real installer; a test that wants it points at a fake
             "TEZGAH_ORX_BIN": os.path.join(self.home, "no-such-orx"),
+            # the same for omp: `--install --hosts omp` registers its hook
+            # through `omp config`, and the real CLI must never write the
+            # machine's config.yml; OmpHost points at a fake that records it
+            "TEZGAH_OMP_BIN": os.path.join(self.home, "no-such-omp"),
             # never let a test hit the network: --install installs missing deps
             # by default, so the suite opts out and the Deps tests exercise it
             "TEZGAH_NO_DEPS": "1",
@@ -402,7 +406,22 @@ class OpenResearch(SetupBase):
         for agent in ("claude", "codex", "opencode", "cursor"):
             self.assertIn("install-skills --agent " + agent, calls)
         self.assertNotIn("agent dsh", calls)
-        self.assertIn("orx has no harness for this host", proc.stdout)
+        self.assertIn("dsh: orx has no harness for this host", proc.stdout)
+        # omp reads the shim orx's codex target writes to ~/.agents/skills, so
+        # it gets orx without an orx target, and codex's installer runs once
+        # for the two hosts that map onto it
+        self.assertNotIn("omp: orx has no harness", proc.stdout)
+        self.assertEqual(calls.count("install-skills --agent codex"), 1, calls)
+        self.assertIn(os.path.join(".agents", "skills", "orx"),
+                      self.row(proc.stdout, "omp: "))
+
+    def test_omp_alone_still_gets_the_shim(self):
+        """A machine with omp and no codex: the codex target is still the route,
+        because what omp reads is the file, not the codex install."""
+        log = self.fake_orx()
+        proc = self.setup("--install", "--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("install-skills --agent codex", self.read_text(log))
 
     def test_install_skips_orx_gracefully_when_absent(self):
         proc = self.setup("--install", "--hosts", "claude")
@@ -1312,6 +1331,72 @@ class OmpHost(SetupBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return proc
 
+    def fake_omp(self, extensions=None):
+        """An `omp` that answers `config get|set|reset` from a JSON file in the
+        agent dir PI_CODING_AGENT_DIR names - the real CLI's semantics as
+        measured on 18.2.11: an unset key reads as [], `reset` drops the key.
+        Reading the dir from the env is the assertion that the installer pins
+        the CLI to the agent dir it writes into."""
+        script = self.path("fake-omp")
+        with open(script, "w") as fh:
+            fh.write(
+                "#!%s\n"
+                "import json, os, sys\n"
+                "store = os.path.join(os.environ['PI_CODING_AGENT_DIR'],\n"
+                "                     'fake-config.json')\n"
+                "try:\n"
+                "    data = json.load(open(store))\n"
+                "except OSError:\n"
+                "    data = {}\n"
+                "_, action, key = sys.argv[1:4]\n"
+                "if action == 'get':\n"
+                "    print(json.dumps({'key': key, 'value': data.get(key, [])}))\n"
+                "    sys.exit(0)\n"
+                "if action == 'set':\n"
+                "    data[key] = json.loads(sys.argv[4])\n"
+                "elif action == 'reset':\n"
+                "    data.pop(key, None)\n"
+                "os.makedirs(os.path.dirname(store), exist_ok=True)\n"
+                "json.dump(data, open(store, 'w'))\n" % sys.executable)
+        os.chmod(script, 0o755)
+        self.env["TEZGAH_OMP_BIN"] = script
+        store = self.path(".omp", "agent", "fake-config.json")
+        if extensions is not None:
+            self.write_json(store, {"extensions": extensions})
+        return store
+
+    def test_install_registers_the_hook_as_an_omp_extension(self):
+        """omp 18.2.11 did not load a factory from hooks/pre/ by discovery; the
+        bridge draws only when named in `extensions:`. The entry is added once,
+        next to the user's own, and uninstall takes back only its own."""
+        store = self.fake_omp(extensions=["/user/own.ts"])
+        hook = self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts")
+        self.install()
+        self.assertEqual(self.read_json(store)["extensions"],
+                         ["/user/own.ts", hook])
+        self.install()  # a refresh must not append a second copy
+        self.assertEqual(self.read_json(store)["extensions"],
+                         ["/user/own.ts", hook])
+        report = self.setup("--hosts", "omp").stdout
+        self.assertTrue(self.row(report, "hook registered in omp extensions")
+                        .strip().startswith("ok"), report)
+        proc = self.setup("--uninstall", "--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.read_json(store)["extensions"], ["/user/own.ts"])
+
+    def test_uninstall_resets_a_list_that_held_only_the_hook(self):
+        store = self.fake_omp()
+        self.install()
+        self.setup("--uninstall", "--hosts", "omp")
+        self.assertNotIn("extensions", self.read_json(store))
+
+    def test_install_without_the_omp_cli_says_the_hook_is_unregistered(self):
+        proc = self.install()  # SetupBase points TEZGAH_OMP_BIN at nothing
+        self.assertIn("not answering `omp config`", proc.stdout)
+        report = self.setup("--hosts", "omp").stdout
+        self.assertTrue(self.row(report, "hook registered in omp extensions")
+                        .strip().startswith("MISS"), report)
+
     def test_install_wires_the_omp_agent_dir(self):
         self.install()
         rules = self.read_text(self.path(".omp", "agent", "RULES.md"))
@@ -1328,6 +1413,11 @@ class OmpHost(SetupBase):
         # omp spawns `command` as one executable and passes `args`; the argv must
         # round-trip. A list in `command` is spawned comma-joined (ENOENT).
         for srv in tezgah_apps.servers():
+            if srv["name"] == "playwright":
+                # omp filters browser servers while its native browser is on,
+                # so tezgah does not write one it would never connect
+                self.assertNotIn("playwright", mcp["mcpServers"])
+                continue
             entry = mcp["mcpServers"][srv["name"]]
             self.assertEqual([entry["command"]] + entry["args"],
                              list(srv["command"]), srv["name"])
@@ -1356,19 +1446,32 @@ class OmpHost(SetupBase):
 
     def test_install_refreshes_a_stale_entry_and_keeps_the_user_keys(self):
         """The writer used to only add a missing server, so an entry an older
-        tezgah wrote kept its argv forever: a bumped pin or a new `--caps` never
-        reached an existing install. That is how `--caps=testing,storage,network`
-        landed on one host and none of the others."""
+        tezgah wrote kept its argv forever: a bumped pin never reached an
+        existing install."""
+        path = self.path(".omp", "agent", "mcp.json")
+        self.write_json(path, {"mcpServers": {"mobile-mcp": {
+            "type": "stdio", "command": "npx",
+            "args": ["-y", "@mobilenext/mobile-mcp@0.0.1"],
+            "timeout": 1234}}})
+        self.install()
+        entry = self.read_json(path)["mcpServers"]["mobile-mcp"]
+        self.assertNotIn("@mobilenext/mobile-mcp@0.0.1", entry["args"])
+        self.assertEqual(entry["timeout"], 1234)  # the user's key survives
+
+    def test_install_sweeps_the_playwright_entry_omp_ignores(self):
+        """omp 18.2.11 drops a browser MCP server while its native browser is
+        on; an entry an older tezgah wrote is swept, and the report calls the
+        absence green instead of claiming a wiring omp never connects."""
         path = self.path(".omp", "agent", "mcp.json")
         self.write_json(path, {"mcpServers": {"playwright": {
             "type": "stdio", "command": "npx",
-            "args": ["-y", "@playwright/mcp@0.0.1", "--isolated"],
-            "timeout": 1234}}})
+            "args": ["-y", "@playwright/mcp@0.0.1", "--isolated"]}}})
         self.install()
-        entry = self.read_json(path)["mcpServers"]["playwright"]
-        self.assertIn("--caps=testing,storage,network", entry["args"])
-        self.assertNotIn("@playwright/mcp@0.0.1", entry["args"])
-        self.assertEqual(entry["timeout"], 1234)  # the user's key survives
+        self.assertNotIn("playwright", self.read_json(path)["mcpServers"])
+        row = self.row(self.setup("--hosts", "omp").stdout,
+                       "app MCP playwright")
+        self.assertIn("superseded by the host's native browser", row)
+        self.assertTrue(row.strip().startswith("ok"), row)
 
     def test_status_reports_the_omp_wiring(self):
         self.install()

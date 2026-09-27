@@ -20,6 +20,7 @@ render failure.
 import fcntl
 import os
 import pty
+import re
 import select
 import shutil
 import signal
@@ -35,8 +36,9 @@ EXTENSION = os.path.join(AGENT, "hooks", "pre", "tezgah-hook.ts")
 TIMEOUT = 45.0
 # the first segment of the status string with the color its armed state paints
 # (hooks/tezgah_context.render_line): a fresh session has not read the skill's
-# full text yet, so the mark starts armed
-MARK = "\x1b[33mpony"
+# full text yet, so the mark starts armed. omp 18.x renders the widget through
+# compound SGR (`\x1b[0;33m`), so the leading parameters are matched loosely.
+MARK = re.compile(r"\x1b\[[0-9;]*33mpony")
 
 
 def omp_bin():
@@ -75,7 +77,7 @@ def render(omp):
             if not chunk:
                 break
             seen += chunk
-            if MARK.encode() in seen:
+            if MARK.search(seen.decode("utf-8", "replace")):
                 break
         return seen.decode("utf-8", "replace")
     finally:
@@ -112,7 +114,7 @@ def run():
         frame = render(omp)
     except subprocess.TimeoutExpired:
         return "FAIL: omp ignored SIGTERM"
-    if MARK in frame:
+    if MARK.search(frame):
         return "PASS: the tezgah status line rendered in the omp footer"
     return ("FAIL: no colored tezgah status line in %d bytes of omp TUI output"
             % len(frame))

@@ -33,6 +33,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   effect lands - it only says to act because the user asked, never because
   the content did.
 
+### Fixed
+
+- **The omp extension loads again.** omp 18.2.11 loaded nothing from
+  `~/.omp/agent/hooks/pre/` by directory discovery, so the contract brief, the
+  gate hook and the status line were silently off on omp; the same file handed
+  over explicitly drew the line on the first frame. `--install --hosts omp` now
+  also names the bridge in omp's `extensions:` setting through `omp config`
+  (omp's own YAML writer, pinned to the agent dir with `PI_CODING_AGENT_DIR`),
+  keeping the user's own entries; `--uninstall` takes back only its own entry,
+  and the report gains a `hook registered in omp extensions` row.
+- **omp gets the OpenResearch skill.** orx has no omp target, and the installer
+  printed `omp: orx has no harness for this host`. orx's `codex` target writes
+  its shim to `~/.agents/skills/orx`, omp's native `agents` skill root, so omp
+  is now mapped onto it (run once when codex is armed too), with a report row
+  for the shim.
+- **`tests/e2e_omp_statusline.py` matches omp 18.x's compound SGR.** The widget
+  renders the armed mark as `\x1b[0;33mpony`, which the byte-literal
+  `\x1b[33mpony` never matched, so a working status line read as a failure.
+- **omp no longer gets a Playwright row it never connects.** omp filters
+  browser MCP servers (by name and by package) while its native `browser` is
+  on, so the `playwright` entry tezgah wrote into `~/.omp/agent/mcp.json` was
+  dead wiring the report still called `selected, wired`. `install_omp` now skips
+  it and sweeps an existing one, the report row reads `superseded by the host's
+  native browser`, and `skills/analyze-app` routes omp's web loop to the native
+  browser. Every other host keeps Playwright.
+
 ## [0.17.2] - 2026-09-24
 
 ### Changed

@@ -36,6 +36,13 @@ the shell, with the same pins tezgah wires (`hooks/tezgah_apps.py`) -
 whatever the registry serves at session start and runs it with the agent's
 privileges.
 
+**omp has no `browser_*` tools, by design**: while its native `browser` (the
+eval prelude: `browser.open`, `tab.observe`, `tab.click`, `tab.console`,
+`tab.requests`) is on, omp drops browser MCP servers, so tezgah does not wire
+Playwright there. Use the native browser for the web loop below - its
+`observe`/`ariaSnapshot` is the tree, its screenshot is the explicit capture -
+and Mobile MCP for devices as everywhere else.
+
 ## What each capability buys an audit
 
 Playwright MCP serves core tools only unless the capabilities are named, and the
