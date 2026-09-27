@@ -28,7 +28,7 @@ it can falsify the prediction instead of remembering it.
 
 | Path | Holds |
 |---|---|
-| `state.json` | the question, the phase (`bootstrap`/`inner`/`outer`/`concluded`), the direction, the locked evaluation and its optional second gate (`capability_tolerance`, `counter_metric`), the session events (`PHASES`, `hooks/tezgah_research.py:103`). The phase is the author's declaration; `derived_phase` (`tezgah_research.py:1925`) reads the *other* authority beside it from the line's own artifacts, and the checker names the two disagreeing |
+| `state.json` | the question, the phase (`bootstrap`/`inner`/`outer`/`concluded`), the direction, the locked evaluation and its optional second gate (`capability_tolerance`, `counter_metric`), the session events (`PHASES`, `hooks/tezgah_research.py:103`), `rules` (the rule set `init` opened it under, `RULES`), `deliverable` (`kind`, `path`, `ask`, `min_variants`), `supersedes` for a new version of an older line, and `closed` once `close` records a deliberate limit. The phase is the author's declaration; `derived_phase` (`tezgah_research.py:1925`) reads the *other* authority beside it from the line's own artifacts, and the checker names the two disagreeing |
 | `log.md` | the decision log, newest last: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | the four sections every line answers, named by `FINDINGS_SECTIONS` (`hooks/tezgah_research.py:113`) |
 | `claims.jsonl` | one JSON object per row: `statement`, `falsification`, `proof`, `provenance`, `status`, `kind`, `scope` (what the claim's numbers were measured on, which may not be wider than the rows it rests on), and `supersedes` when the row replaces an earlier claim |
@@ -37,10 +37,11 @@ it can falsify the prediction instead of remembering it.
 | `experiments/<hypothesis>/results.jsonl` | the rows the run produced, one JSON object per non-blank line, each carrying a non-empty `source` and, once declared, a `scope` of `real`, `fixture` or `derived`, and - when that scope is `fixture` - a `fixture` description of what was generated |
 | `experiments/<hypothesis>/analysis.md` | what the rows mean, and which claim they move |
 | `experiments/<hypothesis>/raw/<runId>.log` | the OpenResearch receipt `source` writes for one run |
-| `literature/*.md` | one note per source |
-| `literature/INDEX.jsonl` | the index that says which notes exist and which were used |
-| `to_human/report.md` | the reader's copy: what was established, and what the evidence does not show |
-| `to_human/review.json` | the six-dimension review, once the line concludes |
+| `literature/**` | one file per source, at any depth and of any extension |
+| `literature/INDEX.jsonl` | the index that says which sources exist and which were used; `class` is `formal`, `grey` or `agent-report` |
+| `decisions/<id>/` | one comparison of the deliverable's variants: `criteria.json`, `variants.jsonl`, `comparison.jsonl`, `decision.md` (see "Variants of the deliverable") |
+| `to_human/report.md` | the reader's copy: what was established, what the evidence does not show, and the four validity threats |
+| `to_human/review.json` | the six-dimension review by a `reviewer` other than the `producer`, owed once a report exists |
 
 `init` writes the first four plus the three directories and never overwrites a
 file that exists (`init`, `tezgah_research.py:2609`); `predictions.jsonl` is not
@@ -58,8 +59,10 @@ line is closed. Concretely, `open_lines` (`hooks/tezgah_research.py`) calls a li
 open unless all of these hold: `phase` is `concluded`; no claim is still
 `hypothesis` or `testing` *among the rows nothing supersedes*; every experiment
 that has a `protocol.md` also has results and an analysis; `to_human/report.md`
-and `to_human/review.json` exist; and every review finding carries a `status`.
-Those are exactly the reasons `init` prints, one line per open line.
+and `to_human/review.json` exist; every review finding carries a `status`; and a
+deliverable that takes compared variants has a decision holding them and its
+`decision.md`. A line `close` concluded is not open. Those are exactly the reasons
+`init` prints, one line per open line.
 
 The supersede half of that is a rule about an append-only file rather than an
 exception: a row another row supersedes keeps the status it was left in for ever -
@@ -79,11 +82,16 @@ So `tezgah-research init` refuses while anything is open, and the armed research
 rule names the open lines with their reason counts on every research turn
 (`open_note`, `hooks/tezgah_policy.py`). The way past is `--allow-open
 "<reason>"`, which writes the reason into the new line's `log.md` - an explicit
-decision on the record instead of a silent second line. The prompt-time note
-reads a line's `state.json`, its experiment directory and its review, never
-`claims.jsonl`, so a line open *only* because of a live claim is named by `init`
-and not by the note; that split is the note's cost budget and is stated in the
-rule's own comment.
+decision on the record instead of a silent second line - and which is itself
+refused while any open line has `check` errors (`broken_open_lines`): a hatch past
+broken lines is how they stayed broken. What is left of a line that will not be
+finished is recorded with `tezgah-research close <slug> --limit "<reason>"`
+(`close_line`), which concludes it and writes the reasons it was still open into
+`state.json` `closed` and `log.md`; its `check` errors stay visible. The
+prompt-time note reads a line's `state.json`, its experiment directory and its
+review, never `claims.jsonl`, so a line open *only* because of a live claim is
+named by `init` and not by the note; that split is the note's cost budget and is
+stated in the rule's own comment.
 
 ## The CLI
 
@@ -93,7 +101,7 @@ calls (`check_line`, `tezgah_research.py:1855`).
 
 | Command | What it does | Exit |
 |---|---|---|
-| `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
+| `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
 | `tezgah-research check [<slug>] [--json] [--strict] [--orx]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `tezgah_research.py:2115`) | 0 clean, 1 a line failed a rule or names no line |
 | `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `tezgah_research.py:2091`) | 0 |
@@ -102,6 +110,8 @@ calls (`check_line`, `tezgah_research.py:1855`).
 | `tezgah-research components [--json]` | the per-component report: one bucket per component the manifest defines, in the manifest's own order, then any key a row names that the manifest does not, each holding the prediction rows that name it and each row's state, and last the rows that name no component; it prints the number of components and rows it read (`component_report`, `tezgah_research.py:3005`) | 0, 2 misuse |
 | `tezgah-research migrate <slug> [--dry-run]` | derives the fields a line written before these rules cannot carry, prints what it derived and what it could not, and is idempotent (`migrate`, `tezgah_research.py:2183`) | 0, 2 misuse |
 | `tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "..."] [--scope real\|fixture\|derived] [--fixture "<what was generated>"]` | keeps the receipt: runs `orx logs <runId>`, writes `raw/<runId>.log`, appends the results row `{"source": "orx:<runId>", ...}` and the scope and fixture description the filer states (`source_run`, `tezgah_research.py:2465`). A `--scope fixture` filed without `--fixture` still writes the row and prints the field it still owes, so the tool is never the thing that makes its own checker warn silently; a given `--fixture` that is empty is misuse | 0, 1 nothing filed, 2 without orx |
+| `tezgah-research compare <slug> <decision>` | reads one variants x criteria cell from stdin and appends it to `decisions/<decision>/comparison.jsonl` under the lock, or refuses it by the rule `check` applies (`append_comparison` and `comparison_problems`, `hooks/tezgah_research.py`); it notes when `criteria.json` is not committed yet | 0, 1 refused, 2 misuse |
+| `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md` (`close_line`) | 0, 1 unreadable state, 2 misuse |
 
 Exit code 2 is always misuse, so a caller can tell it from a line that fails the
 checks (`misuse`, `bin/tezgah-research:83`). `check` asks nothing at all - no

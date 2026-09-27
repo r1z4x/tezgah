@@ -2,7 +2,7 @@
 """tezgah-research - the research workspace CLI.
 
   tezgah-research init <slug> [--question "..."] [--allow-open "<why>"]
-                                                          scaffold a line
+                       [--supersedes <slug>]              scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
   tezgah-research check [<slug>] [--json] [--strict] [--orx]  the discipline checks
   tezgah-research status                           one line per research line
@@ -12,6 +12,8 @@
   tezgah-research migrate <slug> [--dry-run]       derive fields the rules require
   tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"]
                            [--scope real|fixture|derived] [--fixture "<what was generated>"]
+  tezgah-research compare <slug> <decision>        record one variants x criteria cell from stdin
+  tezgah-research close <slug> --limit "<reason>"  conclude a line as a deliberate limit
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
@@ -62,11 +64,18 @@ and not a gate: it always exits 0.
 refuses while one of them is unfinished - its phase not `concluded`, a claim left
 `hypothesis` or `testing`, a pre-registered experiment with no results or no
 analysis, no `to_human/report.md` or `to_human/review.json`, a review finding with
-no status - printing every open slug with its reasons. `--allow-open "<reason>"`
+no status, a design/plan/analysis/code deliverable with no decision comparing its
+variants - printing every open slug with its reasons. `--allow-open "<reason>"`
 opens the new line anyway and writes the reason into its `log.md` as the first
-entry; an empty reason is misuse. `check` prints the same list of open lines after
-the per-line report, and so does `status`, so neither state has to be discovered by
-being refused.
+entry; an empty reason is misuse, and the hatch is refused while any open line has
+`check` errors. `close <slug> --limit "<reason>"` concludes a line on purpose,
+writing the reasons it was still open into `state.json` `closed` and `log.md`.
+`--supersedes <old>` opens a new version of an existing line, which then carries
+the old deliverable as a variant; a line asking an existing line's exact question
+without it is refused. `compare` appends one cell to
+`decisions/<decision>/comparison.jsonl` under the rule `check` applies to it.
+`check` prints the same list of open lines after the per-line report, and so does
+`status`, so neither state has to be discovered by being refused.
 
 Exit codes: 0 clean, 1 problems found - a broken line for `check`, a refused
 claim for `claim`, a refused row for `predict`, which writes nothing and prints
@@ -115,7 +124,7 @@ def cmd_init(args):
         # `check`, `status` and `claim` can never see.
         return misuse("init <slug>: %r is not a slug - lowercase letters, digits "
                       "and dashes" % args[0])
-    question, allow = "", None
+    question, allow, supersedes = "", None, None
     rest = args[1:]
     while rest:
         flag = rest.pop(0)
@@ -123,12 +132,17 @@ def cmd_init(args):
             question = rest.pop(0)
         elif flag == "--allow-open" and rest:
             allow = rest.pop(0)
+        elif flag == "--supersedes" and rest:
+            supersedes = rest.pop(0)
         else:
-            return misuse('init <slug> [--question "..."] [--allow-open "<reason>"]')
+            return misuse('init <slug> [--question "..."] [--allow-open "<reason>"] '
+                          '[--supersedes <slug>]')
     if allow is not None and not allow.strip():
         return misuse("--allow-open needs the reason the new line is worth opening "
                       "over the unfinished ones")
     repo = repo_root(os.getcwd())
+    if supersedes is not None and supersedes not in tr.slugs(repo):
+        return misuse("--supersedes %r is not a research line here" % supersedes)
     unfinished = tr.open_lines(repo)
     if unfinished and allow is None:
         # The refusal is the whole point: a line opened beside eleven unfinished
@@ -141,8 +155,27 @@ def cmd_init(args):
         print('to open %s anyway, say why: tezgah-research init %s '
               '--allow-open "<reason>"' % (slug, slug))
         return 1
+    broken = tr.broken_open_lines(repo) if unfinished else []
+    if broken:
+        # The hatch opens a line beside unfinished ones, never beside broken ones:
+        # a broken line is fixed, or closed as a deliberate limit, first.
+        print("init refused: --allow-open does not open a line beside an open line "
+              "that check refuses:")
+        for name, errors in broken:
+            print("  %s: %d error(s), first: %s" % (name, len(errors), errors[0]))
+        print('fix them, or record what is left: tezgah-research close <slug> '
+              '--limit "<reason>"')
+        return 1
+    twins = [t for t in tr.serial_twins(repo, slug, {"question": question})
+             if t != supersedes]
+    if twins:
+        print("init refused: %s already asks this question; a new version of it is "
+              "compared with the old one, not opened beside it: tezgah-research "
+              "init %s --supersedes %s" % (", ".join(twins), slug, twins[0]))
+        return 1
     created = time.strftime("%Y-%m-%d")
-    made = tr.init(repo, slug, question=question, created=created)
+    made = tr.init(repo, slug, question=question, created=created,
+                   supersedes=supersedes)
     if allow is not None:
         problem = tr.note_open(repo, slug, allow, created)
         if problem:
@@ -459,6 +492,57 @@ def cmd_source(args):
     return 0
 
 
+def cmd_compare(args):
+    """Record one variants x criteria cell from stdin into
+    decisions/<decision>/comparison.jsonl, judged by the checker's own rule."""
+    if len(args) != 2:
+        return misuse("compare <slug> <decision>")
+    slug, decision = args
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if slug not in known:
+        return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    try:
+        body = sys.stdin.buffer.read().decode("utf-8")
+        row = json.loads(body)
+    except (UnicodeDecodeError, ValueError):
+        return misuse("compare needs one JSON object on stdin")
+    try:
+        problems = tr.append_comparison(repo, slug, decision, row)
+    except OSError as exc:
+        problems = ["cannot append to comparison.jsonl: %s" % exc]
+    if problems:
+        for problem in problems:
+            print("FAIL %s/%s: %s" % (slug, decision, problem))
+        return 1
+    print("cell %s x %s recorded" % (row.get("variant"), row.get("criterion")))
+    criteria = os.path.join(tr.line_dir(repo, slug), "decisions", decision,
+                            "criteria.json")
+    if not tr.added_commits(repo, criteria)[0]:
+        print("note: criteria.json is not committed, so nothing shows the criteria "
+              "were fixed before this cell; commit it before the comparison")
+    return 0
+
+
+def cmd_close(args):
+    """Conclude a line as a deliberate limit, writing what was left and why."""
+    if len(args) != 3 or args[1] != "--limit" or not args[2].strip():
+        return misuse('close <slug> --limit "<what is left and why>"')
+    slug, limit = args[0], args[2]
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if slug not in known:
+        return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    left, problem = tr.close_line(repo, slug, limit, time.strftime("%Y-%m-%d"))
+    if problem:
+        print("FAIL %s: %s" % (slug, problem))
+        return 1
+    print("closed %s as a deliberate limit; left: %s"
+          % (slug, "; ".join(left) or "nothing"))
+    return 0
+
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -482,8 +566,12 @@ def main(argv):
         return cmd_migrate(rest)
     if cmd == "source":
         return cmd_source(rest)
+    if cmd == "compare":
+        return cmd_compare(rest)
+    if cmd == "close":
+        return cmd_close(rest)
     return misuse("unknown command %r (init, commit, check, status, claim, predict, "
-                  "components, migrate, source)" % cmd)
+                  "components, migrate, source, compare, close)" % cmd)
 
 
 if __name__ == "__main__":

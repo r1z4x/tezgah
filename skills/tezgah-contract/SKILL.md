@@ -575,7 +575,24 @@ directory per experiment whose `protocol.md` is committed BEFORE its results -
 a protocol written after the run is not a prediction. The order is checked on the
 commit graph, so a same-second commit or a rebase does not trip it, and a protocol
 *edited* after the results is refused too. `~/.config/tezgah/bin/tezgah-research check`
-enforces that, and `~/.config/tezgah/bin/tezgah-research init <slug>` scaffolds it.
+enforces that, the evaluation (metric, baseline) committed before the first results
+row, and results rows left append-only; `~/.config/tezgah/bin/tezgah-research init
+<slug>` scaffolds it. A report owes an independent review (`reviewer` is not the
+`producer`, `findings` not empty) and names its limits and the internal, external,
+construct and conclusion validity threats, whatever `phase` says. `state.json`
+`deliverable` names what the line delivers and lists the ask's items, each answered
+in the report, a decision or a claim `trace`, or written `A<n> not delivered:
+<reason>`. A design, plan or analysis is produced as >= 3 variants in
+`decisions/<id>/` - `criteria.json` committed before any cell, `variants.jsonl` (V0
+the status quo), cells appended by `tezgah-research compare`, `decision.md` naming
+the chosen id, each rejected id with the criterion that ruled it out, and a `flip:`
+condition; a new version of a line is opened `init --supersedes <old>` and carries
+the old one as a variant. Code or config variants are sibling orx nodes under one
+head node. Literature is found with `orx discover` and read with `orx paper`; an
+agent's summary is indexed as `agent-report` and never alone carries a literature
+claim. At most one line is open at a time; `init --allow-open "<reason>"` is refused
+beside a line `check` fails, and `tezgah-research close <slug> --limit "<reason>"`
+concludes a line as a deliberate limit, writing what was left.
 Load the `research` skill for the two-loop rhythm, the ideation step, the
 six-dimension review a claim passes before it is reported, and the provenance tags
 the session records at the end.
@@ -603,9 +620,9 @@ The five axes, none optional:
   Hutchinson, Fu, CHI 2010): a metric with no goal above it is dropped, and raw
   counts are refused - "ratios, percentages, or averages per user are often more
   useful". An opportunity is a user need and never a feature, and at least three
-  candidate solutions are compared against a criterion written before the scores
-  (Torres' Opportunity Solution Tree; the opportunity score Importance x
-  (1 - Satisfaction) is Olsen's).
+  candidate solutions are compared against a criterion written before the scores,
+  recorded as the line's `decisions/` (Torres' Opportunity Solution Tree; the
+  opportunity score Importance x (1 - Satisfaction) is Olsen's).
 - **Usability - can a person actually use it.** Read the running app (the
   `analyze-app` skill drives a web or mobile surface from its DOM / accessibility
   tree, from screenshots of the rendered screen, and from measurements taken in the

@@ -159,14 +159,16 @@ class Workspace(TempHome):
 
     def line(self, repo, slug="q", question="does the change help?",
              phase="bootstrap"):
-        """A scaffolded line with its evaluation locked, so a test about one rule
-        does not have to read past the warning that says it is not locked yet."""
+        """A scaffolded line with its evaluation locked and its deliverable
+        declared as findings, so a test about one rule does not have to read past
+        the warning that says it is not locked yet or owes no variants."""
         tr.init(repo, slug, question=question, created="2026-01-01")
         base = tr.line_dir(repo, slug)
         state = json.loads(read(os.path.join(base, "state.json")))
         state["phase"] = phase
         state["evaluation"].update({"metric": "p95", "baseline": "the bare build",
                                     "locked_at": "2026-01-01"})
+        state["deliverable"] = {"kind": "finding"}
         self.write(os.path.join(base, "state.json"), json.dumps(state))
         return base
 
@@ -202,6 +204,9 @@ class Workspace(TempHome):
         return path
 
     def review(self, repo, review, slug="q"):
+        """A review written by a reader other than the producer, unless the case
+        names either of them."""
+        review = dict({"producer": "session-a", "reviewer": "session-b"}, **review)
         path = os.path.join(tr.line_dir(repo, slug), "to_human", "review.json")
         self.write(path, json.dumps(review))
         return path
@@ -213,15 +218,26 @@ class Workspace(TempHome):
                    + "".join("- %s\n" % b for b in bullets)
                    + "\n## Lessons\n\n## Open questions\n")
 
+    def deliver(self, repo, slug="q"):
+        """The report and an independent review with one finding, both complete:
+        what a line holding `to_human/report.md` owes whatever its phase."""
+        base = tr.line_dir(repo, slug)
+        self.write(os.path.join(base, "to_human", "report.md"), REPORT)
+        self.review(repo, {"dimensions": {n: 3 for n in tr.REVIEW_DIMENSIONS},
+                           "findings": [{"severity": "minor",
+                                         "target": "to_human/report.md",
+                                         "quote": "held.", "status": "accepted"}]},
+                    slug=slug)
+
     def clean(self, repo, slug="q"):
         """A line every rule is satisfied by: strict-clean, so a test can assert
         that turning the unverifiable class into a refusal changes nothing for a
-        line that has nothing left unprovable. Its phase is the one its own
-        artifacts show (`outer`: the findings carry a pattern, and no review has
-        been written yet), so the fixture is also clean of the rule that reads the
+        line that has nothing left unprovable. It holds a report, so it holds the
+        review a report owes, and its phase is the one those artifacts show
+        (`concluded`), so the fixture is also clean of the rule that reads the
         phase against them."""
-        base = self.line(repo, slug, phase="outer")
-        self.write(os.path.join(base, "to_human", "report.md"), "# Report\n\nheld.\n")
+        base = self.line(repo, slug, phase="concluded")
+        self.deliver(repo, slug)
         self.protocol(repo, slug)
         self.commit(repo, "protocol", when=BEFORE)
         self.results(repo, slug)
@@ -282,6 +298,14 @@ CLAIM = {"id": "c1", "statement": "the cache cuts p95",
          "kind": "evidence",
          "falsification": "p95 does not drop",
          "proof": "to_human/report.md (p95 -12% over 7 runs)"}
+
+# A report with everything a delivered line's report is read for: what the
+# evidence does not show, and the four validity threats by name.
+REPORT = ("# Report\n\nheld.\n\n## What this does not show\n\n- one seed.\n\n"
+          "## Validity\n\n- internal validity: one machine ran both arms.\n"
+          "- external validity: one workload.\n"
+          "- construct validity: p95 is the latency the ask names.\n"
+          "- conclusion validity: seven runs, no interval.\n")
 
 
 class Init(Workspace):
@@ -521,9 +545,7 @@ class State(Workspace):
         self.claims(repo, dict(CLAIM, kind="evidence",
                                proof="experiments/h1/results.jsonl (p95 -12%)"))
         self.patterns(repo, "the cache cuts p95 [c1]")
-        self.write(os.path.join(base, "to_human", "report.md"), "# Report\n")
-        self.review(repo, {"dimensions": {n: 4 for n in tr.REVIEW_DIMENSIONS},
-                           "findings": []})
+        self.deliver(repo)
         warnings = self.warnings(repo)
         self.assertTrue(hit("state.json phase inner is behind the phase the "
                             "line's artifacts show (concluded)", warnings),
@@ -587,10 +609,10 @@ class Claims(Workspace):
 
     def test_a_complete_claim_is_clean(self):
         repo = self.repo()
-        # `inner`: the claim is what carries the line past its bootstrap phase, so
-        # the fixture declares the phase its own artifact shows
-        base = self.line(repo, phase="inner")
-        self.write(os.path.join(base, "to_human", "report.md"), "# report\n")
+        # the claim cites the report, and a line holding a report owes its review:
+        # the fixture delivers both and declares the phase they show
+        self.line(repo, phase="concluded")
+        self.deliver(repo)
         self.claims(repo, CLAIM)
         report = tr.check(repo, "q")["q"]
         self.assertEqual(report["errors"], [])
@@ -937,7 +959,7 @@ class Reports(Workspace):
         self.results(repo)
         self.commit(repo, "protocol and results", when=BEFORE)
         rows = tr.failing(repo, git=True)
-        self.assertEqual([s for s, _ in rows], ["q"])
+        self.assertEqual({s for s, _ in rows}, {"q"})
         self.assertTrue(hit(BOTH_TOGETHER, [e for _, e in rows]))
         self.assertEqual(tr.failing(repo), [])
 
@@ -2524,8 +2546,7 @@ class ReviewArtifact(Workspace):
     def test_a_complete_review_is_clean(self):
         repo = self.repo()
         base = self.line(repo, phase="concluded")
-        self.write(os.path.join(base, "to_human", "report.md"),
-                   "# Report\n\nheld.\n\n## What this does not show\n\n- one seed.\n")
+        self.write(os.path.join(base, "to_human", "report.md"), REPORT)
         self.review(repo, {"dimensions": self.DIMENSIONS,
                            "findings": [self.finding()]})
         self.assertEqual(self.errors(repo), [])
@@ -3931,6 +3952,405 @@ class ComponentsReport(Workspace):
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertEqual(proc.stdout, "")
         self.assertTrue(hit("tezgah-research:", [proc.stderr]), proc.stderr)
+
+
+class Standards(Workspace):
+    """The design rules a research standard reads past the form of a line:
+    variants compared under criteria fixed first, the evaluation locked before the
+    first result, results left as the run wrote them, a review by a second reader,
+    every ask item answered, sources that are sources."""
+
+    LATER = "2022-02-02T00:00:00+0000"
+    CRITERIA = {"question": "which layout", "baseline_variant": "V0",
+                "criteria": [{"id": "K1", "name": "p95", "kind": "measured",
+                              "direction": "min"},
+                             {"id": "K2", "name": "steps", "kind": "measured",
+                              "direction": "min"}]}
+
+    def cli(self, repo, *args, payload=None):
+        data = None if payload is None else (
+            payload if isinstance(payload, str) else json.dumps(payload) + "\n")
+        return subprocess.run([sys.executable, CLI] + list(args), input=data,
+                              capture_output=True, text=True, env=self.env(),
+                              cwd=repo, timeout=60)
+
+    def state(self, repo, slug="q", **fields):
+        path = os.path.join(tr.line_dir(repo, slug), "state.json")
+        state = json.loads(read(path))
+        state.update(fields)
+        for key in [k for k, v in fields.items() if v is None]:
+            del state[key]
+        self.write(path, json.dumps(state))
+        return state
+
+    def decision(self, repo, produced=3, slug="q", name="d1", same=False):
+        """criteria.json and variants.jsonl for `produced` variants, each a file of
+        its own under the line (or one copied file when `same`)."""
+        base = tr.line_dir(repo, slug)
+        ddir = os.path.join(base, "decisions", name)
+        self.write(os.path.join(ddir, "criteria.json"), json.dumps(self.CRITERIA))
+        rows = []
+        for n in range(produced):
+            art = "variants/V%d.md" % n
+            self.write(os.path.join(base, art),
+                       "# layout\n" if same else "# layout %d\n" % n)
+            rows.append({"id": "V%d" % n, "title": "layout %d" % n,
+                         "artifact": art, "status": "produced"})
+        self.write(os.path.join(ddir, "variants.jsonl"),
+                   "".join(json.dumps(r) + "\n" for r in rows))
+        return ddir
+
+    def cells(self, ddir, scores):
+        """{variant: (K1, K2)} as comparison rows, each sourced from the variant."""
+        with open(os.path.join(ddir, "comparison.jsonl"), "a") as fh:
+            for vid, values in scores.items():
+                for cid, value in zip(("K1", "K2"), values):
+                    fh.write(json.dumps({"variant": vid, "criterion": cid,
+                                         "value": value,
+                                         "source": "variants/%s.md" % vid}) + "\n")
+
+    def decide(self, ddir, chosen="V1", rejected=(("V0", "K1"), ("V2", "K2"))):
+        self.write(os.path.join(ddir, "decision.md"),
+                   "chosen: %s\n\n%s\nflip: a K1 regression above 5%%\n"
+                   % (chosen, "".join("- %s rejected on %s\n" % r for r in rejected)))
+
+    def designed(self, repo, **kw):
+        self.line(repo, phase="inner")
+        self.state(repo, deliverable={"kind": "design", "path": "docs/x.md"})
+        ddir = self.decision(repo, **kw)
+        self.commit(repo, "criteria and variants", when=BEFORE)
+        return ddir
+
+    # --- P1 variants -----------------------------------------------------------
+
+    def test_a_decided_comparison_of_three_distinct_variants_is_clean(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4), "V2": (95, 6)})
+        self.decide(ddir)
+        self.commit(repo, "comparison", when=AFTER)
+        errors = self.errors(repo, strict=True)
+        self.assertFalse(hit("decisions/", errors), errors)
+
+    def test_fewer_produced_variants_than_the_deliverable_takes_is_refused(self):
+        repo = self.repo()
+        ddir = self.designed(repo, produced=2)
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4)})
+        self.decide(ddir, rejected=(("V0", "K1"),))
+        self.commit(repo, "comparison", when=AFTER)
+        self.assertTrue(hit("2 produced variant(s)", self.errors(repo)))
+        self.assertEqual(self.cli(repo, "check", "q").returncode, 1)
+
+    def test_a_renamed_copy_is_not_a_variant(self):
+        repo = self.repo()
+        self.designed(repo, same=True)
+        self.assertTrue(hit("are the same file", self.errors(repo)))
+
+    def test_criteria_committed_after_the_first_cell_are_refused(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.state(repo, deliverable={"kind": "design"})
+        ddir = self.decision(repo)
+        os.remove(os.path.join(ddir, "criteria.json"))
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4), "V2": (95, 6)})
+        self.commit(repo, "cells first", when=BEFORE)
+        self.write(os.path.join(ddir, "criteria.json"), json.dumps(self.CRITERIA))
+        self.commit(repo, "criteria after", when=AFTER)
+        self.assertTrue(hit("criteria.json did not enter the history before "
+                            "comparison.jsonl", self.errors(repo)))
+
+    def test_a_missing_cell_is_refused_once_the_decision_is_written(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4)})
+        self.assertFalse(hit("cell(s) of the variants x criteria", self.errors(repo)))
+        self.decide(ddir)
+        errors = self.errors(repo)
+        self.assertTrue(hit("2 cell(s) of the variants x criteria", errors), errors)
+        # a cell marked not_checked with its reason fills the matrix
+        with open(os.path.join(ddir, "comparison.jsonl"), "a") as fh:
+            for cid in ("K1", "K2"):
+                fh.write(json.dumps({"variant": "V2", "criterion": cid,
+                                     "not_checked": "no rig for V2"}) + "\n")
+        self.assertFalse(hit("cell(s) of the variants x criteria", self.errors(repo)))
+
+    def test_a_dominated_choice_is_refused(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4), "V2": (80, 3)})
+        self.decide(ddir)
+        self.assertTrue(hit("chosen variant V1 is dominated by V2", self.errors(repo)))
+
+    def test_a_rejection_that_names_no_criterion_is_refused(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4), "V2": (95, 6)})
+        self.write(os.path.join(ddir, "decision.md"),
+                   "chosen: V1\n- V0 is older\n- V2 rejected on K2\n")
+        errors = self.errors(repo)
+        self.assertTrue(hit("rejects V0 on no criterion", errors), errors)
+        self.assertTrue(hit("names no `flip:` condition", errors), errors)
+
+    def test_a_design_with_no_decision_warns_and_is_refused_when_delivered(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.state(repo, deliverable={"kind": "design"})
+        needle = "decisions/ holds no comparison"
+        self.assertTrue(hit(needle, self.warnings(repo)))
+        self.assertFalse(hit(needle, self.errors(repo)))
+        self.assertTrue(hit(needle, self.errors(repo, strict=True)))
+        self.state(repo, direction="conclude")
+        self.assertTrue(hit(needle, self.errors(repo)))
+        self.assertTrue(hit("has no decision comparing 3 variants",
+                            dict(tr.open_lines(repo))["q"]))
+
+    def test_one_variant_needs_its_reason(self):
+        self.assertTrue(tr.deliverable_problems({"kind": "plan", "min_variants": 1})[0])
+        self.assertEqual(tr.deliverable_problems(
+            {"kind": "plan", "min_variants": 1,
+             "single_variant_reason": "the ask fixed the design"}), ([], 1))
+
+    def test_the_compare_writer_and_the_checker_agree(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        bad = {"variant": "V9", "criterion": "K1", "value": 1, "source": "variants/V0.md"}
+        proc = self.cli(repo, "compare", "q", "d1", payload=bad)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(ddir, "comparison.jsonl")))
+        self.append_line(os.path.join(ddir, "comparison.jsonl"), bad)
+        self.assertTrue(hit("not a produced variant", self.errors(repo)))
+        os.remove(os.path.join(ddir, "comparison.jsonl"))
+        good = {"variant": "V1", "criterion": "K1", "value": 90,
+                "source": "variants/V1.md"}
+        proc = self.cli(repo, "compare", "q", "d1", payload=good)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(hit("comparison.jsonl:", self.errors(repo)))
+
+    def test_a_judged_cell_needs_two_raters_under_strict(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        crit = dict(self.CRITERIA, criteria=[{"id": "K1", "name": "clarity",
+                                              "kind": "judged", "direction": "max"}])
+        self.write(os.path.join(ddir, "criteria.json"), json.dumps(crit))
+        self.append_line(os.path.join(ddir, "comparison.jsonl"),
+                         {"variant": "V0", "criterion": "K1", "value": 3,
+                          "source": "variants/V0.md", "rater": "r1"})
+        needle = "fewer than two distinct raters"
+        self.assertTrue(hit(needle, self.warnings(repo)))
+        self.assertTrue(hit(needle, self.errors(repo, strict=True)))
+        self.append_line(os.path.join(ddir, "comparison.jsonl"),
+                         {"variant": "V0", "criterion": "K1", "value": 4,
+                          "source": "variants/V0.md", "rater": "r2"})
+        self.assertFalse(hit(needle, self.warnings(repo)))
+
+    def test_a_second_version_of_one_question_supersedes_the_first(self):
+        repo = self.repo()
+        self.line(repo, "v1", question="which admin layout?", phase="concluded")
+        self.state(repo, "v1", closed={"limit": "superseded by v2"})
+        proc = self.cli(repo, "init", "v2", "--question", "which admin layout?")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("--supersedes v1", proc.stdout)
+        proc = self.cli(repo, "init", "v2", "--question", "which admin layout?",
+                        "--supersedes", "v1")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.state(repo, "v2", direction="conclude")
+        needle = "supersedes v1 and no variant carries its deliverable"
+        self.assertTrue(hit(needle, self.errors(repo, "v2")))
+        ddir = self.decision(repo, slug="v2")
+        with open(os.path.join(ddir, "variants.jsonl"), "a") as fh:
+            fh.write(json.dumps({"id": "V9", "title": "v1's plan", "line": "v1",
+                                 "status": "dropped",
+                                 "drop_reason": "kept as the old version"}) + "\n")
+        self.assertFalse(hit(needle, self.errors(repo, "v2")))
+
+    # --- P2 evaluation lock ----------------------------------------------------
+
+    def test_an_evaluation_filled_after_the_results_is_refused(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.state(repo, evaluation={"metric": "", "baseline": "", "locked_at": ""})
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=AFTER)
+        self.state(repo, evaluation={"metric": "p95", "baseline": "bare",
+                                     "locked_at": "2026-01-01"})
+        self.commit(repo, "evaluation", when=self.LATER)
+        needle = "the evaluation was not locked before the first results row"
+        self.assertTrue(hit(needle, self.errors(repo)))
+        # a line opened before the rule existed warns instead
+        self.state(repo, rules=None)
+        self.assertFalse(hit(needle, self.errors(repo)))
+        self.assertTrue(hit(needle, self.warnings(repo)))
+
+    def test_an_evaluation_locked_before_the_results_is_clean(self):
+        repo = self.repo()
+        self.clean(repo)
+        self.assertFalse(hit("was not locked before", self.errors(repo)))
+
+    def test_a_locked_at_commit_the_history_does_not_reach_is_refused(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.commit(repo, "line", when=BEFORE)
+        self.state(repo, evaluation={"metric": "p95", "baseline": "bare",
+                                     "locked_at": "protocol commit 07235b3"})
+        self.assertTrue(hit("locked_at names 07235b3", self.errors(repo)))
+        head = self.git(os.path.join(repo, ".tezgah"), "rev-parse", "HEAD").strip()
+        self.state(repo, evaluation={"metric": "p95", "baseline": "bare",
+                                     "locked_at": "commit %s" % head[:10]})
+        self.assertFalse(hit("locked_at names", self.errors(repo)))
+
+    # --- P3 review integrity and phase evasion ---------------------------------
+
+    def test_a_report_owes_a_review_whatever_the_phase_says(self):
+        repo = self.repo()
+        base = self.line(repo, phase="outer")
+        self.write(os.path.join(base, "to_human", "report.md"), REPORT)
+        needle = "review.json is missing"
+        self.assertTrue(hit(needle, self.warnings(repo)))
+        self.assertTrue(hit(needle, self.errors(repo, strict=True)))
+
+    def test_a_review_by_the_producer_is_refused(self):
+        repo = self.repo()
+        self.line(repo, phase="concluded")
+        self.deliver(repo)
+        path = os.path.join(tr.line_dir(repo, "q"), "to_human", "review.json")
+        review = json.loads(read(path))
+        self.review(repo, dict(review, reviewer="session-a"))
+        self.assertTrue(hit("reviewer 'session-a' is the producer", self.errors(repo)))
+        self.review(repo, dict(review, reviewer=""))
+        self.assertTrue(hit("names no reviewer", self.errors(repo)))
+
+    def test_a_review_with_no_finding_warns_and_strict_refuses_it(self):
+        repo = self.repo()
+        self.line(repo, phase="concluded")
+        self.deliver(repo)
+        self.review(repo, {"dimensions": {n: 3 for n in tr.REVIEW_DIMENSIONS},
+                           "findings": []})
+        needle = "records no finding at all"
+        self.assertTrue(hit(needle, self.warnings(repo)))
+        self.assertTrue(hit(needle, self.errors(repo, strict=True)))
+
+    def test_a_review_cannot_grade_integrity_above_the_order_findings(self):
+        repo = self.repo()
+        self.line(repo, phase="concluded")
+        self.deliver(repo)
+        self.protocol(repo)
+        self.results(repo)
+        self.commit(repo, "protocol and results", when=BEFORE)
+        needle = "scores exploration_integrity"
+        self.assertFalse(hit(needle, self.errors(repo)))
+        self.review(repo, {"dimensions": {n: 5 for n in tr.REVIEW_DIMENSIONS},
+                           "findings": [{"severity": "minor", "status": "accepted",
+                                         "target": "to_human/report.md",
+                                         "quote": "held."}]})
+        self.assertTrue(hit(needle, self.errors(repo)))
+
+    # --- P4 results append-only ------------------------------------------------
+
+    def test_a_committed_result_row_rewritten_later_is_refused(self):
+        repo = self.repo()
+        self.clean(repo)
+        path = os.path.join(self.exp_dir(repo), "results.jsonl")
+        needle = "results.jsonl was rewritten after the run"
+        self.append_line(path, {"run": 2, "p95": 0.8, "scope": "real",
+                                "source": "run.py run 2"})
+        self.commit(repo, "second run", when=self.LATER)
+        self.assertFalse(hit(needle, self.errors(repo)))
+        self.write(path, json.dumps({"run": 1, "p95": 0.7, "scope": "real",
+                                     "source": "run.py run 1"}) + "\n")
+        self.assertTrue(hit(needle, self.errors(repo)), "uncommitted rewrite")
+        self.commit(repo, "rewrite", when=self.LATER)
+        self.assertTrue(hit(needle, self.errors(repo)), "committed rewrite")
+
+    # --- P5 literature, ask, raters, validity ----------------------------------
+
+    def test_a_nested_source_the_index_does_not_name_is_refused(self):
+        repo = self.repo()
+        self.line(repo)
+        self.note(repo, os.path.join("slices", "scout.json"), "{}\n")
+        needle = "literature/ holds 1 note(s) and no INDEX.jsonl"
+        self.assertTrue(hit(needle, self.errors(repo)))
+        self.index(repo, {"note": "other.md", "class": "grey"})
+        self.assertTrue(hit("slices/scout.json is not in INDEX.jsonl",
+                            self.errors(repo)))
+
+    def test_every_ask_item_is_delivered_or_says_why_not(self):
+        repo = self.repo()
+        base = self.line(repo, phase="concluded")
+        self.deliver(repo)
+        self.state(repo, deliverable={"kind": "finding",
+                                      "ask": ["memory use", "cold start"]})
+        errors = self.errors(repo)
+        self.assertTrue(hit("ask item(s) A1, A2", errors), errors)
+        self.write(os.path.join(base, "to_human", "report.md"),
+                   REPORT + "\nMemory use: held.\nA2 not delivered: no cold-start "
+                            "rig.\n")
+        self.assertFalse(hit("ask item(s)", self.errors(repo)))
+
+    def test_a_claim_on_one_rater_warns_and_two_raters_do_not(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        row = {"run": 1, "score": 3, "scope": "real", "source": "walk 1",
+               "rater": "r1"}
+        self.results(repo, row=row)
+        self.claims(repo, dict(CLAIM, proof="experiments/h1/results.jsonl"))
+        needle = "rests only on judged rows from 1 rater"
+        self.assertTrue(hit(needle, self.warnings(repo)))
+        self.append_line(os.path.join(self.exp_dir(repo), "results.jsonl"),
+                         dict(row, rater="r2"))
+        self.assertFalse(hit(needle, self.warnings(repo)))
+
+    def test_a_report_naming_no_validity_threat_warns(self):
+        repo = self.repo()
+        base = self.line(repo, phase="concluded")
+        self.deliver(repo)
+        self.assertFalse(hit("validity threat", self.warnings(repo)))
+        self.write(os.path.join(base, "to_human", "report.md"),
+                   "# Report\n\nheld.\n\nThis does not show the cost.\n"
+                   "internal validity: one machine.\n")
+        warnings = self.warnings(repo)
+        self.assertTrue(hit("names no external, construct, conclusion validity",
+                            warnings), warnings)
+
+    def test_an_agent_report_cannot_alone_carry_a_literature_claim(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.note(repo, "scout.md", "# what the scout read\n")
+        self.index(repo, {"note": "scout.md", "class": "agent-report"})
+        claim = dict(CLAIM, kind="literature", proof="literature/scout.md")
+        self.claims(repo, claim)
+        needle = "resting only on agent reports"
+        self.assertTrue(hit(needle, self.errors(repo)))
+        os.remove(os.path.join(tr.line_dir(repo, "q"), "claims.jsonl"))
+        proc = self.cli(repo, "claim", "q", payload=claim)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn(needle, proc.stdout)
+        # beside the note on the page itself it stands
+        self.note(repo, "page.md", "# the page\n")
+        self.index(repo, {"note": "scout.md", "class": "agent-report"},
+                   {"note": "page.md", "class": "grey", "quality": "vendor doc"})
+        self.claims(repo, dict(claim, proof="literature/scout.md; literature/page.md"))
+        self.assertFalse(hit(needle, self.errors(repo)))
+
+    # --- the open-line hatch ---------------------------------------------------
+
+    def test_allow_open_is_refused_beside_a_broken_line_until_it_is_closed(self):
+        repo = self.repo()
+        self.line(repo, "alpha", phase="inner")
+        self.protocol(repo, "alpha")
+        self.results(repo, "alpha")
+        self.commit(repo, "both at once", when=BEFORE)
+        proc = self.cli(repo, "init", "beta", "--allow-open", "because X")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("alpha:", proc.stdout)
+        self.assertEqual(tr.slugs(repo), ["alpha"])
+        proc = self.cli(repo, "close", "alpha", "--limit", "order unprovable")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(tr.open_lines(repo), [])
+        log = read(os.path.join(tr.line_dir(repo, "alpha"), "log.md"))
+        self.assertIn("order unprovable", log)
+        self.assertEqual(self.cli(repo, "init", "beta").returncode, 0)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   file that is then read, or a `set -o pipefail;` prefix, which integrity (and
   the opencode plugin) now records as `verify_ok`/`verify_fail`. Rides
   `verify-off`.
+- **A research line can deliver variants, and `check` grades the comparison.**
+  `state.json` gains `deliverable` (`kind`, `path`, `ask`, `min_variants`) and
+  `supersedes`; `decisions/<id>/` holds one comparison of the deliverable's
+  variants (`criteria.json`, `variants.jsonl`, `comparison.jsonl`,
+  `decision.md`) and `tezgah-research compare <slug> <decision>` writes one
+  variants x criteria cell from stdin, refusing what `check` refuses. The checker
+  grades distinctness (a renamed copy is not a variant), the criteria committed
+  before the first cell, completeness once the decision is written, the Pareto
+  choice, a rejection that names a criterion, at least two raters on a judged
+  cell under `--strict`, and a serial version that supersedes its predecessor.
+- **Six more things a line is held to.** The evaluation is locked before the
+  results it will grade, not after; a report owes a review whatever the phase
+  says, a reviewer distinct from the producer, and a finding at all; a committed
+  results row is append-only; a nested source the literature index does not name
+  is refused; every ask item is delivered or says why not; a claim resting on one
+  rater warns (refused under `--strict` as an unstated limit); a report naming no
+  validity threat warns. An agent's summary of what it read is filed as
+  `agent-report`, a kind that cannot alone carry a claim.
 
 ### Changed
 
