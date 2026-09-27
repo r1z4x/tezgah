@@ -15,8 +15,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   frame; it stops on the terminal end, a session switch and shutdown, needs the
   widget surface, and `TEZGAH_STATUS_ANIMATE=0` turns it off. On every colored
   surface (omp's widget, the Claude and Cursor status lines) each chip leads with
-  a one-cell icon (`⚒ ✂ ▶ ◎ ⚖ ⚗ ⌬ ⎇ ⚑ ⌕ ☰`) and the version prefix is bold cyan;
-  the plain line is unchanged.
+  a one-cell icon (`✂ ▶ ◎ ⚖ ⚗ ⌬ ⎇ ⚑ ⌕ ☰`), and the line opens with the logo
+  drawn in three half-block cells in its own colors (amber worktop, slate
+  support) before `tezgah vX.Y.Z` in bold amber; the plain line is unchanged.
 
 ## [0.18.0] - 2026-09-27
 

@@ -55,8 +55,11 @@ color is additive, never the only carrier of the state — the accessibility rul
 (`_seg_text()`, hooks/tezgah_context.py:1341-1350). `idx` is the one exception: its glyph *is* the index's
 state, mapped back by `IDX_STATE` (hooks/tezgah_context.py:1235).
 
-On a colored surface each chip also leads with its icon (`ICONS`): `⚒` tezgah,
-`✂` pony, `▶` exec, `◎` adhd, `⚖` consult, `⚗` research, `⌬` graph, `⎇` orch,
+On a colored surface the line opens with the logo (`LOGO`): three upper half
+blocks draw the amber worktop of `assets/logo/tezgah-logo.svg` (#FFC55C) and the
+middle one's background (#2A4657) is its single support, so it reads as the
+logo's `t`; the name follows in bold amber. Each other chip leads with its icon
+(`ICONS`): `✂` pony, `▶` exec, `◎` adhd, `⚖` consult, `⚗` research, `⌬` graph, `⎇` orch,
 `⚑` judge, `⌕` idx, `☰` plans. Every icon is a text-presentation symbol one cell
 wide - never an emoji - so a terminal does not overflow the line. The plain line
 (pipes, `--status`, Codex's `systemMessage`, omp's `setStatus` fallback) carries

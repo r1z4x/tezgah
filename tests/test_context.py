@@ -209,6 +209,14 @@ class HealthLines(TempHome):
         self.assertIn("\033[31m\u2697 research\u2717\033[0m", out)  # off
         self.assertIn("\033[2m\u2315 idx\u2013\033[0m", out)        # no state
         self.assertIn("\033[2m  \u00b7  \033[0m", out)
+        # the head is the logo in its own colors: an amber worktop over the
+        # slate support, then the name; the plain line never carries it
+        self.assertTrue(out.startswith("\033[38;2;255;197;92m\u2580"
+                                       "\033[48;2;42;70;87m\u2580"), out[:60])
+        plain, _ = run_json([support.PROBE_CONTEXT],
+                            {"fn": "health_lines", "cwd": repo, "session_id": "s"},
+                            env=self.env())
+        self.assertTrue(plain.startswith("tezgah"), plain[:40])
 
     def test_open_plans_segment(self):
         repo = self.make_repo()

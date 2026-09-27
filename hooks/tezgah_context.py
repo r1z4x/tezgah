@@ -1305,10 +1305,18 @@ RESET = "\033[0m"
 # symbol of East Asian width Neutral - never an emoji - so a terminal counts it
 # as one cell and the line does not overflow its width. The plain line (pipes,
 # Codex's systemMessage, omp's setStatus fallback) keeps its exact old shape.
-ICONS = {"tezgah": "\u2692", "pony": "\u2702", "exec": "\u25b6", "adhd": "\u25ce",
+ICONS = {"pony": "\u2702", "exec": "\u25b6", "adhd": "\u25ce",
          "consult": "\u2696", "research": "\u2697", "graph": "\u232c",
          "orch": "\u2387", "judge": "\u2691", "idx": "\u2315", "plans": "\u2630"}
-HEAD = "\033[1;36m"
+# The head is the logo itself (assets/logo/tezgah-logo.svg): an amber worktop
+# over one central support, which reads as the letter t. Three upper half blocks
+# draw the worktop in the logo's top-face amber (#FFC55C); the middle one's
+# background is the support's face (#2A4657), so its lower half is the leg.
+# Three cells, all width 1, so it counts like any other text.
+AMBER = "\033[38;2;255;197;92m"
+LOGO = (AMBER + "\u2580" + "\033[48;2;42;70;87m" + "\u2580" + "\033[49m"
+        + "\u2580" + RESET)
+HEAD = "\033[1m" + AMBER
 IDX_STATE = {"✓": "on", "↻": "ready", "✗": "off", "?": "info", "–": "info"}
 LEGEND = """\
 tezgah status marks (state first, glyph after the name; the whole name+glyph is
@@ -1424,9 +1432,11 @@ def _seg_text(seg, color):
     chip = seg["text"] + seg["glyph"]
     if not color or not chip:
         return chip
+    if seg.get("key") == "tezgah":
+        return LOGO + " " + HEAD + chip + RESET
     icon = ICONS.get(seg.get("key"), "")
     chip = (icon + " " + chip) if icon else chip
-    return (HEAD if seg.get("key") == "tezgah" else COLORS[seg["state"]]) + chip + RESET
+    return COLORS[seg["state"]] + chip + RESET
 
 
 def render_line(segs, color=False):
