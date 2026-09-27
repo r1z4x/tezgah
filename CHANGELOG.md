@@ -16,6 +16,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   session whose ledger holds 79 rows, and only `--counters <path> <id>` printed
   79. The id is now the positional that is not a directory, PATH is accepted and
   ignored, and `TEZGAH_SESSION` is still the fallback.
+- **`fanout` counts a subagent spawn.** `_counts` folds `fanout` from the
+  evidence ledger's `orch`/`task`/`agent`/`subagent` rows, but every Python
+  adapter's subagent event went only to `record()`, which appended to the used-mark
+  store: a session whose store held an `orch` mark had 0 `orch` rows in its
+  ledger, and `--counters --all` read `fanout 0` over 1028 ledgers. `record()` now
+  also writes an `orch` mark as an `orch` evidence row (best effort, the ledger's
+  row contract), so `counters()` and `counters_all()` both see it. It counts
+  what the adapters record: one row per `orch` mark, which on Cursor (start and
+  stop both record) and Codex (the tool call and `SubagentStart`) can be more
+  than one per spawn; opencode's plugin keeps its own used-mark writer and still
+  writes no `orch` row.
 
 ## [0.18.0] - 2026-09-27
 

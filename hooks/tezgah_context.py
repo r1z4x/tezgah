@@ -16,7 +16,7 @@ import sys
 import time
 
 import tezgah_research
-from tezgah_integrity import cut, note_turn, scratch_evidence
+from tezgah_integrity import cut, note, note_turn, scratch_evidence
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            open_lines_note, pony_level_line)
 from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
@@ -1133,9 +1133,14 @@ def record(session_id, kind):
     tools are not one of ours, so writing those would fill the ledger with
     no-ops (a real session: 395 null lines against 30 kinds) and make every
     later read walk them.
+
+    An `orch` mark is also an evidence row: `counters`' `fanout` folds the
+    evidence ledger, and a subagent event reaches no other writer there.
     """
     if not session_id or not kind:
         return
+    if kind == "orch":
+        note(session_id, "orch")
     try:
         d = os.path.join(cache_dir(), "sessions")
         os.makedirs(d, exist_ok=True)
