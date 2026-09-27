@@ -149,13 +149,16 @@ is. Every denial is itself a `deny` row.
 
 ## The session store for the status marks
 
-`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1111`) and read
-by `used()` (`hooks/tezgah_context.py:1148-1164`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
+`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1129`) and read
+by `used()` (`hooks/tezgah_context.py:1153-1169`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
 and the kinds are the used-tool marks [status-line.md](status-line.md) lights up (`graph`, `consult`,
 `research`). It is separate from the [ledger](glossary.md#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all
-(`:1126-1127`), and the reader wants a set of kinds rather than an ordered, turn-scoped history. The
-ledger pays a redaction scan and a lock per row; a mark needs neither.
+(`hooks/tezgah_context.py:1140-1141`), and the reader wants a set of kinds rather than an ordered,
+turn-scoped history. The ledger pays a redaction scan and a lock per row; a mark needs neither. The
+one mark that is also evidence is `orch`: `record()` writes it as an `orch` row in the session's
+ledger too (`hooks/tezgah_context.py:1142-1143`), because a subagent event reaches no other ledger
+writer and `fanout` is folded from the ledger.
 
 ## Snapshots and rollback
 
@@ -217,7 +220,7 @@ without failing the other's test (`tests/test_opencode_plugin.py:1285`).
 
 ## The counters a maintainer reads
 
-`tezgah-status --counters [path] [session]` (`bin/tezgah-status:60-82`) prints `counters(session)`
+`tezgah-status --counters [session] [path]` (`bin/tezgah-status:72-97`) prints `counters(session)`
 (`hooks/tezgah_integrity.py:857-872`) over one session's whole ledger, and `tezgah-status --counters
 --all` prints `counters_all()` (`hooks/tezgah_integrity.py:917`) over every real-session ledger on the machine, adding `ledgers`, the
 number of files it read, and `fixtures`, the ledgers left out because every workspace they name is a temp, OpenResearch run or arm-bench tree (`fixture_ledger`). Both fold their rows through `_counts` (`hooks/tezgah_integrity.py:937`), the one implementation
@@ -239,7 +242,8 @@ Each key, as both readers produce it:
   report-only flag (`:977-985`).
 - `denies` — `deny` rows grouped by the text before the first colon (`:959-961`), which is the rule
   name (`shortcut`, `loop`, `race`, …); `nudges` and `fanout` — the nudge rows and
-  the subagent-ish kinds (`:962-963`, `:994-995`).
+  the subagent-ish kinds (`:962-963`, `:993-994`), the `orch` rows among them written by `record()`
+  for every subagent event a Python adapter sees.
 - `consult`, `codegen`, `codegen_failed` — substring matches on `detail` (`:986-991`).
 
 The one ratio that matters is **`false_completion / claims`**: how often a reply claiming completion

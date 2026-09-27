@@ -172,7 +172,7 @@ happens in `core_split()`.
 
 The last four are per-repo [marks](glossary.md#per-repo-mark), read by
 `repo_marks()`, walking up to the enclosing [root](glossary.md#root)
-(`hooks/tezgah_context.py:1147-1163`). Every switch that fired is named back to the
+(`hooks/tezgah_context.py:1152-1168`). Every switch that fired is named back to the
 session at start (`hooks/tezgah_context.py:969`) and per turn (`hooks/tezgah_context.py:905-907`), with the instruction to
 ignore the matching section in `tezgah-contract` — that skill is loaded
 separately and would otherwise re-arm the rule. `tezgah-adhd off` writes the same

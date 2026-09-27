@@ -27,6 +27,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and drops the tool name when room is short, and cuts with `…` only when even
   the narrowest does not fit.
 
+### Fixed
+
+- **`tezgah-status --counters` finds the session whichever order the id and the
+  path come in.** The counters branch read the id as the second positional - the
+  plain form's `[PATH] [SESSION_ID]` order - while its own `--help` documents
+  `--counters [SESSION_ID] [PATH]`, so the id alone read `session (none)` and
+  `--counters <id> <path>` read the path as the id: both printed `0 events` for a
+  session whose ledger holds 79 rows, and only `--counters <path> <id>` printed
+  79. The id is now the positional that is not a directory, PATH is accepted and
+  ignored, and `TEZGAH_SESSION` is still the fallback.
+- **`fanout` counts a subagent spawn.** `_counts` folds `fanout` from the
+  evidence ledger's `orch`/`task`/`agent`/`subagent` rows, but every Python
+  adapter's subagent event went only to `record()`, which appended to the used-mark
+  store: a session whose store held an `orch` mark had 0 `orch` rows in its
+  ledger, and `--counters --all` read `fanout 0` over 1028 ledgers. `record()` now
+  also writes an `orch` mark as an `orch` evidence row (best effort, the ledger's
+  row contract), so `counters()` and `counters_all()` both see it. It counts
+  what the adapters record: one row per `orch` mark, which on Cursor (start and
+  stop both record) and Codex (the tool call and `SubagentStart`) can be more
+  than one per spawn; opencode's plugin keeps its own used-mark writer and still
+  writes no `orch` row.
+- **`tezgah-triage` and `tezgah-docs` count on omp.** They record their `judge`
+  row under `TEZGAH_SESSION`, which omp's shells never had, so the judge counter
+  stayed 0 there. The omp extension now exports the main session's id at
+  session start (a subagent does not repoint it).
+
 ## [0.18.0] - 2026-09-27
 
 ### Added
@@ -172,10 +198,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **`tezgah-triage` and `tezgah-docs` count on omp.** They record their `judge`
-  row under `TEZGAH_SESSION`, which omp's shells never had, so the judge counter
-  stayed 0 there. The omp extension now exports the main session's id at
-  session start (a subagent does not repoint it).
 - **An untracked or deleted protocol is not a protocol changed after the run.**
   The order rule's second half asked which commit touched `protocol.md` last, and
   `git rm --cached` counts as a touch - so the 2026-09-24 commit that untracked

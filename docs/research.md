@@ -588,7 +588,7 @@ and the advice to run `check` before reporting a result (the note
 
 The mark: `research` in the status line. It is armed when `research-off` is
 absent and the research tooling is present (`health_segments`,
-`hooks/tezgah_context.py:1388-1456`) and turns used when a shell command really ran
+`hooks/tezgah_context.py:1393-1461`) and turns used when a shell command really ran
 the layer - `orx` or `tezgah-research`
 in a command position, classified by the shared tokenizer
 (`shell_kind`, `hooks/tezgah_context.py:1092-1117`), so a command that merely mentions

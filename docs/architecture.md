@@ -67,7 +67,7 @@ every detected host, regenerates the generated contract files and the subagent
 sets, and reports what is armed (`bin/tezgah-setup:2-25`). The rest are the small
 stable CLIs the contract cites by absolute path because a session shell has no
 interactive PATH: `bin/tezgah-status` (the checklist in any host,
-`bin/tezgah-status:2-14`), `bin/tezgah-rollback`,
+`bin/tezgah-status:2-16`), `bin/tezgah-rollback`,
 `bin/tezgah-capture`, `bin/tezgah-context`, `bin/tezgah-index`,
 `bin/tezgah-agents`, and the optional `bin/consult` / `bin/codegen`.
 
@@ -101,7 +101,7 @@ One session, in order. Each step names the file that handles the event on Claude
    reminder, the conditional paragraph(s) this prompt arms
    (`classify_prompt`, `hooks/tezgah_context.py:526-531`), one line naming what moved
    since the previous turn (`hooks/tezgah_context.py:473`), and the stale-index
-   notice (`hooks/tezgah_context.py:1194`).
+   notice (`hooks/tezgah_context.py:1199`).
 3. **PreToolUse** — `hooks/projects-pretooluse.py:24` calls `decision` and emits
    the deny envelope (`hooks/projects-pretooluse.py:25-30`). The gate is the same
    object on every host: `hosts/omp/hook.py:119`, `hosts/codex/hook.py:104`.
@@ -143,7 +143,7 @@ lowest-value blocks are dropped in a fixed order rather than the rules
 | Store | Path | Writer | Authoritative for |
 |---|---|---|---|
 | Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py:373-374`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py:1436`) | what a session actually ran, and therefore the Stop verdict |
-| Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py:1122-1124`) | `record` (`hooks/tezgah_context.py:1111`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript |
+| Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py:1145-1147`) | `record` (`hooks/tezgah_context.py:1129`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript; an `orch` mark is also written to the evidence ledger (`hooks/tezgah_context.py:1142-1143`) so `fanout` can count it |
 | Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py:55-60`) | `capture` on the write path (`hooks/tezgah_snapshot.py:191`) | the pre-write bytes; the rollback source |
 | Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py:432-433`) | `write_stamp` (`hooks/tezgah_context.py:462-473`) | the comparison behind the one-line delta, nothing else |
 | Installed config dir | `~/.config/tezgah` (`hooks/tezgah_paths.py:19-23`) | the installer and the user | which roots are armed, which kill switches are on |

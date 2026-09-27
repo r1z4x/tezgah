@@ -1321,6 +1321,16 @@ class RecordKinds(TempHome):
         self.assertEqual(self.record("s1", "consult"), ["consult"])
         self.assertEqual(self.record("s1", "graph"), ["consult", "graph"])
 
+    def test_a_subagent_spawn_reaches_the_counters_fanout(self):
+        # `fanout` is folded from the evidence ledger, and the Python hosts'
+        # subagent events reach only record(): the used mark alone left it at 0
+        self.record("s-fan", "orch")
+        self.record("s-fan", "graph")
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "counters", "session": "s-fan"}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual((out["fanout"], out["events"]), (1, 1))
+
 
 class PostToolUseUsedKind(TempHome):
     """Which tool call earns the graph mark, through the hook that writes it.
