@@ -54,6 +54,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The research order rule accepts a declared history bridge after a re-root.**
+  When the whole tree landed in one commit - this project's 2026-09-23
+  force-push - every experiment's two files share that add and no commit graph
+  can order them. `<repo>/.tezgah/history-bridge.json` (`rewrite_commit`,
+  `anchor_tag`, `anchor_sha`) now lets `check` accept such an experiment from the
+  anchor the tag pins: the tag must resolve to the declared sha, the anchor's
+  ancestry must hold a strict protocol-add-before-results-add pair, and the blobs
+  must tie the old files to the current ones (`P@rewrite == P'@add(R') ==
+  P'@anchor`, `R@rewrite == R'@anchor`). A missing tag, a tag that resolves
+  elsewhere, a missing object or a blob that moved is a refusal naming which
+  failed, so a clean clone without the pushed tag is told exactly that. The
+  report shows `order: bridged via <tag>` (the JSON report's new `notes` list),
+  and a prediction bound to a pre-rewrite commit is placed the same way when
+  `git merge-base --is-ancestor <commit> <anchor_sha>` holds; a commit reachable
+  only from an unrelated tag stays refused. `is_ancestor` no longer guesses that a
+  project commit precedes a private `.tezgah` one: each answer stays inside one
+  history, so a cross-history pair is reported as undecided rather than passed.
 - **Per-project state lives only under `<repo>/.tezgah/`, and the project never
   tracks it.** Session start (and `tezgah-research init`) now creates `.tezgah/`,
   appends `/.tezgah/` and `/.codegraph/` to the project's `.gitignore` when
@@ -131,6 +148,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--use`. `consult --use` is not an untrusted model read.
 
 ### Fixed
+
+- **An untracked or deleted protocol is not a protocol changed after the run.**
+  The order rule's second half asked which commit touched `protocol.md` last, and
+  `git rm --cached` counts as a touch - so the 2026-09-24 commit that untracked
+  `.tezgah/` read as a protocol edited after the results. It compares blobs now:
+  the blob at the results' add against the blob at the tip of the history, and a
+  path absent at either end is not a change.
 
 - **A claim's proof is read when the path it cites has a parenthesised
   directory.** A Next.js route group is a real directory name

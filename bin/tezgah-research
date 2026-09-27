@@ -251,6 +251,8 @@ def cmd_check(args):
                 print("FAIL %s: %s" % (slug, err))
             for warn in row["warnings"]:
                 print("warn %s: %s" % (slug, warn))
+            for note in row["notes"]:
+                print("note %s: %s" % (slug, note))
     else:
         print("no research line under %s" % tr.root(repo))
     if ask_orx:
