@@ -54,6 +54,7 @@ jobs:
         if: ${{ env.TAP_TOKEN != '' }}
         env:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           bash packaging/build.sh --version "$VERSION" --out /tmp/tz-rel
@@ -84,3 +85,10 @@ jobs:
           end
           RUBY
           git add -A && git commit -m "tezgah ${VERSION}" && git push origin main
+
+          # The asset the formula above points at. Without this the tap ships a
+          # formula whose sha256 is right and whose URL 404s - which is what a
+          # release republished by hand looked like.
+          gh release upload "v${VERSION}" \
+            "/tmp/tz-rel/tezgah-${VERSION}.tar.gz" \
+            "/tmp/tz-rel/tezgah-${VERSION}.tar.gz.sha256" --clobber
