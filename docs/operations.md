@@ -88,7 +88,7 @@ only writer, from the same filter the reader applies — `managed()` — so the
 listing and its reader cannot disagree (`managed()`, `bin/tezgah-setup:3501-3510`,
 `write_manifest()`, `bin/tezgah-setup:3538-3554`). The payload also carries
 `VERSION`, which is what a tree with no `.claude-plugin/` answers from
-(`version()`, `hooks/tezgah_context.py:1564-1593`).
+(`version()`, `hooks/tezgah_context.py:1699-1728`).
 
 ## A first install from a checkout
 
@@ -107,7 +107,7 @@ named under `predecessor wiring still present` and retired by `--adopt`
 
 An install from a checkout is a live symlink into that working tree, so a half-finished edit or a branch switch there crashes the sessions running on it (the `crash` ledger rows of 09-20..09-21 were names removed mid-edit) - do tezgah maintenance in a `git worktree`, never in the installed checkout.
 
-The `~/.config/tezgah/bin` farm carries `tezgah-mcp` beside the other CLIs; two are left out on purpose: `tezgah-dsh` is wired as `~/.local/bin/dsh` (`dsh_launcher`), and `tezgah-import-ai-research` is dev-time only (its docstring). The report's `config.json hosts (...) match the hosts wired (...)` row (`hosts_row`) reads `MISS` when the recorded host list differs from the hosts whose wiring is on disk; `--upgrade`, `--enable`/`--disable` and a full uninstall act on the recorded list, so the row only reports it - `--install --hosts ...` records the list you choose.
+The `~/.config/tezgah/bin` farm carries `tezgah-mcp` and `tezgah-design` beside the other CLIs; two are left out on purpose: `tezgah-dsh` is wired as `~/.local/bin/dsh` (`dsh_launcher`), and `tezgah-import-ai-research` is dev-time only (its docstring). The report's `config.json hosts (...) match the hosts wired (...)` row (`hosts_row`) reads `MISS` when the recorded host list differs from the hosts whose wiring is on disk; `--upgrade`, `--enable`/`--disable` and a full uninstall act on the recorded list, so the row only reports it - `--install --hosts ...` records the list you choose.
 
 A successful run prints, in order: `dependencies:`, a line per missing optional
 tool with the vendor command it runs — over the network, no sudo

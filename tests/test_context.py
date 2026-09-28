@@ -419,6 +419,39 @@ class ProductClassArming(unittest.TestCase):
         self.assertEqual(self.armed("kullanıcı deneyimi raporu"), set())
 
 
+class UiWorkArming(unittest.TestCase):
+    """A UI request said as work - "refactor the admin components", "the hover
+    state is wrong", "move the styles to tailwind" - armed nothing before: the
+    spec class fired only on a quality adjective, so a plain UI task carried no
+    UI/UX standard at all. The evidence half of the rule cannot supply one on its
+    own, because a turn with no standard to judge against has nothing to read the
+    screen for."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks"))
+        import tezgah_context as tc  # noqa: E402
+        self.armed = tc.classify_prompt
+
+    def test_ui_work_words_arm_the_spec_class(self):
+        for prompt in ("admin componentlerini refactor et",
+                       "bu sayfanın css'ini tailwind'e taşı",
+                       "hover ve focus durumları eksik",
+                       "tasarımı responsive yap",
+                       "dark mode ekle",
+                       "move the layout to a design system",
+                       "bu componentin erişilebilirliğini düzelt"):
+            self.assertIn("spec", self.armed(prompt), prompt)
+
+    def test_the_craft_words_leave_the_surface_nouns_to_the_product_class(self):
+        # the words added are the craft, not a surface noun: "ekran" and "arayüz"
+        # still arm the product class alone, so a surface ask pays one paragraph
+        self.assertEqual(self.armed("admin paneldeki users ekranını incele"),
+                         {"product"})
+        self.assertEqual(self.armed("bu ekran düzgün çalışsın"),
+                         {"product", "spec"})
+
+
 class GitSpawnBudget(TempHome):
     """One git spawn per question per process. A session start asks the same two
     questions twice over (context_for, then the status line's idx mark), and that

@@ -1,0 +1,726 @@
+#!/usr/bin/env python3
+"""tezgah-design derive|check - the per-repo design contract, and the check that
+can fail.
+
+  tezgah-design derive --repo DIR [--out FILE] [--json]
+  tezgah-design check --contract FILE --measured FILE|- [--json]
+
+The contract is the floor a UI turn is judged against: the colour roles, the
+type scale, the spacing unit and the state set a repository already uses, plus
+the component inventory it owns. `derive` writes a first `.tezgah/design-contract.md`
+from the repository's own token source (CSS custom properties, a Tailwind config,
+a tokens/theme JSON) and exits 2 rather than invent a palette it did not find.
+`check` compares a measurement - the per-component computed styles and observed
+states the analyze-app loop produces - against that file, prints every violation
+with its component and its rule, and exits non-zero when there is at least one.
+
+Stdlib only, deterministic, no network and no credential: the same tree and the
+same measurement print the same bytes, with no clock and no path outside the
+repository in the artifact.
+
+  derive  exit 0 the contract was written; 2 no token source; 1 usage or IO
+  check   exit 0 `0 violations`; 1 one or more; 2 usage, IO or a bad contract
+"""
+import json
+import os
+import re
+import sys
+
+# The state set every interactive control and every data view owes: seven per
+# control, eight per data view, thirteen distinct states - `loading` and `error`
+# are the two the halves share, and the shipped lists name them twice rather than
+# once. Pinned equal to the three lists the repository already ships
+# (tests/test_design_cli.py:StateSetPin) rather than left to drift as a fourth
+# copy.
+STATES_INTERACTIVE = ("default", "hover", "focus", "active", "disabled",
+                      "loading", "error")
+STATES_DATA = ("empty", "loading", "skeleton", "error", "offline", "partial",
+               "long-text", "permission-denied")
+STATES = STATES_INTERACTIVE + tuple(s for s in STATES_DATA
+                                    if s not in STATES_INTERACTIVE)
+KINDS = ("interactive", "data")
+
+# The floors that are not this repository's to choose: WCAG 2.2 SC 2.5.8 (the
+# 24x24 CSS px target size) and SC 1.4.3 (4.5:1, or 3:1 for large text, which is
+# 24px and up, or 18.66px bold).
+TAP_TARGET = 24
+CONTRAST_NORMAL = 4.5
+CONTRAST_LARGE = 3.0
+LARGE_TEXT = 24
+
+SKIP_DIRS = frozenset((".git", "node_modules", "dist", "build", ".venv", "venv",
+                       "vendor", "__pycache__", ".next", ".cache", "coverage",
+                       ".tezgah", ".codegraph"))
+CSS_SUFFIXES = (".css", ".scss", ".sass", ".less")
+TAILWIND_NAMES = ("tailwind.config.js", "tailwind.config.cjs",
+                  "tailwind.config.mjs", "tailwind.config.ts",
+                  "tailwind.config.json")
+THEME_NAMES = ("theme.json", "tokens.json", "design-tokens.json")
+FILE_CAP = 4000
+CSS_CAP = 200
+
+DECL = re.compile(r"(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)")
+BLOCK = re.compile(r"\b%s\s*:\s*\{")
+PAIR = re.compile(r"^\s*['\"]?([A-Za-z0-9_-]+)['\"]?\s*:\s*(.+?)\s*$")
+HEX3 = re.compile(r"^#([0-9a-f])([0-9a-f])([0-9a-f])$", re.I)
+HEX6 = re.compile(r"^#([0-9a-f]{6})$", re.I)
+RGB = re.compile(r"^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)"
+                 r"(?:[\s,/]+([0-9.]+%?))?\s*\)$", re.I)
+LENGTH = re.compile(r"^(-?\d*\.?\d+)(px|rem|pt|em|%)?$")
+# Values that make no claim about a token: an absent value said out loud.
+NOTHING = frozenset(("none", "transparent", "currentcolor", "inherit",
+                     "initial", "unset", "auto", "normal"))
+COLOUR_PROPS = ("color", "background-color", "border-color", "outline-color")
+SPACING_PROPS = ("padding", "padding-top", "padding-right", "padding-bottom",
+                 "padding-left", "margin", "margin-top", "margin-right",
+                 "margin-bottom", "margin-left", "gap", "row-gap", "column-gap")
+SPACE_NAMES = ("space-unit", "spacing-unit", "space-base", "grid-unit",
+               "base-unit", "space", "spacing", "unit", "rhythm")
+TYPE_NAME = re.compile(r"^(?:font|text|type)[-_]?size|^fs(?:[-_]|$)"
+                       r"|^(?:font|text)[-_]?scale", re.I)
+
+
+# --- values -----------------------------------------------------------------
+def normalise_colour(value):
+    """`#rrggbb` for a colour literal, or None. `transparent` and its family are
+    None without being a claim: they say there is no colour to judge."""
+    text = str(value or "").strip().lower()
+    if not text or text in NOTHING or text.startswith("var("):
+        return None
+    m = HEX3.match(text)
+    if m:
+        return "#" + "".join(c * 2 for c in m.groups())
+    if HEX6.match(text):
+        return text
+    m = RGB.match(text)
+    if m:
+        if m.group(4) and m.group(4).endswith("%"):
+            try:
+                if float(m.group(4)[:-1]) == 0:
+                    return None
+            except ValueError:
+                return None
+        elif m.group(4) and float(m.group(4)) == 0:
+            return None
+        try:
+            return "#%02x%02x%02x" % tuple(min(255, int(m.group(i)))
+                                           for i in (1, 2, 3))
+        except ValueError:
+            return None
+    return None
+
+
+def length_px(value):
+    """The value in CSS px, or None when it is not an absolute length. `rem` is
+    read at the root size (16px), `pt` at 4/3 px; a unitless value is a length
+    only at zero, and `em`/`%` depend on a context this file does not have."""
+    m = LENGTH.match(str(value or "").strip().lower())
+    if not m:
+        return None
+    n, unit = float(m.group(1)), m.group(2)
+    if unit == "px":
+        return n
+    if unit is None:
+        return 0.0 if n == 0 else None
+    if unit == "rem":
+        return n * 16
+    if unit == "pt":
+        return n * 4 / 3
+    return None
+
+
+def _luminance(hex_colour):
+    parts = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    parts = [p / 12.92 if p <= 0.03928 else ((p + 0.055) / 1.055) ** 2.4
+             for p in parts]
+    return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2]
+
+
+def contrast_ratio(fore, back):
+    """The WCAG 2.2 contrast ratio between two `#rrggbb` colours."""
+    a, b = _luminance(fore), _luminance(back)
+    hi, lo = max(a, b), min(a, b)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+# --- reading the repository's own tokens ------------------------------------
+def walk(root):
+    """Every file under `root`, repo-relative and sorted, with the directories a
+    token source is never in skipped and the count bounded."""
+    out = []
+    for base, dirs, names in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for name in sorted(names):
+            rel = os.path.relpath(os.path.join(base, name), root)
+            out.append(rel.replace(os.sep, "/"))
+            if len(out) >= FILE_CAP:
+                return out
+    return out
+
+
+def read_text(root, rel):
+    try:
+        with open(os.path.join(root, rel), encoding="utf-8",
+                  errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def css_declarations(root, files):
+    """{name: value} from the custom properties of this repository's stylesheets,
+    later declarations winning, files in sorted order."""
+    out, sources = {}, []
+    seen = 0
+    for rel in files:
+        if not rel.lower().endswith(CSS_SUFFIXES):
+            continue
+        seen += 1
+        if seen > CSS_CAP:
+            break
+        text = read_text(root, rel)
+        found = False
+        for name, value in DECL.findall(text):
+            out[name.lstrip("-")] = value.strip()
+            found = True
+        if found:
+            sources.append(rel)
+    return out, sources
+
+
+def _block_body(text, key):
+    """Every `key: { ... }` body in `text`, brace-balanced, in file order."""
+    out = []
+    for m in re.finditer(BLOCK.pattern % re.escape(key), text):
+        i, depth = m.end(), 1
+        while i < len(text) and depth:
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+            i += 1
+        out.append(text[m.end():i - 1])
+    return out
+
+
+def _pairs(body):
+    """The `key: value` pairs at the top level of a config block. A nested
+    object is skipped, not flattened: its leaves are a scale of their own and
+    this reader does not claim to know its shape."""
+    items, depth, buf = [], 0, []
+    for ch in body:
+        if ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            items.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    items.append("".join(buf))
+    out = []
+    for item in items:
+        if "{" in item:
+            continue
+        m = PAIR.match(item)
+        if m:
+            out.append((m.group(1), m.group(2).strip().strip("'\"")))
+    return out
+
+
+def tailwind_tokens(root, files):
+    """The tokens a Tailwind config declares, read from its `colors`, `spacing`
+    and `fontSize` blocks."""
+    rel = next((f for f in files if os.path.basename(f) in TAILWIND_NAMES), None)
+    if rel is None:
+        return {}, []
+    text = read_text(root, rel)
+    colours, space, scale = {}, [], []
+    for body in _block_body(text, "colors"):
+        for key, value in _pairs(body):
+            hexed = normalise_colour(value)
+            if hexed:
+                colours[key] = hexed
+    for body in _block_body(text, "spacing"):
+        for key, value in _pairs(body):
+            px = length_px(value)
+            if px:
+                space.append((key in ("unit", "base"), px))
+    for body in _block_body(text, "fontSize"):
+        for _, value in _pairs(body):
+            for token in re.findall(r"['\"]?([\d.]+(?:px|rem|pt))", value):
+                px = length_px(token)
+                if px:
+                    scale.append(int(round(px)))
+    out = {}
+    # A key named `unit`/`base` states the unit; otherwise the greatest common
+    # divisor of the scale the config declares is the unit it is built on.
+    named = sorted((px for explicit, px in space if explicit))
+    if named:
+        out["space_unit"] = int(named[0])
+    elif space:
+        out["space_unit"] = int(_gcd([px for _, px in space]))
+    if scale:
+        out["type_scale"] = sorted(set(scale))
+    if colours:
+        out["colors"] = colours
+    return out, [rel]
+
+
+def theme_tokens(root, files):
+    """The tokens a tokens/theme JSON declares, found by key anywhere in it."""
+    rel = next((f for f in files if os.path.basename(f) in THEME_NAMES), None)
+    if rel is None:
+        return {}, []
+    try:
+        data = json.loads(read_text(root, rel))
+    except ValueError:
+        return {}, []
+    colours, space, scale = {}, {}, []
+
+    def visit(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                low = str(key).lower()
+                if isinstance(value, dict):
+                    if low in ("colors", "color", "palette", "colour"):
+                        for name, item in value.items():
+                            if isinstance(item, str) and normalise_colour(item):
+                                colours[str(name)] = normalise_colour(item)
+                    if low in ("spacing", "space"):
+                        for name, item in value.items():
+                            px = length_px(item) if isinstance(item, str) else None
+                            if px:
+                                space[str(name)] = px
+                    if low in ("fontsize", "font-size", "font_sizes",
+                               "font-sizes"):
+                        for _, item in value.items():
+                            token = item[0] if isinstance(item, list) and item \
+                                else item
+                            px = length_px(token) if isinstance(token, str) else None
+                            if px:
+                                scale.append(int(round(px)))
+                    visit(value)
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(data)
+    out = {}
+    if space:
+        out["space_unit"] = int(_gcd(list(space.values())))
+    if scale:
+        out["type_scale"] = sorted(set(scale))
+    if colours:
+        out["colors"] = colours
+    return out, [rel]
+
+
+def _gcd(values):
+    values = [int(round(v)) for v in values if v]
+    if not values:
+        return 0
+    out = values[0]
+    for v in values[1:]:
+        while v:
+            out, v = v, out % v
+    return out
+
+
+def _roles(declarations):
+    """{role: hex} for the custom properties that carry a colour literal."""
+    out = {}
+    for name, value in declarations.items():
+        hexed = normalise_colour(value)
+        if not hexed:
+            continue
+        role = re.sub(r"^(?:colou?r|clr|c)[-_]", "", name, flags=re.I)
+        role = re.sub(r"[-_]?colou?r$", "", role, flags=re.I)
+        out[(role or "color").replace("_", "-").strip("-")] = hexed
+    return out
+
+
+def css_tokens(root, files):
+    """The tokens a repository's CSS custom properties carry."""
+    decls, sources = css_declarations(root, files)
+    if not decls:
+        return {}, []
+    out = {}
+    colours = _roles(decls)
+    if colours:
+        out["colors"] = colours
+    # A property named for the unit states it; otherwise the greatest common
+    # divisor of the spacing scale the file declares is the unit it is built on.
+    for key, value in decls.items():
+        bare = re.sub(r"[-_]unit$", "", key).strip("-")
+        if key in SPACE_NAMES or bare in SPACE_NAMES:
+            px = length_px(value)
+            if px:
+                out["space_unit"] = int(round(px))
+                break
+    if "space_unit" not in out:
+        scale = [length_px(v) for k, v in decls.items()
+                 if re.match(r"^(?:space|spacing|gap)[-_]", k)]
+        scale = [px for px in scale if px]
+        if scale:
+            out["space_unit"] = int(_gcd(scale))
+    scale = []
+    for key, value in decls.items():
+        if TYPE_NAME.search(key):
+            px = length_px(value)
+            if px:
+                scale.append(int(round(px)))
+    if scale:
+        out["type_scale"] = sorted(set(scale))
+    return out, sources
+
+
+def derive(root):
+    """(tokens, source, read from) from the repository's own token source, or
+    (None, reason, []) when it carries none."""
+    files = walk(root)
+    for name, reader in (("css-custom-properties", css_tokens),
+                         ("tailwind-config", tailwind_tokens),
+                         ("theme-json", theme_tokens)):
+        tokens, sources = reader(root, files)
+        if tokens.get("colors"):
+            return tokens, name, sources
+    return None, ("no token source: looked for CSS custom properties, a "
+                  "Tailwind config and a tokens/theme JSON"), []
+
+
+def contract_data(tokens, source):
+    """The machine half of the contract: the derived tokens, the shipped state
+    set, and the component inventory the repository owns."""
+    return {
+        "version": 1,
+        "source": source,
+        "tokens": {
+            "space_unit": tokens.get("space_unit"),
+            "type_scale": tokens.get("type_scale") or [],
+            "colors": tokens.get("colors") or {},
+            "tap_target": TAP_TARGET,
+            "contrast": {"normal": CONTRAST_NORMAL, "large": CONTRAST_LARGE},
+        },
+        "states": {"interactive": list(STATES_INTERACTIVE),
+                   "data": list(STATES_DATA)},
+        "components": [],
+    }
+
+
+def contract_text(data, sources, derived_note):
+    """The artifact: what a reader opens, and the block `check` reads. Field
+    names and prose stay English; nothing here carries a clock or a machine
+    path."""
+    read = ", ".join(sources[:3]) if sources else "(none)"
+    return """# Design contract
+
+source: %s
+read from: %s
+
+The floor this repository's screens are judged against. `bin/tezgah-design check`
+compares a measurement - the per-component computed styles and observed states
+the analyze-app loop produces - against the block below and exits non-zero on
+every disagreement. The shape, the state set and the derivation rule live in the
+`design-contract` skill.
+
+- Colour roles are this repository's own token names; nothing here was invented.
+- `tap_target` and `contrast` are WCAG 2.2 floors (SC 2.5.8, SC 1.4.3), not this
+  repository's choices.
+- `space_unit` is the unit the repository's own spacing tokens are built on; a
+  measured spacing that is not a multiple of it is a violation.
+- `components` is the inventory this contract owns. A component the measurement
+  shows that is not listed here is a violation, so a new component is added
+  here before the turn closes.
+- %s
+
+```json
+%s
+```
+""" % (data["source"], read, derived_note,
+       json.dumps(data, indent=2, sort_keys=True))
+
+
+# --- the check ---------------------------------------------------------------
+def read_contract(path):
+    """(data, reason): the fenced JSON block of a contract file, or why not."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return None, "cannot read the contract: %s" % exc
+    m = re.search(r"```json\s*\n(.*?)\n```", text, re.S)
+    if not m:
+        return None, ("the contract carries no ```json block: the machine half "
+                      "of the artifact is missing")
+    try:
+        data = json.loads(m.group(1))
+    except ValueError as exc:
+        return None, "the contract's json block does not parse: %s" % exc
+    if not isinstance(data, dict):
+        return None, "the contract's json block is not an object"
+    return data, None
+
+
+def _violation(component, rule, detail):
+    return {"component": component, "rule": rule, "detail": detail}
+
+
+def check(data, measured):
+    """(violations, unjudged): every disagreement between a measurement and the
+    contract, each naming its component and its rule, and the count of measured
+    values the contract could not judge at all."""
+    out, unjudged = [], 0
+
+    def bad(component, rule, detail):
+        out.append(_violation(component, rule, detail))
+
+    if not str(data.get("source") or "").strip():
+        bad("contract", "contract-source",
+            "the contract carries no `source:` line, so nobody can say whether "
+            "it was read from this repository or invented")
+    tokens = data.get("tokens") if isinstance(data.get("tokens"), dict) else {}
+    colours = {str(k): normalise_colour(v)
+               for k, v in (tokens.get("colors") or {}).items()}
+    palette = sorted({v for v in colours.values() if v})
+    if not palette:
+        bad("contract", "contract-palette",
+            "the contract names no colour role, so no colour can be judged "
+            "against it")
+    space = tokens.get("space_unit")
+    scale = [int(v) for v in (tokens.get("type_scale") or []) if v is not None]
+    tap = tokens.get("tap_target") or TAP_TARGET
+    floors = tokens.get("contrast") or {}
+    normal = float(floors.get("normal") or CONTRAST_NORMAL)
+    large = float(floors.get("large") or CONTRAST_LARGE)
+    states = data.get("states") if isinstance(data.get("states"), dict) else {}
+    for kind, shipped in (("interactive", STATES_INTERACTIVE),
+                          ("data", STATES_DATA)):
+        got = states.get(kind)
+        if not isinstance(got, list) or len(got) != len(shipped) \
+                or any(str(a) != b for a, b in zip(got, shipped)):
+            bad("contract", "state-set",
+                "the contract's `%s` states are not the shipped set (%s): a "
+                "floor that drops a state is not the floor" % (kind, ", ".join(shipped)))
+    inventory = [str(c.get("name")) for c in (data.get("components") or [])
+                 if isinstance(c, dict)]
+
+    for comp in (measured.get("components") or []):
+        if not isinstance(comp, dict):
+            unjudged += 1
+            continue
+        name = str(comp.get("name") or "?")
+        styles = {str(k).lower(): v for k, v in (comp.get("styles") or {}).items()}
+        for prop in COLOUR_PROPS:
+            if prop not in styles:
+                continue
+            hexed = normalise_colour(styles[prop])
+            if not hexed:
+                if str(styles[prop]).strip().lower() not in NOTHING:
+                    unjudged += 1
+                continue
+            if palette and hexed not in palette:
+                bad(name, "palette",
+                    "%s %s is not a colour role in the contract (%s)"
+                    % (prop, styles[prop], ", ".join(palette)))
+        for prop in ("font-size",):
+            if prop not in styles:
+                continue
+            px = length_px(styles[prop])
+            if px is None:
+                unjudged += 1
+            elif scale and int(round(px)) not in scale:
+                bad(name, "type-scale",
+                    "%s %s is off the contract's type scale (%s)"
+                    % (prop, styles[prop],
+                       ", ".join("%dpx" % s for s in scale)))
+            elif not scale:
+                unjudged += 1
+        for prop, value in sorted(styles.items()):
+            if prop not in SPACING_PROPS:
+                continue
+            for part in str(value).split():
+                px = length_px(part)
+                if px is None:
+                    unjudged += 1
+                elif not space:
+                    unjudged += 1
+                elif px % space:
+                    bad(name, "spacing-rhythm",
+                        "%s %s is not a multiple of the %spx spacing unit"
+                        % (prop, value, space))
+        kind = comp.get("kind")
+        if kind == "interactive":
+            for prop in ("width", "height"):
+                px = length_px(styles.get(prop))
+                if px is None:
+                    unjudged += 1
+                elif px < tap:
+                    bad(name, "tap-target",
+                        "%s %s is below the %dpx target floor (WCAG 2.2 "
+                        "SC 2.5.8)" % (prop, styles[prop], tap))
+        fore = normalise_colour(styles.get("color"))
+        back = normalise_colour(styles.get("background-color"))
+        if fore and back:
+            size = length_px(styles.get("font-size"))
+            floor = large if size is not None and size >= LARGE_TEXT else normal
+            ratio = contrast_ratio(fore, back)
+            if ratio + 1e-9 < floor:
+                bad(name, "contrast",
+                    "%.2f:1 for %s on %s is below the %.1f:1 floor (WCAG 2.2 "
+                    "SC 1.4.3)" % (ratio, styles.get("color"),
+                                   styles.get("background-color"), floor))
+        if kind in KINDS:
+            required = states.get(kind) or []
+            shown = [str(s) for s in (comp.get("states") or [])]
+            missing = [s for s in required if s not in shown]
+            if missing:
+                bad(name, "state-coverage",
+                    "states not observed: %s" % ", ".join(missing))
+        elif kind is None:
+            unjudged += 1
+        if inventory and name not in inventory:
+            bad(name, "component-inventory",
+                "not in the contract's component inventory")
+    out.sort(key=lambda v: (v["component"], v["rule"], v["detail"]))
+    return out, unjudged
+
+
+# --- the command line --------------------------------------------------------
+class Usage(Exception):
+    pass
+
+
+def parse(argv, names):
+    """`--flag value` pairs for the flags this verb takes; an unknown flag or a
+    missing value is a usage error, never a silently ignored argument."""
+    out, i = {}, 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--json":
+            out["json"] = True
+        elif arg in names:
+            if i + 1 >= len(argv):
+                raise Usage("%s wants a value" % arg)
+            out[arg.lstrip("-")] = argv[i + 1]
+            i += 1
+        else:
+            raise Usage("unknown argument: %s" % arg)
+        i += 1
+    return out
+
+
+def _print_json(payload):
+    sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def derive_cli(opts):
+    root = os.path.abspath(opts.get("repo") or "")
+    if not os.path.isdir(root):
+        raise Usage("--repo must name a directory")
+    out = opts.get("out") or os.path.join(root, ".tezgah", "design-contract.md")
+    if os.path.exists(out):
+        # A contract that exists is the repository's own decision: it carries
+        # the component inventory someone filled in, so overwriting it would
+        # throw that away. Re-deriving over a token change is a hand edit, or a
+        # deliberate `rm` first.
+        raise Usage("the contract already exists at %s: a contract is edited, "
+                    "not overwritten - remove it first or pass --out elsewhere"
+                    % os.path.relpath(out, root))
+    tokens, source, sources = derive(root)
+    if tokens is None:
+        if opts.get("json"):
+            _print_json({"ok": False, "error": source})
+        sys.stderr.write("tezgah-design: %s\nWrite the contract by hand with "
+                         "`source: derived` naming where the floor came from "
+                         "(the design-contract skill says how), or point "
+                         "`--repo` at a repository that has one.\n" % source)
+        return 2
+    data = contract_data(tokens, source)
+    note = ("Derived from the repository's own token source; refresh it by "
+            "removing this file and re-running `tezgah-design derive`." if sources else
+            "Derived, not read: name here what the floor came from.")
+    text = contract_text(data, sources, note)
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    except OSError as exc:
+        raise Usage("cannot write %s: %s" % (out, exc))
+    shown = os.path.relpath(out, root)
+    if opts.get("json"):
+        _print_json({"ok": True, "out": shown, "source": source,
+                     "colors": len(data["tokens"]["colors"]),
+                     "space_unit": data["tokens"]["space_unit"],
+                     "type_scale": data["tokens"]["type_scale"],
+                     "components": len(data["components"])})
+    else:
+        sys.stdout.write(
+            "wrote %s (source: %s, %d colour roles, %s, %d type steps)\n"
+            % (shown, source, len(data["tokens"]["colors"]),
+               "%spx unit" % data["tokens"]["space_unit"]
+               if data["tokens"]["space_unit"] else "no spacing unit found",
+               len(data["tokens"]["type_scale"])))
+    return 0
+
+
+def check_cli(opts):
+    contract = opts.get("contract")
+    measured = opts.get("measured")
+    if not contract or not measured:
+        raise Usage("check wants --contract FILE and --measured FILE|-")
+    data, reason = read_contract(contract)
+    if data is None:
+        raise Usage(reason)
+    if measured == "-":
+        raw = sys.stdin.read()
+    else:
+        try:
+            with open(measured, encoding="utf-8") as fh:
+                raw = fh.read()
+        except OSError as exc:
+            raise Usage("cannot read the measurement: %s" % exc)
+    if not raw.strip():
+        raise Usage("the measurement at %s is empty" % measured)
+    try:
+        got = json.loads(raw)
+    except ValueError as exc:
+        raise Usage("the measurement does not parse: %s" % exc)
+    if isinstance(got, list):
+        got = {"components": got}
+    if not isinstance(got, dict):
+        raise Usage("the measurement is not an object with a `components` list")
+    violations, unjudged = check(data, got)
+    if opts.get("json"):
+        _print_json({"ok": not violations, "count": len(violations),
+                     "violations": violations, "unjudged": unjudged})
+    else:
+        sys.stdout.write("%d violations\n" % len(violations))
+        for v in violations:
+            sys.stdout.write("%s: %s - %s\n"
+                             % (v["component"], v["rule"], v["detail"]))
+        if unjudged:
+            sys.stdout.write("%d measured values the contract could not judge\n"
+                             % unjudged)
+    return 1 if violations else 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        sys.stdout.write(__doc__)
+        return 0 if argv else 2
+    verb, rest = argv[0], argv[1:]
+    try:
+        if verb == "derive":
+            return derive_cli(parse(rest, ("--repo", "--out")))
+        if verb == "check":
+            return check_cli(parse(rest, ("--contract", "--measured")))
+        raise Usage("unknown verb: %s (derive|check)" % verb)
+    except Usage as exc:
+        sys.stderr.write("tezgah-design: %s\n" % exc)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

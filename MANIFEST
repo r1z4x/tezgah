@@ -43,6 +43,8 @@ bin/tezgah-capture
 bin/tezgah-capture.py
 bin/tezgah-context
 bin/tezgah-context.py
+bin/tezgah-design
+bin/tezgah-design.py
 bin/tezgah-docs
 bin/tezgah-docs.py
 bin/tezgah-doctor
@@ -509,6 +511,7 @@ skills/ai-research/index/5-run.md
 skills/ai-research/index/6-write.md
 skills/ai-research/library.json
 skills/analyze-app/SKILL.md
+skills/design-contract/SKILL.md
 skills/feature-audit/SKILL.md
 skills/harness/SKILL.md
 skills/i-have-adhd/SKILL.md
@@ -555,6 +558,7 @@ tests/test_components.py
 tests/test_consult_arena.py
 tests/test_context.py
 tests/test_cursor_hook.py
+tests/test_design_cli.py
 tests/test_docs.py
 tests/test_docs_router.py
 tests/test_doctor.py
@@ -563,6 +567,7 @@ tests/test_dsh_launcher.py
 tests/test_encoding.py
 tests/test_gate.py
 tests/test_guard.py
+tests/test_hint_coverage.py
 tests/test_index.py
 tests/test_install_tree.py
 tests/test_integrity.py

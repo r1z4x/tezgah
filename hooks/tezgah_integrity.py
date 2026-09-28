@@ -50,8 +50,49 @@ VERIFY = re.compile(
     r"(?:^|\s)(?:make|just)\b|"
     r"\./\S*(?:test|check|lint)\S*|"
     r"(?:\./)?(?:gradlew|mvn)\s+\S*(?:test|check)|dotnet\s+(?:test|build)|"
-    r"swift\s+test|golangci-lint|shellcheck"
+    r"swift\s+test|golangci-lint|shellcheck|"
+    r"playwright|cypress|storybook|chromatic|percy|lighthouse|pa11y|backstop|"
+    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)"
     r")\b", re.I)
+# A source file a person looks at: the rendered formats, so a build log or a
+# document written beside them is not a UI turn. Web first, then the native and
+# template formats a screen is written in - a SwiftUI view or a Rails template is
+# as much a UI turn as a `.tsx`, and a rule that only saw web extensions let those
+# turns close on a unit run. `.xml` is deliberately absent: an Android layout and
+# a build manifest spell the same, and refusing a build turn is the worse error.
+# This is the half that decides whether the evidence rule below applies at all.
+UI_PATH = re.compile(
+    r"\.(?:tsx|jsx|vue|svelte|astro|htm|html|css|scss|sass|less|swift|kt|dart|"
+    r"erb|haml|slim|ejs|hbs|handlebars|twig|blade|razor|cshtml|qml)$", re.I)
+# A check that renders. It is also in `VERIFY` above, so its pass reaches the
+# ledger as `verify_ok` like any other check; this name is the second reader, for
+# the question "did anything in this turn see the screen".
+UI_CHECK = re.compile(
+    r"\b(?:playwright|cypress|storybook|chromatic|percy|lighthouse|pa11y|"
+    r"axe-core|backstop|reg-suit)\b", re.I)
+# Reading the screen itself through the app-analysis loop: a screenshot, a
+# snapshot of the accessibility/view tree, a capture. Not a check and not a pass
+# - it is the other admissible proof, and it is what a mobile surface has instead
+# of an assertion tool.
+UI_TOOL = re.compile(
+    r"browser_(?:snapshot|take_screenshot|find|navigate)\b|"
+    r"mobile_(?:list_elements_on_screen|save_screenshot|take_screenshot)\b|"
+    r"tezgah-capture|screencapture|shot-scraper", re.I)
+# The design contract's checker, the one command that compares a measurement of
+# the running app against the repository's own `.tezgah/design-contract.md`. It
+# is in `VERIFY` above, so its row reaches the ledger as a check like any other;
+# this name is the second reader, for the question "was the floor applied".
+DESIGN_CHECK = re.compile(r"tezgah-design\s+check\b", re.I)
+# A component, as opposed to the screen it sits on: a file under a
+# component/views/widgets directory, or a name that carries the convention on its
+# own (`Button.tsx`, `users.component.ts`, `user_card.dart`). The two owe
+# different proof - a screen read says what a thing looks like, and the contract
+# is the only thing that says whether it is on the repository's floor - so this
+# is what decides whether the design check is owed at all.
+DESIGN_COMPONENT = re.compile(
+    r"(?:^|/)(?:components?|views?|widgets?|partials?|screens?)/"
+    r"|(?:^|/)(?-i:[A-Z])[A-Za-z0-9_]*\.(?:tsx|jsx|vue|svelte|swift|kt|dart)$"
+    r"|\.(?:component|view|widget)\.[a-z]+$", re.I)
 # forms that make a failing check exit 0, the classic "I ran it and it was fine"
 NEUTER = re.compile(
     r"\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])")
@@ -1615,6 +1656,48 @@ def _stale_paths(rows):
     return names
 
 
+def _ui_evidence(rows):
+    """(wrote, proof) for the turn's UI half.
+
+    `wrote` - a UI source the gate saw change. `proof` - the index of the newest
+    row that says what the screen looks like: a UI check that passed, or a read
+    of the rendered screen. The index, not a bool, because a proof has to be
+    newer than the write it is about, exactly the way `_last_pass` is read.
+
+    Nothing here reads a `verify*` row that is not a UI check: a green unit run
+    says the code computes, never what it looks like."""
+    wrote, proof = False, -1
+    for i, row in enumerate(rows):
+        detail = str(row.get("detail") or "")
+        if row.get("kind") == "edit" and _changed_write(row) \
+                and UI_PATH.search(detail):
+            wrote = True
+        elif passing_check(row) and UI_CHECK.search(detail):
+            proof = i
+        elif UI_TOOL.search(detail):
+            proof = i
+    return wrote, proof
+
+
+def _design_evidence(rows):
+    """(component, check) for the design-contract half of the UI rule.
+
+    `component` - True when a UI source this turn changed is a component rather
+    than a screen. `check` - the index of the newest `tezgah-design check` row,
+    or -1. The index, not a bool, because the check has to be newer than the write
+    it judges, exactly the way a screen proof does; a `derive` row never counts
+    here - it writes the floor, it does not apply it."""
+    component, check = False, -1
+    for i, row in enumerate(rows):
+        detail = str(row.get("detail") or "")
+        if row.get("kind") == "edit" and _changed_write(row) \
+                and UI_PATH.search(detail) and DESIGN_COMPONENT.search(detail):
+            component = True
+        elif DESIGN_CHECK.search(detail):
+            check = i
+    return component, check
+
+
 def _last_verify(rows):
     """`last_verify`'s fold, over rows already read."""
     state = None
@@ -2070,7 +2153,49 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     # (the check's position, and `changed` on the write). The escape is the
     # reply's own "doğrulanmadı", which returns above.
     last_pass, last_change = _last_pass(rows), _last_change(rows)
+    # The UI half, read before the generic freshness pair because it is a stricter
+    # question about the same rows: a proof of the screen - a check that renders,
+    # or a read of the rendered screen - stands where a unit pass stands, and only
+    # when it is newer than the last write it is about. A green unit run is not
+    # that proof, which is the whole point: it never sees what a person sees.
+    ui_written, ui_proof = _ui_evidence(rows)
+    if ui_written and ui_proof > last_change:
+        # The floor, asked of a component turn on top of the screen proof: a
+        # screenshot or a rendered check says what the thing looks like and
+        # nothing about whether it is on the repository's own contract. A screen
+        # a person looks at is unchanged - it is the component that owes this.
+        component, design = _design_evidence(rows)
+        if component and design <= last_change:
+            names = _stale_paths(rows)
+            shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
+                                            if len(names) > 3 else "")
+            return ("no ui_ok",
+                    "Design contract: this turn changed a component (%s) and no "
+                    "`tezgah-design check` ran over a measurement, so nothing "
+                    "says the component is on the repository's floor - a read of "
+                    "the screen says what it looks like, not whether it is on "
+                    "that floor. Run `tezgah-design check --contract "
+                    ".tezgah/design-contract.md --measured <measurement.json>` "
+                    "(`tezgah-design derive` writes the contract when the repo "
+                    "has none; the measurement is the per-component styles and "
+                    "states the analyze-app loop produces) and report every "
+                    "violation it prints, or mark the claim \"doğrulanmadı\"."
+                    % (shown or "a component file"))
+        return (None, None)
     if last_pass > last_change:
+        if ui_written:
+            names = _stale_paths(rows)
+            shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
+                                            if len(names) > 3 else "")
+            return ("no ui_ok",
+                    "UI evidence: this turn changed a UI source (%s) and the check "
+                    "that passed was not one that sees the screen - a unit run "
+                    "never does. Run the browser/e2e or visual check and report "
+                    "its output, or read the rendered screen (`analyze-app`: the "
+                    "accessibility/DOM tree, a screenshot at the widths in scope) "
+                    "and say what it showed. A green unit suite does not cover "
+                    "what a person sees; if you are stopping short, mark the "
+                    "claim \"doğrulanmadı\"." % (shown or "a UI file"))
         return (None, None)
     if last_pass >= 0:
         names = _stale_paths(rows)

@@ -95,7 +95,7 @@ def clean(path):
 skills = ("harness", "tezgah-contract", "ponytail", "i-have-adhd",
           "no-ai-slop", "analyze-app", "plan-add", "plan-status",
           "plan-sync", "research", "product-analysis", "feature-audit",
-          "pm-frameworks", "ai-research")
+          "design-contract", "pm-frameworks", "ai-research")
 # codex
 clean(p(".codex", "hooks.json"))
 clean(p(".codex", "config.toml"))

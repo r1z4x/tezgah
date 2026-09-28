@@ -122,7 +122,8 @@ OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "i-have-adhd", "no-ai-slop",
           "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
-          "product-analysis", "feature-audit", "pm-frameworks", "ai-research"]
+          "product-analysis", "feature-audit", "design-contract", "pm-frameworks",
+          "ai-research"]
 
 
 def skills_linked(base):
@@ -791,7 +792,7 @@ def install_common(new_roots, hosts):
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
-            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")), ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")), ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations. Not here on purpose: tezgah-dsh (wired as ~/.local/bin/dsh, see dsh_launcher) and tezgah-import-ai-research (dev-time only, its docstring)
+            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")), ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")), ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp")), ("tezgah-design", os.path.join(HERE, "bin", "tezgah-design"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations. Not here on purpose: tezgah-dsh (wired as ~/.local/bin/dsh, see dsh_launcher) and tezgah-import-ai-research (dev-time only, its docstring)
         print(link(src, os.path.join(tp.BIN_DIR, name)))
     mkdirp(tezgah_apps.ARTIFACTS)
     print("%s app artifacts -> %s" % (OK, tezgah_apps.ARTIFACTS))

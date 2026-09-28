@@ -64,11 +64,11 @@ One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
 `fixture`/`fake`/`stub`/`sample`/`demo` (`SCRATCH_PATH`,
-`hooks/tezgah_integrity.py:1645-1650`; `scratch_evidence`,
-`hooks/tezgah_integrity.py:1654-1678`) - the turn is told the command and the
+`hooks/tezgah_integrity.py:1728-1733`; `scratch_evidence`,
+`hooks/tezgah_integrity.py:1737-1761`) - the turn is told the command and the
 rule: evidence from a scratch path is evidence about the code path, so a claim
 about the running system needs a check that ran against it (`SCRATCH_REMINDER`,
-`hooks/tezgah_context.py:803-809`, appended at `hooks/tezgah_context.py:875-879`).
+`hooks/tezgah_context.py:938-944`, appended at `hooks/tezgah_context.py:875-879`).
 It is a reminder and not a block because whether a scratch script exercises the
 real system is not decidable from the command; one passing check against a real
 path makes the reader answer `None`, so a session that also ran the real thing is
@@ -78,7 +78,7 @@ it with the integrity rule it restates.
 ## Composition order of the always-on core
 
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
-the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:102`).
+the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:237-256`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
 `**Turkish, BLUF.**` :616, `**Ponytail (minimal code).**` :625, `**Output shape:
 ADHD-friendly.**` :636, `**Deliver the whole ask; never the shortcut.**` :650,
@@ -92,10 +92,13 @@ analysis: five axes, one evidence class per finding.**` :745 *(conditional)*,
 stay English.**` :788, `**Session scope: the user's repo, not tezgah.**` :794,
 `**Kill switches:**` :803.
 
-`always_on_core()` (`hooks/tezgah_context.py:631-641`) drops the five
+`always_on_core()` (`hooks/tezgah_context.py:766-776`) drops the five
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:847-852`):
 one line each saying the rule exists and where its full text lives — spec-first,
-a second opinion, OpenResearch routing, product analysis, the code graph. That is
+a second opinion, OpenResearch routing, product analysis, the code graph, and the
+per-repo design contract `bin/tezgah-design` checks a UI change against (the one
+pointer with no conditional paragraph behind it, because the Stop rule's `no
+ui_ok` class is what asks for the check). That is
 what a host with no prompt-time hook writes into a static file: opencode's
 `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:788-792`) and omp's
 managed `RULES.md` (`bin/tezgah-setup:1299-1301`). Claude gets it from the
@@ -105,7 +108,7 @@ its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
 hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
-(`hooks/tezgah_context.py:622-630`) is that text with the kill-switch filtering
+(`hooks/tezgah_context.py:757-765`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
@@ -191,7 +194,7 @@ they survive every other switch being off.
    (`hooks/tezgah_policy.py:847-852`); the two halves are asserted together
    (`tests/test_context.py:1226-1233`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
-   pair to `CORE_RULES` (`hooks/tezgah_context.py:102`). The label is the
+   pair to `CORE_RULES` (`hooks/tezgah_context.py:237-256`). The label is the
    contract: `core_split()` matches paragraphs by it and `subagent_core()` builds
    the brief from it, so a label edit fails loudly instead of silently dropping
    a rule.
@@ -201,7 +204,7 @@ they survive every other switch being off.
    `output-styles/tezgah.md` from a fresh Python process when the paragraph is
    always-on — a warm interpreter serves a stale `CORE`.
 6. Last step, the tests that pin it: add the label to `KillSwitchEnforcement`
-   (`tests/test_context.py:585`) and, for a conditional rule, to the
+   (`tests/test_context.py:618-792`) and, for a conditional rule, to the
    `ArmingConformance` label map (`tests/test_context.py:1219-1224`); then run the mirror pair —
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py:1331-1339`) and

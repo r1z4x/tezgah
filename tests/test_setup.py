@@ -2050,9 +2050,13 @@ class VersionPrefixIsNotContract(SetupBase):
         # paragraph (`.tezgah/` only) and its `workspace-off` switch (+458 B),
         # and the integrity paragraph's piped-check denial (+81 B). Re-pinned
         # 2026-09-28: the loop-discipline paragraph gained the check cadence and
-        # the batch-the-small-asks sentence (+311 B). The band is here to catch
-        # an accidental move, so a deliberate one is recorded.
-        self.assertEqual(8928, band, "the always-on band moved")
+        # the batch-the-small-asks sentence (+311 B). Re-pinned 2026-09-28: the
+        # on-demand pointer list gained the design contract - the artifact, the
+        # derive/check verbs and the skill that owns its shape (+245 B) - which
+        # is the pointer the Stop rule's component branch asks a turn to run.
+        # The band is here to catch an accidental move, so a deliberate one is
+        # recorded.
+        self.assertEqual(9173, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

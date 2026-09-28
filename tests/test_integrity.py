@@ -1063,6 +1063,190 @@ class StaleEvidence(unittest.TestCase):
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
 
+class UiEvidence(unittest.TestCase):
+    """A unit run never sees the screen, so a turn that changed a UI source and
+    claims done owes one of the two things that do: a check that renders (a
+    browser/e2e/visual run) or a read of the rendered screen. The gap was
+    measured on this repository's own rule list - all thirteen gate rules are
+    about code - and in the check vocabulary, which held no browser or visual
+    command at all."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        self.target = os.path.join(self.dir, "admin", "components",
+                                   "Button.tsx")
+        # a screen the rule does not ask for a design check over: a component
+        # owes the contract, the page it sits on owes the screen read
+        self.screen = os.path.join(self.dir, "admin", "pages", "users.tsx")
+        os.makedirs(os.path.dirname(self.target), exist_ok=True)
+        os.makedirs(os.path.dirname(self.screen), exist_ok=True)
+
+    def edit(self, path=None):
+        """One write the gate saw change a UI source."""
+        path = path or self.target
+        tz.capture("Edit", {"file_path": path}, self.dir, "s")
+        with open(path, "w") as fh:
+            fh.write("export const Button = () => null\n")
+        ti.note_tool("s", "Edit", {"file_path": path}, failed=False)
+        return ti.events("s")[-1]
+
+    def check(self, command, out_bytes=42):
+        ti.note_tool("s", "Bash", {"command": command}, failed=False,
+                     out_bytes=out_bytes)
+
+    def detail(self):
+        return [r["detail"] for r in ti.events("s") if r["kind"] == "claim"]
+
+    def test_a_green_unit_run_does_not_license_a_ui_change(self):
+        self.edit()
+        self.check("pytest -q")
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("UI evidence", reason)
+        self.assertEqual(self.detail(), ["blocked: no ui_ok"])
+
+    def test_a_browser_check_after_the_write_licenses_the_claim(self):
+        # a page, not a component: a component owes `tezgah-design check` on top
+        # of this (DesignContractEvidence below)
+        self.edit(self.screen)
+        self.check("npx playwright test")
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_read_of_the_screen_after_the_write_licenses_the_claim(self):
+        self.edit(self.screen)
+        ti.note_tool("s", "mcp__playwright__browser_take_screenshot", {},
+                     failed=False)
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_browser_check_before_the_write_is_stale_like_any_other(self):
+        self.check("npx playwright test")
+        self.edit()
+        self.check("pytest -q")
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("UI evidence", reason)
+
+    def test_a_native_or_template_screen_is_a_ui_source_too(self):
+        # the rule read web extensions only, so a SwiftUI view or a Rails
+        # template could close on a unit run while a `.tsx` could not
+        for name in ("ProfileView.swift", "MembershipView.kt",
+                     "users/index.html.erb", "Dashboard.qml"):
+            path = os.path.join(self.dir, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            self.edit(path)
+            self.check("pytest -q")
+            self.assertIn("UI evidence",
+                          ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_build_manifest_is_not_a_ui_source(self):
+        # the control: `.xml` spells both an Android layout and a build file, so
+        # it stays out of the list and a manifest turn keeps the unit-run rule
+        path = os.path.join(self.dir, "app", "AndroidManifest.xml")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self.edit(path)
+        self.check("pytest -q")
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_turn_that_wrote_no_ui_source_is_unchanged(self):
+        # the control: the same shape over a `.py` file - a green unit run is
+        # the evidence the UI branch does not apply to
+        other = os.path.join(self.dir, "worker.py")
+        self.edit(other)
+        self.check("pytest -q")
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+
+class DesignContractEvidence(unittest.TestCase):
+    """A component turn owes the repository's own design contract on top of the
+    screen read: a screenshot says what the component looks like, never whether
+    it is on the floor the repo wrote down. The screen a person looks at is
+    unchanged, and a `derive` row is not the check."""
+
+    CHECK = ("python3 bin/tezgah-design check --contract "
+             ".tezgah/design-contract.md --measured /tmp/m.json")
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        self.component = os.path.join(self.dir, "admin", "components",
+                                      "Button.tsx")
+        self.screen = os.path.join(self.dir, "admin", "pages", "users.tsx")
+        for path in (self.component, self.screen):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    def edit(self, path):
+        tz.capture("Edit", {"file_path": path}, self.dir, "s")
+        with open(path, "w") as fh:
+            fh.write("export const x = () => null\n")
+        ti.note_tool("s", "Edit", {"file_path": path}, failed=False)
+
+    def screen_read(self):
+        ti.note_tool("s", "mcp__playwright__browser_take_screenshot", {},
+                     failed=False)
+
+    def design_check(self):
+        ti.note_tool("s", "Bash", {"command": self.CHECK}, failed=False,
+                     out_bytes=64)
+
+    def test_a_component_turn_without_the_check_names_the_command(self):
+        self.edit(self.component)
+        self.screen_read()
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("tezgah-design check", reason)
+        # the path is shown the way the sibling branch shows it, cut at 80
+        # characters, so the directory is what survives of a long fixture path
+        self.assertIn("admin/components/", reason)
+        self.assertEqual([r["detail"] for r in ti.events("s")
+                          if r["kind"] == "claim"], ["blocked: no ui_ok"])
+
+    def test_a_component_turn_that_ran_the_check_is_not_refused(self):
+        self.edit(self.component)
+        self.screen_read()
+        self.design_check()
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_the_design_check_reaches_the_ledger_as_a_check(self):
+        # the row has to be a check like any other, or the branch asking for it
+        # could never be satisfied
+        self.design_check()
+        row = ti.events("s")[-1]
+        self.assertEqual(row["kind"], "verify_ok")
+        self.assertTrue(ti.passing_check(row))
+        self.assertTrue(ti.verify_command(self.CHECK).endswith(
+            "tezgah-design check"))
+
+    def test_a_derive_run_does_not_stand_in_for_the_check(self):
+        self.edit(self.component)
+        self.screen_read()
+        ti.note_tool("s", "Bash",
+                     {"command": "python3 bin/tezgah-design derive --repo ."},
+                     failed=False, out_bytes=64)
+        self.assertIn("tezgah-design check",
+                      ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_the_check_alone_does_not_stand_in_for_the_screen(self):
+        self.edit(self.component)
+        self.design_check()
+        self.assertIn("UI evidence",
+                      ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_check_from_before_the_write_is_stale_like_any_other(self):
+        self.design_check()
+        self.edit(self.component)
+        self.screen_read()
+        self.assertIn("tezgah-design check",
+                      ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_screen_turn_needs_no_design_check(self):
+        # the control: the same shape over a page, not a component
+        self.edit(self.screen)
+        self.screen_read()
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+
 class CommittedBoundary(unittest.TestCase):
     """W3: the byte boundary a ledger has committed, and what both paths do with
     a tail past it.
@@ -1315,6 +1499,31 @@ class StopHook(TempHome):
         out = self.stop("Done. Tests pass.")
         self.assertEqual(out.get("decision"), "block")
         self.assertEqual(self.claim_rows(), ["blocked: check failed"])
+
+    def test_a_component_turn_owes_the_design_check(self):
+        # the same branch through the real hook process: a component whose
+        # screen was read still has no floor applied to it
+        path = os.path.join(self.repo, "app", "components", "Button.tsx")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("export const Button = () => null\n")
+        self.seed("Edit", {"file_path": path})
+        self.seed("mcp__playwright__browser_take_screenshot", {})
+        out = self.stop("Done. All tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("tezgah-design check", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: no ui_ok"])
+
+    def test_a_component_turn_with_the_design_check_passes(self):
+        path = os.path.join(self.repo, "app", "components", "Button.tsx")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("export const Button = () => null\n")
+        self.seed("Edit", {"file_path": path})
+        self.seed("mcp__playwright__browser_take_screenshot", {})
+        self.seed("Bash", {"command": "python3 bin/tezgah-design check "
+                                      "--contract c.md --measured m.json"})
+        self.assertIsNone(self.stop("Done. All tests pass."))
 
     def test_explicit_unverified_admission_passes(self):
         self.seed("Edit", {"file_path": "x.py"})

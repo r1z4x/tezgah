@@ -845,7 +845,7 @@ CONDITIONAL_KEYS = ("spec", "consult", "research", "product", "graph")
 # host without a per-turn hook still knows the rule exists and where the full
 # text lives.
 POINTERS = """
-**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. Product analysis is a five-axis evidence task - value, usability (the running app, not the source), feasibility (a cited `path:line`), competition, and keep/fix/cut/bet triage - with one named evidence class per finding. The code graph for "who calls X" and "what breaks if Z changes".
+**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. Product analysis is a five-axis evidence task - value, usability (the running app, not the source), feasibility (a cited `path:line`), competition, and keep/fix/cut/bet triage - with one named evidence class per finding. The code graph for "who calls X" and "what breaks if Z changes". The design floor a UI turn is judged against is `.tezgah/design-contract.md`: `tezgah-design derive` writes it from the repository's own tokens, `tezgah-design check` measures a change against it, and the `design-contract` skill owns its shape.
 """
 
 # The compact per-turn form. Keeps the <harness-reminder> envelope the hosts and
