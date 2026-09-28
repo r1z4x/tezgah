@@ -158,5 +158,20 @@ class VersionSource(Tree):
         self.assertEqual(self.ctx.version(), "1.2.3")
 
 
+
+class PublishedVersion(unittest.TestCase):
+    """npm publishes the version package.json names, and release.yml skips a
+    version npm already has - so a package.json left behind the changelog made
+    two releases (0.18.0, 0.19.0) reach neither npm nor a matching brew formula."""
+
+    def test_package_json_names_the_newest_release_in_the_changelog(self):
+        import json
+        import re
+        with open(os.path.join(REPO, "package.json"), encoding="utf-8") as fh:
+            package = json.load(fh)["version"]
+        with open(os.path.join(REPO, "CHANGELOG.md"), encoding="utf-8") as fh:
+            newest = re.search(r"^## \[(\d+\.\d+\.\d+)\]", fh.read(), re.M).group(1)
+        self.assertEqual(package, newest)
+
 if __name__ == "__main__":
     unittest.main()

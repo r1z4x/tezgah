@@ -9,7 +9,9 @@ itself (`.claude-plugin/plugin.json`, mirrored in
 ## Cut a release
 
 1. Bump `version` in the local manifest's two files together (they are not
-   tracked - nothing in the repository needs the edit to publish).
+   tracked), and in `package.json`, which is tracked: npm publishes exactly the
+   version it names and `release.yml` skips one npm already has, so a stale
+   `package.json` ships nothing (`tests/test_packaging.py` holds it to step 2).
 2. Add a `## [x.y.z] - YYYY-MM-DD` section to `CHANGELOG.md`, newest first, and
    add the tag link at the bottom.
 3. Run the checks CI runs:
@@ -28,7 +30,7 @@ itself (`.claude-plugin/plugin.json`, mirrored in
 
    ```bash
    bin/tezgah-setup --write-manifest
-   git add MANIFEST CHANGELOG.md && git commit -m "release: vX.Y.Z"
+   git add MANIFEST CHANGELOG.md package.json && git commit -m "release: vX.Y.Z"
    ```
 
 5. Build the release artifact and publish it with the notes - `build.sh` writes the
@@ -41,6 +43,11 @@ itself (`.claude-plugin/plugin.json`, mirrored in
      dist/tezgah-X.Y.Z.tar.gz dist/tezgah-X.Y.Z.tar.gz.sha256
    ```
 
-6. Nothing else to edit: the `release`, `license` and `ci` badges in the READMEs
+6. Publishing the release is what ships npm and Homebrew: `release.yml` runs on
+   `release: published` - a pushed tag alone triggers nothing - and publishes
+   `package.json`'s version to npm and rewrites the tap formula to this tarball.
+   Check both afterwards: `npm view @r1z4x/tezgah version` and the formula's
+   `url` in `r1z4x/homebrew-tezgah`.
+7. Nothing else to edit: the `release`, `license` and `ci` badges in the READMEs
    read `github/v/release`, `github/license` and the workflow status live, and
    `bin/tezgah-setup --version` reports the new version for anyone who pulls.

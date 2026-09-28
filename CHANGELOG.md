@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-09-28
+
+### Fixed
+
+- **npm and Homebrew get the release again.** `package.json` still named 0.17.2,
+  so npm - which publishes exactly that version, and which `release.yml` skips
+  when it already has it - never saw 0.18.0 or 0.19.0; nor did the tap, because
+  only a published GitHub release runs that workflow and those two were tags. The
+  version is now bumped with the rest, a test fails when `package.json` and the
+  newest changelog release differ, and `RELEASING.md` names both steps.
+
 ## [0.19.0] - 2026-09-28
 
 ### Added
@@ -2199,6 +2210,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.19.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.1
 [0.19.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.0
 [0.18.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.18.0
 [0.16.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.16.1
