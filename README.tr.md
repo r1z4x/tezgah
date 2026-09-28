@@ -23,6 +23,7 @@
 <p align="center">
   <a href="#what-it-enforces">Neleri zorunlu kılar</a> &bull;
   <a href="#supported-hosts">Desteklenen barındırıcılar</a> &bull;
+  <a href="#quick-install">Hızlı kurulum</a> &bull;
   <a href="#install">Kurulum</a> &bull;
   <a href="#day-to-day">Günlük kullanım</a> &bull;
   <a href="#configuration">Yapılandırma</a> &bull;
@@ -50,6 +51,44 @@ Tasarım iki katmanlıdır. Kurallar paylaşılan bir çekirdekte bir kez yer al
 bu çekirdeği barındırıcının anladığı şekle çeviren ince bir adaptör alır.
 Bir kuralı tek bir yerde değiştirdiğinizde beş barındırıcının tümü bunu görür — aynı metnin
 beş ayrı kopyası yoktur.
+
+<a id="quick-install"></a>
+
+## Hızlı kurulum
+
+macOS, Linux veya WSL'de tek satır (Python 3.10+, `curl`, `tar`). Son sürümü
+indirir, sha256'sını doğrular ve bulduğu her barındırıcıyı kurar:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.sh | sh
+```
+
+Ya da npm ile: `npm i -g @r1z4x/tezgah && tezgah --install`.
+
+Kurulumu kodlama asistanınıza yaptırmak isterseniz bunu omp, Claude Code, Codex,
+Cursor veya opencode'a yapıştırın (istem İngilizce; asistan her dilde anlar):
+
+```text
+Install tezgah (https://github.com/r1z4x/tezgah) on this machine and verify it.
+
+1. Check the prerequisites: python3 --version must be 3.10 or newer, and curl
+   and tar must exist. If one is missing, stop and tell me which.
+2. Run the installer exactly as published - do not edit it or pipe it anywhere else:
+   curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.sh | sh
+   Its output must contain "verified tezgah-<version>.tar.gz" (the sha256
+   check). If it does not, stop and show me the output.
+3. Verify: run ~/.local/share/tezgah/current/bin/tezgah-setup --version and
+   ~/.local/share/tezgah/current/bin/tezgah-setup --report, and show me every
+   line that says MISS.
+4. Tell me which hosts were armed, which repository root was configured
+   (default ~/Projects - if my code lives elsewhere, ask me for the directory and
+   run ~/.local/share/tezgah/current/bin/tezgah-setup --roots <dir> --install),
+   and that I must restart each assistant for the hooks to load.
+Do not change any other file and do not uninstall anything.
+```
+
+Sürüm sabitleme, Windows, çevrimdışı tarball, barındırıcı ve kök seçimi için
+ayrıntılar [Kurulum](#install) bölümünde.
 
 <a id="what-it-enforces"></a>
 

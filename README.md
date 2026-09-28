@@ -23,6 +23,7 @@
 <p align="center">
   <a href="#what-it-enforces">What it enforces</a> &bull;
   <a href="#supported-hosts">Supported hosts</a> &bull;
+  <a href="#quick-install">Quick install</a> &bull;
   <a href="#install">Install</a> &bull;
   <a href="#day-to-day">Day-to-day</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
@@ -51,6 +52,44 @@ The design is two layers. The rules live once in a shared core; each host gets
 a thin adapter that translates that core into the shape the host understands.
 Change a rule in one place and all six hosts see it — no six-way copy of the
 same text.
+
+<a id="quick-install"></a>
+
+## Quick install
+
+One line, on macOS, Linux or WSL (Python 3.10+, `curl`, `tar`). It downloads the
+latest release, checks its sha256, and arms every host it finds:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.sh | sh
+```
+
+Or through npm: `npm i -g @r1z4x/tezgah && tezgah --install`.
+
+Rather let your coding assistant do it? Paste this into omp, Claude Code, Codex,
+Cursor or opencode:
+
+```text
+Install tezgah (https://github.com/r1z4x/tezgah) on this machine and verify it.
+
+1. Check the prerequisites: python3 --version must be 3.10 or newer, and curl
+   and tar must exist. If one is missing, stop and tell me which.
+2. Run the installer exactly as published - do not edit it or pipe it anywhere else:
+   curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.sh | sh
+   Its output must contain "verified tezgah-<version>.tar.gz" (the sha256
+   check). If it does not, stop and show me the output.
+3. Verify: run ~/.local/share/tezgah/current/bin/tezgah-setup --version and
+   ~/.local/share/tezgah/current/bin/tezgah-setup --report, and show me every
+   line that says MISS.
+4. Tell me which hosts were armed, which repository root was configured
+   (default ~/Projects - if my code lives elsewhere, ask me for the directory and
+   run ~/.local/share/tezgah/current/bin/tezgah-setup --roots <dir> --install),
+   and that I must restart each assistant for the hooks to load.
+Do not change any other file and do not uninstall anything.
+```
+
+The full options - a pinned version, Windows, offline tarballs, choosing hosts
+and roots - are under [Install](#install).
 
 <a id="what-it-enforces"></a>
 
@@ -302,14 +341,14 @@ or `shasum` to check the artifact.
 Install a released version; pin it, which is how a team stays on one:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/v0.16.1/packaging/install.sh | sh -s -- --version 0.16.1
+curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/v0.19.1/packaging/install.sh | sh -s -- --version 0.19.1
 ```
 
-Drop `--version 0.16.1` to take the newest release. On Windows, pin through the
+Drop `--version 0.19.1` to take the newest release. On Windows, pin through the
 environment — a piped script cannot bind parameters:
 
 ```powershell
-$env:TEZGAH_VERSION = '0.16.1'; irm https://raw.githubusercontent.com/r1z4x/tezgah/v0.16.1/packaging/install.ps1 | iex
+$env:TEZGAH_VERSION = '0.19.1'; irm https://raw.githubusercontent.com/r1z4x/tezgah/v0.19.1/packaging/install.ps1 | iex
 ```
 
 Either one resolves the prefix (`~/.local/share/tezgah`, `%LOCALAPPDATA%\tezgah`
@@ -326,8 +365,8 @@ Both verify the `.sha256` before anything is unpacked. For a tarball you already
 hold — a mirror, an air-gapped box — unpack it and run the installer beside it:
 
 ```bash
-tar xzf tezgah-0.16.1.tar.gz && cd tezgah-0.16.1
-sh packaging/install.sh --version 0.16.1
+tar xzf tezgah-0.19.1.tar.gz && cd tezgah-0.19.1
+sh packaging/install.sh --version 0.19.1
 ```
 
 Working on tezgah itself, clone and run it in place instead — this is the

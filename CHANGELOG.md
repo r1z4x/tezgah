@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-09-28
+
+### Added
+
+- **A quick install at the top of the README.** One line (`curl ... install.sh |
+  sh`, the sha256-checked release installer), the npm alternative, and a prompt to
+  paste into omp, Claude Code, Codex, Cursor or opencode that installs tezgah,
+  checks the sha256 line and the `--report` MISS rows, and asks for the root when
+  it is not `~/Projects` - in the English and Turkish READMEs. The pinned install
+  examples name 0.19.1 instead of 0.16.1.
+
 ## [0.19.1] - 2026-09-28
 
 ### Fixed
@@ -2210,6 +2221,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.19.2]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.2
 [0.19.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.1
 [0.19.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.0
 [0.18.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.18.0
