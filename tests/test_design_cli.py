@@ -319,6 +319,37 @@ class Check(DesignCase):
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("focus-visible", proc.stdout)
 
+    def test_a_border_colour_beside_a_dead_border_is_still_a_violation(self):
+        # The same trap one property over: `border-style`'s initial value is
+        # `none`, whose colour is ignored, so a resolved dump carries a
+        # border-color beside a border that paints nothing.
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(outline="none",
+                            **{"border-color": "#111111"})]))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("focus-visible", proc.stdout)
+
+    def test_a_border_that_can_paint_settles_it(self):
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(outline="none",
+                            **{"border-width": "2px", "border-color": "#0b5fff"})]))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_a_partly_unreadable_duration_list_still_flags_the_readable_entry(self):
+        # One unparsable entry neither hides a readable one nor settles the
+        # value: 0.3s is motion with no guard, and the `var()` beside it is
+        # counted unjudged.
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(**{"transition-duration": "0.3s, var(--d)"})]), "--json")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        report = json.loads(proc.stdout)
+        self.assertIn("reduced-motion",
+                      [v["rule"] for v in report["violations"]], report)
+        self.assertTrue(report["unjudged"] >= 1, report)
+
     def test_a_focus_claim_no_rule_can_read_is_counted_unjudged(self):
         # An outline-colour with no outline style or width beside it says
         # nothing: a value, not a judgement, so the component is not `judged`

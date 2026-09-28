@@ -70,7 +70,12 @@ FOCUS_PROPS = ("outline", "outline-style", "outline-width", "outline-color")
 # The props that can paint: a value among these is what the rule concludes from.
 FOCUS_PAINTS = ("outline", "outline-style", "outline-width")
 FOCUS_OFF = frozenset(("none", "0", "0px", "0 0"))
-FOCUS_ALTERNATIVES = ("box-shadow", "border-color")
+# A box-shadow paints on its own, so it settles the rule by itself. A border
+# colour does not: `border-style`'s initial value is `none`, whose colour is
+# ignored, so a resolved computed-style dump carries a border-color beside a
+# border that paints nothing - a border counts only when one of these does.
+FOCUS_ALTERNATIVES = ("box-shadow",)
+FOCUS_BORDER_PAINTS = ("border", "border-style", "border-width")
 MOTION_PROPS = ("transition-duration", "animation-duration")
 
 SKIP_DIRS = frozenset((".git", "node_modules", "dist", "build", ".venv", "venv",
@@ -168,18 +173,23 @@ def contrast_ratio(fore, back):
     return (hi + 0.05) / (lo + 0.05)
 
 
-def duration_ms(value):
-    """A CSS time in milliseconds, or None when it is not a time this reader can
-    judge. A comma list takes its longest entry: that is the one a person
-    experiences, and the one a reduced-motion guard has to cover."""
-    worst = None
+def durations_ms(value):
+    """(the longest readable time in ms, the count of entries that were not a
+    time) for a CSS time or a comma list.
+
+    A list takes its longest entry - that is the one a person sits through and
+    the one a guard has to cover - and it is read entry by entry, so one entry
+    nobody can parse neither hides a readable one nor lets the value read as
+    settled."""
+    worst, unreadable = None, 0
     for part in str(value or "").split(","):
         m = re.fullmatch(r"\s*(-?\d*\.?\d+)\s*(ms|s)\s*", part)
         if not m:
-            return None
+            unreadable += 1
+            continue
         ms = float(m.group(1)) * (1 if m.group(2) == "ms" else 1000)
         worst = ms if worst is None else max(worst, ms)
-    return worst
+    return worst, unreadable
 
 
 def focus_outline_off(styles):
@@ -187,17 +197,18 @@ def focus_outline_off(styles):
     it, or [].
 
     `outline: none` is a violation only when the same measurement names no other
-    indication: a `box-shadow` or a `border-color` is a focus treatment by
-    another route, a value the reader cannot judge (`transparent` and its family)
-    is no claim at all, and an `outline-color` is not an indication - with the
-    outline itself off it paints nothing."""
+    indication: a `box-shadow`, or a border that can paint (a `border-style` or
+    `border-width` out of `none`/`0`), is a focus treatment by another route. An
+    `outline-color` and a bare `border-color` are not: both are carried by a
+    resolved computed-style dump while the outline or border itself is off, and
+    neither paints anything then."""
     off = ["%s: %s" % (prop, styles[prop])
            for prop in ("outline", "outline-style", "outline-width")
            if prop in styles and str(styles[prop]).strip().lower() in FOCUS_OFF]
     if not off:
         return []
     if any(prop in styles and str(styles[prop]).strip().lower() not in NOTHING
-           for prop in FOCUS_ALTERNATIVES):
+           for prop in FOCUS_ALTERNATIVES + FOCUS_BORDER_PAINTS):
         return []
     return off
 
@@ -664,7 +675,8 @@ def check(data, measured):
                         "where they are (WCAG 2.2 SC 2.4.7 Focus Visible, Level "
                         "AA)" % ", ".join(off))
                 elif any(str(styles[prop]).strip().lower() not in NOTHING
-                         for prop in FOCUS_PAINTS if prop in styles):
+                         for prop in FOCUS_PAINTS + FOCUS_BORDER_PAINTS
+                         if prop in styles):
                     hit = True
                 else:
                     # an outline-colour with no outline to paint says nothing a
@@ -674,13 +686,13 @@ def check(data, measured):
         for prop in MOTION_PROPS:
             if prop not in styles:
                 continue
-            ms = duration_ms(styles[prop])
+            ms, unreadable = durations_ms(styles[prop])
+            unjudged += unreadable
             if ms is None:
-                unjudged += 1
-            else:
-                judged_motion = True
-                if ms > 0:
-                    moving.append("%s: %s" % (prop, styles[prop]))
+                continue
+            judged_motion = True
+            if ms > 0:
+                moving.append("%s: %s" % (prop, styles[prop]))
         if judged_motion:
             hit = True
         if moving and not reduced:
