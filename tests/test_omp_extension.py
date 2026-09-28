@@ -196,6 +196,40 @@ class OmpExtension(TempHome):
                          parentSession=root + ".jsonl")
         self.assertIsNone(out["tezgahSession"])
 
+    # ---- the logo: it animates while the agent runs, and follows the theme --
+    DARK = ("\u001b[38;2;255;197;92m\u2580\u001b[48;2;23;161;140m\u2580"
+            "\u001b[49m\u2580\u001b[0m")
+    VERSION = "\u001b[2m\u001b[38;2;255;197;92mv9.9.9\u001b[0m"
+
+    def logo_ext(self):
+        line = self.DARK + " " + self.VERSION + " rest"
+        hook, _ = self.fake_hook({"status": line, "tiers": [[line, 16]]})
+        self.ext = self.make_ext(hook, name="logo-hook.ts")
+
+    def test_the_t_shines_while_the_agent_runs_and_is_still_otherwise(self):
+        self.logo_ext()
+        out = self.drive([{"event": "session_start"}, {"event": "agent_start"},
+                          {"event": "tool_execution_start", "arg": {"toolName": "bash"}}]
+                         + [{"event": "__tick"}] * 12 + [{"event": "agent_end"}])
+        self.results(out)
+        rows = [w[1][0][1:] for w in out["widgets"]]
+        idle, busy, done = rows[0], rows[3:-1], rows[-1]
+        self.assertTrue(idle.startswith(self.DARK), repr(idle))
+        self.assertTrue(done.startswith(self.DARK), repr(done))
+        heads = {r.split("\u2580\u001b[0m", 1)[0] for r in busy}
+        self.assertGreater(len(heads), 2, heads)          # the sheen moves
+        self.assertTrue(all("bash" in r for r in busy), busy)
+        # the logo is the motion: no braille spinner on a colored line
+        self.assertFalse(any(ch in r for r in busy for ch in "\u280b\u2819\u2839"))
+
+    def test_a_light_theme_draws_the_logo_in_its_darker_faces(self):
+        self.logo_ext()
+        out = self.drive([{"event": "session_start"}], light=True)
+        row = out["widgets"][-1][1][0]
+        self.assertIn("\u001b[38;2;184;118;28m\u2580\u001b[48;2;14;124;107m\u2580", row)
+        self.assertNotIn("255;197;92", row)
+        self.assertIn("v9.9.9", row)
+
     def test_before_agent_start_returns_a_hidden_reminder(self):
         out = self.drive([{"event": "before_agent_start",
                            "arg": {"prompt": "who calls calc_total?"}}])

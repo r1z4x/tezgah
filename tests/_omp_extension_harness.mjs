@@ -41,7 +41,8 @@ try {
     // a component widget is rendered the way omp renders it: at the width the
     // host hands it (spec.width, default a wide terminal), one line per row
     ui.setWidget = (key, content, options) => widgets.push([key,
-      typeof content === "function" ? content({}, {}).render(spec.width ?? 240) : content,
+      typeof content === "function"
+        ? content({}, spec.light ? { isLight: true } : {}).render(spec.width ?? 240) : content,
       options])
   }
   // spec.widgetThrows is a build whose UI surface refuses the call: the

@@ -68,6 +68,8 @@ function motionOn(): boolean {
 // The busy prefix for one frame: spinner, then the running tool (or "thinking"
 // between tools) and the whole run's seconds, then a dim bar before the marks.
 // `bare` keeps the spinner alone, for a width that has no room for the rest.
+// Only a line without the logo (NO_COLOR) takes the spinner: a colored line's
+// motion is the logo itself (logoFrame), and its activity text is `activity`.
 export function busyPrefix(frame: number, tool: string, secs: number,
                            color: boolean, bare = false): string {
   const spin = FRAMES[((frame % FRAMES.length) + FRAMES.length) % FRAMES.length];
@@ -76,6 +78,50 @@ export function busyPrefix(frame: number, tool: string, secs: number,
   if (!color) return spin + " " + what + " | ";
   return "\u001b[1;35m" + spin + "\u001b[0m \u001b[35m" + what +
     "\u001b[0m \u001b[2m\u2502\u001b[0m ";
+}
+
+// The running tool and the run's seconds, set beside the animated logo.
+export function activity(tool: string, secs: number): string {
+  return "\u001b[35m" + (tool || "thinking") + " " + Math.max(0, Math.floor(secs)) +
+    "s\u001b[0m \u001b[2m\u2502\u001b[0m ";
+}
+
+// The logo the python renderer puts at the head of a colored line: three upper
+// half blocks, the middle one's background being the support (hooks/
+// tezgah_context.logo_head). Matched by shape, whatever palette drew it.
+const HEAD_LOGO = /^\u001b\[38;2;\d+;\d+;\d+m\u2580\u001b\[48;2;\d+;\d+;\d+m\u2580\u001b\[49m\u2580\u001b\[0m/;
+// The logo's own colors (assets/logo/tezgah-logo.svg) for each background: the
+// worktop's top face and the teal support on a dark terminal, their darker faces
+// on a light one, where the bright pair would wash out; `shine` is the sheen.
+const LOGO_COLORS = {
+  dark: { top: "255;197;92", leg: "23;161;140", shine: "255;238;196", legShine: "96;226;204" },
+  light: { top: "184;118;28", leg: "14;124;107", shine: "242;167;59", legShine: "23;161;140" },
+};
+const VERSION_DARK = "\u001b[2m\u001b[38;2;255;197;92m";
+const VERSION_LIGHT = "\u001b[38;2;184;118;28m";
+
+// One frame of the T. `frame` null is the still logo; a number sweeps a sheen
+// across the worktop left to right, then down the support, two frames a step.
+export function logoFrame(frame: number | null, light: boolean): string {
+  const c = light ? LOGO_COLORS.light : LOGO_COLORS.dark;
+  const at = frame === null ? -1 : Math.floor(frame / 2) % 6;
+  const tops = [0, 1, 2].map((i) => (at === i ? c.shine : c.top));
+  const fg = (i: number) => (i && tops[i] === tops[i - 1] ? "" : "\u001b[38;2;" + tops[i] + "m");
+  const leg = "\u001b[48;2;" + (at === 3 ? c.legShine : c.leg) + "m";
+  // a color is written only where it changes, so the still frame is exactly
+  // the logo the python renderer drew (logo_head)
+  return fg(0) + "\u2580" + fg(1) + leg + "\u2580\u001b[49m" + fg(2) + "\u2580\u001b[0m";
+}
+
+// The line with its head redrawn for this frame and this background: the logo
+// replaced by `logoFrame`, the version recolored on a light terminal. A line
+// without the logo (plain, or an old hook) is returned as it came.
+export function restyle(line: string, frame: number | null, light: boolean): string {
+  const m = HEAD_LOGO.exec(line);
+  if (!m) return line;
+  let rest = line.slice(m[0].length);
+  if (light) rest = rest.split(VERSION_DARK).join(VERSION_LIGHT);
+  return logoFrame(frame, light) + rest;
 }
 
 // Cells a rendered line takes: the python renderer draws only one-cell glyphs,
@@ -127,7 +173,10 @@ export function fit(tiers: Array<[string, number]>, room: number): string {
 // without setWidget: the text is then uncolored, never wrong. `sized` is the
 // width-aware body: the widget is a component whose render(width) asks it for
 // the one line that fits, so the host's own width decides and nothing wraps.
-function draw(ctx: any, line: string, sized?: (width: number) => string): void {
+// The factory also receives omp's theme, whose `isLight` says which background
+// the logo has to stand out against.
+function draw(ctx: any, line: string,
+              sized?: (width: number, light: boolean) => string): void {
   // The widget is drawn by the host, not by the hook, so it is the one surface
   // a broken hook cannot take away - and talking to a host UI is where a build
   // can refuse. Nothing here may throw: the line is cosmetic, and the caller's
@@ -141,8 +190,9 @@ function draw(ctx: any, line: string, sized?: (width: number) => string): void {
     if (sized) {
       try {
         // one column of padding, the way omp pads its string widgets
-        ctx.ui.setWidget("tezgah", () => ({
-          render: (width: number) => [" " + sized(Math.max(0, width - 1))],
+        ctx.ui.setWidget("tezgah", (_ui: any, theme: any) => ({
+          render: (width: number) => [" " + sized(Math.max(0, width - 1),
+                                                   theme?.isLight === true)],
           invalidate: () => {},
         }), { placement: "belowEditor" });
         return;
@@ -319,18 +369,27 @@ export default function tezgahOmp(pi: any): void {
   let frame = 0;
   let timer: any;
   let timerCtx: any;
-  // One frame at the width the host hands the widget: the busy prefix first
-  // (just the spinner when the tool name would leave the marks no room), then
-  // the widest tier that still fits beside it.
-  const sized = (width: number): string => {
+  // One frame at the width the host hands the widget. A colored line leads with
+  // the logo, so the motion is the logo itself (restyle): the T's sheen sweeps
+  // while the agent runs, and the tool and its seconds sit right after it -
+  // dropped when they would leave the marks under 24 cells. A plain line keeps
+  // the braille spinner in front. The widest tier that fits takes the rest.
+  const sized = (width: number, light = false): string => {
     const moving = busy && timer !== undefined;
-    let pre = moving
-      ? busyPrefix(frame, tool, (Date.now() - since) / 1000, colorOn()) : "";
+    const secs = (Date.now() - since) / 1000;
+    const logo = HEAD_LOGO.test(line);
+    let pre = !moving ? "" : logo ? activity(tool, secs)
+      : busyPrefix(frame, tool, secs, colorOn());
     if (moving && width - cellsOf(pre) < 24) {
-      pre = busyPrefix(frame, tool, 0, colorOn(), true);
+      pre = logo ? "" : busyPrefix(frame, tool, 0, colorOn(), true);
     }
-    const room = width - cellsOf(pre);
-    return pre + (tiers.length ? fit(tiers, room) : cut(line, room));
+    const body = restyle(tiers.length ? fit(tiers, width - cellsOf(pre))
+      : cut(line, width - cellsOf(pre)), moving ? frame : null, light);
+    if (!logo) return pre + body;
+    // the logo, then the activity, then the rest of the tier
+    const head = logoFrame(moving ? frame : null, light);
+    if (!pre || !body.startsWith(head)) return body;
+    return head + " " + pre + body.slice(head.length).replace(/^ /, "");
   };
   const paint = (ctx: any): void => {
     if (hookError) return markBroken(ctx);

@@ -1319,12 +1319,36 @@ ICONS = {"pony": "\u2702", "exec": "\u25b6", "adhd": "\u25ce",
 # background is the support, so its lower half is the leg. The leg takes the
 # logo's teal accent (#17A18C), not its slate faces (#2A4657): the slate is the
 # color of a dark terminal's own background and the leg vanished into it.
-# Three cells, all width 1, so it counts like any other text.
-AMBER = "\033[38;2;255;197;92m"
-LOGO = (AMBER + "\u2580" + "\033[48;2;23;161;140m" + "\u2580" + "\033[49m"
-        + "\u2580" + RESET)
-# The logo names the product, so a colored head carries only the version, dim.
-HEAD = "\033[2m" + AMBER
+# Three cells, all width 1, so it counts like any other text. On a light
+# background the bright pair washes out, so the logo takes its own darker faces
+# there (#B8761C worktop, #0E7C6B support) and the version drops the dim.
+_LOGO_COLORS = {False: ("255;197;92", "23;161;140"), True: ("184;118;28", "14;124;107")}
+
+
+def light_background(env=None):
+    """Whether the terminal's background is light, by the COLORFGBG it reports
+    (`fg;bg`, a bg index of 8 or more being light) - omp reads the same variable
+    for its own theme. Unset or unreadable is dark, the common case."""
+    env = os.environ if env is None else env
+    try:
+        return int(str(env.get("COLORFGBG", "")).split(";")[-1]) >= 8
+    except ValueError:
+        return False
+
+
+def logo_head(light=False):
+    """The three-cell logo in the colors for this background."""
+    top, leg = _LOGO_COLORS[bool(light)]
+    return "\033[38;2;{}m\u2580\033[48;2;{}m\u2580\033[49m\u2580{}".format(
+        top, leg, RESET)
+
+
+def version_style(light=False):
+    """The version beside the logo: the logo's amber, dim on a dark terminal."""
+    top = _LOGO_COLORS[bool(light)][0]
+    return ("" if light else "\033[2m") + "\033[38;2;%sm" % top
+
+
 IDX_STATE = {"✓": "on", "↻": "ready", "✗": "off", "?": "info", "–": "info"}
 LEGEND = """\
 tezgah status marks (state first, glyph after the name; the whole name+glyph is
@@ -1451,12 +1475,13 @@ def _seg_text(seg, color, level=0):
     if not color or not chip:
         return chip
     if key == "tezgah":
-        logo = LOGO
+        light = light_background()
+        logo = logo_head(light)
         version = seg.get("version")
         # past level 0 the version goes and the logo stands alone
         if level or not version:
             return logo
-        return logo + " " + HEAD + "v" + version + RESET
+        return logo + " " + version_style(light) + "v" + version + RESET
     icon = ICONS.get(key, "")
     if icon and level >= 2:
         # the icon names the mark; plans keeps its count ("plans 13" -> "13")

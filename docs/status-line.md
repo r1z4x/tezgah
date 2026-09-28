@@ -61,7 +61,14 @@ middle one's background is its single support in the logo's teal accent
 (#17A18C - its slate faces, #2A4657, are a dark terminal's own background), so it
 reads as the logo's `t`. The logo names the product, so a colored head carries
 only the version, dim; the plain line keeps `tezgah vX.Y.Z`. The same half-block mark heads the line on every
-terminal; an inline-image logo is not drawn. Each other chip leads with its icon
+terminal; an inline-image logo is not drawn. On a light background the bright
+pair washes out, so the logo takes its darker faces (#B8761C worktop, #0E7C6B
+support) and the version drops the dim: omp's widget reads the theme's
+`isLight`, the other surfaces read `COLORFGBG` (a background index of 8 or more
+is light, the rule omp uses). While the omp agent works the T itself is the
+motion - a sheen sweeps its worktop left to right and runs down the support -
+with the running tool and its seconds right after it; a line without colors
+keeps the braille spinner. Each other chip leads with its icon
 (`ICONS`): `✂` pony, `▶` exec, `◎` adhd, `⚖` consult, `⚗` research, `⌬` graph, `⎇` orch,
 `⚑` judge, `⌕` idx, `☰` plans. Every icon is a text-presentation symbol one cell
 wide - never an emoji - so a terminal does not overflow the line. The plain line

@@ -265,6 +265,25 @@ class HealthLines(TempHome):
                             env=self.env())
         self.assertTrue(plain.startswith("tezgah"), plain[:40])
 
+    def test_the_logo_follows_a_light_background(self):
+        # COLORFGBG's bg index 8+ is a light terminal (omp reads it the same
+        # way): the bright amber and teal wash out there, so the darker faces
+        # of the logo draw it, and the version drops the dim
+        repo = self.make_repo()
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "health_lines", "cwd": repo,
+                              "session_id": "s", "color": True},
+                             env=self.env(extra={"COLORFGBG": "0;15"}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(out.startswith("\033[38;2;184;118;28m\u2580"
+                                       "\033[48;2;14;124;107m\u2580"), out[:60])
+        self.assertNotIn("255;197;92", out)
+        dark, _ = run_json([support.PROBE_CONTEXT],
+                           {"fn": "health_lines", "cwd": repo,
+                            "session_id": "s", "color": True},
+                           env=self.env(extra={"COLORFGBG": "15;0"}))
+        self.assertTrue(dark.startswith("\033[38;2;255;197;92m\u2580"), dark[:40])
+
     def test_open_plans_segment(self):
         repo = self.make_repo()
         self.armed_key()

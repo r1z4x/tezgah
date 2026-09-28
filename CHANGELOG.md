@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-28
+
+### Added
+
+- **The T moves while the agent works.** On omp the logo is the motion: a sheen
+  sweeps the worktop left to right and runs down the support, two 100 ms frames a
+  step, with the running tool and its seconds beside it. The braille spinner is
+  left to a line without colors. It stops, like before, at the agent's terminal
+  end, and `TEZGAH_STATUS_ANIMATE=0` keeps the still logo.
+- **The logo follows the terminal's background.** On a light background it
+  takes the logo's darker faces (#B8761C, #0E7C6B) and the version drops the dim:
+  omp's widget reads its theme's `isLight`, the Claude and Cursor lines read
+  `COLORFGBG` the way omp does.
+
 ## [0.19.4] - 2026-09-28
 
 ### Changed
@@ -2241,6 +2255,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.20.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.20.0
 [0.19.4]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.4
 [0.19.3]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.3
 [0.19.2]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.2
