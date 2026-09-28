@@ -708,6 +708,114 @@ class SkillRouterTriggers(SetupBase):
         self.assertIn("CRUD", audit)
 
 
+def router_lines(text):
+    """{name: trigger} for the skill lines of a generated router file.
+
+    A line is `- `name` - trigger - path`, and the trigger is absent when the
+    description carries none, which is the empty string here rather than a path
+    read as a trigger."""
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r"^- `([\w-]+)` - (.+)$", line)
+        if not m:
+            continue
+        head, sep, tail = m.group(2).rpartition(" - ")
+        out[m.group(1)] = head if sep and tail.endswith("SKILL.md") else ""
+    return out
+
+
+class Collisions(SetupBase):
+    """The on-demand router carries the pairs a description alone cannot settle.
+
+    The corpus this repository vendored generates such a table from its own
+    descriptions at 100+ skills; tezgah had no collision view at all. It stays out
+    of the always-on file, which is read on every turn."""
+
+    # The pairs a session could pick either way from today, and one that it could
+    # not: the threshold is only trustworthy if both ends of it are pinned.
+    KNOWN = (("plan-add", "plan-status"), ("plan-add", "plan-sync"),
+             ("plan-status", "plan-sync"), ("product-analysis", "feature-audit"))
+    NOT_A_PAIR = ("ponytail", "i-have-adhd")
+
+    def routers(self):
+        self.setup("--install", "--hosts", "opencode")
+        always = self.read_text(self.path(".config", "tezgah", "opencode-skills.md"))
+        full = self.read_text(
+            self.path(".config", "tezgah", "opencode-skills.full.md"))
+        return always, full
+
+    def pairs(self, full):
+        section = full.split("## Collisions", 1)[1].split("\n## ", 1)[0]
+        return [(m.group(1), m.group(2), m.group(3)) for m in
+                (re.match(r"^- `([\w-]+)` / `([\w-]+)` - (.+?)$", line)
+                 for line in section.splitlines()) if m]
+
+    def test_the_collision_table_rides_the_on_demand_router_only(self):
+        always, full = self.routers()
+        self.assertIn("## Collisions", full)
+        self.assertNotIn("## Collisions", always)
+
+    def test_every_pair_names_two_shipped_skills_that_share_the_words_it_lists(self):
+        _, full = self.routers()
+        lines = router_lines(full)
+        shipped = set(setup_module().SKILLS)
+        pairs = self.pairs(full)
+        self.assertTrue(pairs, "the collision table names no pair")
+        self.assertEqual(len(pairs), len({pair[:2] for pair in pairs}),
+                         "a pair is listed twice")
+        for a, b, words in pairs:
+            self.assertIn(a, shipped)
+            self.assertIn(b, shipped)
+            shared = [word.strip() for word in words.split(",")]
+            self.assertGreaterEqual(len(shared), 3, "%s / %s" % (a, b))
+            for word in shared:
+                self.assertIn(word, lines[a].lower(), "%s: %s" % (a, word))
+                self.assertIn(word, lines[b].lower(), "%s: %s" % (b, word))
+
+    def test_the_pairs_a_session_could_pick_either_way_from_are_named(self):
+        _, full = self.routers()
+        named = {frozenset(pair[:2]) for pair in self.pairs(full)}
+        for pair in self.KNOWN:
+            self.assertIn(frozenset(pair), named, pair)
+        self.assertNotIn(frozenset(self.NOT_A_PAIR), named,
+                         "the threshold dropped far enough to pair these")
+
+
+class RoutingFixtures(SetupBase):
+    """tests/routing-fixtures.md: a situation, the skill it reaches, and the words
+    the router line has to keep for that to happen.
+
+    The router is generated, so a reworded description can drop the one term a
+    situation matches on and no other test notices."""
+
+    FIXTURES = os.path.join(REPO, "tests", "routing-fixtures.md")
+    ROW = re.compile(r"^\| (.+?) \| `([\w-]+)` \| (.+?) \|$", re.M)
+
+    def rows(self):
+        with open(self.FIXTURES, encoding="utf-8") as fh:
+            return [(m.group(1), m.group(2), m.group(3))
+                    for m in self.ROW.finditer(fh.read())]
+
+    def test_every_shipped_skill_has_a_fixture(self):
+        self.assertTrue(self.rows(), "the fixture table is empty")
+        self.assertEqual({skill for _, skill, _ in self.rows()},
+                         set(setup_module().SKILLS),
+                         "a shipped skill has no routing fixture")
+
+    def test_every_fixture_survives_the_generated_router(self):
+        self.setup("--install", "--hosts", "opencode")
+        text = (self.read_text(self.path(".config", "tezgah", "opencode-skills.md"))
+                + "\n"
+                + self.read_text(
+                    self.path(".config", "tezgah", "opencode-skills.full.md")))
+        lines = router_lines(text)
+        for situation, skill, must in self.rows():
+            self.assertIn(skill, lines, "no router line for %s" % skill)
+            self.assertIn(must, lines[skill],
+                          "%s: the router line lost %r (%s)"
+                          % (skill, must, situation))
+
+
 class PluginCopy(SetupBase):
     """Claude Code runs tezgah from a COPY under ~/.claude/plugins/cache, never
     from this checkout, so a copy that lags HEAD is the one gap the other claude
@@ -1703,6 +1811,25 @@ class ReadmeSnippets(unittest.TestCase):
 
 class ContextBudget(SetupBase):
     """The status report must show what tezgah injects before the first turn."""
+
+    def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
+        """The always-on cost of a shipped name, in the installer's own formula:
+        the name plus its description plus the separator, inside the `skill
+        metadata` band the report prints. The ceiling is that band without this
+        entry, plus 2000 bytes - a name that costs more than a router line is a
+        description nobody reads every turn."""
+        module = setup_module()
+        rows = dict(module.context_budget()[0])
+        band = rows["skill metadata (%d)" % len(module.SKILLS)]
+        entry = os.path.join(REPO, "skills", "design-library", "SKILL.md")
+        own = (len("design-library")
+               + len(module._frontmatter_description(entry)) + 8)
+        self.assertIn("design-library", module.SKILLS)
+        self.assertEqual(own, 341, "the library's always-on cost moved")
+        self.assertLessEqual(band, band - own + 2000)
+        proc = self.setup()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("skill metadata (%d)" % len(module.SKILLS), proc.stdout)
 
     def test_report_lists_each_always_on_band(self):
         proc = self.setup()

@@ -52,3 +52,43 @@ skills/ai-research - MIT, Orchestra Research. VENDORED from the same library at
                      trees are not copied, and every drop is named in
                      skills/ai-research/SOURCE. `bin/tezgah-import-ai-research
                      --check` verifies the tree against its manifest.
+
+skills/design-library (inclusive-design-skills) - MIT, MC Dean,
+                     https://github.com/Owl-Listener/inclusive-design-skills.
+                     VENDORED at revision
+                     6e0740f04b2130af60bc57abe3401b91e460e70d (2026-06-09): three
+                     of its plugins - cognitive-accessibility,
+                     adaptive-interfaces, inclusive-interaction - every skill in
+                     them, 30 `SKILL.md`, at the upstream path. ADAPTED, one
+                     body - cognitive-accessibility/skills/adaptive-personalisation/SKILL.md
+                     carries `name: contextual-help-design` upstream, which is
+                     the sibling `contextual-help-design` skill's name and not
+                     its own directory; this copy's `name` matches its
+                     directory, because a host that loads a skill from its
+                     directory skips one whose name disagrees with it.
+
+skills/design-library (designer-skills) - MIT, MC Dean,
+                     https://github.com/Owl-Listener/designer-skills. VENDORED at
+                     revision 9a6930cf84a822eb458624bd11c61aac5bbdf224
+                     (2026-09-05): the whole visual-critique plugin (7
+                     `SKILL.md`) and two skills of design-research
+                     (`behavioural-analytics`, `qual-quant-triangulation`),
+                     byte-for-byte upstream. Nothing in this half is adapted;
+                     the 12 other design-research skills and the plugin
+                     packaging surface are not copied.
+
+                     ADAPTED across the library, one statement: the
+                     inclusive-design-skills copy of
+                     inclusive-interaction/skills/touch-target-design/SKILL.md
+                     states the touch minimum as `44x44 CSS pixels (WCAG 2.2
+                     Level AA)`. WCAG 2.2 SC 2.5.8 Target Size (Minimum) is
+                     Level AA at 24x24 CSS px and SC 2.5.5 Target Size
+                     (Enhanced) is Level AAA at 44x44, and tezgah's own checker
+                     enforces 24 (bin/tezgah-design, `TAP_TARGET`); the adopted
+                     copy states 24x24 as the AA floor with its success
+                     criterion and keeps 44x44 as the AAA floor and the common
+                     platform guideline. Every other adopted byte is upstream's,
+                     and `skills/design-library/SOURCE` records the per-file
+                     sha256 and names both departures.
+                     `skills/design-library/SKILL.md`, `INDEX.md` and `EVALS.md`
+                     are tezgah's own files and are not part of the manifest.

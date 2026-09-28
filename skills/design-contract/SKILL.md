@@ -40,6 +40,18 @@ opens. Field names and prose stay English.
 - `tokens.tap_target` and `tokens.contrast` - the WCAG 2.2 floors (SC 2.5.8:
   24x24 CSS px; SC 1.4.3: 4.5:1, 3:1 above 24px). These are the standard's, not
   the repository's; they are never derived away.
+- `tokens.reduced_motion` - optional, `true` once motion has a declared way out.
+  A measurement that carries a non-zero `transition-duration` or
+  `animation-duration` while the contract declares no guard is a `reduced-motion`
+  violation (SC 2.3.3 Animation from Interactions, Level AAA), and the reading
+  takes the longest entry of a duration list, which is what a person sits
+  through.
+- A measurement that says the focus outline is off (`outline: none`,
+  `outline-width: 0`) with nothing beside it to show focus - no `box-shadow`, no
+  `outline-color`, no `border-color` - is a `focus-visible` violation (SC 2.4.7
+  Focus Visible, Level AA). Both rules read only what the measurement declares,
+  so a component whose styles never mention focus or motion is unjudged rather
+  than passed.
 - `states.interactive` and `states.data` - the state sets below. The contract
   must carry them exactly; a floor that drops a state is a `state-set` violation.
 - `components` - the inventory: one `{name, kind}` per component the repository
@@ -138,9 +150,9 @@ over at least one component judged (1 with at least one violation, 2 for a usage
 error, an unreadable contract, or a measurement that carried no component it
 could judge - `0 violations` over nothing is not a clean app). The rules are `contract-source`,
 `contract-palette`, `state-set`, `palette`, `type-scale`, `spacing-rhythm`,
-`tap-target`, `contrast`, `state-coverage` and `component-inventory`. A measured
-value the contract cannot judge - `em`, `%`, a unitless non-zero - is counted on
-its own line and never read as a pass.
+`tap-target`, `contrast`, `focus-visible`, `reduced-motion`, `state-coverage`
+and `component-inventory`. A measured value the contract cannot judge - `em`,
+`%`, a unitless non-zero - is counted on its own line and never read as a pass.
 
 The checker judges only what the measurement reports. It is not a substitute for
 the screen read: a turn that changed a component owes the app read AND the check,
