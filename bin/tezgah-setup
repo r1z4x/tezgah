@@ -122,8 +122,8 @@ OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and "
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "i-have-adhd", "no-ai-slop",
           "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
-          "product-analysis", "feature-audit", "design-contract", "pm-frameworks",
-          "ai-research"]
+          "product-analysis", "feature-audit", "design-contract",
+          "design-library", "pm-frameworks", "ai-research"]
 
 
 def skills_linked(base):
@@ -1197,6 +1197,70 @@ def _router_section(cat, items):
     return out
 
 
+# Words every description carries, so a shared one settles nothing: the collision
+# rule reads the distinguishing terms of a router line, not its grammar.
+COLLISION_STOP = frozenset("""
+a an the and or of for to in on with that this it its is are be as at by from not
+no do does when where which who whom what whose then than so if but into over
+under out up down off again more most other some such only own same too very can
+will just don should now read reads reading use used uses using also one two
+three every each any all both new old
+""".split())
+# Two skills a session could pick either way from: their router lines share this
+# many subject words, so the description alone cannot settle the choice. Three is
+# where the shipped set stops pairing near-neighbours - `plan-add` / `plan-status`
+# / `plan-sync` share four terms and `product-analysis` / `feature-audit` three,
+# while at two `harness` / `no-ai-slop` pair over "asks, user" and the section
+# reads as noise.
+COLLISION_SHARED = 3
+
+
+def _collision_words(line):
+    """One router line's subject words: lowercased, four letters or more, with
+    the words every description carries dropped."""
+    return frozenset(w for w in re.findall(r"[a-z]+", line.lower())
+                     if len(w) >= 4 and w not in COLLISION_STOP)
+
+
+def skill_collisions(groups):
+    """[(a, b, [shared words])] over tezgah's own skills, sorted.
+
+    The author's collision table is a judgement at 100+ skills; at this size the
+    mechanical part of it still names the pairs, and naming them in the on-demand
+    router is what a session picks from when the descriptions tie. It reads the
+    shipped names only: a vendored library's internal collisions are its own
+    index's business, and a pair tezgah cannot rename is not a tezgah decision."""
+    lines = {name: skill_description(path)
+             for cat in ROUTER_ORDER for name, path in groups[cat]
+             if name in SKILLS}
+    names = sorted(lines)
+    pairs = []
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            shared = sorted(_collision_words(lines[a]) & _collision_words(lines[b]))
+            if len(shared) >= COLLISION_SHARED:
+                pairs.append((a, b, shared))
+    return pairs
+
+
+def _collision_section(pairs):
+    """The on-demand router's collision table, or [] when nothing collides."""
+    if not pairs:
+        return []
+    out = [
+        "## Collisions",
+        "",
+        "Pairs a description alone cannot settle: both router lines carry the"
+        " words below, so a session could pick either way from them. Read both"
+        " entries before choosing.",
+        "",
+    ]
+    out += ["- `%s` / `%s` - %s" % (a, b, ", ".join(shared))
+            for a, b, shared in pairs]
+    out.append("")
+    return out
+
+
 def skill_router_texts():
     """(always-on router, full router).
 
@@ -1240,6 +1304,9 @@ def skill_router_texts():
     for cat in ROUTER_ORDER:
         if groups[cat]:
             full += _router_section(cat, groups[cat])
+    # The collision table rides the on-demand file: it is read when a session is
+    # about to choose, which is not every turn, and it costs always-on bytes.
+    full += _collision_section(skill_collisions(groups))
     return ("\n".join(always).rstrip() + "\n",
             "\n".join(full).rstrip() + "\n")
 
@@ -3670,13 +3737,19 @@ MANIFEST = "MANIFEST"
 
 def managed(rel):
     """True for a relpath a copy is expected to hold: the tracked tree minus the
-    maintainer's `.tezgah/plans/` (never shipped), any bytecode cache, the
-    manifest itself, and a `<file>.tezgah-bak` backup - the installer keeps one
-    of a file it overwrote, and a backup is no more a copy member than it is
-    product code. Shared by plugin_files() and the copy listing, so the two
-    cannot drift."""
-    return (bool(rel) and not rel.startswith(".tezgah/plans/") and rel != MANIFEST
-            and not rel.endswith(".tezgah-bak") and "__pycache__" not in rel)
+    maintainer's `.tezgah/` (the private workspace, never shipped - a plan, a
+    research line, a lesson), any bytecode cache, the manifest itself, and a
+    `<file>.tezgah-bak` backup - the installer keeps one of a file it
+    overwrote, and a backup is no more a copy member than it is product code.
+    Shared by plugin_files() and the copy listing, so the two cannot drift.
+
+    `.tezgah/` is its own git repository, so `git ls-files --others` reports it
+    as one entry that .gitignore's `/.tezgah/` does not remove: without this the
+    workspace is listed as a copy member, `tree_sha` fails to read a directory
+    and every copy reports stale."""
+    return (bool(rel) and rel != ".tezgah" and not rel.startswith(".tezgah/")
+            and rel != MANIFEST and not rel.endswith(".tezgah-bak")
+            and "__pycache__" not in rel)
 
 
 def plugin_files():
