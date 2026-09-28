@@ -76,8 +76,8 @@ FOCUS_PAINTS = ("outline", "outline-style", "outline-width")
 # `border-width: 0px` and a colour. `border_paints()` reads those.
 FOCUS_ALTERNATIVES = ("box-shadow",)
 FOCUS_BORDER_PAINTS = ("border", "border-style", "border-width")
-# The style words that draw no border at all, and the shape of a length token.
-BORDER_STYLE_OFF = frozenset(("none", "hidden"))
+# The style words that draw nothing at all, and the shape of a length token.
+STYLE_OFF = frozenset(("none", "hidden"))
 LENGTH_TOKEN = re.compile(r"^[-+]?\d*\.?\d+[a-z%]*$")
 # A length that is zero in every entry, in any unit and any number of leading
 # zeroes: a drawn border or outline needs one that is not.
@@ -211,19 +211,20 @@ def paints_nothing(value):
                                for p in parts)
 
 
-def border_draws(value):
-    """True when one measured border declaration draws something.
+def declaration_draws(value):
+    """True when one measured declaration draws something.
 
     A lone longhand is judged by its own value (`2px` draws, `0px` does not).
-    The `border` shorthand carries width, style and colour in one string, so it
-    draws only when no component of it says otherwise: a `none`/`hidden` style
-    word, or a width that is zero - `border: 0 solid #111` draws nothing
-    whatever the style says, which is a border-less element's computed shape on
-    a Tailwind page."""
+    The `border` and `outline` shorthands carry width, style and colour in one
+    string, so they draw only when no component of them says otherwise: a
+    `none`/`hidden` style word, or a width that is zero - `border: 0 solid #111`
+    draws nothing whatever the style says, which is a border-less element's
+    computed shape on a Tailwind page, and `outline: 0 solid #111` is focus with
+    nothing to see."""
     parts = str(value or "").lower().replace(",", " ").split()
     if not parts:
         return False
-    if any(part in BORDER_STYLE_OFF for part in parts):
+    if any(part in STYLE_OFF for part in parts):
         return False
     if all(paints_nothing(part) for part in parts):
         return False
@@ -239,7 +240,7 @@ def border_paints(styles):
     border-less element on a Tailwind page, so either half read alone would let
     the rule settle on a border nobody sees."""
     values = [styles[prop] for prop in FOCUS_BORDER_PAINTS if prop in styles]
-    return bool(values) and all(border_draws(value) for value in values)
+    return bool(values) and all(declaration_draws(value) for value in values)
 
 
 def focus_outline_off(styles):
@@ -253,7 +254,7 @@ def focus_outline_off(styles):
     while nothing is drawn."""
     off = ["%s: %s" % (prop, styles[prop])
            for prop in FOCUS_PAINTS
-           if prop in styles and paints_nothing(styles[prop])]
+           if prop in styles and not declaration_draws(styles[prop])]
     if not off:
         return []
     if any(prop in styles and not paints_nothing(styles[prop])
@@ -725,7 +726,7 @@ def check(data, measured):
                         "(a box-shadow, a border that draws): a keyboard user "
                         "cannot see where they are (WCAG 2.2 SC 2.4.7 Focus "
                         "Visible, Level AA)" % ", ".join(off))
-                elif (any(prop in styles and not paints_nothing(styles[prop])
+                elif (any(prop in styles and declaration_draws(styles[prop])
                           for prop in FOCUS_PAINTS) or border_paints(styles)):
                     hit = True
                 else:

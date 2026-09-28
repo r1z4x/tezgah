@@ -47,9 +47,10 @@ opens. Field names and prose stay English.
   takes the longest entry of a duration list, which is what a person sits
   through.
 - A measurement that says the focus outline is off (`outline: none`,
-  `outline-width: 0`) with nothing beside it that draws - no `box-shadow` that
-  paints, and no border whose every declaration is alive (a live `border-style`
-  beside `border-width: 0px` draws nothing, which is a border-less element's
+  `outline-width: 0`, or an `outline` shorthand whose width is zero) with
+  nothing beside it that draws - no `box-shadow` that paints, and no border
+  whose every declaration is alive (a live `border-style` beside
+  `border-width: 0px` draws nothing, which is a border-less element's
   computed shape on a Tailwind page) - is a `focus-visible` violation (SC 2.4.7
   Focus Visible, Level AA). An `outline-color`, a bare `border-color`,
   `border-style: hidden` and a zero width are not indications: a resolved

@@ -420,6 +420,30 @@ class Check(DesignCase):
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertEqual(json.loads(proc.stdout)["judged"], 0)
 
+    def test_an_outline_shorthand_that_draws_nothing_is_still_a_violation(self):
+        # The outline half reads through the same parser as the border half: an
+        # `outline` shorthand carrying a zero width draws nothing whatever style
+        # word sits beside it.
+        for shape in ({"outline": "0 solid #111111"},
+                      {"outline": "0px solid #111111"},
+                      {"outline": "0 solid transparent"},
+                      {"outline-style": "hidden"},
+                      {"outline-width": "0 0 0 0"}):
+            with self.subTest(shape=shape):
+                data = contract_json(components=[("Button", "interactive")])
+                proc = self.check(data, measurement([clean_component(**shape)]))
+                self.assertEqual(proc.returncode, 1, proc.stdout)
+                self.assertIn("focus-visible", proc.stdout)
+
+    def test_an_outline_that_draws_settles_it(self):
+        for shape in ({"outline": "2px solid #111111"},
+                      {"outline-width": "0.5px"},
+                      {"outline": "2px solid transparent"}):
+            with self.subTest(shape=shape):
+                data = contract_json(components=[("Button", "interactive")])
+                proc = self.check(data, measurement([clean_component(**shape)]))
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
     def test_motion_with_no_declared_guard_is_a_violation(self):
         data = contract_json(components=[("Button", "interactive")])
         proc = self.check(data, measurement([
