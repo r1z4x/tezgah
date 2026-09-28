@@ -200,6 +200,8 @@
    "sources": [
     "bin/tezgah-setup",
     "skills/",
+    "skills/design-library/SOURCE",
+    "tests/routing-fixtures.md",
     "commands/",
     "NOTICE",
     "tests/test_setup.py",

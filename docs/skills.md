@@ -66,6 +66,18 @@ lines are asserted to carry their trigger words ([tests/test_setup.py:589-609]).
 A line is cut at 140 characters with a trailing `...`; a description with no
 trigger sentence keeps its first sentence.
 
+The on-demand file also carries a **collision table**: the pairs among tezgah's
+own skills whose descriptions share three or more subject words, computed from
+the router lines themselves (`skill_collisions()`, [bin/tezgah-setup:1225-1243]).
+It rides `opencode-skills.full.md` and never the always-on file, because it is
+read when a session is about to choose, not every turn. It is a view, not a
+rename: it names `plan-add` / `plan-status` / `plan-sync` and
+`design-contract` / `design-library` side by side, and leaves the choice to the
+session. `tests/routing-fixtures.md` is the other half - situation to skill, with
+the word the router line has to keep - and
+`tests/test_setup.py::RoutingFixtures` fails when a reworded description drops
+one, or when a shipped skill has no fixture at all.
+
 Every other host gets the same idea natively: the skills are linked into the
 directory that host reads, and the host lists `name` + `description` itself -
 which is why the installer counts that metadata as an always-on cost
@@ -111,6 +123,7 @@ it ([tests/test_skills.py:54-69]).
 | `pm-frameworks` | The two vendored product methods the analysis skill defers to - intended-vs-implemented and the Opportunity Solution Tree - kept offline so an offline session reads the method instead of citing its name. |
 | `feature-audit` | Audits ONE feature across every layer it is spread over - the surfaces a person uses (a control, a list or table, a detail view, a filter, a picker, a step flow, a notification), the route, the authorization, the service and the data - by filling the capability, field-contract, flow/step and interaction-dependency matrices, where a disagreement between layers is a finding and a fix needing an absent capability becomes a capability-change proposal; fires on an admin screen, CRUD, form, wizard, data table, filter or permission question about an existing feature. |
 | `design-contract` | The artifact shape of the per-repo `.tezgah/design-contract.md` - colour roles, type scale, spacing unit and rhythm, the component inventory, the state set every interactive control and data view owes - the derivation rule that reads it out of the repository's own tokens, and the rules `bin/tezgah-design check` fails on; fires on a UI or component turn that needs a floor, a token, a state set, or the design check itself. |
+| `design-library` | The vendored MC Dean design/UX subset - 39 skills in the `cognitive-accessibility`, `adaptive-interfaces`, `inclusive-interaction`, `visual-critique` and `design-research` plugins - read one entry at a time through its own `INDEX.md`, never the tree; fires when a UI or product turn needs a cognitive-load, inclusive-interaction or visual-critique method tezgah has no counterpart for. |
 | `ai-research` | The vendored 98-skill library for AI/ML machinery - training and serving a model, benchmarks, interpretability, retrieval pipelines; read one entry, never the tree. |
 
 ## Vendored material
@@ -143,20 +156,43 @@ LaTeX template trees were copied, and every drop is named in that file.
 `tests/test_skills.py` hashes each listed body and fails on an unlisted directory
 beside them; the entry point `SKILL.md` is tezgah's own and is not in it.
 
+`skills/design-library` is the adapted one: 39 skills from two Owl-Listener
+repositories - `inclusive-design-skills` at `6e0740f` (the whole
+cognitive-accessibility, adaptive-interfaces and inclusive-interaction plugins)
+and `designer-skills` at `9a6930c` (visual-critique, and two design-research
+skills) - both MIT, vendored at the upstream path under those five plugin
+directories, with `INDEX.md` as the routing surface and `EVALS.md` as the three
+trap cases the library is scored against. Two bodies depart from upstream, and
+`skills/design-library/SOURCE` and `NOTICE` name both: the touch-target entry
+paired `44x44 CSS pixels` with `WCAG 2.2 Level AA`, where SC 2.5.8 is Level AA at
+24x24 and SC 2.5.5 is Level AAA at 44x44 - 24 is the floor `bin/tezgah-design`
+enforces - and `adaptive-personalisation/SKILL.md` carried the sibling
+`contextual-help-design` skill's `name`, which a host that loads a skill from its
+directory skips. `tests/test_skills.py` hashes every listed body, fails on an
+unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
+
 ## Adding a skill
 
 1. Write `skills/<name>/SKILL.md` with frontmatter carrying `name` and a
    `description` whose **later** sentence begins `Use when ...` - that sentence
    is the router line, and it must carry the words a session would match on
    ([bin/tezgah-setup:814-840]).
-2. Add the name to `SKILLS` ([bin/tezgah-setup:123-125]). `SKILLS` drives the
+2. Add the name to `SKILLS` ([bin/tezgah-setup:123-126]). `SKILLS` drives the
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
 3. Expect `tests/test_skills.py:54-69` to fail if the two disagree, and
    `tests/test_setup.py:589-609` to fail if the generated router line lost its
    trigger words. Re-run `--install` (or opencode's `--refresh`,
    [bin/tezgah-setup:806-810]) so the written routers pick the skill up.
-4. Quote examples in a form the tests accept: no floating `@latest` package tag
+4. Add a row to `tests/routing-fixtures.md`: situation, the skill, and the word
+   the router line has to keep. `RoutingFixtures` fails on a shipped skill with
+   no row, and on a row whose word a reworded description dropped. The
+   frontmatter lint in `tests/test_skills.py::Frontmatter` then holds the entry
+   point itself: name equals directory, kebab-case, a `Use when` sentence, a
+   description under the metadata cap, every backticked cross-reference
+   resolving. Vendored trees are exempt there - their frontmatter is upstream's
+   bytes, pinned by that library's own hash test.
+5. Quote examples in a form the tests accept: no floating `@latest` package tag
    and any pinned package spec must match the one tezgah wires
    ([tests/test_skills.py:90-97]); slash commands carry the `tezgah:` prefix
    ([tests/test_skills.py:130-145]); no unrendered placeholder such as
@@ -168,11 +204,16 @@ beside them; the entry point `SKILL.md` is tezgah's own and is not in it.
 ## Source of truth
 
 - `bin/tezgah-setup` - `SKILLS`, `skills_linked()`, `skill_description()`,
-  `skill_category()`, `skill_groups()`, `skill_router_texts()`, the per-host
-  `install_*` linking, `--sync`, the report rows
+  `skill_category()`, `skill_groups()`, `skill_router_texts()`, the collision
+  table (`skill_collisions()`), the per-host `install_*` linking, `--sync`, the
+  report rows
 - `skills/*/SKILL.md` - the shipped skills and their frontmatter
 - `commands/ponytail.md`, `commands/adhd.md` - the Claude-only slash commands
 - `NOTICE`, `skills/ai-research/SOURCE`, `bin/tezgah-import-ai-research`
+- `skills/design-library/SOURCE`, `INDEX.md`, `EVALS.md` - the adapted library,
+  its index and its three trap cases
 - `hooks/tezgah_policy.py` - the always-on rule text and the Claude skill name
 - `tests/test_setup.py`, `tests/test_skills.py` - the router-line, name
-  resolution and skill-standard tests
+  resolution, frontmatter, collision and skill-standard tests
+- `tests/routing-fixtures.md` - situation to skill, with the word the router line
+  has to keep

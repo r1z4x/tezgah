@@ -151,6 +151,17 @@ class SkillStandards(unittest.TestCase):
         for needle in ("skills/research", "AI-research-SKILLs", "MIT"):
             self.assertIn(needle, self.notice)
 
+    def test_notice_records_every_vendored_repository_and_what_changed(self):
+        # One entry per upstream repository, naming the revision, the licence and
+        # every departure: a vendored tree whose NOTICE entry cannot say which
+        # bytes changed is a copy nobody can audit.
+        for needle in ("skills/design-library",
+                       "inclusive-design-skills", "designer-skills",
+                       "6e0740f04b2130af60bc57abe3401b91e460e70d",
+                       "9a6930cf84a822eb458624bd11c61aac5bbdf224",
+                       "touch-target-design", "adaptive-personalisation"):
+            self.assertIn(needle, self.notice, needle)
+
     def test_the_vendored_product_tree_matches_its_manifest(self):
         """A vendored body that drifted from its recorded hash is no longer the
         upstream method, and a directory beside it that SOURCE does not list is
@@ -347,3 +358,272 @@ class PlanSkillsStayInTheWorkspace(unittest.TestCase):
             # a path handed to that repository is relative to it: `plans/...`
             self.assertNotRegex(flat(text), r'git -C "\$ROOT/\.tezgah" add [^`]*\.tezgah/',
                                 name)
+
+
+LIBRARY = os.path.join(SKILLS, "design-library")
+LIBRARY_SOURCE = os.path.join(LIBRARY, "SOURCE")
+LIBRARY_ROW = re.compile(
+    r"^\|\s*`([A-Za-z0-9/_.-]+/SKILL\.md)`\s*\|\s*`[\w-]+`\s*\|\s*"
+    r"`([0-9a-f]{64})`\s*\|", re.M)
+# The most a shipped entry point's description may carry: the always-on band is
+# the sum of these and the router shows one sentence of each, so a description
+# past this is prose nobody reads. The longest today is 961 (`feature-audit`).
+DESCRIPTION_CAP = 1200
+TRIGGER = re.compile(r"(?:^|[.!?]\s+)(?:Also )?[Uu]se\b")
+KEBAB = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def library_manifest():
+    """{relpath: sha256} from skills/design-library/SOURCE's own table."""
+    return dict(LIBRARY_ROW.findall(read(LIBRARY_SOURCE)))
+
+
+def vendored_skill_files():
+    """Every SKILL.md whose frontmatter is upstream's bytes, not tezgah's: the
+    bodies under a `skills/<name>/` that ships a SOURCE manifest. Their integrity
+    is that library's own hash test, and their frontmatter is not tezgah's to
+    rewrite without breaking it."""
+    out = set()
+    for source in glob.glob(os.path.join(SKILLS, "*", "SOURCE")):
+        out |= set(glob.glob(os.path.join(os.path.dirname(source), "**", "SKILL.md"),
+                             recursive=True))
+    return out
+
+
+def frontmatter(text):
+    """(name, description, body) of a SKILL.md, or (None, "", text)."""
+    block = re.match(r"---\s*\n(.*?)\n---\s*\n", text, re.S)
+    if not block:
+        return None, "", text
+    head = block.group(1)
+    name = re.search(r"^name:\s*(.+)$", head, re.M)
+    folded = re.search(r"description:\s*[>|]-?\s*\n((?:\s+.*\n?)+)", head)
+    if folded:
+        desc = " ".join(line.strip() for line in folded.group(1).splitlines())
+    else:
+        inline = re.search(r"description:\s*(.+)", head)
+        desc = inline.group(1).strip().strip("\"'") if inline else ""
+    return (name.group(1).strip().strip("\"'") if name else None,
+            re.sub(r"\s+", " ", desc).strip(), text[block.end():])
+
+
+class DesignLibrary(unittest.TestCase):
+    """skills/design-library: a nested vendored tree, held to its own manifest.
+
+    The bodies are reached on demand through `INDEX.md` and the router never
+    lists them, so nothing else in the suite would notice a body that drifted, a
+    file that vanished, or a directory that arrived unvetted."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = library_manifest()
+        # The library's own entry point sits at the root and is not vendored, so
+        # the tree's adopted bodies are the ones under a plugin directory.
+        cls.bodies = sorted(p[len(LIBRARY) + 1:] for p in
+                            glob.glob(os.path.join(LIBRARY, "**", "SKILL.md"),
+                                      recursive=True)
+                            if os.sep in p[len(LIBRARY) + 1:])
+
+    def test_the_manifest_lists_every_adopted_body_and_only_bodies(self):
+        self.assertTrue(self.rows, "SOURCE records no file/hash pair")
+        self.assertEqual(sorted(self.rows), self.bodies,
+                         "SOURCE and the tree disagree about which bodies exist")
+        for rel in self.rows:
+            self.assertEqual(len(rel.split("/")), 4,
+                             "%s is not at <plugin>/skills/<name>/SKILL.md" % rel)
+
+    def test_every_listed_body_is_present_and_matches_its_hash(self):
+        for rel, want in sorted(self.rows.items()):
+            path = os.path.join(LIBRARY, rel)
+            self.assertTrue(os.path.isfile(path), "vendored file missing: %s" % rel)
+            with open(path, "rb") as fh:
+                digest = hashlib.sha256(fh.read()).hexdigest()
+            self.assertEqual(digest, want,
+                             "%s no longer matches the hash SOURCE records" % rel)
+
+    def test_the_tree_holds_no_directory_the_manifest_does_not_list(self):
+        listed = {rel.split("/")[0] for rel in self.rows}
+        found = {n for n in os.listdir(LIBRARY)
+                 if os.path.isdir(os.path.join(LIBRARY, n))}
+        self.assertEqual(found, listed,
+                         "the tree holds a directory SOURCE does not list")
+
+    def test_every_adopted_body_is_named_for_its_directory(self):
+        # A host loads a skill from its directory and skips one whose frontmatter
+        # `name` disagrees with it, which is why the adaptive-personalisation copy
+        # is adapted; a re-vendor that drops the correction has to fail here.
+        for rel in sorted(self.rows):
+            name = rel.split("/")[2]
+            head = frontmatter(read(os.path.join(LIBRARY, rel)))[0]
+            self.assertEqual(head, name, rel)
+
+    def test_the_entry_point_and_its_aids_are_tezgahs_own(self):
+        # The same rule skills/pm-frameworks and skills/ai-research state: the
+        # entry point, its index, its evals and the manifest are tezgah's files,
+        # so no adopted body may be listed at the library root.
+        for own in ("SKILL.md", "SOURCE", "INDEX.md", "EVALS.md"):
+            self.assertTrue(os.path.isfile(os.path.join(LIBRARY, own)), own)
+        self.assertEqual([rel for rel in self.rows if "/" not in rel], [],
+                         "SOURCE lists a file at the library root")
+
+
+class TapTarget(unittest.TestCase):
+    """No adopted body may pair 44x44 with WCAG Level AA.
+
+    WCAG 2.2 SC 2.5.8 Target Size (Minimum) is Level AA at 24x24 CSS px and SC
+    2.5.5 Target Size (Enhanced) is Level AAA at 44x44; tezgah's own floor is 24
+    (`bin/tezgah-design`'s `TAP_TARGET`, citing SC 2.5.8). The corpus this library
+    was vendored from shipped the pairing, which is why one body is adapted."""
+
+    SIZE = re.compile(r"44\s*(?:\u00d7|x)\s*44|44\s*px\b")
+    LEVEL_AA = re.compile(r"Level AA\b")
+
+    def test_no_adopted_body_pairs_44_with_level_aa(self):
+        offenders = []
+        for rel in sorted(library_manifest()):
+            body = frontmatter(read(os.path.join(LIBRARY, rel)))[2]
+            for line in body.splitlines():
+                if self.SIZE.search(line) and self.LEVEL_AA.search(line):
+                    offenders.append("%s: %s" % (rel, line.strip()))
+        self.assertEqual(offenders, [], "\n".join(offenders))
+
+    def test_the_adopted_copy_states_24_as_the_aa_floor_and_44_as_aaa(self):
+        body = frontmatter(read(os.path.join(
+            LIBRARY, "inclusive-interaction/skills/touch-target-design/SKILL.md")))[2]
+        self.assertIn("Minimum: 24\u00d724 CSS pixels (WCAG 2.2 SC 2.5.8, Level AA)",
+                      body)
+        self.assertIn("Enhanced: 44\u00d744 CSS pixels (WCAG 2.2 SC 2.5.5, Level AAA",
+                      body)
+
+    def test_the_correction_is_named_in_the_source_table(self):
+        source = read(LIBRARY_SOURCE)
+        for needle in ("SC 2.5.8", "24x24", "SC 2.5.5", "44x44"):
+            self.assertIn(needle, source, needle)
+
+
+class DesignLibraryEvals(unittest.TestCase):
+    """The library's own evals: three trap cases, each with a Must contain and a
+    Must not, in the shape the vendored corpus ships. It is the only proposed
+    proof in that corpus that a skill changes behaviour."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cases = re.split(r"^## Case ", read(os.path.join(LIBRARY, "EVALS.md")),
+                             flags=re.M)[1:]
+
+    def test_three_cases_each_carry_a_must_contain_and_a_must_not(self):
+        self.assertEqual(len(self.cases), 3, "the evals no longer hold 3 cases")
+        for i, case in enumerate(self.cases, 1):
+            self.assertIn("**Must contain**", case, i)
+            self.assertIn("**Must not**", case, i)
+            contains, rest = case.split("**Must contain**")[1].split("**Must not**")
+            self.assertTrue(re.search(r"^- \[ \] \S", contains, re.M),
+                            "case %d has no Must contain line" % i)
+            must_not = rest.split("**Why this case**")[0]
+            self.assertTrue(re.search(r"^- \S", must_not, re.M),
+                            "case %d has no Must not line" % i)
+
+    def test_every_case_says_why_it_is_a_trap(self):
+        for i, case in enumerate(self.cases, 1):
+            self.assertIn("**Why this case**", case, i)
+
+
+class DesignLibraryIndex(unittest.TestCase):
+    """INDEX.md is the routing surface for a nested tree: one line per adopted
+    entry, `name - what it makes - path`, inside the router's own budget."""
+
+    LINE = re.compile(r"^([a-z0-9]+(?:-[a-z0-9]+)*) - (.+) - "
+                      r"([A-Za-z0-9/_.-]+/SKILL\.md)$")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = read(os.path.join(LIBRARY, "INDEX.md"))
+        cls.lines = [line for line in cls.text.splitlines()
+                     if cls.LINE.match(line)]
+        cls.found = [cls.LINE.match(line) for line in cls.lines]
+
+    def test_the_index_covers_every_adopted_entry_exactly_once(self):
+        names = [m.group(1) for m in self.found]
+        self.assertEqual(len(names), len(set(names)), "an entry is listed twice")
+        self.assertEqual(sorted(names), sorted(rel.split("/")[2]
+                                               for rel in library_manifest()))
+
+    def test_every_index_line_names_a_file_that_exists(self):
+        for m in self.found:
+            self.assertTrue(os.path.isfile(os.path.join(LIBRARY, m.group(3))),
+                            m.group(3))
+            self.assertTrue(m.group(2).strip(), m.group(1))
+
+    def test_every_index_line_stays_inside_the_router_budget(self):
+        for line in self.lines:
+            self.assertLessEqual(len(line), 140, line)
+
+
+class Frontmatter(unittest.TestCase):
+    """The frontmatter of every skill tezgah ships an entry point for: the name
+    equals its directory, it is kebab-case, a `Use when` sentence is present, the
+    description stays inside the metadata cap, and every backticked
+    cross-reference resolves.
+
+    The vendored trees are out of scope by the same rule that keeps them out of
+    the router: their frontmatter is upstream's bytes, pinned by that library's
+    own hash test (every `skills/<name>/SOURCE`), and rewriting a name there
+    would break the manifest that proves the copy is upstream's."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.paths = sorted(glob.glob(os.path.join(SKILLS, "*", "SKILL.md")))
+        cls.roots = sorted(os.path.dirname(source) for source in
+                           glob.glob(os.path.join(SKILLS, "*", "SOURCE")))
+        cls.exempt = vendored_skill_files()
+        cls.names = {d for d in os.listdir(SKILLS)
+                     if os.path.isdir(os.path.join(SKILLS, d))}
+
+    def test_the_lint_covers_every_body_and_exempts_only_the_libraries(self):
+        # The exemption is the library roots, not a glob: a new body is linted
+        # unless it arrives under a tree that ships its own hash manifest.
+        self.assertEqual([os.path.basename(root) for root in self.roots],
+                         ["ai-research", "design-library", "pm-frameworks"],
+                         "the vendored set changed: name it here, or lint it")
+        for path in glob.glob(os.path.join(SKILLS, "**", "SKILL.md"), recursive=True):
+            covered = (path in self.paths or
+                       any(path.startswith(root + os.sep) for root in self.roots))
+            self.assertTrue(covered,
+                            "%s is neither an entry point nor vendored" % path)
+
+    def test_every_entry_point_declares_a_name_matching_its_directory(self):
+        for path in self.paths:
+            directory = os.path.basename(os.path.dirname(path))
+            name = frontmatter(read(path))[0]
+            self.assertEqual(name, directory, path)
+
+    def test_every_name_is_kebab_case(self):
+        for path in self.paths:
+            name = frontmatter(read(path))[0]
+            self.assertRegex(name or "", KEBAB, path)
+
+    def test_every_description_carries_a_use_when_sentence(self):
+        for path in self.paths:
+            desc = frontmatter(read(path))[1]
+            self.assertTrue(desc, "%s carries no description" % path)
+            self.assertTrue(TRIGGER.search(desc),
+                            "%s has no `Use when` sentence" % path)
+
+    def test_every_description_stays_inside_the_metadata_cap(self):
+        for path in self.paths:
+            desc = frontmatter(read(path))[1]
+            self.assertLessEqual(len(desc), DESCRIPTION_CAP,
+                                 "%s: %d chars" % (path, len(desc)))
+
+    def test_every_backticked_cross_reference_resolves(self):
+        for path in self.paths:
+            text = read(path)
+            for ref in re.findall(r"`(skills/[A-Za-z0-9_./-]+)`", text):
+                self.assertTrue(os.path.exists(os.path.join(support.REPO, ref)),
+                                "%s cites a missing %s" % (path, ref))
+            for token in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)*)`", text):
+                if token in self.names:
+                    self.assertTrue(
+                        os.path.isfile(os.path.join(SKILLS, token, "SKILL.md")),
+                        "%s cites the skill `%s`, which has no SKILL.md"
+                        % (path, token))
