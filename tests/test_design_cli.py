@@ -565,6 +565,18 @@ class Check(DesignCase):
         report = self.check(data, measurement([{}]), "--json")
         self.assertEqual(json.loads(report.stdout)["judged"], 0)
 
+    def test_a_name_only_component_against_an_inventory_is_not_judged(self):
+        # the inventory branch set `hit`, so a measurement whose one component
+        # carried nothing but a name the contract lists exited 0 with `1
+        # component judged` - the same lie `{"components": [{}]}` was closed
+        # for, one contract shape over: membership is not a measurement
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([{"name": "Button"}]))
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("nothing was judged", proc.stdout + proc.stderr)
+        report = self.check(data, measurement([{"name": "Button"}]), "--json")
+        self.assertEqual(json.loads(report.stdout)["judged"], 0)
+
     def test_a_measurement_without_the_components_key_is_never_a_pass(self):
         data = contract_json(components=[("Button", "interactive")])
         proc = self.check(data, {"foo": 1})

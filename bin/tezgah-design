@@ -620,9 +620,11 @@ def check(data, measured):
     nothing": a measurement that carries no component the contract can judge is
     not a clean app, and the caller refuses to report it as one. A component
     counts only when a rule actually judged it - the presence of a dict is not a
-    judgement, so `{"components": [{}]}` judges nothing. The contract-level rules
-    above run either way - an unusable contract is a finding whether or not
-    anything was measured against it."""
+    judgement, so `{"components": [{}]}` judges nothing, and neither is a name the
+    contract's inventory lists: `component-inventory` is a finding about the name
+    and nothing more, so a component that arrived with only a name is not counted
+    as judged. The contract-level rules above run either way - an unusable
+    contract is a finding whether or not anything was measured against it."""
     out, unjudged, judged = [], 0, 0
 
     def bad(component, rule, detail):
@@ -778,11 +780,9 @@ def check(data, measured):
                     "states not observed: %s" % ", ".join(missing))
         elif kind is None:
             unjudged += 1
-        if inventory:
-            hit = True
-            if name not in inventory:
-                bad(name, "component-inventory",
-                    "not in the contract's component inventory")
+        if inventory and name not in inventory:
+            bad(name, "component-inventory",
+                "not in the contract's component inventory")
         if hit:
             judged += 1
     out.sort(key=lambda v: (v["component"], v["rule"], v["detail"]))

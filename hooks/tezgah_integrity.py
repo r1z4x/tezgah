@@ -1717,12 +1717,21 @@ def _ui_write(row):
     compound line that merely ends in a `.tsx` (`printf a > out.txt; ls
     src/App.tsx`) is not read as a write of it.
 
-    Two ceilings come with that reader, both the gate's own
+    Two of the three ceilings come with that reader, both the gate's own
     (`tezgah_gate.write_paths`/`shell_target`): a QUOTED redirect target is not
     read - masking blanks it and the slice is taken by offset - and a write whose
     target is a positional argument (`sed -i`, `perl -pi`, `cp`, `mv`, `patch`)
     is not read at all. A UI source written either way sits outside this rule and
-    outside the freshness fold alike."""
+    outside the freshness fold alike.
+
+    The third ceiling is the ledger's, and it is the one place the two readers
+    can disagree: a `run` row's `detail` is the command `note_path` stored, cut
+    to `DETAIL_MAX` (200), so a redirect that sits past the cut is not read here
+    while `_change_row` - which reads the row's fields, never its detail - still
+    counts the row as a change. The kind test above is what the two agree on; the
+    target of a command longer than the cut is this reader's to lose, and
+    recovering it would mean walking the snapshot rows by call id for a path the
+    command already carried."""
     if not _change_row(row):
         return None
     detail = str(row.get("detail") or "")
@@ -1747,7 +1756,17 @@ def _screen_read(row):
 
     A host that names the tool in some third shape is missed rather than guessed
     at: the miss costs a refusal the model can answer with `doğrulanmadı`, and a
-    guess costs a screen proof nobody took."""
+    guess costs a screen proof nobody took.
+
+    A row that carries a SEEN failure is not a look at anything: the host said
+    the call did not answer (`exit` non-zero, or a `fail_class`), so no screen
+    was read whatever the name's shape - the same row `passing_check` refuses in
+    the check family. A row whose outcome nobody reported (`failed=None`, what
+    omp and Cursor send for an MCP call) still reads on its shape: requiring a
+    seen exit would delete the proof those two hosts can give instead of failing
+    it, which is a different rule than this one."""
+    if row.get("exit") not in (None, 0) or row.get("fail_class"):
+        return False
     kind = str(row.get("kind"))
     detail = str(row.get("detail") or "")
     if kind == "unknown" and detail.startswith(TOOL_NAME):
@@ -1786,7 +1805,9 @@ def _ui_evidence(rows):
             write = i
         if passing_check(row) and UI_CHECK.search(detail):
             proof = i
-        elif _screen_read(row) or UI_TOOL_CMD.search(detail):
+        elif _screen_read(row) or (UI_TOOL_CMD.search(detail)
+                                   and row.get("exit") in (None, 0)
+                                   and not row.get("fail_class")):
             proof = i
     return write, proof
 

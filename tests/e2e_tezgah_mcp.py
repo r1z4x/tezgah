@@ -116,8 +116,14 @@ def drive(python, workdir, scratch_free=True):
             ("tezgah_features", {}),
             # a call that passes: the gate's answer is the reason, or nothing
             ("tezgah_gate_check", {"command": "ls -la", "path": workdir}),
-            # a call the gate refuses, so the reason reaches the card as the log
-            ("tezgah_gate_check", {"command": "rm -rf /", "path": workdir}),
+            # a call the gate refuses, so the reason reaches the card as the log.
+            # `rm -rf /` is NOT refused: tezgah's gate answers for its own rules
+            # (bypasses, attribution, the task record, the workspace), not for
+            # shell safety - a fixture the gate lets through cannot show that a
+            # refusal reaches the card. A hook-skipping commit is one it does
+            # refuse (`shortcut_command`).
+            ("tezgah_gate_check", {"command": "git commit --no-verify -m x",
+                                   "path": workdir}),
             # no research line here, so the answer is the same everywhere
             ("tezgah_research_check", {"path": workdir}),
         ]
@@ -133,7 +139,7 @@ def drive(python, workdir, scratch_free=True):
             if result.get("isError"):
                 problems.append("%s: the call failed (log: %r)" % (who, log))
             if name == "tezgah_gate_check":
-                refused = arguments["command"].startswith("rm")
+                refused = "--no-verify" in arguments["command"]
                 if refused and scratch_free and not log:
                     problems.append("%s: a refused call carries no reason" % who)
                 if not refused and log:

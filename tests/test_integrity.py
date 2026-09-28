@@ -1131,6 +1131,41 @@ class UiEvidence(unittest.TestCase):
         self.assertEqual(row["kind"], "external", row)
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
+    def test_a_failed_screen_read_is_not_the_proof(self):
+        # the reader keyed on the row's shape alone, so a screenshot call whose
+        # result never arrived (the host reported the failure) was proof of a
+        # screen nobody saw - `passing_check` refuses the same row in the check
+        # family, and this is the read family's half of that
+        self.edit(self.screen)
+        ti.note_tool("s", "mcp__playwright__browser_take_screenshot", {},
+                     failed=True)
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_failed_mcp_channel_row_is_not_the_proof_either(self):
+        self.edit(self.screen)
+        ti.note_tool("s", "mcp__playwright_browser_take_screenshot", {},
+                     failed=True, source="mcp")
+        row = ti.events("s")[-1]
+        self.assertEqual(row["kind"], "external", row)
+        self.assertTrue(row.get("fail_class") or row.get("exit"),
+                        "the row has to carry the failure for this to test it")
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_long_shell_command_hides_its_redirect_from_the_ui_reader(self):
+        # `note_path` cuts a row's `detail` to DETAIL_MAX and the shell half of
+        # the write reader parses that detail, so a redirect past the cut is not
+        # read while `_change_row` still counts the row as a change - the ceiling
+        # `_ui_write` names. Pinned so the disagreement cannot widen unnoticed.
+        tail = "> src/App.tsx"
+        command = "echo %s %s" % ("x" * 210, tail)
+        self.assertGreater(len(command), ti.DETAIL_MAX)
+        ti.note_path(ti._path("s"), "run", command, changed=True)
+        row = ti.events("s")[-1]
+        self.assertLessEqual(len(row["detail"]), ti.DETAIL_MAX)
+        self.assertNotIn(tail, row["detail"])
+        self.assertTrue(ti._change_row(row))
+        self.assertIsNone(ti._ui_write(row))
+
     def test_a_row_that_merely_names_an_mcp_tool_is_not_a_screen_read(self):
         # the readers matched the raw detail of ANY row, so a search whose
         # *pattern* is the tool's name was admissible screen proof
@@ -1191,6 +1226,28 @@ class UiEvidence(unittest.TestCase):
         self.assertEqual(ti.verify_command("npx reg-suit run"), "reg-suit")
         self.edit(self.screen)
         self.check("npx axe-core src/index.html")
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_failed_capture_is_not_the_proof(self):
+        # the CLI half of the screen-read route read only the command, so a
+        # capture that exited non-zero licensed the claim the same way a
+        # successful one did; the MCP half already refused it
+        self.edit()
+        ti.note_tool("s", "Bash", {"command": "screencapture -x out.png"},
+                     failed=True, out_bytes=10)
+        self.assertIn("UI evidence",
+                      ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_capture_whose_outcome_nobody_reported_is_still_readable(self):
+        # the control: a host that reports no outcome (omp, Cursor) leaves the
+        # row usable - the rule asks for the read, not for a verdict nobody saw.
+        # A screen rather than a component, so the design floor is not the
+        # question this test is about.
+        screen = os.path.join(self.dir, "admin", "pages", "users.tsx")
+        os.makedirs(os.path.dirname(screen), exist_ok=True)
+        self.edit(screen)
+        ti.note_tool("s", "Bash", {"command": "screencapture -x out.png"},
+                     out_bytes=10)
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
     def test_a_turn_that_wrote_no_ui_source_is_unchanged(self):

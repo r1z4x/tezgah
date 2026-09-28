@@ -119,7 +119,16 @@ PROMPT_HINTS = (
              # component. Kept off the product class's surface nouns on purpose
              # (tablo, filtre, ekran stay there) so an ordinary surface ask still
              # pays one paragraph, and off bare `table`/`filter` so that pin holds.
-             r"align-?(?:items|self|content)|text-align|hizala\w*|hiza\w*|"
+             # `align`/`alignment`/`misalign` are one family with the property
+             # spellings: `align-?items` allowed only a hyphen between the two
+             # words, so "align items in the header" armed nothing and neither
+             # adjective form was a hint at all. The nouns read bare the way
+             # `spacing` does - qualifying them by a UI object would drop "the
+             # alignment is off", the ask that named this defect - and the
+             # non-UI phrasings stay dead in the corpus ("align the two arrays",
+             # "align the teams on the roadmap").
+             r"align[- ]?(?:items|self|content)|text-align|alignment\w*|"
+             r"misalign\w*|hizala\w*|hiza\w*|"
              r"padding|" + _ui_ask(r"cent(er|re)\w*") + r"|"
              + _ui_ask(r"margins?") + r"|"
              r"gutter\w*|boşluk\w*|satır aral\w*|line-?height|letter-?spacing|"

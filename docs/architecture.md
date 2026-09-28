@@ -26,17 +26,17 @@ nothing about a host's event names or output envelope.
 
 | Module | Owns | Point at |
 |---|---|---|
-| `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `context_for` `hooks/tezgah_context.py:1005-1203` |
+| `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `context_for` `hooks/tezgah_context.py:1014-1212` |
 | `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `CORE` `hooks/tezgah_policy.py:622-838`, `CONDITIONAL_KEYS` `hooks/tezgah_policy.py:842-846` |
 | `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:4-67`, `decision` `hooks/tezgah_gate.py:1094-1266` |
-| `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-23`, `note_tool` `hooks/tezgah_integrity.py:1512-1620`, `stop_reason` `hooks/tezgah_integrity.py:2127-2175` |
+| `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-23`, `note_tool` `hooks/tezgah_integrity.py:1512-1620`, `stop_reason` `hooks/tezgah_integrity.py:2148-2196` |
 | `tezgah_guard.py` | the one catch around an entry point's call into the core, so a crash costs an envelope rather than a session, and the `crash` ledger row that keeps it countable | `hooks/tezgah_guard.py:2-25`, `safe` `:29` |
 | `tezgah_paths.py` | where tezgah is armed: [roots](glossary.md#root), kill switches, the config dir, and the writable cache dir - the fallback resolved on use rather than at import, so a gated call does not pay for `tempfile`, `shutil` or `sqlite3` | `hooks/tezgah_paths.py:2-14`, `cache_dir` `hooks/tezgah_paths.py:138-158`, `fallback_cache` `hooks/tezgah_paths.py:123-137` |
 | `tezgah_snapshot.py` | pre-write bytes of every file a write is about to change, and the one explicit restore | `hooks/tezgah_snapshot.py:2-17`, `capture` `:191` |
 | `tezgah_untrusted.py` | the untrusted-content label on a result from outside the user and workspace, and the taint notice on the next effect | `hooks/tezgah_untrusted.py:2-22`, `marks` `:81` |
 | `tezgah_agents.py` | per-repo subagent definitions generated into each host that has an agent surface | `hooks/tezgah_agents.py:2-21`, `sync_root` `hooks/tezgah_agents.py:569-658` |
 | `tezgah_research.py` | the in-repo research workspace and the check that a protocol predates its results | `hooks/tezgah_research.py:2-27`, `check` `hooks/tezgah_research.py:2886` |
-| `tezgah_index.py` | the detached graph auto-index worker (flock-guarded, bounded retry) | `hooks/tezgah_index.py:2-11`, `main` `:27` |
+| `tezgah_index.py` | the detached graph auto-index worker (flock-guarded, bounded retry) | `hooks/tezgah_index.py:2-11`, `main` `:84-124` |
 
 `hooks/projects-*.py` are the Claude/dsh event entry points, not core: they hold
 only the envelope (see the event sequence below).
@@ -54,7 +54,7 @@ passes Codex's tool names through a translation table before calling the gate
 the same split in another language: the TypeScript extension is "only the
 bridge" and substitutes the absolute path of
 the Python half (`hosts/omp/tezgah-hook.ts.in:3-6`), whose `handle()` dispatches
-every event (`hosts/omp/hook.py:110`). Cursor (`hosts/cursor/hook.py:2-23`) and
+every event (`hosts/omp/hook.py:118-193`). Cursor (`hosts/cursor/hook.py:2-23`) and
 opencode (`hosts/opencode/plugins/tezgah.js:1-39`) follow the same rule; opencode
 is the one host whose plugin cannot call the core in process, so it shells out
 through `bin/tezgah-context` and `bin/tezgah-capture` instead of copying it
@@ -88,20 +88,20 @@ One session, in order. Each step names the file that handles the event on Claude
 (the reference adapter) and the core function it calls.
 
 1. **SessionStart** — `hooks/projects-auto-init.py` (`hooks/hooks.json:2-4`) calls
-   `context_for("session_start", …)` (`hooks/tezgah_context.py:853`), which builds
-   the always-on CORE (`hooks/tezgah_context.py:662`) plus this repo's live state:
-   the graph index status and the detached index spawn (`hooks/tezgah_context.py:264`),
+   `context_for("session_start", …)` (`hooks/tezgah_context.py:1145`), which builds
+   the always-on CORE (`hooks/tezgah_context.py:823-831`) plus this repo's live state:
+   the graph index status and the detached index spawn (`hooks/tezgah_context.py:1125-1126`),
    the open plans, the lessons ledger, and the active kill switches. The CORE is
    dropped when the host's own file already carries it (`TEZGAH_CORE_IN_FILE`,
    declared by that manifest row: `~/.claude/CLAUDE.md` on Claude). Outside a
    configured root it returns `None` and the session is untouched
-   (`hooks/tezgah_context.py:864-865`).
+   (`hooks/tezgah_context.py:1025-1026`).
 2. **UserPromptSubmit** — the same file, `context_for("user_prompt", …)`
-   (`hooks/tezgah_context.py:874`): a turn marker for the loop guard, the per-turn
+   (`hooks/tezgah_context.py:1035`): a turn marker for the loop guard, the per-turn
    reminder, the conditional paragraph(s) this prompt arms
-   (`classify_prompt`, `hooks/tezgah_context.py:718-723`), one line naming what moved
-   since the previous turn (`hooks/tezgah_context.py:514`), and the stale-index
-   notice (`hooks/tezgah_context.py:1240`).
+   (`classify_prompt`, `hooks/tezgah_context.py:727-732`), one line naming what moved
+   since the previous turn (`hooks/tezgah_context.py:709-726`), and the stale-index
+   notice (`hooks/tezgah_context.py:1434-1472`).
 3. **PreToolUse** — `hooks/projects-pretooluse.py:24` calls `decision` and emits
    the deny envelope (`hooks/projects-pretooluse.py:25-30`). The gate is the same
    object on every host: `hosts/omp/hook.py:119`, `hosts/codex/hook.py:104`.
@@ -110,48 +110,48 @@ One session, in order. Each step names the file that handles the event on Claude
    kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:101`),
    and attaches the untrusted-content label when the result came from outside.
 5. **Stop** — `hooks/projects-stop.py:33` calls `stop_reason`, which reads the
-   ledger and can refuse the turn (`hooks/tezgah_integrity.py:2074-2121`). omp and
+   ledger and can refuse the turn (`hooks/tezgah_integrity.py:2148-2196`). omp and
    Codex reach the same function from their own Stop events
    (`hosts/omp/hook.py:175`).
 
 `SubagentStart` and `PostCompact` reuse steps 1 and 2 with their own event key;
 on `subagent_start` the payload is the short brief, not the whole CORE
-(`hooks/tezgah_context.py:682`).
+(`hooks/tezgah_context.py:1116-1117`).
 
 ## The two-tier text model
 
 | Tier | What it is | Assembled at | Paid |
 |---|---|---|---|
-| Always-on CORE | the rules every session carries: reply language, integrity, loop discipline, attribution, scope | `hooks/tezgah_policy.py:613`, injected by `hooks/tezgah_context.py:662` | once per session |
-| Conditional paragraphs | spec, consult, research, product, graph — armed by task class, for that turn only | `hooks/tezgah_policy.py:819`, armed at `hooks/tezgah_context.py:892-898` | the turns whose prompt matches |
-| Pointer line | one line per conditional rule, so a host that never sees the paragraph still knows the rule exists | `hooks/tezgah_policy.py:824`, appended at `hooks/tezgah_context.py:668` | once per session |
-| Per-turn reminder | the compact `<harness-reminder>` envelope | `hooks/tezgah_policy.py:831`, injected at `hooks/tezgah_context.py:890` | every user turn |
+| Always-on CORE | the rules every session carries: reply language, integrity, loop discipline, attribution, scope | `hooks/tezgah_policy.py:622`, injected by `hooks/tezgah_context.py:823-831` | once per session |
+| Conditional paragraphs | spec, consult, research, product, graph — armed by task class, for that turn only | `hooks/tezgah_policy.py:842-846`, armed at `hooks/tezgah_context.py:1053-1058` | the turns whose prompt matches |
+| Pointer line | one line per conditional rule, so a host that never sees the paragraph still knows the rule exists | `hooks/tezgah_policy.py:847-852`, appended at `hooks/tezgah_context.py:1194-1195` | once per session |
+| Per-turn reminder | the compact `<harness-reminder>` envelope | `hooks/tezgah_policy.py:853-873`, injected at `hooks/tezgah_context.py:1051` | every user turn |
 | On-demand full contract | the deep detail — orchestration, codegen, the exact kill switches — as a skill, not a hook payload | `skills/tezgah-contract/SKILL.md`, whose joined text is `CONTRACT` `hooks/tezgah_policy.py:874-898` | only when loaded |
 
 A host that carries the CORE in a static file does not pay for it twice: omp's
-managed `RULES.md` already holds it (`bin/tezgah-setup:1299-1301`), so its session hook
+managed `RULES.md` already holds it (`bin/tezgah-setup:1841-1903`), so its session hook
 passes `with_core=False` and injects only the live state
-(`hosts/omp/hook.py:124-133`, `hooks/tezgah_context.py:853-862`). opencode's
+(`hosts/omp/hook.py:124-133`, `hooks/tezgah_context.py:1116-1117`). opencode's
 always-on file is written from the same policy by the installer
-(`bin/tezgah-setup:788-792`). The
+(`bin/tezgah-setup:1071-1076`). The
 sum of every block is bounded per event, and when the bound is crossed the
 lowest-value blocks are dropped in a fixed order rather than the rules
-(`hooks/tezgah_context.py:753-755`, `budgeted` `hooks/tezgah_context.py:958-994`).
+(`hooks/tezgah_context.py:949-966`, `budgeted` `hooks/tezgah_context.py:967-1003`).
 
 ## State: where it lives, who writes it
 
 | Store | Path | Writer | Authoritative for |
 |---|---|---|---|
-| Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py:386-387`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py:1490-1598`) | what a session actually ran, and therefore the Stop verdict |
-| Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py:1186-1188`) | `record` (`hooks/tezgah_context.py:1321-1344`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript; an `orch` mark is also written to the evidence ledger (`hooks/tezgah_context.py:1183-1184`) so `fanout` can count it |
+| Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py:449-459`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py:1512-1620`) | what a session actually ran, and therefore the Stop verdict |
+| Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py:1346-1348`) | `record` (`hooks/tezgah_context.py:1330-1353`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript; an `orch` mark is also written to the evidence ledger (`hooks/tezgah_context.py:1343-1344`) so `fanout` can count it |
 | Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py:55-60`) | `capture` on the write path (`hooks/tezgah_snapshot.py:191`) | the pre-write bytes; the rollback source |
-| Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py:473-474`) | `write_stamp` (`hooks/tezgah_context.py:654-665`) | the comparison behind the one-line delta, nothing else |
+| Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py:647-650`) | `write_stamp` (`hooks/tezgah_context.py:663-674`) | the comparison behind the one-line delta, nothing else |
 | Installed config dir | `~/.config/tezgah` (`hooks/tezgah_paths.py:19-23`) | the installer and the user | which roots are armed, which kill switches are on |
-| Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:2871-2879`) | `tezgah-setup --sync` (`bin/tezgah-setup:3701`) | what Claude Code actually executes — a copy, never this checkout |
+| Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:3959`) | `tezgah-setup --sync` (`bin/tezgah-setup:3957-4016`) | what Claude Code actually executes — a copy, never this checkout |
 
 The cache dir is resolved once per process and falls back to a temp dir on a
 sandboxed host, so one session's state never splits across two files
-(`hooks/tezgah_paths.py:110-153`). Per-repo state — `.tezgah/plans/open/`,
+(`hooks/tezgah_paths.py:119-158`). Per-repo state — `.tezgah/plans/open/`,
 `.tezgah/lessons.md`, `.tezgah/research/` — lives in the repository, and the
 checkout is the source from which the plugin copy is made.
 
@@ -160,7 +160,7 @@ checkout is the source from which the plugin copy is made.
 - **One definition per concept.** The contract text lives only in
   `hooks/tezgah_policy.py`; adapters carry envelopes (`hooks/projects-auto-init.py:2-7`).
   Host-specific copies exist only where a host cannot load Python, and those are
-  generated from the policy, not hand-kept (`bin/tezgah-setup:759-760`).
+  generated from the policy, not hand-kept (`bin/tezgah-setup:1071-1076`).
 - **A hook never takes a session down.** Every call an entry point makes into
   the core goes through `tezgah_guard.safe`, which returns `None` and files a
   `crash` row rather than letting the exception out: a fault costs one envelope,
@@ -173,7 +173,7 @@ checkout is the source from which the plugin copy is made.
   `hosts/opencode/plugins/tezgah.js:108-174`). Both fail open, because a core
   that has crashed has refused nothing.
 - **The root boundary.** Every hook is inert outside a configured root:
-  `context_for` returns `None` (`hooks/tezgah_context.py:864`), the gate only acts
+  `context_for` returns `None` (`hooks/tezgah_context.py:1025-1026`), the gate only acts
   inside one (`hooks/tezgah_gate.py:4`), and the status line is the single
   deliberate exception, because a globally loaded rules file must still show that
   it is armed (`hosts/omp/hook.py:33-35`).
@@ -182,7 +182,7 @@ checkout is the source from which the plugin copy is made.
   letting every adapter inherit it.
 - **The kill switch is the label.** Each always-on rule starts with a bold label
   and a switch drops exactly its paragraph, so a label edit fails a test instead
-  of silently disabling a rule (`hooks/tezgah_context.py:138-159`).
+  of silently disabling a rule (`hooks/tezgah_context.py:303-322`).
 
 ## Source of truth
 

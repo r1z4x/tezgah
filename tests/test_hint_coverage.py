@@ -10,7 +10,7 @@ real defects the review fixed before freezing (`unprofessional` never matched
 the bare `professional`; `animations` never matched the singular). The
 narrowing's second pass added fifteen more - the six craft words that are also
 ordinary English nouns, the UI asks that pass dropped with them, and the
-positive half of every negative row - so the table holds 137, and the corpus
+positive half of every negative row - so the table holds 142, and the corpus
 holds one row for every one of them. One row per request: the prompt is the
 assertion and the set is what the reviewed table answers.
 
@@ -59,6 +59,16 @@ CORPUS = {
     "theme tokens in the app": {"spec"},
     # the UI asks the narrowing dropped with the bare `refactor` alternation
     "refactor the login form": {"spec"},
+    # the align family as a person writes it: the hint's `-?` allowed only a
+    # hyphen between the two words, so "align items" armed nothing and neither
+    # adjective form was a hint at all
+    "align items in the header": {"spec"},
+    "the flex row is misaligned": {"spec"},
+    "the alignment is off": {"spec"},
+    # and the two that already armed it stay armed: the property spelling and
+    # the Turkish stem
+    "align-items on the row": {"spec"},
+    "hizala": {"spec"},
     # consult
     "deploy to production": {"consult"},
     "is this migration reversible, can we rollback?": {"consult"},
@@ -161,6 +171,10 @@ CORPUS = {
     # qualified by a UI object (the UI asks above still arm it)
     "focus the terminal window": set(),
     "align the two arrays": set(),
+    # accepted over-arm, recorded rather than narrowed away: "misaligned" is
+    # ordinary management English too, and the UI sense ("the flex row is
+    # misaligned") is worth the paragraph on a false arm
+    "misaligned incentives across the org": {"spec"},
     "what colors does matplotlib use": set(),
     "add a font to the PDF": set(),
     "the card model in the game": set(),
