@@ -336,8 +336,11 @@ class Check(DesignCase):
         # hidden), the `hidden` style itself, a zero list, and the canonical
         # border-less dump. None of them is an indication of focus.
         for shape in ({"border-width": "0px"},
+                      {"border-width": "0ch"},
                       {"border-style": "hidden"},
                       {"border-width": "0 0 0 0"},
+                      {"border-style": "solid", "border-width": "0px"},
+                      {"border": "0 solid #111111"},
                       {"border-style": "none", "border-width": "0px",
                        "border-color": "#111111"}):
             with self.subTest(shape=shape):

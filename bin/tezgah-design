@@ -76,9 +76,9 @@ FOCUS_PAINTS = ("outline", "outline-style", "outline-width")
 # `border-width: 0px` and a colour. `border_paints()` reads those.
 FOCUS_ALTERNATIVES = ("box-shadow",)
 FOCUS_BORDER_PAINTS = ("border", "border-style", "border-width")
-# A length that is zero in every entry, whatever the unit: a drawn border or
-# outline needs one that is not.
-ZERO = re.compile(r"^[-+]?0(?:\.0+)?(?:px|pt|em|rem|%|in|cm|mm|pc)?$")
+# A length that is zero in every entry, in any unit: a drawn border or outline
+# needs one that is not.
+ZERO = re.compile(r"^[-+]?0(?:\.0+)?[a-z%]*$")
 MOTION_PROPS = ("transition-duration", "animation-duration")
 
 SKIP_DIRS = frozenset((".git", "node_modules", "dist", "build", ".venv", "venv",
@@ -209,9 +209,14 @@ def paints_nothing(value):
 
 
 def border_paints(styles):
-    """True when the measurement names a border that draws something."""
+    """True when the measurement names a border that draws something.
+
+    A border draws when every declaration of it is alive: a live style beside a
+    zero width draws nothing (`width: 0`), and the computed shape of a
+    border-less element on a Tailwind page is exactly `border-style: solid` with
+    `border-width: 0px`, so a disjunction here would read that as a treatment."""
     values = [styles[prop] for prop in FOCUS_BORDER_PAINTS if prop in styles]
-    return bool(values) and not all(paints_nothing(value) for value in values)
+    return bool(values) and all(not paints_nothing(value) for value in values)
 
 
 def focus_outline_off(styles):
@@ -694,9 +699,9 @@ def check(data, measured):
                     hit = True
                     bad(name, "focus-visible",
                         "%s, with no other focus indication measured beside it "
-                        "(box-shadow, border-color): a keyboard user cannot see "
-                        "where they are (WCAG 2.2 SC 2.4.7 Focus Visible, Level "
-                        "AA)" % ", ".join(off))
+                        "(a box-shadow, a border that draws): a keyboard user "
+                        "cannot see where they are (WCAG 2.2 SC 2.4.7 Focus "
+                        "Visible, Level AA)" % ", ".join(off))
                 elif (any(prop in styles and not paints_nothing(styles[prop])
                           for prop in FOCUS_PAINTS) or border_paints(styles)):
                     hit = True
