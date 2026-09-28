@@ -200,7 +200,7 @@ class HealthLines(TempHome):
         sys.path.insert(0, support.HOOKS)
         import tezgah_context as tc  # noqa: E402
         segs = [{"key": "tezgah", "state": "info", "glyph": "",
-                 "text": "tezgah v9.9.9", "group": -1},
+                 "text": "tezgah v9.9.9", "version": "9.9.9", "group": -1},
                 {"key": "pony", "state": "ready", "glyph": "\u25cb",
                  "text": "pony", "group": 0},
                 {"key": "exec", "state": "on", "glyph": "\u2713",
@@ -226,7 +226,10 @@ class HealthLines(TempHome):
                 self.assertFalse([c for c in bare if unicodedata.east_asian_width(c)
                                   in ("W", "F")], bare)
         full, short, compact, narrow = [t[0] for t in tc.render_tiers(segs, color=True)]
-        self.assertIn("tezgah v9.9.9", full)
+        # the logo names the product: a colored head is the logo and the dim
+        # version, never the word "tezgah"
+        self.assertIn("\033[2m\033[38;2;255;197;92mv9.9.9", full)
+        self.assertNotIn("tezgah", tc._ANSI.sub("", full))
         self.assertNotIn("v9.9.9", short)
         self.assertIn("pony", short)                      # names outlive the version
         self.assertIn("\u2630" + "13", compact)          # the plans count stays
@@ -255,9 +258,13 @@ class HealthLines(TempHome):
         self.assertIn("\033[2m\u2315 idx\u2013\033[0m", out)        # no state
         self.assertIn("\033[2m  \u00b7  \033[0m", out)
         # the head is the logo in its own colors: an amber worktop over the
-        # slate support, then the name; the plain line never carries it
+        # teal support (the slate one was the terminal's own background and
+        # vanished), then the version alone; the plain line never carries it
         self.assertTrue(out.startswith("\033[38;2;255;197;92m\u2580"
-                                       "\033[48;2;42;70;87m\u2580"), out[:60])
+                                       "\033[48;2;23;161;140m\u2580"), out[:60])
+        head = tc_head = out.split("\033[2m  \u00b7", 1)[0]
+        self.assertNotIn("tezgah", head)
+        self.assertRegex(tc_head, r"v\d+\.\d+\.\d+")
         plain, _ = run_json([support.PROBE_CONTEXT],
                             {"fn": "health_lines", "cwd": repo, "session_id": "s"},
                             env=self.env())

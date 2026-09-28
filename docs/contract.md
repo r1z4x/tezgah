@@ -201,7 +201,7 @@ they survive every other switch being off.
    `output-styles/tezgah.md` from a fresh Python process when the paragraph is
    always-on — a warm interpreter serves a stale `CORE`.
 6. Last step, the tests that pin it: add the label to `KillSwitchEnforcement`
-   (`tests/test_context.py:564`) and, for a conditional rule, to the
+   (`tests/test_context.py:571`) and, for a conditional rule, to the
    `ArmingConformance` label map (`tests/test_context.py:1219-1224`); then run the mirror pair —
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py:1331-1339`) and

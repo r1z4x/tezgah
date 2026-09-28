@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.3] - 2026-09-28
+
+### Fixed
+
+- **The logo's support is visible on a dark terminal, and the head is just the
+  version.** The half-block logo drew its support in the logo's slate (#2A4657),
+  which is a dark terminal's own background, so only the worktop showed. It is
+  now the logo's teal accent (#17A18C). A colored line no longer spells `tezgah`
+  after the logo - the logo says it - and the version beside it is dim instead
+  of bold; the plain line is unchanged.
+
 ## [0.19.2] - 2026-09-28
 
 ### Added
@@ -2221,6 +2232,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.19.3]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.3
 [0.19.2]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.2
 [0.19.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.1
 [0.19.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.0

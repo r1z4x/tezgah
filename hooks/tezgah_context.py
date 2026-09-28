@@ -1316,12 +1316,15 @@ ICONS = {"pony": "\u2702", "exec": "\u25b6", "adhd": "\u25ce",
 # The head is the logo itself (assets/logo/tezgah-logo.svg): an amber worktop
 # over one central support, which reads as the letter t. Three upper half blocks
 # draw the worktop in the logo's top-face amber (#FFC55C); the middle one's
-# background is the support's face (#2A4657), so its lower half is the leg.
+# background is the support, so its lower half is the leg. The leg takes the
+# logo's teal accent (#17A18C), not its slate faces (#2A4657): the slate is the
+# color of a dark terminal's own background and the leg vanished into it.
 # Three cells, all width 1, so it counts like any other text.
 AMBER = "\033[38;2;255;197;92m"
-LOGO = (AMBER + "\u2580" + "\033[48;2;42;70;87m" + "\u2580" + "\033[49m"
+LOGO = (AMBER + "\u2580" + "\033[48;2;23;161;140m" + "\u2580" + "\033[49m"
         + "\u2580" + RESET)
-HEAD = "\033[1m" + AMBER
+# The logo names the product, so a colored head carries only the version, dim.
+HEAD = "\033[2m" + AMBER
 # The real 2.5D logo, where the terminal draws inline images (iTerm2's OSC 1337,
 # which iTerm2, WezTerm and Orca's xterm image addon read): the shipped 32 px
 # PNG, fitted into LOGO_CELLS cells of one row - the height of every other icon.
@@ -1474,9 +1477,11 @@ def _seg_text(seg, color, level=0, image=False):
     is never carried by color only (WCAG 1.4.1).
 
     `level` is how hard the chip is squeezed for a narrow surface (see
-    render_tiers): 1 drops the version; 2 also drops a name an icon stands for;
-    3 also drops the product name and leaves the logo. `image` draws
-    the logo as the inline image instead of its half-block outline."""
+    render_tiers): 1 drops the version and leaves the logo alone at the head;
+    2 also drops a name an icon stands for; 3 also tightens the separators. On a
+    colored surface the head is the logo plus the version, never the name the
+    logo already says. `image` draws the logo as the inline image instead of
+    its half-block outline."""
     key = seg.get("key")
     text = seg["text"]
     if level and key == "tezgah":
@@ -1486,7 +1491,11 @@ def _seg_text(seg, color, level=0, image=False):
         return chip
     if key == "tezgah":
         logo = (image and logo_image()) or LOGO
-        return logo if level >= 3 else logo + " " + HEAD + chip + RESET
+        version = seg.get("version")
+        # past level 0 the version goes and the logo stands alone
+        if level or not version:
+            return logo
+        return logo + " " + HEAD + "v" + version + RESET
     icon = ICONS.get(key, "")
     if icon and level >= 2:
         # the icon names the mark; plans keeps its count ("plans 13" -> "13")
