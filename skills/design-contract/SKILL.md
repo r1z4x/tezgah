@@ -47,15 +47,17 @@ opens. Field names and prose stay English.
   takes the longest entry of a duration list, which is what a person sits
   through.
 - A measurement that says the focus outline is off (`outline: none`,
-  `outline-width: 0`) with nothing beside it to show focus - no `box-shadow`, no
-  `border-color` - is a `focus-visible` violation (SC 2.4.7 Focus Visible, Level
-  AA). An `outline-color` is not an indication: with the outline off it paints
-  nothing. Both rules read what the measurement declares and conclude from what
-  they can: a component whose styles never mention focus or motion, and a
-  declaration no reader can classify (`var(--dur)`, an `outline-color` with no
-  style or width beside it), are counted unjudged rather than passed - and if
-  nothing in the measurement is judged at all, the check exits 2 rather than
-  report `0 violations` over a screen nobody looked at.
+  `outline-width: 0`) with nothing beside it that draws - no `box-shadow` that
+  paints, no `border-style`/`border-width` out of `none`/`0` - is a
+  `focus-visible` violation (SC 2.4.7 Focus Visible, Level AA). An
+  `outline-color`, a bare `border-color`, `border-style: hidden` and a zero
+  width are not indications: a resolved computed-style dump carries all of them
+  where nothing is drawn. Both rules read what the measurement declares and
+  conclude from what they can: a component whose styles never mention focus or
+  motion, and a declaration no reader can classify (`var(--dur)`, an
+  `outline-color` with no style or width beside it), are counted unjudged rather
+  than passed - and if nothing in the measurement is judged at all, the check
+  exits 2 rather than report `0 violations` over a screen nobody looked at.
 - `states.interactive` and `states.data` - the state sets below. The contract
   must carry them exactly; a floor that drops a state is a `state-set` violation.
 - `components` - the inventory: one `{name, kind}` per component the repository

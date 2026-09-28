@@ -330,12 +330,32 @@ class Check(DesignCase):
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("focus-visible", proc.stdout)
 
+    def test_a_border_that_draws_nothing_does_not_settle_the_rule(self):
+        # What a resolved computed-style dump carries where no border is drawn:
+        # a zero width (the computed width whenever the style is none or
+        # hidden), the `hidden` style itself, a zero list, and the canonical
+        # border-less dump. None of them is an indication of focus.
+        for shape in ({"border-width": "0px"},
+                      {"border-style": "hidden"},
+                      {"border-width": "0 0 0 0"},
+                      {"border-style": "none", "border-width": "0px",
+                       "border-color": "#111111"}):
+            with self.subTest(shape=shape):
+                data = contract_json(components=[("Button", "interactive")])
+                proc = self.check(data, measurement([
+                    clean_component(outline="none", **shape)]))
+                self.assertEqual(proc.returncode, 1, proc.stdout)
+                self.assertIn("focus-visible", proc.stdout)
+
     def test_a_border_that_can_paint_settles_it(self):
-        data = contract_json(components=[("Button", "interactive")])
-        proc = self.check(data, measurement([
-            clean_component(outline="none",
-                            **{"border-width": "2px", "border-color": "#0b5fff"})]))
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for shape in ({"border-width": "2px", "border-color": "#0b5fff"},
+                      {"border-style": "solid", "border-width": "2px"},
+                      {"border": "1px solid #0b5fff"}):
+            with self.subTest(shape=shape):
+                data = contract_json(components=[("Button", "interactive")])
+                proc = self.check(data, measurement([
+                    clean_component(outline="none", **shape)]))
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
     def test_a_partly_unreadable_duration_list_still_flags_the_readable_entry(self):
         # One unparsable entry neither hides a readable one nor settles the

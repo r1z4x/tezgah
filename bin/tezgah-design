@@ -69,13 +69,16 @@ LARGE_TEXT = 24
 FOCUS_PROPS = ("outline", "outline-style", "outline-width", "outline-color")
 # The props that can paint: a value among these is what the rule concludes from.
 FOCUS_PAINTS = ("outline", "outline-style", "outline-width")
-FOCUS_OFF = frozenset(("none", "0", "0px", "0 0"))
 # A box-shadow paints on its own, so it settles the rule by itself. A border
-# colour does not: `border-style`'s initial value is `none`, whose colour is
-# ignored, so a resolved computed-style dump carries a border-color beside a
-# border that paints nothing - a border counts only when one of these does.
+# does not: `border-style`'s initial value is `none`, whose colour and width are
+# ignored, and a computed width is 0 whenever the style is none or hidden - so a
+# resolved computed-style dump of a border-less element carries
+# `border-width: 0px` and a colour. `border_paints()` reads those.
 FOCUS_ALTERNATIVES = ("box-shadow",)
 FOCUS_BORDER_PAINTS = ("border", "border-style", "border-width")
+# A length that is zero in every entry, whatever the unit: a drawn border or
+# outline needs one that is not.
+ZERO = re.compile(r"^[-+]?0(?:\.0+)?(?:px|pt|em|rem|%|in|cm|mm|pc)?$")
 MOTION_PROPS = ("transition-duration", "animation-duration")
 
 SKIP_DIRS = frozenset((".git", "node_modules", "dist", "build", ".venv", "venv",
@@ -192,23 +195,43 @@ def durations_ms(value):
     return worst, unreadable
 
 
+def paints_nothing(value):
+    """True when a declaration draws nothing: every entry is a zero length, or a
+    word that claims nothing (`none`, `hidden`, `transparent` and its family).
+
+    A resolved computed-style dump carries these where nothing is drawn -
+    `outline-width: 0px`, `border-width: 0px`, `box-shadow: none` - so reading
+    one as evidence of a treatment is how a rule goes silent on the measurement
+    shape it was written for."""
+    parts = str(value or "").lower().replace(",", " ").split()
+    return bool(parts) and all(p in NOTHING or p == "hidden" or ZERO.match(p)
+                               for p in parts)
+
+
+def border_paints(styles):
+    """True when the measurement names a border that draws something."""
+    values = [styles[prop] for prop in FOCUS_BORDER_PAINTS if prop in styles]
+    return bool(values) and not all(paints_nothing(value) for value in values)
+
+
 def focus_outline_off(styles):
     """The declarations that switch focus off with nothing beside them to show
     it, or [].
 
     `outline: none` is a violation only when the same measurement names no other
-    indication: a `box-shadow`, or a border that can paint (a `border-style` or
-    `border-width` out of `none`/`0`), is a focus treatment by another route. An
-    `outline-color` and a bare `border-color` are not: both are carried by a
-    resolved computed-style dump while the outline or border itself is off, and
-    neither paints anything then."""
+    indication: a `box-shadow` that draws, or a border that can paint, is a focus
+    treatment by another route. An `outline-color`, a bare `border-color` and a
+    zero-width border are not: a resolved computed-style dump carries all three
+    while nothing is drawn."""
     off = ["%s: %s" % (prop, styles[prop])
-           for prop in ("outline", "outline-style", "outline-width")
-           if prop in styles and str(styles[prop]).strip().lower() in FOCUS_OFF]
+           for prop in FOCUS_PAINTS
+           if prop in styles and paints_nothing(styles[prop])]
     if not off:
         return []
-    if any(prop in styles and str(styles[prop]).strip().lower() not in NOTHING
-           for prop in FOCUS_ALTERNATIVES + FOCUS_BORDER_PAINTS):
+    if any(prop in styles and not paints_nothing(styles[prop])
+           for prop in FOCUS_ALTERNATIVES):
+        return []
+    if border_paints(styles):
         return []
     return off
 
@@ -674,9 +697,8 @@ def check(data, measured):
                         "(box-shadow, border-color): a keyboard user cannot see "
                         "where they are (WCAG 2.2 SC 2.4.7 Focus Visible, Level "
                         "AA)" % ", ".join(off))
-                elif any(str(styles[prop]).strip().lower() not in NOTHING
-                         for prop in FOCUS_PAINTS + FOCUS_BORDER_PAINTS
-                         if prop in styles):
+                elif (any(prop in styles and not paints_nothing(styles[prop])
+                          for prop in FOCUS_PAINTS) or border_paints(styles)):
                     hit = True
                 else:
                     # an outline-colour with no outline to paint says nothing a
