@@ -1,0 +1,131 @@
+# Source
+
+The vendored MC Dean design/UX subset, taken from two Owl-Listener repositories
+at a pinned revision, both MIT. The entry point `skills/design-library/SKILL.md`,
+`INDEX.md`, `EVALS.md` and this file are tezgah's own and are not part of the
+manifest; the 39 `SKILL.md` below are.
+
+- `inclusive-design-skills` -
+  https://github.com/Owl-Listener/inclusive-design-skills at revision
+  `6e0740f04b2130af60bc57abe3401b91e460e70d` (2026-06-09), MIT, Copyright (c)
+  2026 MC Dean. Three of its plugins, every skill in them - the
+  cognitive-accessibility, adaptive-interfaces and inclusive-interaction plugin
+  directories, 30 skills in all.
+- `designer-skills` - https://github.com/Owl-Listener/designer-skills at
+  revision `9a6930cf84a822eb458624bd11c61aac5bbdf224` (2026-09-05), MIT,
+  Copyright (c) 2026 MC Dean. Two of its plugins, part of them: the whole
+  visual-critique plugin (7 skills) and two skills of design-research
+  (`behavioural-analytics`, `qual-quant-triangulation`).
+
+Checkout for a re-vendor:
+
+```sh
+git clone https://github.com/Owl-Listener/inclusive-design-skills
+git -C inclusive-design-skills checkout 6e0740f04b2130af60bc57abe3401b91e460e70d
+git clone https://github.com/Owl-Listener/designer-skills
+git -C designer-skills checkout 9a6930cf84a822eb458624bd11c61aac5bbdf224
+```
+
+## What is vendored
+
+39 `SKILL.md` at the upstream path, under the plugin directory they ship in, so a
+path here is the path there and a re-vendor is a file-for-file diff. The manifest
+is this table, and `tests/test_skills.py` holds the tree to it: every listed file
+is hashed, a listed file that is missing fails, a body that no longer matches its
+hash fails, and a directory beside them that the table does not name fails.
+
+| file | upstream repo | sha256 | note |
+|---|---|---|---|
+| `adaptive-interfaces/skills/colour-independence/SKILL.md` | `inclusive-design-skills` | `4a24e41dabfbcdd144514c3894fe14972822974cd799352adb2c0d85f01df6bd` | byte-for-byte |
+| `adaptive-interfaces/skills/flexible-typography/SKILL.md` | `inclusive-design-skills` | `60ed6308b9434bcb50cbe4c4bad17cb6efa8841b14dbbcfb52ba35bd630374fc` | byte-for-byte |
+| `adaptive-interfaces/skills/information-density/SKILL.md` | `inclusive-design-skills` | `31611ebe01db6af2d2673cdd587523dd149ee08c48f4f85ca19653a3539199f8` | byte-for-byte |
+| `adaptive-interfaces/skills/preference-audit/SKILL.md` | `inclusive-design-skills` | `5e91232273076c90671ffdd2d3ecdba165312ad293f5132aa7f0b159d413d630` | byte-for-byte |
+| `adaptive-interfaces/skills/responsive-accessibility/SKILL.md` | `inclusive-design-skills` | `0c233392a42591100a3f85f068cc387a8347e5b7e228ceb646a5f9618892d025` | byte-for-byte |
+| `adaptive-interfaces/skills/responsive-review/SKILL.md` | `inclusive-design-skills` | `3290eb820d790351a19f8642c95d54a367e1bc5ba19a96884981215ff9f12748` | byte-for-byte |
+| `adaptive-interfaces/skills/simplified-views/SKILL.md` | `inclusive-design-skills` | `03b85a7a36f0fbec4c647e38a0c7627ae45949c2cd7898078705ff284dc6918a` | byte-for-byte |
+| `adaptive-interfaces/skills/specify/SKILL.md` | `inclusive-design-skills` | `f2e5e52e8e2c01af686f1ef4bfae64dc3b9d591fcb3ea42218e4ce77c5f55dd1` | byte-for-byte |
+| `adaptive-interfaces/skills/user-preference-respect/SKILL.md` | `inclusive-design-skills` | `003da44c4cd9ed6826657bf2651b7f8adb5961065cec1ed24d1984bd4dded452` | byte-for-byte |
+| `cognitive-accessibility/skills/adaptive-personalisation/SKILL.md` | `inclusive-design-skills` | `b1363f70ed3ecbc2e1a43be0fbc9b8350794472acdd6069b956d3a23b159f6b0` | adapted - `name` matches its directory (upstream shipped the sibling skill's name) |
+| `cognitive-accessibility/skills/assess-load/SKILL.md` | `inclusive-design-skills` | `ffe5cd3891358b729c2298756df8d91dbbfc538ab698e72cce257202c1f17863` | byte-for-byte |
+| `cognitive-accessibility/skills/cognitive-load-assessment/SKILL.md` | `inclusive-design-skills` | `666c74971ba790ec81bb86bdaee8362bed791423386021e90eb1d6fd1c9a56cb` | byte-for-byte |
+| `cognitive-accessibility/skills/contextual-help-design/SKILL.md` | `inclusive-design-skills` | `ca49b0b26c01d58dd80fa841cfcb42a55f431cbe3ea6459183bba9c44d6a4626` | byte-for-byte |
+| `cognitive-accessibility/skills/error-prevention-recovery/SKILL.md` | `inclusive-design-skills` | `34f51f51b2bad8b9ac76e23a66a05c82066bf0225abe951d7fa744797885dfa7` | byte-for-byte |
+| `cognitive-accessibility/skills/focus-attention-design/SKILL.md` | `inclusive-design-skills` | `604c83463a3bcdcd0609f4aa366d421122312d29574db3046672e00d8b955ad5` | byte-for-byte |
+| `cognitive-accessibility/skills/memory-load-reduction/SKILL.md` | `inclusive-design-skills` | `9f44acc844d2cab57d77fa011a3e737b8f53e06aba2b315ed9154ac4ce29d5c3` | byte-for-byte |
+| `cognitive-accessibility/skills/plain-language-design/SKILL.md` | `inclusive-design-skills` | `26564e0c388dcf83dbd0d271edb99dbabbd43d41349d080b190ed4bd94910acd` | byte-for-byte |
+| `cognitive-accessibility/skills/review/SKILL.md` | `inclusive-design-skills` | `dc88c60db982dc46939862e5e913efbf69caafd025457d69c4394fbeaea2b22f` | byte-for-byte |
+| `cognitive-accessibility/skills/simplify/SKILL.md` | `inclusive-design-skills` | `a75b7f6361c23d8720591d12b1c70f10d5c25da7c660e0243b818f7587aea1db` | byte-for-byte |
+| `cognitive-accessibility/skills/wayfinding-navigation/SKILL.md` | `inclusive-design-skills` | `a58fb18487238841e93edee2f2548e5c94e710d7dcf76f1a1797a319725a8892` | byte-for-byte |
+| `design-research/skills/behavioural-analytics/SKILL.md` | `designer-skills` | `fe675689031efec6cdd8ad1c138b869efa703453a248bb3addd5a257eed9dc71` | byte-for-byte |
+| `design-research/skills/qual-quant-triangulation/SKILL.md` | `designer-skills` | `5a46dbc020d25526acc7ad62c300b47fa2f64d83f6efa11281eb1731e892768a` | byte-for-byte |
+| `inclusive-interaction/skills/audit/SKILL.md` | `inclusive-design-skills` | `398f7edade2297ecab75854fa5da1879f3838c42ccf786e490bf7d8e22569d69` | byte-for-byte |
+| `inclusive-interaction/skills/design-flow/SKILL.md` | `inclusive-design-skills` | `47685797189f104d8d7b7daf70456013162582b23ca92556b5e49eb0ca60fa3a` | byte-for-byte |
+| `inclusive-interaction/skills/feedback-and-status/SKILL.md` | `inclusive-design-skills` | `17264f4a3c64f3f92c22fe98d15f9ac2bcd3374b78e0d4b6c40bfe6c83ce193e` | byte-for-byte |
+| `inclusive-interaction/skills/gesture-alternatives/SKILL.md` | `inclusive-design-skills` | `a30ec9e35f143ffa6de5585b985c7683b1e1fc4116c23ff55dacf7ac01430c44` | byte-for-byte |
+| `inclusive-interaction/skills/keyboard-navigation/SKILL.md` | `inclusive-design-skills` | `44ad1cc578cf8ed3287c8dfea1cb91f1fe663480d41afa4b87272c8a28dbc240` | byte-for-byte |
+| `inclusive-interaction/skills/keyboard-review/SKILL.md` | `inclusive-design-skills` | `4dcf4b716523a3a698062242da62aef1c43b6bdd865499be51b9e28fe4634b9e` | byte-for-byte |
+| `inclusive-interaction/skills/motion-sensitivity/SKILL.md` | `inclusive-design-skills` | `5faddb723f51e31f2780320703ec67ba0eb555b633cbdbf3afc702d9df04c7b9` | byte-for-byte |
+| `inclusive-interaction/skills/multi-modal-input/SKILL.md` | `inclusive-design-skills` | `f45997b13701e4d97857ab3768cdbf045ceabab0527959f04fa2d3481d754c1d` | byte-for-byte |
+| `inclusive-interaction/skills/touch-target-design/SKILL.md` | `inclusive-design-skills` | `176d6438b40fa95dcd1fe24f5ec43d6c2a0436f4f5aaa542ec85844366f73ffc` | adapted - the AA touch floor corrected to 24x24 (SC 2.5.8); 44x44 keeps the AAA floor it is (SC 2.5.5) and the platform guidance |
+| `inclusive-interaction/skills/voice-interaction/SKILL.md` | `inclusive-design-skills` | `091bbbaed8dd0ca90a961e9caa78dd0a4da5b233dc2d976164b46f03e92a9a80` | byte-for-byte |
+| `visual-critique/skills/critique-affordance/SKILL.md` | `designer-skills` | `8ba4f17b694eff6f25f0025cf7f75459d4f92e2130d60ffc369cf4a94b6375cb` | byte-for-byte |
+| `visual-critique/skills/critique-brand-consistency/SKILL.md` | `designer-skills` | `3e0babf21656878969d02a3f147d4e958770023e7768ac2084cb4d2b5f1cc7c0` | byte-for-byte |
+| `visual-critique/skills/critique-color/SKILL.md` | `designer-skills` | `ffa4652b75236dd1dced9636e532a102ba416e4253251cb74370c824d540bb88` | byte-for-byte |
+| `visual-critique/skills/critique-composition/SKILL.md` | `designer-skills` | `ab3f4b50153a1e7fe0deebf8e7e68c0643c2fdbaad1c7a0e7b8223e137182b83` | byte-for-byte |
+| `visual-critique/skills/critique-information-density/SKILL.md` | `designer-skills` | `e992bfbdef6a3919a24e5c91d0e9518395d16cabd4b308c3e3bbe34ee3ac0443` | byte-for-byte |
+| `visual-critique/skills/critique-typography/SKILL.md` | `designer-skills` | `eb15ce57ba98186ed30fc3ce8df6167fc73668a24160e4d3e23b9925f7beae63` | byte-for-byte |
+| `visual-critique/skills/critique-visual-hierarchy/SKILL.md` | `designer-skills` | `e9c210156b5cd6c049922c0ca2ab65dbed96bc3c2d2bfaa0b4b1ea47c89ec4b1` | byte-for-byte |
+
+## The two adaptations
+
+Every adopted body is byte-for-byte upstream except these two, and each keeps its
+upstream bytes everywhere else:
+
+1. `inclusive-interaction/skills/touch-target-design/SKILL.md`, in "Minimum
+   Sizes", says the touch floor is `44x44 CSS pixels (WCAG 2.2 Level AA)`. That
+   pairs a size with the wrong level: WCAG 2.2 SC 2.5.8 Target Size (Minimum) is
+   Level AA at 24x24 CSS px, and SC 2.5.5 Target Size (Enhanced) is Level AAA at
+   44x44. The adopted copy states 24x24 as the AA floor with its success
+   criterion and keeps 44x44 as the AAA floor and the common platform guideline.
+   That is the floor tezgah's own `bin/tezgah-design` enforces - `TAP_TARGET =
+   24`, citing SC 2.5.8 - so the vendored copy and the checker now agree. The
+   file's other 44x44 mentions (its touch checklist, the Material
+   recommendation) state no level and are kept as upstream wrote them.
+2. `cognitive-accessibility/skills/adaptive-personalisation/SKILL.md` carries
+   `name: contextual-help-design`, which does not match its directory: it is the
+   duplicate of the sibling `contextual-help-design` skill, body included. A host
+   that loads a skill from its directory skips a name that disagrees with it, so
+   the adopted copy's `name` is `adaptive-personalisation`. The body, its
+   "Contextual Help Design" heading included, is upstream's.
+
+## What is not, and why
+
+- The account's other collections: `ux-pgm-skills` (30) and
+  `design-leadership-skills` (32) are one generator's ~1 KB checklists that cite
+  no external standard anywhere, and `ai-design-skills` (44) is about designing
+  AI products rather than about a tezgah turn. The other three plugins of
+  `inclusive-design-skills` - `accessible-content`, `accessibility-decisions`,
+  `inclusive-personas`, 26 skills - are left out too: `design-contract`,
+  `feature-audit` and the WCAG floor cover that ground, and every one of them is
+  one URL away.
+- `designer-skills`' design-research plugin beyond the two vendored skills, 12
+  more (`affinity-diagram`, `journey-map`, `survey-design`, ...): the funnel and
+  triangulation discipline is what tezgah has no counterpart for; the synthesis
+  workshops are not.
+- Each adopted skill's own `EVALS.md`, upstream's for the two design-research
+  skills: this library ships one `EVALS.md` for the tree instead, in the same
+  shape.
+- The plugin packaging surface of both repositories - `.claude-plugin/*.json`,
+  `commands/`, the READMEs, the marketplace manifest - the same rule
+  `skills/pm-frameworks` states.
+- `habitat` is read for the shape of a checker, never vendored: its component and
+  tokens JSON schemas are the shape `bin/tezgah-design` reads a design contract
+  as. No habitat prose or code is copied.
+
+## Re-vendoring
+
+Copy the two pinned checkouts' files over the tree, re-apply the two adaptations
+above, replace every sha256 in the table, and update the revisions in this file -
+all in one commit. `tests/test_skills.py` fails on a body that no longer matches
+its hash, on a listed file that is missing, and on a directory beside them the
+table does not list, so a re-vendor that moves only the files is caught.
