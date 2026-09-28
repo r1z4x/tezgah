@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.4] - 2026-09-28
+
+### Changed
+
+- **The status line's logo is the half-block mark on every terminal.** Orca,
+  iTerm2 and WezTerm used to get the 2.5D PNG as an inline image (OSC 1337); it
+  is gone, with `TEZGAH_STATUS_LOGO`, so every surface draws the same three-cell
+  mark - amber worktop over the teal support - beside the version.
+
 ## [0.19.3] - 2026-09-28
 
 ### Fixed
@@ -2232,6 +2241,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.19.4]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.4
 [0.19.3]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.3
 [0.19.2]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.2
 [0.19.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.1

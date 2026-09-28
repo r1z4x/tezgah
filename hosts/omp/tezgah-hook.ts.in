@@ -82,13 +82,8 @@ export function busyPrefix(frame: number, tool: string, secs: number,
 // so stripping the escapes is the whole measure (hooks/tezgah_context.cells).
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
 
-// An inline image (the logo, OSC 1337) is an escape that still takes cells.
-const IMAGE = "\u001b]1337;File=";
-const IMAGE_CELLS = 2;
-
 export function cellsOf(text: string): number {
-  return Array.from(text.replace(ANSI, "")).length +
-    IMAGE_CELLS * text.split(IMAGE).length - IMAGE_CELLS;
+  return Array.from(text.replace(ANSI, "")).length;
 }
 
 // Cut a colored line to `max` cells, escapes kept whole, with an ellipsis and a
@@ -103,11 +98,8 @@ export function cut(text: string, max: number): string {
     ANSI.lastIndex = i;
     const m = ANSI.exec(text);
     if (m && m.index === i) {
-      const pic = m[0].startsWith(IMAGE);
-      if (pic && used + IMAGE_CELLS > max - 1) break;
       out += m[0];
       i += m[0].length;
-      if (pic) used += IMAGE_CELLS;
       continue;
     }
     const ch = String.fromCodePoint(text.codePointAt(i) as number);

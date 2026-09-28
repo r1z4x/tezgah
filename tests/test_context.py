@@ -215,11 +215,6 @@ class HealthLines(TempHome):
             self.assertEqual(widths, sorted(widths, reverse=True), tiers)
             if color:
                 self.assertEqual(len(set(widths)), len(widths), widths)
-            # the inline logo is measured as the cells it takes
-            if color:
-                pic = tc.render_tiers(segs, color=True, image=True)
-                self.assertIn(tc._IMAGE_MARK, pic[0][0])
-                self.assertEqual([w + 1 for _, w in pic], widths)
             for line, width in tiers:
                 bare = tc._ANSI.sub("", line)
                 self.assertEqual(width, len(bare))

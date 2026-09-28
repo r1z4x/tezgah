@@ -190,24 +190,16 @@ class OmpHook(TempHome):
         self.assertEqual(widths, sorted(widths, reverse=True))
         self.assertGreater(widths[0], widths[-1])
 
-    def test_the_logo_is_an_inline_image_only_where_the_terminal_draws_one(self):
-        def status(extra):
+    def test_the_logo_is_the_half_block_mark_on_every_terminal(self):
+        # the inline-image logo was dropped for the half-block one: no terminal,
+        # not even one that reads OSC 1337, gets an image escape in the line
+        for term in ("Orca", "iTerm.app", "WezTerm", "Apple_Terminal"):
             out, proc = run_json([support.OMP_HOOK],
                                  {"event": "status", "cwd": self.home},
-                                 env=self.env(extra=extra))
+                                 env=self.env(extra={"TERM_PROGRAM": term}))
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            return out
-        image = "\033]1337;File="
-        orca = status({"TERM_PROGRAM": "Orca"})
-        self.assertTrue(orca["status"].startswith(image), orca["status"][:40])
-        self.assertNotIn(image, status({"TERM_PROGRAM": "Apple_Terminal"})["status"])
-        # the user's word wins over the terminal list, both ways
-        self.assertNotIn(image, status({"TERM_PROGRAM": "Orca",
-                                        "TEZGAH_STATUS_LOGO": "text"})["status"])
-        self.assertIn(image, status({"TERM_PROGRAM": "Apple_Terminal",
-                                     "TEZGAH_STATUS_LOGO": "image"})["status"])
-        # and never on a plain line
-        self.assertNotIn(image, status({"TERM_PROGRAM": "Orca", "NO_COLOR": "1"})["status"])
+            self.assertNotIn("\033]1337", out["status"], term)
+            self.assertTrue(out["status"].startswith("\033[38;2;255;197;92m\u2580"), term)
 
     def test_status_drops_color_when_the_environment_opts_out(self):
         # NO_COLOR must strip the escapes at the source, so a terminal that

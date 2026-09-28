@@ -46,8 +46,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import (  # noqa: E402
-    color_default, command_text, context_for, health_segments, images_ok,
-    record, render_tiers, shell_kind, skill_read_kind)
+    color_default, command_text, context_for, health_segments, record,
+    render_tiers, shell_kind, skill_read_kind)
 from tezgah_gate import decision, drift_reason  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
@@ -100,7 +100,7 @@ def status_line(cwd, session_id, idx=None):
                            idx_override=idx if idx in IDX_GLYPHS else None)
     glyph = next((s["glyph"] for s in segs if s["key"] == "idx"), None)
     color = color_default()
-    tiers = render_tiers(segs, color=color, image=color and images_ok())
+    tiers = render_tiers(segs, color=color)
     return tiers[0][0], glyph, tiers
 
 

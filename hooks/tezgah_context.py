@@ -1325,44 +1325,6 @@ LOGO = (AMBER + "\u2580" + "\033[48;2;23;161;140m" + "\u2580" + "\033[49m"
         + "\u2580" + RESET)
 # The logo names the product, so a colored head carries only the version, dim.
 HEAD = "\033[2m" + AMBER
-# The real 2.5D logo, where the terminal draws inline images (iTerm2's OSC 1337,
-# which iTerm2, WezTerm and Orca's xterm image addon read): the shipped 32 px
-# PNG, fitted into LOGO_CELLS cells of one row - the height of every other icon.
-# The half-block LOGO above is the fallback everywhere else.
-LOGO_CELLS = 2
-LOGO_PNG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "assets", "logo", "tezgah-logo-32.png")
-_IMAGE_MARK = "\033]1337;File="
-_LOGO_IMAGE = []
-
-
-def logo_image():
-    """The logo as one inline-image escape, or "" when the PNG is not there."""
-    if not _LOGO_IMAGE:
-        try:
-            with open(LOGO_PNG, "rb") as fh:
-                data = fh.read()
-            import base64  # deferred: only an image-capable surface pays for it
-            _LOGO_IMAGE.append("%sinline=1;size=%d;width=%d;height=1;"
-                               "preserveAspectRatio=1:%s\a"
-                               % (_IMAGE_MARK, len(data), LOGO_CELLS,
-                                  base64.b64encode(data).decode("ascii")))
-        except OSError:
-            _LOGO_IMAGE.append("")
-    return _LOGO_IMAGE[0]
-
-
-def images_ok(env=None):
-    """Whether this terminal draws inline images: TEZGAH_STATUS_LOGO=image|text
-    decides when set, else the terminals known to read OSC 1337."""
-    env = os.environ if env is None else env
-    pick = env.get("TEZGAH_STATUS_LOGO", "").lower()
-    if pick in ("image", "text"):
-        return pick == "image"
-    return (env.get("TERM_PROGRAM") in ("Orca", "iTerm.app", "WezTerm")
-            or env.get("LC_TERMINAL") == "iTerm2")
-
-
 IDX_STATE = {"✓": "on", "↻": "ready", "✗": "off", "?": "info", "–": "info"}
 LEGEND = """\
 tezgah status marks (state first, glyph after the name; the whole name+glyph is
@@ -1469,7 +1431,7 @@ def color_default():
             and os.environ.get("TEZGAH_STATUS_COLOR") != "0")
 
 
-def _seg_text(seg, color, level=0, image=False):
+def _seg_text(seg, color, level=0):
     """One mark as a chip, colored by state.
 
     The whole name+glyph is colored, not the glyph alone, so the line reads at a
@@ -1480,8 +1442,7 @@ def _seg_text(seg, color, level=0, image=False):
     render_tiers): 1 drops the version and leaves the logo alone at the head;
     2 also drops a name an icon stands for; 3 also tightens the separators. On a
     colored surface the head is the logo plus the version, never the name the
-    logo already says. `image` draws the logo as the inline image instead of
-    its half-block outline."""
+    logo already says."""
     key = seg.get("key")
     text = seg["text"]
     if level and key == "tezgah":
@@ -1490,7 +1451,7 @@ def _seg_text(seg, color, level=0, image=False):
     if not color or not chip:
         return chip
     if key == "tezgah":
-        logo = (image and logo_image()) or LOGO
+        logo = LOGO
         version = seg.get("version")
         # past level 0 the version goes and the logo stands alone
         if level or not version:
@@ -1511,32 +1472,31 @@ _SEPS = ("  \u00b7  ", " \u00b7 ", " \u00b7 ", " ")
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
-def render_line(segs, color=False, level=0, image=False):
+def render_line(segs, color=False, level=0):
     """Render segments to the one-line status string; `color` adds ANSI."""
     sep = _SEPS[level]
     sep = (DIM + sep + RESET) if color and sep.strip() else sep
     groups = {}
     for seg in segs:
         groups.setdefault(seg.get("group", 0), []).append(
-            _seg_text(seg, color, level, image))
+            _seg_text(seg, color, level))
     return sep.join(" ".join(chips) for _, chips in sorted(groups.items()))
 
 
 def cells(text):
     """Terminal cells a rendered line takes: every glyph this renderer draws is
     one cell wide (the icons are chosen that way), so the escapes are all that
-    has to come out - and an inline logo, which the escape carries, takes its
-    LOGO_CELLS back."""
-    return len(_ANSI.sub("", text)) + LOGO_CELLS * text.count(_IMAGE_MARK)
+    has to come out."""
+    return len(_ANSI.sub("", text))
 
 
-def render_tiers(segs, color=False, image=False):
+def render_tiers(segs, color=False):
     """[(line, cells)] from the full line to the narrowest, for a surface that
     knows its width at draw time (omp's widget): it draws the first that fits
     and cuts the last with an ellipsis only when even that does not."""
     out = []
     for level in range(len(_SEPS)):
-        line = render_line(segs, color, level, image)
+        line = render_line(segs, color, level)
         out.append((line, cells(line)))
     return out
 

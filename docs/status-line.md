@@ -60,11 +60,8 @@ blocks draw the amber worktop of `assets/logo/tezgah-logo.svg` (#FFC55C) and the
 middle one's background is its single support in the logo's teal accent
 (#17A18C - its slate faces, #2A4657, are a dark terminal's own background), so it
 reads as the logo's `t`. The logo names the product, so a colored head carries
-only the version, dim; the plain line keeps `tezgah vX.Y.Z`. Where the terminal draws inline
-images (iTerm2's OSC 1337: iTerm2, WezTerm, Orca's xterm image addon - `images_ok`,
-overridden by `TEZGAH_STATUS_LOGO=image|text`) the omp widget draws the real
-2.5D logo instead: `assets/logo/tezgah-logo-32.png` fitted into two cells of one
-row, the height of every other icon. Each other chip leads with its icon
+only the version, dim; the plain line keeps `tezgah vX.Y.Z`. The same half-block mark heads the line on every
+terminal; an inline-image logo is not drawn. Each other chip leads with its icon
 (`ICONS`): `✂` pony, `▶` exec, `◎` adhd, `⚖` consult, `⚗` research, `⌬` graph, `⎇` orch,
 `⚑` judge, `⌕` idx, `☰` plans. Every icon is a text-presentation symbol one cell
 wide - never an emoji - so a terminal does not overflow the line. The plain line
