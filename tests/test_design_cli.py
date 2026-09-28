@@ -272,6 +272,60 @@ class Check(DesignCase):
         self.assertIn("tap-target", proc.stdout)
         self.assertIn("24", proc.stdout)
 
+    def test_a_focus_outline_switched_off_with_nothing_else_is_a_violation(self):
+        # SC 2.4.7: a keyboard user has to see where they are, and the vendored
+        # design library's keyboard-navigation and focus-attention-design carry
+        # the same floor.
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([clean_component(outline="none")]))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("focus-visible", proc.stdout)
+        self.assertIn("Button", proc.stdout)
+
+    def test_a_focus_treatment_by_another_route_settles_it(self):
+        # `outline: none` beside a box-shadow IS a focus indication, so the rule
+        # reads the measurement rather than the property name.
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(outline="none",
+                            **{"box-shadow": "0 0 0 2px #0b5fff"})]))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_a_measurement_silent_about_focus_is_not_judged(self):
+        # The rules read declarations the measurement makes: a component whose
+        # styles never mention focus is unjudged, not passed.
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([clean_component()]))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_motion_with_no_declared_guard_is_a_violation(self):
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(**{"transition-duration": "200ms"})]))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("reduced-motion", proc.stdout)
+        self.assertIn("200ms", proc.stdout)
+
+    def test_a_duration_list_is_read_at_its_longest_entry(self):
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(**{"animation-duration": "0s, 0.3s"})]))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("reduced-motion", proc.stdout)
+
+    def test_a_contract_that_declares_the_guard_settles_the_motion_rule(self):
+        data = contract_json(components=[("Button", "interactive")])
+        data["tokens"]["reduced_motion"] = True
+        proc = self.check(data, measurement([
+            clean_component(**{"transition-duration": "200ms"})]))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_a_zero_duration_is_not_motion(self):
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(**{"transition-duration": "0s"})]))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
     def test_unreadable_text_on_its_own_background_is_a_contrast_violation(self):
         data = contract_json(components=[("Button", "interactive")],
                              colors={"text": "#111111", "surface": "#ffffff",

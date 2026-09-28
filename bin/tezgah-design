@@ -48,6 +48,19 @@ CONTRAST_NORMAL = 4.5
 CONTRAST_LARGE = 3.0
 LARGE_TEXT = 24
 
+# The two floors the vendored design library names and a measurement can decide:
+# a focus indication that survives the outline being switched off (SC 2.4.7 Focus
+# Visible, Level AA - skills/design-library's `keyboard-navigation` and
+# `focus-attention-design`), and motion that has a declared way out (SC 2.3.3
+# Animation from Interactions, Level AAA - `motion-sensitivity`). Their shape is
+# habitat's component schema, where `focus` is a required part of a component's
+# `accessibility` block: the measurement says what is there, the contract says
+# what is allowed. Both read only declarations the measurement makes, so a
+# measurement that says nothing about focus or motion is not judged at all.
+FOCUS_OFF = frozenset(("none", "0", "0px", "0 0"))
+FOCUS_ALTERNATIVES = ("box-shadow", "outline-color", "border-color")
+MOTION_PROPS = ("transition-duration", "animation-duration")
+
 SKIP_DIRS = frozenset((".git", "node_modules", "dist", "build", ".venv", "venv",
                        "vendor", "__pycache__", ".next", ".cache", "coverage",
                        ".tezgah", ".codegraph"))
@@ -141,6 +154,39 @@ def contrast_ratio(fore, back):
     a, b = _luminance(fore), _luminance(back)
     hi, lo = max(a, b), min(a, b)
     return (hi + 0.05) / (lo + 0.05)
+
+
+def duration_ms(value):
+    """A CSS time in milliseconds, or None when it is not a time this reader can
+    judge. A comma list takes its longest entry: that is the one a person
+    experiences, and the one a reduced-motion guard has to cover."""
+    worst = None
+    for part in str(value or "").split(","):
+        m = re.fullmatch(r"\s*(-?\d*\.?\d+)\s*(ms|s)\s*", part)
+        if not m:
+            return None
+        ms = float(m.group(1)) * (1 if m.group(2) == "ms" else 1000)
+        worst = ms if worst is None else max(worst, ms)
+    return worst
+
+
+def focus_outline_off(styles):
+    """The declarations that switch focus off with nothing beside them to show
+    it, or [].
+
+    `outline: none` is a violation only when the same measurement names no other
+    indication: a `box-shadow`, an `outline-color` or a `border-color` is a focus
+    treatment by another route, and a value the reader cannot judge (`transparent`
+    and its family) is no claim at all."""
+    off = ["%s: %s" % (prop, styles[prop])
+           for prop in ("outline", "outline-style", "outline-width")
+           if prop in styles and str(styles[prop]).strip().lower() in FOCUS_OFF]
+    if not off:
+        return []
+    if any(prop in styles and str(styles[prop]).strip().lower() not in NOTHING
+           for prop in FOCUS_ALTERNATIVES):
+        return []
+    return off
 
 
 # --- reading the repository's own tokens ------------------------------------
@@ -491,6 +537,7 @@ def check(data, measured):
     space = tokens.get("space_unit")
     scale = [int(v) for v in (tokens.get("type_scale") or []) if v is not None]
     tap = tokens.get("tap_target") or TAP_TARGET
+    reduced = bool(tokens.get("reduced_motion"))
     floors = tokens.get("contrast") or {}
     normal = float(floors.get("normal") or CONTRAST_NORMAL)
     large = float(floors.get("large") or CONTRAST_LARGE)
@@ -560,6 +607,28 @@ def check(data, measured):
                     bad(name, "tap-target",
                         "%s %s is below the %dpx target floor (WCAG 2.2 "
                         "SC 2.5.8)" % (prop, styles[prop], tap))
+            off = focus_outline_off(styles)
+            if off:
+                bad(name, "focus-visible",
+                    "%s, with no other focus indication measured beside it "
+                    "(box-shadow, outline-color, border-color): a keyboard user "
+                    "cannot see where they are (WCAG 2.2 SC 2.4.7 Focus "
+                    "Visible, Level AA)" % ", ".join(off))
+        moving = []
+        for prop in MOTION_PROPS:
+            if prop not in styles:
+                continue
+            ms = duration_ms(styles[prop])
+            if ms is None:
+                unjudged += 1
+            elif ms > 0:
+                moving.append("%s: %s" % (prop, styles[prop]))
+        if moving and not reduced:
+            bad(name, "reduced-motion",
+                "%s is measured and the contract declares no reduced-motion "
+                "guard (`tokens.reduced_motion`): motion with no way out "
+                "(WCAG 2.2 SC 2.3.3 Animation from Interactions, Level AAA)"
+                % ", ".join(moving))
         fore = normalise_colour(styles.get("color"))
         back = normalise_colour(styles.get("background-color"))
         if fore and back:
