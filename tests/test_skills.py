@@ -373,6 +373,31 @@ TRIGGER = re.compile(r"(?:^|[.!?]\s+)(?:Also )?[Uu]se\b")
 KEBAB = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
+def one_edit_from_a_skill(token, names):
+    """The shipped skill a backticked token is one edit away from, or None.
+
+    A cited name that resolves is checked by the caller; this is the other half -
+    `design-contrcat` for `design-contract` - which no resolution check can see,
+    because a typo is not a name at all. A plural is not a typo, and a token
+    whose length differs by more than one cannot be one."""
+    for name in sorted(names):
+        if token in (name, name + "s", name + "es") or abs(len(token) - len(name)) > 1:
+            continue
+        if len(token) == len(name):
+            diff = [i for i, (a, b) in enumerate(zip(token, name)) if a != b]
+            if len(diff) == 1:
+                return name
+            if (len(diff) == 2 and diff[1] == diff[0] + 1
+                    and token[diff[0]] == name[diff[1]]
+                    and token[diff[1]] == name[diff[0]]):
+                return name
+            continue
+        short, long = sorted((token, name), key=len)
+        if any(short == long[:i] + long[i + 1:] for i in range(len(long))):
+            return name
+    return None
+
+
 def library_manifest():
     """{relpath: sha256} from skills/design-library/SOURCE's own table."""
     return dict(LIBRARY_ROW.findall(read(LIBRARY_SOURCE)))
@@ -627,3 +652,8 @@ class Frontmatter(unittest.TestCase):
                         os.path.isfile(os.path.join(SKILLS, token, "SKILL.md")),
                         "%s cites the skill `%s`, which has no SKILL.md"
                         % (path, token))
+                    continue
+                near = one_edit_from_a_skill(token, self.names)
+                self.assertIsNone(
+                    near, "%s cites `%s`, which is one edit from the skill `%s`"
+                    % (path, token, near))

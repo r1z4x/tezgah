@@ -1812,12 +1812,19 @@ class ReadmeSnippets(unittest.TestCase):
 class ContextBudget(SetupBase):
     """The status report must show what tezgah injects before the first turn."""
 
+    # The `skill metadata` band before this plan's name, in chars, measured with
+    # the installer's own formula over the 15 names at `dc74a18`. It is the row
+    # the plan's ceiling is written against: the budget is this plus 2000 bytes,
+    # and a band that grows past it means some description grew, not this name.
+    BAND_BEFORE = 9757
+
     def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
         """The always-on cost of a shipped name, in the installer's own formula:
         the name plus its description plus the separator, inside the `skill
-        metadata` band the report prints. The ceiling is that band without this
-        entry, plus 2000 bytes - a name that costs more than a router line is a
-        description nobody reads every turn."""
+        metadata` band the report prints. Both sides are pinned - this name's
+        cost, and the whole band against the row it had before plus 2000 bytes -
+        so a description that grew anywhere in the band fails here rather than
+        cancelling out."""
         module = setup_module()
         rows = dict(module.context_budget()[0])
         band = rows["skill metadata (%d)" % len(module.SKILLS)]
@@ -1826,7 +1833,10 @@ class ContextBudget(SetupBase):
                + len(module._frontmatter_description(entry)) + 8)
         self.assertIn("design-library", module.SKILLS)
         self.assertEqual(own, 341, "the library's always-on cost moved")
-        self.assertLessEqual(band, band - own + 2000)
+        self.assertLessEqual(band - own, self.BAND_BEFORE,
+                             "the band without the library grew")
+        self.assertLessEqual(band, self.BAND_BEFORE + 2000,
+                             "the band is past the budget it is pinned to")
         proc = self.setup()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("skill metadata (%d)" % len(module.SKILLS), proc.stdout)

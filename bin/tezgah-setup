@@ -3743,10 +3743,12 @@ def managed(rel):
     overwrote, and a backup is no more a copy member than it is product code.
     Shared by plugin_files() and the copy listing, so the two cannot drift.
 
-    `.tezgah/` is its own git repository, so `git ls-files --others` reports it
-    as one entry that .gitignore's `/.tezgah/` does not remove: without this the
-    workspace is listed as a copy member, `tree_sha` fails to read a directory
-    and every copy reports stale."""
+    `.tezgah/` is the private workspace and is never a copy member. A checkout
+    whose `.tezgah` is a symlink - the shape a tezgah worktree uses - is not
+    matched by .gitignore's `/.tezgah/`, which only matches a directory: git
+    lists the link as one entry, `tree_sha` cannot read it, and without this
+    every copy reported stale. The directory case is excluded here too, so the
+    rule does not depend on which shape the workspace has."""
     return (bool(rel) and rel != ".tezgah" and not rel.startswith(".tezgah/")
             and rel != MANIFEST and not rel.endswith(".tezgah-bak")
             and "__pycache__" not in rel)

@@ -48,10 +48,14 @@ opens. Field names and prose stay English.
   through.
 - A measurement that says the focus outline is off (`outline: none`,
   `outline-width: 0`) with nothing beside it to show focus - no `box-shadow`, no
-  `outline-color`, no `border-color` - is a `focus-visible` violation (SC 2.4.7
-  Focus Visible, Level AA). Both rules read only what the measurement declares,
-  so a component whose styles never mention focus or motion is unjudged rather
-  than passed.
+  `border-color` - is a `focus-visible` violation (SC 2.4.7 Focus Visible, Level
+  AA). An `outline-color` is not an indication: with the outline off it paints
+  nothing. Both rules read what the measurement declares and conclude from what
+  they can: a component whose styles never mention focus or motion, and a
+  declaration no reader can classify (`var(--dur)`, an `outline-color` with no
+  style or width beside it), are counted unjudged rather than passed - and if
+  nothing in the measurement is judged at all, the check exits 2 rather than
+  report `0 violations` over a screen nobody looked at.
 - `states.interactive` and `states.data` - the state sets below. The contract
   must carry them exactly; a floor that drops a state is a `state-set` violation.
 - `components` - the inventory: one `{name, kind}` per component the repository

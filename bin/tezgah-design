@@ -61,9 +61,16 @@ LARGE_TEXT = 24
 # `accessibility` block: the measurement says what is there, the contract says
 # what is allowed. Both read only declarations the measurement makes, so a
 # measurement that says nothing about focus or motion is not judged at all.
+# What counts as a focus indication beside a dead outline: a treatment that
+# paints without it. `outline-color` is NOT one - a colour with `outline-style:
+# none` and `outline-width: 0` paints nothing, and every resolved computed-style
+# dump carries one, so accepting it would make the rule silent on the shape a
+# real measurement has.
 FOCUS_PROPS = ("outline", "outline-style", "outline-width", "outline-color")
+# The props that can paint: a value among these is what the rule concludes from.
+FOCUS_PAINTS = ("outline", "outline-style", "outline-width")
 FOCUS_OFF = frozenset(("none", "0", "0px", "0 0"))
-FOCUS_ALTERNATIVES = ("box-shadow", "outline-color", "border-color")
+FOCUS_ALTERNATIVES = ("box-shadow", "border-color")
 MOTION_PROPS = ("transition-duration", "animation-duration")
 
 SKIP_DIRS = frozenset((".git", "node_modules", "dist", "build", ".venv", "venv",
@@ -180,9 +187,10 @@ def focus_outline_off(styles):
     it, or [].
 
     `outline: none` is a violation only when the same measurement names no other
-    indication: a `box-shadow`, an `outline-color` or a `border-color` is a focus
-    treatment by another route, and a value the reader cannot judge (`transparent`
-    and its family) is no claim at all."""
+    indication: a `box-shadow` or a `border-color` is a focus treatment by
+    another route, a value the reader cannot judge (`transparent` and its family)
+    is no claim at all, and an `outline-color` is not an indication - with the
+    outline itself off it paints nothing."""
     off = ["%s: %s" % (prop, styles[prop])
            for prop in ("outline", "outline-style", "outline-width")
            if prop in styles and str(styles[prop]).strip().lower() in FOCUS_OFF]
@@ -645,32 +653,42 @@ def check(data, measured):
                         bad(name, "tap-target",
                             "%s %s is below the %dpx target floor (WCAG 2.2 "
                             "SC 2.5.8)" % (prop, styles[prop], tap))
-            if any(prop in styles for prop in FOCUS_PROPS):
-                hit = True
+            claims = [prop for prop in FOCUS_PROPS if prop in styles]
+            if claims:
                 off = focus_outline_off(styles)
                 if off:
+                    hit = True
                     bad(name, "focus-visible",
                         "%s, with no other focus indication measured beside it "
-                        "(box-shadow, outline-color, border-color): a keyboard "
-                        "user cannot see where they are (WCAG 2.2 SC 2.4.7 "
-                        "Focus Visible, Level AA)" % ", ".join(off))
-        if any(prop in styles for prop in MOTION_PROPS):
-            hit = True
-            moving = []
-            for prop in MOTION_PROPS:
-                if prop not in styles:
-                    continue
-                ms = duration_ms(styles[prop])
-                if ms is None:
+                        "(box-shadow, border-color): a keyboard user cannot see "
+                        "where they are (WCAG 2.2 SC 2.4.7 Focus Visible, Level "
+                        "AA)" % ", ".join(off))
+                elif any(str(styles[prop]).strip().lower() not in NOTHING
+                         for prop in FOCUS_PAINTS if prop in styles):
+                    hit = True
+                else:
+                    # an outline-colour with no outline to paint says nothing a
+                    # rule can conclude from: a value, not a judgement
                     unjudged += 1
-                elif ms > 0:
+        moving, judged_motion = [], False
+        for prop in MOTION_PROPS:
+            if prop not in styles:
+                continue
+            ms = duration_ms(styles[prop])
+            if ms is None:
+                unjudged += 1
+            else:
+                judged_motion = True
+                if ms > 0:
                     moving.append("%s: %s" % (prop, styles[prop]))
-            if moving and not reduced:
-                bad(name, "reduced-motion",
-                    "%s is measured and the contract declares no reduced-motion "
-                    "guard (`tokens.reduced_motion`): motion with no way out "
-                    "(WCAG 2.2 SC 2.3.3 Animation from Interactions, Level AAA)"
-                    % ", ".join(moving))
+        if judged_motion:
+            hit = True
+        if moving and not reduced:
+            bad(name, "reduced-motion",
+                "%s is measured and the contract declares no reduced-motion "
+                "guard (`tokens.reduced_motion`): motion with no way out "
+                "(WCAG 2.2 SC 2.3.3 Animation from Interactions, Level AAA)"
+                % ", ".join(moving))
         fore = normalise_colour(styles.get("color"))
         back = normalise_colour(styles.get("background-color"))
         if fore and back:

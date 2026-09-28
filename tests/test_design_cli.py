@@ -306,12 +306,58 @@ class Check(DesignCase):
                             **{"box-shadow": "0 0 0 2px #0b5fff"})]))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
+    def test_an_outline_colour_beside_a_dead_outline_is_still_a_violation(self):
+        # The regression a resolved computed-style dump hides: every such dump
+        # carries an outline-color, and an outline-color paints nothing while
+        # the same measurement says the outline is none and zero wide. Reading
+        # it as an indication made the rule silent on the shape a real
+        # measurement has.
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(**{"outline-style": "none", "outline-width": "0px",
+                               "outline-color": "#111111"})]))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("focus-visible", proc.stdout)
+
+    def test_a_focus_claim_no_rule_can_read_is_counted_unjudged(self):
+        # An outline-colour with no outline style or width beside it says
+        # nothing: a value, not a judgement, so the component is not `judged`
+        # and the run cannot report `ok` over it.
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([
+            clean_component(**{"outline-color": "#111111"})]), "--json")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        report = json.loads(proc.stdout)
+        self.assertTrue(report["unjudged"] >= 1, report)
+
     def test_a_measurement_silent_about_focus_is_not_judged(self):
         # The rules read declarations the measurement makes: a component whose
         # styles never mention focus is unjudged, not passed.
         data = contract_json(components=[("Button", "interactive")])
         proc = self.check(data, measurement([clean_component()]))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_an_unreadable_motion_value_is_not_a_judgement(self):
+        # `var(--dur)` is a duration nobody can read: counting it as judged let a
+        # measurement no rule reached a conclusion about report `ok`, which is
+        # the hole plan/014's judged counter exists to close.
+        data = contract_json(source="derived", components=[])
+        proc = self.check(data, measurement([
+            {"name": "X", "styles": {"transition-duration": "var(--dur)"}}]),
+            "--json")
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        report = json.loads(proc.stdout)
+        self.assertEqual(report["judged"], 0, report)
+        self.assertFalse(report["ok"], report)
+
+    def test_a_measurement_silent_about_focus_or_motion_is_not_a_judgement(self):
+        # The control for the case above: a component that carries no prop this
+        # rule or any other can read is not judged either.
+        data = contract_json(source="derived", components=[])
+        proc = self.check(data, measurement([
+            {"name": "X", "styles": {"gap": "var(--g)"}}]), "--json")
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["judged"], 0)
 
     def test_motion_with_no_declared_guard_is_a_violation(self):
         data = contract_json(components=[("Button", "interactive")])
