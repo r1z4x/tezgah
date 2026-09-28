@@ -438,7 +438,11 @@ class Check(DesignCase):
     def test_an_outline_that_draws_settles_it(self):
         for shape in ({"outline": "2px solid #111111"},
                       {"outline-width": "0.5px"},
-                      {"outline": "2px solid transparent"}):
+                      {"outline": "2px solid transparent"},
+                      {"outline": "auto"},
+                      {"outline-style": "auto"},
+                      {"outline-style": "auto", "outline-width": "3px",
+                       "outline-color": "#111111"}):
             with self.subTest(shape=shape):
                 data = contract_json(components=[("Button", "interactive")])
                 proc = self.check(data, measurement([clean_component(**shape)]))

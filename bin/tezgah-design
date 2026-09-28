@@ -224,6 +224,10 @@ def declaration_draws(value):
     parts = str(value or "").lower().replace(",", " ").split()
     if not parts:
         return False
+    if any(part == "auto" for part in parts):
+        # `outline-style: auto` is the focus ring the UA draws, so it belongs on
+        # the drawing side even though `auto` claims nothing for most props.
+        return True
     if any(part in STYLE_OFF for part in parts):
         return False
     if all(paints_nothing(part) for part in parts):
