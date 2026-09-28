@@ -50,8 +50,84 @@ VERIFY = re.compile(
     r"(?:^|\s)(?:make|just)\b|"
     r"\./\S*(?:test|check|lint)\S*|"
     r"(?:\./)?(?:gradlew|mvn)\s+\S*(?:test|check)|dotnet\s+(?:test|build)|"
-    r"swift\s+test|golangci-lint|shellcheck"
+    r"swift\s+test|golangci-lint|shellcheck|"
+    r"playwright|cypress|storybook|chromatic|percy|lighthouse|pa11y|backstop|"
+    r"axe-core|reg-suit|"
+    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)"
     r")\b", re.I)
+# A source file a person looks at: the rendered formats, so a build log or a
+# document written beside them is not a UI turn. Web first, then the native and
+# template formats a screen is written in - a SwiftUI view or a Rails template is
+# as much a UI turn as a `.tsx`, and a rule that only saw web extensions let those
+# turns close on a unit run. `.xml` is deliberately absent: an Android layout and
+# a build manifest spell the same, and refusing a build turn is the worse error.
+# This is the half that decides whether the evidence rule below applies at all.
+UI_PATH = re.compile(
+    r"\.(?:tsx|jsx|vue|svelte|astro|htm|html|css|scss|sass|less|swift|kt|dart|"
+    r"erb|haml|slim|ejs|hbs|handlebars|twig|blade|razor|cshtml|qml)$", re.I)
+# A check that renders. It is also in `VERIFY` above, so its pass reaches the
+# ledger as `verify_ok` like any other check; this name is the second reader, for
+# the question "did anything in this turn see the screen".
+#
+# Both readers below match at a command position, on the masked text - the
+# convention `verify_command` and `NETWORK_READ` follow. A bare word search read
+# the raw row detail, so `rg -n playwright docs/` and a commit message that names
+# the tool were admissible proof that a screen had been looked at. ponytail: a
+# runner prefix set, not a shell parser - `python3 -m playwright`, a name behind a
+# variable or inside a quoted body are missed rather than matched by accident, and
+# a miss costs a refusal the model can answer with `doğrulanmadı`.
+#
+# `re.M` because one call is often several lines: the command on a later line of
+# the same call was invisible to all three readers below, so an honest multi-line
+# check could not satisfy the rule that asks for it. A mention mid-line stays
+# refused - the alternative to `^` is the bare-whitespace one `VERIFY` carries,
+# which would have re-admitted `rg -rn screencapture docs/` here.
+UI_CHECK = re.compile(
+    r"(?:^|[|;&(])\s*"
+    r"(?:(?:npx|npm(?:\s+run)?|pnpm(?:\s+(?:exec|dlx|run))?|yarn|bunx?|"
+    r"uvx|uv\s+run)\s+(?:-\S+\s+)*)?"
+    r"(?:\S*/)?(?:playwright|cypress|storybook|chromatic|percy|lighthouse|"
+    r"pa11y|axe-core|backstop|reg-suit)\b", re.I | re.M)
+# Reading the screen itself through the app-analysis loop: a screenshot, a
+# snapshot of the accessibility/view tree, a capture. Not a check and not a pass
+# - it is the other admissible proof, and it is what a mobile surface has instead
+# of an assertion tool.
+#
+# The MCP half is matched on the tool NAME, never on a row's whole detail: a
+# search whose pattern is `browser_snapshot` is a row about a name, not a read of
+# anything. `_screen_read` reads the name out of the one field that carries it -
+# the two shapes in `TOOL_NAME`/`MCP_CHANNEL` below. The CLI capture is matched
+# at a command position like `UI_CHECK`, so a search that merely names
+# `screencapture` is not a read of the screen either.
+TOOL_NAME = "unknown tool: "
+MCP_CHANNEL = "mcp"
+UI_TOOL = re.compile(
+    r"(?:^|_)(?:browser_(?:snapshot|take_screenshot|find|navigate)|"
+    r"mobile_(?:list_elements_on_screen|save_screenshot|take_screenshot))\Z",
+    re.I)
+UI_TOOL_CMD = re.compile(
+    r"(?:^|[|;&(])\s*(?:\S*/)?(?:tezgah-capture|screencapture|shot-scraper)\b",
+    re.I | re.M)
+# The design contract's checker, the one command that compares a measurement of
+# the running app against the repository's own `.tezgah/design-contract.md`. It
+# is in `VERIFY` above, so its row reaches the ledger as a check like any other;
+# this name is the second reader, for the question "was the floor applied", and it
+# is read at a command position for `UI_CHECK`'s reason - a grep whose pattern is
+# `tezgah-design check` is text ABOUT the checker. The interpreter prefix is the
+# one the module's own refusal text and the skill both print.
+DESIGN_CHECK = re.compile(
+    r"(?:^|[|;&(])\s*(?:python3?\s+|uv\s+run\s+)?(?:\S*/)?tezgah-design\s+check\b",
+    re.I | re.M)
+# A component, as opposed to the screen it sits on: a file under a
+# component/views/widgets directory, or a name that carries the convention on its
+# own (`Button.tsx`, `users.component.ts`, `user_card.dart`). The two owe
+# different proof - a screen read says what a thing looks like, and the contract
+# is the only thing that says whether it is on the repository's floor - so this
+# is what decides whether the design check is owed at all.
+DESIGN_COMPONENT = re.compile(
+    r"(?:^|/)(?:components?|views?|widgets?|partials?|screens?)/"
+    r"|(?:^|/)(?-i:[A-Z])[A-Za-z0-9_]*\.(?:tsx|jsx|vue|svelte|swift|kt|dart)$"
+    r"|\.(?:component|view|widget)\.[a-z]+$", re.I)
 # forms that make a failing check exit 0, the classic "I ran it and it was fine"
 NEUTER = re.compile(
     r"\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])")
@@ -1497,7 +1573,16 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         # and a rule that has to know "this turn read text tezgah cannot vouch
         # for" has nowhere else to read that. It claims no kind of work, so the
         # step counter, the Stop rule and the loop guard's ceilings ignore it.
-        kind, detail = "external", source
+        #
+        # The MCP channel also carries the call's own name, because one rule
+        # needs it: an MCP screen read is admissible proof of a UI turn
+        # (`_screen_read`), and a row that says only `mcp` cannot be told from a
+        # call that read a file. Only that channel gets it - the channel word is
+        # what the taint notice reads, and no rule reads a web tool's name.
+        name = str(tool or "").strip()
+        kind = "external"
+        detail = ("%s %s" % (source, name)
+                  if source == MCP_CHANNEL and name else source)
     else:
         # A name outside every list `classify` knows: a tool the host does not
         # have (a fabricated call), or one it added since this module was
@@ -1508,7 +1593,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         name = str(tool or "").strip()
         if not name:
             return
-        kind, detail = "unknown", "unknown tool: %s" % name
+        kind, detail = "unknown", TOOL_NAME + name
     fields = {"id": call_id(tool, inp),
               # an interrupted call reported no outcome, so it gets neither an
               # `exit` nor a failure class: the host said the call was stopped,
@@ -1613,6 +1698,118 @@ def _stale_paths(rows):
             if name and name not in names:
                 names.append(name)
     return names
+
+
+def _ui_write(row):
+    """The UI source this row wrote, or None. One reader for the two questions
+    about a write - which files the turn touched, and whether any of them is a
+    UI source - so the shell route and the write-tool route answer it the same
+    way.
+
+    The row's kind is `_change_row`'s answer, not `edit`, so a file written
+    through a shell redirect is inside the rule the way it is inside the
+    freshness fold. The path read is the row's own target: the write tool's path
+    field arrives in `detail`, and a shell write's redirect is read off its
+    command by `_written_paths`, the gate's own reader - the same one that told
+    `capture` which file to fingerprint, so the two halves of that write agree on
+    one path and this is not a second shell parser. A shell row's `detail` is its
+    command, never a path, so the command text is not searched for one: a
+    compound line that merely ends in a `.tsx` (`printf a > out.txt; ls
+    src/App.tsx`) is not read as a write of it.
+
+    Two ceilings come with that reader, both the gate's own
+    (`tezgah_gate.write_paths`/`shell_target`): a QUOTED redirect target is not
+    read - masking blanks it and the slice is taken by offset - and a write whose
+    target is a positional argument (`sed -i`, `perl -pi`, `cp`, `mv`, `patch`)
+    is not read at all. A UI source written either way sits outside this rule and
+    outside the freshness fold alike."""
+    if not _change_row(row):
+        return None
+    detail = str(row.get("detail") or "")
+    if row.get("kind") != "run":
+        return detail if UI_PATH.search(detail) else None
+    for target in _written_paths({"command": detail}):
+        if UI_PATH.search(str(target)):
+            return str(target)
+    return None
+
+
+def _screen_read(row):
+    """True when this row is the call that read the screen, or False.
+
+    The tool's name is the only thing that says which call a row was, so the two
+    ledger shapes that carry one are read: a call no kind claims is `unknown
+    tool: <name>` (`TOOL_NAME`), and one whose result came through an MCP server
+    is `external` with that channel and then the name (`MCP_CHANNEL`), which is
+    the shape omp records - keying on the name field alone is what keeps a row
+    that merely spells the tool in its command (`rg -n browser_snapshot docs/`)
+    from being read as a look at anything.
+
+    A host that names the tool in some third shape is missed rather than guessed
+    at: the miss costs a refusal the model can answer with `doğrulanmadı`, and a
+    guess costs a screen proof nobody took."""
+    kind = str(row.get("kind"))
+    detail = str(row.get("detail") or "")
+    if kind == "unknown" and detail.startswith(TOOL_NAME):
+        name = detail[len(TOOL_NAME):]
+    elif kind == "external" and detail.startswith(MCP_CHANNEL + " "):
+        name = detail.split(" ", 1)[1]
+    else:
+        return False
+    name = name.strip()
+    if not name or any(c.isspace() for c in name):
+        return False
+    return UI_TOOL.search(name) is not None
+
+
+def _ui_evidence(rows):
+    """(write, proof) as row indices for the turn's UI half, -1 for either when
+    the row is not there.
+
+    `write` - the newest UI source the gate saw change. `proof` - the newest row
+    that says what the screen looks like: a UI check that passed, or a read of
+    the rendered screen. Indices, not bools, because the proof has to be newer
+    than the write it is about, exactly the way `_last_pass` is read - and the
+    write it is about is the UI write, not the last write of anything, or an
+    unrelated `.py` edit after a green screen read refused an honest turn.
+
+    Nothing here reads a `verify*` row that is not a UI check: a green unit run
+    says the code computes, never what it looks like. A check has to be one whose
+    pass was seen, and a name in a command is read at a command position on the
+    masked text, while an MCP read is read off the row's own tool name
+    (`_screen_read`) - so a search or a commit message that merely names the tool
+    is not the proof either way."""
+    write, proof = -1, -1
+    for i, row in enumerate(rows):
+        detail = mask(str(row.get("detail") or ""))
+        if _ui_write(row):
+            write = i
+        if passing_check(row) and UI_CHECK.search(detail):
+            proof = i
+        elif _screen_read(row) or UI_TOOL_CMD.search(detail):
+            proof = i
+    return write, proof
+
+
+def _design_evidence(rows):
+    """(component, check) as row indices for the design-contract half of the UI
+    rule, -1 for either when the row is not there.
+
+    `component` - the newest UI source this turn changed that is a component
+    rather than a screen. `check` - the newest `tezgah-design check` whose pass
+    was seen. Indices, not bools, because the check has to be newer than the
+    write it judges, exactly the way a screen proof does; a `derive` row never
+    counts here - it writes the floor, it does not apply it - and neither does a
+    check row nobody saw an outcome for (`passing_check`), which is the shape the
+    reader's sibling has always refused."""
+    component, check = -1, -1
+    for i, row in enumerate(rows):
+        detail = mask(str(row.get("detail") or ""))
+        if _ui_write(row) and DESIGN_COMPONENT.search(detail):
+            component = i
+        if passing_check(row) and DESIGN_CHECK.search(detail):
+            check = i
+    return component, check
 
 
 def _last_verify(rows):
@@ -1944,9 +2141,10 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None):
     rate (counters) needs both the refusals and the claims that were allowed
     through. `detail` carries the reason class - `blocked: no verify_ok`,
     `blocked: check failed`, `blocked: partial failure`, `blocked: stale
-    evidence`, the shape classes in SHAPE_BLOCKS, or `ok` - so which branch
-    refused a turn is readable without parsing the block text. One row per reply
-    per turn: an identical row for the same key is skipped.
+    evidence`, `blocked: no ui_ok` (both halves of the UI rule: the screen proof
+    and the design-contract floor), the shape classes in SHAPE_BLOCKS, or `ok` -
+    so which branch refused a turn is readable without parsing the block text.
+    One row per reply per turn: an identical row for the same key is skipped.
 
     Every judged reply also leaves one `shape` row: `detail` is its report-only
     `shape_flags` (or `ok`) and the row carries `reply_shape`'s fields, so the
@@ -2070,7 +2268,57 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     # (the check's position, and `changed` on the write). The escape is the
     # reply's own "doğrulanmadı", which returns above.
     last_pass, last_change = _last_pass(rows), _last_change(rows)
-    if last_pass > last_change:
+    # The UI half, read before the generic freshness pair because it is a stricter
+    # question about the same rows: a proof of the screen - a check that renders,
+    # or a read of the rendered screen - stands where a unit pass stands, and only
+    # when it is newer than the write it is a proof of. A green unit run is not
+    # that proof, which is the whole point: it never sees what a person sees.
+    # The write it is a proof of is the newest UI write, not the newest write of
+    # anything: a later edit to a `.py` file does not unmake a screen read, and
+    # reading the fold that way refused honest turns and named a screen check the
+    # turn had in fact run.
+    ui_write, ui_proof = _ui_evidence(rows)
+    if ui_write >= 0 and ui_proof <= ui_write:
+        names = _stale_paths(rows)
+        shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
+                                        if len(names) > 3 else "")
+        return ("no ui_ok",
+                "UI evidence: this turn changed a UI source (%s) and the check "
+                "that passed was not one that sees the screen - a unit run "
+                "never does. Run the browser/e2e or visual check and report "
+                "its output, or read the rendered screen (`analyze-app`: the "
+                "accessibility/DOM tree, a screenshot at the widths in scope) "
+                "and say what it showed. A green unit suite does not cover "
+                "what a person sees; if you are stopping short, mark the "
+                "claim \"doğrulanmadı\"." % (shown or "a UI file"))
+    if ui_write >= 0:
+        # The floor, asked of a component turn on top of the screen proof: a
+        # screenshot or a rendered check says what the thing looks like and
+        # nothing about whether it is on the repository's own contract. A screen
+        # a person looks at is unchanged - it is the component that owes this,
+        # and the check has to be newer than the component write it judges.
+        component, design = _design_evidence(rows)
+        if component >= 0 and design <= component:
+            names = _stale_paths(rows)
+            shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
+                                            if len(names) > 3 else "")
+            return ("no ui_ok",
+                    "Design contract: this turn changed a component (%s) and no "
+                    "`tezgah-design check` ran over a measurement, so nothing "
+                    "says the component is on the repository's floor - a read of "
+                    "the screen says what it looks like, not whether it is on "
+                    "that floor. Run `tezgah-design check --contract "
+                    ".tezgah/design-contract.md --measured <measurement.json>` "
+                    "(`tezgah-design derive` writes the contract when the repo "
+                    "has none; the measurement is the per-component styles and "
+                    "states the analyze-app loop produces) and report every "
+                    "violation it prints, or mark the claim \"doğrulanmadı\"."
+                    % (shown or "a component file"))
+    # A screen proof stands where a unit pass stands for the rest of this fold,
+    # so a UI turn whose UI work is proven is not asked for a check it already
+    # has - and one whose UI work is not proven was refused above, so an
+    # unrelated write it left unverified is still the generic question below.
+    if max(last_pass, ui_proof) > last_change:
         return (None, None)
     if last_pass >= 0:
         names = _stale_paths(rows)

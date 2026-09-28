@@ -47,18 +47,163 @@ except ImportError:  # pragma: no cover - only where the module has not landed
 # test et): a Turkish alternation therefore carries \w* where a suffix can land,
 # which \b then closes. \w is Unicode-aware, so it eats Türkçe letters. A whole
 # word keeps its plain boundary, so "deney" still does not fire on "deneyim".
+#
+# The craft words in the spec class that are ALSO ordinary English nouns are
+# qualified by one of these rather than matched bare: the bare word armed the
+# paragraph on asks that had no UI in them at all. One closed list and one
+# helper, so qualifying a new sibling is a one-line change and no word can be
+# left bare by omission - `_ui_ask` is applied at the word's own place in the
+# pattern below, and both halves are pinned in tests/test_hint_coverage.py.
+# Every entry is word-bounded, so `app` cannot match inside `happen`.
+UI_OBJECTS = (r"components?|ui|ux|css|layout|styles?|tokens?|themes?|buttons?|"
+              r"cards?|icons?|labels?|elements?|widgets?|containers?|headers?|"
+              r"footers?|sidebars?|toolbars?|navbars?|nav|menu|modals?|dialogs?|"
+              r"dropdowns?|popovers?|tooltips?|badges?|avatars?|spinners?|"
+              r"skeletons?|inputs?|fields?|forms?|headings?|images?|logos?|"
+              r"grids?|panels?|columns?|screens?|pages?|views?|dashboards?|"
+              r"viewport|tables?|app")
+# What a UI ask says about the thing: "the badges look wrong", "the theme
+# renders late". A quality word alone answers for the object it follows.
+UI_QUALITY = r"look\w*|feels?\w*|seems?\w*|renders?\w*"
+
+
+def _ui_ask(word):
+    """`word` as a UI ask: a UI object beside it, or a quality word after it.
+
+    The gap is bounded and stops at a sentence's end, so the qualification is
+    about the phrase the word sits in and not about the paragraph it is in."""
+    obj = r"\b(?:%s)\b" % UI_OBJECTS
+    return (r"(?:%s[^.!?\n]{0,40}\b(?:%s)\b"
+            r"|\b(?:%s)\b(?=[^.!?\n]{0,40}(?:%s|\b(?:%s))))"
+            % (obj, word, word, obj, UI_QUALITY))
+
+
 PROMPT_HINTS = (
     ("spec", r"\b(normal (user )?behaviou?r|clean ui|nicer|more intuitive|"
-             r"professional|polish(ed)?|improve the (ui|ux)|make it (better|"
-             r"usable|look)|look(s)? better|düzgün çalış\w*|güzel görün\w*|"
-             r"daha iyi (ol|görün)\w*|kullanıcı dostu)\b"),
+             r"un?professional|polish(ed)?|improve the (ui|ux)|make it (better|"
+             r"usable|look)|look(s)? better|düzgün çalış\w*|düzgün görün\w*|"
+             r"güzel görün\w*|daha iyi (ol|görün)\w*|kullanıcı dostu|"
+             r"modern görün\w*|şık (ol|görün)\w*|profesyonel görün\w*|"
+             r"temiz (bir )?(arayüz|görün)\w*|anlaşılır\w*|"
+             r"kullanılabilirlik\w*|basitleştir\w*|sadeleştir\w*|"
+             r"yeniden tasarla\w*|baştan tasarla\w*|"
+             # UI work said as work. The class fired on a quality adjective
+             # alone, so "refactor the components" or "the hover state is wrong"
+             # armed nothing and a UI task was built with no standard named for
+             # what a person sees. These are the craft words and the rendered
+             # formats, not the surface nouns: "ekran" and "arayüz" stay with the
+             # product class, so a surface ask still pays one paragraph.
+             #
+             # Each craft word that is also an ordinary English noun is qualified
+             # by a UI object through `_ui_ask` (above), because the bare word
+             # armed the paragraph on asks that are not UI at all - "refactor the
+             # parser module", "align the two arrays", "what colors does
+             # matplotlib use", "add a font to the PDF", "the card model in the
+             # game", "focus the terminal window" - and the same held for the six
+             # siblings below: "our margins are down this quarter", "the theme of
+             # the meeting", "the badges in the README", "scaffold the skeleton of
+             # the parser", "cluttered imports in the module", "the data center".
+             # The UI asks still arm it through `component\w*`, `ui`, `layout`,
+             # `spacing`, `hover`, `focus durum\w*`, `hizala\w*`, `renk\w*` and
+             # the rest (tests/test_hint_coverage.py holds both halves).
+             r"refactor\w* (the |this |our )?(\w+ ){0,2}(components?|ui|ux|css|"
+             r"layout|screens?|pages?|styles?|theme|forms?|fields?|inputs?|"
+             r"views?|widgets?|buttons?|modals?|dialogs?)|"
+             r"ui|ux|css|tailwind|tasarım\w*|layout|responsive|"
+             r"hover|focus[- ](?:state|ring|outline|visible|indicator|style|"
+             r"durum\w*)|spacing|tipografi\w*|typography|component\w*|"
+             r"bileşen\w*|dark mode|dark theme|light theme|"
+             + _ui_ask(r"theme\w*") + r"|tema\w*|animasyon\w*|animations?|"
+             r"erişilebilir\w*|accessib\w*|wireframe|mockup|prototip\w*|"
+             # The craft, and the surfaces a person names without the word
+             # component. Kept off the product class's surface nouns on purpose
+             # (tablo, filtre, ekran stay there) so an ordinary surface ask still
+             # pays one paragraph, and off bare `table`/`filter` so that pin holds.
+             r"align-?(?:items|self|content)|text-align|hizala\w*|hiza\w*|"
+             r"padding|" + _ui_ask(r"cent(er|re)\w*") + r"|"
+             + _ui_ask(r"margins?") + r"|"
+             r"gutter\w*|boşluk\w*|satır aral\w*|line-?height|letter-?spacing|"
+             r"drop-?shadow|box-?shadow|border-?radius|corner radius|gölge\w*|"
+             r"kenarlık\w*|fonts?[- ](?:size|family|weight|face|stack|scale)\w*|"
+             r"yazı tipi\w*|punto\w*|type ?scale|"
+             r"colou?r[- ](?:role|scheme|palette|token|contrast)|palette|"
+             r"renk\w*|palet\w*|"
+             r"cards?[- ](?:component\w*|layout|grid|list|view|title|body|"
+             r"footer|header)|sidebars?|toolbars?|modals?|dialogs?|dropdowns?|"
+             r"popovers?|accordions?|tooltips?|toasts?|avatars?|"
+             + _ui_ask(r"badges?") + r"|"
+             r"breadcrumbs?|pagination|tab ?bar|steppers?|spinners?|"
+             + _ui_ask(r"skeletons?") + r"|"
+             r"disabled\w*|devre dışı\w*|pressed|active state|selected state|"
+             r"empty state|boş durum\w*|breakpoints?\w*|kırılma nokta\w*|"
+             r"viewport|media quer\w*|mobil (uyumlu|görünüm)|karanlık mod\w*|"
+             r"aydınlık mod\w*|renk şema\w*|design (system|token|guide|library|"
+             r"language)\w*|style guides?|stil rehber\w*|tasarım sistemi|"
+             r"tasarım token\w*|wcag\w*|a11y|aria-?\w*|screen readers?|"
+             r"ekran okuyucu\w*|tab order|keyboard naviga\w*|kontrast\w*|"
+             r"contrast (ratio|level|check|issue)|screenshots?|"
+             r"ekran görüntü\w*|visual (review|regression|diff|check)|"
+             r"görsel (incele|kontrol|karşılaştır)\w*|redesign\w*|revamp\w*|"
+             r"restyle\w*|makeover|" + _ui_ask(r"cluttered")
+             + r"|outdated|cohesive)\b"),
     ("consult", r"\b(architect(ure|ural)|root cause|migrat(e|ion)|deploy|"
                 r"security|trade-?off|which approach|design decision|"
                 r"irreversible|rollback|schema change|mimari\w*|kök neden\w*|"
-                r"geri dönüşü olmayan)\b"),
+                r"geri dönüşü olmayan|"
+                # The durable-structure asks the rule's own trigger list names,
+                # which reached no rule: a rewrite of a unit, a contract others
+                # inherit, a live-data move, a budget or a hard-to-undo call.
+                # `refactor` is qualified by its object rather than left bare, so
+                # a UI refactor still pays the spec paragraph alone; `güvenlik`,
+                # `şema` and `göç` are the Turkish halves of security/schema/
+                # migration, which the rule text already named in English only.
+                r"re-?architect\w*|restructur\w*|rewrite\w*|"
+                r"(refactor\w*|rewrite\w*) (the |this |our )?(\w+ ){0,2}"
+                r"(module|subsystem|service|system|layer|engine|architecture|"
+                r"data ?model|code ?base|ingest\w*)|"
+                r"breaking change\w*|backwards?[- ]incompatib\w*|"
+                r"kırıcı değişiklik\w*|geriye dönük uyum\w*|"
+                r"api version\w*|version(ing)? the api|api sürüm\w*|"
+                r"sürümleme\w*|versiyonlama\w*|backfill\w*|şema\w*|göç\w*|"
+                r"migrasyon\w*|veri (taşı|göç)\w*|revert\w*|rollback|"
+                r"geri al\w*|geri (alınamaz|dönüşü (yok|olmaz|olmayan))|"
+                r"performance budget|perf budget|latency budget|hot ?path|"
+                r"performans bütçe\w*|gecikme bütçe\w*|threat model\w*|"
+                r"security review\w*|güvenlik\w*|zafiyet\w*|cve\b|"
+                r"threat model\w*|bağımlılık(ları)? güncelle\w*|"
+                r"paket güncelle\w*|sürüm yükselt\w*|tedarik zincir\w*|"
+                r"concurren\w*|race condition\w*|deadlock\w*|eş ?zamanlı\w*|"
+                r"yarış (durumu|koşulu)\w*|capacit\w* (plan|budget|test|limit)\w*|"
+                r"scal(e|ing) (plan|strategy|limit|test)\w*|load test\w*|"
+                r"kapasite (plan|hesab|test|sınır)\w*|ölçeklen\w*|yük test\w*|"
+                r"adrs?\b|architecture decision record\w*|design doc\w*|"
+                r"mimari karar\w*|tasarım karar\w*|politika değiş\w*|"
+                r"sözleşme (değiş|yenile)\w*|yayına al\w*|canlıya al\w*|"
+                r"sürüm çıkar\w*|rollout|ödün (ver|vermey)\w*)\b"),
     ("research", r"\b(research|literature|hypothes(is|es)|experiment(al)?|"
                  r"ablation|hyperparameter|benchmark|survey|paper|dataset|"
-                 r"araştır\w*|literatür\w*|hipotez\w*|deney)\b"),
+                 r"araştır\w*|literatür\w*|hipotez\w*|deney|"
+                 # The study asks the rule's own opening names - a comparison of
+                 # variants under a metric, a study with people, a claim that
+                 # needs a number - which reached no rule. `compar` is qualified
+                 # nowhere on purpose: a file diff asks the same question of the
+                 # evidence, so the turn pays the paragraph and says so.
+                 r"compar\w*|karşılaştır\w*|karşılaştırmalı analiz|kıyaslama\w*|"
+                 r"varyant\w*|(a/?b|ab) tests?|a/b testi|"
+                 r"(user|kullanıcı|müşteri) (interview\w*|görüşme\w*|mülakat\w*)|"
+                 r"anket\w*|root[ -]?cause (analys|investigat)\w*|"
+                 r"kök neden (analiz|araştır)\w*|reference review|"
+                 r"lit(erature)?[ -]review|kaynak tarama\w*|referans tarama\w*|"
+                 r"evaluat(e|ing) (whether|the (librar|technique|approach|tool|"
+                 r"option|alternative))|(yöntem|yaklaşım|kütüphane|varyant|"
+                 r"seçenek)\w* karşılaştır\w*|measure\w*|ölçüm\w*|deneysel\w*|"
+                 r"deneyler\w*|makale\w*|veri (seti|kümesi)|post[ -]?mortem|"
+                 r"error budget|incident (review|report)|olay sonrası (analiz|"
+                 r"değerlendirme)\w*|hata bütçe\w*|is (this|that|it) (actually )?"
+                 r"(true|right)|does (this|that) (claim )?hold|gerçekten (doğru|"
+                 r"öyle) mu|kanıt\w*|test kapsam\w*|kapsam oran\w*|"
+                 r"kapsamı (artır|yükselt)\w*|doküman(tasyon)?\w* "
+                 r"(yetersiz|eksik|kötü|zayıf))\b"),
     # A product question reached no rule at all before this: the four above are
     # about code, a UI adjective or a study, so "ürünümü nasıl iyileştiririz"
     # armed nothing and the answer came from priors. `product` excludes
@@ -72,6 +217,25 @@ PROMPT_HINTS = (
                 r"prioriti[sz]\w*|önceliklendir\w*|user research|"
                 r"user interview\w*|kullanıcı araştırma\w*|ürün keşf\w*|"
                 r"müşteri geri bildirim\w*|ab test|a/b test|"
+                # The product vocabulary the rule's five axes name and the table
+                # never carried: the HEART signals as people say them, the
+                # packaging and positioning words, the segmentation input, and
+                # the plural forms the bare singulars' trailing \b rejected.
+                r"activations?\b|churn(ed|ing|s)?|funnels?|cohorts?|drop-?off|"
+                r"roadmaps?|priorit(y|ies)|adoption|benimsen\w*|"
+                r"conversion (rate|funnel|drop\w*)|packaging|monetiz\w*|"
+                r"price\w*|tier\w*|positioning|value proposition|"
+                r"konumlandır\w*|\bicp\b|ideal customer profile|persona\w*|"
+                r"segment\w*|segmentasyon\w*|hedef kitle\w*|"
+                r"(customer|user|product|problem|kullanıcı|müşteri) discovery|"
+                r"keşif (görüşme|çalışma)\w*|opportunity (tree|solution|space|"
+                r"score)|fırsat\w*|\bnps\b|net promoter|\bcsat\b|satisfaction|"
+                r"memnuniyet\w*|anket\w*|(customer|user|kullanıcı|müşteri)"
+                r"[ -]?(feedback|geri bildirim)\w*|support ticket\w*|"
+                r"şikayet\w*|competitor\w*|competitive (analysis|landscape|"
+                r"teardown|benchmark)\w*|rakip\w*|rekabet\w*|pazar pay\w*|"
+                r"terk oran\w*|elde tutma\w*|abonelik\w*|gelir model\w*|"
+                r"özellik\w*|sayfa\w*|"
                 # A single feature said by its surface: an admin screen, a table,
                 # a filter, a form, a step flow. These armed nothing before, so a
                 # feature-level audit got a screen-level answer. The lookaheads
@@ -86,7 +250,35 @@ PROMPT_HINTS = (
     ("graph", r"\b(who calls|callers?|call sites?|who uses|what breaks|"
             r"blast radius|where is|where's|definition of|who invokes|"
             r"kim çağır\w*|çağrı yerleri|nerede tanımlı|nasıl bağlan\w*|"
-            r"etkilenir\w*|hangi dosyalar etkilen\w*)\b"),
+            r"etkilenir\w*|hangi dosyalar etkilen\w*|"
+            # The structural questions the graph answers and the table never
+            # asked: impact in the active voice, direction and layering, the
+            # import edge, reachability, cycles, entry points, and a rename's
+            # blast radius. The Turkish who-uses form is anchored to a code noun,
+            # because bare "kim kullanıyor" is user research, not a caller.
+            r"impact (analysis|assessment|of (changing|renaming|removing|"
+            r"deleting|editing))|change impact|ripple effect|"
+            r"(who|what|anything)( else)? (depends on|uses)|dependents? of|"
+            r"dependenc(y|ies) (graph|direction|inversion|cycle)|"
+            r"layer (violation|boundar\w*|direction)|layering|who imports|"
+            r"which (files|modules) import|call (graph|chain|path|tree|"
+            r"hierarchy)|transitive callers?|callers? of|usages? of|"
+            r"find usages|references? to|is \w+ (still )?(used|referenced|"
+            r"called)|never called|dead code|unused (code|function|method|"
+            r"module|export|class|variable|import|param\w*)|unreachable code|"
+            r"orphan(ed)? (module|file|code)|circular (import|dependenc\w*)|"
+            r"(import|dependenc\w*) cycle|cycle (between|detection)|"
+            r"(code|app|program|service|main|server|cli|boot) entry ?points?|"
+            r"boot (path|sequence|order)|startup (path|sequence|order)|"
+            r"how is (this|it|\w+) wired|wired up|rename\w*|"
+            r"etki (analiz|alan)\w*|neyi etkile\w*|neleri etkile\w*|"
+            r"etkilen\w*|bağımlı\w*|kullanılmayan\w*|kullanılmıyor|ölü kod|"
+            r"döngüsel (bağımlılık|import)\w*|giriş nokta\w*|"
+            r"uygulama (nerede|nereden) başl\w*|kim import ed\w*|"
+            r"(fonksiyon|metod|sınıf|modül|api)\w* (kim|nerede) kullan\w*|"
+            r"nerede (kullanıl|çağrıl)\w*|tanım\w* nerede|kullanım yerleri|"
+            r"çağrı (zinciri|grafiği)|bağımlılık (grafiği|ağacı)|"
+            r"yeniden adlandır\w*)\b"),
 )
 
 # the detached auto-index worker (lock-guarded, retrying); same dir as this file

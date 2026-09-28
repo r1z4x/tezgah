@@ -73,7 +73,7 @@ which is why the installer counts that metadata as an always-on cost
 
 ## How a skill reaches a host
 
-`SKILLS` in `bin/tezgah-setup:76-78` is the shipped list, and it is the single
+`SKILLS` in `bin/tezgah-setup:123-125` is the shipped list, and it is the single
 definition of "a tezgah skill": the router, the per-host linking, the uninstall
 and the context budget all read it. Each install function links those
 directories into the host's own skill directory - Codex
@@ -87,7 +87,7 @@ and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
-directory ([bin/tezgah-setup:76-82]), and it is used for every host row
+directory (`skills_linked()`, [bin/tezgah-setup:129-136]), and it is used for every host row
 ([bin/tezgah-setup:3294-3295], `bin/tezgah-setup:3314`, `bin/tezgah-setup:3348`, `bin/tezgah-setup:3384`, `bin/tezgah-setup:3442`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
@@ -110,6 +110,7 @@ it ([tests/test_skills.py:54-69]).
 | `product-analysis` | Runs a product analysis across five axes - value (HEART), usability (heuristics, the cognitive walkthrough, WCAG 2.2, axe-core, the running app read through `analyze-app` down to component x state, tree and image both), feasibility (a cited `path:line`), competition (a dated teardown) and triage (keep/fix/cut/bet) - with one named evidence class per finding, executed as a research line; fires on a product, feature, retention or roadmap question rather than a code change. |
 | `pm-frameworks` | The two vendored product methods the analysis skill defers to - intended-vs-implemented and the Opportunity Solution Tree - kept offline so an offline session reads the method instead of citing its name. |
 | `feature-audit` | Audits ONE feature across every layer it is spread over - the surfaces a person uses (a control, a list or table, a detail view, a filter, a picker, a step flow, a notification), the route, the authorization, the service and the data - by filling the capability, field-contract, flow/step and interaction-dependency matrices, where a disagreement between layers is a finding and a fix needing an absent capability becomes a capability-change proposal; fires on an admin screen, CRUD, form, wizard, data table, filter or permission question about an existing feature. |
+| `design-contract` | The artifact shape of the per-repo `.tezgah/design-contract.md` - colour roles, type scale, spacing unit and rhythm, the component inventory, the state set every interactive control and data view owes - the derivation rule that reads it out of the repository's own tokens, and the rules `bin/tezgah-design check` fails on; fires on a UI or component turn that needs a floor, a token, a state set, or the design check itself. |
 | `ai-research` | The vendored 98-skill library for AI/ML machinery - training and serving a model, benchmarks, interpretability, retrieval pipelines; read one entry, never the tree. |
 
 ## Vendored material
@@ -148,7 +149,7 @@ beside them; the entry point `SKILL.md` is tezgah's own and is not in it.
    `description` whose **later** sentence begins `Use when ...` - that sentence
    is the router line, and it must carry the words a session would match on
    ([bin/tezgah-setup:814-840]).
-2. Add the name to `SKILLS` ([bin/tezgah-setup:76-78]). `SKILLS` drives the
+2. Add the name to `SKILLS` ([bin/tezgah-setup:123-125]). `SKILLS` drives the
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
 3. Expect `tests/test_skills.py:54-69` to fail if the two disagree, and

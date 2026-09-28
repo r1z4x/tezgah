@@ -18,7 +18,7 @@ that does not exist, a `Prevent` line per finding, and a per-surface rule table
 sourced to WAI-ARIA APG and WCAG 2.2.
 
 It is reached the same way `product-analysis` is: the `product` task class arms the
-rule (`hooks/tezgah_context.py:67`), whose coherence paragraph
+rule (`hooks/tezgah_context.py:98`), whose coherence paragraph
 (`hooks/tezgah_policy.py:775-776`) names the feature unit and the matrices, and
 `skills/product-analysis/SKILL.md:50` runs the coherence pass before its axes.
 `skills/tezgah-contract/SKILL.md:591` carries the long form for a session that
