@@ -76,9 +76,12 @@ FOCUS_PAINTS = ("outline", "outline-style", "outline-width")
 # `border-width: 0px` and a colour. `border_paints()` reads those.
 FOCUS_ALTERNATIVES = ("box-shadow",)
 FOCUS_BORDER_PAINTS = ("border", "border-style", "border-width")
-# A length that is zero in every entry, in any unit: a drawn border or outline
-# needs one that is not.
-ZERO = re.compile(r"^[-+]?0(?:\.0+)?[a-z%]*$")
+# The style words that draw no border at all, and the shape of a length token.
+BORDER_STYLE_OFF = frozenset(("none", "hidden"))
+LENGTH_TOKEN = re.compile(r"^[-+]?\d*\.?\d+[a-z%]*$")
+# A length that is zero in every entry, in any unit and any number of leading
+# zeroes: a drawn border or outline needs one that is not.
+ZERO = re.compile(r"^[-+]?0+\.?0*[a-z%]*$")
 MOTION_PROPS = ("transition-duration", "animation-duration")
 
 SKIP_DIRS = frozenset((".git", "node_modules", "dist", "build", ".venv", "venv",
@@ -208,15 +211,35 @@ def paints_nothing(value):
                                for p in parts)
 
 
+def border_draws(value):
+    """True when one measured border declaration draws something.
+
+    A lone longhand is judged by its own value (`2px` draws, `0px` does not).
+    The `border` shorthand carries width, style and colour in one string, so it
+    draws only when no component of it says otherwise: a `none`/`hidden` style
+    word, or a width that is zero - `border: 0 solid #111` draws nothing
+    whatever the style says, which is a border-less element's computed shape on
+    a Tailwind page."""
+    parts = str(value or "").lower().replace(",", " ").split()
+    if not parts:
+        return False
+    if any(part in BORDER_STYLE_OFF for part in parts):
+        return False
+    if all(paints_nothing(part) for part in parts):
+        return False
+    widths = [part for part in parts if LENGTH_TOKEN.match(part)]
+    return not (widths and all(ZERO.match(width) for width in widths))
+
+
 def border_paints(styles):
     """True when the measurement names a border that draws something.
 
-    A border draws when every declaration of it is alive: a live style beside a
-    zero width draws nothing (`width: 0`), and the computed shape of a
-    border-less element on a Tailwind page is exactly `border-style: solid` with
-    `border-width: 0px`, so a disjunction here would read that as a treatment."""
+    Every declared part of it has to draw: a live `border-style` beside
+    `border-width: 0px` draws nothing, and that pair is the computed shape of a
+    border-less element on a Tailwind page, so either half read alone would let
+    the rule settle on a border nobody sees."""
     values = [styles[prop] for prop in FOCUS_BORDER_PAINTS if prop in styles]
-    return bool(values) and all(not paints_nothing(value) for value in values)
+    return bool(values) and all(border_draws(value) for value in values)
 
 
 def focus_outline_off(styles):

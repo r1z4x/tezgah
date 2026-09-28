@@ -337,10 +337,15 @@ class Check(DesignCase):
         # border-less dump. None of them is an indication of focus.
         for shape in ({"border-width": "0px"},
                       {"border-width": "0ch"},
+                      {"border-width": "00px"},
                       {"border-style": "hidden"},
                       {"border-width": "0 0 0 0"},
                       {"border-style": "solid", "border-width": "0px"},
                       {"border": "0 solid #111111"},
+                      {"border": "0px solid #111111"},
+                      {"border": "none solid #111111"},
+                      {"border": "0 0 0 0 solid #111111"},
+                      {"border": "0 solid transparent"},
                       {"border-style": "none", "border-width": "0px",
                        "border-color": "#111111"}):
             with self.subTest(shape=shape):
@@ -353,7 +358,9 @@ class Check(DesignCase):
     def test_a_border_that_can_paint_settles_it(self):
         for shape in ({"border-width": "2px", "border-color": "#0b5fff"},
                       {"border-style": "solid", "border-width": "2px"},
-                      {"border": "1px solid #0b5fff"}):
+                      {"border": "1px solid #0b5fff"},
+                      {"border": "1px"},
+                      {"border": "solid"}):
             with self.subTest(shape=shape):
                 data = contract_json(components=[("Button", "interactive")])
                 proc = self.check(data, measurement([
