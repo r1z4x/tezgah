@@ -6,6 +6,41 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-29
+
+### Added
+
+- **The UI evidence gate.** A ninth Stop class, `no ui_ok`: a turn that changed a
+  UI source and whose only passing check was not one that sees the screen is
+  refused. A browser/e2e/visual check, or a read of the rendered screen, is the
+  proof, and a component turn owes a `tezgah-design check` on top. `UI_PATH`
+  covers the native and template formats a screen is written in, not only the web
+  ones.
+- **The design contract.** `skills/design-contract` and `bin/tezgah-design`:
+  `derive` writes a per-repo `.tezgah/design-contract.md` from the repository's
+  own tokens and exits 2 rather than invent a palette; `check` measures a
+  component's styles and observed states against that floor, names every
+  violation and exits non-zero, and refuses to report success when it judged
+  nothing. Its CSS readers grew border, outline, focus-ring and motion rules.
+- **The design skill library.** `skills/design-library` vendors the adapted
+  subset of the design collections behind one router name, with a collision table
+  and an entry-point frontmatter lint in `bin/tezgah-setup`.
+- **A wider arming table.** `PROMPT_HINTS` now carries the UI craft, the
+  irreversible, the study, the product and the structural vocabulary on all five
+  conditional classes - Turkish phrasings included - pinned by a reviewed corpus
+  (`tests/test_hint_coverage.py`).
+
+### Fixed
+
+- A failed screen read is not proof: both the CLI capture route and the MCP route
+  refuse a row whose outcome was seen to fail, while a row whose outcome nobody
+  reported stays readable by shape.
+- Fifteen documentation citations that had drifted were re-anchored by reading
+  the symbol each sentence names, never by shifting the numbers.
+- The MCP end-to-end fixture used `rm -rf /` as a refused call; the gate does not
+  refuse it (it answers for its own rules, not for shell safety), so the fixture
+  now uses one it does - `git commit --no-verify`.
+
 ## [0.21.0] - 2026-09-28
 
 ### Added
