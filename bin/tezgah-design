@@ -13,13 +13,17 @@ a tokens/theme JSON) and exits 2 rather than invent a palette it did not find.
 `check` compares a measurement - the per-component computed styles and observed
 states the analyze-app loop produces - against that file, prints every violation
 with its component and its rule, and exits non-zero when there is at least one.
+It names how many components it judged, and exits 2 when that is zero: `0
+violations` over a measurement that carries no component would say the app is
+clean when nothing was looked at.
 
 Stdlib only, deterministic, no network and no credential: the same tree and the
 same measurement print the same bytes, with no clock and no path outside the
 repository in the artifact.
 
   derive  exit 0 the contract was written; 2 no token source; 1 usage or IO
-  check   exit 0 `0 violations`; 1 one or more; 2 usage, IO or a bad contract
+  check   exit 0 `0 violations` over at least one component judged; 1 one or
+          more violations; 2 usage, IO, a bad contract or nothing judged
 """
 import json
 import os
@@ -412,12 +416,31 @@ def contract_data(tokens, source):
 def contract_text(data, sources, derived_note):
     """The artifact: what a reader opens, and the block `check` reads. Field
     names and prose stay English; nothing here carries a clock or a machine
-    path."""
+    path.
+
+    The inventory line is always written, and says plainly when it is empty:
+    `derive` reads tokens, never components - the measurement names a component,
+    the repository names files - so a derived contract's `component-inventory`
+    rule is inert until someone fills the list in. A reader who assumed the
+    floor judged the inventory would read every derived contract as stricter
+    than it is."""
     read = ", ".join(sources[:3]) if sources else "(none)"
+    names = [str(c.get("name")) for c in (data.get("components") or [])
+             if isinstance(c, dict)]
+    inventory = ", ".join(names) if names else "(empty)"
+    rule = ("""- `components` is the inventory this contract owns, and it is EMPTY:
+  `derive` reads tokens and never components, so the `component-inventory` rule
+  is inert on this contract - nothing below judges a component that is not
+  listed. Add one `{name, kind}` per component the repository owns."""
+            if not names else
+            """- `components` is the inventory this contract owns. A component the
+  measurement shows that is not listed here is a violation, so a new component
+  is added here before the turn closes.""")
     return """# Design contract
 
 source: %s
 read from: %s
+component inventory: %s
 
 The floor this repository's screens are judged against. `bin/tezgah-design check`
 compares a measurement - the per-component computed styles and observed states
@@ -430,15 +453,13 @@ every disagreement. The shape, the state set and the derivation rule live in the
   repository's choices.
 - `space_unit` is the unit the repository's own spacing tokens are built on; a
   measured spacing that is not a multiple of it is a violation.
-- `components` is the inventory this contract owns. A component the measurement
-  shows that is not listed here is a violation, so a new component is added
-  here before the turn closes.
+%s
 - %s
 
 ```json
 %s
 ```
-""" % (data["source"], read, derived_note,
+""" % (data["source"], read, inventory, rule, derived_note,
        json.dumps(data, indent=2, sort_keys=True))
 
 
@@ -468,10 +489,19 @@ def _violation(component, rule, detail):
 
 
 def check(data, measured):
-    """(violations, unjudged): every disagreement between a measurement and the
-    contract, each naming its component and its rule, and the count of measured
-    values the contract could not judge at all."""
-    out, unjudged = [], 0
+    """(violations, unjudged, judged): every disagreement between a measurement
+    and the contract, each naming its component and its rule, the count of
+    measured values the contract could not judge at all, and how many components
+    it judged at all.
+
+    `judged` is what keeps "judged everything, found nothing" apart from "judged
+    nothing": a measurement that carries no component the contract can judge is
+    not a clean app, and the caller refuses to report it as one. A component
+    counts only when a rule actually judged it - the presence of a dict is not a
+    judgement, so `{"components": [{}]}` judges nothing. The contract-level rules
+    above run either way - an unusable contract is a finding whether or not
+    anything was measured against it."""
+    out, unjudged, judged = [], 0, 0
 
     def bad(component, rule, detail):
         out.append(_violation(component, rule, detail))
@@ -510,6 +540,10 @@ def check(data, measured):
         if not isinstance(comp, dict):
             unjudged += 1
             continue
+        # A rule that read a value of this component sets this; a dict no rule
+        # could read anything out of is not a judged component, however many
+        # keys it arrived with.
+        hit = False
         name = str(comp.get("name") or "?")
         styles = {str(k).lower(): v for k, v in (comp.get("styles") or {}).items()}
         for prop in COLOUR_PROPS:
@@ -520,6 +554,7 @@ def check(data, measured):
                 if str(styles[prop]).strip().lower() not in NOTHING:
                     unjudged += 1
                 continue
+            hit = True
             if palette and hexed not in palette:
                 bad(name, "palette",
                     "%s %s is not a colour role in the contract (%s)"
@@ -528,41 +563,44 @@ def check(data, measured):
             if prop not in styles:
                 continue
             px = length_px(styles[prop])
-            if px is None:
+            if px is None or not scale:
                 unjudged += 1
-            elif scale and int(round(px)) not in scale:
-                bad(name, "type-scale",
-                    "%s %s is off the contract's type scale (%s)"
-                    % (prop, styles[prop],
-                       ", ".join("%dpx" % s for s in scale)))
-            elif not scale:
-                unjudged += 1
+            else:
+                hit = True
+                if int(round(px)) not in scale:
+                    bad(name, "type-scale",
+                        "%s %s is off the contract's type scale (%s)"
+                        % (prop, styles[prop],
+                           ", ".join("%dpx" % s for s in scale)))
         for prop, value in sorted(styles.items()):
             if prop not in SPACING_PROPS:
                 continue
             for part in str(value).split():
                 px = length_px(part)
-                if px is None:
+                if px is None or not space:
                     unjudged += 1
-                elif not space:
-                    unjudged += 1
-                elif px % space:
-                    bad(name, "spacing-rhythm",
-                        "%s %s is not a multiple of the %spx spacing unit"
-                        % (prop, value, space))
+                else:
+                    hit = True
+                    if px % space:
+                        bad(name, "spacing-rhythm",
+                            "%s %s is not a multiple of the %spx spacing unit"
+                            % (prop, value, space))
         kind = comp.get("kind")
         if kind == "interactive":
             for prop in ("width", "height"):
                 px = length_px(styles.get(prop))
                 if px is None:
                     unjudged += 1
-                elif px < tap:
-                    bad(name, "tap-target",
-                        "%s %s is below the %dpx target floor (WCAG 2.2 "
-                        "SC 2.5.8)" % (prop, styles[prop], tap))
+                else:
+                    hit = True
+                    if px < tap:
+                        bad(name, "tap-target",
+                            "%s %s is below the %dpx target floor (WCAG 2.2 "
+                            "SC 2.5.8)" % (prop, styles[prop], tap))
         fore = normalise_colour(styles.get("color"))
         back = normalise_colour(styles.get("background-color"))
         if fore and back:
+            hit = True
             size = length_px(styles.get("font-size"))
             floor = large if size is not None and size >= LARGE_TEXT else normal
             ratio = contrast_ratio(fore, back)
@@ -572,6 +610,7 @@ def check(data, measured):
                     "SC 1.4.3)" % (ratio, styles.get("color"),
                                    styles.get("background-color"), floor))
         if kind in KINDS:
+            hit = True
             required = states.get(kind) or []
             shown = [str(s) for s in (comp.get("states") or [])]
             missing = [s for s in required if s not in shown]
@@ -580,11 +619,15 @@ def check(data, measured):
                     "states not observed: %s" % ", ".join(missing))
         elif kind is None:
             unjudged += 1
-        if inventory and name not in inventory:
-            bad(name, "component-inventory",
-                "not in the contract's component inventory")
+        if inventory:
+            hit = True
+            if name not in inventory:
+                bad(name, "component-inventory",
+                    "not in the contract's component inventory")
+        if hit:
+            judged += 1
     out.sort(key=lambda v: (v["component"], v["rule"], v["detail"]))
-    return out, unjudged
+    return out, unjudged, judged
 
 
 # --- the command line --------------------------------------------------------
@@ -662,6 +705,10 @@ def derive_cli(opts):
                "%spx unit" % data["tokens"]["space_unit"]
                if data["tokens"]["space_unit"] else "no spacing unit found",
                len(data["tokens"]["type_scale"])))
+        sys.stdout.write(
+            "component inventory: empty - `derive` reads tokens and never "
+            "components, so the `component-inventory` rule is inert on this "
+            "contract until the list is filled in\n")
     return 0
 
 
@@ -691,10 +738,29 @@ def check_cli(opts):
         got = {"components": got}
     if not isinstance(got, dict):
         raise Usage("the measurement is not an object with a `components` list")
-    violations, unjudged = check(data, got)
+    violations, unjudged, judged = check(data, got)
+    if not judged:
+        # `0 violations` over a measurement with nothing in it says the app is
+        # clean when nothing was looked at, and the Stop rule reads that output
+        # as the floor having been applied. It is a usage error, not a pass.
+        message = (
+            "nothing was judged: %s, so `0 violations` would report a clean app "
+            "when nothing was looked at. Pass the per-component styles and "
+            "states the analyze-app read produces."
+            % ("the measurement carries no `components` list"
+               if not got.get("components") else
+               "no entry in `components` is one the contract could judge"))
+        if opts.get("json"):
+            _print_json({"ok": False, "count": len(violations),
+                         "violations": violations, "unjudged": unjudged,
+                         "judged": 0, "error": message})
+        else:
+            sys.stderr.write("tezgah-design: %s\n" % message)
+        return 2
     if opts.get("json"):
         _print_json({"ok": not violations, "count": len(violations),
-                     "violations": violations, "unjudged": unjudged})
+                     "violations": violations, "unjudged": unjudged,
+                     "judged": judged})
     else:
         sys.stdout.write("%d violations\n" % len(violations))
         for v in violations:
@@ -703,6 +769,8 @@ def check_cli(opts):
         if unjudged:
             sys.stdout.write("%d measured values the contract could not judge\n"
                              % unjudged)
+        sys.stdout.write("%d component%s judged\n"
+                         % (judged, "" if judged == 1 else "s"))
     return 1 if violations else 0
 
 

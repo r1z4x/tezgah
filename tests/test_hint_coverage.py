@@ -7,9 +7,12 @@ survey proposed, twelve disagreed with the widened table; ten of those were the
 table's own better answer (a surface ask pays `product` and `spec`, an A/B test
 pays `research` as well, security and migration are `consult`'s), and two were
 real defects the review fixed before freezing (`unprofessional` never matched
-the bare `professional`; `animations` never matched the singular). One row per
-request: the prompt is the assertion and the set is what the reviewed table
-answers.
+the bare `professional`; `animations` never matched the singular). The
+narrowing's second pass added fifteen more - the six craft words that are also
+ordinary English nouns, the UI asks that pass dropped with them, and the
+positive half of every negative row - so the table holds 137, and the corpus
+holds one row for every one of them. One row per request: the prompt is the
+assertion and the set is what the reviewed table answers.
 
 A failure here is a request that stopped reaching its rule, which is the defect
 this corpus exists to catch - the arming is what makes a rule reach a session at
@@ -45,6 +48,17 @@ CORPUS = {
     "add a wireframe for the checkout flow": {"spec"},
     "spacing looks off in the header": {"spec"},
     "make it look better": {"spec"},
+    # the qualified craft words, said the way a UI ask says them: every one of
+    # these is the positive half of a negative row in the trap block below
+    "center the login form": {"spec"},
+    "the margins are off in the header": {"spec"},
+    "the form's margins are too tight": {"spec"},
+    "the page is cluttered": {"spec"},
+    "the badges look wrong": {"spec"},
+    "skeleton loaders on the card": {"spec"},
+    "theme tokens in the app": {"spec"},
+    # the UI asks the narrowing dropped with the bare `refactor` alternation
+    "refactor the login form": {"spec"},
     # consult
     "deploy to production": {"consult"},
     "is this migration reversible, can we rollback?": {"consult"},
@@ -142,10 +156,32 @@ CORPUS = {
     "üretim hattı yavaşladı": set(),
     "temel sorun nedir": set(),
     "the reproduction steps are unclear": set(),
+    # the widened craft words read as surface nouns on their own, so each of
+    # these ordinary non-UI asks armed the spec paragraph - the words are now
+    # qualified by a UI object (the UI asks above still arm it)
+    "focus the terminal window": set(),
+    "align the two arrays": set(),
+    "what colors does matplotlib use": set(),
+    "add a font to the PDF": set(),
+    "the card model in the game": set(),
+    "refactor the parser module": {"consult"},
+    "align the teams on the roadmap": {"product"},
+    # the six siblings of those words, read as ordinary English: each armed the
+    # paragraph on a non-UI ask before the narrowing's second pass
+    "our margins are down this quarter": set(),
+    "the badges in the README": set(),
+    "scaffold the skeleton of the parser": set(),
+    "the theme of the meeting": set(),
+    "cluttered imports in the module": set(),
+    "migrate the data center to eu-west": {"consult"},
+    "center the roadmap on retention": {"product"},
     # false-positive traps: expected non-empty, recorded so a pattern change cannot silently fix or worsen one
     "spacing in the log output": {"spec"},
     "disable animations in the CLI": {"spec"},
     "survey the codebase": {"research"},
+    # kept armed on purpose: a sidebar is a rendered surface, so the ask is a UI
+    # ask and pays the paragraph - it is not one of the words narrowed above
+    "the sidebar of the docs site": {"spec"},
 }
 
 
@@ -163,7 +199,7 @@ class HintCoverage(unittest.TestCase):
 
     def test_the_corpus_is_not_thin(self):
         # a corpus that quietly shrank would keep passing; 100 is far under the
-        # reviewed 114 and far over anything a partial revert would leave
+        # reviewed 137 and far over anything a partial revert would leave
         self.assertGreaterEqual(len(CORPUS), 100)
         for key in ("spec", "consult", "research", "product", "graph"):
             self.assertTrue(any(key in want for want in CORPUS.values()), key)

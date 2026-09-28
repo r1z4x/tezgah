@@ -217,6 +217,21 @@ class Derive(DesignCase):
         self.assertFalse(report["ok"])
         self.assertIn("token source", report["error"])
 
+    def test_a_derived_contract_says_its_inventory_is_empty(self):
+        # `derive` wrote `"components": []`, which makes the
+        # `component-inventory` rule inert on every derived contract - and the
+        # artifact said nothing about it. The inventory is not derived (the
+        # measurement names components, the repository names files), so the
+        # header has to say the rule is inert rather than leave a reader to
+        # assume a derived contract judges it.
+        self.write("app/styles/tokens.css", TOKENS_CSS)
+        proc = self.run_cli("derive", "--repo", self.dir)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        text = self.read(self.path(".tezgah", "design-contract.md"))
+        self.assertIn("component-inventory", text)
+        self.assertIn("inert", text)
+        self.assertIn("components", proc.stdout)
+
 
 class Check(DesignCase):
     """`check` compares a measurement - the per-component styles and states the
@@ -339,6 +354,50 @@ class Check(DesignCase):
         report = json.loads(proc.stdout)
         self.assertEqual(report["count"], 0, report)
         self.assertTrue(report["unjudged"] >= 1, report)
+
+    def test_a_measurement_with_no_components_is_never_a_pass(self):
+        # `check` printed `0 violations` and exited 0 while judging nothing at
+        # all, so "judged everything, found nothing" and "judged nothing" were
+        # the same output - and the Stop rule reads that output as the floor
+        # having been applied
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([]))
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("nothing was judged", proc.stdout + proc.stderr)
+
+    def test_a_component_that_judged_nothing_is_not_a_judged_component(self):
+        # `judged` counted the presence of a dict, so a measurement whose one
+        # component carried nothing ran no rule at all and still exited 0 - the
+        # same "judged nothing is not a clean app" lie the empty measurement was
+        data = contract_json(source="derived", components=[])
+        proc = self.check(data, measurement([{}]))
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("nothing was judged", proc.stdout + proc.stderr)
+        report = self.check(data, measurement([{}]), "--json")
+        self.assertEqual(json.loads(report.stdout)["judged"], 0)
+
+    def test_a_measurement_without_the_components_key_is_never_a_pass(self):
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, {"foo": 1})
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("components", proc.stdout + proc.stderr)
+
+    def test_the_json_report_of_nothing_judged_is_not_ok(self):
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([]), "--json")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        report = json.loads(proc.stdout)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["judged"], 0)
+
+    def test_the_report_names_how_many_components_it_judged(self):
+        data = contract_json(components=[("Button", "interactive")])
+        proc = self.check(data, measurement([clean_component()]))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("1 component judged", proc.stdout)
+        proc = self.check(data, measurement([clean_component(),
+                                             clean_component(name="Card")]))
+        self.assertIn("2 components judged", proc.stdout)
 
     def test_a_missing_contract_or_measurement_is_a_usage_error(self):
         proc = self.run_cli("check", "--contract", self.path("nope.md"),

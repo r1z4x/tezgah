@@ -106,6 +106,11 @@ the platform's own guide (Apple HIG / Material), an existing brand asset, or a c
 running screen. A derived floor is a decision someone made and wrote down, which is why the file
 has to say so; an invented palette is not a floor at all.
 
+A derived contract carries an EMPTY `components` list - `derive` reads tokens, never components, and
+the artifact says so in its header: the `component-inventory` rule is inert until someone adds one
+`{name, kind}` per component. A measurement names a component; only a person knows which ones the
+repository owns, so list them in the turn that writes a new one.
+
 ## The check
 
 ```sh
@@ -128,8 +133,10 @@ computed styles and observed states - or a dash for stdin:
 ```
 
 It prints `N violations` and one `component: rule - detail` line per
-violation, and exits 0 only on `0 violations` (1 with at least one, 2 for a usage
-error or an unreadable contract). The rules are `contract-source`,
+violation, names how many components it judged, and exits 0 only on `0 violations`
+over at least one component judged (1 with at least one violation, 2 for a usage
+error, an unreadable contract, or a measurement that carried no component it
+could judge - `0 violations` over nothing is not a clean app). The rules are `contract-source`,
 `contract-palette`, `state-set`, `palette`, `type-scale`, `spacing-rhythm`,
 `tap-target`, `contrast`, `state-coverage` and `component-inventory`. A measured
 value the contract cannot judge - `em`, `%`, a unitless non-zero - is counted on

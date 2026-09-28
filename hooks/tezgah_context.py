@@ -47,6 +47,37 @@ except ImportError:  # pragma: no cover - only where the module has not landed
 # test et): a Turkish alternation therefore carries \w* where a suffix can land,
 # which \b then closes. \w is Unicode-aware, so it eats Türkçe letters. A whole
 # word keeps its plain boundary, so "deney" still does not fire on "deneyim".
+#
+# The craft words in the spec class that are ALSO ordinary English nouns are
+# qualified by one of these rather than matched bare: the bare word armed the
+# paragraph on asks that had no UI in them at all. One closed list and one
+# helper, so qualifying a new sibling is a one-line change and no word can be
+# left bare by omission - `_ui_ask` is applied at the word's own place in the
+# pattern below, and both halves are pinned in tests/test_hint_coverage.py.
+# Every entry is word-bounded, so `app` cannot match inside `happen`.
+UI_OBJECTS = (r"components?|ui|ux|css|layout|styles?|tokens?|themes?|buttons?|"
+              r"cards?|icons?|labels?|elements?|widgets?|containers?|headers?|"
+              r"footers?|sidebars?|toolbars?|navbars?|nav|menu|modals?|dialogs?|"
+              r"dropdowns?|popovers?|tooltips?|badges?|avatars?|spinners?|"
+              r"skeletons?|inputs?|fields?|forms?|headings?|images?|logos?|"
+              r"grids?|panels?|columns?|screens?|pages?|views?|dashboards?|"
+              r"viewport|tables?|app")
+# What a UI ask says about the thing: "the badges look wrong", "the theme
+# renders late". A quality word alone answers for the object it follows.
+UI_QUALITY = r"look\w*|feels?\w*|seems?\w*|renders?\w*"
+
+
+def _ui_ask(word):
+    """`word` as a UI ask: a UI object beside it, or a quality word after it.
+
+    The gap is bounded and stops at a sentence's end, so the qualification is
+    about the phrase the word sits in and not about the paragraph it is in."""
+    obj = r"\b(?:%s)\b" % UI_OBJECTS
+    return (r"(?:%s[^.!?\n]{0,40}\b(?:%s)\b"
+            r"|\b(?:%s)\b(?=[^.!?\n]{0,40}(?:%s|\b(?:%s))))"
+            % (obj, word, word, obj, UI_QUALITY))
+
+
 PROMPT_HINTS = (
     ("spec", r"\b(normal (user )?behaviou?r|clean ui|nicer|more intuitive|"
              r"un?professional|polish(ed)?|improve the (ui|ux)|make it (better|"
@@ -62,22 +93,47 @@ PROMPT_HINTS = (
              # what a person sees. These are the craft words and the rendered
              # formats, not the surface nouns: "ekran" and "arayüz" stay with the
              # product class, so a surface ask still pays one paragraph.
-             r"refactor\w*|ui|ux|css|tailwind|tasarım\w*|layout|responsive|"
-             r"hover|focus|spacing|tipografi\w*|typography|component\w*|"
-             r"bileşen\w*|dark mode|theme|tema\w*|animasyon\w*|animations?|"
+             #
+             # Each craft word that is also an ordinary English noun is qualified
+             # by a UI object through `_ui_ask` (above), because the bare word
+             # armed the paragraph on asks that are not UI at all - "refactor the
+             # parser module", "align the two arrays", "what colors does
+             # matplotlib use", "add a font to the PDF", "the card model in the
+             # game", "focus the terminal window" - and the same held for the six
+             # siblings below: "our margins are down this quarter", "the theme of
+             # the meeting", "the badges in the README", "scaffold the skeleton of
+             # the parser", "cluttered imports in the module", "the data center".
+             # The UI asks still arm it through `component\w*`, `ui`, `layout`,
+             # `spacing`, `hover`, `focus durum\w*`, `hizala\w*`, `renk\w*` and
+             # the rest (tests/test_hint_coverage.py holds both halves).
+             r"refactor\w* (the |this |our )?(\w+ ){0,2}(components?|ui|ux|css|"
+             r"layout|screens?|pages?|styles?|theme|forms?|fields?|inputs?|"
+             r"views?|widgets?|buttons?|modals?|dialogs?)|"
+             r"ui|ux|css|tailwind|tasarım\w*|layout|responsive|"
+             r"hover|focus[- ](?:state|ring|outline|visible|indicator|style|"
+             r"durum\w*)|spacing|tipografi\w*|typography|component\w*|"
+             r"bileşen\w*|dark mode|dark theme|light theme|"
+             + _ui_ask(r"theme\w*") + r"|tema\w*|animasyon\w*|animations?|"
              r"erişilebilir\w*|accessib\w*|wireframe|mockup|prototip\w*|"
              # The craft, and the surfaces a person names without the word
              # component. Kept off the product class's surface nouns on purpose
              # (tablo, filtre, ekran stay there) so an ordinary surface ask still
              # pays one paragraph, and off bare `table`/`filter` so that pin holds.
-             r"align\w*|hizala\w*|hiza\w*|cent(er|re)\w*|padding|margins?|"
+             r"align-?(?:items|self|content)|text-align|hizala\w*|hiza\w*|"
+             r"padding|" + _ui_ask(r"cent(er|re)\w*") + r"|"
+             + _ui_ask(r"margins?") + r"|"
              r"gutter\w*|boşluk\w*|satır aral\w*|line-?height|letter-?spacing|"
              r"drop-?shadow|box-?shadow|border-?radius|corner radius|gölge\w*|"
-             r"kenarlık\w*|fonts?|font-?(size|family|weight)|yazı tipi\w*|"
-             r"punto\w*|type ?scale|colou?rs?|palette|renk\w*|palet\w*|"
-             r"cards?|sidebars?|toolbars?|modals?|dialogs?|dropdowns?|"
-             r"popovers?|accordions?|tooltips?|toasts?|badges?|avatars?|"
-             r"breadcrumbs?|pagination|tab ?bar|steppers?|spinners?|skeletons?|"
+             r"kenarlık\w*|fonts?[- ](?:size|family|weight|face|stack|scale)\w*|"
+             r"yazı tipi\w*|punto\w*|type ?scale|"
+             r"colou?r[- ](?:role|scheme|palette|token|contrast)|palette|"
+             r"renk\w*|palet\w*|"
+             r"cards?[- ](?:component\w*|layout|grid|list|view|title|body|"
+             r"footer|header)|sidebars?|toolbars?|modals?|dialogs?|dropdowns?|"
+             r"popovers?|accordions?|tooltips?|toasts?|avatars?|"
+             + _ui_ask(r"badges?") + r"|"
+             r"breadcrumbs?|pagination|tab ?bar|steppers?|spinners?|"
+             + _ui_ask(r"skeletons?") + r"|"
              r"disabled\w*|devre dışı\w*|pressed|active state|selected state|"
              r"empty state|boş durum\w*|breakpoints?\w*|kırılma nokta\w*|"
              r"viewport|media quer\w*|mobil (uyumlu|görünüm)|karanlık mod\w*|"
@@ -88,7 +144,8 @@ PROMPT_HINTS = (
              r"contrast (ratio|level|check|issue)|screenshots?|"
              r"ekran görüntü\w*|visual (review|regression|diff|check)|"
              r"görsel (incele|kontrol|karşılaştır)\w*|redesign\w*|revamp\w*|"
-             r"restyle\w*|makeover|cluttered|outdated|cohesive)\b"),
+             r"restyle\w*|makeover|" + _ui_ask(r"cluttered")
+             + r"|outdated|cohesive)\b"),
     ("consult", r"\b(architect(ure|ural)|root cause|migrat(e|ion)|deploy|"
                 r"security|trade-?off|which approach|design decision|"
                 r"irreversible|rollback|schema change|mimari\w*|kök neden\w*|"

@@ -1120,6 +1120,24 @@ class UiEvidence(unittest.TestCase):
                      failed=False)
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
+    def test_an_mcp_row_that_carries_a_channel_licenses_the_claim(self):
+        # omp names an MCP tool `mcp__<server>_<tool>` and records the call as
+        # `external` with the channel its result came through, so a screen read
+        # there is only visible if that row still knows which tool it was
+        self.edit(self.screen)
+        ti.note_tool("s", "mcp__playwright_browser_take_screenshot", {},
+                     failed=False, source="mcp")
+        row = ti.events("s")[-1]
+        self.assertEqual(row["kind"], "external", row)
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_row_that_merely_names_an_mcp_tool_is_not_a_screen_read(self):
+        # the readers matched the raw detail of ANY row, so a search whose
+        # *pattern* is the tool's name was admissible screen proof
+        self.edit(self.screen)
+        self.run_cmd("rg -n browser_snapshot docs/")
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
     def test_a_browser_check_before_the_write_is_stale_like_any_other(self):
         self.check("npx playwright test")
         self.edit()
@@ -1148,6 +1166,33 @@ class UiEvidence(unittest.TestCase):
         self.check("pytest -q")
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
+    def test_a_grep_that_names_a_rendering_check_is_not_a_screen_read(self):
+        # the same reader, the other tool family: `rg -n playwright docs/` is a
+        # passing check to `VERIFY` (the bare name is in the check vocabulary),
+        # and the reader then took the mention for a screen that was seen
+        self.edit(self.screen)
+        self.run_cmd("rg -n playwright docs/")
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_grep_whose_pattern_is_the_design_checker_is_not_the_floor(self):
+        self.edit(self.target)
+        ti.note_tool("s", "mcp__playwright__browser_take_screenshot", {},
+                     failed=False)
+        self.run_cmd("rg -n tezgah-design check docs/")
+        self.assertIn("tezgah-design check",
+                      ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_an_axe_core_and_a_reg_suit_run_are_checks_like_the_rest(self):
+        # `UI_CHECK` named these two while `VERIFY` did not, so a run of either
+        # recorded as a plain `run` and could never be the proof the regex
+        # offered - the comment above the pair claimed otherwise
+        self.assertEqual(ti.verify_command("npx axe-core src/index.html"),
+                         "axe-core")
+        self.assertEqual(ti.verify_command("npx reg-suit run"), "reg-suit")
+        self.edit(self.screen)
+        self.check("npx axe-core src/index.html")
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
     def test_a_turn_that_wrote_no_ui_source_is_unchanged(self):
         # the control: the same shape over a `.py` file - a green unit run is
         # the evidence the UI branch does not apply to
@@ -1155,6 +1200,102 @@ class UiEvidence(unittest.TestCase):
         self.edit(other)
         self.check("pytest -q")
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def run_cmd(self, command):
+        """One shell row that is not a check, classified the way the hook does."""
+        ti.note_tool("s", "Bash", {"command": command}, failed=False, out_bytes=42)
+
+    def test_a_grep_that_names_the_capture_tool_is_not_a_screen_read(self):
+        # the readers matched the raw detail of ANY row, so a search that merely
+        # names the tool was the proof. `verify_command` scans `mask(cmd)` for
+        # exactly this reason, and the row is a `run`, never a read of anything.
+        self.edit(self.screen)
+        self.run_cmd("rg -rn screencapture docs/")
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_commit_message_that_names_the_tools_is_not_a_screen_read(self):
+        # the classic "text ABOUT a command": the quoted body names the capture
+        # tool and the checker, and neither was run
+        self.edit(self.screen)
+        self.run_cmd('git commit -m "next: run tezgah-capture and '
+                     'tezgah-design check"')
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_commit_message_is_not_the_design_check_either(self):
+        # a component turn: the screen was really read, so only the design
+        # branch is left, and a commit message that mentions the checker is not
+        # the checker
+        self.edit(self.target)
+        ti.note_tool("s", "mcp__playwright__browser_take_screenshot", {},
+                     failed=False)
+        self.run_cmd('git commit -m "tezgah-design check --contract c"')
+        self.assertIn("tezgah-design check",
+                      ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_shell_redirect_that_writes_a_ui_source_is_a_ui_write(self):
+        # the readers counted `kind == "edit"` only, while the freshness fold
+        # counts a shell write (`run`) too - so a UI source written through a
+        # redirect was invisible to the rule that asks for the screen proof
+        path = os.path.join(self.dir, "app", "pages", "users.tsx")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        command = "cat > %s <<'EOF'\nexport const Users = () => null\nEOF" % path
+        tz.capture("Bash", {"command": command}, self.dir, "s")
+        with open(path, "w") as fh:
+            fh.write("export const Users = () => null\n")
+        self.run_cmd(command)
+        self.assertTrue(ti._change_row(ti.events("s")[-1]), "not read as a change")
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_write_that_only_ends_in_a_ui_path_is_not_a_ui_write(self):
+        # `_ui_write` searched the raw command first, so a compound line that
+        # merely ENDS in a UI path - the `ls` after a real redirect - was read as
+        # a write of that path and asked the turn for a screen proof it did not
+        # owe
+        target = os.path.join(self.dir, "out.txt")
+        command = "printf a > %s; ls %s" % (target, self.screen)
+        tz.capture("Bash", {"command": command}, self.dir, "s")
+        with open(target, "w") as fh:
+            fh.write("a")
+        self.run_cmd(command)
+        row = ti.events("s")[-1]
+        self.assertTrue(ti._change_row(row), "not read as a change")
+        self.assertIsNone(ti._ui_write(row))
+        self.assertEqual(ti._ui_evidence(ti.events("s")), (-1, -1))
+
+    def test_a_shell_redirect_that_writes_a_component_owes_the_floor(self):
+        # finding 2's second half through the real branch: the redirect's target
+        # is a component, so the design floor is owed over it too
+        path = os.path.join(self.dir, "app", "components", "Button.tsx")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        command = "cat > %s <<'EOF'\nexport const Button = () => null\nEOF" % path
+        tz.capture("Bash", {"command": command}, self.dir, "s")
+        with open(path, "w") as fh:
+            fh.write("export const Button = () => null\n")
+        self.run_cmd(command)
+        ti.note_tool("s", "mcp__playwright__browser_take_screenshot", {},
+                     failed=False)
+        self.assertIn("tezgah-design check",
+                      ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_an_unrelated_write_after_the_screen_read_does_not_stale_it(self):
+        # the compare was against the last write of anything, so a later `.py`
+        # edit (with its own green run) refused a turn whose screen proof was
+        # newer than the UI write it was about
+        self.edit(self.screen)
+        self.check("npx playwright test")
+        self.edit(os.path.join(self.dir, "worker.py"))
+        self.check("pytest -q")
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_an_unrelated_write_with_no_check_after_it_still_refuses(self):
+        # the other side of the same rule: the screen proof settles the UI half,
+        # never the unrelated write the turn left unverified
+        self.edit(self.screen)
+        ti.note_tool("s", "mcp__playwright__browser_take_screenshot", {},
+                     failed=False)
+        self.edit(os.path.join(self.dir, "worker.py"))
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("no check", reason)
 
 
 class DesignContractEvidence(unittest.TestCase):
@@ -1218,6 +1359,16 @@ class DesignContractEvidence(unittest.TestCase):
         self.assertTrue(ti.verify_command(self.CHECK).endswith(
             "tezgah-design check"))
 
+    def test_a_design_check_on_a_later_line_of_the_call_is_a_check(self):
+        # a call is often multi-line; the readers matched `^` and `[|;&(]`, so
+        # the same checker on the call's own second line was invisible to the
+        # floor while `VERIFY` read the row as a check
+        self.edit(self.component)
+        self.screen_read()
+        ti.note_tool("s", "Bash", {"command": "pytest -q\n" + self.CHECK},
+                     failed=False, out_bytes=64)
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+
     def test_a_derive_run_does_not_stand_in_for_the_check(self):
         self.edit(self.component)
         self.screen_read()
@@ -1239,6 +1390,32 @@ class DesignContractEvidence(unittest.TestCase):
         self.screen_read()
         self.assertIn("tezgah-design check",
                       ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_check_with_no_outcome_is_not_the_floor(self):
+        # DESIGN_CHECK was the one reader not gated on `passing_check`: a check
+        # row whose outcome nobody saw satisfied the component floor, which is
+        # the exact shape `passing_check` exists to refuse
+        self.edit(self.component)
+        self.screen_read()
+        ti.note_tool("s", "Bash", {"command": self.CHECK}, failed=None,
+                     out_bytes=20)
+        row = ti.events("s")[-1]
+        self.assertEqual(row["kind"], "verify", row)
+        self.assertFalse(ti.passing_check(row))
+        self.assertIn("tezgah-design check",
+                      ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_a_later_unrelated_write_does_not_stale_the_floor(self):
+        # the check has to be newer than the component write it judges, which is
+        # what its own docstring says - not newer than the last write of
+        # anything
+        self.edit(self.component)
+        self.screen_read()
+        self.design_check()
+        self.edit(os.path.join(self.dir, "worker.py"))
+        ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False,
+                     out_bytes=8)
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
     def test_a_screen_turn_needs_no_design_check(self):
         # the control: the same shape over a page, not a component
