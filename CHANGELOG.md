@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-09-28
+
+### Added
+
+- **The contract names a check cadence.** The loop-discipline paragraph now says
+  what to run when: the tests of what changed while working, the full suite once
+  on the final tree before it ships - not again on the same revision after a
+  merge or after a scratch file outside the repo - and that small asks of one
+  kind (a color, an icon, a label) are batched into one change and one release.
+
+### Fixed
+
+- **A scratch write outside the repo no longer stales a passing check on omp and
+  Cursor.** The freshness fold ignores a write whose target is outside every
+  configured root - a throwaway script in the temp dir is not a revision of the
+  tree the reply is about - but the omp and Cursor adapters never handed their
+  cwd to the evidence writer, so the boundary never applied there and a green
+  suite followed by a scratch file was refused as stale evidence. Reproduced on
+  omp 2026-09-28, writing `/tmp/omp_t_smoke.py` after a passing run.
+
 ## [0.20.0] - 2026-09-28
 
 ### Added
@@ -2255,6 +2275,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.21.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.21.0
 [0.20.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.20.0
 [0.19.4]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.4
 [0.19.3]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.3

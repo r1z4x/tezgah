@@ -690,7 +690,10 @@ input is not progress on the product. Off: `verify-off`.
 an identical failing command: change the approach or stop. Three attempts on one
 failure is the ceiling - then report what you tried and what is still unknown
 instead of attempting a fourth. A turn must either change the state or end the
-work.
+work. Check cadence: while working, run only the tests of what changed; run the
+full suite once, on the final tree, right before it ships - not again on the
+same revision after a merge or a scratch file outside the repo. Small asks of
+one kind (a color, an icon, a label) are batched into one change and one release.
 
 **Spec before building.** An underspecified request - a quality/behavior
 adjective with no acceptance criteria and no named standard ("normal user

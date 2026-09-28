@@ -170,7 +170,7 @@ def handle(payload):
         note_tool(session_id, tool, inp,
                   failed=failed if isinstance(failed, bool) else None,
                   out_bytes=size if isinstance(size, int) and size >= 0 else None,
-                  source=source)
+                  source=source, cwd=cwd)
         # the call is already paid for, so the status line's used marks are
         # refreshed from the same answer instead of a second subprocess, and
         # from the idx glyph the session already carries instead of a git fork

@@ -89,6 +89,39 @@ class OmpHook(TempHome):
             kinds = [k for k in self.kinds(session) if k]
             self.assertEqual(kinds, [] if kind is None else [kind], cmd)
 
+    def test_a_scratch_write_outside_the_root_does_not_stale_a_passing_check(self):
+        # omp never handed its cwd to the evidence writer, so the root boundary
+        # that keeps a scratch file out of the freshness fold never applied: a
+        # throwaway script in the temp dir after a green suite read as a new
+        # revision and the reply reporting that suite was refused
+        repo = self.make_repo()
+        scratch = os.path.join(self.home, "smoke.py")
+        base = {"cwd": repo, "session_id": "fresh"}
+        self.event(dict(base, event="post_tool_use", tool="bash", failed=False,
+                        result_len=12,
+                        input={"command": "python3 -m unittest discover -s tests"}))
+        write = {"file_path": scratch, "content": "print(1)\n"}
+        self.event(dict(base, event="pre_tool_use", tool="write", input=write))
+        with open(scratch, "w") as fh:
+            fh.write("print(1)\n")
+        self.event(dict(base, event="post_tool_use", tool="write", input=write,
+                        failed=False))
+        out, proc = self.event(dict(base, event="stop",
+                                    last_assistant_message="Done: the suite passed."))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("Stale evidence", str((out or {}).get("reason")))
+        # a write inside the repo is still a new revision
+        inside = os.path.join(repo, "app.py")
+        write = {"file_path": inside, "content": "x = 1\n"}
+        self.event(dict(base, event="pre_tool_use", tool="write", input=write))
+        with open(inside, "w") as fh:
+            fh.write("x = 1\n")
+        self.event(dict(base, event="post_tool_use", tool="write", input=write,
+                        failed=False))
+        out, _ = self.event(dict(base, event="stop",
+                                 last_assistant_message="Done: the suite passed."))
+        self.assertIn("Stale evidence", str((out or {}).get("reason")))
+
     def test_a_watched_tool_result_forks_no_git(self):
         # the idx mark is the only thing on the line that costs a subprocess, and
         # the session hands back the glyph the probed answer carried, so a busy

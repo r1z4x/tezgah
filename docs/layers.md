@@ -66,7 +66,7 @@ host.
 ## tezgah's policy and evidence layer
 
 Owns the rule text (`CORE` `hooks/tezgah_policy.py:622-838`), the per-turn reminder
-(`PROMPT_REMINDER` `hooks/tezgah_policy.py:850-870`), the refusal before a call
+(`PROMPT_REMINDER` `hooks/tezgah_policy.py:853-873`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1094-1266`), the record after one (`note()`
 `hooks/tezgah_integrity.py:551`), the end-of-turn verdict (`stop_reason()`
 `hooks/tezgah_integrity.py:1930`), the pre-write snapshots (`capture()`

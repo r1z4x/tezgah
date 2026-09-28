@@ -261,7 +261,7 @@ def dispatch(payload):
         # Cursor names `tool_output` the "JSON-stringified result payload from
         # the tool": the row keeps its size, never the result itself.
         note_tool(session_id, gate_name(payload.get("tool_name", "")), inp,
-                  failed=None, source=source,
+                  failed=None, source=source, cwd=cwd,
                   out_bytes=result_size(payload.get("tool_output")))
         reinforce = None
         if (kind in ("graph", "consult") and under(cwd) and not quiet
@@ -289,7 +289,7 @@ def dispatch(payload):
         note_tool(session_id, gate_name(payload.get("tool_name", "")),
                   gate_input(payload.get("tool_input") or {}), failed=True,
                   interrupted=(payload.get("is_interrupt") is True
-                               or ftype == "permission_denied"))
+                               or ftype == "permission_denied"), cwd=cwd)
         out = {"additional_context": RECOVERY} if under(cwd) and not quiet else {}
     elif event in ("afterShellExecution", "afterMCPExecution", "afterFileEdit"):
         if kind:
@@ -305,7 +305,8 @@ def dispatch(payload):
             note_tool(session_id, gate_name("shell"),
                       {"command": payload.get("command")
                        or (payload.get("tool_input") or {}).get("command", "")},
-                      failed=None, out_bytes=result_size(payload.get("output")))
+                      failed=None, out_bytes=result_size(payload.get("output")),
+                      cwd=cwd)
         out = {}
     elif event == "beforeMCPExecution":
         if kind:

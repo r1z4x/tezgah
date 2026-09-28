@@ -25,7 +25,7 @@ A ledger [row](#row) recording the [Stop rule](#stop-rule)'s verdict on one repl
 A rule armed for one prompt only, when its task class matches - `spec`, `consult`, `research`, `product`, `graph` (`hooks/tezgah_policy.py:819`) - selected by `classify_prompt()` against the prompt hints (`hooks/tezgah_context.py:515`, `hooks/tezgah_context.py:49-69`) and injected only on the turn that matched (`hooks/tezgah_context.py:839-845`). Not an [always-on](#always-on) rule, though it sits in [CORE](#core) even while unarmed.
 
 ### contract
-The whole working document, `CONTRACT` as the join of every block (`hooks/tezgah_policy.py:851-853`), shipped on demand as `skills/tezgah-contract/SKILL.md`, with the always-on [CORE](#core) as its summary and the [pointer](#pointer) line as the way in (`hooks/tezgah_policy.py:844-849`). Its clauses are [contract](contract.md)'s subject.
+The whole working document, `CONTRACT` as the join of every block (`hooks/tezgah_policy.py:851-853`), shipped on demand as `skills/tezgah-contract/SKILL.md`, with the always-on [CORE](#core) as its summary and the [pointer](#pointer) line as the way in (`hooks/tezgah_policy.py:847-852`). Its clauses are [contract](contract.md)'s subject.
 
 ### CORE
 The single string holding the whole always-on contract, one bold-labelled paragraph per [rule](#rule) (`hooks/tezgah_policy.py:613`), filtered against [per-repo marks](#per-repo-mark) and [kill switches](#kill-switch) by `core_split()` (`hooks/tezgah_context.py:565-621`). Not [contract](#contract), the on-demand join of every block.
@@ -98,13 +98,13 @@ The status table in `.tezgah/plans/README.md` (`.tezgah/plans/README.md:3`), own
 Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:3570-3585`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:3701-3759`, `bin/tezgah-setup:3472`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
 
 ### pointer
-The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py:844-849`). Not a rule.
+The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py:847-852`). Not a rule.
 
 ### probe
 A small side effect tezgah makes when an answer cannot be read directly: a write probe to decide whether a directory is usable (`hooks/tezgah_paths.py:85`, `:100-104`), and the cached git fork that decides whether the graph stamp is behind HEAD (`hooks/tezgah_context.py:1176-1179`). Not a check of the work.
 
 ### reminder
-The compact per-turn text every user turn pays for, `PROMPT_REMINDER` (`hooks/tezgah_policy.py:850-870`), injected as the `reminder` block (`hooks/tezgah_context.py:834`) and carrying the standing constraints rather than the long rationale. Not [CORE](#core), which is paid once per session.
+The compact per-turn text every user turn pays for, `PROMPT_REMINDER` (`hooks/tezgah_policy.py:853-873`), injected as the `reminder` block (`hooks/tezgah_context.py:834`) and carrying the standing constraints rather than the long rationale. Not [CORE](#core), which is paid once per session.
 
 ### rollback
 Putting a [snapshot](#snapshot)'s bytes back, `restore()` (`hooks/tezgah_snapshot.py:217`), reached only through `tezgah-rollback` (`bin/tezgah-rollback:2-13`), which writes a `rollback` row (`hooks/tezgah_snapshot.py:263-265`). Tezgah never rolls back on its own.
