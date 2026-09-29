@@ -175,7 +175,7 @@ happens in `core_split()`.
 
 The last four are per-repo [marks](glossary.md#per-repo-mark), read by
 `repo_marks()`, walking up to the enclosing [root](glossary.md#root)
-(`hooks/tezgah_context.py:1371-1387`). Every switch that fired is named back to the
+(`hooks/tezgah_context.py:1375-1391`). Every switch that fired is named back to the
 session at start (`hooks/tezgah_context.py:1032-1034`) and per turn (`hooks/tezgah_context.py:1107-1109`), with the instruction to
 ignore the matching section in `tezgah-contract` — that skill is loaded
 separately and would otherwise re-arm the rule. `tezgah-adhd off` writes the same
@@ -205,7 +205,7 @@ they survive every other switch being off.
    always-on — a warm interpreter serves a stale `CORE`.
 6. Last step, the tests that pin it: add the label to `KillSwitchEnforcement`
    (`tests/test_context.py:618-792`) and, for a conditional rule, to the
-   `ArmingConformance` label map (`tests/test_context.py:1513-1547`); then run the mirror pair —
+   `ArmingConformance` label map (`tests/test_context.py:1527-1561`); then run the mirror pair —
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py:1331-1339`) and
    `ContractParity.test_every_rule_and_heading_in_the_contract_reaches_the_skill`

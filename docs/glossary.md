@@ -86,7 +86,7 @@ A used-mark a surface is able to see at all, so it can say "armed, not used yet"
 A mark consumed by its own first use, so the thing it protects happens once: the grep [nudge](#nudge) is written before the deny so later greps pass (`hooks/tezgah_gate.py:1286-1287`). Not a licence for the session: the identical call passes on the retry.
 
 ### per-repo mark
-An opt-out file in the repo tree - `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons` - collected by `repo_marks()` walking up to the enclosing root (`hooks/tezgah_context.py:1371-1387`). Not a [kill switch](#kill-switch): a mark travels with the repo, a switch with the machine.
+An opt-out file in the repo tree - `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons` - collected by `repo_marks()` walking up to the enclosing root (`hooks/tezgah_context.py:1375-1391`). Not a [kill switch](#kill-switch): a mark travels with the repo, a switch with the machine.
 
 ### plan
 A piece of work spanning sessions, one markdown file with frontmatter under `<repo root>/.tezgah/plans/open/`, moved to `.tezgah/plans/done/` when closed, up to three of them injected by `open_plans()` (`hooks/tezgah_context.py:508-542`) and its work happening on a `plan/NNN-slug` branch. Not a TODO in code.

@@ -128,7 +128,7 @@ and still renders `off` (`hooks/tezgah_context.py:1386-1387`).
 In order, each step verified by the one below it:
 
 1. `HOST_DIRS` and, when the CLI can exist without a config dir, `HOST_BINS` in
-   `hooks/tezgah_paths.py:49-64`. These are shared by the installer, the report
+   `hooks/tezgah_paths.py:52-68`. These are shared by the installer, the report
    and agent generation, so "is this host installed?" has one answer
    (`hooks/tezgah_paths.py:44-48`). Add the name to `ALL_HOSTS` in the report
    order (`bin/tezgah-setup:100`).
