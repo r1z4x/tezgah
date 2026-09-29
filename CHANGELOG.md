@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-09-29
+
 ### Added
 
 - **A turn's third product file on `main` needs a plan.** The gate now refuses
