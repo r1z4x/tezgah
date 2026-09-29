@@ -88,7 +88,7 @@ only writer, from the same filter the reader applies — `managed()` — so the
 listing and its reader cannot disagree (`managed()`, `bin/tezgah-setup:3738-3754`,
 `write_manifest()`, `bin/tezgah-setup:3781-3798`). The payload also carries
 `VERSION`, which is what a tree with no `.claude-plugin/` answers from
-(`version()`, `hooks/tezgah_context.py:1765-1794`).
+(`version()`, `hooks/tezgah_context.py:1769-1798`).
 
 ## A first install from a checkout
 
@@ -142,7 +142,7 @@ current one (`bin/tezgah-setup:3682-3700`).
 
 `--status [PATH]` answers a different question — which rules are in force in that
 repo — as one line of marks rendered by the same code every status line uses
-(`hooks/tezgah_context.py:1583-1651`, `hooks/tezgah_context.py:1701-1711`). Mark meanings are in
+(`hooks/tezgah_context.py:1587-1655`, `hooks/tezgah_context.py:1701-1711`). Mark meanings are in
 [status-line.md](status-line.md); `bin/tezgah-status` is that checklist with
 `--json`, `--legend` and `--observable=`. It carries the report's host-list row
 too, from the same `hosts_row`, so the mismatch reaches the surface a session

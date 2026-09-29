@@ -494,8 +494,8 @@ pre-rule row is in, because a writer stricter than the checker refuses what the
 checker only reports.
 
 **An append starts at the committed boundary.** `committed_size`
-(`hooks/tezgah_integrity.py:523-548`) is the offset just past the last `\n` in a file,
-and `truncate_to_committed` (`hooks/tezgah_integrity.py:549-559`) cuts a descriptor
+(`hooks/tezgah_integrity.py:535-560`) is the offset just past the last `\n` in a file,
+and `truncate_to_committed` (`hooks/tezgah_integrity.py:561-571`) cuts a descriptor
 back to it; all three writers truncate first and write after
 (`append_claim`, `tezgah_research.py:1462`; `_append_row`; `append_prediction`,
 `tezgah_research.py:2999`). A fragment a killed writer left behind - no newline
@@ -588,10 +588,10 @@ and the advice to run `check` before reporting a result (the note
 
 The mark: `research` in the status line. It is armed when `research-off` is
 absent and the research tooling is present (`health_segments`,
-`hooks/tezgah_context.py:1583-1651`) and turns used when a shell command really ran
+`hooks/tezgah_context.py:1587-1655`) and turns used when a shell command really ran
 the layer - `orx` or `tezgah-research`
 in a command position, classified by the shared tokenizer
-(`shell_kind`, `hooks/tezgah_context.py:1293-1318`), so a command that merely mentions
+(`shell_kind`, `hooks/tezgah_context.py:1297-1322`), so a command that merely mentions
 either name marks nothing. That is the same reader every host's status segment
 uses ([status line](status-line.md)).
 
