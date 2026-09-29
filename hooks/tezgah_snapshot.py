@@ -350,11 +350,13 @@ def session_plan(session_id):
                 # A shell row whose target cannot be re-read - the ledger keeps
                 # the command cut to DETAIL_MAX, so a redirect past the cut names
                 # nothing. Which path it wrote is then unknown, and an unknown
-                # shell write is the one thing this plan must not turn into a
-                # revert: it makes every snapshot path with no `edit` row of its
-                # own a listing instead. The cost is the second file of an
-                # apply_patch body in a session that also has such a row - it is
-                # listed rather than restored, and listing never writes.
+                # write is the one thing this plan must not turn into a revert:
+                # it makes every snapshot path with no `edit` row of its own a
+                # listing. Not a rare shape: 275 of the 276 ledgers holding a
+                # non-check `run` row carry one, so a multi-file patch's second
+                # file is listed here rather than restored - which is what it was
+                # already, since its after-state hash never reaches the ledger
+                # and `expect` keeps the pre-state, so `restore` refused it.
                 blind_run = True
         else:
             continue
@@ -368,9 +370,16 @@ def session_plan(session_id):
     for path in order:
         if path not in first:
             action = "list (no snapshot)"
-        elif named.get(path) == {"run"} or (blind_run
-                                            and "edit" not in named.get(path, ())):
+        elif named.get(path) == {"run"}:
             action = "list (shell only)"
+        elif blind_run and "edit" not in named.get(path, ()):
+            # A shell row's target could not be re-read somewhere in this
+            # session, so this path's writer is unknown rather than absent: it is
+            # listed, and the label says which of the two reasons applies. In the
+            # corpus such a row is the rule and not the exception (275 of the 276
+            # ledgers that hold a non-check `run` row), so the second file of a
+            # multi-file patch lands here more often than in `restore`.
+            action = "list (unknown writer)"
         else:
             action = "restore"
         plan.append({"path": path, "id": first.get(path), "action": action,

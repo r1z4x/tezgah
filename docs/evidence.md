@@ -242,14 +242,15 @@ capture — that last one only until `--force`, and the `rollback` row records t
 
 `--session <id>` widens that command to a whole session: for every path the session's writes
 touched it puts back the EARLIEST snapshot the session took of it — the state before the session's
-first write of that path. `session_plan` (`hooks/tezgah_snapshot.py:316-380`) is that reading: it
+first write of that path. `session_plan` (`hooks/tezgah_snapshot.py:316-388`) is that reading: it
 walks the session's rows in order, names every path an `edit` or shell row wrote (a snapshot row
 whose path no write row named — the second file of an `apply_patch` body — is there too), and joins
 each to the session's earliest `snapshot` row for it, carrying an `action` that says what the
 rollback would do with it: `restore` for a path a write tool changed, `list (shell only)` for a path
-only a shell command's redirect touched, `list (no snapshot)` for one with no pre-state at all — a
+only a shell command's redirect touched, `list (unknown writer)` when a shell row's
+target could not be re-read so the writer is not known, `list (no snapshot)` for one with no pre-state at all — a
 file the session created. Only the `restore` entries are put back
-(`restore_session` `hooks/tezgah_snapshot.py:381-396`): which file a command wrote is read off its
+(`restore_session` `hooks/tezgah_snapshot.py:390-405`): which file a command wrote is read off its
 text rather than reported by a tool, so a shell-touched path is listed and never reverted even where
 the gate captured its target, and the id is printed for a deliberate single-id restore. A relative
 target is resolved against the paths the ledger has already resolved — the snapshot rows' own, which

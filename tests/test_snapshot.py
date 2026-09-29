@@ -322,7 +322,10 @@ class SessionRollback(Snap):
                      {"command": "echo %s > out.txt" % ("a" * 240)},
                      failed=False, cwd=self.repo)
         plan = {e["path"]: e for e in ts.session_plan(self.session)}
-        self.assertEqual(plan[out]["action"], "list (shell only)")
+        # "unknown writer", not "shell only": the row names no target, so which
+        # tool wrote the path is not known - only that it was not a write row of
+        # its own.
+        self.assertEqual(plan[out]["action"], "list (unknown writer)")
         self.assertEqual(plan[out]["id"], sid)
         ts.restore_session(self.session, force=True)
         self.assertEqual(self.read(out), "new\n")

@@ -40,7 +40,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A user-fixable failure class, and one loop cap on every host.** `fail_class`
   gains `user`: a 401 or 403, an unauthorized or forbidden answer, a failed
-  authentication, an invalid or missing key, token or credential, "not logged in"
+  authentication, an invalid or missing key or credential, an expired or
+  invalid token, "not logged in"
   - failures whose repair is the user's and not the agent's, so the loop refusal
   says to stop and ask rather than to change the approach. `permission denied`
   stays `permanent` (a file mode the agent can change is not the user's to fix).
