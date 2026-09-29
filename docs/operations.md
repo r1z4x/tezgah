@@ -88,7 +88,7 @@ only writer, from the same filter the reader applies — `managed()` — so the
 listing and its reader cannot disagree (`managed()`, `bin/tezgah-setup:3738-3754`,
 `write_manifest()`, `bin/tezgah-setup:3781-3798`). The payload also carries
 `VERSION`, which is what a tree with no `.claude-plugin/` answers from
-(`version()`, `hooks/tezgah_context.py:1769-1798`).
+(`version()`, `hooks/tezgah_context.py:1878-1907`).
 
 ## A first install from a checkout
 
