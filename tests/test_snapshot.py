@@ -281,6 +281,133 @@ class RollbackCli(Snap):
             self.assertIn("usage:", out.stderr)
 
 
+class SessionRollback(Snap):
+    """`tezgah-rollback --session <id>`: every path the session's write rows
+    changed goes back to the earliest snapshot that session took of it.
+
+    The moved-on check is restore()'s own, fed the session's last recorded
+    state of the path: a file still as the session left it has not moved on,
+    one somebody changed after the session's last write has."""
+
+    def edit(self, name, text):
+        """One write as a host drives it: capture in the gate, the write, the
+        PostToolUse row carrying the after-state."""
+        path = os.path.join(self.repo, name)
+        sid = ts.capture("Edit", {"file_path": path}, self.repo, self.session)
+        self.write(name, text)
+        ti.note_tool(self.session, "Edit", {"file_path": path}, failed=False,
+                     cwd=self.repo)
+        return sid
+
+    def two_paths(self):
+        a = self.write("a.py", "a1\n")
+        b = self.write("sub/b.py", "b1\n")
+        first = self.edit("a.py", "a2\n")
+        self.edit("a.py", "a3\n")
+        b_sid = self.edit("sub/b.py", "b2\n")
+        return os.path.realpath(a), os.path.realpath(b), first, b_sid
+
+    def test_session_restores_the_earliest_snapshot_of_every_changed_path(self):
+        a, b, first, b_sid = self.two_paths()
+        plan = ts.session_plan(self.session)
+        self.assertEqual([(e["path"], e["id"], e["action"]) for e in plan],
+                         [(a, first, "restore"), (b, b_sid, "restore")])
+        _, refused = ts.restore_session(self.session)
+        self.assertEqual(refused, {})
+        self.assertEqual(self.read(a), "a1\n")   # not a2: the earliest one
+        self.assertEqual(self.read(b), "b1\n")
+        self.assertEqual(sorted(r["id"] for r in self.rows("rollback")),
+                         sorted([first, b_sid]))
+
+    def test_session_lists_a_shell_only_path_and_never_reverts_it(self):
+        a, _, _, _ = self.two_paths()
+        out = self.write("out.txt", "old\n")
+        # the gate captures a redirect's target as a write (tezgah_gate
+        # SHELL_AS_WRITE), so this path HAS a snapshot and is still only listed
+        shell_sid = ts.capture("write", {"file_path": out}, self.repo,
+                               self.session)
+        self.write("out.txt", "new\n")
+        ti.note_tool(self.session, "Bash", {"command": "echo new > out.txt"},
+                     failed=False, cwd=self.repo)
+        new = self.write("made.py", "x\n")   # a write tool's new file
+        ti.note_tool(self.session, "Write", {"file_path": new}, failed=False,
+                     cwd=self.repo)
+        plan = {e["path"]: e for e in ts.session_plan(self.session)}
+        self.assertEqual(plan[os.path.realpath(out)]["action"],
+                         "list (shell only)")
+        self.assertEqual(plan[os.path.realpath(out)]["id"], shell_sid)
+        self.assertEqual(plan[os.path.realpath(new)]["action"],
+                         "list (no snapshot)")
+        self.assertIsNone(plan[os.path.realpath(new)]["id"])
+        ts.restore_session(self.session, force=True)
+        self.assertEqual(self.read(out), "new\n")
+        self.assertEqual(self.read(new), "x\n")
+        self.assertEqual(self.read(a), "a1\n")
+        self.assertNotIn(shell_sid, [r["id"] for r in self.rows("rollback")])
+
+    def test_session_refuses_a_path_that_moved_on_until_force(self):
+        a, b, _, _ = self.two_paths()
+        self.write("a.py", "someone else\n")   # after the session's last write
+        _, refused = ts.restore_session(self.session)
+        self.assertEqual(list(refused), [a])
+        self.assertIn("has changed since", refused[a])
+        self.assertIn("--force", refused[a])
+        self.assertEqual(self.read(a), "someone else\n")
+        self.assertEqual(self.read(b), "b1\n")   # the other path still went back
+        _, refused = ts.restore_session(self.session, force=True)
+        self.assertEqual(refused, {})
+        self.assertEqual(self.read(a), "a1\n")
+
+    def test_session_reads_only_its_own_ledger(self):
+        self.two_paths()
+        c = self.write("c.py", "c1\n")
+        ts.capture("Edit", {"file_path": c}, self.repo, "s-other")
+        paths = [e["path"] for e in ts.session_plan(self.session)]
+        self.assertNotIn(os.path.realpath(c), paths)
+        self.assertEqual(ts.session_plan("s-never-ran"), [])
+
+    def test_session_cli_restores_and_exits_zero(self):
+        a, b, _, _ = self.two_paths()
+        out = self.rollback("--session", self.session)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("restored %s" % a, out.stdout)
+        self.assertIn("restored %s" % b, out.stdout)
+        self.assertEqual(self.read(a), "a1\n")
+
+    def test_session_cli_exits_one_on_any_refusal_and_on_an_empty_session(self):
+        a, b, _, _ = self.two_paths()
+        self.write("a.py", "moved\n")
+        out = self.rollback("--session", self.session)
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("has changed since", out.stderr)
+        self.assertIn("restored %s" % b, out.stdout)
+        self.assertEqual(self.read(a), "moved\n")
+        out = self.rollback("--session", "s-never-ran")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("s-never-ran", out.stderr)
+
+    def test_session_cli_usage_exits_two(self):
+        for args in (["--session"], ["--session", ""],
+                     ["--session", "s", "0123456789ab"], ["--dry-run", "x"],
+                     ["--session", "s", "--nope"]):
+            out = self.rollback(*args)
+            self.assertEqual(out.returncode, 2, args)
+            self.assertIn("usage:", out.stderr)
+
+    def test_dry_run_prints_the_plan_and_writes_nothing(self):
+        a, b, first, b_sid = self.two_paths()
+        before_rows = self.rows()
+        before_store = self.store()
+        out = self.rollback("--session", self.session, "--dry-run")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("%s\t%s\trestore" % (a, first), out.stdout)
+        self.assertIn("%s\t%s\trestore" % (b, b_sid), out.stdout)
+        self.assertEqual(self.read(a), "a3\n")
+        self.assertEqual(self.read(b), "b2\n")
+        self.assertEqual(self.rows(), before_rows)
+        self.assertEqual(self.store(), before_store)
+
+
 class CaptureCli(Snap):
     """bin/tezgah-capture: the path a host that is not Python reaches capture by.
 

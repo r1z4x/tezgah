@@ -30,7 +30,8 @@ from tezgah_context import (  # noqa: E402
 from tezgah_gate import decision, drift_reason  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, note_tool, report_bytes, stop_reason)
+    SUBAGENT_CHANNEL, changed_files_notice, note_tool, report_bytes,
+    stop_reason)
 from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
 from tezgah_untrusted import marks  # noqa: E402
 
@@ -211,8 +212,18 @@ def main():
                 out["reason"] = reason
         seg = safe(session_id, health_lines, cwd, session_id,
                    observable=TOOL_USE_MEASURES)
-        if seg:
-            out["systemMessage"] = "tezgah  " + seg
+        # The files this turn changed ride the same non-blocking message: this
+        # is the one Stop surface tezgah has that carries text without blocking
+        # the turn (Claude's and omp's return a decision and nothing else, and
+        # Cursor's block is a follow-up), so the set `tezgah-rollback --session`
+        # would put back is named where the turn ends. Off-root there is no
+        # ledger for the session, so the line is root-scoped as the rest is.
+        notice = (safe(session_id, changed_files_notice, session_id, cwd)
+                  if root_for(cwd) else "")
+        text = "\n".join(p for p in (("tezgah  " + seg) if seg else "",
+                                     notice or "") if p)
+        if text:
+            out["systemMessage"] = text
         if out:
             print(json.dumps(out))
         return

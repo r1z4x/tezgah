@@ -887,6 +887,56 @@ class WriteRowPath(unittest.TestCase):
         self.assertEqual(ti.changed_files("s"), {first, second})
 
 
+class ChangedFilesNotice(unittest.TestCase):
+    """I4: the files a turn changed, on the Stop surface that can carry text
+    without blocking the turn (`changed_files_notice`, which
+    hosts/codex/hook.py puts on `systemMessage`).
+
+    The reader is `changed_files`, so what is named is what was SEEN to change -
+    a write the ledger recorded as unchanged is not a file to roll back."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+
+    def edit(self, name, changed=True):
+        path = os.path.join(self.dir, name)
+        ti.note("s", "edit", path, changed=changed or None, id=name)
+        return path
+
+    def test_changed_files_notice_names_the_turn_s_writes_on_one_line(self):
+        ti.note("s", "turn", "t1")
+        self.edit("b.py")
+        self.edit("a.py")
+        self.edit("untouched.py", changed=False)
+        self.assertEqual(ti.changed_files_notice("s", self.dir),
+                         "files this turn changed: a.py, b.py")
+
+    def test_changed_files_notice_is_absent_when_nothing_changed(self):
+        ti.note("s", "turn", "t1")
+        self.edit("a.py", changed=False)
+        self.assertEqual(ti.changed_files_notice("s", self.dir), "")
+
+    def test_changed_files_notice_caps_the_line_and_counts_the_rest(self):
+        ti.note("s", "turn", "t1")
+        for i in range(ti.CHANGED_NOTICE_MAX + 2):
+            self.edit("f%02d.py" % i)
+        self.assertEqual(
+            ti.changed_files_notice("s", self.dir),
+            "files this turn changed: %s (+2 more)"
+            % ", ".join("f%02d.py" % i for i in range(ti.CHANGED_NOTICE_MAX)))
+
+    def test_changed_files_notice_keeps_a_name_outside_the_root_whole(self):
+        # a write outside the tree the notice is read in has no relative form
+        # that means anything there, so it is named as the ledger has it
+        ti.note("s", "turn", "t1")
+        path = self.edit("a.py")
+        out = ti.changed_files_notice("s", os.path.join(self.dir, "elsewhere"))
+        self.assertIn(path, out)
+
+
 class StaleEvidence(unittest.TestCase):
     """P1: a passing check licenses a claim only when it is newer than the newest
     write the gate saw change the tree.
