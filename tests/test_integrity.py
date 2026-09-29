@@ -2119,6 +2119,124 @@ class StopHook(TempHome):
         out, _ = run_json([support.STOP_HOOK], payload, env=self.envv)
         self.assertIsNone(out)
 
+    # The tenth Stop class: a reply that states the state of a system tezgah
+    # does not own - a registry, a release, a tag, a formula, a CI run - is making
+    # a claim it cannot have from here. The two turns this class comes from
+    # ("npm 0.22.0 is missing", read off an out-of-date local npm client, and
+    # "make NPM_TOKEN an automation token", which it already was) were both
+    # advice-only: no work and no completion word, so the fold returned
+    # (None, None) and neither was judged at all. The repair is an external read
+    # and never a reflection - a self-critique pass with no new signal is
+    # measured to leave a wrong answer more convincing than it started
+    # (arXiv:2310.01798) - so the class asks for the command and names it.
+    RELEASED = "npm 0.22.0 yayımlanmadı, registry'de böyle bir sürüm yok."
+    TAGGED = "v0.23.0 etiketi yok, release oluşturulmamış."
+    RED = "CI kırmızı, workflow başarısız görünüyor."
+    ADVICE = ("Sıradaki adım: `npm publish` çalıştır, sonra sürümü 0.23.0'a "
+              "yükselt.")
+
+    def test_an_external_claim_with_no_read_is_refused(self):
+        out = self.stop(self.RELEASED)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("npm view", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: no external read"])
+
+    def test_the_read_of_the_named_system_licenses_the_claim(self):
+        for command, reply in (("npm view tezgah versions --json", self.RELEASED),
+                               ("gh release view v0.23.0", self.TAGGED),
+                               ("gh run list --limit 5", self.RED)):
+            self.turn()
+            self.seed("Bash", {"command": command})
+            self.assertIsNone(self.stop(reply), command)
+        self.assertEqual(self.claim_rows(), [])
+
+    def test_a_claim_inside_inline_code_is_not_this_replys_claim(self):
+        # the subject is read on the reply's prose: a command quoted in a code
+        # span is text about a system, not a statement about its state
+        self.assertIsNone(self.stop("`brew tap` çıktısı boş kaldı, kayıt yok."))
+
+    def test_a_ci_status_claim_owes_the_run_list(self):
+        # the run-status words pair with a CI subject alone; this is the shape
+        # the pair is for
+        out = self.stop(self.RED)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("gh run list", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: no external read"])
+
+    def test_a_run_word_without_a_ci_subject_is_not_a_claim(self):
+        # the control for the split: `green` beside `release` is prose, and
+        # reading it as a CI state refused honest summaries
+        self.assertIsNone(self.stop("Suite green, release ready."))
+
+    def test_a_local_client_read_is_not_the_registry_read(self):
+        # the incident's own shape: `npm --version` asks the box, not the
+        # registry, so it is not the read this class asks for - and the green
+        # unit run beside it does not answer a claim about npm either
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "npm --version"})
+        out = self.stop(self.RELEASED)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("npm view", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: no external read"])
+
+    def test_a_search_that_names_the_read_is_not_the_read(self):
+        # the convention every other command reader follows: a quoted pattern is
+        # text about a command, not a run of it
+        self.seed("Bash", {"command": 'rg -n "npm view" docs/'})
+        self.assertEqual(self.stop(self.RELEASED).get("decision"), "block")
+
+    def test_an_honest_advice_only_reply_is_not_refused(self):
+        # the negative control: naming npm, a version and a tag in a next step
+        # states no state of the registry
+        self.assertIsNone(self.stop(self.ADVICE))
+        self.assertEqual(self.claim_rows(), [])
+
+    def test_the_repositorys_own_version_is_not_a_claim(self):
+        # a version number of tezgah's own code is not a claim about a system
+        # tezgah does not own
+        self.assertIsNone(self.stop(
+            "tezgah 0.22.0 sürümü hazır, numara pyproject.toml içinde.\n"
+            "Sıradaki adım: changelog'u güncelle."))
+
+    def test_the_admission_clears_the_external_class_too(self):
+        self.assertIsNone(self.stop(
+            "npm 0.22.0 registry'de yok gibi görünüyor. doğrulanmadı."))
+        self.assertEqual(self.claim_rows(), [])
+
+    def test_a_fresh_check_does_not_license_an_external_claim(self):
+        # the class is about the claim's object, not about the turn's work: a
+        # green suite says nothing about what npm publishes
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.assertEqual(self.stop(self.RELEASED).get("decision"), "block")
+        self.assertEqual(self.claim_rows(), ["blocked: no external read"])
+
+    def test_a_turn_with_unverified_work_keeps_its_own_class(self):
+        # branch order: the new class sat after every evidence class, so a turn
+        # the fold was already refusing is refused under its own class
+        self.seed("Edit", {"file_path": "x.py"})
+        self.assertEqual(self.stop(self.RELEASED).get("decision"), "block")
+        self.assertEqual(self.claim_rows(), ["blocked: no verify_ok"])
+
+    def test_a_stale_check_keeps_its_own_class_too(self):
+        # a real write after the check, so the check is stale and the fold's own
+        # class is the one the ledger records
+        path = os.path.join(self.repo, "x.py")
+        with open(path, "w") as fh:
+            fh.write("v1\n")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Edit", {"file_path": path})
+        self.assertEqual(self.stop(self.RELEASED).get("decision"), "block")
+        self.assertEqual(self.claim_rows(), ["blocked: stale evidence"])
+
+    def test_the_class_counts_as_a_false_completion(self):
+        # V3: the class is reached by `counters`, and it is not a shape class -
+        # a reply refused here made a claim about the world that nothing checked
+        self.stop(self.RELEASED)
+        counts = self.counts()
+        self.assertEqual((counts["claims"], counts["false_completion"],
+                          counts["shape_blocked"], counts["replies"]), (1, 1, 0, 1))
+
 
 class ReplyShapeCorpus(unittest.TestCase):
     """The two blocking shape numbers over realistic replies: which ones the
