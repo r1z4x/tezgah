@@ -2587,3 +2587,44 @@ def fixture_ledger(rows):
     spaces = {str(r["workspace"]) for r in rows if r.get("workspace")}
     return bool(spaces) and all(FIXTURE_WORKSPACE.search(w) or (w + "/").startswith(cache)
                                 for w in spaces)
+
+
+# How many names one Stop notice lists before it says how many it left out: the
+# notice is a line on a host's own surface, and a turn that rewrote a tree would
+# otherwise print the tree.
+CHANGED_NOTICE_MAX = 8
+
+
+def changed_files_notice(session_id, base=None):
+    """One line naming the files this turn changed, or "" when it changed none.
+
+    The reader is `changed_files`, so the names are the set a rollback reads:
+    what the turn's writes were SEEN to change. `base` (the session's root) is
+    stripped from a name inside it - the row carries the verbatim path the host
+    reported, and the tree the user is standing in is the one those paths belong
+    to. Sorted, so one set reads as one line, and capped, because a listing is
+    not a status line.
+
+    Written for the hosts whose Stop output carries text without blocking the
+    turn (hosts/codex/hook.py puts it on `systemMessage`). Nothing changed
+    returns "", not a blank label: absent means there is nothing to show.
+
+    It is down here rather than beside `changed_files` on purpose: this file's
+    line numbers are cited by docs/*.md, and an insert above a cited symbol
+    re-anchors every citation under it."""
+    names = changed_files(session_id)
+    if not names:
+        return ""
+    if base:
+        # the hook's own cwd and the row's own path come from one host, so they
+        # are spelled the same way: no second resolution, which could only make
+        # one of them disagree with the other
+        base = str(base).rstrip(os.sep)
+        names = {n[len(base) + 1:] if n.startswith(base + os.sep) else n
+                 for n in names}
+    shown = sorted(names)
+    rest = len(shown) - CHANGED_NOTICE_MAX
+    text = ", ".join(shown[:CHANGED_NOTICE_MAX])
+    if rest > 0:
+        text = "%s (+%d more)" % (text, rest)
+    return "files this turn changed: " + text

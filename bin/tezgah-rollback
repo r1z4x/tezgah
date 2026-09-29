@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """tezgah-rollback <snapshot-id> [--force] - put a file back as it was.
+tezgah-rollback --session <id> [--dry-run] [--force] - put back every file one
+session changed.
 
 Tezgah never rolls back on its own: a hook that undoes work can cause more
 damage than the failure it answers, so the decision stays with the user. This
@@ -7,32 +9,78 @@ command is the only caller of tezgah_snapshot.restore - the snapshot store holds
 pre-write bytes, and this is how one reaches them.
 
 The pre-state is found by the id printed on the `snapshot` ledger row (the row
-carries the path and the sha256 it captured). Exit codes: 0 restored, 1 refused
-(unknown id, or the file moved on - add --force), 2 usage; refusals and usage go
-to stderr.
+carries the path and the sha256 it captured). `--session` restores, for every
+path the session's write tools changed, the earliest snapshot that session took
+of it; a path only a shell command touched, or one with no snapshot, is listed
+and left alone (tezgah_snapshot.session_plan). `--dry-run` prints that plan -
+path, snapshot id, action, tab-separated - and writes nothing.
+
+Exit codes: 0 restored (or, with --dry-run, planned), 1 any refusal (an unknown
+id, a file that moved on - add --force -, or a session with nothing on its
+ledger), 2 usage; refusals and usage go to stderr.
 """
 import os
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_snapshot import SnapshotError, restore  # noqa: E402
+from tezgah_snapshot import (  # noqa: E402
+    SnapshotError, restore, restore_session, session_plan)
 
-USAGE = "usage: tezgah-rollback <snapshot-id> [--force]"
+USAGE = ("usage: tezgah-rollback <snapshot-id> [--force]\n"
+         "       tezgah-rollback --session <id> [--dry-run] [--force]")
+
+
+def session(sid, force, dry_run):
+    if dry_run:
+        plan, refused = session_plan(sid), {}
+    else:
+        plan, refused = restore_session(sid, force=force)
+    if not plan:
+        print("tezgah-rollback: session %r has no snapshot or write rows on its "
+              "ledger" % sid, file=sys.stderr)
+        return 1
+    for entry in plan:
+        path = entry["path"]
+        if dry_run:
+            print("%s\t%s\t%s" % (path, entry["id"] or "-", entry["action"]))
+        elif path in refused:
+            print("tezgah-rollback: %s" % refused[path], file=sys.stderr)
+        elif entry["action"] == "restore":
+            print("restored %s" % path)
+        else:
+            print("left %s: %s" % (path, entry["action"]))
+    return 1 if refused else 0
 
 
 def main(argv):
-    for arg in argv:
-        if arg.startswith("-") and arg != "--force":
+    args = list(argv)
+    sid = None
+    if "--session" in args:
+        at = args.index("--session")
+        if (at + 1 >= len(args) or not args[at + 1].strip()
+                or args[at + 1].startswith("-")):
+            print(USAGE, file=sys.stderr)
+            return 2
+        sid = args.pop(at + 1)
+        args.pop(at)
+    for arg in args:
+        if arg.startswith("-") and arg not in ("--force", "--dry-run"):
             print("tezgah-rollback: unknown option %s\n%s" % (arg, USAGE),
                   file=sys.stderr)
             return 2
-    ids = [a for a in argv if not a.startswith("-")]
-    if len(ids) != 1 or not ids[0].strip():
+    force, dry_run = "--force" in args, "--dry-run" in args
+    ids = [a for a in args if not a.startswith("-")]
+    if sid is not None:
+        if ids:
+            print(USAGE, file=sys.stderr)
+            return 2
+        return session(sid, force, dry_run)
+    if dry_run or len(ids) != 1 or not ids[0].strip():
         print(USAGE, file=sys.stderr)
         return 2
     try:
-        paths = restore(ids[0], force="--force" in argv)
+        paths = restore(ids[0], force=force)
     except SnapshotError as exc:
         print("tezgah-rollback: %s" % exc, file=sys.stderr)
         return 1

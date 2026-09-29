@@ -240,6 +240,35 @@ capture — that last one only until `--force`, and the `rollback` row records t
 (`:246-266`). The id to pass is on the `snapshot` ledger row for that write (`_snapshot_hash`
 `hooks/tezgah_integrity.py:1437-1450`).
 
+`--session <id>` widens that command to a whole session: for every path the session's writes
+touched it puts back the EARLIEST snapshot the session took of it — the state before the session's
+first write of that path. `session_plan` (`hooks/tezgah_snapshot.py:316-367`) is that reading: it
+walks the session's rows in order, names every path an `edit` or shell row wrote (a snapshot row
+whose path no write row named — the second file of an `apply_patch` body — is there too), and joins
+each to the session's earliest `snapshot` row for it, carrying an `action` that says what the
+rollback would do with it: `restore` for a path a write tool changed, `list (shell only)` for a path
+only a shell command's redirect touched, `list (no snapshot)` for one with no pre-state at all — a
+file the session created. Only the `restore` entries are put back
+(`restore_session` `hooks/tezgah_snapshot.py:368-383`): which file a command wrote is read off its
+text rather than reported by a tool, so a shell-touched path is listed and never reverted even where
+the gate captured its target, and the id is printed for a deliberate single-id restore. A relative
+target is resolved against the paths the ledger has already resolved — the snapshot rows' own, which
+the gate resolved against the call's cwd (`_row_path` `hooks/tezgah_snapshot.py:281-315`). `--dry-run`
+prints the plan as `path<TAB>id<TAB>action` and writes nothing: no ledger row, no store change.
+
+The moved-on check is `restore`'s own, fed the session's last recorded hash of the path: the file the
+session left behind is what its earliest snapshot is compared with, so the session's own later writes
+need no `--force`, while a write by somebody else after the session's last one still refuses. One
+refusal does not stop the others — each path is its own file and its own decision — and the exit code
+is 1 when any was refused.
+
+At the end of a turn the same set is named where a host can show text without blocking the turn:
+Codex's Stop `systemMessage` carries `changed_files_notice`
+(`hooks/tezgah_integrity.py:2598-2630`), the turn's `changed_files` as one sorted line, capped at
+`CHANGED_NOTICE_MAX` names plus a count of the rest. Claude's and omp's Stop output returns a
+decision and nothing else and Cursor's block is a follow-up, so those three name no files: the set is
+named to be acted on by the user, never to hold the turn.
+
 **Nothing rolls back automatically, anywhere.** A hook that undoes work can destroy more than the
 failure it answers, and its trigger would be a guess about intent wearing a check's clothes
 (`hooks/tezgah_snapshot.py:10-18`; `hooks/tezgah_integrity.py:1662-1675`). Repair is the model's or

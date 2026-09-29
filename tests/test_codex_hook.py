@@ -305,6 +305,23 @@ class CodexStopGate(TempHome):
     def worked(self):
         self.post("exec_command", {"command": "ls -la"}, {"exit_code": 0})
 
+    def changed(self, name="x.py"):
+        """One file the turn changed, driven the way the host drives it: the
+        PreToolUse capture of its pre-state, the write, then the PostToolUse row
+        that carries the after-state - which is what makes it a change the
+        ledger saw rather than a call it was told about."""
+        path = os.path.join(self.repo, name)
+        with open(path, "w") as fh:
+            fh.write("before\n")
+        run([support.CODEX_HOOK],
+            {"hook_event_name": "PreToolUse", "cwd": self.repo,
+             "session_id": self.session, "tool_name": "apply_patch",
+             "tool_input": {"file_path": path}}, env=self.envv)
+        with open(path, "w") as fh:
+            fh.write("after\n")
+        self.post("apply_patch", {"file_path": path})
+        return path
+
     def stop(self, text, cwd=None, **extra):
         payload = {"hook_event_name": "Stop", "cwd": cwd or self.repo,
                    "session_id": self.session, "last_assistant_message": text}
@@ -331,6 +348,20 @@ class CodexStopGate(TempHome):
     def test_explicit_unverified_admission_passes(self):
         self.worked()
         self.assertNotIn("decision", self.stop("Yaptım ama doğrulanmadı."))
+
+    def test_stop_names_the_turn_s_changed_files(self):
+        # `systemMessage` is the one Stop surface in tezgah that shows text
+        # without blocking the turn, so the set a `tezgah-rollback --session`
+        # would put back is named here - the user decides on names they have
+        # seen, not on a set they would have to reconstruct.
+        self.changed("x.py")
+        out = self.stop("The header parser is in place.")
+        self.assertIn("files this turn changed: x.py", out.get("systemMessage", ""))
+
+    def test_stop_names_no_changed_files_when_the_turn_changed_none(self):
+        self.worked()
+        out = self.stop("The header parser is in place.")
+        self.assertNotIn("files this turn changed", out.get("systemMessage", ""))
 
     def test_stop_hook_active_passes(self):
         self.worked()

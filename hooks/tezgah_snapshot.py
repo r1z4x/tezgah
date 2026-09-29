@@ -4,7 +4,8 @@
 `capture(tool, inp, cwd, session_id)` copies the current bytes of every file a
 write tool is about to change into the snapshot store, and appends one
 `snapshot` ledger row (id, path, sha256) naming what it saved.
-`restore(snapshot_id)` puts those bytes back, and it has exactly one caller:
+`restore(snapshot_id)` puts those bytes back, and `restore_session(session_id)`
+does it for every path one session changed; both have exactly one caller:
 `bin/tezgah-rollback`, which a user runs.
 
 There is deliberately NO automatic rollback anywhere in tezgah. A hook that
@@ -214,7 +215,7 @@ class SnapshotError(Exception):
     """A rollback that must not proceed, with the reason the user reads."""
 
 
-def restore(snapshot_id, force=False):
+def restore(snapshot_id, force=False, expect=None):
     """Put a snapshot's bytes back, write the `rollback` row, name the file.
 
     Returns the restored paths, as a list (a snapshot holds one file; the shape
@@ -225,6 +226,13 @@ def restore(snapshot_id, force=False):
     changed since the capture and putting the old bytes back would silently
     clobber that change. `force` overrides that last refusal and only that one,
     and the row records that it was used.
+
+    `expect` is another sha256 the file may have now without counting as moved
+    on: the session's own last recorded state of it, which is what a session
+    rollback passes. Its earliest snapshot is the pre-state of the session's
+    FIRST write, so the file differs from it by construction - the session's own
+    later writes, not someone else's - and without `expect` every path of every
+    session rollback would need --force, which is a check that refuses nothing.
 
     Not called by any hook: see the module docstring for why."""
     sid = str(snapshot_id or "")
@@ -249,11 +257,14 @@ def restore(snapshot_id, force=False):
             "recorded, so nothing was restored" % sid)
     digest = meta.get("hash")
     current = _hash_file(path)
-    if current != digest and not force:
+    # a set without None: a file that is gone never matches, so `expect=None`
+    # cannot wave through a deleted file
+    if current not in {digest, expect} - {None} and not force:
+        since = ("this session last wrote it" if expect
+                 else "snapshot %r was taken" % sid)
         raise SnapshotError(
-            "%s has changed since snapshot %r was taken%s; --force restores the "
-            "captured bytes over it" % (path, sid,
-                                        "" if current else " (it is gone now)"))
+            "%s has changed since %s%s; --force restores the captured bytes "
+            "over it" % (path, since, "" if current else " (it is gone now)"))
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as fh:
@@ -265,3 +276,108 @@ def restore(snapshot_id, force=False):
              "id": meta.get("id") or sid, "out_bytes": len(data),
              "workspace": meta.get("workspace"), "forced": force or None})
     return [path]
+
+
+def _row_path(row, resolved=()):
+    """The resolved file a write row names, or "".
+
+    An `edit` row's detail is the tool's own path argument; a `run` row's is the
+    command, whose target is the redirect tezgah_gate.write_paths reads (the same
+    reader `_post_write` hashed it through).
+
+    A relative target is resolved against `resolved` - the paths the ledger has
+    already resolved, which are the snapshot rows' own: the gate's capture
+    resolved that same target against the call's cwd, which the row does not
+    keep, and wrote the answer there. A target that names the tail of exactly one
+    of them IS that path; the row's `workspace` (the root, not the cwd) is the
+    fallback. ponytail: two candidates - the same name under two directories the
+    session touched - and a relative fallback that resolves to a file the ledger
+    never named both stay unmatched, so the row lands outside the plan rather
+    than on a guessed path."""
+    detail = str(row.get("detail") or "")
+    mark = " " + ti.FAILED_MARK
+    if detail.endswith(mark):
+        detail = detail[:-len(mark)]
+    if row.get("kind") == "run":
+        detail = str((_write_paths({"command": detail}) or [""])[0])
+    if not detail:
+        return ""
+    if os.path.isabs(detail):
+        return os.path.realpath(detail)
+    detail = os.path.normpath(detail)
+    tails = [p for p in resolved if p.endswith(os.sep + detail)]
+    if len(tails) == 1:
+        return tails[0]
+    if not row.get("workspace"):
+        return ""
+    return os.path.realpath(os.path.join(str(row["workspace"]), detail))
+
+
+def session_plan(session_id):
+    """What rolling a session back would do, one entry per path, in the order
+    the session first touched them: {"path", "id", "action", "expect"}.
+
+    `id` is the EARLIEST snapshot the session took of the path - the state before
+    its first write. `expect` is the session's last recorded hash of it (the
+    newest `snapshot`, `edit` or `run` row that carries one), which `restore`
+    reads to tell the session's own writes from a later change.
+
+    `action` is "restore" only for a path with a snapshot that a write tool
+    changed (an `edit` row, or a snapshot with no row of its own - the second
+    file of an apply_patch body). A path only a shell command touched is listed,
+    never reverted, even when the gate snapshotted its redirect target: which
+    file a command wrote is read off its text, not reported by a tool, so a
+    rollback does not act on it (the id is shown for a deliberate single-id
+    restore). The row has to name the target and need not carry a hash: a
+    redirect's file that was gone by the time the after-state was read is still
+    a shell write, and reading it as a write tool's would revert it. A path with
+    no snapshot - a file the session created - has no pre-state to put back and
+    is listed too. Reads the ledger, writes nothing."""
+    order, first, expect, named = [], {}, {}, {}
+    for row in ti.events(session_id):
+        kind = row.get("kind")
+        if kind == "snapshot":
+            path = str(row.get("detail") or "")
+            if path and path not in first:
+                first[path] = row.get("id")
+        elif kind in ("edit", "run"):
+            path = _row_path(row, order)
+            if path:
+                named.setdefault(path, set()).add(kind)
+        else:
+            continue
+        if not path:
+            continue
+        if path not in order:
+            order.append(path)
+        if row.get("hash"):
+            expect[path] = row["hash"]
+    plan = []
+    for path in order:
+        if path not in first:
+            action = "list (no snapshot)"
+        elif named.get(path) == {"run"}:
+            action = "list (shell only)"
+        else:
+            action = "restore"
+        plan.append({"path": path, "id": first.get(path), "action": action,
+                     "expect": expect.get(path)})
+    return plan
+
+
+def restore_session(session_id, force=False):
+    """Restore every "restore" entry of `session_plan` through `restore`, so the
+    moved-on refusal and --force are the single-id rollback's own.
+
+    Returns (plan, refused): refused maps a path to the reason it was left
+    alone. One refusal does not stop the others - each path is its own file and
+    its own decision. Not called by any hook: see the module docstring."""
+    plan, refused = session_plan(session_id), {}
+    for entry in plan:
+        if entry["action"] != "restore":
+            continue
+        try:
+            restore(entry["id"], force=force, expect=entry["expect"])
+        except SnapshotError as exc:
+            refused[entry["path"]] = str(exc)
+    return plan, refused
