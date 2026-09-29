@@ -74,6 +74,20 @@ control", and omits it from the delivery list) while SessionStart fires again
 with `source: "compact"` and does deliver, so a host that delivers either one
 still gets the block.
 
+The same event is where a compaction is recorded rather than only answered. When
+the host hands the PostCompact payload a summary - Claude's `compact_summary`,
+the text the model is about to receive - the shared funnel writes one ledger row
+holding the summary's length, a 12-hex digest of it, the host's `trigger`
+(`manual` or `auto`) and how many of the fixed constraint lines tezgah injects
+(the pointer line, and the active plan's line when the repo keeps an open plan)
+the summary still carries, out of how many were injected. The text itself is
+never stored: the summary is the whole conversation by proxy and the ledger is a
+redacted channel, so a row must not be readable as prose. The count is a report
+and never a refusal - a compaction that dropped a rule is a finding to report,
+not a turn to block - and `tezgah-status --counters` folds the rows into
+`compactions`, `compact_chars` and `compact_constraint_rate`
+([evidence.md](evidence.md#the-kinds-by-what-reads-them)).
+
 One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a

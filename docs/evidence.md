@@ -27,7 +27,9 @@ credential-redacted **before** it is stored, over the whole text, and
 truncated to `DETAIL_MAX = 200` only afterwards, so a marker the cut halves still reads as a marker
 (`:481-506`, `:521`, `:623-627`): a named key keeps its name and loses its value, a `Bearer` token or
 a prefixed token family loses it (`:463-491`). The optional fields are exactly `LEDGER_FIELDS`
-(`hooks/tezgah_integrity.py:348-368`) — `id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed` — and
+(`hooks/tezgah_integrity.py:353-358`) — `id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`,
+plus the reply-shape names `lines`, `chars`, `items`, `longest_list`, `tr_share`, `answer_first` and the compaction
+row's `summary_chars`, `summary_hash`, `constraint_found`, `constraint_expected` — and
 a key outside that set is dropped, a `None` value left out, because every reader treats a missing key
 as `None` (`:632-634`). The append is one locked line, an exclusive `flock` with a 1 s bound falling
 back to an unlocked write (`:596-605`), and is best effort: a write failure is never the caller's.
@@ -50,6 +52,24 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2265-2313` | `counters` `hooks/tezgah_integrity.py:995-1020` |
 | `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1198-1213`, first-nudge `hooks/tezgah_gate.py:1352` | `counters` `hooks/tezgah_integrity.py:995-1020` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:184-186`, `:263-266` | `_snapshot_hash` `hooks/tezgah_integrity.py:1537-1550`; no counter |
+| `compact` | `note_compaction` `hooks/tezgah_integrity.py:983-1010`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1159-1176`) | `_counts` `hooks/tezgah_integrity.py:1146-1166` (what `counters` folds with) |
+
+**`compact` is what a compaction kept, from the record.** When the host hands the PostCompact
+payload the text the model is about to receive — Claude's `compact_summary` — the shared path
+(`hooks/tezgah_context.py:1196-1197`, reached by Claude's hook, codex/hook.py, omp's hook and dsh's
+bridge alike, because it is the same funnel each prompt goes through) writes one row: the summary's
+length (`summary_chars`), a 12-hex sha256 of it (`summary_hash`, so two compactions of one session can
+be told apart and the same summary can be recognised twice), the host's own word for why it compacted
+(`trigger`: `manual` or `auto`) on `detail`, and the constraint report. The summary's **text is never
+stored** — it is the whole conversation by proxy and the ledger is a redacted channel — so a row can
+never be read back as prose. The constraint report is `constraint_found` of `constraint_expected`: how
+many of the fixed sentences tezgah injects the summary still carries, counted against the very text the
+block renders (`constraint_lines`, `hooks/tezgah_context.py:1140-1151`, over `POINTER_LINE`
+`:1132-1134` and the active plan's front matter). It is a **report and never a refusal**: a compaction
+that dropped a rule is a finding to report, not a turn to block. A host that hands no summary writes no
+row, and `tezgah-status --counters` folds the rows into `compactions`, `compact_chars` (the newest
+summary's length) and `compact_constraint_rate` — which stays `None` until one row carries both counts,
+because a `0.0` would claim every compaction dropped every rule.
 
 **`interrupted` is the step with no verdict.** The host said the call was *stopped* — a user's cancel,
 or a call a policy denied before it ran — rather than reporting anything the tool answered, so the row

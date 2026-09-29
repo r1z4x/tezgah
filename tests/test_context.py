@@ -1084,6 +1084,40 @@ class ResumeBlock(ChildCall):
         self.assertIn("tezgah-contract` skill", out)
 
 
+class CompactRecord(ChildCall):
+    """Plan 021 item 4: a compaction is recorded on the SHARED path.
+
+    `context_for` is the one funnel every host's events go through - Claude's
+    projects-auto-init.py, codex/hook.py, omp/hook.py and dsh's bridge - so a row
+    written there is written for whichever of them hands over a summary, rather
+    than only for the one hook file that happened to grow the code."""
+
+    SUMMARY = ("The turn was wiring the second half of plan 021 per the "
+               "tezgah-contract skill, and the check had passed.")
+
+    def rows(self, repo, session="s1"):
+        return self.child(
+            "import json, tezgah_context as tc, tezgah_integrity as ti\n"
+            "tc.context_for('post_compact', %r, {'session_id': %r,\n"
+            "    'trigger': 'auto', 'compact_summary': %r})\n"
+            "print(json.dumps([r for r in ti.events(%r)\n"
+            "                  if r['kind'] == 'compact']))\n"
+            % (repo, session, self.SUMMARY, session))
+
+    def test_post_compact_writes_the_row_on_the_shared_context_path(self):
+        repo = self.make_repo("proj")
+        rows = self.rows(repo)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["summary_chars"], len(self.SUMMARY))
+        self.assertEqual(rows[0]["detail"], "auto")
+        # no plan file in this repo, so the one injected constraint is the
+        # pointer line - and the summary names the skill it points at
+        self.assertEqual((rows[0]["constraint_found"],
+                          rows[0]["constraint_expected"]), (1, 1))
+        # the summary is the conversation: only its size and digest are stored
+        self.assertNotIn("the check had passed", json.dumps(rows))
+
+
 class StateDelta(ChildCall):
     """C1: the standing constraints are re-stated every turn and a long turn
     re-states them again without being able to say what moved. The per-turn
