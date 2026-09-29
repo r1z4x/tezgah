@@ -1049,6 +1049,44 @@ class ResumeBlock(ChildCall):
         self.assertEqual("", self.block(repo))
         self.assertNotIn("## Session so far", self.session(repo))
 
+    def test_a_damaged_ledger_line_costs_the_bullets_and_not_the_block(self):
+        # `_parse` raises on a line that is terminated but does not parse, on
+        # purpose. That raise escaping the hook would drop the WHOLE injection -
+        # core, plans, lessons, pointer - for a session whose ledger holds one
+        # bad line, so the two ledger reads behind the resume block are guarded:
+        # the block loses its two ledger bullets and keeps the rest.
+        repo = self.repo()
+        self.plan(repo)
+        self.commit(repo, "first")
+        out = self.child("import json, tezgah_context as tc,"
+                         " tezgah_integrity as ti\n"
+                         "ti.note('s1', 'verify_ok', 'python3 -m unittest')\n"
+                         "ti.note('s1', 'edit', 'hooks/tezgah_context.py',"
+                         " changed=True)\n"
+                         "with open(ti._path('s1'), 'a') as fh:\n"
+                         "    fh.write('{this is not json}\\n')\n"
+                         "print(json.dumps(tc.context_for('session_start', %r,"
+                         " {'session_id': 's1'})))\n" % repo)
+        self.assertIn("## Session so far", out)          # the block survives
+        self.assertIn("commits on", out)
+        self.assertIn("plan 021-thing next", out)
+        self.assertNotIn("last check", out)              # the bullets the
+        self.assertNotIn("changed this turn", out)       # damaged read owed
+        self.assertIn("tezgah-contract` skill", out)     # and the core too
+
+    def test_an_open_plan_the_branch_does_not_own_is_named_as_open(self):
+        # On `main` with one open plan, naming that plan's State/Next as the
+        # session's own invents a task: the block says which plan it is, and
+        # that this checkout is not the one that owns it.
+        repo = self.repo()
+        self.plan(repo)
+        self.commit(repo, "first")
+        subprocess.run(["git", "-C", repo, "checkout", "-q", "-b", "work"],
+                       check=True)
+        out = self.session(repo)
+        self.assertIn("open plan 021-thing (not this branch) next:", out)
+        self.assertNotIn("- plan 021-thing", out)
+
     def test_resume_budget_is_the_first_block_given_up(self):
         repo = self.full_repo()
         whole = self.session(repo)

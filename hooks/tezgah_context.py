@@ -621,20 +621,25 @@ def _plan_facts(path):
 
 
 def _active_plan(root):
-    """The open plan the resume block names: the one whose `NNN-slug` matches the
-    checked-out `plan/...` branch, else the lowest-id open plan. None when the
-    repo keeps no open plan."""
+    """(the open plan the resume block names, whether the checkout owns it).
+
+    The plan whose `NNN-slug` matches the checked-out `plan/...` branch is the
+    session's own work, and the block says so. Otherwise the lowest-id open plan
+    is offered as what it is - an OPEN plan, not this session's - because a
+    report of another plan's State/Next read as the active one is the block
+    inventing a task, which is worse than the line it costs. (None, False) when
+    the repo keeps no open plan."""
     paths = sorted(glob.glob(os.path.join(root, ".tezgah", "plans",
                                           "open", "*.md")))
     if not paths:
-        return None
+        return None, False
     branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
     if branch.startswith("plan/"):
         want = branch[len("plan/"):]
         for path in paths:
             if os.path.basename(path)[:-len(".md")] == want:
-                return path
-    return paths[0]
+                return path, True
+    return paths[0], False
 
 
 def resume_state(root, session_id):
@@ -645,25 +650,34 @@ def resume_state(root, session_id):
     and the files this turn's writes changed. Read by session_start and the
     post-compaction path; see the note above for why both."""
     lines = []
-    plan = _active_plan(root)
+    plan, mine = _active_plan(root)
     if plan:
         pid = os.path.basename(plan)[:-len(".md")]
+        label = "plan %s" % pid if mine else "open plan %s (not this branch)" % pid
         state, nxt = _plan_facts(plan)
         if state:
-            lines.append("- plan %s state: %s" % (pid, state))
+            lines.append("- %s state: %s" % (label, state))
         if nxt:
-            lines.append("- plan %s next: %s" % (pid, nxt))
+            lines.append("- %s next: %s" % (label, nxt))
     log = git(root, "log", "--oneline", "-%d" % RESUME_LOG)
     if log:
         branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
         lines.append("- commits on %s:" % (branch or "HEAD"))
         lines += ["  " + cut(ln, RESUME_COMMIT_CHARS) for ln in log.splitlines()]
-    row = last_check(session_id) if session_id else None
+    # The two ledger reads below are diagnosis, not the block: a ledger line that
+    # is terminated but does not parse makes `_parse` raise on purpose, and that
+    # raise reaching the host's `safe()` drops the WHOLE injection - core, plans,
+    # lessons, pointer - for a session whose ledger holds one bad line. So a
+    # damaged ledger costs these two bullets and nothing else.
+    try:
+        row = last_check(session_id) if session_id else None
+        files = sorted(changed_files(session_id)) if session_id else []
+    except ValueError:
+        row, files = None, []
     if row:
         lines.append("- last check %s: %s"
                      % (row.get("kind"), cut(str(row.get("detail") or ""),
                                              RESUME_CHECK_CHARS)))
-    files = sorted(changed_files(session_id)) if session_id else []
     if files:
         lines.append("- changed this turn: %s" % ", ".join(files[:RESUME_FILES]))
     if not lines:
@@ -1149,7 +1163,7 @@ def constraint_lines(root):
     short enough to hit by accident, which is why the row carries both numbers
     and the label rather than a verdict."""
     out = [("pointer", POINTER_NEEDLE)]
-    plan = _active_plan(root)
+    plan, _mine = _active_plan(root)
     row = _plan_row(plan) if plan else None
     if row and row[0]:
         out.append(("plan", row[0]))
