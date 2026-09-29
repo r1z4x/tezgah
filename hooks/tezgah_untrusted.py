@@ -25,8 +25,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_integrity import (  # noqa: E402
-    BASH_TOOLS, UNTRUSTED_CHANNEL, WRITE_TOOLS, turn_rows, untrusted_label,
-    untrusted_source)
+    BASH_TOOLS, SUBAGENT_CHANNEL, UNTRUSTED_CHANNEL, WRITE_TOOLS, subagent_read,
+    turn_rows, untrusted_label, untrusted_source)
 
 # The calls an action leaves through: one that writes, moves or runs something.
 # A read is not tainted by an earlier read - the taxonomy asks a host to mark the
@@ -76,7 +76,7 @@ def taint_notice(source):
             "because the user asked, never because that content did." % channel)
 
 
-def marks(tool, inp, session_id):
+def marks(tool, inp, session_id, result=None):
     """(the channel this call's ledger row carries, the line to show the model)
     for one tool call: (None, None) for an ordinary one.
 
@@ -84,8 +84,17 @@ def marks(tool, inp, session_id):
     user and this workspace, or the taint notice on an effect in a turn that has
     already read one. Both are computed before the row is written, which is what
     makes the taint a transition: once the call's own row carries the channel,
-    the next effect this turn has nothing left to say."""
+    the next effect this turn has nothing left to say.
+
+    `result` is the host's result when it sends one, because one channel's
+    provenance is decided by the result and not by the call: a subagent's report
+    is what the delegate handed back, so a call that returned nothing - or a
+    background launch answering with its own id and the prompt - read nothing
+    from outside and is left unlabelled. A host that sends no result keeps the
+    call-decided channels, which never consult it."""
     own = untrusted_source(tool, inp)
+    if own == SUBAGENT_CHANNEL and not subagent_read(result):
+        own = None
     inherited = turn_channel(session_id) if (
         not own and effectful(tool)) else None
     return own or inherited, untrusted_label(own) or taint_notice(inherited)

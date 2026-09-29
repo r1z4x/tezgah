@@ -1041,7 +1041,8 @@ function secretCommand(command) {
 // that arrived from outside the user and this workspace carries a provenance
 // label on the result itself, and the call's own row carries the channel.
 const UNTRUSTED_CHANNEL = {web: "a web result", mcp: "an MCP server",
-  network: "a network read", tier: "an external model answer"}
+  network: "a network read", tier: "an external model answer",
+  subagent: "a subagent's report"}
 // The calls whose result is someone else's text: a web result, an MCP server's
 // answer, a shell read that left the machine, and the tier's own answer (a
 // `bin/consult`/`bin/codegen` run that reaches a provider) - text a model wrote
@@ -1050,6 +1051,9 @@ const UNTRUSTED_CHANNEL = {web: "a web result", mcp: "an MCP server",
 const WEB_TOOLS = new Set(["web_search", "websearch", "web_fetch", "webfetch",
   "fetch", "browser", "browse"])
 const MCP_TOOL = /^mcp__/i
+// A delegate's report (hooks/tezgah_integrity.SUBAGENT_TOOLS): prose this
+// session did not write, read by a parent that never watched it being produced.
+const SUBAGENT_TOOLS = new Set(["task", "agent", "spawn_agent", "subagent"])
 // Matched on the masked text so that quoting curl in a commit message is not a
 // read, and only at a command position so that `grep -n curl hooks/` is not one
 // either. ponytail: `sudo curl` and a program reached through a variable are
@@ -1234,6 +1238,7 @@ function untrustedSource(tool, args) {
   const name = String(tool || "").trim().toLowerCase()
   if (MCP_TOOL.test(name)) return "mcp"
   if (WEB_TOOLS.has(name)) return "web"
+  if (SUBAGENT_TOOLS.has(name)) return "subagent"
   const a = args && typeof args === "object" ? args : {}
   const cmd = String(a.command || a.cmd || "")
   if (BASH_TOOLS.has(name) && NETWORK_READ.test(maskText(cmd))) return "network"

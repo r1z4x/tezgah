@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_context import record, shell_kind  # noqa: E402
 from tezgah_gate import drift_reason  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import note_tool, untrusted_source  # noqa: E402
+from tezgah_integrity import (  # noqa: E402
+    SUBAGENT_CHANNEL, note_tool, report_bytes, untrusted_source)
 from tezgah_paths import root_for  # noqa: E402
 from tezgah_untrusted import marks  # noqa: E402
 
@@ -79,6 +80,7 @@ def main():
     tool = p.get("tool_name", "")
     inp = p.get("tool_input") or {}
     session_id = p.get("session_id")
+    result = p.get("tool_response", p.get("tool_result"))
     # A failure has no result and made no effect, and both lines assert one
     # ("this result came from ..."), so only PostToolUse shows them. The channel
     # is a property of the call either way, so the row keeps it on both events.
@@ -87,8 +89,8 @@ def main():
     if event == "PostToolUse":
         # a crash in `marks` costs both halves of the provenance rather than the
         # envelope: no source on the row, no notice to the model
-        source, notice = safe(session_id, marks, tool, inp, session_id) or (
-            None, None)
+        source, notice = safe(session_id, marks, tool, inp, session_id,
+                              result) or (None, None)
         # The long turn's re-statement rides the same line, on the same field
         # (see tezgah_gate.drift_reason): the notice is about the turn, and this
         # result is the channel a PostToolUse hook has for the model. Read
@@ -121,14 +123,14 @@ def main():
     # fail. `is True` rather than truthiness: a host that sends the string "false"
     # would otherwise turn a real failure into an interruption, which loses
     # evidence, and the safer miss is the other direction.
-    result = p.get("tool_response", p.get("tool_result"))
     interrupted = (p.get("is_interrupt") is True
                    or (isinstance(result, dict)
                        and result.get("interrupted") is True))
     safe(session_id, note_tool, session_id, tool, inp,
          failed=failed,
          interrupted=interrupted,
-         out_bytes=result_size(result),
+         out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
+                    else result_size(result)),
          error=p.get("error"),
          cwd=cwd,
          source=source)

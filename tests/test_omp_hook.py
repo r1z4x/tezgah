@@ -436,8 +436,7 @@ class OmpHook(TempHome):
         cases = [("bash", {"command": "pytest -q"}),
                  ("bash", {"command": 'git commit -m "curl is not a read"'}),
                  ("bash", {"command": "grep -n curl hooks/"}),
-                 ("grep", {"pattern": "curl"}),
-                 ("task", {"prompt": "x"})]
+                 ("grep", {"pattern": "curl"})]
         for tool, inp in cases:
             out, proc = self.event({"event": "post_tool_use", "cwd": repo,
                                     "session_id": support.slug(tool + str(inp)),
@@ -447,6 +446,23 @@ class OmpHook(TempHome):
         self.assertEqual([r for r in self.evidence() if r.get("source")], [])
         self.assertEqual([r for r in self.evidence() if r["kind"] == "external"],
                          [])
+
+    def test_a_subagent_report_is_labelled_and_its_part_count_is_not_a_size(self):
+        # A task's report is text this session did not write, so it is labelled
+        # like any outside channel. The bridge's `result_len` is the report's
+        # part count (1 for a one-part report of any length), never its bytes,
+        # so the row states no size rather than claiming a 1-byte report.
+        repo = self.make_repo()
+        out, proc = self.event({"event": "post_tool_use", "cwd": repo,
+                                "session_id": "s-sub", "tool": "task",
+                                "input": {"prompt": "x"}, "failed": False,
+                                "result_len": 1})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("untrusted", out["label"])
+        self.assertIn("a subagent's report", out["label"])
+        row = [r for r in self.evidence() if r.get("source")][-1]
+        self.assertEqual((row["kind"], row["source"]), ("external", "subagent"))
+        self.assertNotIn("out_bytes", row)
 
     def test_unknown_event_and_broken_stdin_are_silent(self):
         proc = run([support.OMP_HOOK], {"event": "who-knows",

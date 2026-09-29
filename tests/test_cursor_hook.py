@@ -329,6 +329,17 @@ class CursorProvenance(TempHome):
     def test_an_ordinary_call_is_silent(self):
         self.assertEqual(self.call("Shell", {"command": "pytest -q"}), {})
 
+    def test_a_subagent_report_is_labelled_and_sized_in_bytes(self):
+        # Cursor's Task hands back a delegate's report: text this session did not
+        # write, so it is labelled, and its row carries the byte length of the
+        # result string Cursor reports - UTF-8 bytes, not characters.
+        report = '{"result":"bulgu: çalışıyor"}'
+        text = self.context("Task", {"prompt": "x"}, tool_output=report)
+        self.assertIn("a subagent's report", text)
+        row = self.rows()[-1]
+        self.assertEqual((row["kind"], row["source"], row["out_bytes"]),
+                         ("external", "subagent", len(report.encode("utf-8"))))
+
     def test_outside_a_root_nothing_is_shown(self):
         self.assertEqual(
             self.context("get_file", {"path": "x"}, mcp_server_name="github",

@@ -46,7 +46,8 @@ from tezgah_context import (  # noqa: E402
     command_text, context_for, record, shell_kind, slug, under)
 from tezgah_gate import decision, drift_reason, explored  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import note, note_tool, stop_reason  # noqa: E402
+from tezgah_integrity import (  # noqa: E402
+    SUBAGENT_CHANNEL, note, note_tool, report_bytes, stop_reason)
 from tezgah_paths import cache_dir, off  # noqa: E402
 from tezgah_untrusted import marks  # noqa: E402
 
@@ -248,7 +249,8 @@ def dispatch(payload):
         # own mark, and `marks` answers about the turn the call arrived in. Like
         # every other tezgah surface but the status line, both halves are armed
         # only inside a configured root.
-        source, notice = (marks(source_tool(payload), inp, session_id)
+        source, notice = (marks(source_tool(payload), inp, session_id,
+                                payload.get("tool_output"))
                           if under(cwd) else (None, None))
         # The long turn's re-statement joins the same line as the label and the
         # code-graph reinforcement below: `additional_context` is the one field
@@ -262,7 +264,9 @@ def dispatch(payload):
         # the tool": the row keeps its size, never the result itself.
         note_tool(session_id, gate_name(payload.get("tool_name", "")), inp,
                   failed=None, source=source, cwd=cwd,
-                  out_bytes=result_size(payload.get("tool_output")))
+                  out_bytes=(report_bytes(payload.get("tool_output"))
+                             if source == SUBAGENT_CHANNEL
+                             else result_size(payload.get("tool_output"))))
         reinforce = None
         if (kind in ("graph", "consult") and under(cwd) and not quiet
                 and first_time(session_id, "graph")):
