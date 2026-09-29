@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The external-state Stop class, `no external read`.** A reply that states the
+  state of a system tezgah does not own - a registry, a release, a tag, a
+  formula, a CI run - now owes a read of that system in the same turn: `npm view`,
+  `gh release view`, `gh run list`, `brew info`, or a `curl` to the registry's own
+  host. Without it the turn is refused and the refusal names the command, chosen
+  by the subject the reply used. Two turns measured the gap - "npm 0.22.0 is
+  missing", read off an out-of-date local npm client, and "make NPM_TOKEN an
+  automation token", which it already was - and neither was judged at all: the
+  trigger was the turn's own work plus a completion word, and an advice-only turn
+  has neither, so the fold returned `(None, None)` over both. The lever is the
+  external read and never a reflection, because a self-critique pass with no new
+  signal is measured to leave a wrong answer more convincing (arXiv:2310.01798),
+  while a local client's cache and a memory of what used to be published answer
+  this question wrongly. Measured on the real hook, advice-only turn, claim
+  stated, no read: before, no block and `claims` 0 / `false_completion` 0; after,
+  `blocked: no external read` and 1 / 1, with `shape_blocked` 0 - it is an
+  evidence class, so `false_completion` is the counter that reads it. The same
+  reply with the read performed is not refused, an honest advice-only reply that
+  merely names npm and a version is not, and the class is asked only where the
+  fold would otherwise let the turn end - so it turns an allow into a refusal and
+  never changes the class another branch refused the same turn under. The trigger
+  is the narrowest form measured: a subject and a state word within 45 characters
+  of each other on one line, read on the reply's prose so a command inside a code
+  span or a path cannot supply the subject, with the run-status words (`green`,
+  `failed`) pairing only with a CI subject. The first draft read 40 of this
+  machine's own 2,092 final replies as claims; this one reads 2, both in review
+  text about someone else's tooling.
+
 ## [0.22.0] - 2026-09-29
 
 ### Added

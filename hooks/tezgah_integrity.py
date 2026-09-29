@@ -2163,8 +2163,8 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None):
     through. `detail` carries the reason class - `blocked: no verify_ok`,
     `blocked: check failed`, `blocked: partial failure`, `blocked: stale
     evidence`, `blocked: no ui_ok` (both halves of the UI rule: the screen proof
-    and the design-contract floor), the shape classes in SHAPE_BLOCKS, or `ok` -
-    so which branch refused a turn is readable without parsing the block text.
+    and the design-contract floor), `blocked: no external read`, the shape classes
+    in SHAPE_BLOCKS, or `ok` - so which branch refused a turn is readable.
     One row per reply per turn: an identical row for the same key is skipped.
 
     Every judged reply also leaves one `shape` row: `detail` is its report-only
@@ -2232,7 +2232,13 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     ends on a failed check still reads as `check failed`, and the stale branch
     sits before the `no verify_ok` floor because a claim with a check that
     predates the last write has a different repair than one with no check at
-    all.
+    all. The external-read class (`no external read`) is last for the same
+    reason and in its strongest form: it is asked only where the fold would
+    otherwise allow the turn, so it can turn an allow into a refusal and never
+    changes the class another rule refused the same turn under. Its trigger is
+    the claim and not the work, which is why the "no work, no claim word" exit
+    above it carries the one exemption - an advice-only turn is exactly the
+    shape that stated both of the claims this class was written for.
 
     `rows` is this turn's own rows, read once by `stop_reason`: the fold is
     scoped the way `_partial_state`'s already was, and the Stop path still reads
@@ -2261,7 +2267,12 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     # not the partial-failure branch above it, because an interruption is no
     # failure at all (the row carries no `exit`).
     worked = ev & {"edit", "verify", "verify_fail", "run", "interrupted"}
-    if not worked and not (done or verified):
+    # The external-state claim is read here and judged below, after every class
+    # it overlaps. It is the one class a turn with no work in it can make, so the
+    # exit below - "nothing was done and nothing was claimed" - is exactly the
+    # shape that used to leave such a claim unjudged.
+    external = _external_claim(t)
+    if not worked and not (done or verified) and not external:
         return (None, None)
     # the newest check decides: "the tests pass" is false when a later run
     # failed, even though an earlier one succeeded
@@ -2339,9 +2350,20 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     # so a UI turn whose UI work is proven is not asked for a check it already
     # has - and one whose UI work is not proven was refused above, so an
     # unrelated write it left unverified is still the generic question below.
-    if max(last_pass, ui_proof) > last_change:
-        return (None, None)
-    if last_pass >= 0:
+    # The read of the authoritative source stands where a passing check stands,
+    # for the one claim it is evidence about (`external`): a reply that states
+    # the state of a registry, a release or a CI run and carried the read that
+    # answers it has settled that half of itself. It is folded into the proof
+    # only for that claim - an `npm view` run is not evidence about the tree, and
+    # letting it stand for a turn's own work would excuse every unverified edit
+    # beside it.
+    ext_read = _external_read_row(rows) if external else -1
+    unread = external is not None and ext_read < 0
+    proof = max(last_pass, ui_proof, ext_read)
+    if proof > last_change:
+        if not unread:
+            return (None, None)
+    elif last_pass >= 0:
         names = _stale_paths(rows)
         shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
                                         if len(names) > 3 else "")
@@ -2353,15 +2375,200 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
                 "A green run over the previous revision does not cover this one."
                 % (shown or "a file this session wrote",
                    "was" if len(names) <= 1 else "were"))
-    if not worked:
-        return (None, None)
-    return ("no verify_ok",
-            "This turn did work (edits or commands) and no check ran "
-            "successfully in it (nothing recorded as verify_ok with a "
-            "real result and an unmasked command), so nothing here supports "
-            "calling it done, complete or verified. Run the real check and report "
-            "its output, or mark the claim \"doğrulanmadı\". Do not describe a "
-            "check you did not run as if it ran.")
+    elif worked:
+        return ("no verify_ok",
+                "This turn did work (edits or commands) and no check ran "
+                "successfully in it (nothing recorded as verify_ok with a "
+                "real result and an unmasked command), so nothing here supports "
+                "calling it done, complete or verified. Run the real check and "
+                "report its output, or mark the claim \"doğrulanmadı\". Do not "
+                "describe a check you did not run as if it ran.")
+    # Last, so none of the classes above loses its turn to it: every shape this
+    # one refuses is a shape the fold was about to allow. That is the whole
+    # ordering rule of this function - the branch is asked only where the answer
+    # would otherwise be "this turn may end".
+    if unread:
+        return ("no external read",
+                "The reply states the state of a system tezgah does not own (%s) "
+                "and no read of that system ran in this turn. Only the system "
+                "itself knows: a local client's cache, a stale checkout and a "
+                "memory of what used to be published all answer this wrongly. Run "
+                "the read and report its output - %s - or mark the claim "
+                "\"doğrulanmadı\"." % (cut(external.strip(), 80),
+                                       _external_command(external)))
+    return (None, None)
+
+
+# The tenth Stop class, `no external read`: a reply that states the state of a
+# system tezgah does not own. Two turns measured the gap - "npm 0.22.0 is
+# missing", read off an out-of-date local npm client, and "make NPM_TOKEN an
+# automation token", which it already was - and neither was judged at all: the
+# trigger above is the turn's own work plus a completion word, and an advice-only
+# turn has neither, so the fold returned (None, None) over both. The lever is an
+# external read and never a reflection: a self-critique pass with no new signal is
+# measured to leave the model more confident of a wrong answer, not less
+# (arXiv:2310.01798), while a local client's cache, a stale checkout and a memory
+# of what used to be published all answer this question wrongly. So the class
+# asks for the command whose output the reply could have used, and names it.
+#
+# The subject is named by its own token, and `version` is deliberately not one: a
+# reply that says "tezgah 0.22.0" is talking about this repository's own code,
+# which the class must not fire on. The claim is a pair - a subject and a state
+# word on one line - or a tagged release number beside one of the states the
+# incident turned on, and never a bare mention.
+#
+# The pair is read on the reply's PROSE (`NOT_PROSE` blanked), so the subject
+# cannot come from inline code, a path or a URL: `brew tap` in backticks, the
+# `.github/workflows/...` inside a citation and a URL ending in
+# `/releases/tag/...` are text about a system, not a claim about its state. The
+# two words have to sit within `EXTERNAL_GAP` of each other, because a long
+# report line that names a tap at its start and CI policy at its end made no
+# single claim. Both halves were added after measuring the first draft over this
+# machine's own 2,092 final assistant replies: 40 replies (1.9%) were read as a
+# claim, most of them from a two-part number beside `yok`, a subject taken out of
+# a path, or two words that merely shared a line. As it stands 2 of the 2,092 are
+# read as claims, both in review text about someone else's tooling, and the miss
+# this buys costs a refusal the model can answer with `doğrulanmadı`.
+EXTERNAL_SYSTEM = re.compile(
+    r"\b(?:npm|yarn|pnpm|pip|pypi|py ?pi|crates(?:\.io)?|rubygems|gem|"
+    r"brew|homebrew|formula|tap|dist-tag|tarball|registry|releases?|tags?|"
+    r"workflow|pipeline|ci|github)\b", re.I)
+EXTERNAL_STATE = re.compile(
+    r"\b(?:missing|absent|unpublished|exists?|not (?:published|released|found|"
+    r"there|listed|present)|published|released|deprecated|outdated|stale|"
+    r"yok|eksik|yayımlan|yayınlan)\b", re.I)
+# The status of a run, which pairs with a CI subject alone: "the workflow is red"
+# and "CI passed" are claims about a system tezgah does not own, while the same
+# words beside `release` are prose ("Suite green, release ready"), which is what
+# the split is for.
+EXTERNAL_CI = re.compile(r"\b(?:workflow|pipeline|ci|github)\b", re.I)
+EXTERNAL_CI_STATE = re.compile(
+    r"\b(?:green|red|passing|passes|passed|failing|fails|failed|behind|flaky|"
+    r"geçti|başarısız)\b", re.I)
+# How far apart, on one line, the two halves of a claim may sit. 45 characters
+# holds every form the incident took ("npm 0.22.0 yayımlanmadı" is 12 apart,
+# "the registry has no such version published" is 30) and drops the long report
+# line above.
+EXTERNAL_GAP = 45
+# A tagged release number beside a publish state, with the `v` required: `v0.21.0
+# is not published` is a claim from here, while `0.22.0` on its own is this
+# repository's own version and `SC 2.5.8` or `4.1.3` beside `yok` are section
+# numbers in prose. A two-part number was the single largest source of false
+# positives in the measurement above.
+EXTERNAL_VERSION = re.compile(
+    r"\bv\d+\.\d+\.\d+[^\n]{0,40}?\b(?:missing|absent|unpublished|exists?|"
+    r"published|released|yok|eksik|yayımlan|yayınlan)\b"
+    r"|\b(?:missing|absent|unpublished|exists?|published|released|yok|eksik|"
+    r"yayımlan|yayınlan)\b[^\n]{0,40}?v\d+\.\d+\.\d+", re.I)
+# The read that answers it, at a command position on the masked text - the
+# convention `UI_CHECK` and `NETWORK_READ` follow - so a reply that merely names
+# `npm view`, and the search whose pattern is that name, are not reads of
+# anything. The curl half is anchored on the registry's own host, so a fetch of
+# anything else is not one, and every command the refusal names below is a form
+# this pattern accepts - a repair that did not satisfy the class would be a lie
+# in the block text. `git ls-remote` is the remote's own answer for "does the tag
+# exist"; `gh release create` is deliberately absent: making the release is not
+# reading its state. ponytail: a program behind a variable, an alias or an
+# interpreter is missed rather than matched by accident, the direction every
+# reader in this module takes.
+EXTERNAL_READ = re.compile(
+    r"(?:^|[|;&(])\s*(?:\S*/)?(?:npm|pnpm|yarn)\s+"
+    r"(?:view|info|show|dist-tag|outdated)\b"
+    r"|(?:^|[|;&(])\s*(?:\S*/)?gh\s+release\s+(?:view|list|download|upload)\b"
+    r"|(?:^|[|;&(])\s*(?:\S*/)?gh\s+run\s+(?:view|list|watch)\b"
+    r"|(?:^|[|;&(])\s*(?:\S*/)?gh\s+(?:api|workflow|repo)\b"
+    r"|(?:^|[|;&(])\s*(?:\S*/)?git\s+ls-remote\b"
+    r"|(?:^|[|;&(])\s*(?:\S*/)?brew\s+(?:info|fetch|outdated|search)\b"
+    r"|(?:^|[|;&(])\s*(?:\S*/)?(?:pip|gem)\s+(?:index|search|info)\b"
+    r"|(?:^|[|;&(])\s*(?:\S*/)?(?:curl|wget)\b[^\n]*"
+    r"(?:registry\.npmjs\.org|npmjs\.com|pypi\.org|crates\.io|rubygems\.org|"
+    r"api\.github\.com|formulae\.brew\.sh)",
+    re.I | re.M)
+# The command the refusal names, chosen by the subject the reply used: a repair
+# the model can run, not an instruction to be careful. The last row is the
+# default and it is the npm read, because the incident was an npm version.
+EXTERNAL_SOURCE = (
+    ("pypi|py ?pi|pip", "pip index versions <pkg> (or curl -s "
+                        "https://pypi.org/pypi/<pkg>/json)"),
+    ("crates", "curl -s https://crates.io/api/v1/crates/<crate>"),
+    ("rubygems|gem", "gem info <gem> -r (or curl -s "
+                     "https://rubygems.org/api/v1/gems/<gem>.json)"),
+    ("brew|homebrew|formula|tap", "brew info <formula>"),
+    ("tags?|releases?", "gh release view <tag> "
+                        "(or git ls-remote --tags origin)"),
+    ("workflow|ci|pipeline|github", "gh run list --limit 5"),
+    ("", "npm view <pkg> versions --json (or curl -s "
+         "https://registry.npmjs.org/<pkg>)"),
+)
+
+
+def _external_pair(line, subject, state, gap=EXTERNAL_GAP):
+    """True when one of `subject`'s matches and one of `state`'s sit within
+    `gap` characters of each other on `line`. The two halves of one claim, and
+    not two words that merely share a line."""
+    left = [(m.start(), m.end()) for m in subject.finditer(line)]
+    right = [(m.start(), m.end()) for m in state.finditer(line)]
+    for start, end in left:
+        for other, close in right:
+            if other - end <= gap and start - close <= gap:
+                return True
+    return False
+
+
+def _external_claim(text):
+    """The line of `text` that states the state of a system tezgah does not own,
+    or None.
+
+    Read per line. A claim is a subject and a state word within `EXTERNAL_GAP` of
+    each other (`npm 0.22.0 is missing`, `the tag was never published`), a CI
+    subject beside a run status, or a tagged release number beside one of the
+    publish states - and the first two are read on the reply's prose, with inline
+    code, paths, URLs and identifiers blanked, so a quoted command cannot supply
+    the subject. A line inside a fence or a table row is not read at all: a
+    quoted command or a summary row is not this reply's claim. ponytail: a
+    per-line test, not a parser - a claim split over two lines, and one whose
+    halves sit further apart than the gap, are missed rather than matched by
+    accident, and the miss costs a refusal the model can answer with
+    `doğrulanmadı`."""
+    for line in str(text or "").split("\n"):
+        if FENCE.match(line) or TABLE_ROW.match(line):
+            continue
+        if EXTERNAL_VERSION.search(line):
+            return line
+        prose = NOT_PROSE.sub(" ", line)
+        if (_external_pair(prose, EXTERNAL_SYSTEM, EXTERNAL_STATE)
+                or _external_pair(prose, EXTERNAL_CI, EXTERNAL_CI_STATE)):
+            return line
+    return None
+
+
+def _external_command(line):
+    """The read to name in the refusal: the subject the reply used, or the npm
+    one - the incident's own - when the reply named no subject."""
+    low = str(line or "").lower()
+    for pattern, command in EXTERNAL_SOURCE:
+        if not pattern or re.search(pattern, low):
+            return command
+    return EXTERNAL_SOURCE[-1][1]
+
+
+def _external_read_row(rows):
+    """The index of the turn's read of an authoritative external source, or -1.
+
+    Taken by the row's command and not by `passing_check`: `npm view` exiting
+    non-zero is the answer for "this version is missing", so a read nobody
+    reported an outcome for, and one the host saw fail, both count. What the
+    class asks for is the read, and a call the host stopped produced no output to
+    use - so `interrupted` is not one. Only a step row is read: the gate's own
+    `deny` never ran the command, and a `run` row's detail is the command."""
+    for i in range(len(rows) - 1, -1, -1):
+        row = rows[i]
+        if str(row.get("kind")) not in ("run", "verify", "verify_ok",
+                                        "verify_fail"):
+            continue
+        if EXTERNAL_READ.search(mask(row.get("detail"))):
+            return i
+    return -1
 
 
 # The workspaces a probe or a benchmark runs in rather than a user: the temp
