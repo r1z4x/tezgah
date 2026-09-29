@@ -321,9 +321,20 @@ class PostToolUseProvenance(TempHome):
                          "mcp__github__get_file", "Agent", "Task"):
                 self.assertTrue(any(selects(m, tool) for m in matchers),
                                 "%s does not run the hook for %s" % (host, tool))
-            # the subagent names are whole names: Claude's task-list tools
-            # (TaskCreate, TaskList, ...) return no report and must not pay for
-            # a hook process each
+            # The subagent names must stay on the host's exact-match path: a
+            # matcher of only letters, digits, `_`, spaces, `,` and `|` is
+            # compared as exact alternatives, so `TaskCreate` and `TaskList`
+            # (Claude's task-list tools, which return no report) cannot fire it -
+            # while `Task.*` or a stray character would put the matcher on the
+            # unanchored-regex path and pay for a hook process on every one.
+            # Asserting the character set is what makes the claim checkable:
+            # `selects` models the host rule, so asserting it cannot fail.
+            for m in matchers:
+                if selects(m, "Agent") or selects(m, "Task"):
+                    self.assertRegex(
+                        m, r"\A[A-Za-z0-9_ ,|-]+\Z",
+                        "%s: the subagent matcher %r is not on the exact-match "
+                        "path" % (host, m))
             for tool in ("Read", "TaskCreate", "TaskList"):
                 self.assertFalse(any(selects(m, tool) for m in matchers),
                                  (host, tool))

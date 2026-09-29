@@ -307,6 +307,27 @@ class SessionRollback(Snap):
         b_sid = self.edit("sub/b.py", "b2\n")
         return os.path.realpath(a), os.path.realpath(b), first, b_sid
 
+    def test_an_unreadable_shell_row_makes_a_snapshot_a_listing(self):
+        # The ledger keeps a command cut to DETAIL_MAX, so a redirect past the
+        # cut names no target: which path that row wrote is unknown rather than
+        # absent. The snapshot path must then be listed, not restored - an
+        # unknown shell write is the one thing a rollback must not act on - and
+        # the file has to survive `restore_session` even under --force, which is
+        # where the first version of this plan reverted it.
+        out = os.path.join(self.repo, "out.txt")
+        self.write("out.txt", "old\n")
+        sid = ts.capture("write", {"file_path": out}, self.repo, self.session)
+        self.write("out.txt", "new\n")
+        ti.note_tool(self.session, "Bash",
+                     {"command": "echo %s > out.txt" % ("a" * 240)},
+                     failed=False, cwd=self.repo)
+        plan = {e["path"]: e for e in ts.session_plan(self.session)}
+        self.assertEqual(plan[out]["action"], "list (shell only)")
+        self.assertEqual(plan[out]["id"], sid)
+        ts.restore_session(self.session, force=True)
+        self.assertEqual(self.read(out), "new\n")
+        self.assertNotIn(sid, [r["id"] for r in self.rows("rollback")])
+
     def test_session_restores_the_earliest_snapshot_of_every_changed_path(self):
         a, b, first, b_sid = self.two_paths()
         plan = ts.session_plan(self.session)

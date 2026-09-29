@@ -43,6 +43,21 @@ class FailClass(unittest.TestCase):
                            ("", None), (None, None)):
             self.assertEqual(ti.fail_class(text), want, text)
 
+    def test_a_number_or_a_word_alone_does_not_make_a_credential_failure(self):
+        # The user class is the one that tells the agent which repair is not
+        # its own, so a text that merely carries a code or a credential-ish word
+        # must not borrow it: a traceback's line number is not a 401, a lexer's
+        # complaint is not an invalid key, and a missing file is neither. The
+        # repair the class names - stop and ask the user - is wrong for all of
+        # them, and it is worse than the plain permanent text it replaces.
+        for text in ('Traceback (most recent call last):\n  File "big.py", line 401',
+                     "SyntaxError: invalid token",
+                     "ld: 403 undefined symbols",
+                     "error: no such file or directory: out.txt",
+                     "expected 401 items, got 12",
+                     "pytest: assertion failed at test_x.py:403"):
+            self.assertNotEqual(ti.fail_class(text), "user", text)
+
 
 class CallIdentity(unittest.TestCase):
     """call_id: the same string in both writers.

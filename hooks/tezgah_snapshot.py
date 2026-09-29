@@ -324,9 +324,10 @@ def session_plan(session_id):
 
     `action` is "restore" only for a path with a snapshot that a write tool
     changed (an `edit` row, or a snapshot with no row of its own - the second
-    file of an apply_patch body). A path only a shell command touched is listed,
-    never reverted, even when the gate snapshotted its redirect target: which
-    file a command wrote is read off its text, not reported by a tool, so a
+    file of an apply_patch body, and then only when no shell row's target could
+    not be re-read: see `blind_run`). A path only a shell command touched is
+    listed, never reverted, even when the gate snapshotted its redirect target:
+    which file a command wrote is read off its text, not reported by a tool, so a
     rollback does not act on it (the id is shown for a deliberate single-id
     restore). The row has to name the target and need not carry a hash: a
     redirect's file that was gone by the time the after-state was read is still
@@ -334,6 +335,7 @@ def session_plan(session_id):
     no snapshot - a file the session created - has no pre-state to put back and
     is listed too. Reads the ledger, writes nothing."""
     order, first, expect, named = [], {}, {}, {}
+    blind_run = False
     for row in ti.events(session_id):
         kind = row.get("kind")
         if kind == "snapshot":
@@ -344,6 +346,16 @@ def session_plan(session_id):
             path = _row_path(row, order)
             if path:
                 named.setdefault(path, set()).add(kind)
+            elif kind == "run":
+                # A shell row whose target cannot be re-read - the ledger keeps
+                # the command cut to DETAIL_MAX, so a redirect past the cut names
+                # nothing. Which path it wrote is then unknown, and an unknown
+                # shell write is the one thing this plan must not turn into a
+                # revert: it makes every snapshot path with no `edit` row of its
+                # own a listing instead. The cost is the second file of an
+                # apply_patch body in a session that also has such a row - it is
+                # listed rather than restored, and listing never writes.
+                blind_run = True
         else:
             continue
         if not path:
@@ -356,7 +368,8 @@ def session_plan(session_id):
     for path in order:
         if path not in first:
             action = "list (no snapshot)"
-        elif named.get(path) == {"run"}:
+        elif named.get(path) == {"run"} or (blind_run
+                                            and "edit" not in named.get(path, ())):
             action = "list (shell only)"
         else:
             action = "restore"

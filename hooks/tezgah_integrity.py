@@ -318,11 +318,21 @@ TRANSIENT_ERROR = re.compile(
 # Checked before PERMANENT_ERROR, whose "invalid" and "not found" would claim
 # these texts. "permission denied" stays permanent: a file mode the agent can
 # change is not the user's to fix.
+#
+# The credential words are anchored on a credential noun rather than on a bare
+# status code: `401` alone is a line number in a traceback and `invalid token` is
+# a lexer's complaint, and telling an agent to stop for a credential on a syntax
+# error is worse than saying nothing - this is the one class whose whole job is to
+# name the right repair. So the code counts only beside the word it is about
+# (`HTTP 401`, `status 403`), and the nouns only in the shapes a credential
+# actually fails in (tests/test_integrity.py pins the accepted texts).
 USER_ERROR = re.compile(
-    r"\b(?:401|403)\b|unauthori[sz]ed|forbidden|"
+    r"unauthori[sz]ed|forbidden|"
+    r"\b(?:http|status|response|code)[^\d\n]{0,12}\b(?:401|403)\b|"
+    r"\b(?:401|403)\b[^\d\n]{0,12}\b(?:unauthori[sz]ed|forbidden)\b|"
     r"authentication (?:failed|required)|"
-    r"(?:invalid|missing|no) (?:api[ _-]?key|token|credentials?)|"
-    r"(?:api[ _-]?key|token|credentials?) (?:is |are )?(?:invalid|missing|expired)|"
+    r"(?:invalid|missing|no|bad|expired) (?:api[ _-]?key|credentials?)|"
+    r"(?:api[ _-]?key|token|credentials?) (?:is |are |has )?(?:invalid|missing|expired)|"
     r"not logged in|login required", re.I)
 PERMANENT_ERROR = re.compile(
     r"command not found|no such file|not found|cannot find|permission denied|"
@@ -2688,8 +2698,11 @@ CHANGED_NOTICE_MAX = 8
 def changed_files_notice(session_id, base=None):
     """One line naming the files this turn changed, or "" when it changed none.
 
-    The reader is `changed_files`, so the names are the set a rollback reads:
-    what the turn's writes were SEEN to change. `base` (the session's root) is
+    The reader is `changed_files`: what THIS turn's writes were SEEN to change.
+    That is not the set a rollback reads - `tezgah-rollback --session` plans the
+    whole session's write rows and additionally lists a path only a shell command
+    touched and a path it has no snapshot for - so this line can name fewer files
+    than a rollback would, never more. `base` (the session's root) is
     stripped from a name inside it - the row carries the verbatim path the host
     reported, and the tree the user is standing in is the one those paths belong
     to. Sorted, so one set reads as one line, and capped, because a listing is
