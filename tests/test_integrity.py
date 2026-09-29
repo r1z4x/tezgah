@@ -4,6 +4,7 @@ The pure detectors run in-process; the ledger and the two Claude hooks run in a
 subprocess with a throwaway HOME so the real cache is never touched.
 """
 import fcntl
+import hashlib
 import json
 import os
 import shutil
@@ -2471,6 +2472,114 @@ class SessionId(unittest.TestCase):
                  ({}, None), (None, None))
         for payload, want in cases:
             self.assertEqual(tc.session_of(payload), want, payload)
+
+
+class CompactRecord(TempHome):
+    """Plan 021 item 4: what a compaction kept, from the record.
+
+    Claude hands the PostCompact hook the text the model is about to be given
+    (`compact_summary`) and a `trigger`. The row keeps the summary's size and a
+    12-hex digest, plus how many of the constraint lines tezgah injected (the
+    pointer line, the active plan's line) survived in it - never the text: the
+    ledger is a redacted channel and the summary is the whole conversation. It is
+    a report, so no row here refuses anything."""
+
+    PLAN = ("---\nid: 021\ntitle: a thing\n---\n## Goal\nx\n"
+            "## State\nhalf done\n## Next\nwire it\n")
+    SUMMARY = ("The session compacted. The next step is wiring the second half "
+               "of plan 021, per the tezgah-contract skill.")
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.session = "compact-s"
+        path = os.path.join(self.repo, ".tezgah", "plans", "open",
+                            "021-thing.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(self.PLAN)
+
+    def compact(self, event="PostCompact", **extra):
+        payload = {"hook_event_name": event, "cwd": self.repo,
+                   "session_id": self.session}
+        payload.update(extra)
+        out, proc = run_json([support.AUTO_INIT], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def rows(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": self.session},
+                          env=self.envv)
+        return [row for row in (out or []) if row["kind"] == "compact"]
+
+    def counts(self, session=None):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "counters", "session": session or self.session},
+                          env=self.envv)
+        return out
+
+    def counts_for(self, summary):
+        self.compact(compact_summary=summary, trigger="auto")
+        return self.rows()[-1]
+
+    def test_a_compact_summary_writes_one_row_of_size_digest_and_kind(self):
+        self.compact(compact_summary=self.SUMMARY, trigger="auto")
+        rows = self.rows()
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["summary_chars"], len(self.SUMMARY))
+        self.assertEqual(rows[0]["summary_hash"],
+                         hashlib.sha256(self.SUMMARY.encode()).hexdigest()[:12])
+        # the host's own word for why it compacted is the row's free text
+        self.assertEqual(rows[0]["detail"], "auto")
+
+    def test_a_compact_with_no_summary_writes_no_row(self):
+        # a host that hands the hook no summary has nothing to record, and an
+        # empty row would count as a compaction that kept nothing
+        self.compact(trigger="auto")
+        self.compact(compact_summary="", trigger="manual")
+        self.assertEqual(self.rows(), [])
+
+    def test_the_summary_body_never_reaches_the_ledger(self):
+        secret = "the passphrase is hunter2-sw0rdf1sh"
+        self.compact(compact_summary=self.SUMMARY + " " + secret, trigger="auto")
+        self.assertNotIn("hunter2", json.dumps(self.rows()))
+        self.assertEqual(len(self.rows()), 1)
+
+    def test_the_compact_row_counts_the_constraint_lines_that_survived(self):
+        # the pointer line and the active plan's line are the two fixed
+        # sentences tezgah injects, so the count is found over expected
+        for summary, want in ((self.SUMMARY, (2, 2)),
+                              ("nothing of ours survived it", (0, 2)),
+                              ("still on the tezgah-contract skill", (1, 2))):
+            row = self.counts_for(summary)
+            self.assertEqual((row["constraint_found"],
+                              row["constraint_expected"]), want, summary)
+
+    def test_a_resume_writes_no_compact_row(self):
+        # the summary is PostCompact's field; a SessionStart resume carries none
+        # even when a host hands it the same payload
+        self.compact(event="SessionStart", compact_summary=self.SUMMARY,
+                     trigger="auto")
+        self.assertEqual(self.rows(), [])
+
+    def test_counters_fold_the_compact_rows(self):
+        self.compact(compact_summary=self.SUMMARY, trigger="auto")   # 2 of 2
+        self.compact(compact_summary="x" * 40, trigger="manual")     # 0 of 2
+        counts = self.counts()
+        self.assertEqual(counts["compactions"], 2)
+        # the newest summary's length, and the hit rate over both rows
+        self.assertEqual(counts["compact_chars"], 40)
+        self.assertEqual(counts["compact_constraint_rate"], 0.5)
+
+    def test_a_session_with_no_compaction_reports_an_unknown_rate(self):
+        # a zero would read as "every compaction kept nothing", which is a
+        # different claim from "no compaction was ever recorded here"
+        counts = self.counts(session="quiet-s")
+        self.assertEqual(counts["compactions"], 0)
+        self.assertIsNone(counts["compact_chars"])
+        self.assertIsNone(counts["compact_constraint_rate"])
 
 
 class PostToolUse(TempHome):

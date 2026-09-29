@@ -97,7 +97,8 @@ def main():
                     "shape_blocked", "denies", "nudges", "fanout", "consult",
                     "codegen", "codegen_failed", "judge", "replies", "shape",
                     "subagent_results", "subagent_bytes_p50",
-                    "subagent_bytes_max"):
+                    "subagent_bytes_max", "compactions", "compact_chars",
+                    "compact_constraint_rate"):
             value = counts[key]
             if key == "denies":
                 value = ", ".join("%s=%d" % kv for kv in sorted(value.items())) or "none"

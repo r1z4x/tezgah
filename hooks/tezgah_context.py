@@ -16,8 +16,8 @@ import sys
 import time
 
 import tezgah_research
-from tezgah_integrity import (changed_files, cut, last_check, note, note_turn,
-                              scratch_evidence)
+from tezgah_integrity import (changed_files, cut, last_check, note,
+                              note_compaction, note_turn, scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            open_lines_note, pony_level_line)
 from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
@@ -506,31 +506,42 @@ def steering(root, host):
         return None
 
 
+def _plan_row(path):
+    """(id, title, next) as `open_plans` injects them, or None when the file
+    cannot be read. One reader for the injected plan line, and for the id a
+    compaction record counts as a surviving constraint."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read().splitlines()
+    except OSError:
+        return None
+    pid, title, nxt, fences, in_next = "", "", "", 0, False
+    for line in text:
+        if line.strip() == "---":
+            fences += 1
+            continue
+        if fences < 2:
+            key, _, val = line.partition(":")
+            if key.strip() == "id":
+                pid = val.strip()
+            elif key.strip() == "title":
+                title = val.strip()
+        elif line.startswith("## "):
+            in_next = line.strip() == "## Next"
+        elif in_next and line.strip() and not nxt:
+            nxt = cut(line.strip(), 80)
+    return pid, title, nxt
+
+
 def open_plans(root):
     """Max 3 open plans (.tezgah/plans/open/*.md, lowest id first) as a context block, or ""."""
     paths = sorted(glob.glob(os.path.join(root, ".tezgah", "plans", "open", "*.md")))
     lines = []
     for path in paths[:3]:
-        try:
-            with open(path, encoding="utf-8") as fh:
-                text = fh.read().splitlines()
-        except OSError:
+        row = _plan_row(path)
+        if row is None:
             continue
-        pid, title, nxt, fences, in_next = "", "", "", 0, False
-        for line in text:
-            if line.strip() == "---":
-                fences += 1
-                continue
-            if fences < 2:
-                key, _, val = line.partition(":")
-                if key.strip() == "id":
-                    pid = val.strip()
-                elif key.strip() == "title":
-                    title = val.strip()
-            elif line.startswith("## "):
-                in_next = line.strip() == "## Next"
-            elif in_next and line.strip() and not nxt:
-                nxt = cut(line.strip(), 80)
+        pid, title, nxt = row
         lines.append("- %s %s -> %s" % (pid, title, nxt))
     if not lines:
         return ""
@@ -1114,6 +1125,55 @@ SCRATCH_REMINDER = (
 # stores no more than DETAIL_MAX of it.
 SCRATCH_CHARS = 120
 
+# The handler a non-subagent block ends on, so a session knows where the detail
+# lives. Named, because it is also the constraint a compaction record counts
+# (plan 021): the checker and the injected text read the same constant, so the
+# count can only move when the line the model was shown moves.
+POINTER_LINE = ("Deep orchestration, codegen, consult detail and the exact "
+                "kill switches: load the `tezgah-contract` skill.")
+# The fragment of POINTER_LINE a summary keeps when it kept the constraint: a
+# sentence is never reproduced word for word, so a verbatim test of the whole
+# line would report 0 on every real compaction and measure nothing.
+POINTER_NEEDLE = "tezgah-contract"
+
+
+def constraint_lines(root):
+    """The fixed sentences tezgah injects whose survival a compaction record
+    counts, as (label, needle) pairs: the pointer line every block ends on, and
+    the active plan's id when the repo keeps an open plan.
+
+    Both come from the same source the block renders - `POINTER_LINE` and the
+    active plan's own front matter (`_plan_row`, the reader `open_plans` builds
+    its line from) - so the count cannot drift from the injected text, and each
+    needle is the fragment a summary keeps when it kept the constraint. An id is
+    short enough to hit by accident, which is why the row carries both numbers
+    and the label rather than a verdict."""
+    out = [("pointer", POINTER_NEEDLE)]
+    plan = _active_plan(root)
+    row = _plan_row(plan) if plan else None
+    if row and row[0]:
+        out.append(("plan", row[0]))
+    return out
+
+
+def remember_compaction(cwd, root, payload):
+    """Record one compaction from the summary the host handed this hook.
+
+    Claude's PostCompact payload carries `compact_summary` (the text the model is
+    about to be given) and `trigger`; the row keeps the summary's size, a 12-hex
+    digest of it and the constraint count, and never the text - the ledger is a
+    redacted channel and the summary is the whole conversation by proxy. It is a
+    report: nothing here refuses anything, and a host that hands no summary
+    writes no row rather than an empty one (see `note_compaction`)."""
+    payload = payload if isinstance(payload, dict) else {}
+    summary = payload.get("compact_summary")
+    if not isinstance(summary, str) or not summary:
+        return
+    lines = constraint_lines(root)
+    note_compaction(session_of(payload), summary, payload.get("trigger"),
+                    found=sum(1 for _label, needle in lines if needle in summary),
+                    expected=len(lines), workspace=root_for(cwd))
+
 
 def context_for(event, cwd, payload=None, with_core=True):
     """The context block for a normalized event, or None when out of scope.
@@ -1130,6 +1190,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         return None
     root = repo_root(cwd)
     ACTIVE_ROOT[0] = root_for(cwd) or ""
+    # What the compaction kept, recorded before the block is built: the summary
+    # is the host's own text and this path is the only place it is handed over, so
+    # the row is written whether or not a host delivers the block this builds.
+    if event == "post_compact":
+        remember_compaction(cwd, root, payload)
     core, disabled = core_for(cwd)
     # A disabled rule is also removed from the on-demand skill's reach, because
     # the skill is loaded separately and would otherwise re-enable it.
@@ -1309,9 +1374,7 @@ def context_for(event, cwd, payload=None, with_core=True):
                       "each), Confidence, Unresolved, Disconfirming, Conflicts. "
                       "Full rules: the `tezgah-contract` skill."))
     else:
-        parts.append(("pointer",
-                      "Deep orchestration, codegen, consult detail and the exact "
-                      "kill switches: load the `tezgah-contract` skill."))
+        parts.append(("pointer", POINTER_LINE))
     return budgeted(event, [(key, render(text.strip())) for key, text in parts])
 
 

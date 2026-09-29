@@ -345,10 +345,17 @@ PERMANENT_ERROR = re.compile(
 # `reply_shape` names (`lines`, `chars`, `items`, `longest_list`, `tr_share`,
 # `answer_first`) are the shape and claim rows' own addition: the reply's size,
 # lead, longest list and Turkish share, recorded beside the verdict.
+# `summary_chars`, `summary_hash`, `constraint_found` and `constraint_expected`
+# are the compaction row's own (`note_compaction`): the size and a 12-hex digest
+# of the summary a host handed the PostCompact hook, and how many of the
+# constraint lines tezgah injected the summary still carried - a report
+# `counters` folds, never a field the gate reads.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed",
                            "lines", "chars", "items", "longest_list",
-                           "tr_share", "answer_first"))
+                           "tr_share", "answer_first",
+                           "summary_chars", "summary_hash",
+                           "constraint_found", "constraint_expected"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -973,6 +980,36 @@ def note_turn(session_id, prompt, workspace=None):
     note(session_id, "turn", key, workspace=workspace)
 
 
+def note_compaction(session_id, summary, trigger=None, found=None, expected=None,
+                    workspace=None):
+    """One row per compaction whose summary the host handed the hook (plan 021).
+
+    The summary is the text the model is about to be given, so it is the whole
+    conversation by proxy - and the ledger is a redacted channel, which is a
+    promise about the SHAPE of what it stores as much as about credentials. So
+    the text is not stored: the row carries its length and a 12-hex sha256 of it,
+    which is enough to tell two compactions of one session apart and to recognise
+    the same summary arriving twice, and nothing that can be read back as prose.
+
+    `found` of `expected` is the report item 4 asks for: how many of the
+    constraint lines tezgah injected (the pointer line, the active plan's line)
+    the summary still carries, counted by the caller that knows the injected text
+    (`tezgah_context.remember_compaction`). Nothing reads either number to refuse
+    anything - a compaction that dropped a rule is a finding to report, not a
+    call to block.
+
+    `trigger` is the host's own word for why it compacted (Claude: `manual` or
+    `auto`) and rides `detail`, which is free text like every other row's."""
+    if not session_id or not summary:
+        return
+    note(session_id, "compact", str(trigger or ""),
+         summary_chars=len(summary),
+         summary_hash=hashlib.sha256(summary.encode("utf-8", "replace")
+                                     ).hexdigest()[:12],
+         constraint_found=found, constraint_expected=expected,
+         workspace=workspace)
+
+
 # Appended to a non-verify event's detail when the host reported its outcome, so
 # a failed run is countable without a new kind (kinds are pinned by tests and by
 # the Stop rule, detail is free text nothing parses).
@@ -1048,9 +1085,12 @@ def _counts(rows):
            "steps": 0, "tool_error_rate": None,
            "claims": 0, "false_completion": 0,
            "subagent_results": 0, "subagent_bytes_p50": None,
-           "subagent_bytes_max": None}
+           "subagent_bytes_max": None,
+           "compactions": 0, "compact_chars": None,
+           "compact_constraint_rate": None}
     decided = errors = 0
     report_sizes = []
+    constraints = [0, 0]  # found, expected - over the rows that carry both
     for entry in rows:
         out["events"] += 1
         kind = str(entry.get("kind") or "")
@@ -1103,10 +1143,27 @@ def _counts(rows):
             out["subagent_results"] += 1
             if isinstance(entry.get("out_bytes"), int):
                 report_sizes.append(entry["out_bytes"])
+        if kind == "compact":
+            # plan 021: what a compaction kept. `compact_chars` is the newest
+            # summary the session recorded, so the number is one a host actually
+            # measured; the constraint rate is over the rows that carry both
+            # counts, and stays None when no compaction was seen - a 0.0 would
+            # claim every compaction dropped every rule.
+            out["compactions"] += 1
+            if isinstance(entry.get("summary_chars"), int):
+                out["compact_chars"] = entry["summary_chars"]
+            found, expected = (entry.get("constraint_found"),
+                               entry.get("constraint_expected"))
+            if isinstance(found, int) and isinstance(expected, int):
+                constraints[0] += found
+                constraints[1] += expected
     if report_sizes:
         # the lower median, so the number is a size some host reported
         out["subagent_bytes_p50"] = statistics.median_low(report_sizes)
         out["subagent_bytes_max"] = max(report_sizes)
+    if constraints[1]:
+        out["compact_constraint_rate"] = round(
+            constraints[0] / constraints[1], 4)
     if decided:
         out["tool_error_rate"] = round(errors / decided, 4)
     out["fanout"] = sum(out["kinds"].get(k, 0)
