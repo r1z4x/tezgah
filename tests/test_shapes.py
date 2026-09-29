@@ -16,6 +16,7 @@ from support import TempHome, run_json
 
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
+import tezgah_shapes as ts  # noqa: E402
 
 
 class FailureShapes(TempHome):
@@ -188,6 +189,102 @@ class FailureShapes(TempHome):
                             env=dict(self.envv, TEZGAH_SESSION=session))
         self.assertEqual(plain.returncode, 0, plain.stderr)
         self.assertRegex(plain.stdout, r"(?m)^\s+shape\s+3$")
+
+
+class RuleYield(TempHome):
+    """The per-rule yield over a synthetic corpus: which live gate rules stopped
+    firing, read against how many real ledgers they could have fired in."""
+
+    SHIPPED = 1_000_000
+
+    def setUp(self):
+        super().setUp()
+        self.evidence = os.path.join(self.home, "evidence")
+        os.makedirs(self.evidence)
+        self.files = []
+
+    def ledger(self, name, when, rows=(), workspace=None):
+        """One ledger whose last write is `when`, holding `rows` (kind, detail)."""
+        path = os.path.join(self.evidence, name + ".jsonl")
+        ti.note_path(path, "run", "ls", workspace=workspace)
+        for kind, detail in rows:
+            ti.note_path(path, kind, detail, workspace=workspace)
+        os.utime(path, (when, when))
+        self.files.append(path)
+        return path
+
+    def corpus(self, n, since, rows=()):
+        for i in range(n):
+            self.ledger("s%s-%d" % (since, i), since + 10 + i, rows)
+
+    def rule(self, found, name):
+        return next(r for r in found["rules"] if r["rule"] == name)
+
+    def test_yield_zero_fires_over_a_wide_window_is_a_retire_candidate(self):
+        self.corpus(ts.MIN_EXPOSURE, self.SHIPPED)
+        found = ts.rule_yield(self.files, {"plan": self.SHIPPED})
+        row = self.rule(found, "plan")
+        self.assertEqual((row["fires"], row["exposure"]), (0, ts.MIN_EXPOSURE))
+        self.assertEqual(row["mark"], "retire-candidate")
+
+    def test_yield_zero_fires_in_a_new_rule_is_low_exposure_not_dead(self):
+        # the ledgers written before the rule shipped are no exposure at all: a
+        # rule a day old over a corpus of hundreds must not read as dead
+        self.corpus(ts.MIN_EXPOSURE, self.SHIPPED - 10_000)
+        self.corpus(3, self.SHIPPED)
+        found = ts.rule_yield(self.files, {"plan": self.SHIPPED})
+        row = self.rule(found, "plan")
+        self.assertEqual((row["fires"], row["exposure"]), (0, 3))
+        self.assertEqual(row["mark"], "low-exposure")
+        self.assertEqual(found["real"], ts.MIN_EXPOSURE + 3)
+
+    def test_yield_a_firing_rule_carries_no_mark(self):
+        self.corpus(ts.MIN_EXPOSURE, self.SHIPPED)
+        self.ledger("fired", self.SHIPPED + 5,
+                    [("deny", "loop: identical call")] * 2)
+        found = ts.rule_yield(self.files, {"loop": self.SHIPPED})
+        row = self.rule(found, "loop")
+        self.assertEqual((row["fires"], row["exposure"]),
+                         (2, ts.MIN_EXPOSURE + 1))
+        self.assertIsNone(row["mark"])
+
+    def test_yield_fixture_ledgers_are_no_exposure(self):
+        # a probe tree's ledger measures the harness, not use: the same exclusion
+        # `counters_all` applies, so a thousand test runs cannot age a rule
+        for i in range(ts.MIN_EXPOSURE):
+            self.ledger("probe-%d" % i, self.SHIPPED + 10, workspace="/tmp/probe")
+        found = ts.rule_yield(self.files, {"plan": self.SHIPPED})
+        self.assertEqual((found["ledgers"], found["fixtures"], found["real"]),
+                         (ts.MIN_EXPOSURE, ts.MIN_EXPOSURE, 0))
+        self.assertEqual(self.rule(found, "plan")["mark"], "low-exposure")
+
+    def test_yield_an_unknown_ship_date_is_never_read_as_dead(self):
+        self.corpus(ts.MIN_EXPOSURE, self.SHIPPED)
+        row = self.rule(ts.rule_yield(self.files, {"plan": None}), "plan")
+        self.assertIsNone(row["exposure"])
+        self.assertEqual(row["mark"], "low-exposure")
+
+    def test_yield_a_rule_dates_from_its_last_reintroduction(self):
+        # a rule removed and brought back has been live only since it came back
+        def gate(*rules):
+            return "".join("_deny(s, %r, r)\n" % rule for rule in rules)
+        since = ts.continuous_since([(1, gate("loop", "task")),
+                                     (2, gate("loop")),
+                                     (3, gate("loop", "task"))])
+        self.assertEqual(since, {"loop": 1, "task": 3})
+
+    def test_yield_cli_exits_0_and_prints_the_corpus_it_read(self):
+        evidence = os.path.join(self.home, ".cache", "tezgah", "evidence")
+        os.makedirs(evidence)
+        ti.note_path(os.path.join(evidence, "one.jsonl"), "run", "ls")
+        cli = os.path.join(support.REPO, "bin", "tezgah-status")
+        proc = support.run([cli, "--rule-yield"], env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("1 ledgers read", proc.stdout)
+        out, proc = run_json([cli, "--rule-yield", "--json"], env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out["ledgers"], 1)
+        self.assertIn("plan", [r["rule"] for r in out["rules"]])
 
 
 if __name__ == "__main__":

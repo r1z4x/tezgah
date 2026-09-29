@@ -219,6 +219,7 @@ tezgah-status /path/to/repo <session-id>     # the line for one repo and session
 tezgah-status /path/to/repo <id> --json      # segments: key/state/glyph/text/group
 tezgah-status /path/to/repo <id> --counters  # the evidence ledger's counters
 tezgah-status --legend                       # what each mark means
+tezgah-status --rule-yield                   # live gate rules that stopped firing
 ```
 
 The session id is the second positional argument or `TEZGAH_SESSION`; without it
@@ -246,6 +247,22 @@ repo (bin/tezgah-setup:4154-4156). A wrong or missing line usually ends in one o
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a
 sandboxed host could not write (hooks/tezgah_paths.py:120-133).
+
+`--rule-yield` is a corpus report, not a mark: every live gate rule - the labels
+`hooks/tezgah_gate.py` passes to `_deny`, read from the code with `ast`, so a
+removed rule drops out on its own - with its fires over the real ledgers written
+since it shipped, the exposure window (`rule_yield`, hooks/tezgah_shapes.py).
+The ship date is the commit time from which the rule has been in the gate without
+a gap, read from git history, because no ledger row names the harness revision
+that wrote it and a rule that never fired has no row to date it by. A rule older
+than the checkout's first commit dates from that commit, which only shrinks its
+window - the direction that keeps a rule; without git every date is unknown and
+no rule is marked. Fixture ledgers are left out by
+`fixture_ledger`, the same exclusion `--counters --all` applies. A rule with 0
+fires over at least `MIN_EXPOSURE` (300) real ledgers is marked
+`retire-candidate`, one with 0 fires over fewer `low-exposure`, so a rule a day
+old is not read as dead. It always exits 0 and prints the corpus it read;
+`--json` prints the whole fold.
 
 ## A mark must not claim what it cannot see
 
