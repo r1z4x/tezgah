@@ -273,6 +273,38 @@ class PostToolUseProvenance(TempHome):
         self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
                          [("external", "web")])
 
+    def test_a_subagent_report_is_labelled_and_taints_the_next_effect(self):
+        # What a delegate hands back is text this session did not write: it is
+        # labelled where it is read, and the first effect after it carries the
+        # notice, exactly as a fetched page does. Claude's Agent result is an
+        # object whose `content` holds the report's text parts.
+        report = {"status": "completed",
+                  "content": [{"type": "text", "text": "found it"}]}
+        for i, tool in enumerate(("Agent", "Task")):
+            with self.subTest(tool=tool):
+                session = "s-sub-%d" % i
+                text = self.line(tool, {"prompt": "look"}, session=session,
+                                 tool_response=report)
+                self.assertIn("untrusted content", text)
+                self.assertIn("a subagent's report", text)
+                self.assertIn("already read a subagent's report",
+                              self.line("Edit", {"file_path": "/tmp/x.py"},
+                                        session=session))
+                self.assertEqual(
+                    [(r["kind"], r.get("source")) for r in self.rows(session)],
+                    [("external", "subagent"), ("edit", "subagent")])
+
+    def test_a_background_subagent_launch_is_not_a_read(self):
+        # A launched background agent answers with its own id and the prompt it
+        # was given - no report. Its report arrives later as a message no hook
+        # sees, so labelling the launch would taint the turn for our own prompt.
+        launch = {"isAsync": True, "status": "async_launched",
+                  "agentId": "a1", "prompt": "look"}
+        self.assertEqual(self.line("Agent", {"prompt": "look"},
+                                   tool_response=launch), "")
+        self.assertEqual(self.line("Edit", {"file_path": "/tmp/x.py"}), "")
+        self.assertEqual([r for r in self.rows() if r.get("source")], [])
+
     def test_outside_a_root_nothing_is_shown(self):
         out = self.post("WebFetch", {"url": "https://x"}, cwd=self.home)
         self.assertEqual(out, {})
@@ -286,10 +318,15 @@ class PostToolUseProvenance(TempHome):
                 groups = json.load(fh)["hooks"]["PostToolUse"]
             matchers = [g["matcher"] for g in groups if g.get("matcher")]
             for tool in ("WebFetch", "WebSearch", "web_fetch", "web_search",
-                         "mcp__github__get_file"):
+                         "mcp__github__get_file", "Agent", "Task"):
                 self.assertTrue(any(selects(m, tool) for m in matchers),
                                 "%s does not run the hook for %s" % (host, tool))
-            self.assertFalse(any(selects(m, "Read") for m in matchers), host)
+            # the subagent names are whole names: Claude's task-list tools
+            # (TaskCreate, TaskList, ...) return no report and must not pay for
+            # a hook process each
+            for tool in ("Read", "TaskCreate", "TaskList"):
+                self.assertFalse(any(selects(m, tool) for m in matchers),
+                                 (host, tool))
 
 
 class TurnRows(unittest.TestCase):

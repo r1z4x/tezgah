@@ -1254,6 +1254,7 @@ class OpenCodePlugin(TempHome):
         ("bash", {"command": "ls -la"}),
         ("edit", {"file_path": "/tmp/x.py", "content": "x"}),
         ("grep", {"pattern": "FooBar"}),
+        ("task", {"prompt": "x", "subagent_type": "general"}),
     )
 
     def test_the_classifier_agrees_with_the_python_half_on_a_shared_corpus(self):
@@ -1275,7 +1276,8 @@ class OpenCodePlugin(TempHome):
                 ("web_search", {"query": "tezgah"}, "web"),
                 ("mcp__codegraph__status", {"query": "x"}, "mcp"),
                 ("bash", {"command": "curl -s https://example.com/x"}, "network"),
-                ("bash", {"command": "bin/consult --online 'soru'"}, "tier"))):
+                ("bash", {"command": "bin/consult --online 'soru'"}, "tier"),
+                ("task", {"prompt": "x"}, "subagent"))):
             session = "ch%d" % i
             res = self.after(tool, args, exit=0, session=session, result="R")
             row = self.ledger(session)[-1]

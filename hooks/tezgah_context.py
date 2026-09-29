@@ -1194,7 +1194,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         parts.append(("pointer",
                       "You are a subagent: execute the briefing and report "
                       "evidence back to the router; do not orchestrate or spawn "
-                      "subagents. Full rules: the `tezgah-contract` skill."))
+                      "subagents. Shape the report: Scope (the ask), Findings "
+                      "(each tagged DERIVED, you concluded it, or RETRIEVED, "
+                      "you read it), Evidence (the path:line or command behind "
+                      "each), Confidence, Unresolved, Disconfirming, Conflicts. "
+                      "Full rules: the `tezgah-contract` skill."))
     else:
         parts.append(("pointer",
                       "Deep orchestration, codegen, consult detail and the exact "

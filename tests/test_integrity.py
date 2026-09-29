@@ -2477,6 +2477,21 @@ class PostToolUse(TempHome):
         self.assertEqual(row["out_bytes"], len(result))
         self.assertNotIn("stdout", json.dumps(row))
 
+    def test_a_subagent_result_row_carries_the_report_s_byte_length(self):
+        # The one structured result measured by its text: a subagent's report is
+        # what this session pays to read, so its row carries the UTF-8 byte
+        # length of the report's text parts - not the object's field count,
+        # which is what every other structured result records.
+        text = "bulgu: çalışıyor"
+        self.run_hook("PostToolUse", "Agent", {"prompt": "look"},
+                      tool_response={"status": "completed", "totalTokens": 9,
+                                     "content": [{"type": "text", "text": text},
+                                                 {"type": "text", "text": "ok"}]})
+        row = self.rows()[-1]
+        self.assertEqual((row["kind"], row["source"], row["out_bytes"]),
+                         ("external", "subagent", len(text.encode("utf-8")) + 2))
+        self.assertNotIn("bulgu", json.dumps(row))
+
     def test_a_piped_check_is_recorded_as_ran(self):
         self.run_hook("PostToolUse", "Bash", {"command": "pytest -q | tail -1"})
         self.assertEqual(self.kinds(), ["verify"])
@@ -2857,6 +2872,34 @@ class CountersAll(TempHome):
         proc = support.run([self.cli, "--counters"], env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.counter("judge", proc.stdout), "1")
+
+    def test_counters_report_subagent_bytes_p50_and_max(self):
+        # A subagent's report is the one result whose size is a cost to read,
+        # so its rows are folded apart: the count of results, and the median
+        # and largest byte length over the ones whose size the host reported.
+        # A row with no size (omp reports a part count, so it records none) is
+        # a result all the same; an effect that inherited the channel is not.
+        sub = {"kind": "external", "detail": "subagent", "source": "subagent"}
+        self.ledger("a.jsonl", [dict(sub, out_bytes=300), dict(sub, out_bytes=100),
+                                dict(sub),
+                                {"kind": "edit", "detail": "a.py",
+                                 "source": "subagent", "out_bytes": 5},
+                                {"kind": "external", "detail": "web",
+                                 "source": "web", "out_bytes": 9000}])
+        self.ledger("b.jsonl", [dict(sub, out_bytes=200)])
+        counts = self.counts()
+        self.assertEqual((counts["subagent_results"], counts["subagent_bytes_p50"],
+                          counts["subagent_bytes_max"]), (4, 200, 300))
+        proc = support.run([self.cli, "--counters", "--all"], env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.counter("subagent_results", proc.stdout), "4")
+        self.assertEqual(self.counter("subagent_bytes_p50", proc.stdout), "200")
+        self.assertEqual(self.counter("subagent_bytes_max", proc.stdout), "300")
+        # a session that delegated nothing states no size rather than a 0
+        out, proc = run_json([self.cli, "--counters", "none-such", "--json"],
+                             env=self.envv)
+        self.assertEqual((out["subagent_results"], out["subagent_bytes_p50"],
+                          out["subagent_bytes_max"]), (0, None, None))
 
     def counter(self, name, out):
         """One counter's value on the plain printer's line, or None if the

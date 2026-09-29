@@ -256,7 +256,22 @@ class CodexProvenance(TempHome):
     def test_an_ordinary_call_prints_nothing(self):
         self.assertEqual(self.post("exec_command", {"command": "pytest -q"},
                                    tool_response={"exit_code": 0}), {})
-        self.assertEqual(self.post("Task", {"prompt": "x"}), {})
+
+    def test_a_subagent_report_is_labelled_and_sized_in_bytes(self):
+        # Every spelling Codex sends for a delegate maps onto the gate's `Task`,
+        # and what it hands back is text this session did not write: labelled,
+        # and its row carries the report's UTF-8 byte length.
+        report = "bulgu: çalışıyor"
+        for i, tool in enumerate(("spawn_agent", "Agent", "Task")):
+            with self.subTest(tool=tool):
+                session = "s-cx-sub-%d" % i
+                text = self.line(tool, {"prompt": "x"}, session=session,
+                                 tool_response=report)
+                self.assertIn("a subagent's report", text)
+                row = self.rows(session)[-1]
+                self.assertEqual((row["kind"], row["source"], row["out_bytes"]),
+                                 ("external", "subagent",
+                                  len(report.encode("utf-8"))))
 
     def test_outside_a_root_nothing_is_shown(self):
         self.assertEqual(self.post("webSearch", {"query": "x"}, cwd=self.home),

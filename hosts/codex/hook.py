@@ -29,7 +29,8 @@ from tezgah_context import (  # noqa: E402
     shell_kind)
 from tezgah_gate import decision, drift_reason  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import note_tool, stop_reason  # noqa: E402
+from tezgah_integrity import (  # noqa: E402
+    SUBAGENT_CHANNEL, note_tool, report_bytes, stop_reason)
 from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
 from tezgah_untrusted import marks  # noqa: E402
 
@@ -172,14 +173,17 @@ def main():
         # own mark, and `marks` answers about the turn the call arrived in. Like
         # every other tezgah surface but the status line, both halves are armed
         # only inside a configured root.
-        got = (safe(session_id, marks, tool, inp, session_id)
+        got = (safe(session_id, marks, tool, inp, session_id,
+                    payload.get("tool_response"))
                if root_for(cwd) else (None, None))
         source, notice = got or (None, None)
         notice = "\n".join(t for t in (notice, drift) if t)
         # the same name the PreToolUse gate saw: one call has to hash to one id
+        result = payload.get("tool_response")
         safe(session_id, note_tool, session_id, tool, inp,
              failed=verify_outcome(payload), source=source,
-             out_bytes=result_size(payload.get("tool_response")))
+             out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
+                        else result_size(result)))
         if notice:
             # Codex's PostToolUse output carries `additionalContext` with the
             # result - the field is part of its own hook output schema

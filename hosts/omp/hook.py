@@ -51,7 +51,7 @@ from tezgah_context import (  # noqa: E402
 from tezgah_gate import decision, drift_reason  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
-    note_tool, stop_reason, untrusted_label, untrusted_source)
+    SUBAGENT_CHANNEL, note_tool, stop_reason, untrusted_label, untrusted_source)
 from tezgah_paths import off, root_for  # noqa: E402
 
 
@@ -167,6 +167,13 @@ def handle(payload):
         # an integer counts: a value of any other shape is left unstated so the
         # row cannot claim a size nobody measured.
         size = payload.get("result_len")
+        if source == SUBAGENT_CHANNEL:
+            # The bridge measures a result by its top-level length, so a
+            # delegate's report - a part list - arrives as a part count (1 on
+            # 32174 ledger rows), never as a byte length, and the report's own
+            # text is not in the payload. The row states no size rather than
+            # claiming a 1-byte report; an absent field means unknown.
+            size = None
         note_tool(session_id, tool, inp,
                   failed=failed if isinstance(failed, bool) else None,
                   out_bytes=size if isinstance(size, int) and size >= 0 else None,

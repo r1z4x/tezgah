@@ -924,6 +924,20 @@ class ContextBudget(ChildCall):
         self.assertIn("Full text in the `tezgah-contract` skill", out)
         self.assertNotIn("Context budget", out)
 
+    def test_a_subagent_brief_asks_for_a_report_shape_inside_its_budget(self):
+        # What comes back from a delegate is read by a parent that did not watch
+        # it work, so the brief names the sections the report is made of, and
+        # asks each finding to say whether it was derived or retrieved. It must
+        # still fit the subagent budget with the fixture's state riding along.
+        out = self.child("import json, tezgah_context as tc\n"
+                         "print(json.dumps(tc.context_for('subagent_start', %r,"
+                         " {'prompt': 'x'})))\n" % self.repo_with_state())
+        for needle in ("Scope", "Findings", "DERIVED", "RETRIEVED", "Evidence",
+                       "Confidence", "Unresolved", "Disconfirming", "Conflicts"):
+            self.assertIn(needle, out)
+        self.assertNotIn("Context budget", out)
+        self.assertLess(len(out.encode()), self.budget("subagent_start"))
+
     def test_a_healthy_repo_pays_no_drop_and_stays_under_its_budget(self):
         repo = self.repo_with_state()
         out = self.session_start_text(repo)
