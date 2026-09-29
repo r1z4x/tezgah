@@ -149,7 +149,7 @@ Writers: the shared PostToolUse hook `hooks/projects-posttooluse.py` — `graph`
 an MCP tool name, else the shell tokenizer's answer, which counts a tool only when
 the command really ran it (34-38,84) and is the one writer that can earn `judge`
 (a run of `bin/tezgah-triage` or `bin/tezgah-docs`, `shell_kind`, hooks/tezgah_context.py:1025-1040)
-— plus `hooks/projects-auto-init.py:35`
+— plus `hooks/projects-auto-init.py:47`
 (`orch` on subagent start), hosts/codex/hook.py:163,168,
 hosts/cursor/hook.py:224,250,256,272,280,295, hosts/opencode/plugins/tezgah.js:1372-1379,
 hosts/opencode/plugins/tezgah.js:1776, hosts/omp/hook.py:148. Both Claude (hooks/hooks.json) and dsh
