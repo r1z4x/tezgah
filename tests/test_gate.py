@@ -1548,5 +1548,125 @@ class WorkspaceGate(TempHome):
         self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
             self.repo, "plans", "x.md"), "content": "x"}))
 
+
+class PlanGate(TempHome):
+    """The plan-required rule: the third distinct product file a single turn
+    writes while the checkout is on `main`/`master` is refused. A one- or
+    two-file fix stays free, a `plan/NNN-slug` branch is free, `.tezgah/` never
+    counts, and a repo carrying `.no-plan-gate` - or no git repository at all -
+    passes."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        subprocess.run(["git", "init", "-q", "-b", "main", self.repo], check=True)
+        self.envv = self.env()
+
+    def decide(self, tool, inp, cwd=None, session_id="plan-s"):
+        out, proc = run_json([support.PROBE_GATE],
+                             {"tool": tool, "input": inp, "cwd": cwd or self.repo,
+                              "session_id": session_id}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def write(self, path):
+        return self.decide("Write", {"file_path": path, "content": "x"})
+
+    def seed_write(self, path, session="plan-s"):
+        """The row a real PostToolUse hook writes after a write, through the
+        writer itself: the rule reads this turn's writes off the ledger, so a
+        test that invented the rows would prove nothing about the fold."""
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "note_tool", "session": session,
+                              "tool": "Edit",
+                              "input": {"file_path": path, "old_string": "a",
+                                        "new_string": "b"}, "cwd": self.repo},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def deny_rows(self, session="plan-s"):
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "events", "session": session}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return [str(row.get("detail")) for row in (out or [])
+                if row.get("kind") == "deny"]
+
+    def path(self, *parts):
+        return os.path.join(self.repo, *parts)
+
+    # ---- the trigger -------------------------------------------------------
+    def test_the_third_product_write_on_main_is_refused(self):
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        reason = self.write(self.path("docs", "one.md"))
+        self.assertIsNotNone(reason)
+        self.assertIn("plan-add", reason)     # names the command that opens one
+        self.assertIn("main", reason)         # and the branch it read
+        # its own rule name on the ledger row, so the counters separate it
+        self.assertTrue(self.deny_rows()[-1].startswith("plan:"),
+                        self.deny_rows())
+
+    def test_a_second_product_write_on_main_passes(self):
+        self.seed_write(self.path("hooks", "one.py"))
+        self.assertIsNone(self.write(self.path("tests", "test_one.py")))
+
+    def test_the_same_third_write_on_a_plan_branch_passes(self):
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-b",
+                        "plan/017-plan-required-on-main"], check=True)
+        self.assertIsNone(self.write(self.path("docs", "one.md")))
+
+    def test_a_third_write_of_the_same_file_never_counts(self):
+        # the count is DISTINCT product files: a turn that rewrites one file
+        # three times is still one file's work
+        for _ in range(2):
+            self.seed_write(self.path("hooks", "one.py"))
+        self.assertIsNone(self.write(self.path("hooks", "one.py")))
+
+    def test_a_write_outside_the_product_paths_is_not_the_third(self):
+        for name in ("hooks/one.py", "tests/test_one.py", "docs/one.md"):
+            self.seed_write(self.path(*name.split("/")))
+        self.assertIsNone(self.write(self.path("src", "app.py")))
+
+    def test_a_read_is_not_a_write(self):
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        self.assertIsNone(self.decide("Read", {"file_path": self.path("docs", "one.md")}))
+
+    # ---- what never counts -------------------------------------------------
+    def test_dot_tezgah_writes_are_not_counted(self):
+        # three writes under .tezgah/ beside one product file: if the .tezgah
+        # rows counted, this second product write would be the fifth file
+        for name in ("plans/a.md", "plans/b.md", "evidence.md"):
+            self.seed_write(self.path(".tezgah", *name.split("/")))
+        self.seed_write(self.path("hooks", "one.py"))
+        self.assertIsNone(self.write(self.path("tests", "test_one.py")))
+        self.assertIsNone(self.write(self.path(".tezgah", "plans", "c.md")))
+
+    def test_the_no_plan_gate_mark_lifts_the_rule(self):
+        self.touch(self.path(".no-plan-gate"))
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        self.assertIsNone(self.write(self.path("docs", "one.md")))
+
+    def test_a_directory_with_no_git_repository_passes(self):
+        plain = self.make_repo("plain")
+        self.seed_write(os.path.join(plain, "hooks", "a.py"))
+        self.seed_write(os.path.join(plain, "hooks", "b.py"))
+        self.assertIsNone(self.decide(
+            "Write", {"file_path": os.path.join(plain, "hooks", "c.py"),
+                      "content": "x"}, cwd=plain))
+
+    def test_a_shell_redirect_into_a_product_file_counts(self):
+        # the shell is a write route like any other: the third product file a
+        # heredoc would land is refused the same way
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        reason = self.decide("Bash", {"command": "cat > docs/one.md <<'EOF'\nx\nEOF"})
+        self.assertIsNotNone(reason)
+        self.assertIn("plan-add", reason)
+
+
 if __name__ == "__main__":
     unittest.main()

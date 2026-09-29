@@ -79,13 +79,14 @@ from tezgah_integrity import (BASH_TOOLS, HEREDOC, STEP_KINDS, WRITE_TOOLS,
                               turn_rows)
 from tezgah_paths import cache_dir, off, root_for
 
-try:  # The ordering rule's two readers: the newest check's state, folded the way
-    # the Stop rule folds it, and the command of that check for the refusal.
-    # Newer than some checkouts, and a missing name costs the rule, never the
-    # session - this import runs on every gated call.
-    from tezgah_integrity import _failed_check, _last_verify
+try:  # The ordering rule's two readers (the newest check's state, folded the way
+    # the Stop rule folds it, and the command of that check for the refusal), and
+    # the plan rule's fold over this turn's write rows. Newer than some checkouts,
+    # and a missing name costs the rule, never the session - this import runs on
+    # every gated call.
+    from tezgah_integrity import _failed_check, _last_verify, turn_rows
 except ImportError:  # pragma: no cover - only on an integrity module without them
-    _failed_check, _last_verify = None, None
+    _failed_check, _last_verify, turn_rows = None, None, None
 
 try:  # The race rule reads the write history through tezgah_integrity; that
     # reader is newer than some checkouts of the module, and a missing name must
@@ -1075,6 +1076,122 @@ def effectful(t, inp):
     return False
 
 
+# --- plan required: work that spans files on main has no plan ----------------
+# What this closes: a turn that wrote four product files - a hook, its tests, its
+# docs and the changelog - straight onto `main`, with the plan opened afterwards.
+# The task rule constrains a write only through a record the user made, so with
+# no active task every product write passes and "work for a plan happens on its
+# branch" is advice rather than a mechanism. Here the checkout is the record: on
+# `main`/`master` the third distinct product file a single turn writes is
+# refused, while a one- or two-file fix stays free - a plan is what makes work
+# that spans files reviewable and closeable.
+#
+# The count is a fold over the turn's own write rows (`turn_rows`), so it needs
+# no state of its own, and the call in hand contributes the files it names before
+# the comparison: an `apply_patch` naming three product files is the third file by
+# itself.
+#
+# Fail-open wherever the question cannot be answered: no session, no ledger, a
+# checkout that is not a git repository, a detached HEAD (no branch to name), and
+# a repo carrying the `.no-plan-gate` mark all pass - the direction every rule
+# here takes, because a refusal has to rest on something a reader can check.
+#
+# ponytail: a PRIOR write recorded through the shell is a `run` row whose detail
+# is the command, so it is not counted; only the call in hand contributes a shell
+# target (`write_paths` reads the redirect). The turn this rule answers is the
+# write-tool turn, and reading a shell command's target off a stored command line
+# would be a second reader of the same table, not a new fact.
+PLAN_BRANCHES = ("main", "master")
+# The product paths the count reads, relative to the repository root: the code
+# and docs a plan exists to scope. `.tezgah/` - and every other directory - is
+# not one of them, and neither is a path outside the repository.
+PLAN_DIRS = ("hooks", "tests", "bin", "skills", "docs")
+PLAN_FILES = ("statusline.py", "MANIFEST")
+# The third file: two writes in a turn are a fix, three are work that spans files.
+PLAN_WRITES = 3
+PLAN_DENY = (
+    "This turn has written %d distinct product files while the checkout is on "
+    "`%s`. Work that spans files on `main`/`master` has no plan to review or "
+    "close, so the third product file in one turn is refused: open a plan with "
+    "the `plan-add` skill (`/tezgah:plan-add <description>`) and do the work on "
+    "the `plan/NNN-slug` branch it creates. A one- or two-file fix stays free. "
+    "Only `hooks/`, `tests/`, `bin/`, `skills/`, `docs/`, `statusline.py` and "
+    "`MANIFEST` are counted; a `.tezgah/` path never is.")
+
+
+def _branch(root):
+    """The branch the checkout at `root` is on, or "" when there is none to name:
+    not a git repository (no `.git`), an unreadable HEAD, or a detached HEAD.
+
+    Read from `.git/HEAD` rather than a `git` fork: the gate runs this on every
+    product write, and one file read is the whole cost. A worktree's `.git` is a
+    file naming the real gitdir, which is followed."""
+    dot = os.path.join(root, ".git")
+    if os.path.isfile(dot):
+        try:
+            with open(dot, encoding="utf-8", errors="replace") as fh:
+                line = fh.readline().strip()
+        except OSError:
+            return ""
+        if not line.startswith("gitdir:"):
+            return ""
+        target = line[len("gitdir:"):].strip()
+        dot = target if os.path.isabs(target) else os.path.join(root, target)
+    try:
+        with open(os.path.join(dot, "HEAD"), encoding="utf-8",
+                  errors="replace") as fh:
+            ref = fh.readline().strip()
+    except OSError:
+        return ""
+    head = "ref: refs/heads/"
+    return ref[len(head):] if ref.startswith(head) else ""
+
+
+def _product_path(path, root, cwd):
+    """`path` as a repo-relative product path, or None when it is not one.
+
+    A relative path is resolved against the call's own `cwd`, the one directory
+    the gate was handed. ponytail: a row recorded from another cwd resolves
+    against this one, so a differently-spelled path is missed rather than matched
+    by accident - the same ceiling `write_paths` carries."""
+    text = str(path or "").strip()
+    if not text:
+        return None
+    full = text if os.path.isabs(text) else os.path.join(cwd or root, text)
+    rel = os.path.relpath(os.path.realpath(full), root)
+    parts = rel.split(os.sep)
+    if parts[0] in PLAN_DIRS:
+        return rel
+    return rel if len(parts) == 1 and parts[0] in PLAN_FILES else None
+
+
+def plan_reason(inp, cwd, base, session_id):
+    """A deny reason when this write would be a turn's third distinct product
+    file while the checkout is on `main`/`master`, else None. The section above
+    carries the trigger, the counted paths and the fail-open direction."""
+    if not session_id or turn_rows is None or tezgah_task is None:
+        return None
+    root = tezgah_task.repo_root(cwd, base)
+    branch = _branch(root)
+    if branch not in PLAN_BRANCHES:
+        return None
+    if os.path.exists(os.path.join(root, ".no-plan-gate")):
+        return None
+    written = {rel for rel in
+               (_product_path(path, root, cwd) for path in write_paths(inp))
+               if rel}
+    if not written:
+        return None
+    for row in turn_rows(session_id):
+        if row.get("kind") == "edit":
+            rel = _product_path(row.get("detail"), root, cwd)
+            if rel:
+                written.add(rel)
+    if len(written) < PLAN_WRITES:
+        return None
+    return PLAN_DENY % (len(written), branch)
+
+
 def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None,
           extra=None):
     """Record a refusal before returning it: a deny nobody counts is a rule
@@ -1198,6 +1315,15 @@ def decision(tool, inp, cwd, session_id=None):
             return _deny(session_id, "secret", reason, tool, inp, base)
         if shell_body and SECRET_TOKEN.search(shell_body["content"]):
             return _deny(session_id, "secret", SECRET_DENY, tool, inp, base)
+    # Plan required: the turn's third product file while the checkout is on
+    # main/master (see plan_reason). Below the task, workspace and secret rules,
+    # because each names a more specific fault in the same write, and above the
+    # repeat guards, because it is the call that is refused and not a repeat of
+    # one. Standing: only changing the tree's state changes it.
+    if t in WRITE_TOOLS + BASH_TOOLS:
+        reason = plan_reason(inp, cwd, base, session_id)
+        if reason:
+            return _deny(session_id, "plan", reason, tool, inp, base)
     # Ordering: a commit asserted over a check that just failed (see
     # commit_order_reason). An argument-shaped rule, so it sits with them and
     # above the repeat guards; it rides `verify-off`, the switch that governs the

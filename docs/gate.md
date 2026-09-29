@@ -7,8 +7,8 @@ report, and for the session that has just met a refusal in its transcript. [arch
 ## Where it sits in the call path
 
 One function decides every refusal: `decision(tool, inp, cwd, session_id)` returns a reason string or `None`, and nothing else
-(`hooks/tezgah_gate.py:1094-1266`). It answers only inside a tezgah [root](glossary.md#root): outside one `root_for` returns nothing and every call passes
-(`hooks/tezgah_gate.py:1049-1051`). The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py:1047`).
+(`hooks/tezgah_gate.py:1211-1392`). It answers only inside a tezgah [root](glossary.md#root): outside one `root_for` returns nothing and every call passes
+(`hooks/tezgah_gate.py:1050-1052`). The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py:1048`).
 
 Each host's pre-tool hook calls it and wraps the string in that host's own deny envelope — opencode's is its `tool.execute.before`, which throws
 `new Error(deny)`; a `None` prints no envelope at all.
@@ -20,11 +20,11 @@ Each host's pre-tool hook calls it and wraps the string in that host's own deny 
 | opencode | `hosts/opencode/plugins/tezgah.js:1611` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:1725` |
 
 Every refusal is also recorded before it is returned: `_deny` appends a ledger row `deny` whose `detail` is `"<rule>: <reason, first 80 chars>"`, plus any
-`extra` (`hooks/tezgah_gate.py:1078-1093`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
+`extra` (`hooks/tezgah_gate.py:1195-1210`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
 
 A call the gate lets through is also where it keeps the pre-write bytes: `capture` runs for a write tool, and for a shell command that writes a file through a
 redirect or `tee` - the same shape the task phase rule reads, `write_paths` returns the target for both routes, and a shell write gets its pre-state the same
-way (`hooks/tezgah_gate.py:1196-1206`, `write_paths` `hooks/tezgah_gate.py:583`, `shell_target` `hooks/tezgah_gate.py:837`). Without it the after-state alone
+way (`hooks/tezgah_gate.py:1313-1332`, `write_paths` `hooks/tezgah_gate.py:584`, `shell_target` `hooks/tezgah_gate.py:838`). Without it the after-state alone
 cannot tell a redirect that wrote the file from one that wrote what was already there, and the freshness half of the Stop rule would read every redirect as a
 change; the two halves of that rule are `hooks/tezgah_integrity.py`'s and are described in [evidence.md](evidence.md).
 
@@ -35,8 +35,8 @@ identical call; *standing*, only changing the call does.
 
 ### Explorer — the grep-only subagent
 
-Trigger: tool `agent`/`task`/`subagent` whose `subagent_type` is `explore` or `explorer`, case-insensitively (`hooks/tezgah_gate.py:1064-1065`, `explored` `hooks/tezgah_gate.py:364`). Told: use
-the general-purpose agent and name the codegraph tools in its prompt (`EXPLORE_DENY` `hooks/tezgah_gate.py:213`). Standing: no mark, every such
+Trigger: tool `agent`/`task`/`subagent` whose `subagent_type` is `explore` or `explorer`, case-insensitively (`hooks/tezgah_gate.py:1065-1066`, `explored` `hooks/tezgah_gate.py:365`). Told: use
+the general-purpose agent and name the codegraph tools in its prompt (`EXPLORE_DENY` `hooks/tezgah_gate.py:214`). Standing: no mark, every such
 request is refused.
 
 ### Shortcut — a check made unable to fail, or a test disabled
@@ -46,9 +46,9 @@ Trigger, shell: `--no-verify`, or `SKIP=`/`HUSKY_SKIP_HOOKS=`/`HUSKY=0`, next to
 introduced into a test file — the path must match `tests?/`, `test_*`, `*_test`, `*.test.*` (`TEST_PATH` `:151-158`), the marker must survive `mask()` so one
 inside a string or comment does not count, and `_added` compares against the file's own text on disk for a `Write` (`:1197-1218`, `SKIP_TEST` `:141-150`). Told:
 the texts at `:1133-1143` and `:1249-1252` — run the checks, or say the test is failing; ask the user first if the skip is intended. Standing, with one switch:
-`verify-off` removes this check (`hooks/tezgah_gate.py:1074-1086`). The shell is a write route like any other, and the one E7c measured an
+`verify-off` removes this check (`hooks/tezgah_gate.py:1240-1257`). The shell is a write route like any other, and the one E7c measured an
 armed session taking once the write tools were refused: a heredoc that writes a skip into a test file meets the same predicate, run over the body the
-command would land (`shell_write_body` `hooks/tezgah_gate.py:898`, read at `hooks/tezgah_gate.py:1080` — the body is the raw text, because `mask()` blanks
+command would land (`shell_write_body` `hooks/tezgah_gate.py:899`, read at `hooks/tezgah_gate.py:1197` — the body is the raw text, because `mask()` blanks
 heredoc bodies by design).
 
 ### Piped — a check whose status a trimmer owns
@@ -60,82 +60,94 @@ then refuses every claim the run was meant to carry — observed in a real omp s
 Passes: a line that opens with `set -o pipefail` (`PIPEFAIL` `hooks/tezgah_integrity.py:1150-1151`), which integrity then records as decisive
 (`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). Told: redirect the
 check to a file and read the file, or prefix `set -o pipefail;`, with the check named as it was typed. Standing, under `verify-off`
-(`hooks/tezgah_gate.py:1086`). opencode asks the core for this rule on any shell line that pipes a check
+(`hooks/tezgah_gate.py:1240`). opencode asks the core for this rule on any shell line that pipes a check
 (`hosts/opencode/plugins/tezgah.js:1677`) and records such a line as `verify` unless it opens with pipefail (`hosts/opencode/plugins/tezgah.js:628`).
 
 ### Attribution — an AI/model credit on its way into an artifact
 
-Trigger, shell: a write command (`WRITE_CMD` `hooks/tezgah_gate.py:173-186` — `git commit|merge|tag|notes`, `gh api`,
-`gh pr|issue|release create|edit|comment|review|merge|close`) carrying a credit form (`ATTRIB` `hooks/tezgah_gate.py:151` — `co-authored-by:`, `generated with`, `made with`,
-`built by`, `assisted by`, `authored by`, `noreply@anthropic`, a robot emoji). Trigger, edit/write: one of the content fields `EDIT_TEXT` (`hooks/tezgah_gate.py:164`)
-containing a line that *starts* with a credit (`ATTRIB_LINE` `hooks/tezgah_gate.py:162`). Told: remove it and re-run; naming a tool in order to use it is fine, crediting it
-as author is not (`ATTRIB_DENY` `hooks/tezgah_gate.py:220`). Standing. The line anchor is why prose that merely names the banned forms passes (`hooks/tezgah_gate.py:133-150`).
-The same twin as the shortcut rule's: a credit a heredoc writes into a file is refused from the body (`hooks/tezgah_gate.py:1089-1090`), and no command has to be
+Trigger, shell: a write command (`WRITE_CMD` `hooks/tezgah_gate.py:174-187` — `git commit|merge|tag|notes`, `gh api`,
+`gh pr|issue|release create|edit|comment|review|merge|close`) carrying a credit form (`ATTRIB` `hooks/tezgah_gate.py:152` — `co-authored-by:`, `generated with`, `made with`,
+`built by`, `assisted by`, `authored by`, `noreply@anthropic`, a robot emoji). Trigger, edit/write: one of the content fields `EDIT_TEXT` (`hooks/tezgah_gate.py:165`)
+containing a line that *starts* with a credit (`ATTRIB_LINE` `hooks/tezgah_gate.py:163`). Told: remove it and re-run; naming a tool in order to use it is fine, crediting it
+as author is not (`ATTRIB_DENY` `hooks/tezgah_gate.py:221`). Standing. The line anchor is why prose that merely names the banned forms passes (`hooks/tezgah_gate.py:134-151`).
+The same twin as the shortcut rule's: a credit a heredoc writes into a file is refused from the body (`hooks/tezgah_gate.py:1206-1207`), and no command has to be
 a `git`/`gh` write for it to be this rule's.
 
 ### Language — an identifier or message that is not English
 
-Trigger, shell: a command that would create an identifier - `git checkout -b`/`git switch -c`, `git branch` with a new name, a commit subject (`git commit -m`/`--message`/`-F`), or a `gh pr|issue create --title` (the language section `hooks/tezgah_gate.py:238-349`, `created_texts` `hooks/tezgah_gate.py:327`; the text is read from the raw command, because `mask()` blanks quoted strings and a commit subject is one) - whose name or subject is **not English**: a letter outside ASCII anywhere (`non_english` `hooks/tezgah_lang.py:45` - a predicate rather than one language's letter list, so Russian, Greek, Arabic, Chinese and accented Latin hit it exactly as Turkish does) or an ASCII-folded Turkish word from the curated list (`ENGLISH` `hooks/tezgah_lang.py:76`, wi…
+Trigger, shell: a command that would create an identifier - `git checkout -b`/`git switch -c`, `git branch` with a new name, a commit subject (`git commit -m`/`--message`/`-F`), or a `gh pr|issue create --title` (the language section `hooks/tezgah_gate.py:239-350`, `created_texts` `hooks/tezgah_gate.py:328`; the text is read from the raw command, because `mask()` blanks quoted strings and a commit subject is one) - whose name or subject is **not English**: a letter outside ASCII anywhere (`non_english` `hooks/tezgah_lang.py:45` - a predicate rather than one language's letter list, so Russian, Greek, Arabic, Chinese and accented Latin hit it exactly as Turkish does) or an ASCII-folded Turkish word from the curated list (`ENGLISH` `hooks/tezgah_lang.py:76`, wi…
 
 The rule is a **heuristic** and its own text says so: a word list is not a language detector, so it cannot tell a proper noun or a product name in another language from a word that ought to be English, and a listed word may be the user's own term. A command that only names the words - `echo`, `grep`, `git log --grep` - creates nothing and passes. An identifier outlives the session that typed it, which is the reason the rule exists at all: `plan/004-admin-durum-onarimi` is in a public history from the moment it exists. On **opencode** the rule is not ported: the plugin asks the core for it through `bin/tezgah-gate check`, one spawn for a command its pre-test reads as identifier-creating (`IDENT_CMD` `hosts/opencode/plugins/tezgah.js:329`, the call site `:1670…
 
 ### Race — another session wrote this file minutes ago
 
-Trigger: a write tool whose path, or `apply_patch` header, another session recorded a write of inside `RACE_WINDOW_MIN = 10` minutes (`hooks/tezgah_gate.py:544`, `race_reason`
-`hooks/tezgah_gate.py:611`, reader `writers_elsewhere` `hooks/tezgah_integrity.py:864-929`). Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
-`hooks/tezgah_gate.py:561`). Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py:548`) — a notice would not close a silent overwrite — and it lifts only by time.
+Trigger: a write tool whose path, or `apply_patch` header, another session recorded a write of inside `RACE_WINDOW_MIN = 10` minutes (`hooks/tezgah_gate.py:545`, `race_reason`
+`hooks/tezgah_gate.py:612`, reader `writers_elsewhere` `hooks/tezgah_integrity.py:864-929`). Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
+`hooks/tezgah_gate.py:562`). Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py:549`) — a notice would not close a silent overwrite — and it lifts only by time.
 
 ### Secret — a credential on its way into a file
 
-Trigger: one simple command (split on `&&`, `||`, `;`, newline — `SEGMENT` `hooks/tezgah_gate.py:204-205`) carrying both a token (`SECRET_TOKEN` `hooks/tezgah_gate.py:187-194` — an
-`Authorization: Bearer` header, or a `name=value` assignment for `api_key`/`token`/`secret`/`password`/...) and a sink (`SECRET_SINK` `hooks/tezgah_gate.py:195` — `>`/`>>`,
-`| tee`, a curl `--trace`, or `git add`); `secret_command` `hooks/tezgah_gate.py:521`. Told: record the name, length or a fingerprint instead, and pass the value through the
-tool's environment (`SECRET_DENY` `hooks/tezgah_gate.py:206`). Standing, no escape hatch. The shell's own write route is the third twin: a credential inside a heredoc body
-is refused from the body (`hooks/tezgah_gate.py:1141-1142`), because `mask()` blanks that body and the text-level scan above cannot see it.
+Trigger: one simple command (split on `&&`, `||`, `;`, newline — `SEGMENT` `hooks/tezgah_gate.py:205-206`) carrying both a token (`SECRET_TOKEN` `hooks/tezgah_gate.py:188-195` — an
+`Authorization: Bearer` header, or a `name=value` assignment for `api_key`/`token`/`secret`/`password`/...) and a sink (`SECRET_SINK` `hooks/tezgah_gate.py:196` — `>`/`>>`,
+`| tee`, a curl `--trace`, or `git add`); `secret_command` `hooks/tezgah_gate.py:522`. Told: record the name, length or a fingerprint instead, and pass the value through the
+tool's environment (`SECRET_DENY` `hooks/tezgah_gate.py:207`). Standing, no escape hatch. The shell's own write route is the third twin: a credential inside a heredoc body
+is refused from the body (`hooks/tezgah_gate.py:1258-1259`), because `mask()` blanks that body and the text-level scan above cannot see it.
 
 ### Workspace — tezgah state outside `.tezgah/`
 
 Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write. A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
+
+### Plan — a turn's third product file on `main`
+
+Trigger: a write tool, or a shell redirect/`tee` (`write_paths` `hooks/tezgah_gate.py:584`), whose target is a product path, while the checkout is on `main` or `master` and this turn has
+already written two other product files (`plan_reason` `hooks/tezgah_gate.py:1168-1194`, `_branch` `hooks/tezgah_gate.py:1122-1149`, `_product_path` `hooks/tezgah_gate.py:1150-1167`). The
+count folds the turn's own write rows (`turn_rows` `hooks/tezgah_integrity.py:750-779`) together with the files the call in hand names, so it needs no state of its own, and it counts DISTINCT
+paths - a turn that rewrites one file three times is still one file's work. The product paths are the ones at the repository root that a plan exists to scope - `hooks/`, `tests/`, `bin/`,
+`skills/`, `docs/`, `statusline.py` and `MANIFEST` (`PLAN_DIRS`/`PLAN_FILES` `hooks/tezgah_gate.py:1108-1109`); a `.tezgah/` path is never one of them, and neither is a path outside the
+repository. Told: the branch it read, how many files the turn has written, and the command that opens a plan - the `plan-add` skill, `/tezgah:plan-add <description>` (`PLAN_DENY`
+`hooks/tezgah_gate.py:1112-1121`). Standing: only changing the tree's state changes it - the work moves to the `plan/NNN-slug` branch the skill creates (a one- or two-file fix is free either
+way), or the repository carries a `.no-plan-gate` mark (the shape of `.no-graph` and `.no-lessons`). It passes wherever the question cannot be answered: no session or ledger, a directory that is
+not a git repository, and a detached HEAD with no branch to name.
 
 ### Ordering — a commit while the newest check failed
 
 The one rule here that asserts a relation between two actions rather than reading one call plus a ledger tail, and the shape FAVA found in 90% of real
 agent-instruction projects ("do not commit before running the tests").
 
-Trigger: the command is a `git commit` (or `--amend`; `COMMIT_CMD` `hooks/tezgah_gate.py:942`, matched at `hooks/tezgah_gate.py:1149`) and the newest check in
-this session **failed**. The state is the Stop rule's own fold over the ledger tail (`ORDER_TAIL = 200` `hooks/tezgah_gate.py:892`, the fold
+Trigger: the command is a `git commit` (or `--amend`; `COMMIT_CMD` `hooks/tezgah_gate.py:943`, matched at `hooks/tezgah_gate.py:1266`) and the newest check in
+this session **failed**. The state is the Stop rule's own fold over the ledger tail (`ORDER_TAIL = 200` `hooks/tezgah_gate.py:893`, the fold
 `tezgah_integrity._last_verify`), and the rule is structurally incapable of firing in either direction that would punish honest work: no check at all folds
 to `None` and a passing newest check folds to `ok`, so a commit in a session that ran no check — a docs-only commit — and a commit after a green run both
 pass. Only `fail` refuses: the tree the commit would freeze is the one a check just rejected.
 
-Told: the failed check by name and nothing else (`ORDER_DENY` `hooks/tezgah_gate.py:944`, `commit_order_reason` `hooks/tezgah_gate.py:952`) —
+Told: the failed check by name and nothing else (`ORDER_DENY` `hooks/tezgah_gate.py:945`, `commit_order_reason` `hooks/tezgah_gate.py:953`) —
 making the newest check pass is the whole repair, so the refusal names no command that lifts it, for the reason the task refusals carry. Standing while the
-tail still shows that failure, under `verify-off` (`hooks/tezgah_gate.py:1148`). Its deny row is its own rule name (`order`), so the counters separate it.
+tail still shows that failure, under `verify-off` (`hooks/tezgah_gate.py:1265`). Its deny row is its own rule name (`order`), so the counters separate it.
 
 ### Loop — the identical attempt that already failed twice
 
-Trigger: the same call (same `call_id`) failed `LOOP_ATTEMPTS = 2` times already in the current user turn (`hooks/tezgah_gate.py:442`, `loop_reason` `hooks/tezgah_gate.py:464`). Told: attempt N
-of an identical call, the failure class read from the ledger, "change the approach or stop" (`hooks/tezgah_gate.py:472-480`). Standing while the ledger tail still shows those
-failures. Under `verify-off` (`hooks/tezgah_gate.py:1159`).
+Trigger: the same call (same `call_id`) failed `LOOP_ATTEMPTS = 2` times already in the current user turn (`hooks/tezgah_gate.py:443`, `loop_reason` `hooks/tezgah_gate.py:465`). Told: attempt N
+of an identical call, the failure class read from the ledger, "change the approach or stop" (`hooks/tezgah_gate.py:473-481`). Standing while the ledger tail still shows those
+failures. Under `verify-off` (`hooks/tezgah_gate.py:1276`).
 
 ### Retry — the session-wide ceiling
 
-Trigger: the same call has been attempted more than `RETRY_CEILING = 3` times in the session, whatever those attempts returned (`hooks/tezgah_gate.py:461`, `retry_reason`
-`hooks/tezgah_gate.py:495`). Told: an unchanged repeat is not a retry (`hooks/tezgah_gate.py:501-506`). Standing. Under `verify-off` (`hooks/tezgah_gate.py:1159`). Both guards read only the ledger tail.
+Trigger: the same call has been attempted more than `RETRY_CEILING = 3` times in the session, whatever those attempts returned (`hooks/tezgah_gate.py:462`, `retry_reason`
+`hooks/tezgah_gate.py:496`). Told: an unchanged repeat is not a retry (`hooks/tezgah_gate.py:502-507`). Standing. Under `verify-off` (`hooks/tezgah_gate.py:1276`). Both guards read only the ledger tail.
 
 ### Nudge — the first identifier-shaped search of a session
 
-Trigger: a `Grep` whose pattern, or a `grep`/`rg` argument (`BASH_SEARCH` `hooks/tezgah_gate.py:129`), matches `IDENT` (`^[A-Za-z_][A-Za-z0-9_]{2,}$`, `hooks/tezgah_gate.py:114`), in a repo whose
+Trigger: a `Grep` whose pattern, or a `grep`/`rg` argument (`BASH_SEARCH` `hooks/tezgah_gate.py:130`), matches `IDENT` (`^[A-Za-z_][A-Za-z0-9_]{2,}$`, `hooks/tezgah_gate.py:115`), in a repo whose
 codegraph index exists (`<repo>/.codegraph/codegraph.db`; `searched_identifier`
-`hooks/tezgah_gate.py:369`). Told: the runnable command built from the denied search (`codegraph explore <X>`, `codegraph callers <X>`, `codegraph impact <X>`), and that an omp subagent uses this CLI because omp's MCP device refuses concurrent writes
-(`nudge_reason` `hooks/tezgah_gate.py:421`).
-Once-only: the mark in `cache_dir()/nudged/<session>` is written *before* the refusal, so re-issuing the search passes (`first_nudge` `hooks/tezgah_gate.py:404`).
+`hooks/tezgah_gate.py:370`). Told: the runnable command built from the denied search (`codegraph explore <X>`, `codegraph callers <X>`, `codegraph impact <X>`), and that an omp subagent uses this CLI because omp's MCP device refuses concurrent writes
+(`nudge_reason` `hooks/tezgah_gate.py:422`).
+Once-only: the mark in `cache_dir()/nudged/<session>` is written *before* the refusal, so re-issuing the search passes (`first_nudge` `hooks/tezgah_gate.py:405`).
 
 ### Drift — a long turn loses the rules it started with
 
-Trigger: 25 work rows (`DRIFT_STEPS` `hooks/tezgah_gate.py:983-987`) in the current user turn and an effectful call — a write tool, or a git/gh artifact command (`effectful`
-`hooks/tezgah_gate.py:1067-1077`). Told: the standing constraints re-stated, or the delta since the turn began; "nothing was refused, so carry on" (`DRIFT_NOTICE` `hooks/tezgah_gate.py:989`,
-`drift_reason` `hooks/tezgah_gate.py:1032`). Not a refusal: the notice rides the tool-result channel, delivered by the PostToolUse side of claude/dsh, codex, cursor and omp, so `decision` never denies for it (opencode's plugin carries no drift path). Once per turn: the `drift` mark is written where the notice is produced, and the count behind it is the turn's own — a bounded read (`DRIFT_TAIL` `hooks/tezgah_gate.py:988`) falls back to the turn's own start (`turn_rows` `hooks/tezgah_integrity.py:750-779`) when the turn outgrew the window. Governed by `reminder-off`, not `verify-off` (`hooks/tezgah_gate.py:1002`).
+Trigger: 25 work rows (`DRIFT_STEPS` `hooks/tezgah_gate.py:984-988`) in the current user turn and an effectful call — a write tool, or a git/gh artifact command (`effectful`
+`hooks/tezgah_gate.py:1068-1103`). Told: the standing constraints re-stated, or the delta since the turn began; "nothing was refused, so carry on" (`DRIFT_NOTICE` `hooks/tezgah_gate.py:990`,
+`drift_reason` `hooks/tezgah_gate.py:1033`). Not a refusal: the notice rides the tool-result channel, delivered by the PostToolUse side of claude/dsh, codex, cursor and omp, so `decision` never denies for it (opencode's plugin carries no drift path). Once per turn: the `drift` mark is written where the notice is produced, and the count behind it is the turn's own — a bounded read (`DRIFT_TAIL` `hooks/tezgah_gate.py:989`) falls back to the turn's own start (`turn_rows` `hooks/tezgah_integrity.py:750-779`) when the turn outgrew the window. Governed by `reminder-off`, not `verify-off` (`hooks/tezgah_gate.py:1003`).
 
 ## What the gate deliberately does not catch
 
@@ -148,18 +160,22 @@ Read this before filing a security-ish issue; each is a decision, not an oversig
   outbound effect carrying only the taint notice, with no refusal in between. The notice itself stays (`hooks/tezgah_untrusted.py`).
 - A write inside the root after a fetch: left to the taint notice that `hooks/tezgah_untrusted.py` rides the first effect with, because it is recoverable from
   the snapshot.
-- `grep -A 3 foo`: a flag with its own value shifts the token, so the search passes unnudged (`hooks/tezgah_gate.py:115-116`).
-- A foreign `apply_patch` write: the PostToolUse writer records no path for that row (`hooks/tezgah_gate.py:605`); and a second session that spells the path differently
-  escapes the rule, because the ledger keeps no `cwd` (`hooks/tezgah_gate.py:558-560`).
-- Which rule the user meant when a turn drifts: "a guess about intent wearing a check's clothes" (`hooks/tezgah_gate.py:990`).
+- `grep -A 3 foo`: a flag with its own value shifts the token, so the search passes unnudged (`hooks/tezgah_gate.py:116-117`).
+- A foreign `apply_patch` write: the PostToolUse writer records no path for that row (`hooks/tezgah_gate.py:606`); and a second session that spells the path differently
+  escapes the rule, because the ledger keeps no `cwd` (`hooks/tezgah_gate.py:559-561`).
+- Which rule the user meant when a turn drifts: "a guess about intent wearing a check's clothes" (`hooks/tezgah_gate.py:991`).
 - A skip already in the file, or one inside a string (a test *about* the rule), is not a disable (`hooks/tezgah_integrity.py:1090-1097`).
 - The content of a shell write that is not a heredoc: `echo "Co-Authored-By: x" > f` puts the credit inside a quoted string that no line-start anchor can see,
   and reading the whole command instead would deny a search for the form (`grep "Co-Authored-By" x > out`). The three twins read a heredoc body, which is the
-  route E7c measured (`shell_write_body` `hooks/tezgah_gate.py:898`).
+  route E7c measured (`shell_write_body` `hooks/tezgah_gate.py:899`).
 - A shell write whose target is not a redirect: `cp`, `mv`, `sed -i`, `patch` and `git apply` name it as a positional argument, and which argument of those is
   the target is a per-program question, so the gate keeps no pre-state for it and the freshness half reads no change there (`write_paths`
-  `hooks/tezgah_gate.py:583`). A shell write chained with a check in one call (`sed -i ... && pytest`) records as the check row, and the row that carries a
+  `hooks/tezgah_gate.py:584`). A shell write chained with a check in one call (`sed -i ... && pytest`) records as the check row, and the row that carries a
   pass is never the row read as the change - otherwise a check redirecting its own log would stale itself (`tezgah_integrity._change_row`).
+- A PRIOR shell write's target, in the plan rule's count: a write the shell landed is a `run` row whose detail is the command, so the count reads the turn's
+  write-tool rows plus the redirect the call in hand names (`plan_reason` `hooks/tezgah_gate.py:1168-1194`). Three heredocs into product files in one turn
+  therefore pass where the same three through the write tools are refused, and reading a stored command line for its target would be a second reader of the
+  table `write_paths` already holds.
 
 **The seat a semantic rule would take on the Stop path, and why it stays empty.** The Stop rule's
 claim detector is a vocabulary (`DONE`/`VERIFIED`, `hooks/tezgah_integrity.py`),
@@ -197,10 +213,11 @@ ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:1038`, `ORDE
 
 ## Adding a rule
 
-1. Write the check inside `decision` (`hooks/tezgah_gate.py:1094-1266`). A rule is a function returning a `str` reason or `None`; keep an argument-shaped rule
-   above the repeat guards (`hooks/tezgah_gate.py:1159-1165`) — the drift notice is no longer one of them, it rides the tool-result channel (see Drift) — and put its constants beside its own section.
-2. Return through `_deny(session_id, "<rule>", reason, tool, inp, base)` so the ledger counts the refusal (`hooks/tezgah_gate.py:1078-1093`); gate it on the kill switch it belongs
-   to (`off(...)`), the way the shortcut and repeat rules use `verify-off` (`hooks/tezgah_gate.py:1074`, `hooks/tezgah_gate.py:1159`).
+1. Write the check inside `decision` (`hooks/tezgah_gate.py:1211-1392`). A rule is a function returning a `str` reason or `None`; keep an argument-shaped rule
+   above the repeat guards (`hooks/tezgah_gate.py:1276-1282`) — the drift notice is no longer one of them, it rides the tool-result channel (see Drift) — and put its constants beside its own section.
+   Moving this file shifts every line-number citation on this page, so re-run `bin/tezgah-docs --citations` in the same pass as the suite and re-anchor what it flags.
+2. Return through `_deny(session_id, "<rule>", reason, tool, inp, base)` so the ledger counts the refusal (`hooks/tezgah_gate.py:1195-1210`); gate it on the kill switch it belongs
+   to (`off(...)`), the way the shortcut and repeat rules use `verify-off` (`hooks/tezgah_gate.py:1240`, `hooks/tezgah_gate.py:1343`).
 3. Extend `tests/test_gate.py`. It drives the real function through `tests/_probe_gate.py` (`tests/support.py:20`), which also carries the `capture_log` stub
    standing in for `tezgah_gate.capture` on the allow path (`tests/_probe_gate.py:20-30`). Only if the refusal envelope changes, touch
    `tests/test_claude_adapters.py:42-51` and the codex/cursor/omp hook tests.
@@ -209,10 +226,10 @@ ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:1038`, `ORDE
 
 ## Source of truth
 
-- `hooks/tezgah_gate.py` — `decision` `hooks/tezgah_gate.py:1094-1266`; every rule constant and refusal text `hooks/tezgah_gate.py:114-214`; `attribution`/`attribution_edit` `hooks/tezgah_gate.py:238-272`; `explored`
-  `hooks/tezgah_gate.py:364`; `searched_identifier` `hooks/tezgah_gate.py:369`, `index_slug` `hooks/tezgah_gate.py:384`, `first_nudge` `hooks/tezgah_gate.py:404`, `nudge_reason` `hooks/tezgah_gate.py:421`; `LOOP_ATTEMPTS` `hooks/tezgah_gate.py:442`, `loop_reason` `hooks/tezgah_gate.py:464`,
-  `RETRY_CEILING` `hooks/tezgah_gate.py:461`, `retry_reason` `hooks/tezgah_gate.py:495`; `secret_command` `hooks/tezgah_gate.py:521`, `race_reason` `hooks/tezgah_gate.py:611`,
-  `drift_reason` `hooks/tezgah_gate.py:1032`, `effectful` `hooks/tezgah_gate.py:1067-1077`, `_deny` `hooks/tezgah_gate.py:1078`; `write_paths` `hooks/tezgah_gate.py:583`, `shell_target` `hooks/tezgah_gate.py:837`, `SHELL_AS_WRITE` `hooks/tezgah_gate.py:580`; the `capture` call `hooks/tezgah_gate.py:1196-1206` (a write tool's target, and a shell write's)
+- `hooks/tezgah_gate.py` — `decision` `hooks/tezgah_gate.py:1211-1392`; every rule constant and refusal text `hooks/tezgah_gate.py:115-215`; `attribution`/`attribution_edit` `hooks/tezgah_gate.py:239-273`; `explored`
+  `hooks/tezgah_gate.py:365`; `searched_identifier` `hooks/tezgah_gate.py:370`, `index_slug` `hooks/tezgah_gate.py:385`, `first_nudge` `hooks/tezgah_gate.py:405`, `nudge_reason` `hooks/tezgah_gate.py:422`; `LOOP_ATTEMPTS` `hooks/tezgah_gate.py:443`, `loop_reason` `hooks/tezgah_gate.py:465`,
+  `RETRY_CEILING` `hooks/tezgah_gate.py:462`, `retry_reason` `hooks/tezgah_gate.py:496`; `secret_command` `hooks/tezgah_gate.py:522`, `race_reason` `hooks/tezgah_gate.py:612`,
+  `drift_reason` `hooks/tezgah_gate.py:1033`, `effectful` `hooks/tezgah_gate.py:1068-1103`, `_deny` `hooks/tezgah_gate.py:1195`; the plan rule's own section `hooks/tezgah_gate.py:1079-1192` — `plan_reason` `hooks/tezgah_gate.py:1168`, `_branch` `hooks/tezgah_gate.py:1122`, `_product_path` `hooks/tezgah_gate.py:1150`, `PLAN_DENY` `hooks/tezgah_gate.py:1112`; `write_paths` `hooks/tezgah_gate.py:584`, `shell_target` `hooks/tezgah_gate.py:838`, `SHELL_AS_WRITE` `hooks/tezgah_gate.py:581`; the `capture` call `hooks/tezgah_gate.py:1313-1332` (a write tool's target, and a shell write's)
 - `hooks/projects-pretooluse.py` — the Claude and dsh envelope; `hooks/tezgah_paths.py` — `off`, `root_for`, `cache_dir`
 - `hooks/tezgah_integrity.py` — `BASH_TOOLS`/`WRITE_TOOLS` `hooks/tezgah_integrity.py:286-295`; `NEUTER`/`SKIP_ENV`/`NO_VERIFY`/`GITISH` `:132-140`; `SKIP_TEST` `:141-150`; `TEST_PATH`
   `:151-158`; `call_id` `hooks/tezgah_integrity.py:409-433`; `_path` `:449`, `note` `hooks/tezgah_integrity.py:627-639`, `events` `hooks/tezgah_integrity.py:732-745`, `writers_elsewhere` `hooks/tezgah_integrity.py:864-929`, `mask` `hooks/tezgah_integrity.py:1119-1124`, `shortcut_command` `hooks/tezgah_integrity.py:1125-1149`,

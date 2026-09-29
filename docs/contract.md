@@ -166,7 +166,7 @@ happens in `core_split()`.
 | `judge-off` | the judgement seam: the snapshot triage, the docs page fallback and the skill hint | `hooks/tezgah_judge.py:165` — `available()` is asked before any call, so an armed switch makes no request at all |
 | `triage-off` | the snapshot triage alone (`bin/tezgah-triage`), leaving the docs fallback and the skill hint armed | `bin/tezgah-triage:120` — `off_reason()` answers this switch before the seam's, so the analyze-app loop reads the tree instead of paying for a judgement |
 | `docs-judge-off` | the docs page fallback alone (`bin/tezgah-docs`), leaving the triage and the skill hint armed | `bin/tezgah-docs:177` — `off()` answers this switch first, so a query the index cannot place exits 1 with what it always printed |
-| `lang-off` | `**Identifiers and messages stay English.**` | `hooks/tezgah_context.py:804-806` drops the paragraph; the gate's own check reads the same switch (`hooks/tezgah_gate.py:1151`) |
+| `lang-off` | `**Identifiers and messages stay English.**` | `hooks/tezgah_context.py:804-806` drops the paragraph; the gate's own check reads the same switch (`hooks/tezgah_gate.py:1268`) |
 | `pretooluse-off` | the gate's denials, not a rule | [gate.md](gate.md) |
 | `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:777-780` |
 | `.no-adhd` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:781-783` |

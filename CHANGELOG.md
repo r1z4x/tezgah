@@ -8,6 +8,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A turn's third product file on `main` needs a plan.** The gate now refuses
+  the write that would make one turn three product files deep while the checkout
+  is on `main` or `master`, and the refusal names the `plan-add` skill and the
+  `plan/NNN-slug` branch it creates. What it closes is how the previous change
+  was built: a hook, its tests, its docs and the changelog were written straight
+  onto `main` across four files and the plan was opened afterwards, because the
+  task rule constrains a write only through a record the user made - with no
+  active task, every product write passed, and "work for a plan happens on its
+  branch" was advice rather than a mechanism. The count is a fold over the
+  turn's own write rows (`turn_rows`) together with the files the call in hand
+  names, so it needs no state of its own, and it counts DISTINCT paths: a one-
+  or two-file fix, and a turn that rewrites one file three times, both stay
+  free. The paths counted are the product ones at the repository root -
+  `hooks/`, `tests/`, `bin/`, `skills/`, `docs/`, `statusline.py` and
+  `MANIFEST`; a `.tezgah/` path never is, and neither is a path outside the
+  repository. It is fail-open wherever the question cannot be answered: no
+  ledger, a directory that is not a git repository, and a detached HEAD with no
+  branch to name all pass. A repo opts out with `.no-plan-gate`, the shape
+  `.no-graph` and `.no-lessons` already use. The rule sits below the task,
+  workspace and secret rules - each names a more specific fault in the same
+  write - and above the repeat guards.
+
 - **The external-state Stop class, `no external read`.** A reply that states the
   state of a system tezgah does not own - a registry, a release, a tag, a
   formula, a CI run - now owes a read of that system in the same turn: `npm view`,
