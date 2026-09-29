@@ -22,6 +22,18 @@ EVENTS = {
     "PostCompact": "post_compact",
 }
 
+# PostCompact is kept wired for the hosts that deliver its output (Codex and dsh
+# run this same script through their own hook tables) even though Claude discards
+# it: Claude Code's hook reference lists PostCompact under "No decision control.
+# Used for side effects like logging or cleanup" and omits it from the
+# `additionalContext` delivery list. On Claude the post-compaction context
+# therefore reaches the model through SessionStart, which fires again with
+# `source: "compact"` - so the resume block (hooks/tezgah_context.resume_state)
+# rides both events and neither channel alone is load-bearing. Removed here only
+# if every host that runs this file is shown to discard it. (Unverified by
+# observation: no tezgah-armed Claude session with a compaction has run on this
+# machine; plan 021's acceptance run settles it.)
+
 # Claude's global memory file, where install_claude writes the always-on core as
 # a managed block: the file Claude reads into every session, so the core is
 # already in the session's instructions.

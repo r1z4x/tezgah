@@ -16,7 +16,8 @@ import sys
 import time
 
 import tezgah_research
-from tezgah_integrity import cut, note, note_turn, scratch_evidence
+from tezgah_integrity import (changed_files, cut, last_check, note, note_turn,
+                              scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            open_lines_note, pony_level_line)
 from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
@@ -559,6 +560,106 @@ def task_line(task):
                                           paths))
 
 
+# --- the resume block: the live turn state a compact loses -------------------
+# A session that compacts, or resumes the next morning, gets the contract, the
+# plans and the lessons from the block below - but not what the turn was doing.
+# This block carries the four facts the new context cannot re-derive: the active
+# plan's State and Next, the branch's last commits, the newest check the ledger
+# holds, and the files the last turn changed. Written as a state of the world,
+# never as an order - it is read, not obeyed. Built for session_start and the
+# post-compaction path only (the two events a host re-delivers context on). Each
+# part is independent and silent when unknown, and a block with nothing to say
+# is left out whole rather than printed as an empty label.
+#
+# Why PostCompact alone is not enough (Claude, the host with both events):
+# Claude Code's hook reference lists PostCompact under "No decision control.
+# Used for side effects" and omits it from the `additionalContext` delivery
+# list, so the block this file builds for `post_compact` is written and
+# discarded there - while SessionStart fires again with `source: "compact"` and
+# does deliver. The channel that reaches the model is therefore session_start,
+# and the resume block rides both so no host that delivers either one loses it.
+# (Unverified by observation: no tezgah-armed Claude session with a compaction
+# has run on this machine; the acceptance run of plan 021 settles it.)
+RESUME_LOG = 5
+RESUME_PLAN_CHARS = 55
+RESUME_COMMIT_CHARS = 46
+RESUME_CHECK_CHARS = 55
+RESUME_FILES = 3
+
+
+def _plan_facts(path):
+    """(state, next) as the plan's `## State` and `## Next` first lines, cut
+    short; "" for a section the file does not carry."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return "", ""
+    state, nxt, want = "", "", None
+    for line in lines:
+        if line.startswith("## "):
+            head = line[3:].strip()
+            want = head if head in ("State", "Next") else None
+        elif want and line.strip():
+            value = cut(line.strip(), RESUME_PLAN_CHARS)
+            if want == "State" and not state:
+                state = value
+            elif want == "Next" and not nxt:
+                nxt = value
+    return state, nxt
+
+
+def _active_plan(root):
+    """The open plan the resume block names: the one whose `NNN-slug` matches the
+    checked-out `plan/...` branch, else the lowest-id open plan. None when the
+    repo keeps no open plan."""
+    paths = sorted(glob.glob(os.path.join(root, ".tezgah", "plans",
+                                          "open", "*.md")))
+    if not paths:
+        return None
+    branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch.startswith("plan/"):
+        want = branch[len("plan/"):]
+        for path in paths:
+            if os.path.basename(path)[:-len(".md")] == want:
+                return path
+    return paths[0]
+
+
+def resume_state(root, session_id):
+    """The live turn state as a context block, or "" when every part is empty.
+
+    The four parts, in order: the active plan's State and Next, the branch's last
+    RESUME_LOG commits, the newest `verify_ok`/`verify_fail` the ledger holds,
+    and the files this turn's writes changed. Read by session_start and the
+    post-compaction path; see the note above for why both."""
+    lines = []
+    plan = _active_plan(root)
+    if plan:
+        pid = os.path.basename(plan)[:-len(".md")]
+        state, nxt = _plan_facts(plan)
+        if state:
+            lines.append("- plan %s state: %s" % (pid, state))
+        if nxt:
+            lines.append("- plan %s next: %s" % (pid, nxt))
+    log = git(root, "log", "--oneline", "-%d" % RESUME_LOG)
+    if log:
+        branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+        lines.append("- commits on %s:" % (branch or "HEAD"))
+        lines += ["  " + cut(ln, RESUME_COMMIT_CHARS) for ln in log.splitlines()]
+    row = last_check(session_id) if session_id else None
+    if row:
+        lines.append("- last check %s: %s"
+                     % (row.get("kind"), cut(str(row.get("detail") or ""),
+                                             RESUME_CHECK_CHARS)))
+    files = sorted(changed_files(session_id)) if session_id else []
+    if files:
+        lines.append("- changed this turn: %s" % ", ".join(files[:RESUME_FILES]))
+    if not lines:
+        return ""
+    return "## Session so far\n" + "\n".join(lines)
+
+
 # The slice of the ledger that is injected: the last few lines, each cut to one
 # bounded length. Named, because the per-turn digest is taken over exactly this
 # text and a second pair of literals would drift out of step with it.
@@ -917,18 +1018,21 @@ CONTEXT_BUDGET = {"session_start": 12000, "post_compact": 12000,
                   "subagent_start": 5000, "user_prompt": 6000}
 DEFAULT_BUDGET = 12000
 # The blocks in the order they are given up when the budget is exceeded, lowest
-# value first: text another surface already carries (the plan table lives in the
-# plan-status skill, the lessons file is on disk, the generated-subagent note is
-# a one-time fact), then the tooling-availability lines, then the live state
-# lines - the stale-graph glance, then the scratch-path warning, which is about
-# evidence the turn may already have claimed - then the active task's phase,
-# which outlives both because a phase is what stops a refused write before it
-# happens - then the delta, and the skill pointer last. A key absent from this
-# tuple is never dropped: the always-on core and the per-turn reminder ARE the
-# rules, and a budget that can spend them turns bloat into rule loss.
-DROP_ORDER = ("knowledge", "lessons", "plans", "subagents", "steer", "consult", "research",
-              "research_broken", "graph", "offnote", "orchestrate", "index",
-              "scratch", "task", "delta", "pointer")
+# value first: the resume block first (it restates facts git and the ledger
+# already hold, and a trimmed session is better off without a stale summary than
+# without a rule), then text another surface already carries (the plan table
+# lives in the plan-status skill, the lessons file is on disk, the
+# generated-subagent note is a one-time fact), then the tooling-availability
+# lines, then the live state lines - the stale-graph glance, then the scratch-path
+# warning, which is about evidence the turn may already have claimed - then the
+# active task's phase, which outlives both because a phase is what stops a refused
+# write before it happens - then the delta, and the skill pointer last. A key
+# absent from this tuple is never dropped: the always-on core and the per-turn
+# reminder ARE the rules, and a budget that can spend them turns bloat into rule
+# loss.
+DROP_ORDER = ("resume", "knowledge", "lessons", "plans", "subagents", "steer",
+              "consult", "research", "research_broken", "graph", "offnote",
+              "orchestrate", "index", "scratch", "task", "delta", "pointer")
 
 
 def _drop_note(event, limit, dropped, size):
@@ -1158,6 +1262,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         # A root is not a project, and the helper returns None outside a work tree.
         if root not in roots():
             ensure_workspace(root)
+        # The live turn state, first in this region: on a compacted or resumed
+        # session it is the one thing the rest of the block cannot re-derive.
+        resume = resume_state(root, session_of(payload))
+        if resume:
+            parts.append(("resume", resume))
         plans = open_plans(root)
         if plans:
             parts.append(("plans", plans))

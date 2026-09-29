@@ -1957,6 +1957,23 @@ def last_verify(session_id):
     return _last_verify(events(session_id))
 
 
+def last_check(session_id):
+    """The newest verification row the ledger holds - a `verify_ok` or a
+    `verify_fail`, with its command in `detail` - or None when no check ran.
+
+    `last_verify` answers the same question as a state; this hands the row back
+    for a reader that has to name the command the state came from, the way the
+    resume block a re-started session gets names the last check beside the files
+    the last turn changed. Read from the tail: the newest check of a long
+    session is near its end, and the whole-file read is the cost this bound
+    buys out of."""
+    newest = None
+    for row in events(session_id, tail=SCRATCH_TAIL):
+        if row.get("kind") in ("verify_ok", "verify_fail"):
+            newest = row
+    return newest
+
+
 # Where a session's own scratch work lives: a temp path the OS hands out, or a
 # path segment naming a stand-in. Word boundaries, so `demo` counts and
 # `democracy` does not; case-insensitive, because a segment is a name.

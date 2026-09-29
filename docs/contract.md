@@ -60,6 +60,20 @@ pointer line and the kill-switch list - in its header, because its header claims
 every rule is in force and a delegate that cannot name a switch cannot tell its
 caller how to disarm one (`hooks/tezgah_context.py:843-883`).
 
+One block on those two events is not a standing rule but the live turn state.
+`session_start` and `post_compact` also build `resume_state`: the active plan's
+`## State` and `## Next`, the branch's last five commits, the newest
+`verify_ok`/`verify_fail` the session ledger holds, and the files the last turn
+changed. It is what a session that compacts, or resumes the next morning, would
+otherwise lose - the contract, the plans and the lessons arrive, but not what the
+turn was doing. It is written as a state of the world and never as an order. Each
+part is silent when its fact is unknown and the block is left out whole when
+every part is empty. It rides both events because Claude discards PostCompact's
+`additionalContext` (its hook reference lists PostCompact under "No decision
+control", and omits it from the delivery list) while SessionStart fires again
+with `source: "compact"` and does deliver, so a host that delivers either one
+still gets the block.
+
 One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
@@ -235,9 +249,11 @@ healthy repo and fires before a pathological one reaches the model; it is a byte
 count, not a token estimate (`hooks/tezgah_context.py:746-763`).
 
 Over budget, `budgeted()` gives up whole blocks in `DROP_ORDER`, lowest value
-first — the lessons and their neighbours before the tooling-availability lines,
-the live graph and state lines (the evidence-scope warning among them), the
-delta, and the skill pointer last
+first — the resume state first (it restates facts git and the ledger already
+hold, and a trimmed session is better off without a stale summary than without a
+rule), then the lessons and their neighbours before the tooling-availability
+lines, the live graph and state lines (the evidence-scope warning among them),
+the delta, and the skill pointer last
 (`hooks/tezgah_context.py:919-928`, `hooks/tezgah_context.py:929-933`). Any key absent from that tuple is
 never dropped: the core, the reminder and the armed paragraphs are the rules, and
 a budget able to spend them would turn bloat into rule loss. The note naming what

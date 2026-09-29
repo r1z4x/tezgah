@@ -455,7 +455,9 @@ class UiWorkArming(unittest.TestCase):
 class GitSpawnBudget(TempHome):
     """One git spawn per question per process. A session start asks the same two
     questions twice over (context_for, then the status line's idx mark), and that
-    second pair of forks was pure waste - two spawns where four ran."""
+    second pair of forks was pure waste - two spawns where four ran. The resume
+    block (plan 021) adds two questions of its own at session start - the branch
+    name and the last commits - and each is asked once, like the others."""
 
     def setUp(self):
         super().setUp()
@@ -478,7 +480,7 @@ class GitSpawnBudget(TempHome):
         os.makedirs(os.path.join(self.repo, ".codegraph"), exist_ok=True)
         open(os.path.join(self.repo, ".codegraph", "codegraph.db"), "w").close()
 
-    def test_a_session_start_forks_git_twice(self):
+    def test_a_session_start_forks_git_once_per_question(self):
         shim = os.path.join(self.home, "shim")
         os.makedirs(shim, exist_ok=True)
         log = os.path.join(self.home, "git.log")
@@ -504,11 +506,15 @@ class GitSpawnBudget(TempHome):
             lines = [line for line in fh.read().splitlines() if line]
         asked = [line.split(" rev-parse ", 1)[1] for line in lines
                  if " rev-parse " in line]
-        # one top-level and one HEAD, however often the line is rendered
-        self.assertEqual(sorted(asked), ["--show-toplevel", "HEAD"], asked)
-        # the only other fork is the workspace's one-time private `git init`
-        self.assertEqual([line for line in lines if " rev-parse " not in line],
-                         ["init -q %s" % os.path.join(self.repo, ".tezgah")])
+        # one top-level, one HEAD and the resume block's one branch query,
+        # however often the line is rendered
+        self.assertEqual(sorted(asked),
+                         ["--abbrev-ref HEAD", "--show-toplevel", "HEAD"], asked)
+        # the other forks: the resume block's one log read and the workspace's
+        # one-time private `git init`
+        self.assertEqual(sorted(line for line in lines if " rev-parse " not in line),
+                         sorted(["-C %s log --oneline -5" % self.repo,
+                                 "init -q %s" % os.path.join(self.repo, ".tezgah")]))
 
 
 class IndexRedraw(unittest.TestCase):
@@ -955,6 +961,127 @@ class ContextBudget(ChildCall):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("Context budget", out)
         self.assertLess(len(out.encode()), self.budget("user_prompt"))
+
+
+class ResumeBlock(ChildCall):
+    """V2 (plan 021): a session that compacts, or resumes the next morning, is
+    handed the contract, the plans and the lessons but not what the turn was
+    doing. The resume block carries that live state - the active plan's State
+    and Next, the branch's last commits, the newest check the ledger holds, and
+    the files the last turn changed - on the two events a host re-delivers
+    context on, `session_start` and `post_compact`."""
+
+    PLAN = ("---\nid: 021\ntitle: a thing\n---\n## Goal\nsomething\n"
+            "## State\nhalf done: the first half landed\n"
+            "## Next\nwire the second half\n")
+
+    def repo(self, git=True):
+        repo = self.make_repo("proj")
+        if git:
+            subprocess.run(["git", "init", "-q", repo], check=True)
+            # a plan branch, so the block names the plan the branch points at
+            subprocess.run(["git", "-C", repo, "checkout", "-q", "-b",
+                            "plan/021-thing"], check=True)
+        return repo
+
+    def commit(self, repo, message, name="f"):
+        with open(os.path.join(repo, name), "w") as fh:
+            fh.write(name)
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "-c", "user.email=a@b",
+                        "-c", "user.name=t", "commit", "-qm", message],
+                       check=True)
+
+    def plan(self, repo):
+        path = os.path.join(repo, ".tezgah", "plans", "open", "021-thing.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(self.PLAN)
+
+    def ledger(self, session="s1"):
+        self.child("import tezgah_integrity as ti\n"
+                   "ti.note(%r, 'turn', 'abc123')\n"
+                   "ti.note(%r, 'edit', 'hooks/tezgah_context.py', changed=True)\n"
+                   "ti.note(%r, 'verify_ok',\n"
+                   "        'python3 -m unittest tests/test_context.py')\n"
+                   "print(1)\n" % (session, session, session))
+
+    def full_repo(self):
+        repo = self.repo()
+        self.plan(repo)
+        self.commit(repo, "first")
+        self.ledger()
+        return repo
+
+    def session(self, repo, session="s1", event="session_start", limit=None):
+        patch = ("tc.CONTEXT_BUDGET[%r] = %d\n" % (event, limit)
+                 if limit is not None else "")
+        return self.child("import json, tezgah_context as tc\n" + patch
+                          + "print(json.dumps(tc.context_for(%r, %r,"
+                            " {'session_id': %r})))\n" % (event, repo, session))
+
+    def block(self, repo, session="s1"):
+        return self.child("import json, tezgah_context as tc\n"
+                          "print(json.dumps(tc.resume_state(%r, %r)))\n"
+                          % (repo, session))
+
+    def budget(self, event):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        return tc.CONTEXT_BUDGET[event]
+
+    def test_resume_block_names_the_live_state(self):
+        repo = self.full_repo()
+        out = self.session(repo)
+        self.assertIn("## Session so far", out)
+        self.assertIn("plan 021-thing state: half done: the first half landed",
+                      out)
+        self.assertIn("plan 021-thing next: wire the second half", out)
+        self.assertIn("commits on plan/021-thing:", out)
+        self.assertIn("first", out)
+        self.assertIn("last check verify_ok: python3 -m unittest", out)
+        self.assertIn("changed this turn: hooks/tezgah_context.py", out)
+
+    def test_resume_block_is_absent_when_every_part_is_empty(self):
+        # no git, no plan, no ledger: nothing to resume, so the block is left
+        # out whole rather than printed as an empty label
+        repo = self.repo(git=False)
+        self.assertEqual("", self.block(repo))
+        self.assertNotIn("## Session so far", self.session(repo))
+
+    def test_resume_budget_is_the_first_block_given_up(self):
+        repo = self.full_repo()
+        whole = self.session(repo)
+        out = self.session(repo, limit=len(whole.encode()) - 1)
+        # one byte over gives up the resume block first, and the blocks that
+        # outrank it are still there
+        self.assertIn("dropped resume (", out)
+        self.assertNotIn("## Session so far", out)
+        self.assertIn("Open plans in this repo", out)
+        self.assertIn("tezgah-contract` skill", out)
+
+    def test_resume_budget_stays_under_the_per_event_ceiling(self):
+        repo = self.full_repo()
+        out = self.session(repo)
+        self.assertNotIn("Context budget", out)
+        self.assertLess(len(out.encode()), self.budget("session_start"))
+        # the block's own target: short enough to be read at a glance
+        self.assertLessEqual(len(self.block(repo).encode()), 600)
+
+    def test_post_compact_carries_the_resume_block(self):
+        # Claude discards PostCompact's additionalContext and re-delivers on
+        # SessionStart(source=compact); the block rides both, so a host that
+        # delivers either one still gets it
+        repo = self.full_repo()
+        out = self.session(repo, event="post_compact")
+        self.assertIn("## Session so far", out)
+        self.assertIn("plan 021-thing next:", out)
+
+    def test_post_compact_leaves_the_delegated_brief_to_subagent_start(self):
+        repo = self.full_repo()
+        out = self.session(repo, event="post_compact")
+        self.assertNotIn("You are a subagent", out)
+        self.assertIn("tezgah-contract` skill", out)
 
 
 class StateDelta(ChildCall):
