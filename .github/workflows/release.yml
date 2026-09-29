@@ -88,7 +88,17 @@ jobs:
 
           # The asset the formula above points at. Without this the tap ships a
           # formula whose sha256 is right and whose URL 404s - which is what a
-          # release republished by hand looked like.
-          gh release upload "v${VERSION}" \
-            "/tmp/tz-rel/tezgah-${VERSION}.tar.gz" \
-            "/tmp/tz-rel/tezgah-${VERSION}.tar.gz.sha256" --clobber
+          # release republished by hand looked like. The upload races the release
+          # itself becoming readable, so it retries, and the last line fails the
+          # job when the asset is still missing rather than reporting success.
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "v${VERSION}" \
+                 "/tmp/tz-rel/tezgah-${VERSION}.tar.gz" \
+                 "/tmp/tz-rel/tezgah-${VERSION}.tar.gz.sha256" \
+                 --repo "$GITHUB_REPOSITORY" --clobber; then
+              break
+            fi
+            sleep 5
+          done
+          gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | grep -qx "tezgah-${VERSION}.tar.gz"
