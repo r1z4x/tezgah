@@ -20,7 +20,7 @@ change has to know what moved: at 2 the step vocabulary gained `interrupted`, so
 
 `kind` is the event kind, `detail` is free text (the command, a path, a short reason) and `ts` is
 epoch seconds. A **write row's** `detail` is the path the call wrote, from the gate's one reader of
-every host dialect (`write_paths`, `hooks/tezgah_gate.py:583-610`): `file_path`, `filePath`, `path`,
+every host dialect (`write_paths`, `hooks/tezgah_gate.py:584-611`): `file_path`, `filePath`, `path`,
 `notebook_path`, or an `apply_patch` body's first `*** Update File:` header — the paths
 `changed_files()` (`hooks/tezgah_integrity.py:1498-1511`) folds when a reader asks which files a session changed. `detail` is
 credential-redacted **before** it is stored, over the whole text, and
@@ -48,7 +48,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1512-1620` | the Stop rule's `worked` set `:2261`; `counters.steps` `:1028-1029`; `last_verify`/`partial_state` |
 | `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:1512-1620` | the taint notice, via `source`; nothing counts them as work |
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2148-2196` | `counters` `hooks/tezgah_integrity.py:973-992` |
-| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1078-1093`, first-nudge `hooks/tezgah_gate.py:1226` | `counters` `hooks/tezgah_integrity.py:973-992` |
+| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1195-1210`, first-nudge `hooks/tezgah_gate.py:1352` | `counters` `hooks/tezgah_integrity.py:973-992` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:184-186`, `:263-266` | `_snapshot_hash` `hooks/tezgah_integrity.py:1437-1450`; no counter |
 
 **`interrupted` is the step with no verdict.** The host said the call was *stopped* — a user's cancel,
@@ -189,7 +189,7 @@ command (`_failed_check` `hooks/tezgah_integrity.py:2197-2209`) and tells the mo
 line, or fix it and re-run.
 
 **The escape hatches, and the deny that answers each.** The gate refuses these before they run, under
-the same `verify-off` switch (`hooks/tezgah_gate.py:1074-1086`), as rule `shortcut`:
+the same `verify-off` switch (`hooks/tezgah_gate.py:1075-1203`), as rule `shortcut`:
 
 - `--no-verify` on a git/commit/push-style command (`NO_VERIFY` `:138`, `GITISH` `:139-140`) —
   `shortcut_command` `hooks/tezgah_integrity.py:1125-1149`.
