@@ -227,23 +227,25 @@ const SECRET_DENY =
   "tool's own environment, or let the tool read it from there rather than " +
   "writing it out."
 // --- loop and retry: the two repeat ceilings --------------------------------
-// The attempt a repeat is refused on, per failure class. Two identical failures
-// are the retry the agent may still be fixing while it changes the code between
-// them; the third is the loop the contract bans ("three attempts on one failure
-// is the ceiling"). A transient failure - a timeout, a connection error, a rate
-// limit, a 5xx - can clear on its own, so its identical call gets one more try.
-// No row written here carries a class: opencode reports the process exit code and
-// no error text, so a class is never observed and the base allowance applies
-// (tezgah_integrity.fail_class).
+// The identical attempts a call gets before a repeat is refused, whatever its
+// failure class (hooks/tezgah_gate.LOOP_ATTEMPTS). Two identical failures are the
+// retry the agent may still be fixing while it changes the code between them;
+// the third is the loop the contract bans ("three attempts on one failure is the
+// ceiling"). The class names why the last attempt failed and does not widen the
+// cap. No row written here carries a class: opencode reports the process exit
+// code and no error text, so a class is never observed (tezgah_integrity.fail_class).
 const LOOP_CEILING = 2
-const CLASS_CEILING = { transient: LOOP_CEILING + 1 }
 const CLASS_NOTE = {
-  transient: "the failure it names can clear on its own, so this class gets " +
-    "one more identical attempt than a permanent one",
+  transient: "it names a failure the host's own client may retry - a " +
+    "timeout, a connection error, a rate limit, a 5xx - and an identical " +
+    "repeat by the agent adds nothing to that",
+  user: "it names something only the user can fix - a credential, a login, " +
+    "an access grant - so stop and ask the user for it rather than change " +
+    "the approach",
   permanent: "an assertion or a bad argument does not change by re-running it",
 }
 const NO_CLASS_NOTE = "the host reported no error text for it, so the class " +
-  "is unknown and the base allowance applies"
+  "is unknown, and the cap is the same either way"
 // The session-wide half, blind to the outcome: a call the gate has seen run
 // three times may not run a fourth, whatever those runs returned. Set above the
 // common work loop (edit, test, edit, test reaches two identical test runs, and
@@ -826,12 +828,6 @@ function priorCalls(rows, digest) {
   return [turn, made, last.exit, last.fail_class ?? null]
 }
 
-// The identical attempts this failure class allows (hooks/tezgah_gate
-// .loop_ceiling): a class no host error text named gets the base allowance.
-function loopCeiling(klass) {
-  return CLASS_CEILING[klass] ?? LOOP_CEILING
-}
-
 // The failure-scoped half of the repeat rule, or null: this exact call already
 // failed often enough in this user turn. Past the ceiling the identical retry
 // cannot work - the agent has to change the approach or stop, which is the
@@ -840,13 +836,12 @@ function loopCeiling(klass) {
 // this rule's.
 function loopReason(tool, args, rows) {
   const [turn, , lastExit, klass] = priorCalls(rows, actionID(tool, args))
-  const ceiling = loopCeiling(klass)
-  if (lastExit !== 1 || turn < ceiling) return null
+  if (lastExit !== 1 || turn < LOOP_CEILING) return null
   return "Loop guard denied: this is attempt " + (turn + 1) + " of an identical " +
     "call whose " + turn + " previous attempt" + (turn === 1 ? "" : "s") +
     " exited 1" + (klass ? " (a " + klass + " failure)" : "") +
-    ". This class allows " + ceiling + " identical attempt" +
-    (ceiling === 1 ? "" : "s") + ", because " +
+    ". The cap is " + LOOP_CEILING + " identical attempts for every failure " +
+    "class, because " +
     (CLASS_NOTE[klass] ?? NO_CLASS_NOTE) + ". Repeating an identical failing " +
     "command is not a retry - change the approach (fix what the error names, " +
     "or run something else) or stop and report what is still unknown."

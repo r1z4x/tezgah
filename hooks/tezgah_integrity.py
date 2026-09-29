@@ -300,9 +300,10 @@ READ_TOOLS = ("read", "read_file", "readfile", "notebookread", "notebook_read",
 
 
 # The host's error text, classified for the ledger's fail_class field. The loop
-# guard reads it to scope its retry allowance (a transient failure gets one more
-# identical attempt than a permanent one): a timeout or a rate limit is a
-# different incident from a bad flag or a missing file.
+# guard names it in its refusal (the cap is one number for every class,
+# tezgah_gate.LOOP_ATTEMPTS): a timeout or a rate limit is a different incident
+# from a bad flag or a missing file, and both differ from a credential or an
+# access grant only the user can supply.
 # The class exists only where the host reports the failure as prose, which today
 # is Claude's PostToolUseFailure `error` field - omp sends `isError`, Codex a
 # failure flag and Cursor a per-event one, all booleans, and opencode's port
@@ -313,11 +314,20 @@ TRANSIENT_ERROR = re.compile(
     r"temporarily unavailable|rate ?limit|\b(?:429|502|503|504|529)\b|"
     r"ECONNRESET|ETIMEDOUT|EPIPE|EAGAIN|broken pipe|try again|please retry|"
     r"overloaded|network", re.I)
+# Checked before PERMANENT_ERROR, whose "invalid" and "not found" would claim
+# these texts. "permission denied" stays permanent: a file mode the agent can
+# change is not the user's to fix.
+USER_ERROR = re.compile(
+    r"\b(?:401|403)\b|unauthori[sz]ed|forbidden|"
+    r"authentication (?:failed|required)|"
+    r"(?:invalid|missing|no) (?:api[ _-]?key|token|credentials?)|"
+    r"(?:api[ _-]?key|token|credentials?) (?:is |are )?(?:invalid|missing|expired)|"
+    r"not logged in|login required", re.I)
 PERMANENT_ERROR = re.compile(
     r"command not found|no such file|not found|cannot find|permission denied|"
     r"unrecognized|unknown option|invalid|syntax error|does not exist|"
     r"ModuleNotFoundError|ImportError|assertion|expected|"
-    r"\b(?:126|127|401|403|404|422)\b", re.I)
+    r"\b(?:126|127|404|422)\b", re.I)
 # the fields the ledger contract adds to {kind, ts, detail, v}. Every reader
 # treats a missing key as None, so a writer leaves out what it did not know rather
 # than writing nulls into the file it reads back on every gated call. The four
@@ -369,18 +379,19 @@ def cut(text, limit):
 
 
 def fail_class(error):
-    """How the host's error text classifies: "transient", "permanent",
+    """How the host's error text classifies: "transient", "user", "permanent",
     "unknown", or None when the host reported no error at all.
 
-    The class is read by the loop guard, which allows one more identical attempt
-    to a transient failure than to a permanent one, and it says what kind of
-    failure the trace carried. Only a host that reports its error as text can
+    The class is named in the loop guard's refusal - it does not change the cap -
+    and it says what kind of failure the trace carried. Only a host that reports its error as text can
     supply it; the others yield None, never a guessed class."""
     text = str(error or "").strip()
     if not text:
         return None
     if TRANSIENT_ERROR.search(text):
         return "transient"
+    if USER_ERROR.search(text):
+        return "user"
     if PERMANENT_ERROR.search(text):
         return "permanent"
     return "unknown"

@@ -127,7 +127,7 @@ tail still shows that failure, under `verify-off` (`hooks/tezgah_gate.py:1265`).
 ### Loop — the identical attempt that already failed twice
 
 Trigger: the same call (same `call_id`) failed `LOOP_ATTEMPTS = 2` times already in the current user turn (`hooks/tezgah_gate.py:443`, `loop_reason` `hooks/tezgah_gate.py:465`). Told: attempt N
-of an identical call, the failure class read from the ledger, "change the approach or stop" (`hooks/tezgah_gate.py:473-481`). Standing while the ledger tail still shows those
+of an identical call, the failure class read from the ledger (`transient`, `user`, `permanent`, `unknown`; the cap is the same for every class, and a `user` failure - a 401/403, a missing credential, a login - says to ask the user), "change the approach or stop" (`hooks/tezgah_gate.py:473-481`). Standing while the ledger tail still shows those
 failures. Under `verify-off` (`hooks/tezgah_gate.py:1276`).
 
 ### Retry — the session-wide ceiling

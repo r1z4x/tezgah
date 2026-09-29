@@ -850,8 +850,8 @@ class OpenCodePlugin(TempHome):
         error = self.denied(self.before("bash", {"command": "pytest -q"}))
         self.assertIn("Loop guard denied: this is attempt 3", error)
         # opencode reports the exit code and no error text, so no class is
-        # observed and the base allowance is the one that applies
-        self.assertIn("base allowance applies", error)
+        # observed; the cap is the core's one number for every class
+        self.assertIn("cap is 2 identical attempts for every failure class", error)
         self.assertEqual(self.ledger()[-1]["detail"][:6], "loop: ")
 
     def test_one_failure_is_not_a_loop(self):

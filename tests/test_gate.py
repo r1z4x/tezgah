@@ -390,6 +390,14 @@ class Gate(TempHome):
                              session_id=transient)
         self.assertIn("(a transient failure)", reason)
         self.assertIn("host's own client may retry", reason)
+        # a credential or an access grant is the user's to fix: the refusal
+        # says to ask, and the cap is still 2
+        for _ in range(2):
+            self.seed_failure("pytest -q", "cap-user", error="HTTP 401 Unauthorized")
+        reason = self.decide("Bash", {"command": "pytest -q"}, session_id="cap-user")
+        self.assertIn("(a user failure)", reason)
+        self.assertIn("ask the user", reason)
+        self.assertIn("cap is 2 identical attempts", reason)
         self.seed_failure("pytest -q", "cap-one", error="Command timed out after 2m")
         self.assertIsNone(self.decide("Bash", {"command": "pytest -q"},
                                       session_id="cap-one"))

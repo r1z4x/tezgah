@@ -32,6 +32,13 @@ class FailClass(unittest.TestCase):
                            ("connection reset by peer", "transient"),
                            ("bash: foo: command not found", "permanent"),
                            ("exit status 127", "permanent"),
+                           ("HTTP 401 Unauthorized", "user"),
+                           ("403 Forbidden", "user"),
+                           ("authentication failed for 'origin'", "user"),
+                           ("Error: invalid API key", "user"),
+                           ("missing credentials for registry", "user"),
+                           ("You are not logged in. Run gh auth login", "user"),
+                           ("open x: permission denied", "permanent"),
                            ("something odd happened", "unknown"),
                            ("", None), (None, None)):
             self.assertEqual(ti.fail_class(text), want, text)
