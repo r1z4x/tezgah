@@ -6,6 +6,66 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The subagent return channel: untrusted, measured, and shaped.** What a
+  delegate hands back was the least-checked text in a session. It is now an
+  untrusted channel beside `web` and `mcp` - the report is labelled where it is
+  read, and the first effect after it carries the taint notice - with two
+  exceptions that keep the mark honest: an assistant-role message is the session
+  writing to itself, and a background launch (`isAsync`/`async_launched`, which
+  returns an agent id rather than a report) is not a read, because its report
+  arrives later as a message no hook sees. Its size is recorded where the host
+  reports text: Claude's `PostToolUse` matcher names `Agent|Task` now (and not
+  `TaskCreate`/`TaskList`, which return no report and would cost a process
+  each), while omp's `result_len` - a part count, 1 on 32174 ledger rows - is
+  left unstated for a report rather than written as a size, since a missing key
+  means unknown and a wrong number does not. `tezgah-status --counters` carries
+  the fold (`subagent_results`, `subagent_bytes_p50`, `subagent_bytes_max`), and
+  the subagent brief asks for a report shaped Scope / Findings (each DERIVED or
+  RETRIEVED) / Evidence / Confidence / Unresolved / Disconfirming / Conflicts
+  inside its existing 5000-byte budget.
+
+- **`tezgah-rollback --session <id>`: a whole session back from its snapshots.**
+  The store kept 200 snapshots and rolled back one id at a time; a session is now
+  restorable as a set. Each path the session's write rows changed goes back to the
+  earliest snapshot that session took of it, a path only a shell command touched
+  is listed and never reverted (the redirect's target has a snapshot, the scan's
+  finding does not), and the moved-on check is `restore`'s own, fed the session's
+  last recorded state of the path - a file somebody changed after the session's
+  last write is refused until `--force`. `--dry-run` prints the plan and writes
+  nothing. Rollback stays the user's command: nothing in tezgah rolls back on its
+  own. The Stop path names the files the turn changed, from `changed_files()`,
+  where the host's Stop output carries non-blocking text.
+
+- **A user-fixable failure class, and one loop cap on every host.** `fail_class`
+  gains `user`: a 401 or 403, an unauthorized or forbidden answer, a failed
+  authentication, an invalid or missing key, token or credential, "not logged in"
+  - failures whose repair is the user's and not the agent's, so the loop refusal
+  says to stop and ask rather than to change the approach. `permission denied`
+  stays `permanent` (a file mode the agent can change is not the user's to fix).
+  The cap is unchanged and is now stated the same way everywhere: one
+  `LOOP_ATTEMPTS = 2` for every class, which the comment and the docstring above
+  `fail_class` had contradicted since the class-scoped ceiling was removed, and
+  which the opencode mirror still implemented as
+  `CLASS_CEILING = { transient: LOOP_CEILING + 1 }` - inert there (opencode
+  reports no error text, so a class is never observed) but a second rule about
+  the same cap, now gone.
+
+- **`tezgah-status --rule-yield`: the rules that stopped firing, against their
+  exposure.** The retire half of plan 004's loop, and the measurement the harness
+  literature asks for on a layer whose rule text only grows. Every live gate rule
+  - derived from the code by walking each revision of `hooks/tezgah_gate.py` for
+  the label its `_deny` call passes, so a removed rule drops out and no list is
+  kept by hand - is reported with its fires inside the window it has existed in,
+  the number of real ledgers written since (fixtures excluded, the same exclusion
+  the counters use). A rule hidden behind a mark is never read as dead: a rule
+  with no ship time, or git unavailable, is `low-exposure`, not a candidate. The
+  floor is 300 ledgers, where a rule that fires in 1% of sessions has about a 5%
+  chance of zero fires - and the report says so on its first line, with the corpus
+  it read. Fires today: 13 live rules, none a candidate, because the history this
+  can date a rule from starts at the 2026-09-23 squash.
+
 ## [0.23.0] - 2026-09-29
 
 ### Added
