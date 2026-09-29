@@ -29,7 +29,7 @@ nothing about a host's event names or output envelope.
 | `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `context_for` `hooks/tezgah_context.py:1014-1212` |
 | `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `CORE` `hooks/tezgah_policy.py:622-838`, `CONDITIONAL_KEYS` `hooks/tezgah_policy.py:842-846` |
 | `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:4-67`, `decision` `hooks/tezgah_gate.py:1214-1395` |
-| `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-23`, `note_tool` `hooks/tezgah_integrity.py:1602-1710`, `stop_reason` `hooks/tezgah_integrity.py:2238-2286` |
+| `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-23`, `note_tool` `hooks/tezgah_integrity.py:1612-1720`, `stop_reason` `hooks/tezgah_integrity.py:2248-2296` |
 | `tezgah_guard.py` | the one catch around an entry point's call into the core, so a crash costs an envelope rather than a session, and the `crash` ledger row that keeps it countable | `hooks/tezgah_guard.py:2-25`, `safe` `:29` |
 | `tezgah_paths.py` | where tezgah is armed: [roots](glossary.md#root), kill switches, the config dir, and the writable cache dir - the fallback resolved on use rather than at import, so a gated call does not pay for `tempfile`, `shutil` or `sqlite3` | `hooks/tezgah_paths.py:2-14`, `cache_dir` `hooks/tezgah_paths.py:138-158`, `fallback_cache` `hooks/tezgah_paths.py:123-137` |
 | `tezgah_snapshot.py` | pre-write bytes of every file a write is about to change, and the one explicit restore | `hooks/tezgah_snapshot.py:2-17`, `capture` `:192` |
@@ -110,7 +110,7 @@ One session, in order. Each step names the file that handles the event on Claude
    kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:101`),
    and attaches the untrusted-content label when the result came from outside.
 5. **Stop** — `hooks/projects-stop.py:33` calls `stop_reason`, which reads the
-   ledger and can refuse the turn (`hooks/tezgah_integrity.py:2238-2286`). omp and
+   ledger and can refuse the turn (`hooks/tezgah_integrity.py:2248-2296`). omp and
    Codex reach the same function from their own Stop events
    (`hosts/omp/hook.py:175`).
 
@@ -142,7 +142,7 @@ lowest-value blocks are dropped in a fixed order rather than the rules
 
 | Store | Path | Writer | Authoritative for |
 |---|---|---|---|
-| Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py:449-459`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py:1602-1710`) | what a session actually ran, and therefore the Stop verdict |
+| Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py:471-481`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py:1612-1720`) | what a session actually ran, and therefore the Stop verdict |
 | Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py:1346-1348`) | `record` (`hooks/tezgah_context.py:1330-1353`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript; an `orch` mark is also written to the evidence ledger (`hooks/tezgah_context.py:1343-1344`) so `fanout` can count it |
 | Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py:55-60`) | `capture` on the write path (`hooks/tezgah_snapshot.py:192`) | the pre-write bytes; the rollback source |
 | Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py:647-650`) | `write_stamp` (`hooks/tezgah_context.py:663-674`) | the comparison behind the one-line delta, nothing else |

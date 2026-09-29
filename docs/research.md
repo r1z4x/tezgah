@@ -494,8 +494,8 @@ pre-rule row is in, because a writer stricter than the checker refuses what the
 checker only reports.
 
 **An append starts at the committed boundary.** `committed_size`
-(`hooks/tezgah_integrity.py:535-560`) is the offset just past the last `\n` in a file,
-and `truncate_to_committed` (`hooks/tezgah_integrity.py:561-571`) cuts a descriptor
+(`hooks/tezgah_integrity.py:545-570`) is the offset just past the last `\n` in a file,
+and `truncate_to_committed` (`hooks/tezgah_integrity.py:571-581`) cuts a descriptor
 back to it; all three writers truncate first and write after
 (`append_claim`, `tezgah_research.py:1462`; `_append_row`; `append_prediction`,
 `tezgah_research.py:2999`). A fragment a killed writer left behind - no newline
