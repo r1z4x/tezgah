@@ -293,7 +293,7 @@ Refused:
   (`prediction_problems`, `tezgah_research.py:2872`); a row whose commit changed
   a **frozen** path is refused unless it carries a human `granted_by`, and the
   frozen set is one module-level tuple, `FROZEN_PATHS`
-  (`hooks/tezgah_research.py:3683`), read only through `_frozen`
+  (`hooks/tezgah_research.py:3756`), read only through `_frozen`
   (`tezgah_research.py:2836`) so the write path and the checker cannot drift
   apart: `hooks/tezgah_gate.py` and `hooks/tezgah_integrity.py` (the verifier and
   the ledger's write path), `hooks/tezgah_research.py` (this module - the
@@ -536,7 +536,7 @@ only record of a verdict; `unmeasured` when `value_after` is empty, which is the
 round that has not run; `held` when it is filled, which is the number that came
 back. A row whose `claim` the line does not hold decides nothing - the filled
 `value_after` is not a verdict - so it stays `unmeasured` and the report prints
-why, beside the row. `PREDICTION_STATES` (`hooks/tezgah_research.py:3922`) is
+why, beside the row. `PREDICTION_STATES` (`hooks/tezgah_research.py:3995`) is
 that vocabulary, and the headers count it.
 
 It is a **report, not a gate**: it exits 0 whatever the rows look like, because
