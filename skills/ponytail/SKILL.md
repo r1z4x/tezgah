@@ -71,7 +71,7 @@ every sibling caller still broken. Fix it once, where all callers route through.
 
 ## Output
 
-Code first. Then at most three short lines: what was skipped, when to add it.
+Code first. Then at most three short lines: what was skipped, when to add it. This is ponytail's one rule about the reply's shape; everything else about how the reply reads (the answer first, at most five ranked items, no preamble) is `i-have-adhd`'s, and the exec contract owns the language.
 No essays, no feature tours, no design notes. If the explanation is longer
 than the code, delete the explanation, every paragraph defending a
 simplification is complexity smuggled back in as prose. Explanation the user
@@ -119,6 +119,6 @@ test, YAGNI applies to tests too.
 
 ## Boundaries
 
-Ponytail governs what you build, not how you talk (reporting style is governed by the exec contract, not by this skill). "stop ponytail" / "normal mode": revert. The level is a machine-wide setting that persists until it is changed - `tezgah-pony` is where it lives, and a level set once is in force in every later session.
+Ponytail governs what you build; the one thing it says about the reply's shape is the `Output` clause above, and `i-have-adhd` governs the rest of how the reply reads (the exec contract owns the language). "stop ponytail" / "normal mode": revert. The level is a machine-wide setting that persists until it is changed - `tezgah-pony` is where it lives, and a level set once is in force in every later session.
 
 The shortest path to done is the right path.

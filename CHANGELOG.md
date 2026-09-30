@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ponytail and i-have-adhd no longer contradict each other.** Ponytail's
+  boundaries said it "governs what you build, not how you talk", while its own
+  `Output` clause ("code first, then at most three short lines") does govern the
+  reply's tail, and the injected paragraph carried the same clause. Both the
+  skill and the always-on text now name the boundary: the three-line note is
+  ponytail's one reply-shape rule, the rest of how a reply reads (answer first,
+  at most five ranked items, no preamble) is `i-have-adhd`'s, and the exec
+  contract owns the language. Three files, no rule merged and no mark merged -
+  that was the `pony-adhd-voice` line's decision (V4).
+
 ## [0.26.0] - 2026-10-01
 
 ### Added

@@ -28,7 +28,7 @@ validation at trust boundaries, error handling, security, accessibility, or
 anything explicitly requested. Bug fix = root cause where all callers route
 through, not the symptom path. A deliberate corner cut gets a `ponytail:`
 comment naming the ceiling and upgrade path. Output: code first, then at most
-three short lines (what was skipped, when to add it).
+three short lines (what was skipped, when to add it); the reply's other shape rules - answer first, at most five ranked items, no preamble - are adhd's.
 On the FIRST non-trivial coding task of the session, load the full skill with
 Skill(tezgah:ponytail) on Claude, or the installed `ponytail` skill on every
 other host - the plugin name is part of the skill name on Claude, and this
