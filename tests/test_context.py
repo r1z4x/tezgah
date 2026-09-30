@@ -1035,6 +1035,24 @@ class ResumeBlock(ChildCall):
         import tezgah_context as tc  # noqa: E402
         return tc.CONTEXT_BUDGET[event]
 
+    def test_resume_block_reads_the_newest_state_section(self):
+        # Plans append State sections as the work moves, headed
+        # `## State (<date>, ...)`: the block reads the LAST one, because the
+        # first is the stalest - reading it named a plan whose only open item was
+        # its review "Not started".
+        repo = self.repo()
+        path = os.path.join(repo, ".tezgah", "plans", "open", "021-thing.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("---\nid: 021\n---\n## State\nnot started\n"
+                     "## State (2026-09-30, later)\nlanded, review pending\n"
+                     "## Next\nrun the review\n")
+        self.commit(repo, "first")
+        out = self.session(repo)
+        self.assertIn("state: landed, review pending", out)
+        self.assertNotIn("not started", out)
+        self.assertIn("next: run the review", out)
+
     def test_resume_block_names_the_live_state(self):
         repo = self.full_repo()
         out = self.session(repo)

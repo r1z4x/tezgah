@@ -597,8 +597,12 @@ RESUME_FILES = 3
 
 
 def _plan_facts(path):
-    """(state, next) as the plan's `## State` and `## Next` first lines, cut
-    short; "" for a section the file does not carry."""
+    """(state, next) as the first line of the plan's LAST `## State...` section
+    and of its `## Next`, cut short; "" for a section the file does not carry.
+
+    Plans append State sections as the work moves (`## State (2026-09-30, ...)`),
+    so the newest one is the last: the first is the stalest, and reading it named
+    a plan whose only open item was its review "Not started"."""
     try:
         with open(path, encoding="utf-8") as fh:
             lines = fh.read().splitlines()
@@ -607,14 +611,18 @@ def _plan_facts(path):
     state, nxt, want = "", "", None
     for line in lines:
         if line.startswith("## "):
-            head = line[3:].strip()
+            head = (line[3:].strip().split() or [""])[0]
             want = head if head in ("State", "Next") else None
-        elif want and line.strip():
+            fresh = True
+            if want == "State":
+                state = ""
+        elif want and fresh and line.strip():
             value = cut(line.strip(), RESUME_PLAN_CHARS)
-            if want == "State" and not state:
+            if want == "State":
                 state = value
             elif want == "Next" and not nxt:
                 nxt = value
+            fresh = False
     return state, nxt
 
 

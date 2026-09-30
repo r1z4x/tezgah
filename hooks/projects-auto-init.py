@@ -32,8 +32,8 @@ EVENTS = {
 # which fires again as `SessionStart:compact` and whose additionalContext was
 # delivered in the same run. So on PostCompact this hook still builds the block -
 # that is where `context_for` records the compaction (remember_compaction) - and
-# prints nothing. Codex answers PostCompact from hosts/codex/hook.py and dsh's
-# bridge does not carry the event, so this script is Claude's alone here.
+# prints nothing. Codex answers PostCompact from hosts/codex/hook.py, which
+# prints no context on it either, and dsh's bridge does not carry the event.
 
 # Claude's global memory file, where install_claude writes the always-on core as
 # a managed block: the file Claude reads into every session, so the core is

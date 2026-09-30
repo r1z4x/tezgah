@@ -18,6 +18,20 @@ class CodexHook(TempHome):
         self.assertEqual(hso["hookEventName"], "SessionStart")
         self.assertTrue(hso["additionalContext"].strip())
 
+    def test_post_compact_carries_no_context_envelope(self):
+        # Codex's PostCompact output schema allows only the common fields
+        # (continue, stopReason, suppressOutput, systemMessage; additional
+        # properties false). The block reaches the model through the SessionStart
+        # that fires again with source "compact", so PostCompact must print no
+        # hookSpecificOutput at all.
+        repo = self.make_repo()
+        out, proc = run_json([support.CODEX_HOOK],
+                             {"hook_event_name": "PostCompact", "cwd": repo,
+                              "session_id": "s", "trigger": "auto"},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("hookSpecificOutput", out or {})
+
     def test_the_core_is_not_repeated_once_the_global_block_carries_it(self):
         # tezgah-setup writes the core into Codex's global AGENTS.md; the
         # session payload then carries the live state only

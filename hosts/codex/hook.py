@@ -236,7 +236,13 @@ def main():
     text = safe(session_id, context_for, normalized, cwd, payload,
                 with_core=core)
     out = {}
-    if text:
+    # PostCompact takes no context on Codex: its output schema allows only the
+    # common fields (`continue`, `stopReason`, `suppressOutput`, `systemMessage`,
+    # with additionalProperties false), and the block reaches the model through
+    # the SessionStart that fires again with `source: "compact"` - the same
+    # channel Claude uses, where an envelope on PostCompact was observed to be
+    # rejected (hooks/projects-auto-init.py). The block is still built above.
+    if text and event != "PostCompact":
         out["hookSpecificOutput"] = {"hookEventName": event, "additionalContext": text}
     if event == "SessionStart":
         seg = safe(session_id, health_lines, cwd, session_id,
