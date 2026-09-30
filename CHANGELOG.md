@@ -8,6 +8,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A resume block, and a record of what a compaction kept.** A session that
+  compacts, or resumes the next morning, was handed the contract, the plans and
+  the lessons but not what the turn was doing. `session_start` and the
+  post-compaction path now carry `## Session so far`: the plan the checked-out
+  `plan/...` branch owns (State and Next on one line), the branch's last three
+  commits, the newest `verify_ok`/`verify_fail` the session ledger holds, and the
+  files the last turn changed. A plan the checkout does not own is named as
+  `open plan NNN (not this branch)` rather than as the active one, and a damaged
+  ledger line costs the block its two ledger bullets instead of raising out of
+  the hook and dropping the whole injection. The block is 408 B on this
+  repository and is given up after the tooling-availability lines, not first:
+  the first version (five commits, 630 B, first in `DROP_ORDER`) was dropped by
+  the 12000 B budget in the very repository it was written for. On Claude,
+  `PostCompact` output is discarded by the host (its hook reference lists it
+  under "no decision control") while `SessionStart` fires again with
+  `source: "compact"`, so the block rides both. The same `PostCompact` payload
+  now leaves one `compact` ledger row - the summary's length, a 12-hex digest and
+  the trigger, never the text - with a count of the injected constraint lines
+  the summary kept, folded by `tezgah-status --counters` into `compactions`,
+  `compact_chars` and `compact_constraint_rate`. It is a report: nothing refuses
+  on it.
+
 - **The subagent return channel: untrusted, measured, and shaped.** What a
   delegate hands back was the least-checked text in a session. It is now an
   untrusted channel beside `web` and `mcp` - the report is labelled where it is
