@@ -611,7 +611,7 @@ def _plan_facts(path):
     state, nxt, want = "", "", None
     for line in lines:
         if line.startswith("## "):
-            head = (line[3:].strip().split() or [""])[0]
+            head = "State" if line.startswith("## State (") else line[3:].strip()
             want = head if head in ("State", "Next") else None
             fresh = True
             if want == "State":
