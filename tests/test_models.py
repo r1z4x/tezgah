@@ -129,6 +129,35 @@ class OmpOverrides(unittest.TestCase):
         self.assertEqual(store["task.agentModelOverrides"]["tezgah-standard"],
                          "openai/gpt-6.1-sol")
 
+    def test_remove_drops_an_adopted_entry_that_has_no_record(self):
+        # an install from before the ownership record: the entry is ours (it is
+        # one of the table's own selectors), so uninstall must take it away
+        store = {"task.agentModelOverrides":
+                 {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+        state = {}
+
+        def omp(*args):
+            if args[0] == "set":
+                store[args[1]] = json.loads(args[2])
+            elif args[0] == "reset":
+                store[args[1]] = {}
+            return mock.Mock(stdout="")
+
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "_omp", side_effect=omp), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            tm.apply_omp(remove=True)
+        self.assertEqual(store["task.agentModelOverrides"], {})
+
+    def test_the_any_mode_is_empty_without_a_credential(self):
+        # nothing can run through OpenRouter here, so the table emits no selector
+        # for that mode at all - which is what the omp status row reads as current
+        with mock.patch.object(tm, "openrouter_ready", return_value=False):
+            self.assertEqual(tm.omp_overrides("any"), {})
+
     def test_a_write_from_before_the_record_is_adopted_by_its_shape(self):
         store = {"task.agentModelOverrides":
                  {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},
@@ -177,7 +206,15 @@ class OmpOverrides(unittest.TestCase):
                     "Add JWT validation to the endpoint",
                     "Persist sessions in sqlite",
                     "the schema changes with this field",
-                    "write the threat model for consult"]
+                    "write the threat model for consult",
+                    # the classes an earlier pattern caught and a rewrite missed
+                    "Add auth to the login flow",
+                    "Add authz checks to the endpoint",
+                    "Update the schemas for the new tables",
+                    "Write the migrator for postgres",
+                    "Read the API-key from the environment",
+                    "Rotate the signing key",
+                    "Handle user PII in the export"]
         elsewhere = ["Rename migrate_rows to move_rows across bin/",
                      "List the author of each commit",
                      "Add a secretary field to the roster",

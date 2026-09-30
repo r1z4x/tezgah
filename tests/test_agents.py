@@ -92,6 +92,20 @@ class Generation(AgentsBase):
                 sorted(["tezgah-%s.md" % r for r in roles] + ["tezgah-orchestrator.md"])
                 if d != CODEX else ["tezgah-%s.toml" % r for r in roles])
 
+    def test_the_opencode_entry_carries_the_slots_effort_when_it_has_one(self):
+        # opencode documents reasoningEffort in the agent config, and only the
+        # slots whose `any` row names an effort get one; the resolved selector
+        # comes from the overlay `--refresh` wrote under this HOME
+        overlay = os.path.join(self.home, ".config", "tezgah", "models.json")
+        os.makedirs(os.path.dirname(overlay), exist_ok=True)
+        with open(overlay, "w") as fh:
+            json.dump({"opencode": {"standard": "opencode-go/x", "cheap": "opencode-go/y"}}, fh)
+        entries = self.opencode_json()["agent"]
+        self.assertEqual(entries["tezgah-standard"]["model"], "opencode-go/x")
+        self.assertEqual(entries["tezgah-standard"]["reasoningEffort"], "high")
+        self.assertEqual(entries["tezgah-cheap"]["model"], "opencode-go/y")
+        self.assertNotIn("reasoningEffort", entries["tezgah-cheap"])
+
     def test_each_agent_carries_its_tier_model_for_the_host_family(self):
         # Claude/Cursor read the Anthropic row, Codex the OpenAI row; the
         # orchestrator is the main thread's own agent and keeps the session model
