@@ -63,12 +63,48 @@ class Route(unittest.TestCase):
 
 
 class OmpOverrides(unittest.TestCase):
-    def test_anthropic_mode_carries_effort_and_leaves_frontier_to_the_default(self):
+    def test_the_anthropic_mode_carries_effort_and_the_frontier_row(self):
         out = tm.omp_overrides("anthropic")
         self.assertEqual(out["tezgah-cheap"], "anthropic/claude-opus-5-5:low")
         self.assertEqual(out["tezgah-explorer"], "anthropic/claude-opus-5-5:medium")
+        # the frontier agents are written too: a session that started on a
+        # weaker model must not drag security-sensitive work down with it
         for agent in ("tezgah-frontier", "tezgah-reviewer", "tezgah-researcher"):
-            self.assertNotIn(agent, out)
+            self.assertEqual(out[agent], "anthropic/claude-opus-5-5:high")
+
+    def test_any_mode_writes_the_frontier_row_through_openrouter(self):
+        with mock.patch.object(tm, "openrouter_ready", return_value=True):
+            out = tm.omp_overrides("any")
+        for agent in ("tezgah-frontier", "tezgah-reviewer", "tezgah-researcher"):
+            self.assertEqual(out[agent], "openrouter/anthropic/claude-opus-5.5:high")
+
+    def test_the_frontier_row_is_concrete_on_every_family(self):
+        for family, (model, effort) in tm.SLOTS["frontier"].items():
+            self.assertTrue(model and model != "inherit", family)
+            self.assertEqual(effort, "high", family)
+
+    def test_the_accessors_are_the_table_and_none_for_an_unknown_family(self):
+        for family in ("anthropic", "openai", "any"):
+            self.assertEqual(tm.frontier_model(family), tm.SLOTS["frontier"][family])
+            self.assertEqual(tm.cheap_model(family), tm.SLOTS["cheap"][family])
+            self.assertTrue(tm.frontier_model(family)[0])
+            self.assertTrue(tm.cheap_model(family)[0])
+        self.assertIsNone(tm.frontier_model("nope"))
+        self.assertIsNone(tm.cheap_model("nope"))
+
+    def test_the_plan_and_slow_roles_carry_the_frontier_row(self):
+        # plan mode is where a session designs on its own tokens; it runs the
+        # table's frontier row, not whatever model the session started on
+        self.assertEqual(tm.omp_role_overrides("anthropic"),
+                         {"modelRoles.plan": "anthropic/claude-opus-5-5:high",
+                          "modelRoles.slow": "anthropic/claude-opus-5-5:high"})
+        self.assertEqual(
+            tm.omp_role_overrides("any"),
+            {"modelRoles.plan": "openrouter/anthropic/claude-opus-5.5:high",
+             "modelRoles.slow": "openrouter/anthropic/claude-opus-5.5:high"})
+        self.assertEqual(tm.omp_role_overrides("off"), {})
+        with mock.patch.object(tm, "openrouter_ready", return_value=False):
+            self.assertEqual(tm.omp_role_overrides("any"), {})
 
     def test_any_mode_goes_through_openrouter(self):
         out = tm.omp_overrides("any")
@@ -128,6 +164,80 @@ class OmpOverrides(unittest.TestCase):
             tm.apply_omp()
         self.assertEqual(store["task.agentModelOverrides"]["tezgah-standard"],
                          "openai/gpt-6.1-sol")
+
+    def test_apply_writes_the_plan_and_slow_roles_and_keeps_every_other_role(self):
+        store = {"task.agentModelOverrides": {},
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high",
+                                "memory": "zai/glm-5.3-flash:auto"}}
+        state = {}
+
+        def omp(*args):
+            if args[0] == "set":
+                store[args[1]] = json.loads(args[2])
+            elif args[0] == "reset":
+                store[args[1]] = {}
+            return mock.Mock(stdout="")
+
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "_omp", side_effect=omp), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            self.assertIn("written (anthropic)", tm.apply_omp())
+            self.assertEqual(store["modelRoles"]["plan"], "anthropic/claude-opus-5-5:high")
+            self.assertEqual(store["modelRoles"]["slow"], "anthropic/claude-opus-5-5:high")
+            # a role tezgah does not write stays as the user set it
+            self.assertEqual(store["modelRoles"]["memory"], "zai/glm-5.3-flash:auto")
+            self.assertEqual(state["omp_written"]["modelRoles.plan"],
+                             "anthropic/claude-opus-5-5:high")
+            # a role the user set by hand is never replaced, and tezgah stops
+            # claiming it
+            store["modelRoles"]["plan"] = "@slow"
+            tm.apply_omp()
+        self.assertEqual(store["modelRoles"]["plan"], "@slow")
+        self.assertNotIn("modelRoles.plan", state["omp_written"])
+
+    def test_the_off_mode_drops_its_own_roles_and_keeps_the_users(self):
+        store = {"task.agentModelOverrides": {},
+                 "modelRoles": {"default": "deepseek/deepseek-flash:high",
+                                "plan": "openrouter/anthropic/claude-opus-5.5:high",
+                                "slow": "@plan"}}
+        state = {"mode": "off", "omp_written": {
+            "modelRoles.plan": "openrouter/anthropic/claude-opus-5.5:high"}}
+
+        def omp(*args):
+            if args[0] == "set":
+                store[args[1]] = json.loads(args[2])
+            elif args[0] == "reset":
+                store[args[1]] = {}
+            return mock.Mock(stdout="")
+
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "_omp", side_effect=omp), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            self.assertIn("removed (off)", tm.apply_omp())
+        # ours goes, the user's own role and the default stay
+        self.assertEqual(store["modelRoles"],
+                         {"default": "deepseek/deepseek-flash:high", "slow": "@plan"})
+
+    def test_a_failed_role_write_records_no_ownership(self):
+        store = {"task.agentModelOverrides":
+                 {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+        state = {}
+
+        def omp(*args):
+            return None if args[1] == "modelRoles" else mock.Mock(stdout="")
+
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "_omp", side_effect=omp), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            self.assertIn("NOT written", tm.apply_omp())
+        self.assertEqual(state, {}, "a role write that failed must not be recorded")
 
     def test_the_off_mode_removes_every_entry_and_writes_nothing(self):
         # the way back when the provider the selectors need has no budget:
