@@ -59,8 +59,8 @@ the whole reason tezgah exists ([architecture](architecture.md)).
 Here the six hosts are the runtimes, one config dir per host
 (`hooks/tezgah_paths.py:49`) with one presence test (`host_installed`
 `hooks/tezgah_paths.py:69-79`), and the adapter under `hosts/<name>/` holds the
-host's envelope and nothing else ([hosts](hosts.md)). The README's own host list
-calls dsh a harness (`README.md:42-43`) - the literature's sense, applied to a
+host's envelope and nothing else ([hosts](hosts.md)). The README's own intro
+calls dsh a harness (`README.md:27-28`) - the literature's sense, applied to a
 host.
 
 ## tezgah's policy and evidence layer
@@ -94,7 +94,7 @@ frameworks.
 | agent framework | is it composed *from* elsewhere, or does it compose? A framework is composed from building blocks and stays a framework agent | tezgah plugs into its extension points, supplies none |
 | SDK | does it leave the iteration to its caller? A client library gives a call and stops | tezgah ships no client; it reads a host's event JSON on stdin (`hosts/codex/hook.py:1-2`) |
 | IDE plugin | is it a guest inside another program's surface? It draws and forwards and owns no task runtime | `hosts/opencode/plugins/tezgah.js:1-12` is one, and is a plugin |
-| eval harness | does it produce a score over a task set? It measures and enforces nothing | an eval scaffold is vendored as the `lm-evaluation-harness` skill body (`skills/ai-research/11-evaluation/lm-evaluation-harness/SKILL.md:11`), and this project's measurements live apart from the layer (`README.md:411-412`) |
+| eval harness | does it produce a score over a task set? It measures and enforces nothing | an eval scaffold is vendored as the `lm-evaluation-harness` skill body (`skills/ai-research/11-evaluation/lm-evaluation-harness/SKILL.md:11`), and this project's measurements live apart from the layer (`docs/README.md:67-68`) |
 | orchestrator | does it split one request across many runs and merge them? A harness runs one job to a report | the `harness` skill's route table (`skills/harness/SKILL.md:2-8`) and the graph workflows (`hooks/tezgah_policy.py:600`) |
 | MCP | does it only carry a call and its result? Then it is transport, not a layer with policy or evidence | the section below |
 
@@ -119,7 +119,7 @@ by solving the task.
 | Sense | What it names | Where it is defined |
 |---|---|---|
 | tezgah's own | the wrapper around a host - the injected contract, the per-turn text still travelling in the `<harness-reminder>` envelope (`hooks/tezgah_policy.py:831`), the gate and the ledger | [glossary](glossary.md#harness) |
-| the literature's | the host itself: a "complete agent runtime", which the README's host list also calls a harness for dsh (`README.md:42-43`) | [hosts](hosts.md) |
+| the literature's | the host itself: a "complete agent runtime", which the README's intro also calls a harness for dsh (`README.md:27-28`) | [hosts](hosts.md) |
 | the skill's | multi-agent harness selection: which graph workflow or subagent set runs a task too wide for one window (`skills/harness/SKILL.md:2-8`, [skills](skills.md)) | [glossary](glossary.md#harness-skill) |
 
 A claim that says "apply X to the harness" is therefore unreadable until it says
