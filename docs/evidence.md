@@ -10,7 +10,7 @@ undone from. Read it before changing a rule that records or reads evidence, or w
 One append-only JSONL file per session at `<cache>/evidence/<slug>.jsonl`; the stem is a readable
 prefix plus a hash of the session id, so a filename can never be turned back into one
 (`hooks/tezgah_integrity.py:388-404`). Every writer goes through `note_path` (`hooks/tezgah_integrity.py:634-655`): `note()`
-derives the path from the session id (`:637-647`). The row is built in exactly one place (`:630-631`), and its shape is
+derives the path from the session id (`:656-666`). The row is built in exactly one place (`:649-652`), and its shape is
 `{"kind": …, "ts": …, "v": …, "detail": …}` plus whatever `LEDGER_FIELDS` keys the writer knew — for a check
 the host reported passing, `{"kind": "verify_ok", "ts": 1758000000, "v": 2, "detail": "pytest -q",
 "id": "a1b2c3d4e5f6", "exit": 0, "out_bytes": 4312}`. `v` names the shape the row was written under
@@ -25,14 +25,14 @@ every host dialect (`write_paths`, `hooks/tezgah_gate.py:587-614`): `file_path`,
 `changed_files()` (`hooks/tezgah_integrity.py:1655-1668`) folds when a reader asks which files a session changed. `detail` is
 credential-redacted **before** it is stored, over the whole text, and
 truncated to `DETAIL_MAX = 200` only afterwards, so a marker the cut halves still reads as a marker
-(`:481-506`, `:521`, `:623-627`): a named key keeps its name and loses its value, a `Bearer` token or
-a prefixed token family loses it (`:463-491`). The optional fields are exactly `LEDGER_FIELDS`
+(`:488-513`, `:528`, `:630-634`): a named key keeps its name and loses its value, a `Bearer` token or
+a prefixed token family loses it (`:470-498`). The optional fields are exactly `LEDGER_FIELDS`
 (`hooks/tezgah_integrity.py:353-358`) — `id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`,
 plus the reply-shape names `lines`, `chars`, `items`, `longest_list`, `tr_share`, `answer_first` and the compaction
 row's `summary_chars`, `summary_hash`, `constraint_found`, `constraint_expected` — and
 a key outside that set is dropped, a `None` value left out, because every reader treats a missing key
-as `None` (`:632-634`). The append is one locked line, an exclusive `flock` with a 1 s bound falling
-back to an unlocked write (`:596-605`), and is best effort: a write failure is never the caller's.
+as `None` (`:639-641`). The append is one locked line, an exclusive `flock` with a 1 s bound falling
+back to an unlocked write (`:603-612`), and is best effort: a write failure is never the caller's.
 
 What never reaches the ledger: tool result bodies (only `out_bytes`, a size,
 `hooks/projects-posttooluse.py:48-65`), the prompt text (the `turn` row keeps `sha1(prompt)[:12]`,
@@ -40,23 +40,23 @@ What never reaches the ledger: tool result bodies (only `out_bytes`, a size,
 
 ## The kinds, by what reads them
 
-A bare `:N` below is `hooks/tezgah_integrity.py`; `classify` (`:1266-1274`) picks the kind for a call —
+A bare `:N` below is `hooks/tezgah_integrity.py`; `classify` (`:1356-1408`) picks the kind for a call —
 a write tool is `edit`, a shell call is `verify` when its command matches the check vocabulary `VERIFY`
 (`:40-65`) and `run` otherwise.
 
 | Kind | Written by | Read by |
 |---|---|---|
 | `turn` | `note_turn` `hooks/tezgah_integrity.py:959-982`, from the prompt path | `_turn_start` `hooks/tezgah_integrity.py:836-848`, scoping every turn rule; `_claim_key` `hooks/tezgah_integrity.py:2103-2119` |
-| `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the Stop rule's `worked` set `:2271`; `counters.steps` `:1038-1039`; `last_verify`/`partial_state` |
+| `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the Stop rule's `worked` set `:2345`; `counters.steps` `:1075-1076`; `last_verify`/`partial_state` |
 | `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the taint notice, via `source`; nothing counts them as work |
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2322-2370` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
 | `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1198-1213`, first-nudge `hooks/tezgah_gate.py:1352` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:184-186`, `:263-266` | `_snapshot_hash` `hooks/tezgah_integrity.py:1594-1607`; no counter |
-| `compact` | `note_compaction` `hooks/tezgah_integrity.py:983-1010`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1224-1241`) | `_counts` `hooks/tezgah_integrity.py:1146-1166` (what `counters` folds with) |
+| `compact` | `note_compaction` `hooks/tezgah_integrity.py:983-1010`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1173-1191`) | `_counts` `hooks/tezgah_integrity.py:1146-1166` (what `counters` folds with) |
 
 **`compact` is what a compaction kept, from the record.** When the host hands the PostCompact
 payload the text the model is about to receive — Claude's `compact_summary` — the shared path
-(`hooks/tezgah_context.py:1261-1262`, reached by Claude's hook, codex/hook.py, omp's hook and dsh's
+(`hooks/tezgah_context.py:1210-1211`, reached by Claude's hook, codex/hook.py, omp's hook and dsh's
 bridge alike, because it is the same funnel each prompt goes through) writes one row: the summary's
 length (`summary_chars`), a 12-hex sha256 of it (`summary_hash`, so two compactions of one session can
 be told apart and the same summary can be recognised twice), the host's own word for why it compacted
@@ -64,8 +64,8 @@ be told apart and the same summary can be recognised twice), the host's own word
 stored** — it is the whole conversation by proxy and the ledger is a redacted channel — so a row can
 never be read back as prose. The constraint report is `constraint_found` of `constraint_expected`: how
 many of the fixed sentences tezgah injects the summary still carries, counted against the very text the
-block renders (`constraint_lines`, `hooks/tezgah_context.py:1140-1151`, over `POINTER_LINE`
-`:1132-1134` and the active plan's front matter). It is a **report and never a refusal**: a compaction
+block renders (`constraint_lines`, `hooks/tezgah_context.py:1154-1172`, over `POINTER_LINE`
+`:1146-1147` and the active plan's front matter). It is a **report and never a refusal**: a compaction
 that dropped a rule is a finding to report, not a turn to block. A host that hands no summary writes no
 row, and `tezgah-status --counters` folds the rows into `compactions`, `compact_chars` (the newest
 summary's length) and `compact_constraint_rate` — which stays `None` until one row carries both counts,
@@ -74,7 +74,7 @@ because a `0.0` would claim every compaction dropped every rule.
 **`interrupted` is the step with no verdict.** The host said the call was *stopped* — a user's cancel,
 or a call a policy denied before it ran — rather than reporting anything the tool answered, so the row
 carries no `exit` and no `fail_class` (`note_tool()`, `hooks/tezgah_integrity.py:1669-1777`, the fields
-`:1607-1616`). It counts as a step, because the model did issue the call and the turn's work has to
+`:1664-1673`). It counts as a step, because the model did issue the call and the turn's work has to
 show; it is not a failed check, so `_partial_state`, `last_verify`, the error rate and `prior_calls`'
 attempts (`hooks/tezgah_integrity.py:842-850`) all read it as a stopped call rather than a rejection.
 
@@ -104,11 +104,11 @@ anything. `changed_files` (`hooks/tezgah_integrity.py:1655-1668`) reads exactly 
 **`claim` is the false-completion record.** `stop_reason` (`hooks/tezgah_integrity.py:2322-2370`) writes one row per reply per
 turn, deduplicated by `_claim_key` (`hooks/tezgah_integrity.py:2103-2119`), with detail `blocked: <class>` or `ok`: a refusal
 and an allowed claim are both recorded, because the rate needs both halves. **`external` and
-`unknown` claim no step of work.** `external` (`:1593-1595`) is a result with no work of its own — an
+`unknown` claim no step of work.** `external` (`:1650-1652`) is a result with no work of its own — an
 MCP answer, a fetched page — recorded so its provenance is on the ledger at all; an MCP row's
 `detail` is that channel followed by the tool's own name, because the UI rule has to be able to tell
 a screen read from a file read and the taint notice reads the channel from `source` either way.
-`unknown` (`:1603-1606`) is a tool name no list knows, its name in the `detail`. The step counter,
+`unknown` (`:1660-1663`) is a tool name no list knows, its name in the `detail`. The step counter,
 the Stop rule and the loop ceilings ignore both.
 
 ## The Stop rule, end to end
@@ -129,11 +129,11 @@ The first four judge how the reply is written (`_shape_block`, `hooks/tezgah_int
 
 The four shape classes share their switches with the text they enforce: `adhd-off` or a repo's `.no-adhd` lifts 1–3 (`_adhd_armed`, `hooks/tezgah_integrity.py:2251-2264`), `exec-mode.off` lifts 4, and a session whose environment carries `TEZGAH_NESTED` (an agent CLI consult started, whose English answer is read by code) is not judged for shape at all. A subagent's reply never reaches the rule: omp's `session_stop` does not fire for task sessions, and Claude and Cursor end a subagent through SubagentStop, which runs no Stop rule. The thresholds were set on the owner's omp transcripts (2026-09-27: 1,495 assistant replies with at least 25 prose words): English prose scored 0.000–0.026, the most English-heavy Turkish reply 0.077 and the bulk 0.3–0.7, and 24 of the 1,495 fall under the cut, all English or Chinese prose. The trade-off is on the Turkish side: a Turkish reply that is mostly quoted English outside backticks can fall under 6%, and the block text tells the model to put the English in backticks or a fence. `tests/test_integrity.py` `ReplyShapeCorpus` pins which realistic replies pass and which block. A lead that announces what follows (`preamble-open`) stays report-only: "Sonuç:" over a list is an answer label and reads like a preamble to any regex.
 
-5. **check failed** — the newest check in the session failed (`:2289-2295`).
-6. **partial failure** — this turn recorded a `verify_fail` and nothing passed since (`:2297-2306`).
+5. **check failed** — the newest check in the session failed (`:2363-2369`).
+6. **partial failure** — this turn recorded a `verify_fail` and nothing passed since (`:2371-2380`).
 7. **stale evidence** — the newest check that passed ran before the newest write the gate saw change
    the tree, so it verified an earlier revision of it (`_last_pass`/`_last_change`/`_stale_paths`
-   `hooks/tezgah_integrity.py:1833-1859`, branch `:2376-2387`). A write counts as a change whether the gate saw it as a
+   `hooks/tezgah_integrity.py:1833-1859`, branch `:2450-2461`). A write counts as a change whether the gate saw it as a
    write tool or as a shell command that redirected into the file - `_change_row` (`hooks/tezgah_integrity.py:1819-1832`) reads
    an `edit` row, or a `run` row whose captured target moved - while a `verify*` row never does, so
    a check redirecting its own log cannot stale itself. A write *outside* the workspace is not one
@@ -141,7 +141,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    after-state for a target beyond the call's own root - a commit message in `/tmp` written after a
    green suite is not a revision of that tree, and reading it as one refused an honest turn.
 8. **no verify_ok** — this turn recorded a step (`edit`, `verify`, `verify_fail`, `run`,
-   `interrupted`) and no check passed in the session (`:2388-2399`).
+   `interrupted`) and no check passed in the session (`:2462-2473`).
 9. **no ui_ok** — this turn changed a UI source (`UI_PATH` `hooks/tezgah_integrity.py:66-71`) and the
    check that passed was not one that sees the screen: a unit run never does. A browser/e2e/visual
    check (`UI_CHECK` `hooks/tezgah_integrity.py:86-102`) or a read of the rendered screen (`UI_TOOL`
@@ -149,7 +149,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    CLI capture) is the evidence this class asks for, and it has to be newer than
    the UI write it is about - not than the newest write of anything, so an unrelated file written
    after the screen read does not stale that read (`_ui_evidence` `hooks/tezgah_integrity.py:1941-1969`,
-   branch `:2323-2335`). The write kinds are the freshness fold's own (`_change_row`: a write tool's
+   branch `:2397-2409`). The write kinds are the freshness fold's own (`_change_row`: a write tool's
    `edit` row or a shell call's `run` row the gate saw change the tree), so a UI source written
    through a redirect owes the same proof. The MCP half of that proof is read off the row's own
    tool name (`_screen_read` `hooks/tezgah_integrity.py:1903-1940`), which is the only field that
@@ -161,7 +161,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    under a component/views/widgets
    directory, or a name that carries the convention on its own), a fresh read of the screen is not
    enough by itself and a `tezgah-design check` row has to be newer than the component write it
-   judges (`_design_evidence` `hooks/tezgah_integrity.py:1972-1992`, branch `:2343-2361`) - and it has
+   judges (`_design_evidence` `hooks/tezgah_integrity.py:1972-1992`, branch `:2417-2435`) - and it has
    to be a check whose pass was seen (`passing_check`, `hooks/tezgah_integrity.py:1784-1798`), because
    a screenshot says what a component looks like and the contract is the only thing that says whether
    it is on the repository's floor. The refusal names the command to run. Both of the checker's verbs
@@ -171,7 +171,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
 10. **no external read** — the reply states the state of a system tezgah does not own — a registry,
    a release, a tag, a formula, a CI run — and no read of that system ran in the same turn
    (`_external_claim` `hooks/tezgah_integrity.py:2692-2718`, over `EXTERNAL_SYSTEM`/`EXTERNAL_STATE`
-   `:2606-2617` and the CI pair `EXTERNAL_CI`/`EXTERNAL_CI_STATE` `:2618-2625`; branch `:2400-2408`).
+   `:2606-2617` and the CI pair `EXTERNAL_CI`/`EXTERNAL_CI_STATE` `:2618-2625`; branch `:2474-2482`).
    The two halves have to sit within `EXTERNAL_GAP` = 45 characters of each other on one line
    (`_external_pair` `:2679-2691`), and both are read on the reply's prose with inline code, paths,
    URLs and identifiers blanked: `brew tap` inside a code span, the `.github/workflows/...` in a
@@ -187,7 +187,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    last of the ten by the branch order above and in its strongest form: it is asked only where the
    fold would otherwise let the turn end, so it turns an allow into a refusal and never changes the
    class another branch refused the same turn under. It is the one class a turn with no work in it
-   can make, which is why the "no work, no claim word" exit exempts it (`:2285`) — the two turns it
+   can make, which is why the "no work, no claim word" exit exempts it (`:2359`) — the two turns it
    was written for ("npm 0.22.0 is missing", read off an out-of-date local npm client, and "make
    NPM_TOKEN an automation token", which it already was) were advice-only, so before this class the
    fold returned `(None, None)` over both and neither was judged at all. Measured over this machine's
@@ -195,14 +195,14 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    tooling.
 
 The trigger for 5–9 is the turn's own evidence, not its words: a turn that did work and never saw a
-check pass is refused whatever the reply says (`:2279-2286`). What lets the turn end is the absence
-of both — no work row and no claim vocabulary (`:2285-2286`), the one shape class 10 is exempt from
-— or a `passing_check` row newer than the newest write seen to change the tree (`:2373-2375`), where
+check pass is refused whatever the reply says (`:2353-2360`). What lets the turn end is the absence
+of both — no work row and no claim vocabulary (`:2359-2360`), the one shape class 10 is exempt from
+— or a `passing_check` row newer than the newest write seen to change the tree (`:2447-2449`), where
 a fresh screen proof stands in the same
 place as a unit pass; when that write was a UI source, the passing row has to be a UI proof — a
 check that renders, or a read of the screen — and when it was a component, the design check has to be
 newer than that write as well. An explicit admission (`doğrulanmadı`,
-`unverified`, `not verified`, `couldn't verify`; `NEGATED` `:189-211`) clears the rule (`:2253-2254`),
+`unverified`, `not verified`, `couldn't verify`; `NEGATED` `:189-211`) clears the rule (`:2327-2328`),
 checked after the shape branches and before the evidence triggers. The block text is the string the
 refusing branch returns; it names the failed
 command (`_failed_check` `hooks/tezgah_integrity.py:2371-2383`) and tells the model to report the failure with its exact error
@@ -214,9 +214,9 @@ the same `verify-off` switch (`hooks/tezgah_gate.py:1075-1203`), as rule `shortc
 - `--no-verify` on a git/commit/push-style command (`NO_VERIFY` `:139`, `GITISH` `:140-141`) —
   `shortcut_command` `hooks/tezgah_integrity.py:1225-1249`.
 - an env that skips the hooks — `SKIP=`, `HUSKY_SKIP_HOOKS=`, `HUSKY=0` — again requiring the git/hook
-  context, so a read that merely mentions `SKIP=` passes (`SKIP_ENV` `:138`, `:1146-1149`).
+  context, so a read that merely mentions `SKIP=` passes (`SKIP_ENV` `:138`, `:1203-1206`).
 - a check chained so it cannot fail: `|| true`, `; true`, `|| exit 0`, `|| :` (`NEUTER` `:133-137`,
-  `:1150-1153`).
+  `:1207-1210`).
 - a newly added test skip/xfail in a test file (`SKIP_TEST` `:142-151`, path gate `TEST_PATH` `:152-159`,
   per-marker count `_added` `hooks/tezgah_integrity.py:1297-1318`, `shortcut_edit` `hooks/tezgah_integrity.py:1319-1355`). Rewriting an existing skip in place
   passes; one more does not.
@@ -227,15 +227,15 @@ is. Every denial is itself a `deny` row.
 
 ## The session store for the status marks
 
-`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1393-1416`) and read
-by `used()` (`hooks/tezgah_context.py:1530-1546`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
+`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1520-1543`) and read
+by `used()` (`hooks/tezgah_context.py:1544-1560`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
 and the kinds are the used-tool marks [status-line.md](status-line.md) lights up (`graph`, `consult`,
 `research`). It is separate from the [ledger](glossary.md#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all
-(`hooks/tezgah_context.py:1393-1414`), and the reader wants a set of kinds rather than an ordered,
+(`hooks/tezgah_context.py:1531-1532`), and the reader wants a set of kinds rather than an ordered,
 turn-scoped history. The ledger pays a redaction scan and a lock per row; a mark needs neither. The
 one mark that is also evidence is `orch`: `record()` writes it as an `orch` row in the session's
-ledger too (`hooks/tezgah_context.py:1406-1407`), because a subagent event reaches no other ledger
+ledger too (`hooks/tezgah_context.py:1533-1534`), because a subagent event reaches no other ledger
 writer and `fanout` is folded from the ledger.
 
 ## Snapshots and rollback
@@ -299,10 +299,10 @@ the user's: fix and re-run, or reach for a snapshot deliberately.
 
 A result that arrived from outside the user and this workspace carries a provenance label on the
 result itself: `untrusted_label` (`hooks/tezgah_integrity.py:1499-1513`) names the channel — a web
-result (`WEB_TOOLS` `hooks/tezgah_integrity.py:1409-1410`), an MCP server (`:1354`), a network read (`NETWORK_READ` `hooks/tezgah_integrity.py:1416-1424`) or a
+result (`WEB_TOOLS` `hooks/tezgah_integrity.py:1409-1410`), an MCP server (`:1411`), a network read (`NETWORK_READ` `hooks/tezgah_integrity.py:1416-1424`) or a
 model on the far side of the network (`TIER_PROGRAMS` `hooks/tezgah_integrity.py:1425-1439`: a `bin/consult`/`bin/codegen`
 invocation that reaches a provider) — and tells the model to treat instructions inside it as data.
-The call's own row carries the channel in `source` (`:1615`).
+The call's own row carries the channel in `source` (`:1672`).
 
 After that read, the first effect the turn makes — a shell call or a write
 (`hooks/tezgah_untrusted.py:39-44`) — carries a taint notice instead (`marks` `:79-91`,
@@ -343,22 +343,22 @@ Each key, as both readers produce it:
 - `events` — every row; `kinds` — a histogram of them.
 - `steps` — rows whose kind is in `STEP_KINDS` (`hooks/tezgah_integrity.py:1029-1031`): work rows only,
   `interrupted` among them, since a call the host stopped was still issued.
-- `tool_error_rate` — non-zero `exit` values over every row carrying an `exit` (`:1040-1043`, `:1019`);
+- `tool_error_rate` — non-zero `exit` values over every row carrying an `exit` (`:1077-1080`, `:1056`);
   a host reporting no outcome contributes to neither half, so every row with an `exit` counts.
 - `claims` and `false_completion` — the `claim` rows, and those whose detail starts with `blocked`
-  (`:1049-1057`), except a shape class (`SHAPE_BLOCKS`): a reply refused for its list or its language
+  (`:1086-1097`), except a shape class (`SHAPE_BLOCKS`): a reply refused for its list or its language
   made no false claim, so it counts as `shape_blocked` instead.
 - `replies` and `shape` — the `shape` rows, written for every judged reply, and those carrying a
-  report-only flag (`:1063-1070`).
-- `denies` — `deny` rows grouped by the text before the first colon (`:1044-1046`), which is the rule
+  report-only flag (`:1103-1110`).
+- `denies` — `deny` rows grouped by the text before the first colon (`:1081-1083`), which is the rule
   name (`shortcut`, `loop`, `race`, …); `nudges` and `fanout` — the nudge rows and
-  the subagent-ish kinds (`:1047-1048`, `:1079-1080`), the `orch` rows among them written by `record()`
+  the subagent-ish kinds (`:1084-1085`, `:1119-1120`), the `orch` rows among them written by `record()`
   for every subagent event a Python adapter sees.
-- `consult`, `codegen`, `codegen_failed` — substring matches on `detail` (`:1071-1076`).
+- `consult`, `codegen`, `codegen_failed` — substring matches on `detail` (`:1111-1116`).
 
 The one ratio that matters is **`false_completion / claims`**: how often a reply claiming completion
 or verification had to be refused — the only number here that measures the layer's effect rather than
-its traffic, and the one its own docstring names as the point of the counters (`:1009-1010`). One
+its traffic, and the one its own docstring names as the point of the counters (`:1046-1047`). One
 ledger is an anecdote; `--counters --all` is the same ratio over the corpus, 0.224 across 1454
 ledgers when this was written, which is the reading no single session could give.
 

@@ -26,7 +26,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 
 The middle five marks (`consult`, `research`, `graph`, `orch`, `judge`) are tool-use marks:
 any adapter that sees its host's tool calls can light them by calling
-`record()` (`hooks/tezgah_context.py:1493-1516`). CLI-side, `tezgah-status` reads
+`record()` (`hooks/tezgah_context.py:1520-1543`). CLI-side, `tezgah-status` reads
 the same core and takes the session id as an argument or `TEZGAH_SESSION`
 (`bin/tezgah-status:129`).
 
@@ -117,11 +117,11 @@ omp filters in its embedded runner before it asks python
 (`hosts/omp/tezgah-hook.ts.in:40-53`). On codex, cursor and dsh a read is not
 observable at that price, so their surfaces pass the five tool-use measures as
 `observable` and the two skill marks render dim (`info`, no glyph) instead of
-claiming the skill was never opened (`hooks/tezgah_context.py:1506-1512`, and the
-`observable` branch at `hooks/tezgah_context.py:1581-1582`). Callers that pass `TOOL_USE_MEASURES`:
+claiming the skill was never opened (`hooks/tezgah_context.py:1795-1800`, and the
+`observable` branch at `hooks/tezgah_context.py:1822-1823`). Callers that pass `TOOL_USE_MEASURES`:
 `statusline.py:112`, `hosts/codex/hook.py:197,196`,
 `hosts/dsh/statusline/lib/index.js:18`. A kill switch is observable everywhere
-and still renders `off` (`hooks/tezgah_context.py:1386-1387`).
+and still renders `off` (`hooks/tezgah_context.py:1820-1821`).
 
 ## Adding a host
 
@@ -146,7 +146,7 @@ In order, each step verified by the one below it:
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
-   not fork git for a cosmetic glyph (`hooks/tezgah_context.py:1561-1563`).
+   not fork git for a cosmetic glyph (`hooks/tezgah_context.py:1575-1577`).
 6. Tests, in two tiers: a per-host class in `tests/test_setup.py` pinning the
    report rows and the written files (e.g. `OmpHost:960-1030`,
    `CodexHome:657-702`, `CursorMatcher:705-722`, `DshStatusline:872-957`), and an
