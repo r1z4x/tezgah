@@ -522,6 +522,41 @@ class GitSpawnBudget(TempHome):
                                  "init -q %s" % os.path.join(self.repo, ".tezgah")]))
 
 
+class WorktreeSiblings(TempHome):
+    """A session start names the repository's other checkouts: a worktree session
+    otherwise boots blind to the main checkout's plans and research."""
+
+    def call(self, payload):
+        return run_json([support.PROBE_CONTEXT], payload, env=self.env())
+
+    def test_the_session_start_line_names_the_sibling_checkouts(self):
+        repo = self.make_repo("main")
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        self.touch(os.path.join(repo, "f"))
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "-c", "user.email=a@b", "-c", "user.name=t",
+                        "commit", "-qm", "x"], check=True)
+        alone, _ = self.call({"fn": "context_for", "event": "session_start",
+                              "cwd": repo})
+        self.assertIn("Ponytail", alone)
+        self.assertNotIn("Worktrees:", alone)
+        self.touch(os.path.join(repo, ".tezgah", "plans", "open", "001-a.md"))
+        # outside every root: armed through its main checkout
+        wt = os.path.join(self.home, "elsewhere", "wt")
+        subprocess.run(["git", "-C", repo, "worktree", "add", "-q", "--detach", wt],
+                       check=True)
+        wt = os.path.realpath(wt)
+        out, proc = self.call({"fn": "context_for", "event": "session_start",
+                               "cwd": wt})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        line = next(x for x in out.splitlines() if x.startswith("Worktrees:"))
+        self.assertIn("2 checkouts", line)
+        self.assertIn("%s (1 open plan(s), 0 research line(s))" % repo, line)
+        self.assertIn("%s (this checkout, " % wt, line)
+        self.assertIn("--all", line)
+
+
+
 class IndexRedraw(unittest.TestCase):
     """A host that redraws its status line per event passes the glyph it already
     resolved, so the cosmetic redraw forks no git for the idx mark."""

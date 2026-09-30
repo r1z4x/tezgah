@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Worktree bridge: a linked `git worktree` is armed and sees its siblings.**
+  A session in a worktree outside every configured root used to be unarmed
+  (`root_for` answered `None`), and one inside a root booted into a fresh,
+  disconnected `.tezgah` blind to the main checkout's plans and research.
+  `root_for` now arms a worktree whose main checkout is under a root, read from
+  the worktree's `.git` pointer file (`tezgah_paths.linked_main`) with no git
+  fork, and answers the worktree's own top level so every caller's base still
+  contains the path. `tezgah_paths.worktrees` lists every checkout of the
+  repository from `<main>/.git/worktrees/*/gitdir` - the same set as
+  `git worktree list`, a deleted-but-unpruned entry skipped - and the session
+  start carries one line naming each checkout with its open plan and research
+  line counts. `tezgah-research --all` renders every checkout's lines with their
+  phase and open reasons. Nothing is shared: each checkout keeps its own
+  `.tezgah`, locks and private git repository; the others are read, never
+  written.
+
 ### Fixed
 
 - **Ponytail and i-have-adhd no longer contradict each other.** Ponytail's

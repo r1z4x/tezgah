@@ -3188,6 +3188,25 @@ def summary(repo):
     return out
 
 
+def across(repo):
+    """Every checkout's research lines, for `--all`: one header per checkout of
+    this repository (`tp.worktrees`), then `  <slug>: <phase>` per line, with the
+    reasons it is still open. Read-only: each checkout keeps its own `.tezgah`,
+    and nothing here writes to any of them."""
+    here = os.path.realpath(repo)
+    out = []
+    for checkout in tp.worktrees(repo) or [here]:
+        names = slugs(checkout)
+        out.append("%s%s%s" % (checkout, " (this checkout)" if checkout == here else "",
+                               "" if names else ": no research line"))
+        for slug in names:
+            base = line_dir(checkout, slug)
+            reasons = _open_reasons(base)
+            out.append("  %s: %s%s" % (slug, _phase(base) or "phase unreadable",
+                                       " - open: " + "; ".join(reasons) if reasons else ""))
+    return out
+
+
 def check_orx(repo, orx, strict=False):
     """{"errors": [...], "warnings": [...]} for the orx project registered against
     this repository.
