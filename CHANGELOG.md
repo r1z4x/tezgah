@@ -50,6 +50,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   regression in any of them fails the `test` job on 3.10 and 3.12 instead of
   waiting for a session to meet it.
 
+### Added
+
+- **A workspace commits as its owner, never as a name tezgah invented.**
+  `ws_git` forced `user.name=tezgah` / `user.email=tezgah@localhost` on every
+  commit into `<repo>/.tezgah`, so a private repository that belongs to someone
+  carries 85 commits authored by nobody. The override is gone: `ensure_workspace`
+  now copies the project's own git identity into the workspace when it creates it
+  (`IDENTITY_KEYS`, so a machine with only a local project identity still commits
+  as its owner), and the only thing `WS_IDENTITY` still overrides is
+  `commit.gpgsign`, which a hook must not wait on. `tests/test_identity.py` scans
+  everything that ships for a commit command naming an identity and refuses one,
+  and commits in a temp workspace to prove the copied identity is what lands.
+
+- **`tezgah-route --mode off`, and what the first live smoke taught.** The mode
+  removes every `task.agentModelOverrides` entry the table wrote and writes
+  nothing, leaving the user's own entries and the rest of omp's config alone: a
+  provider those selectors need can run out of budget, and the way back must not
+  have to be `--uninstall`. Measured on the first real spawn: the tier worker
+  reached the model the table named and OpenRouter answered
+  `402 ... you can only afford 6172` - the routing works, the account could not
+  pay for the request, which is exactly the state `off` is for.
+
 ### Changed
 
 - **The consult default panel is current.** OpenRouter's default panel moves

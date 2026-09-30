@@ -75,7 +75,7 @@ omp's bundled agents are routed through the same record (omp's own docs: `omp://
 ## The router
 
 `tezgah-route "<brief>"` prints the worker to spawn and why (`main`,
-`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:418-442`). The order is
+`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:425-449`). The order is
 fixed:
 
 1. A brief naming stored data, a persistence or schema change, a migration,
@@ -84,12 +84,12 @@ fixed:
    the judge under-routed in its measurement.
 2. Otherwise the brief - redacted with the ledger's own reader
    (`redact`, `hooks/tezgah_integrity.py:524`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
-   `hooks/tezgah_models.py:396-417`). Measured on 40 English briefs labelled by
+   `hooks/tezgah_models.py:403-424`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100.
 3. With no judgement (`judge-off`, no key, a failed call) `--phase` picks the tier
-   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:394-395`), and
+   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:401-402`), and
    with no phase the middle tier is used.
 
 The brief leaves the machine for the judge, like every judgement ([judge](judge.md)).
@@ -101,12 +101,14 @@ the tier to the gate outcome of the work it routed.
 `tezgah-route --refresh` re-reads OpenRouter's public model list, writes prices to
 `~/.config/tezgah/models.json`, flags a model that left the list or whose price
 moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py:87-91`;
-`refresh`, `hooks/tezgah_models.py:302-336`), resolves opencode selectors, and
+`refresh`, `hooks/tezgah_models.py:309-343`), resolves opencode selectors, and
 re-applies omp's overrides. Scores are not re-read - they need a key - so
 `tezgah-route --check` reports the snapshot's age and exits 1 past 60 days or with
 a flag (`check`, `hooks/tezgah_models.py:360-373`); that is the moment to re-read
-the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|any|auto` pins
-omp's family instead of following the session default. `tezgah-setup --install`
+the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|any|auto|off` pins
+omp's family instead of following the session default; `off` removes every entry the
+table wrote and writes nothing, which is the way back when the provider those
+selectors need has no budget - a measured case, not a hypothetical one. `tezgah-setup --install`
 writes omp's overrides and `--uninstall` removes only the `tezgah-*` entries; the
 omp status report carries a row for them.
 

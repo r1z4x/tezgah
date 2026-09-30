@@ -55,7 +55,7 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    state to enrich, so no `--pr-info` here; that enrichment belongs to plan-status.
 7. Commit in the private repository, never the project's:
    `git -C "$ROOT/.tezgah" add plans/README.md plans/open/NNN-slug.md &&
-   git -C "$ROOT/.tezgah" -c user.name=tezgah -c user.email=tezgah@localhost commit -q -m "plan: add NNN slug"`
+   git -C "$ROOT/.tezgah" commit -q -m "plan: add NNN slug"`
    (explicit paths only: `git -C .tezgah add plans` would sweep in files another
    agent is writing). It has no remote, so nothing is pushed.
    The message must carry no AI/model attribution of any kind: no Co-Authored-By,

@@ -620,6 +620,7 @@ tests/test_encoding.py
 tests/test_gate.py
 tests/test_guard.py
 tests/test_hint_coverage.py
+tests/test_identity.py
 tests/test_index.py
 tests/test_install_tree.py
 tests/test_integrity.py

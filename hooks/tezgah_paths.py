@@ -432,10 +432,16 @@ def tool(name):
 # ever entering the project's history.
 WORKSPACE = ".tezgah"
 WORKSPACE_IGNORES = ("/.tezgah/", "/.codegraph/")
-# Commits in the private repository need an identity whatever the user's git
-# config holds, and must not wait on a signing agent.
-WS_IDENTITY = ("-c", "user.name=tezgah", "-c", "user.email=tezgah@localhost",
-               "-c", "commit.gpgsign=false")
+# The private repository commits as the identity it is configured with - the one
+# `ensure_workspace` copies from the project that owns it - and never as a name
+# tezgah invented: an author is a claim about who wrote the work, and a log that
+# keeps a fabricated one keeps a lie. The signing agent is the only thing
+# overridden here, because a workspace commit must not wait on one.
+WS_IDENTITY = ("-c", "commit.gpgsign=false",)
+# What `ensure_workspace` copies from the project into the workspace. Reading
+# `git config --get` in the project already falls back to the global value, so a
+# machine that sets either one gets the same identity in both repositories.
+IDENTITY_KEYS = ("user.name", "user.email")
 
 
 def workspace(repo):
@@ -474,9 +480,29 @@ def ensure_workspace(repo):
             if subprocess.run(["git", "init", "-q", ws],
                               capture_output=True).returncode:
                 return None
+            seed_identity(repo, ws)
     except (OSError, ValueError):
         return None
     return ws
+
+
+def seed_identity(repo, ws=None):
+    """Copy the project's git identity into the workspace, at creation.
+
+    The workspace is tezgah's own repository, so its commits have to carry the
+    person who owns the code: without this, a machine whose global identity is
+    unset refuses the commit, and the earlier answer - forcing a name in our own
+    argv - wrote a repository's history under a committer nobody holds. Fail-open
+    like the rest of this module: no identity anywhere leaves git to say so,
+    which is its own honest error."""
+    import subprocess  # deferred: see ensure_workspace
+    ws = ws or workspace(repo)
+    for key in IDENTITY_KEYS:
+        value = subprocess.run(["git", "-C", repo, "config", "--get", key],
+                               capture_output=True, text=True).stdout.strip()
+        if value:
+            subprocess.run(["git", "-C", ws, "config", "--local", key, value],
+                           capture_output=True)
 
 
 def ws_git(repo, *args, **kw):

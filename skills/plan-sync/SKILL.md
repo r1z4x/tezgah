@@ -45,7 +45,7 @@ description: >
    (`.tezgah/` is gitignored in the project and never enters its git):
    `git -C "$ROOT/.tezgah" add plans/README.md plans/done/NNN-slug.md &&
    git -C "$ROOT/.tezgah" rm -q --cached --ignore-unmatch plans/open/NNN-slug.md &&
-   git -C "$ROOT/.tezgah" -c user.name=tezgah -c user.email=tezgah@localhost commit -q -m "plan: done NNN slug"`
+   git -C "$ROOT/.tezgah" commit -q -m "plan: done NNN slug"`
    (explicit paths only, never `git -C .tezgah add -A plans`; the `rm --cached`
    records the move whether or not the open copy was ever committed; verb
    `discard` for discarded plans; the README change rides with the first commit;

@@ -44,7 +44,7 @@ READ_ON = "2026-09-30"
 STALE_DAYS = 60
 OVERLAY = os.path.join(tp.CONFIG_DIR, "models.json")
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
-MODES = ("auto", "anthropic", "any")
+MODES = ("auto", "anthropic", "any", "off")
 # The two status markers `bin/tezgah-setup` classifies an `apply_omp()` line by:
 # a skip is not a write and not a failure - the user's omp is left untouched, and
 # nothing is left to repair, which is why the status report excuses it rather
@@ -163,7 +163,7 @@ def omp_mode(default_selector=None):
     credential the `any` selectors need is missing (`apply_omp` writes nothing
     and says so)."""
     mode = overlay().get("mode")
-    if mode in ("anthropic", "any"):
+    if mode in ("anthropic", "any", "off"):
         return mode
     return "anthropic" if str(default_selector or "").startswith("anthropic/") else "any"
 
@@ -258,10 +258,17 @@ def apply_omp(remove=False):
     mode, want = None, {}
     if not remove:
         mode = omp_mode((omp_get("modelRoles") or {}).get("default"))
-        if mode == "any" and not openrouter_ready():
+        if mode == "off":
+            # the user asked for no routing: drop every entry this table wrote
+            # and write nothing. A provider the selectors need can run out of
+            # budget (measured: an OpenRouter key that could not afford the
+            # request), and the way back must not have to be `--uninstall`.
+            remove = True
+        elif mode == "any" and not openrouter_ready():
             return ("omp model overrides %s the any mode needs an OpenRouter key "
                     "(or `tezgah-route --mode anthropic`)" % SKIP_MARK)
-        want = omp_overrides(mode)
+        else:
+            want = omp_overrides(mode)
     new, owns = {}, {}
     for key in sorted(set(current) | set(written) | set(want)):
         cur = current.get(key)
@@ -292,8 +299,8 @@ def apply_omp(remove=False):
     if not save_overlay(data):
         return ("omp model overrides written, ownership NOT recorded "
                 "(overlay unreadable)")
-    return ("omp model overrides removed" if remove
-            else "omp model overrides written (%s)" % (mode or "none"))
+    return ("omp model overrides removed (%s)" % (mode or "uninstall") if remove
+            else "omp model overrides written (%s)" % mode)
 
 
 # ---------------------------------------------------------------- refresh ----

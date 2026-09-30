@@ -30,7 +30,7 @@ description: >
 7. If `git -C "$ROOT/.tezgah" status --porcelain plans` shows changes, commit them in
    the private repository (`.tezgah/` is gitignored in the project and never enters
    its git): `git -C "$ROOT/.tezgah" add plans/README.md <plan files you changed, as plans/open/NNN-slug.md> &&
-   git -C "$ROOT/.tezgah" -c user.name=tezgah -c user.email=tezgah@localhost commit -q -m "plan: update status"`
+   git -C "$ROOT/.tezgah" commit -q -m "plan: update status"`
    (explicit paths only, never `git -C .tezgah add plans`; no remote, no push).
    The message must carry no AI/model attribution of any kind: no Co-Authored-By,
    no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
