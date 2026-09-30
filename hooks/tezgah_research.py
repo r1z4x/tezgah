@@ -1294,7 +1294,13 @@ def _check_claims(base, errors, warnings, roots=(), strict=False):
             errors.append("claim %s status %r is not one of %s"
                           % (cid, claim.get("status"), ", ".join(STATUSES)))
         _check_claim_scope(cid, claim, base, repo, errors, warnings, strict)
-        _check_claim_numbers(cid, claim, base, repo, errors, warnings, strict)
+        # A superseded claim is the historical row: the line has corrected it in
+        # the row that supersedes it, and that row is the one whose numbers are
+        # held to their proof here. Warning on the historical statement too would
+        # make a correction that rewords a figure impossible to land (it already
+        # cannot edit the row), for a sentence no reader is meant to keep.
+        if cid not in superseded:
+            _check_claim_numbers(cid, claim, base, repo, errors, warnings, strict)
         _check_claim_raters(cid, claim, base, errors, warnings, strict)
     _check_supersedes(parsed, errors, warnings, strict)
     if not count:

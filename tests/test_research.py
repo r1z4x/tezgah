@@ -434,6 +434,30 @@ class Unfinished(Workspace):
                          ["claim c3 cites .tezgah/plans/open/009-gone.md, "
                           "which is not in this line"])
 
+    def test_a_superseded_claim_is_not_warned_for_its_numbers(self):
+        """The same rule as the path above, for the other half of a proof: a
+        superseded row's statement may name a figure the corrected row rewrote,
+        and warning on it would make that correction impossible to land - the row
+        cannot be edited, so the warning would sit under a sentence no reader is
+        meant to keep. The row that supersedes it is still held to its own
+        numbers."""
+        repo = self.repo()
+        base = self.line(repo)
+        self.write(os.path.join(base, "to_human", "report.md"), "# report 12\n")
+        self.claims(repo,
+                    dict(CLAIM, id="c1", statement="the yield is 0.99 over 3 runs",
+                         proof="to_human/report.md"),
+                    dict(CLAIM, id="c2", supersedes="c1",
+                         statement="the yield is 12 over 3 runs",
+                         proof="to_human/report.md"))
+        self.assertEqual([w for w in tr.check(repo, "q")["q"]["warnings"]
+                          if "asserts" in w], [])
+        # the live row is still checked
+        self.claims(repo, dict(CLAIM, id="c3", supersedes="c2",
+                               statement="the yield is 0.99 over 3 runs",
+                               proof="to_human/report.md"))
+        self.assertTrue(hit("claim c3 asserts", tr.check(repo, "q")["q"]["warnings"]))
+
     def test_a_superseded_claim_is_read_through_the_row_that_replaced_it(self):
         # `claims.jsonl` is append-only, so the older row keeps the status it was
         # left in - `c1` stays `hypothesis` for ever - and the relation that says
