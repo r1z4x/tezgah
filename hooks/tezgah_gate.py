@@ -24,12 +24,10 @@ Rules, all only inside a tezgah root:
      closes - one session overwriting another's work from a stale read - leaves
      no trace in either transcript.
   7. when the current user turn has run past DRIFT_STEPS work rows, the next
-     effectful call's *result* carries the standing constraints re-stated once
-     (`drift`, whose ledger row is the marker). It is not a refusal: the notice
-     is about the turn and not about the call, so it rides the tool-result
-     channel each host already has beside the untrusted-content label, and the
-     adapters call drift_reason from their PostToolUse side - `decision` never
-     refuses for it.
+     effectful call gets the standing constraints re-stated once (`drift`), in
+     the gate's reason string, which is the only channel a PreToolUse hook has.
+     The marker row is written before the deny, so the identical call passes on
+     the next attempt.
   8. a write while an active task is set - a plan file under .tezgah/plans/open whose
      frontmatter carries a valid `phase` - is refused when that phase is one
      that only reads, or when the file is outside the task's `allowed_paths`
@@ -980,20 +978,20 @@ def commit_order_reason(command, session_id):
 # the mark is per turn: one re-statement in a turn that drifted is useful, the
 # same one in every short turn is noise the agent learns to skip.
 #
-# It is delivered on the tool-result channel (the one that carries
-# tezgah_untrusted's label and taint notice), so `decision` never refuses for
-# it: the notice is about the turn and not about the call it lands on, and a
-# refusal spent that call.
+# It is delivered as a refusal - the gate's reason string - and nowhere else: no
+# host's result side carries it. Plan 004 measured the result-channel delivery
+# and its pre-registered counter-metric sent it back here.
 DRIFT_STEPS = 25
 # How far back the count reads: the same 200-row bound the repeat guards read, so
 # one gated call parses at most that many rows. Past that bound the window holds
 # neither the turn's own marker nor the one the notice wrote, so the read falls
 # back to the turn's own start (the module's own turn-scoped reader).
 DRIFT_TAIL = 200
-DRIFT_NOTICE = (
+DRIFT_DENY = (
     "Long turn (%d work rows in, past the %d this notice waits for): the "
     "constraints this session was armed with are still in force. %s This is a "
-    "re-statement, not a violation report: nothing was refused, so carry on.")
+    "re-statement, not a violation report: re-issue this call unchanged and "
+    "carry on.")
 
 
 def drift_text(cwd, session_id):
@@ -1034,24 +1032,19 @@ def constraints_line(cwd):
 
 
 def drift_reason(tool, inp, cwd, session_id):
-    """The one-shot re-statement a long turn's next effectful result carries, or
-    None.
+    """A one-shot re-statement of the standing constraints when this user turn
+    has run past DRIFT_STEPS work rows and this call is an effect, else None.
 
-    What this deliberately is NOT: a detector of the rule the user meant. A host
-    payload carries the tool call, not the prompt - no hook sees the text the
-    user typed - so "which rule is being forgotten" would be a guess about intent
-    wearing a check's clothes. Re-stating the standing constraints, or the delta
-    since the turn began where the context module has one, is the honest half,
-    and it is the whole of what this does (see drift_text).
-
-    The tool and its input are arguments because the notice only belongs on an
-    effect (`effectful`): the result channel answers for every call, so a read
-    would otherwise spend the turn's one notice on a call no rule applies to.
-
-    The marker row is written HERE, when the line is produced, and it is that
-    row - not the delivery - that makes the notice once per turn: nothing tells
-    a hook whether the host put the field in front of the model, and a host that
-    drops it still leaves the turn marked."""
+    What this deliberately is NOT: a detector of the rule the user meant. A
+    PreToolUse payload carries the tool call, not the prompt - no host hook sees
+    the text the user typed - so "which rule is being forgotten" would be a guess
+    about intent wearing a check's clothes. Re-stating the standing constraints,
+    or the delta since the turn began where the context module has one, is the
+    honest half, and it is the whole of what this does (see drift_text). The host
+    gives a PreToolUse hook no non-blocking way to reach the model either (the
+    reason string is the only channel), so the notice arrives as a refusal whose
+    reason is the re-statement, and the mark is written here - before the deny -
+    so the identical call passes on the next attempt."""
     if off("reminder-off") or not effectful(str(tool or "").lower(), inp or {}):
         return None
     if not session_id:
@@ -1065,7 +1058,7 @@ def drift_reason(tool, inp, cwd, session_id):
     if steps < DRIFT_STEPS:
         return None
     note(session_id, "drift", str(steps), workspace=root_for(cwd))
-    return DRIFT_NOTICE % (steps, DRIFT_STEPS, drift_text(cwd, session_id))
+    return DRIFT_DENY % (steps, DRIFT_STEPS, drift_text(cwd, session_id))
 
 
 def effectful(t, inp):
@@ -1356,15 +1349,14 @@ def decision(tool, inp, cwd, session_id=None):
             note(session_id, "nudge", slug, id=call_id(tool, inp),
                  workspace=base)
             return nudge_reason(symbol)
-    # Constraint drift is deliberately NOT refused here. The re-statement (see
-    # drift_reason) is about the turn, not about this call, so it rides the
-    # tool-result channel each host already has for tezgah_untrusted's label and
-    # taint notice - hooks/projects-posttooluse.py (claude, dsh),
-    # hosts/codex/hook.py, hosts/cursor/hook.py and hosts/omp/hook.py call it
-    # from their PostToolUse side. As a refusal it consumed the call it landed
-    # on, and the marker row it leaves there is the same once-per-turn state this
-    # branch used to write. `reminder-off` still governs it, checked in the
-    # producer.
+    # Constraint drift, last: a re-statement yields to every refusal above (a
+    # refusal's reason is the same channel), and `verify-off` does not drop it -
+    # the rules it re-states are not the verify rule. The switch that governs it
+    # is the per-turn reminder's own (checked in drift_reason), because this is
+    # that reminder's mid-turn half.
+    reason = drift_reason(tool, inp, cwd, session_id)
+    if reason:
+        return _deny(session_id, "drift", reason, tool, inp, base)
     # Nothing refused this call, so a write is about to land: keep the bytes it
     # is about to change, which is what bin/tezgah-rollback restores by hand.
     # Nothing automatic undoes work here - see tezgah_snapshot's own note on why.

@@ -627,6 +627,26 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(self.gate("edit", args), "")
         self.allowed(self.before("edit", args))
 
+    def test_a_long_turn_write_is_refused_with_the_cores_drift_reason(self):
+        # This host keeps no drift mirror: its write path asks the core, so the
+        # long turn's re-statement reaches it as the core's own refusal, once per
+        # turn - the identical re-issue passes.
+        self.gate_bin()
+        path = self.evidence_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        now = int(time.time())
+        with open(path, "w") as fh:
+            fh.write(json.dumps({"kind": "turn", "ts": now, "detail": "p"}) + "\n")
+            for i in range(tg.DRIFT_STEPS + 5):
+                fh.write(json.dumps({"kind": "run", "ts": now,
+                                     "detail": "step %d" % i}) + "\n")
+        args = {"file_path": os.path.join(self.repo, "src", "a.py"),
+                "old_string": "x = 1", "new_string": "x = 2"}
+        error = self.denied(self.before("edit", args))
+        self.assertIn("Long turn", error)
+        self.assertIn("re-issue this call unchanged", error)
+        self.allowed(self.before("edit", args))
+
     def test_the_write_path_asks_the_core_once_and_a_read_never_does(self):
         # One spawn per write is the bound, and only for the tools the rule is
         # about: the spy is armed to refuse, so a read that reached it would fail

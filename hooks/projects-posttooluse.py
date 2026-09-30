@@ -11,11 +11,8 @@ The result is also where the untrusted-content control reaches the model.
 adds it as a system reminder alongside the result, and the dsh claude-code bridge
 prepends the same string to the downstream contexts - so a fetched page or an MCP
 answer is labelled in place, and an effect made in a turn that has already read
-one is marked as such. The long turn's re-statement rides the same field
-(`tezgah_gate.drift_reason`), for the same reason: this is the one channel a
-PostToolUse hook has for the model. dsh gets both halves through this file: it
-runs the same script from hosts/dsh/hooks.json, and its bridge delivers
-PostToolUse context.
+one is marked as such. dsh gets both halves through this file: it runs the same
+script from hosts/dsh/hooks.json, and its bridge delivers PostToolUse context.
 """
 import json
 import os
@@ -23,7 +20,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_context import record, shell_kind  # noqa: E402
-from tezgah_gate import drift_reason  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
     SUBAGENT_CHANNEL, note_tool, report_bytes, untrusted_source)
@@ -91,13 +87,6 @@ def main():
         # envelope: no source on the row, no notice to the model
         source, notice = safe(session_id, marks, tool, inp, session_id,
                               result) or (None, None)
-        # The long turn's re-statement rides the same line, on the same field
-        # (see tezgah_gate.drift_reason): the notice is about the turn, and this
-        # result is the channel a PostToolUse hook has for the model. Read
-        # before this call's own row lands, so its step count is the turn's work
-        # up to this call.
-        drift = safe(session_id, drift_reason, tool, inp, cwd, session_id)
-        notice = "\n".join(t for t in (notice, drift) if t)
     else:
         source, notice = untrusted_source(tool, inp), None
     safe(session_id, record, session_id, used_kind(tool, inp))

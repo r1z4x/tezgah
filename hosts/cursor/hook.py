@@ -44,7 +44,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import (  # noqa: E402
     command_text, context_for, record, shell_kind, slug, under)
-from tezgah_gate import decision, drift_reason, explored  # noqa: E402
+from tezgah_gate import decision, explored  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
     SUBAGENT_CHANNEL, note, note_tool, report_bytes, stop_reason)
@@ -252,11 +252,6 @@ def dispatch(payload):
         source, notice = (marks(source_tool(payload), inp, session_id,
                                 payload.get("tool_output"))
                           if under(cwd) else (None, None))
-        # The long turn's re-statement joins the same line as the label and the
-        # code-graph reinforcement below: `additional_context` is the one field
-        # this event has for the model (see tezgah_gate.drift_reason).
-        drift = (drift_reason(gate_name(payload.get("tool_name", "")), inp, cwd,
-                              session_id) if under(cwd) else None)
         # failed=None: this event carries no failure signal, so the row records a
         # check that ran - never a fabricated exit 0. The name and the input go
         # through the same mapping the gate saw, so one call hashes to one id.
@@ -273,7 +268,7 @@ def dispatch(payload):
             reinforce = REINFORCE
         # both are one line for the model, on the result they belong to; a turn
         # that earns both reads them together rather than one replacing the other
-        text = "\n".join(t for t in (notice, drift, reinforce) if t)
+        text = "\n".join(t for t in (notice, reinforce) if t)
         out = {"additional_context": text} if text else {}
     elif event == "postToolUseFailure":
         if kind:

@@ -48,7 +48,7 @@ sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import (  # noqa: E402
     color_default, command_text, context_for, health_segments, record,
     render_tiers, shell_kind, skill_read_kind)
-from tezgah_gate import decision, drift_reason  # noqa: E402
+from tezgah_gate import decision  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
     SUBAGENT_CHANNEL, note_tool, stop_reason, untrusted_label, untrusted_source)
@@ -153,11 +153,6 @@ def handle(payload):
         inp = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         failed = payload.get("failed")
         source = untrusted_source(tool, inp)
-        # The long turn's re-statement, on the same field as the label below -
-        # `label` is the one line this event puts in front of the result (see
-        # tezgah_gate.drift_reason). Read before this call's own row lands, so
-        # its step count is the turn's work up to this call.
-        drift = safe(session_id, drift_reason, tool, inp, cwd, session_id)
         record(session_id, classify(tool, inp))
         # failed is tri-state on purpose: None means omp reported no outcome,
         # and the ledger then records a check that ran, never one that passed.
@@ -185,7 +180,7 @@ def handle(payload):
         # The result is the other thing this event carries. A label is not a
         # deny: the bridge puts it in front of the content itself, so the model
         # reads where the text came from while it reads the text.
-        label = "\n".join(t for t in (untrusted_label(source), drift) if t)
+        label = untrusted_label(source)
         if label:
             out["label"] = label
         return out
