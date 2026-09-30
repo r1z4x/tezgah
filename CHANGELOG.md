@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-01
+
 ### Added
 
 - **Phase-aware model routing: a model table, three tier workers, and a router
@@ -103,6 +105,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The consult default panel is current.** OpenRouter's default panel moves
   from `google/gemini-2.5-pro` + `x-ai/grok-4.3` to `openai/gpt-6.1-sol` +
   `google/gemini-3.8-flash`, two generations newer on the same key.
+
+- **The READMEs were slimmed to what an installer needs.** `README.md` went from
+  649 lines to 103 and the four translations to 106-109, each keeping one
+  paragraph on what tezgah is, five measured advantages, the install commands,
+  the six hosts and a pointer to `docs/README.md`; the depth moved behind that
+  page. The installer snippet pin now tracks the two commands the READMEs carry.
+- **The omp status line never exceeds its width.** The logo join added a cell the
+  tier had not accounted for when the chosen tier drops the version (its
+  separator is a dim chip rather than a plain space), which showed up as a line
+  one cell over budget that omp then truncated; the line is redrawn one cell
+  narrower in exactly that case.
+- **The workspace commits as its owner.** `ws_git` forced
+  `user.name=tezgah` / `user.email=tezgah@localhost` on every commit into
+  `<repo>/.tezgah`; the override is gone, `ensure_workspace` copies the project's
+  own identity in (from the config files, so a session start forks no extra git),
+  and `tests/test_identity.py` refuses a shipped commit command that names an
+  identity.
 
 ## [0.25.0] - 2026-09-30
 
@@ -2683,6 +2702,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.26.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.26.0
 [0.25.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.25.0
 [0.24.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.24.0
 [0.21.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.21.0
