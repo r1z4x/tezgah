@@ -512,8 +512,13 @@ class GitSpawnBudget(TempHome):
                          ["--abbrev-ref HEAD", "--show-toplevel", "HEAD"], asked)
         # the other forks: the resume block's one log read and the workspace's
         # one-time private `git init`
+        # the log read follows RESUME_LOG rather than a second literal: the
+        # block's depth is a budget decision, and a test that re-pins the number
+        # reads as a fork regression when the depth changes
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
         self.assertEqual(sorted(line for line in lines if " rev-parse " not in line),
-                         sorted(["-C %s log --oneline -5" % self.repo,
+                         sorted(["-C %s log --oneline -%d" % (self.repo, tc.RESUME_LOG),
                                  "init -q %s" % os.path.join(self.repo, ".tezgah")]))
 
 
@@ -1034,9 +1039,9 @@ class ResumeBlock(ChildCall):
         repo = self.full_repo()
         out = self.session(repo)
         self.assertIn("## Session so far", out)
-        self.assertIn("plan 021-thing state: half done: the first half landed",
+        self.assertIn("plan 021-thing: state: half done: the first half landed",
                       out)
-        self.assertIn("plan 021-thing next: wire the second half", out)
+        self.assertIn("next: wire the second half", out)
         self.assertIn("commits on plan/021-thing:", out)
         self.assertIn("first", out)
         self.assertIn("last check verify_ok: python3 -m unittest", out)
@@ -1069,7 +1074,7 @@ class ResumeBlock(ChildCall):
                          " {'session_id': 's1'})))\n" % repo)
         self.assertIn("## Session so far", out)          # the block survives
         self.assertIn("commits on", out)
-        self.assertIn("plan 021-thing next", out)
+        self.assertIn("plan 021-thing:", out)
         self.assertNotIn("last check", out)              # the bullets the
         self.assertNotIn("changed this turn", out)       # damaged read owed
         self.assertIn("tezgah-contract` skill", out)     # and the core too
@@ -1084,18 +1089,35 @@ class ResumeBlock(ChildCall):
         subprocess.run(["git", "-C", repo, "checkout", "-q", "-b", "work"],
                        check=True)
         out = self.session(repo)
-        self.assertIn("open plan 021-thing (not this branch) next:", out)
+        self.assertIn("open plan 021-thing (not this branch): ", out)
+        self.assertIn("next:", out)
         self.assertNotIn("- plan 021-thing", out)
 
-    def test_resume_budget_is_the_first_block_given_up(self):
+    def test_resume_block_outlives_the_availability_lines(self):
+        # The order the budget gives blocks up in is a value claim, and this is
+        # the one it makes about the resume block: it goes before the lines that
+        # only say what the machine has installed (the graph glance, the consult
+        # and research notes), and after the blocks that carry text a rule or a
+        # plan owns.
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        order = list(tc.DROP_ORDER)
+        self.assertLess(order.index("graph"), order.index("resume"))
+        self.assertLess(order.index("consult"), order.index("resume"))
+        self.assertLess(order.index("resume"), order.index("scratch"))
+        for rule in ("lessons", "plans"):
+            self.assertLess(order.index(rule), order.index("resume"), rule)
+
+    def test_a_tight_budget_gives_up_the_plan_table_before_the_resume_block(self):
         repo = self.full_repo()
         whole = self.session(repo)
         out = self.session(repo, limit=len(whole.encode()) - 1)
-        # one byte over gives up the resume block first, and the blocks that
-        # outrank it are still there
-        self.assertIn("dropped resume (", out)
-        self.assertNotIn("## Session so far", out)
-        self.assertIn("Open plans in this repo", out)
+        # one byte over drops the lowest-value block that is actually present -
+        # the open-plan table, which the plan-status skill carries too - and the
+        # resume block stays
+        self.assertIn("dropped ", out)
+        self.assertNotIn("Open plans in this repo", out)
+        self.assertIn("## Session so far", out)
         self.assertIn("tezgah-contract` skill", out)
 
     def test_resume_budget_stays_under_the_per_event_ceiling(self):
@@ -1113,7 +1135,7 @@ class ResumeBlock(ChildCall):
         repo = self.full_repo()
         out = self.session(repo, event="post_compact")
         self.assertIn("## Session so far", out)
-        self.assertIn("plan 021-thing next:", out)
+        self.assertIn("next: wire the second half", out)
 
     def test_post_compact_leaves_the_delegated_brief_to_subagent_start(self):
         repo = self.full_repo()

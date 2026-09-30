@@ -591,10 +591,10 @@ def task_line(task):
 # and the resume block rides both so no host that delivers either one loses it.
 # (Unverified by observation: no tezgah-armed Claude session with a compaction
 # has run on this machine; the acceptance run of plan 021 settles it.)
-RESUME_LOG = 5
-RESUME_PLAN_CHARS = 55
-RESUME_COMMIT_CHARS = 46
-RESUME_CHECK_CHARS = 55
+RESUME_LOG = 3
+RESUME_PLAN_CHARS = 40
+RESUME_COMMIT_CHARS = 38
+RESUME_CHECK_CHARS = 40
 RESUME_FILES = 3
 
 
@@ -653,12 +653,17 @@ def resume_state(root, session_id):
     plan, mine = _active_plan(root)
     if plan:
         pid = os.path.basename(plan)[:-len(".md")]
-        label = "plan %s" % pid if mine else "open plan %s (not this branch)" % pid
         state, nxt = _plan_facts(plan)
-        if state:
-            lines.append("- %s state: %s" % (label, state))
-        if nxt:
-            lines.append("- %s next: %s" % (label, nxt))
+        # The plan is named once and its two facts carry on the same line: the
+        # label costs bytes this block cannot spend twice, and "(not this
+        # branch)" is what keeps another plan's Next from reading as a task.
+        facts = " | ".join(part for part in
+                           ("state: " + state if state else "",
+                            "next: " + nxt if nxt else "") if part)
+        if facts:
+            lines.append("- %s%s: %s" % ("plan " if mine else "open plan ",
+                                         pid + ("" if mine else " (not this branch)"),
+                                         facts))
     log = git(root, "log", "--oneline", "-%d" % RESUME_LOG)
     if log:
         branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
@@ -1043,21 +1048,24 @@ CONTEXT_BUDGET = {"session_start": 12000, "post_compact": 12000,
                   "subagent_start": 5000, "user_prompt": 6000}
 DEFAULT_BUDGET = 12000
 # The blocks in the order they are given up when the budget is exceeded, lowest
-# value first: the resume block first (it restates facts git and the ledger
-# already hold, and a trimmed session is better off without a stale summary than
-# without a rule), then text another surface already carries (the plan table
+# value first: text another surface already carries (the plan table
 # lives in the plan-status skill, the lessons file is on disk, the
 # generated-subagent note is a one-time fact), then the tooling-availability
-# lines, then the live state lines - the stale-graph glance, then the scratch-path
-# warning, which is about evidence the turn may already have claimed - then the
-# active task's phase, which outlives both because a phase is what stops a refused
-# write before it happens - then the delta, and the skill pointer last. A key
-# absent from this tuple is never dropped: the always-on core and the per-turn
+# lines, then the live state lines - the stale-graph glance, then the resume
+# block, which outlives every status and availability line because it is the only
+# one that says what THIS session was doing (a `git log` and a ledger read are
+# turns the session would otherwise spend) but still yields to a rule - then the
+# scratch-path warning, which is about evidence the turn may already have claimed
+# - then the active task's phase, which outlives both because a phase is what
+# stops a refused write before it happens - then the delta, and the skill pointer
+# last. A key absent from this tuple is never dropped: the always-on core and the
+# per-turn
 # reminder ARE the rules, and a budget that can spend them turns bloat into rule
 # loss.
-DROP_ORDER = ("resume", "knowledge", "lessons", "plans", "subagents", "steer",
+DROP_ORDER = ("knowledge", "lessons", "plans", "subagents", "steer",
               "consult", "research", "research_broken", "graph", "offnote",
-              "orchestrate", "index", "scratch", "task", "delta", "pointer")
+              "orchestrate", "index", "resume", "scratch", "task", "delta",
+              "pointer")
 
 
 def _drop_note(event, limit, dropped, size):
