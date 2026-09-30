@@ -415,13 +415,24 @@ export default function tezgahOmp(pi: any): void {
     if (moving && width - cellsOf(pre) < 24) {
       pre = logo ? "" : busyPrefix(frame, tool, 0, colorOn(), true);
     }
-    const body = restyle(tiers.length ? fit(tiers, width - cellsOf(pre))
-      : cut(line, width - cellsOf(pre)), moving ? frame : null, light);
+    const room = width - cellsOf(pre);
+    const draw = (cells: number): string => restyle(
+      tiers.length ? fit(tiers, cells) : cut(line, cells), moving ? frame : null, light);
+    const body = draw(room);
     if (!logo) return pre + body;
     // the logo, then the activity, then the rest of the tier
     const head = logoFrame(moving ? frame : null, light);
     if (!pre || !body.startsWith(head)) return body;
-    return head + " " + pre + body.slice(head.length).replace(/^ /, "");
+    const join = (text: string): string =>
+      head + " " + pre + text.slice(head.length).replace(/^ /, "");
+    const out = join(body);
+    if (cellsOf(out) <= width) return out;
+    // The glue adds one cell when the tier does not already carry the separating
+    // space (the version-dropped tier starts with a dim " \u00b7 " chip instead),
+    // which showed up as a line one cell over its budget and omp truncating it.
+    // Redrawing one cell narrower keeps the promise `fit` makes and costs a second
+    // fit only in the case that used to overflow.
+    return join(draw(room - 1));
   };
   const paint = (ctx: any): void => {
     if (hookError) return markBroken(ctx);
