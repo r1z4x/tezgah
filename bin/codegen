@@ -45,13 +45,18 @@ import tempfile
 import urllib.request
 import json
 
+# The cheap id this script names when the models table cannot be read: codegen
+# ships as a standalone CLI, so a machine whose hooks are missing or broken
+# still drafts. The table is asked first (`cheap_default` below).
+FALLBACK_MODEL = "deepseek/deepseek-v4.1-flash"
+
 # provider -> (chat-completions URL, key env var, key file, default model)
 PROVIDERS = {
     "openrouter": (
         "https://openrouter.ai/api/v1/chat/completions",
         "OPENROUTER_API_KEY",
         "~/.config/openrouter/key",
-        "deepseek/deepseek-v4.1-flash",
+        FALLBACK_MODEL,
     ),
     "deepseek": (
         "https://api.deepseek.com/v1/chat/completions",
@@ -69,8 +74,29 @@ PROVIDERS = {
         "mercury-2.5",
     ),
 }
+HOOKS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+
+
+def cheap_default():
+    """The cheap row the models table names on `any`, else `FALLBACK_MODEL`.
+
+    One source for the cheap tier: a refresh that moves the row moves this
+    default (`hooks/tezgah_models.py`). The table is not on a standalone CLI's
+    path, and one unreadable table must not cost a draft, so the read is
+    guarded and the literal is the fallback."""
+    try:
+        if HOOKS not in sys.path:
+            sys.path.insert(0, HOOKS)
+        import tezgah_models
+        row = tezgah_models.cheap_model("any")
+    except Exception:
+        row = None
+    return row[0] if row else FALLBACK_MODEL
+
+
 # CODEGEN_MODEL still overrides the OpenRouter default (historical behaviour).
-MODEL = os.environ.get("CODEGEN_MODEL", PROVIDERS["openrouter"][3])
+MODEL = os.environ.get("CODEGEN_MODEL", "").strip() or cheap_default()
 
 SYSTEM = """You are writing code inside an existing repository. Rules:
 
@@ -265,24 +291,25 @@ def main():
     print("codegen: NOTHING was applied. Review the diff, then copy the drafts in.")
 
 
-try:
-    main()
-except KeyboardInterrupt:
-    # Ctrl-C while a stalled request is in flight: main() unwinds, but the
-    # request thread is non-daemon and interpreter shutdown joins it, so the
-    # process would hang until the response ends. Leave immediately instead.
-    print("codegen: interrupted", file=sys.stderr)
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(130)
-except Insufficient as exc:
-    # Exit 2 is the whole point: the caller falls back to the main model rather
-    # than applying something this script could not vouch for.
-    print(f"codegen: INSUFFICIENT -- {exc}\n"
-          f"codegen: fall back to the main model and write this one yourself.",
-          file=sys.stderr)
-    sys.stdout.flush()
-    sys.stderr.flush()
-    # A request thread that outlived --timeout is still alive, and sys.exit
-    # waits for it at interpreter shutdown; the message above is already out.
-    os._exit(2)
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        # Ctrl-C while a stalled request is in flight: main() unwinds, but the
+        # request thread is non-daemon and interpreter shutdown joins it, so the
+        # process would hang until the response ends. Leave immediately instead.
+        print("codegen: interrupted", file=sys.stderr)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(130)
+    except Insufficient as exc:
+        # Exit 2 is the whole point: the caller falls back to the main model rather
+        # than applying something this script could not vouch for.
+        print(f"codegen: INSUFFICIENT -- {exc}\n"
+              f"codegen: fall back to the main model and write this one yourself.",
+              file=sys.stderr)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # A request thread that outlived --timeout is still alive, and sys.exit
+        # waits for it at interpreter shutdown; the message above is already out.
+        os._exit(2)

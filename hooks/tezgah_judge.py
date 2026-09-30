@@ -138,12 +138,12 @@ def openrouter_key():
 
 
 def fallback_model():
-    """The chat model the fallback asks: TEZGAH_JUDGE_MODEL, else the default.
+    """The chat model the fallback asks: TEZGAH_JUDGE_MODEL, else the table's.
 
     A Jev id is meaningless to a chat endpoint, so the fallback ignores the
     `model` argument rather than forwarding it, and the model a call really used
     comes back on the result."""
-    return os.environ.get("TEZGAH_JUDGE_MODEL", "").strip() or FALLBACK_MODEL
+    return os.environ.get("TEZGAH_JUDGE_MODEL", "").strip() or cheap_default()
 
 
 def credential():
@@ -382,3 +382,20 @@ def _clean_answer(raw, kind):
     if isinstance(confidence, (int, float)):
         answer["confidence"] = float(confidence)
     return answer
+
+
+def cheap_default():
+    """The cheap row the models table names on `any`, else `FALLBACK_MODEL`.
+
+    Defined last on purpose: `docs/judge.md` cites this file by line number, so
+    new code goes below the last cited line instead of shifting every citation
+    after it. The import is lazy and inside this function because
+    `tezgah_models` imports this module - a module-level import back would be
+    the cycle - and it is guarded because a seam a hook cannot import is worse
+    than a stale id."""
+    try:
+        import tezgah_models
+        row = tezgah_models.cheap_model("any")
+    except Exception:
+        row = None
+    return row[0] if row else FALLBACK_MODEL
