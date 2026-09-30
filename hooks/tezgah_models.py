@@ -12,7 +12,13 @@ per family, and each host gets the family it can run:
   opencode              any         a selector `refresh` found in `opencode models`
   omp                   anthropic when the session default is an Anthropic model,
                         any otherwise (or `tezgah-route --mode`); written to omp's
-                        `task.agentModelOverrides`, frontier left to the default
+                        `task.agentModelOverrides`, and to its `modelRoles.plan`
+                        and `.slow`, on the frontier row
+
+Two accessors are the table's public face, so a caller that needs a cheap or a
+strong model names none of its own: `frontier_model(family)` and
+`cheap_model(family)` return that row's `(model, effort)`, or None when the
+family has no such row.
 
 The table is a dated snapshot: prices and ids are re-read from OpenRouter's public
 model list by `tezgah-route --refresh` into CONFIG_DIR/models.json, which also
@@ -56,9 +62,10 @@ FAIL_MARK = "NOT written"
 OMP_AGENT = os.path.join(tp.HOME, ".omp", "agent")
 # The agents omp bundles (omp://task-agent-discovery.md:129-130). They resolve
 # through `task.agentModelOverrides` before their own model
-# (omp://task-agent-discovery.md:217), which is the only way to route them;
-# `reviewer` and `security-reviewer` are left to the session default, which is
-# the strongest model the user chose.
+# (omp://task-agent-discovery.md:217), which is the only way to route them, so
+# `scout`/`sonic`/`task` ride the slots this table writes. omp's own `reviewer`
+# and `security-reviewer` are not tezgah's to route: the generated
+# `tezgah-reviewer` is the one that carries the frontier row.
 BUNDLED = {"scout": "explore", "sonic": "cheap", "task": "standard"}
 TIERS = ("cheap", "standard", "frontier")
 
@@ -74,6 +81,10 @@ SLOTS = {
     "standard": {"anthropic": ("claude-opus-5-5", "medium"),
                  "openai": ("gpt-6.1-sol", "high"),
                  "any": ("openai/gpt-6.1-sol", "high")},
+    # The frontier row names a concrete model on every family: the strongest
+    # Anthropic run the snapshot prices (Opus 5.5 @high, 56.6 Terminal-Bench 4.0
+    # at $1.82/task on AA v4.3), OpenAI's own frontier id, and the same Opus 5.5
+    # through OpenRouter at $4/$20 per 1M (docs/models.md, read 2026-09-30).
     "frontier": {"anthropic": ("claude-opus-5-5", "high"),
                  "openai": ("gpt-6-astra", "high"),
                  "any": ("anthropic/claude-opus-5.5", "high")},
@@ -135,6 +146,22 @@ def pick(agent, family):
     return SLOTS[slot][family] if slot else None
 
 
+def frontier_model(family):
+    """(model, effort) the frontier row names on `family`, or None: no such row.
+
+    What the design surface and omp's plan role run on, so neither has to name a
+    model of its own (docs/models.md)."""
+    return SLOTS["frontier"].get(family)
+
+
+def cheap_model(family):
+    """(model, effort) the cheap row names on `family`, or None: no such row.
+
+    The one place the cheap tier is named: `bin/codegen`'s default and the
+    judge's fallback read this, so a refresh moves every cheap path."""
+    return SLOTS["cheap"].get(family)
+
+
 def opencode_model(agent):
     """The selector `refresh` resolved for this agent's slot, or None (inherit)."""
     slot = AGENT_SLOT.get(agent)
@@ -168,22 +195,55 @@ def omp_mode(default_selector=None):
     return "anthropic" if str(default_selector or "").startswith("anthropic/") else "any"
 
 
+# The omp roles this table writes, as flat `modelRoles.<role>` keys: `plan` is
+# the model plan mode designs on - the one surface where a session spends its own
+# tokens on design - and `slow` is omp's hard-question role (omp://models.md:483,
+# omp://settings.md:116-118). Both carry the frontier row.
+OMP_ROLES = ("plan", "slow")
+
+
+def _selector(family, slot):
+    """`<provider>/<model>[:<effort>]` for one slot on one family, the shape omp
+    takes for a model override and for a role alike (omp://models.md:492-505):
+    the Anthropic column names the host's own id, `any` an OpenRouter id."""
+    model, effort = SLOTS[slot][family]
+    selector = ("anthropic/" + model if family == "anthropic"
+                else "openrouter/" + model)
+    return selector + (":" + effort if effort else "")
+
+
 def omp_overrides(mode):
     """{agent: omp selector} for `task.agentModelOverrides`, tezgah roles and the
-    bundled agents alike, or {} when the mode cannot run on this machine. Frontier
-    agents get no entry: they inherit the session default, the strongest model the
-    user chose, in either mode."""
+    bundled agents alike, or {} when the mode cannot run on this machine.
+
+    Every slot is written, frontier included: a frontier agent the record left
+    out would run on whatever model the session started with, and in the `any`
+    mode that is measured as a flash model, so security-sensitive work would run
+    below the row. Only `tezgah-orchestrator` stays outside the record - it is
+    the main thread's own agent."""
     if mode == "any" and not openrouter_ready():
         return {}  # nothing can run here; `apply_omp` says so and writes nothing
-    out = {}
-    for agent, slot in dict(AGENT_SLOT, **BUNDLED).items():
-        if slot == "frontier":
-            continue
-        family = "anthropic" if mode == "anthropic" else "any"
-        model, effort = SLOTS[slot][family]
-        selector = ("anthropic/" + model) if family == "anthropic" else ("openrouter/" + model)
-        out[agent] = selector + (":" + effort if effort else "")
-    return out
+    family = "anthropic" if mode == "anthropic" else "any"
+    return {agent: _selector(family, slot)
+            for agent, slot in dict(AGENT_SLOT, **BUNDLED).items()}
+
+
+def omp_role_overrides(mode):
+    """{"modelRoles.<role>": selector} for `OMP_ROLES`, or {} when the mode
+    cannot run here.
+
+    Plan mode is the one surface where a session designs on its own tokens, so
+    it is pinned to the frontier row of the mode's family rather than left on
+    whatever model the session happened to start with; `slow` follows it. The
+    same OpenRouter gate as `omp_overrides` applies, and `off` resolves to {} -
+    it writes nothing."""
+    if mode not in ("anthropic", "any"):
+        return {}
+    if mode == "any" and not openrouter_ready():
+        return {}
+    family = "anthropic" if mode == "anthropic" else "any"
+    return {"modelRoles." + role: _selector(family, "frontier")
+            for role in OMP_ROLES}
 
 
 def _omp(*args):
@@ -231,33 +291,72 @@ def _ours_by_shape(key, value):
     `omp_written`: only one of our own selectors is ever taken over, so a value
     the user picked by hand is never claimed - unless it is a byte-identical copy
     of the selector this table generates for that key in some mode, which is
-    indistinguishable from our own write and is treated as ours."""
+    indistinguishable from our own write and is treated as ours. A role key is
+    adopted the same way, from `omp_role_overrides`."""
     if not isinstance(value, str):
         return False
-    return any(omp_overrides(mode).get(key) == value for mode in ("anthropic", "any"))
+    return any(omp_overrides(mode).get(key) == value or
+               omp_role_overrides(mode).get(key) == value
+               for mode in ("anthropic", "any"))
+
+
+def _reconcile(current, written, want):
+    """(new, owns) for one flat {key: value} record, keys tezgah's own and the
+    user's alike: `current` what omp holds, `written` the last recorded write,
+    `want` what this mode asks for.
+
+    An entry is tezgah's to change only while it is absent or still carries what
+    `omp_written` recorded (or, on a machine written before that record existed,
+    one of the table's own selectors - `_ours_by_shape`). A value the user
+    changed by hand is left alone, an entry tezgah never wrote is never dropped,
+    and ours that is no longer wanted goes."""
+    new, owns = {}, {}
+    for key in sorted(set(current) | set(written) | set(want)):
+        cur = current.get(key)
+        mine = (key in written and cur == written[key]) or (
+            key not in written and _ours_by_shape(key, cur))
+        if key in want:
+            if cur is None or mine:
+                new[key], owns[key] = want[key], want[key]
+            else:
+                new[key] = cur  # the user's own choice for this key wins
+        elif mine:
+            # ours, and no longer wanted: drop it. `cur != written.get(key)` is
+            # only a user change when tezgah actually recorded a value - an
+            # adopted entry has no record, so comparing against None would keep
+            # every pre-record install's overrides forever.
+            if key in written and cur is not None and cur != written[key]:
+                new[key] = cur  # the user changed ours: keep it
+        elif cur is not None:
+            new[key] = cur
+    return new, owns
 
 
 def apply_omp(remove=False):
     """Write (or, with `remove`, drop) this table's entries of omp's
-    `task.agentModelOverrides`, leaving every other entry as it is.
+    `task.agentModelOverrides` and its `modelRoles.plan` and `.slow`, leaving
+    everything else as it is.
 
     Ownership, because `config set` replaces the whole record: an entry is
     tezgah's to change only while it is absent or still carries what the last
     write recorded in `omp_written` (or, on a machine written before that
-    record existed, one of the table's own selectors - `_ours_by_shape`). A
+    record existed, one of the table's own selectors - `_ours_by_shape`); roles
+    are recorded under their flat `modelRoles.<role>` key in the same record. A
     value the user changed by hand is left alone, and an entry tezgah never
-    wrote is never dropped. omp's bundled agents are covered too (see BUNDLED).
+    wrote is never dropped. omp's bundled agents are covered too (see BUNDLED),
+    and the roles are the same rule applied to `modelRoles`.
 
     `any` needs a resolvable OpenRouter credential: without one the overrides
     could not run, so nothing is written and the status says so. Returns a
     one-line status, or None when omp is not answering."""
     current = omp_get("task.agentModelOverrides")
-    if current is None:
+    roles = omp_get("modelRoles")
+    if current is None or roles is None:
         return None
     written = overlay().get("omp_written") or {}
-    mode, want = None, {}
+    mode, want, want_roles = None, {}, {}
     if not remove:
-        mode = omp_mode((omp_get("modelRoles") or {}).get("default"))
+        mode = omp_mode(roles.get("default"))
         if mode == "off":
             # the user asked for no routing: drop every entry this table wrote
             # and write nothing. A provider the selectors need can run out of
@@ -269,30 +368,26 @@ def apply_omp(remove=False):
                     "(or `tezgah-route --mode anthropic`)" % SKIP_MARK)
         else:
             want = omp_overrides(mode)
-    new, owns = {}, {}
-    for key in sorted(set(current) | set(written) | set(want)):
-        cur = current.get(key)
-        mine = (key in written and cur == written[key]) or (
-            key not in written and _ours_by_shape(key, cur))
-        if key in want:
-            if cur is None or mine:
-                new[key], owns[key] = want[key], want[key]
-            else:
-                new[key] = cur  # the user's own choice for this agent wins
-        elif mine:
-            # ours, and no longer wanted: drop it. `cur != written.get(key)` is
-            # only a user change when tezgah actually recorded a value - an
-            # adopted entry has no record, so comparing against None would keep
-            # every pre-record install's overrides forever.
-            if key in written and cur is not None and cur != written[key]:
-                new[key] = cur  # the user changed ours: keep it
-        elif cur is not None:
-            new[key] = cur
-    if owns == written and new == current:
+            want_roles = omp_role_overrides(mode)
+    flat_roles = {"modelRoles." + role: roles.get(role) for role in OMP_ROLES}
+    new, owns = _reconcile(current, written, want)
+    new_roles, owns_roles = _reconcile(flat_roles, written, want_roles)
+    owns.update(owns_roles)
+    merged = dict(roles)  # every other role the user set stays as it is
+    for key in flat_roles:  # a role this table drops leaves no key behind
+        role = key.split(".", 1)[1]
+        value = new_roles.get(key)
+        if value is None:
+            merged.pop(role, None)
+        else:
+            merged[role] = value
+    if owns == written and new == current and merged == roles:
         return "omp model overrides current (%s)" % (mode or "none")
     # the write comes first: recording what tezgah owns before the record it
     # describes exists would leave a failed write claiming entries it never wrote
-    if _omp_set("task.agentModelOverrides", new) is None:
+    if new != current and _omp_set("task.agentModelOverrides", new) is None:
+        return "omp model overrides NOT written"
+    if merged != roles and _omp_set("modelRoles", merged) is None:
         return "omp model overrides NOT written"
     data = overlay()
     data["omp_written"] = owns

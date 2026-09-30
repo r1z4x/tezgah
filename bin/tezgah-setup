@@ -3668,7 +3668,7 @@ def host_checks_omp():
         # alone serves the seam, an omp login-store record alone serves omp.
         ("judgement seam key resolvable (env or key file)",
          tp.have_judge_key()),
-        ("status line answers", omp_hook_answers()), ("tier models in task.agentModelOverrides", tier_models_current()),
+        ("status line answers", omp_hook_answers()), ("tier models in task.agentModelOverrides and modelRoles.plan/slow", tier_models_current()),
     ]
     # omp reads orx's shim from its native `~/.agents/skills` root (ORX_AGENTS);
     # the row is asked only where orx is selected, as the install is
@@ -4542,11 +4542,18 @@ def unregister_omp(hook_dst):
 
 
 def tier_models_current():
-    """Every tezgah-* override omp should carry is there, with the table's model."""
+    """Every tezgah-* override omp should carry is there, with the table's model,
+    and so is every role the table pins: `modelRoles.plan` and `.slow` hold the
+    frontier row, so a wrong or missing plan role is a missing row rather than a
+    pass."""
     tm = tezgah_agents.tm
     current = tm.omp_get("task.agentModelOverrides") or {}
-    want = tm.omp_overrides(tm.omp_mode((tm.omp_get("modelRoles") or {}).get("default")))
-    return not want or all(current.get(k) == v for k, v in want.items())
+    roles = tm.omp_get("modelRoles") or {}
+    mode = tm.omp_mode(roles.get("default"))
+    want = tm.omp_overrides(mode)
+    want_roles = tm.omp_role_overrides(mode)
+    return (not want or all(current.get(k) == v for k, v in want.items())) and \
+        all(roles.get(k.split(".", 1)[-1]) == v for k, v in want_roles.items())
 
 
 if __name__ == "__main__":
