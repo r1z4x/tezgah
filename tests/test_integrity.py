@@ -2887,29 +2887,33 @@ class PostToolUse(TempHome):
         self.write_row("run", "git commit -m 'judge: name the off button'")
         self.assertEqual(self.counters()["judge"], 0)
 
-    def test_the_drift_notice_is_state_and_not_evidence(self):
-        # The re-statement rides the result, and the row it leaves is the
-        # once-per-turn state alone: it is not a step of work (a step would help
-        # a "done" claim look backed) and it is no longer a refusal - the fold
-        # that reads denials by rule is what the failure-shape report counts, and
-        # a notice is not a denial.
+    def test_the_drift_refusal_is_a_denial_and_not_evidence(self):
+        # The re-statement is a refusal (plan 004's pre-registered revert), so
+        # the fold that reads denials by rule counts it under `drift`, and the
+        # marker row beside it is the once-per-turn state alone: neither is a
+        # step of work (a step would help a "done" claim look backed). The
+        # result channel carries no second copy of it.
         for i in range(30):
             self.write_row("run", "step %d" % i)
+        edit = {"file_path": "a.py", "old_string": "x", "new_string": "y"}
+        out = self.run_hook("PostToolUse", "Edit", edit)
+        self.assertNotIn("Long turn", json.dumps(out or {}))
         before = self.counters()
-        out = self.run_hook("PostToolUse", "Edit",
-                            {"file_path": "a.py", "old_string": "x",
-                             "new_string": "y"})
+        out, proc = run_json([support.PRETOOLUSE],
+                             {"hook_event_name": "PreToolUse", "cwd": self.repo,
+                              "session_id": self.session, "tool_name": "Edit",
+                              "tool_input": edit}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Long turn",
-                      out["hookSpecificOutput"]["additionalContext"])
+                      out["hookSpecificOutput"]["permissionDecisionReason"])
         after = self.counters()
         marker = [r for r in self.rows() if r["kind"] == "drift"]
         self.assertEqual(len(marker), 1, marker)
-        self.assertEqual(marker[0]["detail"], "30")
+        self.assertEqual(marker[0]["detail"], "31")
         self.assertEqual(marker[0]["workspace"], self.roots)
         self.assertEqual(after["kinds"].get("drift"), 1)
-        self.assertNotIn("drift", after["denies"])
-        # the notice added no step: the only new step is the edit's own row
-        self.assertEqual(after["steps"] - before["steps"], 1, after)
+        self.assertEqual(after["denies"].get("drift"), 1, after["denies"])
+        self.assertEqual(after["steps"], before["steps"], after)
 
 
 class CountersAll(TempHome):

@@ -911,103 +911,86 @@ class Gate(TempHome):
         return self.decide("Edit", {"file_path": path, "old_string": "x",
                                     "new_string": "y"}, session_id=session)
 
-    def notice(self, session, tool="Edit", inp=None, payload=None):
-        """The line one result carries, through the writer Claude and dsh run
-        (hooks/projects-posttooluse.py) - the channel the label and the notices
-        ride, which is where the re-statement has to arrive."""
-        data = {"hook_event_name": "PostToolUse", "tool_name": tool,
-                "tool_input": inp if inp is not None else {
-                    "file_path": "a.py", "old_string": "x", "new_string": "y"},
-                "tool_response": "ok", "cwd": self.repo, "session_id": session}
-        data.update(payload or {})
-        out, proc = run_json([support.POSTTOOLUSE], data, env=self.envv)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        return (out or {}).get("hookSpecificOutput", {}).get(
-            "additionalContext", "")
-
     def kinds(self, session):
         return [r.get("kind") for r in self.rows(session)]
 
-    def test_a_long_turn_is_not_refused(self):
-        # The notice is about the turn, not about the call it lands on. As a
-        # refusal it spent that call: 128 of the corpus's 225 fires were
-        # re-issued identically and 97 were never composed at all.
+    def test_a_long_turn_restates_the_constraints_before_a_write(self):
+        # Plan 004's pre-registered revert: the result-channel notice lost the
+        # counter-metric, so the re-statement is a refusal again.
         self.seed_turn("long", self.LONG)
-        self.assertIsNone(self.write_call("long"))
-        # ... and the identical call passes again, with no deny row for either
-        self.assertIsNone(self.write_call("long"))
-        self.assertEqual([r for r in self.rows("long") if r["kind"] == "deny"],
-                         [])
-
-    def test_the_restatement_rides_the_result(self):
-        self.seed_turn("long", self.LONG)
-        text = self.notice("long")
-        self.assertIn("Long turn", text)
-        self.assertIn("still in force", text)
+        reason = self.write_call("long")
+        self.assertIsNotNone(reason)
+        self.assertIn("Long turn", reason)
+        self.assertIn("still in force", reason)
+        self.assertIn("re-issue this call unchanged", reason)
         # the text is tezgah_policy's own, not a second copy of the contract
-        self.assertIn("Ponytail (minimal code)", text)
-        self.assertIn("Deliver the whole ask", text)
+        self.assertIn("Ponytail (minimal code)", reason)
+        self.assertIn("Deliver the whole ask", reason)
+        # counted as a refusal of this rule, on the call it refused
+        denies = [r for r in self.rows("long") if r["kind"] == "deny"]
+        self.assertEqual(len(denies), 1, denies)
+        self.assertTrue(denies[0]["detail"].startswith("drift: "), denies)
 
-    def test_the_notice_is_once_per_turn(self):
-        # a re-statement on every call is noise the agent learns to skip
+    def test_the_restatement_is_once_per_turn(self):
+        # a re-statement on every call is noise the agent learns to skip, and the
+        # marker is written before the deny, so the identical call passes
         self.seed_turn("long", self.LONG)
-        self.assertIn("Long turn", self.notice("long"))
-        self.assertEqual(self.notice("long", inp={
-            "file_path": "b.py", "old_string": "x", "new_string": "y"}), "")
-        # the marker is this rule's own state, and it keeps the shape the readers
-        # fold: one row per turn, the turn's step count as its detail, and the
-        # workspace it fired in
+        self.assertIsNotNone(self.write_call("long"))
+        self.assertIsNone(self.write_call("long"))
+        self.assertIsNone(self.write_call("long", path="b.py"))
+        # the marker keeps the shape the readers fold: one row per turn, the
+        # turn's step count as its detail, and the workspace it fired in
         drift = [r for r in self.rows("long") if r["kind"] == "drift"]
         self.assertEqual(len(drift), 1, drift)
         self.assertEqual(drift[0]["detail"], str(self.LONG))
         self.assertEqual(drift[0]["workspace"], self.roots)
 
-    def test_a_short_turn_carries_nothing(self):
+    def test_a_short_turn_is_left_alone(self):
         self.seed_turn("short", 3)
-        self.assertEqual(self.notice("short"), "")
+        self.assertIsNone(self.write_call("short"))
         self.assertNotIn("drift", self.kinds("short"))
 
-    def test_a_read_earns_nothing(self):
+    def test_a_read_does_not_earn_the_restatement(self):
         self.seed_turn("long", self.LONG)
-        self.assertEqual(self.notice("long", tool="Grep",
-                                     inp={"pattern": "two words"}), "")
+        self.assertIsNone(self.decide("Grep", {"pattern": "two words"},
+                                      session_id="long"))
         self.assertNotIn("drift", self.kinds("long"))
 
-    def test_a_git_write_result_carries_it(self):
+    def test_a_git_write_is_effectful_enough(self):
         self.seed_turn("long", self.LONG)
-        self.assertIn("Long turn", self.notice(
-            "long", tool="Bash", inp={"command": 'git commit -m "fix: typo"'}))
+        reason = self.decide("Bash", {"command": 'git commit -m "fix: typo"'},
+                             session_id="long")
+        self.assertIsNotNone(reason)
+        self.assertIn("Long turn", reason)
 
     def test_the_next_turn_gets_its_own_restatement(self):
         # the mark is per turn: the prompt reminder decays the same way in the
-        # turn after it, so the notice has to be able to fire again
+        # turn after it, so the refusal has to be able to fire again
         self.seed_turn("long", self.LONG)
-        self.assertIn("Long turn", self.notice("long"))
+        self.assertIsNotNone(self.write_call("long"))
         self.seed_turn("long", self.LONG)
-        self.assertIn("Long turn", self.notice("long"))
+        self.assertIsNotNone(self.write_call("long", path="b.py"))
 
-    def test_a_turn_past_the_read_window_still_gets_one_notice(self):
+    def test_a_turn_past_the_read_window_still_gets_one_restatement(self):
         # The count reads a bounded window (`DRIFT_TAIL` rows), and a turn
-        # longer than it puts the row that makes the notice once-per-turn - and
+        # longer than it puts the row that makes the refusal once-per-turn - and
         # the turn's own marker beside it - outside what the tail sees. The
         # guard has to survive that: measured on ledger d13df660a2bc.jsonl, a
         # 254-row turn carried two drift markers, at rows 34 and 249.
         self.seed_turn("grew", self.LONG)
-        self.assertIn("Long turn", self.notice("grew"))
+        self.assertIsNotNone(self.write_call("grew"))
         path = self.ledger("grew", kind="run")  # the same turn, one more step
         with open(path, "a") as fh:
             for i in range(tg.DRIFT_TAIL):
                 fh.write(json.dumps({"kind": "run", "ts": int(time.time()),
                                      "detail": "more %d" % i}) + "\n")
         # the turn's own marker and the drift row are both older than the window
-        self.assertEqual(self.notice("grew", inp={
-            "file_path": "b.py", "old_string": "x", "new_string": "y"}), "")
+        self.assertIsNone(self.write_call("grew", path="b.py"))
         self.assertEqual([r["kind"] for r in self.rows("grew")
                           if r["kind"] == "drift"], ["drift"])
-        # ... and the next turn is a new turn, with its own one notice
+        # ... and the next turn is a new turn, with its own one refusal
         self.seed_turn("grew", self.LONG)
-        self.assertIn("Long turn", self.notice("grew", inp={
-            "file_path": "c.py", "old_string": "x", "new_string": "y"}))
+        self.assertIsNotNone(self.write_call("grew", path="c.py"))
         self.assertEqual([r["kind"] for r in self.rows("grew")
                           if r["kind"] == "drift"], ["drift", "drift"])
 
@@ -1016,63 +999,87 @@ class Gate(TempHome):
         # own switch removes it
         self.touch(os.path.join(self.home, ".config", "tezgah", "reminder-off"))
         self.seed_turn("long", self.LONG)
-        self.assertEqual(self.notice("long"), "")
+        self.assertIsNone(self.write_call("long"))
         self.assertNotIn("drift", self.kinds("long"))
 
-    def test_every_host_with_a_result_channel_carries_the_notice(self):
-        # One case per host wired: the re-statement reuses each host's existing
-        # result/notice path - the same line the untrusted label rides - instead
-        # of a second channel or a new hook event. claude and dsh share one file
-        # (hosts/dsh/hooks.json runs hooks/projects-posttooluse.py), and dsh
-        # declares its outcome as unobservable, which is the one difference
-        # between the two payloads.
-        claude = {"hook_event_name": "PostToolUse", "tool_name": "Edit",
-                  "tool_input": {"file_path": "a.py", "old_string": "x",
-                                 "new_string": "y"},
-                  "tool_response": "ok"}
+    def test_every_host_refuses_and_no_result_carries_it(self):
+        # One case per host wired: the refusal is the re-statement's one
+        # delivery, so a result arriving first in a long turn carries nothing and
+        # spends nothing, the next effectful call is refused with the core's
+        # text, and its identical re-issue passes. claude and dsh share one pair
+        # of files (hosts/dsh/hooks.json runs hooks/projects-*.py); dsh declares
+        # its outcome as unobservable, which is the one difference between them.
+        # Each host writes its own file, or the race rule answers first.
+        def claude(event, name, **extra):
+            return dict(extra, hook_event_name=event, tool_name="Edit",
+                        tool_input={"file_path": name + ".py",
+                                    "old_string": "x", "new_string": "y"})
+
+        def context(out):
+            return out.get("hookSpecificOutput", {}).get("additionalContext", "")
+
+        def claude_deny(out):
+            return out.get("hookSpecificOutput", {}).get(
+                "permissionDecisionReason", "")
+
+        def cursor_deny(out):
+            return (out.get("agent_message", "")
+                    if out.get("permission") == "deny" else "")
+
+        def omp(event, name, **extra):
+            return dict(extra, event=event, tool="edit",
+                        input={"file_path": name + ".py", "old_string": "x",
+                               "new_string": "y"})
+
+        def cursor(event, name):
+            return {"hook_event_name": event, "tool_name": "Write",
+                    "tool_input": {"file_path": name + ".py", "content": "x"}}
+
+        codex_patch = {"tool_name": "apply_patch", "tool_input": {"patch": "..."}}
+        dsh = self.env(extra={"TEZGAH_CALL_OUTCOME": "none"})
         hosts = (
-            ("claude", support.POSTTOOLUSE, claude, self.envv,
-             lambda out: out.get("hookSpecificOutput", {}).get(
-                 "additionalContext", "")),
-            ("dsh", support.POSTTOOLUSE, claude,
-             self.env(extra={"TEZGAH_CALL_OUTCOME": "none"}),
-             lambda out: out.get("hookSpecificOutput", {}).get(
-                 "additionalContext", "")),
-            ("omp", support.OMP_HOOK,
-             {"event": "post_tool_use", "tool": "edit",
-              "input": {"file_path": "a.py", "old_string": "x",
-                        "new_string": "y"},
-              "failed": False}, self.envv,
-             lambda out: out.get("label", "")),
+            ("claude", support.PRETOOLUSE, claude("PreToolUse", "claude"),
+             claude_deny, support.POSTTOOLUSE,
+             claude("PostToolUse", "claude", tool_response="ok"), context,
+             self.envv),
+            ("dsh", support.PRETOOLUSE, claude("PreToolUse", "dsh"),
+             claude_deny, support.POSTTOOLUSE,
+             claude("PostToolUse", "dsh", tool_response="ok"), context, dsh),
+            ("omp", support.OMP_HOOK, omp("pre_tool_use", "omp"),
+             lambda out: out.get("deny", ""), support.OMP_HOOK,
+             omp("post_tool_use", "omp", failed=False),
+             lambda out: out.get("label", ""), self.envv),
             ("codex", support.CODEX_HOOK,
-             {"hook_event_name": "PostToolUse", "tool_name": "apply_patch",
-              "tool_input": {"patch": "..."},
-              "tool_response": {"exit_code": 0}}, self.envv,
-             lambda out: out.get("hookSpecificOutput", {}).get(
-                 "additionalContext", "")),
-            ("cursor", support.CURSOR_HOOK,
-             {"hook_event_name": "postToolUse", "tool_name": "Write",
-              "tool_input": {"file_path": "a.py", "content": "x"}}, self.envv,
-             lambda out: out.get("additional_context", "")),
+             dict(codex_patch, hook_event_name="PreToolUse"), claude_deny,
+             support.CODEX_HOOK,
+             dict(codex_patch, hook_event_name="PostToolUse",
+                  tool_response={"exit_code": 0}), context, self.envv),
+            ("cursor", support.CURSOR_HOOK, cursor("preToolUse", "cursor"),
+             cursor_deny, support.CURSOR_HOOK, cursor("postToolUse", "cursor"),
+             lambda out: out.get("additional_context", ""), self.envv),
         )
-        for name, hook, payload, env, line in hosts:
+        for name, pre, pre_in, refused, post, post_in, line, env in hosts:
             with self.subTest(host=name):
                 session = "host-" + name
                 self.seed_turn(session, self.LONG)
-                sent = dict(payload, cwd=self.repo, session_id=session,
-                            conversation_id=session)
-                out, proc = run_json([hook], sent, env=env)
-                self.assertEqual(proc.returncode, 0, proc.stderr)
-                text = line(out or {})
-                self.assertIn("Long turn", text)
-                self.assertIn("Ponytail (minimal code)", text)
-                # once per turn, on the state row this rule owns
+                ids = dict(cwd=self.repo, session_id=session,
+                           conversation_id=session)
+
+                def run(hook, payload):
+                    out, proc = run_json([hook], dict(payload, **ids), env=env)
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    return out or {}
+
+                self.assertNotIn("Long turn", line(run(post, post_in)))
+                self.assertNotIn("drift", self.kinds(session))
+                reason = refused(run(pre, pre_in))
+                self.assertIn("Long turn", reason)
+                self.assertIn("Ponytail (minimal code)", reason)
                 self.assertEqual(
                     [r["kind"] for r in self.rows(session)
                      if r["kind"] == "drift"], ["drift"])
-                again, proc = run_json([hook], sent, env=env)
-                self.assertEqual(proc.returncode, 0, proc.stderr)
-                self.assertNotIn("Long turn", line(again or {}))
+                self.assertEqual(refused(run(pre, pre_in)), "")
+                self.assertNotIn("Long turn", line(run(post, post_in)))
 
     # ---- ledger rows the gate writes ---------------------------------------
     def test_a_denial_records_the_call_identity_and_the_workspace(self):

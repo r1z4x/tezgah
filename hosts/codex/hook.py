@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(ROOT, "hooks"))
 from tezgah_context import (  # noqa: E402
     TOOL_USE_MEASURES, command_text, context_for, health_lines, record,
     shell_kind)
-from tezgah_gate import decision, drift_reason  # noqa: E402
+from tezgah_gate import decision  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
     SUBAGENT_CHANNEL, changed_files_notice, note_tool, report_bytes,
@@ -163,12 +163,6 @@ def main():
     if event == "PostToolUse":
         tool = gate_name(payload.get("tool_name", ""))
         inp = payload.get("tool_input") or {}
-        # The long turn's re-statement is produced before this call's own row
-        # lands, so its step count is the turn's work up to this call (see
-        # tezgah_gate.drift_reason); it rides the same `additionalContext` the
-        # label does, below.
-        drift = (safe(session_id, drift_reason, tool, inp, cwd, session_id)
-                 if root_for(cwd) else None)
         safe(session_id, record, session_id, classify(payload))
         # read before this call's row lands: `source` on the row is the taint's
         # own mark, and `marks` answers about the turn the call arrived in. Like
@@ -178,7 +172,6 @@ def main():
                     payload.get("tool_response"))
                if root_for(cwd) else (None, None))
         source, notice = got or (None, None)
-        notice = "\n".join(t for t in (notice, drift) if t)
         # the same name the PreToolUse gate saw: one call has to hash to one id
         result = payload.get("tool_response")
         safe(session_id, note_tool, session_id, tool, inp,
