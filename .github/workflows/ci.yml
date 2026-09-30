@@ -35,6 +35,8 @@ jobs:
         run: python3 bin/tezgah-docs --citations
       - name: Every open plan names the command that proves it
         run: python3 skills/plan-add/render_table.py --acceptance --strict
+      - name: The plan and decision rules, in a real project
+        run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py
 
   apps-e2e:
     permissions:

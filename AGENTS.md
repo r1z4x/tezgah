@@ -21,6 +21,7 @@ ruff check .                                              # lint; config in pypr
 python3 bin/tezgah-docs --citations                       # every citation still shows what it names
 python3 skills/plan-add/render_table.py --acceptance --strict  # an open plan names how it is proven
 python3 tests/e2e_packaged_install.py                     # install from the built artifact, not the checkout
+TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py        # the plan and decision rules, in a real project
 ```
 
 - `ruff` is installed as a uv tool (`uv tool install ruff`); without it, run the
@@ -39,6 +40,20 @@ python3 tests/e2e_packaged_install.py                     # install from the bui
   when `sh`, `tar` or `python3` is missing, so read its output rather than its
   exit code; CI sets `TEZGAH_E2E_STRICT=1`, which turns that skip into a failure
   instead, because a runner that has all three has no reason to skip.
+
+### Plan and decision rules, end to end
+
+`TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py` builds a real `git`
+repository under tempfile (HOME and `TEZGAH_ROOTS` redirected into it) and runs
+the five rules the plan and decision records added, through the CLIs a person
+runs: a plan whose Acceptance names no command cannot enter `implementation`
+(and `render_table --acceptance --strict` exits 1 on the same item), one
+command-bearing item moves the phase and writes `checkpoint:`, a dirty tree
+records `pending <sha>` and the commit clears it, an unanswered `spike:` blocks
+the move, and an ADR with no `status:` is refused while one with a status is
+printed. No model call, no network. It is in the CI `test` job; it prints
+`SKIP: ...` and exits 0 when `git` is missing, and 1 under
+`TEZGAH_E2E_STRICT=1`, the same contract as the artifact smoke.
 
 ### App-analysis MCP, end to end
 

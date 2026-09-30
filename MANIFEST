@@ -591,6 +591,7 @@ tests/e2e_docker_cycle.py
 tests/e2e_dsh_statusline.py
 tests/e2e_omp_statusline.py
 tests/e2e_packaged_install.py
+tests/e2e_plan_flow.py
 tests/e2e_tezgah_mcp.py
 tests/routing-fixtures.md
 tests/support.py

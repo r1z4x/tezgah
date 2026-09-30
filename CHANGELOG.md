@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A plan-and-decision smoke a person can run, and CI now runs.**
+  `tests/e2e_plan_flow.py` builds a real git repository under tempfile and runs
+  the five rules the plan and decision records added, through the CLIs a person
+  runs - the Acceptance refusal and the report that counts the same item, the
+  phase move that writes `checkpoint:`, a dirty tree's `pending <sha>` that the
+  named commit clears, an unanswered spike, and an ADR with no `status:` - so a
+  regression in any of them fails the `test` job on 3.10 and 3.12 instead of
+  waiting for a session to meet it.
+
 ## [0.25.0] - 2026-09-30
 
 ### Added
