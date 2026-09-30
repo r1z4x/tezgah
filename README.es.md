@@ -122,7 +122,8 @@ mismo texto cinco veces.
   mantiene al día precios e identificadores ([docs/models.md](docs/models.md)).
 - **Subagentes por repositorio.** Al inicio de la sesión, el repositorio contenedor obtiene un pequeño conjunto de
   agentes con capacidades restringidas (`tezgah-explorer`, `tezgah-reviewer`,
-  `tezgah-researcher`, `tezgah-verifier`) más un `tezgah-orchestrator`, renderizados
+  `tezgah-researcher`, `tezgah-verifier`), tres trabajadores por nivel siempre generados
+  (`tezgah-cheap`, `tezgah-standard`, `tezgah-frontier`) más un `tezgah-orchestrator`, renderizados
   en la superficie nativa de cada host instalado (Claude/Cursor `.claude/agents/`,
   opencode `.opencode/agents/` más una inyección de configuración en vivo, Codex
   `.codex/agents/`) e ignorados con un bloque `.gitignore` administrado. En Claude, la

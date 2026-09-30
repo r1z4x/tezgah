@@ -18,6 +18,7 @@ A worker that answers `ESCALATE:` is restarted on tezgah-frontier with the same
 brief; its trajectory is not continued. Exit codes: 0 routed / current, 1 the
 table is stale or flagged (`--check`) or the refresh failed, 2 misuse.
 """
+import argparse
 import json
 import os
 import sys
@@ -30,59 +31,59 @@ import tezgah_models as tm  # noqa: E402
 
 
 def main(argv):
-    args = argv[1:]
-    if not args or args[0] in ("-h", "--help"):
-        print(__doc__.strip())
-        return 0 if args else 2
-    if args[0] == "--check":
+    parser = argparse.ArgumentParser(
+        prog="tezgah-route",
+        description="Name the tier worker a delegated task goes to, and keep the model table.",
+        epilog="A worker that answers `ESCALATE:` is restarted on tezgah-frontier with "
+               "the same brief; its trajectory is not continued.")
+    parser.add_argument("brief", nargs="*", help="the delegation brief, in English")
+    parser.add_argument("--phase", choices=sorted(tm.PHASE_TIER),
+                        help="the static table's row when no judgement is available")
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    parser.add_argument("--check", action="store_true",
+                        help="the table's age and the flags the last refresh left")
+    parser.add_argument("--refresh", action="store_true",
+                        help="re-read prices and ids, resolve opencode selectors")
+    parser.add_argument("--mode", choices=tm.MODES, help="omp's family, then re-apply")
+    args = parser.parse_args(argv[1:])
+    brief = " ".join(args.brief).strip()
+    if args.check:
         lines, stale = tm.check()
         print("\n".join(lines))
         return 1 if stale else 0
-    if args[0] == "--refresh":
+    if args.refresh:
         lines, ok = tm.refresh()
         print("\n".join(lines))
         status = tm.apply_omp()
         if status:
             print(status)
         return 0 if ok else 1
-    if args[0] == "--mode":
-        if len(args) != 2 or args[1] not in tm.MODES:
-            print("usage: tezgah-route --mode %s" % "|".join(tm.MODES), file=sys.stderr)
-            return 2
+    if args.mode:
         data = tm.overlay()
         data.pop("mode", None)
-        if args[1] != "auto":
-            data["mode"] = args[1]
+        if args.mode != "auto":
+            data["mode"] = args.mode
         if not tm.save_overlay(data):
             print("could not write %s" % tm.OVERLAY, file=sys.stderr)
             return 1
-        print("omp mode: %s" % args[1])
+        print("omp mode: %s" % args.mode)
         print(tm.apply_omp() or "omp not answering; the mode applies at the next setup")
         return 0
-    brief, phase, as_json = args[0], None, False
-    rest = args[1:]
-    while rest:
-        if rest[0] == "--phase" and len(rest) > 1:
-            phase, rest = rest[1], rest[2:]
-        elif rest[0] == "--json":
-            as_json, rest = True, rest[1:]
-        else:
-            print("unknown argument %r" % rest[0], file=sys.stderr)
-            return 2
-    if phase is not None and phase not in tm.PHASE_TIER:
-        print("--phase is one of %s" % ", ".join(sorted(tm.PHASE_TIER)), file=sys.stderr)
+    if not brief:
+        print("usage: tezgah-route \"<brief>\" [--phase P] [--json] | --check | --refresh | --mode M",
+              file=sys.stderr)
         return 2
     ask = tezgah_judge.ask if tezgah_judge.available() else None
-    out = tm.route(brief, phase, ask)
+    out = tm.route(brief, args.phase, ask)
     judged = out.pop("judged")
     if judged:
         usage = judged.get("usage") or {}
-        ti.note(os.environ.get("TEZGAH_SESSION"), "judge",
-                "tezgah-route %s tier=%s in=%s out=%s ms=%s"
-                % (judged.get("model", tezgah_judge.MODEL), out["tier"],
-                   usage.get("input_tokens"), usage.get("output_tokens"),
-                   judged.get("latency_ms")))
-    if as_json:
+        detail = "tezgah-route {} tier={} in={} out={} ms={}".format(
+            judged.get("model", tezgah_judge.MODEL), out["tier"],
+            usage.get("input_tokens"), usage.get("output_tokens"),
+            judged.get("latency_ms"))
+        ti.note(os.environ.get("TEZGAH_SESSION"), "judge", detail)
+    if args.as_json:
         print(json.dumps(out))
     else:
         print("agent: %s\ntier: %s\nwhy: %s" % (out["agent"], out["tier"], out["why"]))

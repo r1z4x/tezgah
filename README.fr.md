@@ -123,7 +123,8 @@ copie en cinq exemplaires du même texte.
   identifiants à jour ([docs/models.md](docs/models.md)).
 - **Sous-agents par dépôt.** Au démarrage de la session, le dépôt englobant reçoit un petit ensemble d'agents
   à capacités restreintes (`tezgah-explorer`, `tezgah-reviewer`,
-  `tezgah-researcher`, `tezgah-verifier`) plus un `tezgah-orchestrator`, rendus
+  `tezgah-researcher`, `tezgah-verifier`), trois travailleurs par niveau toujours générés
+  (`tezgah-cheap`, `tezgah-standard`, `tezgah-frontier`) plus un `tezgah-orchestrator`, rendus
   dans la surface native de chaque hôte installé (`.claude/agents/` pour Claude/Cursor,
   `.opencode/agents/` plus une injection de configuration en direct pour opencode, `.codex/agents/` pour Codex)
   et ignorés avec un bloc `.gitignore` géré. Sur Claude, la liste d'autorisation

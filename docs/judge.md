@@ -43,9 +43,15 @@ the reader's query. When no TypeSafe key resolves, the same state goes to
 `openrouter.ai` instead (`OPENROUTER_URL`, `hooks/tezgah_judge.py:57`), which is
 the price of a machine that has no Jev credential still having a judge at all:
 the destination changes, not what is sent. Nothing else goes: no session id, no
-workspace path, no environment, and the state is not redacted because sending it
-is the point. That is why both shell callers are explicit and the third is
-opt-in, and why the switches below are the off buttons.
+workspace path, no environment. The state is not rewritten because sending it is
+the point - with one exception: `bin/tezgah-route` sends its brief through the
+ledger's own redactor (`redact`, `hooks/tezgah_integrity.py:524`), because a
+delegation brief can quote an error message or a token, and a brief matching the
+router's override pattern (stored data, credentials, security) is never sent at
+all. Three of the callers are explicit - a person runs the tool - and the
+fourth, `bin/tezgah-route`, is what the ORCHESTRATE paragraph tells the router to
+run before every delegation, which is why its redaction is not optional. The
+switches below are the off buttons.
 
 ## The four callers
 
@@ -54,7 +60,7 @@ opt-in, and why the switches below are the off buttons.
 | `bin/tezgah-triage` | the analyze-app snapshot triage. `--select FILE --task T` asks one question per repeating unit of the screen in one request and prints the line ids under the selected units with their refs (`select_request`, `bin/tezgah-triage:230-248`; the units are the tree's own repeating pieces, `units`, `bin/tezgah-triage:204-229`). `--states` asks one judgement per state over a component's subtree (`states`, `bin/tezgah-triage:308-431`) | exit 1 with one reason (`no_judgement`, `bin/tezgah-triage:107-113`), and the loop reads the tree directly |
 | `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:195-228`; the question wording is `ASK`, `bin/tezgah-docs:162-169`) | returns `None`; the command prints what it always printed and exits 1 |
 | `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py:144-176`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py:81-109`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py:46-48`) and an 8 s timeout (`ASK_TIMEOUT`, `hooks/tezgah_skill_pick.py:49-54`) | returns `""`; the turn loses the hint |
-| `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:291-309`; `TIER_QUESTION`, `hooks/tezgah_models.py:269-288`) - see [models](models.md) | the static phase table, else the middle tier |
+| `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:399-423`; `TIER_QUESTION`, `hooks/tezgah_models.py:377-398`) - see [models](models.md) | the static phase table, else the middle tier |
 
 The third caller is the one no shell row can see: it runs on the prompt path,
 caches one answer per `(session, prompt)` (`_remember`,

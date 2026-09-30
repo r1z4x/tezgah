@@ -25,7 +25,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   table with no key - and `--refresh` re-reads OpenRouter prices and ids and flags
   what moved; `--check` exits 1 when the snapshot is older than 60 days. The
   ORCHESTRATE paragraph tells the router to use it and to restart an `ESCALATE`
-  on the frontier worker instead of continuing it. See `docs/models.md`.
+  on the frontier worker instead of continuing it. On omp the same record routes the
+  bundled agents (`scout`, `sonic`, `task`) and touches only the entries tezgah
+  itself wrote - a value the user changed by hand is left alone, and an `any`
+  mode without an OpenRouter credential writes nothing rather than naming models
+  that cannot run. The brief is redacted with the ledger's reader before it is
+  sent, and a brief about stored data, credentials or security never leaves the
+  machine. Claude agents use the `opus` alias (a full id breaks on Bedrock,
+  Vertex and gateways) and opencode agents carry `reasoningEffort`. Cursor,
+  Codex's default subagent and Claude's built-in subagents are listed as not
+  routed yet, each with what would close it, in `docs/models.md`; dsh's surface
+  was found (`agent-default-model` plugin config, patchable by tezgah) but its
+  provider lists no model id in the composed tree, so no id is guessed.
 
 - **A plan-and-decision smoke a person can run, and CI now runs.**
   `tests/e2e_plan_flow.py` builds a real git repository under tempfile and runs

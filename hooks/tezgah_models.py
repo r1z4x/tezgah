@@ -36,6 +36,8 @@ import shutil
 import subprocess
 import urllib.request
 
+import tezgah_integrity as ti
+import tezgah_judge as tj
 import tezgah_paths as tp
 
 READ_ON = "2026-09-30"
@@ -43,6 +45,15 @@ STALE_DAYS = 60
 OVERLAY = os.path.join(tp.CONFIG_DIR, "models.json")
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 MODES = ("auto", "anthropic", "any")
+# omp's own agent dir: the same one `omp_config` in bin/tezgah-setup pins with
+# PI_CODING_AGENT_DIR, so a write lands beside the hook the installer registered.
+OMP_AGENT = os.path.join(tp.HOME, ".omp", "agent")
+# The agents omp bundles (omp://task-agent-discovery.md:129-130). They resolve
+# through `task.agentModelOverrides` before their own model
+# (omp://task-agent-discovery.md:217), which is the only way to route them;
+# `reviewer` and `security-reviewer` are left to the session default, which is
+# the strongest model the user chose.
+BUNDLED = {"scout": "explore", "sonic": "cheap", "task": "standard"}
 TIERS = ("cheap", "standard", "frontier")
 
 # slot -> family -> (model, effort). Anthropic and OpenAI names are the hosts'
@@ -76,13 +87,24 @@ SNAPSHOT = {"anthropic/claude-opus-5.5": (4.0, 20.0),
 # ---------------------------------------------------------------- overlay ----
 
 
+# The overlay's known fields and the type each has to be: a field of another
+# type reads as absent, so a hand-edited or half-written file cannot make a
+# caller raise (agent generation reads `opencode` on every session start) or
+# make `--check` print one flag per character.
+OVERLAY_TYPES = {"mode": str, "read_on": str, "prices": dict, "opencode": dict,
+                 "omp_written": dict, "flags": list}
+
+
 def overlay():
     try:
         with open(OVERLAY, encoding="utf-8") as fh:
             data = json.load(fh)
-        return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items()
+            if k not in OVERLAY_TYPES or isinstance(v, OVERLAY_TYPES[k])}
 
 
 def save_overlay(data):
@@ -114,8 +136,26 @@ def opencode_model(agent):
     return found.get(slot) if slot else None
 
 
+def openrouter_ready():
+    """Whether an OpenRouter credential resolves, the channels `consult` and the
+    judge's fallback use (`tp.PROVIDER_KEYS`)."""
+    env, home = tp.PROVIDER_KEYS["openrouter"]
+    if os.environ.get(env, "").strip():
+        return True
+    try:
+        with open(os.path.join(tp.HOME, home), encoding="utf-8") as fh:
+            return bool(fh.read().strip())
+    except OSError:
+        return False
+
+
 def omp_mode(default_selector=None):
-    """`anthropic` or `any`: the saved mode, else what the session default is."""
+    """`anthropic` or `any`: the saved mode, else the default's own family.
+
+    A non-Anthropic default reads as `any`, never as a silent fall back to the
+    Anthropic column - the caller decides what to do when the OpenRouter
+    credential the `any` selectors need is missing (`apply_omp` writes nothing
+    and says so)."""
     mode = overlay().get("mode")
     if mode in ("anthropic", "any"):
         return mode
@@ -123,11 +163,11 @@ def omp_mode(default_selector=None):
 
 
 def omp_overrides(mode):
-    """{agent: omp selector} for `task.agentModelOverrides`. Frontier agents get
-    no entry: they inherit the session default, the strongest model the user
-    chose, in either mode."""
+    """{agent: omp selector} for `task.agentModelOverrides`, tezgah roles and the
+    bundled agents alike. Frontier agents get no entry: they inherit the session
+    default, the strongest model the user chose, in either mode."""
     out = {}
-    for agent, slot in AGENT_SLOT.items():
+    for agent, slot in dict(AGENT_SLOT, **BUNDLED).items():
         if slot == "frontier":
             continue
         family = "anthropic" if mode == "anthropic" else "any"
@@ -138,15 +178,32 @@ def omp_overrides(mode):
 
 
 def _omp(*args):
-    exe = shutil.which("omp")
+    """Run `omp config <args>` the way the installer does.
+
+    `tp.omp_bin()` is the installer's own lookup (TEZGAH_OMP_BIN, then PATH,
+    then a per-user bin dir) and PI_CODING_AGENT_DIR pins the CLI to the agent
+    dir tezgah writes into, so the value is read and written in one profile.
+
+    `cwd` is HOME on purpose: `config get` answers the EFFECTIVE value, with the
+    project layer of the working directory merged in, while `config set` writes
+    the global file - so from a repository that carries a `.omp/config.yml`, a
+    project entry would be copied machine-wide and the mode would be chosen from
+    a project default (omp://settings.md:64-65)."""
+    exe = tp.omp_bin()
     if not exe:
         return None
+    env = dict(os.environ, PI_CODING_AGENT_DIR=OMP_AGENT)
     try:
         proc = subprocess.run([exe, "config"] + list(args), capture_output=True,
-                              text=True, timeout=30)
+                              text=True, timeout=30, env=env, cwd=tp.HOME)
     except (OSError, subprocess.SubprocessError):
         return None
     return proc if proc.returncode == 0 else None
+
+
+def _omp_set(key, value):
+    return (_omp("set", key, json.dumps(value)) if value
+            else _omp("reset", key))
 
 
 def omp_get(key):
@@ -158,26 +215,70 @@ def omp_get(key):
     return value if isinstance(value, dict) else None
 
 
+def _ours_by_shape(key, value):
+    """True when `value` is exactly a selector this table generates for `key`.
+
+    The adoption rule for a machine tezgah wrote to before it recorded
+    `omp_written`: only one of our own selectors is ever taken over, so a value
+    the user picked by hand is never claimed."""
+    if not isinstance(value, str):
+        return False
+    return any(omp_overrides(mode).get(key) == value for mode in ("anthropic", "any"))
+
+
 def apply_omp(remove=False):
-    """Write (or, with `remove`, drop) the tezgah-* entries of omp's
-    `task.agentModelOverrides`, keeping every entry the user has. Returns a
+    """Write (or, with `remove`, drop) this table's entries of omp's
+    `task.agentModelOverrides`, leaving every other entry as it is.
+
+    Ownership, because `config set` replaces the whole record: an entry is
+    tezgah's to change only while it is absent or still carries what the last
+    write recorded in `omp_written` (or, on a machine written before that
+    record existed, one of the table's own selectors - `_ours_by_shape`). A
+    value the user changed by hand is left alone, and an entry tezgah never
+    wrote is never dropped. omp's bundled agents are covered too (see BUNDLED).
+
+    `any` needs a resolvable OpenRouter credential: without one the overrides
+    could not run, so nothing is written and the status says so. Returns a
     one-line status, or None when omp is not answering."""
     current = omp_get("task.agentModelOverrides")
     if current is None:
         return None
-    kept = {k: v for k, v in current.items() if not k.startswith("tezgah-")}
-    mode = None
+    written = overlay().get("omp_written") or {}
+    mode, want = None, {}
     if not remove:
         mode = omp_mode((omp_get("modelRoles") or {}).get("default"))
-        kept.update(omp_overrides(mode))
-    if kept == current:
+        if mode == "any" and not openrouter_ready():
+            return ("omp model overrides skipped: the any mode needs an OpenRouter "
+                    "key (or `tezgah-route --mode anthropic`)")
+        want = omp_overrides(mode)
+    new, owns = {}, {}
+    for key in sorted(set(current) | set(written) | set(want)):
+        cur = current.get(key)
+        mine = (key in written and cur == written[key]) or (
+            key not in written and _ours_by_shape(key, cur))
+        if key in want:
+            if cur is None or mine:
+                new[key], owns[key] = want[key], want[key]
+            else:
+                new[key] = cur  # the user's own choice for this agent wins
+        elif mine or key in written:
+            if cur is not None and cur != written.get(key):
+                new[key] = cur  # the user changed ours: keep it
+        elif cur is not None:
+            new[key] = cur
+    if owns == written and new == current:
         return "omp model overrides current (%s)" % (mode or "none")
-    done = (_omp("set", "task.agentModelOverrides", json.dumps(kept)) if kept
-            else _omp("reset", "task.agentModelOverrides"))
-    if done is None:
+    # the write comes first: recording what tezgah owns before the record it
+    # describes exists would leave a failed write claiming entries it never wrote
+    if _omp_set("task.agentModelOverrides", new) is None:
         return "omp model overrides NOT written"
+    data = overlay()
+    data["omp_written"] = owns
+    if not save_overlay(data):
+        return ("omp model overrides written, ownership NOT recorded "
+                "(overlay unreadable)")
     return ("omp model overrides removed" if remove
-            else "omp model overrides written (%s)" % mode)
+            else "omp model overrides written (%s)" % (mode or "none"))
 
 
 # ---------------------------------------------------------------- refresh ----
@@ -259,10 +360,20 @@ def check(today=None):
 
 # ------------------------------------------------------------------ route ----
 
+# The classes that go to frontier by rule, before any judgement: the data and
+# secret shapes a wrong call cannot be undone on, and the gate's own files.
+# Word-bounded on purpose - `migrate_rows` is a rename, `secretary` is not a
+# secret, `password-less` is a property - while `\bsecurity\b` is kept even
+# when it names a file, because an over-route costs money and an under-route
+# costs a rework loop.
 OVERRIDE = re.compile(
-    r"stored data|on disk|migrat\w*|credential\w*|secret\w*|password\w*|"
-    r"tezgah_gate|tezgah_integrity|security|threat model|"
-    r"\bauth(?:entication|orization)?\b", re.I)
+    r"stored data|on disk|\bpersist\w*|\bschema\b|"
+    r"\bmigrat(?:e|es|ed|ing|ion|ions)\b|"
+    r"\bcredential\w*|\bsecrets?\b|\bpasswords?\b(?!-less)|\bapi key\b|"
+    r"\baccess token\b|\brefresh token\b|\bsession token\b|"
+    r"\bjwt\b|\boauth\b|\bauthn\b|"
+    r"tezgah_gate|tezgah_integrity|\bsecurity\b|threat model|\bencrypt\w*|"
+    r"\bauthentication\b|\bauthorization\b", re.I)
 JEV_TIER = {"mechanical": "cheap", "standard": "standard", "frontier": "frontier"}
 PHASE_TIER = {"explore": "standard", "code": "standard", "mechanical": "cheap",
               "plan": "frontier", "review": "frontier", "research": "frontier"}
@@ -292,16 +403,20 @@ def route(brief, phase=None, ask=None):
     """{"agent", "tier", "why", "judged"} for one delegation brief.
 
     `ask` is the judge call (tezgah_judge.ask) - injected so the rule order is
-    testable without the network; None means no judge is available."""
+    testable without the network; None means no judge is available. The brief
+    goes out redacted (`ti.redact`, the reader the ledger uses) and only when no
+    override matched: a brief naming a credential never leaves the machine.
+    Answers are read through the seam's own accessors, so a malformed reply is
+    the same as no reply and this never raises."""
     hit = OVERRIDE.search(brief or "")
     if hit:
         return _pick("frontier", "override: %r" % hit.group(0))
-    result = ask({"task": brief}, {"tier": TIER_QUESTION}) if ask else None
-    answer = ((result or {}).get("answers") or {}).get("tier") or {}
-    choice = answer.get("choice")
+    result = ask({"task": ti.redact(brief or "")}, {"tier": TIER_QUESTION}) if ask else None
+    choice = tj.choice(result, "tier")
     if choice in JEV_TIER:
-        probs = answer.get("probabilities") or {}
-        out = _pick(JEV_TIER[choice], "jev %s %.2f" % (choice, float(probs.get(choice, 0))))
+        chance = tj.noul(result, "tier", choice)
+        out = _pick(JEV_TIER[choice], "jev %s%s" % (
+            choice, "" if chance is None else " %.2f" % chance))
         out["judged"] = result
         return out
     if phase in PHASE_TIER:

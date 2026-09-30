@@ -196,7 +196,8 @@ and roots - are under [Install](#install).
   ([docs/models.md](docs/models.md)).
 - **Per-repo subagents.** At session start the enclosing repo gets a small set of
   capability-gated agents (`tezgah-explorer`, `tezgah-reviewer`,
-  `tezgah-researcher`, `tezgah-verifier`) plus a `tezgah-orchestrator`, rendered
+  `tezgah-researcher`, `tezgah-verifier`), the three tier workers (`tezgah-cheap`,
+  `tezgah-standard`, `tezgah-frontier`) plus a `tezgah-orchestrator`, rendered
   into each installed host's native surface (Claude/Cursor `.claude/agents/`,
   opencode `.opencode/agents/` plus a live config injection, Codex
   `.codex/agents/`) and ignored through the clone's own `.git/info/exclude`, so

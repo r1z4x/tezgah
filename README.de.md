@@ -122,7 +122,8 @@ desselben Textes.
   ([docs/models.md](docs/models.md)).
 - **Pro-Repo-Subagenten.** Beim Sitzungsstart erhält das umschließende Repo eine kleine Gruppe von
   fähigkeitsbeschränkten Agenten (`tezgah-explorer`, `tezgah-reviewer`,
-  `tezgah-researcher`, `tezgah-verifier`) plus einen `tezgah-orchestrator`, die
+  `tezgah-researcher`, `tezgah-verifier`), drei immer erzeugte Stufen-Worker (`tezgah-cheap`,
+  `tezgah-standard`, `tezgah-frontier`) plus einen `tezgah-orchestrator`, die
   in die native Oberfläche jedes installierten Hosts gerendert (Claude/Cursor `.claude/agents/`,
   opencode `.opencode/agents/` plus eine Live-Konfigurationsinjektion, Codex
   `.codex/agents/`) und mit einem verwalteten `.gitignore`-Block ignoriert werden. Bei Claude wird die

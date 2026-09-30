@@ -157,7 +157,8 @@ ayrıntılar [Kurulum](#install) bölümünde.
   ([docs/models.md](docs/models.md)).
 - **Depo başına alt ajanlar (subagents).** Oturum başlangıcında, kapsayan depo, yetenekleri
   sınırlandırılmış küçük bir ajan seti (`tezgah-explorer`, `tezgah-reviewer`,
-  `tezgah-researcher`, `tezgah-verifier`) ve bir `tezgah-orchestrator` alır; bunlar
+  `tezgah-researcher`, `tezgah-verifier`), her zaman üretilen üç kademe işçisi (`tezgah-cheap`,
+  `tezgah-standard`, `tezgah-frontier`) ve bir `tezgah-orchestrator` alır; bunlar
   kurulu her barındırıcının yerel yüzeyine (Claude/Cursor `.claude/agents/`,
   opencode `.opencode/agents/` artı canlı bir yapılandırma enjeksiyonu, Codex
   `.codex/agents/`) işlenir ve yönetilen tek bir `.gitignore` bloğu ile yoksayılır. Claude'da

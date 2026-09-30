@@ -9,7 +9,8 @@ of specialized agents, rendered into every host surface that actually exists:
   Codex                 `.codex/agents/*.toml`
 
 A role is only emitted when the capability it needs is present (the code graph,
-orx, or the consult key). The whole set is regenerated when either this manifest
+orx, or the consult key); the three tier workers are emitted in every root,
+because `tezgah-route` names one of them for every delegated task. The whole set is regenerated when either this manifest
 or the repo's infrastructure changes, so the definitions stay updatable instead
 of drifting. Hosts with no such surface (dsh) get nothing here; the orchestrator
 directive in the injected contract already covers them. The generated dirs are
@@ -316,13 +317,32 @@ def _orch_body(names):
 
 # ---------------------------------------------------------------- renderers --
 
+# Claude Code's own aliases: an alias follows the provider (and keeps the main
+# session's variant and context), while a full id breaks on Bedrock, Vertex and
+# a gateway (code.claude.com/docs/en/sub-agents, model/effort table).
+CLAUDE_ALIAS = (("claude-opus", "opus"), ("claude-sonnet", "sonnet"),
+                ("claude-haiku", "haiku"), ("claude-fable", "fable"))
+
+
+def _claude_model(model):
+    for prefix, alias in CLAUDE_ALIAS:
+        if model.startswith(prefix):
+            return alias
+    return model
+
+
 def _model_lines(name, family, model_fmt, effort_fmt):
     """The model (and effort) lines the table gives this agent on a family;
-    `model: inherit` on Claude/Cursor for an agent with no slot."""
+    `model: inherit` on Claude/Cursor for an agent with no slot. Cursor reads
+    this same file but wants its own ids and the effort inside the id
+    (`claude-opus-5[effort=high]`, cursor.com/docs/subagents) - unverified for
+    the ids this table names, so Cursor is documented, not guessed at."""
     picked = tm.pick(name, family)
     if not picked:
         return ["model: inherit"] if family == "anthropic" else []
     model, effort = picked
+    if family == "anthropic":
+        model = _claude_model(model)
     return [model_fmt % model] + ([effort_fmt % effort] if effort else [])
 
 
@@ -461,6 +481,11 @@ def _role_oc_entry(name, desc, body, readonly):
     entry = {"description": desc, "mode": "subagent", "prompt": body}
     if tm.opencode_model(name):
         entry["model"] = tm.opencode_model(name)
+        picked = tm.pick(name, "any")
+        if picked and picked[1]:
+            # the JSON agent config is where opencode documents the effort
+            # (opencode.ai/docs/agents, `reasoningEffort`)
+            entry["reasoningEffort"] = picked[1]
     if readonly:
         entry["permission"] = {"edit": "deny", "bash": "deny", "task": "deny"}
     return entry
