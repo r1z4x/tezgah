@@ -98,11 +98,11 @@ One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
 `fixture`/`fake`/`stub`/`sample`/`demo` (`SCRATCH_PATH`,
-`hooks/tezgah_integrity.py:2037-2042`; `scratch_evidence`,
-`hooks/tezgah_integrity.py:2046-2070`) - the turn is told the command and the
+`hooks/tezgah_integrity.py:2339-2344`; `scratch_evidence`,
+`hooks/tezgah_integrity.py:2348-2372`) - the turn is told the command and the
 rule: evidence from a scratch path is evidence about the code path, so a claim
 about the running system needs a check that ran against it (`SCRATCH_REMINDER`,
-`hooks/tezgah_context.py:1147-1153`, appended at `hooks/tezgah_context.py:1300`).
+`hooks/tezgah_context.py:1205-1211`, appended at `hooks/tezgah_context.py:1300`).
 It is a reminder and not a block because whether a scratch script exercises the
 real system is not decidable from the command; one passing check against a real
 path makes the reader answer `None`, so a session that also ran the real thing is
@@ -126,7 +126,7 @@ analysis: five axes, one evidence class per finding.**` :745 *(conditional)*,
 stay English.**` :788, `**Session scope: the user's repo, not tezgah.**` :794,
 `**Kill switches:**` :803.
 
-`always_on_core()` (`hooks/tezgah_context.py:969-979`) drops the five
+`always_on_core()` (`hooks/tezgah_context.py:1027-1037`) drops the five
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:847-852`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, product analysis, the code graph, and the
@@ -142,7 +142,7 @@ its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
 hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
-(`hooks/tezgah_context.py:960-968`) is that text with the kill-switch filtering
+(`hooks/tezgah_context.py:1018-1026`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
