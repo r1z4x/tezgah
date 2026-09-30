@@ -63,7 +63,7 @@ The orchestrator agent keeps `model: inherit`: it is the main thread's own agent
 
 | Cursor | - | reads `.claude/agents/` today; Cursor wants its own model ids with the effort **inside** the id (`claude-opus-5[effort=high]`, cursor.com/docs/subagents), and no id this table names was verified against Cursor's models page - so a `.cursor/agents/` rendering that pins a model is not generated yet |
 
-omp's bundled agents are routed through the same record (omp's own docs: `omp://task-agent-discovery.md`, *Bundled agents*): `scout` on the explore slot, `sonic` on the cheap slot, `task` on the standard slot, and `reviewer`/`security-reviewer` left to inherit, because a review is frontier work. A user's own value for any of them wins (see the ownership rule above).
+omp's bundled agents are routed through the same record (omp's own docs: `omp://task-agent-discovery.md`, *Bundled agents*): `scout` on the explore slot, `sonic` on the cheap slot, `task` on the standard slot, and `reviewer`/`security-reviewer` left to inherit, because a review is frontier work. A user's own value for any of them wins (see the ownership rule above). Those two are the gap this leaves: the record carries no entry for them, so a session on a cheap model reviews on that model - routing them is one more `BUNDLED` entry, not decided here.
 
 ## What is not routed yet
 

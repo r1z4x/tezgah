@@ -79,6 +79,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **consult cannot ask the model the session runs on.** `bin/consult` reads the
+  session's model (`CONSULT_SESSION_MODEL`, else omp's own `modelRoles.default`)
+  and drops that member from the panel by default, naming it and why; `--use`
+  still asks it, with the same note, and the referee is taken from a member that
+  is not it. A `cli:*` member whose model cannot be read is reported `unknown`
+  and asked - the exclusion only ever applies to a model it could name. This is
+  what makes a second opinion independent of the model under test; before it, a
+  session on `X` could get a panel of `X`.
+
 - **The consult default panel is current.** OpenRouter's default panel moves
   from `google/gemini-2.5-pro` + `x-ai/grok-4.3` to `openai/gpt-6.1-sol` +
   `google/gemini-3.8-flash`, two generations newer on the same key.
