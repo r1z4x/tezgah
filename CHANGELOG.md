@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-09-30
+
 ### Changed
 
 - **The `drift` rule refuses again.** Plan 004's pre-registered revert of the
@@ -2499,6 +2501,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.24.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.24.0
 [0.21.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.21.0
 [0.20.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.20.0
 [0.19.4]: https://github.com/r1z4x/tezgah/releases/tag/v0.19.4
