@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP = os.path.join(REPO, "bin", "tezgah-setup")
@@ -1557,6 +1558,53 @@ class DshStatusline(SetupBase):
             proc = subprocess.run([node, "--check", p],
                                   capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, "%s: %s" % (f, proc.stderr))
+
+
+class TierModelsRow(SetupBase):
+    """The status row that reads `task.agentModelOverrides` and `modelRoles.plan`.
+    It asks whether OUR entries are there, so a value the user set by hand is not a
+    fault: a row no repair could clear is worse than no row."""
+
+    def tables(self, mode="anthropic"):
+        import tezgah_models as tm
+        want = tm.omp_overrides(mode)
+        roles = {k.split(".", 1)[1]: v for k, v in tm.omp_role_overrides(mode).items()}
+        return want, roles
+
+    def row(self, overrides, roles, written, mode=None):
+        module = setup_module()
+        import tezgah_models as tm
+        overlay = {"omp_written": written}
+        if mode:
+            overlay["mode"] = mode
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: {
+                "task.agentModelOverrides": overrides, "modelRoles": roles}[k]), \
+                mock.patch.object(tm, "overlay", return_value=overlay):
+            return module.tier_models_current()
+
+    def test_our_entries_present(self):
+        want, roles = self.tables()
+        roles = dict(roles, **{"default": "anthropic/claude-opus-5-5:high"})
+        self.assertTrue(self.row(dict(want), roles, dict(want) | {
+            "modelRoles.plan": roles["plan"]}))
+
+    def test_a_missing_plan_role_is_a_fault(self):
+        want, roles = self.tables()
+        roles = dict(roles, **{"default": "anthropic/claude-opus-5-5:high"})
+        roles.pop("plan")
+        self.assertFalse(self.row(dict(want), roles, dict(want)))
+
+    def test_a_role_the_user_set_by_hand_is_not_a_fault(self):
+        want, roles = self.tables()
+        ours = roles["plan"]
+        roles = dict(roles, **{"default": "anthropic/claude-opus-5-5:high", "plan": "@slow"})
+        # the user changed it after we wrote it: not a fault, nothing to repair
+        self.assertTrue(self.row(dict(want), roles,
+                                 dict(want) | {"modelRoles.plan": ours}))
+
+    def test_the_off_mode_wants_nothing(self):
+        self.assertTrue(self.row({}, {"default": "deepseek/deepseek-flash:high"},
+                                 {}, mode="off"))
 
 
 class OmpHost(SetupBase):

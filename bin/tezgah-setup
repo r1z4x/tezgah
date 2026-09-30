@@ -4549,14 +4549,22 @@ def tier_models_current():
     tm = tezgah_agents.tm
     current = tm.omp_get("task.agentModelOverrides") or {}
     roles = tm.omp_get("modelRoles") or {}
+    written = tm.overlay().get("omp_written") or {}
     mode = tm.omp_mode(roles.get("default"))
+
+    def ours(key, cur, want):
+        # the row asks whether OUR entries are there. A value the user set by hand
+        # is not a missing row - nothing could repair it, and prompting for one
+        # forever is the fault this row was already fixed for once; `written` is
+        # the same ownership record `apply_omp` writes with.
+        return cur == want or (cur is not None and written.get(key) != cur)
+
     want = tm.omp_overrides(mode)
     want_roles = tm.omp_role_overrides(mode)
-    # an `any` mode with no reachable credential wants nothing either (omp_overrides
-    # answers {} for it), which is the same not-applicable state as `off`
-    return (not want and not want_roles or
-            (all(current.get(k) == v for k, v in want.items()) and
-             all(roles.get(k.split(".", 1)[-1]) == v for k, v in want_roles.items())))
+    # `off`, and the credential-less `any`, want nothing: `all(())` is True
+    return (all(ours(k, current.get(k), v) for k, v in want.items()) and
+            all(ours(k, roles.get(k.split(".", 1)[-1]), v)
+                for k, v in want_roles.items()))
 
 
 if __name__ == "__main__":

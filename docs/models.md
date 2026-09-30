@@ -75,7 +75,7 @@ omp's bundled agents are routed through the same record (omp's own docs: `omp://
 ## The router
 
 `tezgah-route "<brief>"` prints the worker to spawn and why (`main`,
-`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:520-542`). The order is
+`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:522-546`). The order is
 fixed:
 
 1. A brief naming stored data, a persistence or schema change, a migration,
@@ -84,12 +84,12 @@ fixed:
    the judge under-routed in its measurement.
 2. Otherwise the brief - redacted with the ledger's own reader
    (`redact`, `hooks/tezgah_integrity.py:524`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
-   `hooks/tezgah_models.py:498-517`). Measured on 40 English briefs labelled by
+   `hooks/tezgah_models.py:500-521`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100.
 3. With no judgement (`judge-off`, no key, a failed call) `--phase` picks the tier
-   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:496-497`), and
+   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:498-499`), and
    with no phase the middle tier is used.
 
 The brief leaves the machine for the judge, like every judgement ([judge](judge.md)).
@@ -101,7 +101,7 @@ the tier to the gate outcome of the work it routed.
 `tezgah-route --refresh` re-reads OpenRouter's public model list, writes prices to
 `~/.config/tezgah/models.json`, flags a model that left the list or whose price
 moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py:98-102`;
-`refresh`, `hooks/tezgah_models.py:404-436`), resolves opencode selectors, and
+`refresh`, `hooks/tezgah_models.py:406-440`), resolves opencode selectors, and
 re-applies omp's overrides. Scores are not re-read - they need a key - so
 `tezgah-route --check` reports the snapshot's age and exits 1 past 60 days or with
 a flag (`check`, `hooks/tezgah_models.py:462-475`); that is the moment to re-read

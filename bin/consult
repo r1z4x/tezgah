@@ -335,7 +335,7 @@ def session_model():
         default = (value or {}).get("default")
     except (ValueError, AttributeError):
         return None
-    return str(default).strip() or None
+    return str(default).strip() if default else None
 
 
 def same_model(a, b):

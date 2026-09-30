@@ -511,8 +511,8 @@ def _git_config_paths(repo):
                     os.path.join(gitdir, "..", "..", "config")]
     elif os.path.isdir(dot):
         out.append(os.path.join(dot, "config"))
-    out.append(os.path.join(CONFIG_DIR_GIT, "config"))
     out.append(os.path.join(HOME, ".gitconfig"))
+    out.append(os.path.join(CONFIG_DIR_GIT, "git", "config"))
     return out
 
 
