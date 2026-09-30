@@ -61,10 +61,13 @@ every rule is in force and a delegate that cannot name a switch cannot tell its
 caller how to disarm one (`hooks/tezgah_context.py:969-1009`).
 
 One block on those two events is not a standing rule but the live turn state.
-`session_start` and `post_compact` also build `resume_state`: the active plan's
+`session_start` and `post_compact` also build `resume_state`: a plan's
 `## State` and `## Next`, the branch's last five commits, the newest
 `verify_ok`/`verify_fail` the session ledger holds, and the files the last turn
-changed. It is what a session that compacts, or resumes the next morning, would
+changed. The plan named is the one the checked-out `plan/...` branch owns, and
+when the checkout owns none the lowest-id open plan is offered as what it is -
+`open plan NNN (not this branch)` - because another plan's Next read as the
+active one would invent a task. It is what a session that compacts, or resumes the next morning, would
 otherwise lose - the contract, the plans and the lessons arrive, but not what the
 turn was doing. It is written as a state of the world and never as an order. Each
 part is silent when its fact is unknown and the block is left out whole when
