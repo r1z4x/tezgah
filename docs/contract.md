@@ -71,11 +71,14 @@ active one would invent a task. It is what a session that compacts, or resumes t
 otherwise lose - the contract, the plans and the lessons arrive, but not what the
 turn was doing. It is written as a state of the world and never as an order. Each
 part is silent when its fact is unknown and the block is left out whole when
-every part is empty. It rides both events because Claude discards PostCompact's
-`additionalContext` (its hook reference lists PostCompact under "No decision
-control", and omits it from the delivery list) while SessionStart fires again
-with `source: "compact"` and does deliver, so a host that delivers either one
-still gets the block.
+every part is empty. On Claude it reaches the model through SessionStart, which
+fires again as `SessionStart:compact` after a compaction and delivers its
+`additionalContext`. It does NOT go out on PostCompact: a real compaction on
+Claude Code 2.1.283 (plan 021) showed the host rejecting a PostCompact envelope
+("Hook JSON output validation failed - hookSpecificOutput.hookEventName:
+expected one of ...") and printing the raw JSON into the transcript as a failed
+hook, so `hooks/projects-auto-init.py` builds the block on that event - which is
+where the compaction is recorded - and prints nothing.
 
 The same event is where a compaction is recorded rather than only answered. When
 the host hands the PostCompact payload a summary - Claude's `compact_summary`,

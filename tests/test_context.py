@@ -1129,9 +1129,9 @@ class ResumeBlock(ChildCall):
         self.assertLessEqual(len(self.block(repo).encode()), 600)
 
     def test_post_compact_carries_the_resume_block(self):
-        # Claude discards PostCompact's additionalContext and re-delivers on
-        # SessionStart(source=compact); the block rides both, so a host that
-        # delivers either one still gets it
+        # the builder's post_compact block, the one opencode's compacting hook
+        # injects; on Claude the envelope is not printed (projects-auto-init)
+        # and the block arrives through SessionStart(source=compact) instead
         repo = self.full_repo()
         out = self.session(repo, event="post_compact")
         self.assertIn("## Session so far", out)

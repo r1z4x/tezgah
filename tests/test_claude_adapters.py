@@ -57,11 +57,27 @@ class AutoInitCoreInFile(TempHome):
             fh.write("<!-- tezgah:start -->\nblock\n<!-- tezgah:end -->\n")
         full = self.core()
         self.assertIn("**Turkish, BLUF.**", full)
-        for event in ("SessionStart", "PostCompact"):
-            text = self.core(self.declared(), event)
-            self.assertNotIn("**Turkish, BLUF.**", text, event)
-            self.assertTrue(text.strip(), "the live state went with the core")
-            self.assertLess(len(text), len(full))
+        text = self.core(self.declared(), "SessionStart")
+        self.assertNotIn("**Turkish, BLUF.**", text)
+        self.assertTrue(text.strip(), "the live state went with the core")
+        self.assertLess(len(text), len(full))
+
+    def test_post_compact_prints_no_envelope(self):
+        # Observed on Claude Code 2.1.283 (plan 021): an envelope on PostCompact
+        # is rejected by the host's output validation ("hookEventName: expected
+        # one of ...") and its raw JSON, context text included, is printed into
+        # the transcript as a failed hook. The post-compaction context reaches
+        # the model through SessionStart:compact instead, so this event must
+        # print nothing at all - with or without the core in the file.
+        for extra in (None, self.declared()):
+            out, proc = run_json([support.AUTO_INIT],
+                                 {"hook_event_name": "PostCompact",
+                                  "cwd": self.repo, "session_id": "s",
+                                  "compact_summary": "a summary",
+                                  "trigger": "manual"},
+                                 env=self.env(extra=extra))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIsNone(out, (extra, proc.stdout))
 
     def test_without_the_declaration_the_hook_still_carries_the_core(self):
         # dsh's shape: the same script, a manifest that declares nothing

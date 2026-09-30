@@ -20,10 +20,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the hook and dropping the whole injection. The block is 408 B on this
   repository and is given up after the tooling-availability lines, not first:
   the first version (five commits, 630 B, first in `DROP_ORDER`) was dropped by
-  the 12000 B budget in the very repository it was written for. On Claude,
-  `PostCompact` output is discarded by the host (its hook reference lists it
-  under "no decision control") while `SessionStart` fires again with
-  `source: "compact"`, so the block rides both. The same `PostCompact` payload
+  the 12000 B budget in the very repository it was written for. On Claude the
+  block arrives through `SessionStart:compact`, observed on a real compaction
+  (Claude Code 2.1.283): the same run showed the host rejecting an envelope on
+  `PostCompact` - "Hook JSON output validation failed" - and printing the raw
+  JSON into the transcript as a failed hook, which is what tezgah's PostCompact
+  hook had been doing since it was wired; it now prints nothing on that event.
+  The same `PostCompact` payload
   now leaves one `compact` ledger row - the summary's length, a 12-hex digest and
   the trigger, never the text - with a count of the injected constraint lines
   the summary kept, folded by `tezgah-status --counters` into `compactions`,

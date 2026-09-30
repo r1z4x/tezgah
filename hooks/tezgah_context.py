@@ -582,15 +582,13 @@ def task_line(task):
 # part is independent and silent when unknown, and a block with nothing to say
 # is left out whole rather than printed as an empty label.
 #
-# Why PostCompact alone is not enough (Claude, the host with both events):
-# Claude Code's hook reference lists PostCompact under "No decision control.
-# Used for side effects" and omits it from the `additionalContext` delivery
-# list, so the block this file builds for `post_compact` is written and
-# discarded there - while SessionStart fires again with `source: "compact"` and
-# does deliver. The channel that reaches the model is therefore session_start,
-# and the resume block rides both so no host that delivers either one loses it.
-# (Unverified by observation: no tezgah-armed Claude session with a compaction
-# has run on this machine; the acceptance run of plan 021 settles it.)
+# Which channel reaches the model (observed on Claude Code 2.1.283, plan 021):
+# after a compaction the host fires SessionStart again as `SessionStart:compact`
+# and delivers its additionalContext, block included. An envelope on PostCompact
+# is rejected by the host's output validation instead, so Claude's hook script
+# builds `post_compact` only to record the compaction and prints nothing
+# (hooks/projects-auto-init.py). opencode injects the `post_compact` block
+# through its compacting hook, so the block is built for both events.
 RESUME_LOG = 3
 RESUME_PLAN_CHARS = 40
 RESUME_COMMIT_CHARS = 38

@@ -22,17 +22,18 @@ EVENTS = {
     "PostCompact": "post_compact",
 }
 
-# PostCompact is kept wired for the hosts that deliver its output (Codex and dsh
-# run this same script through their own hook tables) even though Claude discards
-# it: Claude Code's hook reference lists PostCompact under "No decision control.
-# Used for side effects like logging or cleanup" and omits it from the
-# `additionalContext` delivery list. On Claude the post-compaction context
-# therefore reaches the model through SessionStart, which fires again with
-# `source: "compact"` - so the resume block (hooks/tezgah_context.resume_state)
-# rides both events and neither channel alone is load-bearing. Removed here only
-# if every host that runs this file is shown to discard it. (Unverified by
-# observation: no tezgah-armed Claude session with a compaction has run on this
-# machine; plan 021's acceptance run settles it.)
+# PostCompact is observed, not answered. A real compaction on Claude Code
+# 2.1.283 (2026-09-30, plan 021) showed what the host does with an envelope on
+# this event: it REJECTS it - "Hook JSON output validation failed -
+# hookSpecificOutput.hookEventName: expected one of "PreToolUse" |
+# "UserPromptSubmit" | ... | "SessionStart" | ..." - reports the hook as failed,
+# and prints the raw JSON, context text included, into the transcript the model
+# reads next. The post-compaction context reaches the model through SessionStart,
+# which fires again as `SessionStart:compact` and whose additionalContext was
+# delivered in the same run. So on PostCompact this hook still builds the block -
+# that is where `context_for` records the compaction (remember_compaction) - and
+# prints nothing. Codex answers PostCompact from hosts/codex/hook.py and dsh's
+# bridge does not carry the event, so this script is Claude's alone here.
 
 # Claude's global memory file, where install_claude writes the always-on core as
 # a managed block: the file Claude reads into every session, so the core is
@@ -75,7 +76,7 @@ def main():
                 # the brief is a subagent's own text, never the file's; every
                 # other event drops the core when the host's file carries it
                 with_core=(event == "SubagentStart" or not core_is_in_a_file()))
-    if text:
+    if text and event != "PostCompact":
         json.dump({"hookSpecificOutput": {
             "hookEventName": event,
             "additionalContext": text,
