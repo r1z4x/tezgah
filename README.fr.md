@@ -112,6 +112,15 @@ copie en cinq exemplaires du même texte.
   ou `--provider inception`) rédige
   des modifications délimitées et bien spécifiées dans un répertoire temporaire. Rien n'atteint le dépôt
   si ce n'est par le routeur, et un brouillon qui échoue se rabat automatiquement sur le modèle principal.
+- **Routage des modèles.** Trois travailleurs par niveau (`tezgah-cheap`,
+  `tezgah-standard`, `tezgah-frontier`) s'ajoutent aux agents générés, et chaque
+  agent généré porte le modèle que son niveau reçoit sur cet hôte : Opus 5.5 avec
+  un effort par rôle sur Claude, la ligne OpenAI sur Codex, des familles moins
+  chères sur omp et opencode quand la session n'est pas sur Claude.
+  `tezgah-route "<brief>"` désigne le travailleur (d'abord des règles pour les
+  données stockées, les identifiants et la sécurité, puis un jugement Jev, puis une
+  table fixe par phase), et `tezgah-route --refresh` tient les prix et les
+  identifiants à jour ([docs/models.md](docs/models.md)).
 - **Sous-agents par dépôt.** Au démarrage de la session, le dépôt englobant reçoit un petit ensemble d'agents
   à capacités restreintes (`tezgah-explorer`, `tezgah-reviewer`,
   `tezgah-researcher`, `tezgah-verifier`) plus un `tezgah-orchestrator`, rendus

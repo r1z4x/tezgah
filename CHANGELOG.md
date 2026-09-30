@@ -8,6 +8,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Phase-aware model routing: a model table, three tier workers, and a router
+  Jev decides.** Every generated agent used to run on the session model
+  (`model: inherit`, and on omp every subagent resolved to the default), so a
+  rename cost what a design review cost. `hooks/tezgah_models.py` now holds a dated
+  slot x family table; the generated agents gain `tezgah-cheap`,
+  `tezgah-standard` and `tezgah-frontier`, and each agent carries its tier's model
+  on the host that reads it - `model:` + `effort:` on Claude/Cursor, `model` +
+  `model_reasoning_effort` on Codex, a selector resolved from `opencode models` on
+  opencode, and `task.agentModelOverrides` on omp (Anthropic effort levels when
+  the session default is an Anthropic model, cheaper families otherwise;
+  frontier left to the default; the user's own entries kept; removed on
+  uninstall). `bin/tezgah-route "<brief>"` names the worker - deterministic
+  overrides for stored data, credentials and security, then one Jev Choice
+  (measured 0.025 under-route on 40 briefs, 392 ms median), then the static phase
+  table with no key - and `--refresh` re-reads OpenRouter prices and ids and flags
+  what moved; `--check` exits 1 when the snapshot is older than 60 days. The
+  ORCHESTRATE paragraph tells the router to use it and to restart an `ESCALATE`
+  on the frontier worker instead of continuing it. See `docs/models.md`.
+
 - **A plan-and-decision smoke a person can run, and CI now runs.**
   `tests/e2e_plan_flow.py` builds a real git repository under tempfile and runs
   the five rules the plan and decision records added, through the CLIs a person
@@ -16,6 +35,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   named commit clears, an unanswered spike, and an ADR with no `status:` - so a
   regression in any of them fails the `test` job on 3.10 and 3.12 instead of
   waiting for a session to meet it.
+
+### Changed
+
+- **The consult default panel is current.** OpenRouter's default panel moves
+  from `google/gemini-2.5-pro` + `x-ai/grok-4.3` to `openai/gpt-6.1-sol` +
+  `google/gemini-3.8-flash`, two generations newer on the same key.
 
 ## [0.25.0] - 2026-09-30
 

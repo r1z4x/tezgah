@@ -444,7 +444,7 @@ class CliMembers(ArenaCase):
         p = self.consult("q?", "--no-referee")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(sorted(self.models()),
-                         ["google/gemini-2.5-pro", "x-ai/grok-4.3"])
+                         ["google/gemini-3.8-flash", "openai/gpt-6.1-sol"])
         self.assertIn("fallback: openrouter", p.stdout)
 
     def test_every_member_failed_reoffers_only_what_did_not_fail(self):
@@ -452,7 +452,7 @@ class CliMembers(ArenaCase):
         # second time as the fallback nor offered again
         self.cli("codex", "claude")
         self.env["FAKE_CODEX"] = "fail"
-        Fake.answers = {"google/gemini-2.5-pro": 402, "x-ai/grok-4.3": 402}
+        Fake.answers = {"openai/gpt-6.1-sol": 402, "google/gemini-3.8-flash": 402}
         self.consult("--use", "cli:codex,openrouter")
         p = self.consult("q?")
         self.assertEqual(p.returncode, 5, p.stdout + p.stderr)

@@ -112,6 +112,14 @@ mismo texto cinco veces.
   o `--provider inception`) redacta
   ediciones limitadas y bien especificadas en un directorio temporal. Nada llega al repositorio
   excepto a través del enrutador, y un borrador fallido recurre automáticamente al modelo principal.
+- **Enrutado de modelos.** Tres trabajadores por nivel (`tezgah-cheap`,
+  `tezgah-standard`, `tezgah-frontier`) se suman a los agentes generados, y cada
+  agente generado lleva el modelo que su nivel recibe en ese host: Opus 5.5 con un
+  esfuerzo por rol en Claude, la fila de OpenAI en Codex, familias más baratas en
+  omp y opencode cuando la sesión no está en Claude. `tezgah-route "<brief>"` nombra
+  al trabajador (primero reglas para datos almacenados, credenciales y seguridad,
+  luego un juicio de Jev, luego una tabla fija por fase), y `tezgah-route --refresh`
+  mantiene al día precios e identificadores ([docs/models.md](docs/models.md)).
 - **Subagentes por repositorio.** Al inicio de la sesión, el repositorio contenedor obtiene un pequeño conjunto de
   agentes con capacidades restringidas (`tezgah-explorer`, `tezgah-reviewer`,
   `tezgah-researcher`, `tezgah-verifier`) más un `tezgah-orchestrator`, renderizados

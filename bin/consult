@@ -64,7 +64,7 @@ PROVIDERS = {
         "https://openrouter.ai/api/v1/chat/completions",
         "OPENROUTER_API_KEY",
         "~/.config/openrouter/key",
-        "google/gemini-2.5-pro,x-ai/grok-4.3",
+        "openai/gpt-6.1-sol,google/gemini-3.8-flash",
     ),
     "deepseek": (
         "https://api.deepseek.com/v1/chat/completions",
@@ -122,7 +122,7 @@ REFEREE_FIELDS = ("recommendation", "key disagreements", "unchecked assumptions"
 
 # What an offer line tells the user each HTTP member answers with; a CLI's
 # family is in tp.CONSULT_CLIS.
-FAMILY = {"openrouter": "Google Gemini + xAI Grok through OpenRouter (the default panel)",
+FAMILY = {"openrouter": "OpenAI GPT + Google Gemini through OpenRouter (the default panel)",
           "deepseek": "DeepSeek", "inception": "Inception Mercury"}
 
 

@@ -8,7 +8,7 @@ description: >
   first, falls back to literal text search only when needed, and returns
   file:line evidence with explicit coverage gaps.
 disallowedTools: Write, Edit, NotebookEdit, Bash, Agent
-model: inherit
+model: claude-opus-5-5
 effort: medium
 maxTurns: 40
 ---

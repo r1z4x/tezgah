@@ -3607,6 +3607,7 @@ class ContextDrop(Workspace):
         # them is what the first drop decides
         self.touch(os.path.join(repo, ".tezgah", "plans", "open", "001-something.md"))
         self.line(repo, "beta", question="")
+        self.session_text(repo)  # settle the one-time tier-agent note
         whole = self.session_text(repo)
         self.assertIn("Research: beta has", whole)
         self.assertIn("Open plans in this repo", whole)

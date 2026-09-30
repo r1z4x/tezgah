@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 
+import tezgah_models as tm
 from tezgah_paths import (CONFIG_DIR, HOME, ai_research_dir, codegraph_bin,
                           consult_options, host_installed, off, orx_bin,
                           root_for, tool)
@@ -57,6 +58,9 @@ GRAPH_TOOLS = ", ".join("`codegraph %s`" % verb for verb in GRAPH_CLI)
 # line names them. The orchestrator is not here: it is a primary agent, not one
 # the main thread delegates to.
 STEER = (("structure (who calls X, what breaks)", "tezgah-explorer"),
+         ("mechanical edit (tier from `tezgah-route`)", "tezgah-cheap"),
+         ("bounded code or tests", "tezgah-standard"),
+         ("design, invariants, unknown-cause debugging", "tezgah-frontier"),
          ("review of a diff", "tezgah-reviewer"),
          ("second opinion", "tezgah-verifier"),
          ("research", "tezgah-researcher"))
@@ -234,6 +238,24 @@ def _verifier_body(_host):
         % (consult, consult, consult))
 
 
+def _worker_body(tier):
+    def body(_host):
+        if tier == "frontier":
+            scope = ("You take the work the cheaper tiers must not: design choices,\n"
+                     "stored-data and ordering invariants, security-sensitive code,\n"
+                     "failures with an unknown cause, hard-to-reverse changes.")
+        else:
+            scope = ("If the work needs a judgement above this tier - a design choice,\n"
+                     "a stored-data or ordering invariant, security-sensitive code, or\n"
+                     "a failure whose cause you cannot find - stop editing and answer\n"
+                     "`ESCALATE: <why>`; the router restarts it on tezgah-frontier.")
+        return ("You are tezgah-%s, a worker on the %s model tier. Do exactly the\n"
+                "brief: stay inside the files it names, run the checks it names, and\n"
+                "report what changed and what each check printed, verbatim.\n%s\n"
+                "Never spawn subagents." % (tier, tier, scope))
+    return body
+
+
 # name, description, capability gate, body(host), read-only?
 ROLES = (
     ("tezgah-explorer",
@@ -254,6 +276,21 @@ ROLES = (
      "Independent second opinion via the tezgah `consult` CLI before a "
      "hard-to-reverse decision; reports which models agreed or disagreed.",
      lambda infra: infra["caps"]["consult"], _verifier_body, False),
+    ("tezgah-cheap",
+     "Mechanical, fully specified edits on the cheapest model tier: renames, "
+     "fixtures, formatting, version bumps, commit messages, a listed migration. "
+     "Chosen by `tezgah-route`; answers ESCALATE when the work needs judgement.",
+     lambda infra: True, _worker_body("cheap"), False),
+    ("tezgah-standard",
+     "Bounded code, tests, search-and-summarise or a small review on the standard "
+     "model tier. Chosen by `tezgah-route`; answers ESCALATE when the work needs "
+     "judgement above it.",
+     lambda infra: True, _worker_body("standard"), False),
+    ("tezgah-frontier",
+     "Design, stored-data or ordering invariants, security-sensitive code, "
+     "unknown-cause debugging and hard-to-reverse changes on the strongest model "
+     "tier; also where an ESCALATE from a cheaper worker is restarted.",
+     lambda infra: True, _worker_body("frontier"), False),
 )
 
 ORCH_DESC = ("Route work in this repo to the generated tezgah-* subagents. The "
@@ -269,12 +306,25 @@ def _orch_body(names):
         "back. Available specialists: %s.\n\n"
         "Route code discovery and blast radius to tezgah-explorer, reviews to\n"
         "tezgah-reviewer, research to tezgah-researcher, and a pre-commit second\n"
-        "opinion to tezgah-verifier. Never delegate a task a specialist is not\n"
+        "opinion to tezgah-verifier. Other work goes to the tier worker\n"
+        "`tezgah-route \"<brief>\"` names (tezgah-cheap, tezgah-standard,\n"
+        "tezgah-frontier); an ESCALATE answer is restarted on tezgah-frontier with\n"
+        "the same brief. Never delegate a task a specialist is not\n"
         "listed for, and never let a subagent spawn its own subagents. Verify each\n"
         "returned claim against the code before acting." % listed)
 
 
 # ---------------------------------------------------------------- renderers --
+
+def _model_lines(name, family, model_fmt, effort_fmt):
+    """The model (and effort) lines the table gives this agent on a family;
+    `model: inherit` on Claude/Cursor for an agent with no slot."""
+    picked = tm.pick(name, family)
+    if not picked:
+        return ["model: inherit"] if family == "anthropic" else []
+    model, effort = picked
+    return [model_fmt % model] + ([effort_fmt % effort] if effort else [])
+
 
 def _fold(desc, width=74):
     out = []
@@ -290,7 +340,7 @@ def render_md(name, description, readonly, body):
     lines = ["---", MARKER + " (manifest %s)" % manifest_sha(),
              "name: %s" % name, "description: >"]
     lines += _fold(description)
-    lines.append("model: inherit")
+    lines += _model_lines(name, "anthropic", "model: %s", "effort: %s")
     if readonly:
         # `disallowedTools` is Claude's; `readonly` is Cursor's. Both parsers
         # ignore the other's field.
@@ -308,6 +358,8 @@ def render_md_opencode(name, description, readonly, body):
              "name: %s" % name, "description: >"]
     lines += _fold(description)
     lines.append("mode: subagent")
+    if tm.opencode_model(name):
+        lines.append("model: %s" % tm.opencode_model(name))
     if readonly:
         lines += ["permission:", "  edit: deny", "  bash: deny", "  task: deny"]
     lines.append("---")
@@ -327,8 +379,9 @@ def render_md_omp(name, description, body, tools=("read", "grep", "glob", "bash"
     and their body bounds the shell to that CLI."""
     lines = ["---", "name: %s" % name, "description: >"]
     lines += _fold(description)
-    lines.append("tools:")
-    lines += ["  - %s" % t for t in tools]
+    if tools:  # None: every tool the session has (a tier worker edits)
+        lines.append("tools:")
+        lines += ["  - %s" % t for t in tools]
     lines.append("---")
     return "\n".join(lines) + "\n\n" + body.strip() + "\n"
 
@@ -340,7 +393,9 @@ def omp_user_agents(root="~"):
     names = [r[0] for r in active]
     if not names:
         return {}
-    out = {name + ".md": render_md_omp(name, desc, body("omp"))
+    out = {name + ".md": render_md_omp(
+        name, desc, body("omp"),
+        **({"tools": None} if name[len("tezgah-"):] in tm.TIERS else {}))
            for name, desc, _cap, body, _readonly in active}
     out["tezgah-orchestrator.md"] = render_md_omp(
         "tezgah-orchestrator", ORCH_DESC, _orch_body(names),
@@ -374,6 +429,7 @@ def render_toml(name, description, readonly, body):
     lines = [MARKER + " (manifest %s)" % manifest_sha(),
              'name = "%s"' % name,
              "description = " + _toml_str(description)]
+    lines += _model_lines(name, "openai", 'model = "%s"', 'model_reasoning_effort = "%s"')
     if readonly:
         lines.append('sandbox_mode = "read-only"')
     lines.append("developer_instructions = " + _toml_str(body.strip()))
@@ -401,8 +457,10 @@ def orch_opencode_entry(names):
             "permission": {"task": {"*": "deny", "tezgah-*": "allow"}}}
 
 
-def _role_oc_entry(desc, body, readonly):
+def _role_oc_entry(name, desc, body, readonly):
     entry = {"description": desc, "mode": "subagent", "prompt": body}
+    if tm.opencode_model(name):
+        entry["model"] = tm.opencode_model(name)
     if readonly:
         entry["permission"] = {"edit": "deny", "bash": "deny", "task": "deny"}
     return entry
@@ -670,7 +728,7 @@ def opencode_agents_json(root):
     names = [r[0] for r in active]
     if not names:
         return {}
-    agent = {r[0]: _role_oc_entry(r[1], r[3]("opencode"), r[4]) for r in active}
+    agent = {r[0]: _role_oc_entry(r[0], r[1], r[3]("opencode"), r[4]) for r in active}
     agent["tezgah-orchestrator"] = orch_opencode_entry(names)
     return {"agent": agent}
 

@@ -68,6 +68,8 @@ bin/tezgah-research
 bin/tezgah-research.py
 bin/tezgah-rollback
 bin/tezgah-rollback.py
+bin/tezgah-route
+bin/tezgah-route.py
 bin/tezgah-setup
 bin/tezgah-setup.py
 bin/tezgah-status
@@ -90,6 +92,7 @@ docs/hosts.md
 docs/index.json
 docs/judge.md
 docs/layers.md
+docs/models.md
 docs/operations.md
 docs/research.md
 docs/skills.md
@@ -110,6 +113,7 @@ hooks/tezgah_index.py
 hooks/tezgah_integrity.py
 hooks/tezgah_judge.py
 hooks/tezgah_lang.py
+hooks/tezgah_models.py
 hooks/tezgah_paths.py
 hooks/tezgah_policy.py
 hooks/tezgah_research.py
@@ -625,6 +629,7 @@ tests/test_lang.py
 tests/test_mcp_features.py
 tests/test_mcp_server.py
 tests/test_migrate.py
+tests/test_models.py
 tests/test_omp_extension.py
 tests/test_omp_hook.py
 tests/test_opencode_plugin.py

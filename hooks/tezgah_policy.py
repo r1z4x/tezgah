@@ -4,7 +4,7 @@
 Placeholders are filled by tezgah_context.render():
   {ROOT}        - the configured tezgah root the session is in
   {CONSULT_BIN} - the stable path to bin/consult
-  {CODEGEN_BIN} - the stable path to bin/codegen
+  {CODEGEN_BIN} - the stable path to bin/codegen; {ROUTE_BIN} to bin/tezgah-route
   {ORX_BIN}     - the stable path to the OpenResearch `orx` CLI, else bare `orx`
   {OPEN_LINES}  - the research lines already open, filled by
                   tezgah_context.context_for: that fact is about the repo the
@@ -273,14 +273,14 @@ sequence them. The shared artifact is the coordination channel, not chatter -
 naming a lead coordinates nothing by itself. If the work
 cannot be split - one file, one bounded change, a strictly serial chain - do it
 directly. Never spawn a subagent whose briefing is bigger than the work.
-Routing: the general-purpose agent for everything. A code-discovery briefing
-MUST name codegraph's tools (`codegraph callers`, `callees`, `impact`,
-`affected`, `node`, `files`, and the `codegraph_explore` MCP tool) and say
-"answer from the graph, grep only for literal text". Code discovery, "where is
-X", "who calls Y" and architecture mapping NEVER go to a grep-only explorer
-subagent in this tree: it greps by design and ignores the graph even after
-loading the schema (observed).
-graph-map/review/impact for depth (Claude only; user opt-in rules apply).
+Routing: `{ROUTE_BIN} "<brief>"` names the worker - tezgah-cheap, -standard or
+-frontier (overrides for stored data, credentials, security first; then a Jev
+judgement; the static phase table with no key). A worker that answers
+`ESCALATE:` is restarted on tezgah-frontier with the original brief, never
+continued; the main thread never switches model (the cache is per model). A
+code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,
+`impact`, `affected`, `node`, `files`, `codegraph_explore`) and says "answer from
+the graph, grep only for literal text"; never a grep-only explorer (observed).
 Subagents never orchestrate: no nested harnesses, no sub-subagents.
 
 ### Tier 2 - codegen (cheap model via OpenRouter)

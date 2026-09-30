@@ -364,11 +364,12 @@ or its optional tools and config, on its own initiative
 
 ## Triage: `tezgah-triage` and the `judge-off` switch
 
-One judgement seam serves three callers, each of them asking TypeSafe a batched
+One judgement seam serves four callers, each of them asking TypeSafe a batched
 question instead of paying an agent to read a page: the analyze-app loop's snapshot
 triage (`bin/tezgah-triage`), `bin/tezgah-docs` for a query its keyword index
 cannot place, and the prompt-path skill hint (`hooks/tezgah_skill_pick.py`), the
-one caller no shell row sees. All three go through the same stdlib-only seam,
+one caller no shell row sees, and `bin/tezgah-route`, the tier router
+([models](models.md)). All four go through the same stdlib-only seam,
 which returns `None` rather than raising because a hook may import it
 (`available()`, `hooks/tezgah_judge.py:163-167`); the request is
 one batched call, and the credential resolves per call (`ask()`,
@@ -443,8 +444,8 @@ page exits 1 with the message it always printed (`available()`,
   `bin/tezgah-context` — the health pass, the rollback, the checklist CLI, the
   injected text.
 - `bin/tezgah-triage`, `hooks/tezgah_judge.py`, `bin/tezgah-docs` — the snapshot
-  triage, the judgement seam all three callers share (the third is
-  `hooks/tezgah_skill_pick.py`), and the docs fallback that uses it;
+  triage, the judgement seam all four callers share (the third is
+  `hooks/tezgah_skill_pick.py`, the fourth `bin/tezgah-route`), and the docs fallback that uses it;
   `tests/test_judge.py`, `tests/test_triage.py` pin them against a loopback
   endpoint.
 - `hooks/tezgah_paths.py`, `hooks/tezgah_context.py` — the paths and `off()`; the

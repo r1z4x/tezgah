@@ -1851,7 +1851,8 @@ class ContextBudget(SetupBase):
         # a failing test about arithmetic rather than about the report.
         skills = len(setup_module().SKILLS)
         for band in ("core contract (always-on, per session)", "per-turn reminder",
-                     "skill metadata (%d)" % skills, "subagent metadata (5)",
+                     "skill metadata (%d)" % skills,
+                     "subagent metadata (%d)" % (len(setup_module().tezgah_agents.ROLES) + 1),
                      "conditional rules (armed by task class)",
                      "full contract (on demand)", "MCP tool schemas"):
             self.assertIn(band, out)

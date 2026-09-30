@@ -111,6 +111,15 @@ desselben Textes.
   oder `--provider inception`) entwirft
   begrenzte, gut spezifizierte Bearbeitungen in einem Scratch-Verzeichnis. Nichts gelangt in das Repo
   außer über den Router, und ein fehlgeschlagener Entwurf fällt automatisch auf das Hauptmodell zurück.
+- **Modell-Routing.** Drei Stufen-Worker (`tezgah-cheap`, `tezgah-standard`,
+  `tezgah-frontier`) ergänzen die generierten Agenten, und jeder generierte Agent
+  trägt das Modell, das seine Stufe auf diesem Host erhält: Opus 5.5 mit
+  rollenweisem Effort auf Claude, die OpenAI-Zeile auf Codex, günstigere Familien
+  auf omp und opencode, wenn die Sitzung nicht auf Claude läuft.
+  `tezgah-route "<brief>"` nennt den Worker (zuerst Regeln für gespeicherte Daten,
+  Zugangsdaten und Sicherheit, dann ein Jev-Urteil, dann eine feste Phasentabelle),
+  und `tezgah-route --refresh` hält Preise und IDs aktuell
+  ([docs/models.md](docs/models.md)).
 - **Pro-Repo-Subagenten.** Beim Sitzungsstart erhält das umschließende Repo eine kleine Gruppe von
   fähigkeitsbeschränkten Agenten (`tezgah-explorer`, `tezgah-reviewer`,
   `tezgah-researcher`, `tezgah-verifier`) plus einen `tezgah-orchestrator`, die

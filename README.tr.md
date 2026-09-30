@@ -147,6 +147,14 @@ ayrıntılar [Kurulum](#install) bölümünde.
   geçici bir dizine (scratch directory) sınırları belirlenmiş, iyi tanımlanmış düzenlemeler tasarlar.
   Yönlendirici (router) dışında hiçbir şey depoya ulaşmaz ve başarısız bir taslak otomatik olarak
   ana modele geri döner.
+- **Model yönlendirme.** Üretilen ajanlara üç kademe işçisi (`tezgah-cheap`,
+  `tezgah-standard`, `tezgah-frontier`) eklenir ve her üretilen ajan, kademesinin o
+  barındırıcıda aldığı modeli taşır: Claude'da rol başına effort ile Opus 5.5,
+  Codex'te OpenAI satırı, oturum Claude'da değilse omp ve opencode'da daha ucuz
+  aileler. `tezgah-route "<brief>"` işçiyi seçer (önce kalıcı veri, kimlik bilgisi
+  ve güvenlik için kurallar, sonra bir Jev kararı, sonra sabit aşama tablosu);
+  `tezgah-route --refresh` fiyatları ve kimlikleri güncel tutar
+  ([docs/models.md](docs/models.md)).
 - **Depo başına alt ajanlar (subagents).** Oturum başlangıcında, kapsayan depo, yetenekleri
   sınırlandırılmış küçük bir ajan seti (`tezgah-explorer`, `tezgah-reviewer`,
   `tezgah-researcher`, `tezgah-verifier`) ve bir `tezgah-orchestrator` alır; bunlar

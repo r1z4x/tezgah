@@ -328,7 +328,7 @@ def render(text, root=""):
     return (text.replace("{CONSULT_BIN}", tool("consult"))
                 .replace("{CODEGEN_BIN}", tool("codegen"))
                 .replace("{ORX_BIN}", orx_bin() or "orx")
-                .replace("{RESEARCH_BIN}", tool("tezgah-research"))
+                .replace("{RESEARCH_BIN}", tool("tezgah-research")).replace("{ROUTE_BIN}", tool("tezgah-route"))
                 .replace("{AI_RESEARCH_DIR}", ai_research_dir())
                 .replace("{PONY_LEVEL}", _pony_level_line())
                 .replace("{ROOT}", root or ACTIVE_ROOT[0]

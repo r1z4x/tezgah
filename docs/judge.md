@@ -1,8 +1,8 @@
-# Judge: the judgement seam, its three callers and its switches
+# Judge: the judgement seam, its four callers and its switches
 
 The judgement seam is `hooks/tezgah_judge.py`: one module that asks TypeSafe
 (Jev) for a batched structured judgement over a state tezgah would otherwise pay
-an agent to read. Read this page when you are about to call one of its three
+an agent to read. Read this page when you are about to call one of its four
 callers, when you need to say what leaves the machine, or when you have to tell a
 user how to switch it off. It is an on-demand capability, not a rule: no paragraph
 of it is injected into a session, and a session that never asks pays one clause in
@@ -11,7 +11,7 @@ the kill-switch paragraph and nothing else (`CORE`,
 
 ## What it is
 
-One seam, three callers, one credential, one egress boundary, one price, one
+One seam, four callers, one credential, one egress boundary, one price, one
 redirect guard. The module is stdlib only and total - a failure is a `None`, never
 an exception, because a hook imports it and a hook that raises takes a session
 down (`_request`, `hooks/tezgah_judge.py:274-293`). One endpoint and one key path
@@ -26,7 +26,7 @@ malformed reply never do (`_transient`, `hooks/tezgah_judge.py:262`).
 fallback's; both are test seams, not fallbacks.
 
 Every caller reads an answer through the same two accessors rather than reaching
-into the raw reply, so a Choice and a Noul are read one way for all three
+into the raw reply, so a Choice and a Noul are read one way for all four
 (`choice`, `hooks/tezgah_judge.py:232-241`; `noul`,
 `hooks/tezgah_judge.py:242-260`). Both are total: a missing or wrongly-typed
 answer is a `None`, never an exception.
@@ -47,13 +47,14 @@ workspace path, no environment, and the state is not redacted because sending it
 is the point. That is why both shell callers are explicit and the third is
 opt-in, and why the switches below are the off buttons.
 
-## The three callers
+## The four callers
 
 | Caller | What it asks, and what it is for | On failure |
 |---|---|---|
 | `bin/tezgah-triage` | the analyze-app snapshot triage. `--select FILE --task T` asks one question per repeating unit of the screen in one request and prints the line ids under the selected units with their refs (`select_request`, `bin/tezgah-triage:230-248`; the units are the tree's own repeating pieces, `units`, `bin/tezgah-triage:204-229`). `--states` asks one judgement per state over a component's subtree (`states`, `bin/tezgah-triage:308-431`) | exit 1 with one reason (`no_judgement`, `bin/tezgah-triage:107-113`), and the loop reads the tree directly |
 | `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:195-228`; the question wording is `ASK`, `bin/tezgah-docs:162-169`) | returns `None`; the command prints what it always printed and exits 1 |
 | `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py:144-176`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py:81-109`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py:46-48`) and an 8 s timeout (`ASK_TIMEOUT`, `hooks/tezgah_skill_pick.py:49-54`) | returns `""`; the turn loses the hint |
+| `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:291-309`; `TIER_QUESTION`, `hooks/tezgah_models.py:269-288`) - see [models](models.md) | the static phase table, else the middle tier |
 
 The third caller is the one no shell row can see: it runs on the prompt path,
 caches one answer per `(session, prompt)` (`_remember`,

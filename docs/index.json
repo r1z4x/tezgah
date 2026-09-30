@@ -146,7 +146,7 @@
   },
   {
    "path": "docs/judge.md",
-   "title": "Judge: the judgement seam, its three callers and its switches",
+   "title": "Judge: the judgement seam, its four callers and its switches",
    "audience": "agent, maintainer adding a caller",
    "answers": [
     "what is the judgement seam and is it a rule",
@@ -166,6 +166,24 @@
     "tests/test_judge.py",
     "tests/test_triage.py",
     "tests/test_docs_router.py"
+   ]
+  },
+  {
+   "path": "docs/models.md",
+   "title": "Models: which model runs which delegated task, and how the table stays current",
+   "audience": "agents and maintainers",
+   "answers": [
+    "which model does each subagent run on each host",
+    "how does tezgah-route pick a tier worker",
+    "why Opus effort levels and not Sonnet inside the Anthropic family",
+    "how is the model table kept current"
+   ],
+   "sources": [
+    "hooks/tezgah_models.py",
+    "bin/tezgah-route",
+    "hooks/tezgah_agents.py",
+    "hooks/tezgah_policy.py",
+    "bin/tezgah-setup"
    ]
   },
   {

@@ -186,6 +186,14 @@ and roots - are under [Install](#install).
   except through the router; on a failed draft (codegen exit 2) the contract
   requires the router to write the code itself with the main model - a rule the
   router follows, not a mechanism inside codegen.
+- **Model routing.** Three tier workers (`tezgah-cheap`, `tezgah-standard`,
+  `tezgah-frontier`) join the generated agents, and every generated agent carries
+  the model its tier gets on that host: Opus 5.5 at a per-role effort on Claude,
+  the OpenAI row on Codex, cheaper families on omp and opencode when the session is
+  not on Claude. `tezgah-route "<brief>"` names the worker (overrides for stored
+  data, credentials and security first, then a Jev judgement, then a static phase
+  table), and `tezgah-route --refresh` keeps prices and ids current
+  ([docs/models.md](docs/models.md)).
 - **Per-repo subagents.** At session start the enclosing repo gets a small set of
   capability-gated agents (`tezgah-explorer`, `tezgah-reviewer`,
   `tezgah-researcher`, `tezgah-verifier`) plus a `tezgah-orchestrator`, rendered

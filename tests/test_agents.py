@@ -83,15 +83,30 @@ class Generation(AgentsBase):
                          "the help path generated agents")
 
     def test_generates_every_active_role_for_every_file_host(self):
-        self.assertIn("4 agent(s)", self.sync())
+        self.assertIn("7 agent(s)", self.sync())
+        roles = ["cheap", "explorer", "frontier", "researcher", "reviewer",
+                 "standard", "verifier"]
         for d in (CLAUDE, OPENCODE, CODEX):
             self.assertEqual(
                 self.names(d),
-                ["tezgah-explorer.md", "tezgah-orchestrator.md",
-                 "tezgah-researcher.md", "tezgah-reviewer.md",
-                 "tezgah-verifier.md"] if d != CODEX else
-                ["tezgah-explorer.toml", "tezgah-researcher.toml",
-                 "tezgah-reviewer.toml", "tezgah-verifier.toml"])
+                sorted(["tezgah-%s.md" % r for r in roles] + ["tezgah-orchestrator.md"])
+                if d != CODEX else ["tezgah-%s.toml" % r for r in roles])
+
+    def test_each_agent_carries_its_tier_model_for_the_host_family(self):
+        # Claude/Cursor read the Anthropic row, Codex the OpenAI row; the
+        # orchestrator is the main thread's own agent and keeps the session model
+        self.sync()
+        cheap = self.read(CLAUDE, "tezgah-cheap.md")
+        self.assertIn("model: claude-opus-5-5\neffort: low", cheap)
+        self.assertIn("effort: high", self.read(CLAUDE, "tezgah-reviewer.md"))
+        self.assertIn("effort: medium", self.read(CLAUDE, "tezgah-explorer.md"))
+        self.assertIn("model: inherit", self.read(CLAUDE, "tezgah-orchestrator.md"))
+        codex = self.read(CODEX, "tezgah-frontier.toml")
+        self.assertIn('model = "gpt-6-astra"', codex)
+        self.assertIn('model_reasoning_effort = "high"', codex)
+        # opencode's selector depends on this machine's providers: none resolved,
+        # no model line, so the agent inherits instead of naming a missing model
+        self.assertNotIn("model:", self.read(OPENCODE, "tezgah-cheap.md"))
 
     def test_cursor_is_served_by_the_claude_dir(self):
         self.sync()
@@ -231,11 +246,13 @@ class OpencodeConfig(AgentsBase):
         self.assertEqual(orch["permission"]["task"]["*"], "deny")
         self.assertEqual(orch["permission"]["task"]["tezgah-*"], "allow")
 
-    def test_json_empty_without_capabilities(self):
+    def test_json_holds_only_the_tier_workers_without_capabilities(self):
         data = self.opencode_json(
             extra={"TEZGAH_CODEGRAPH_BIN": self.pathless(),
                    "TEZGAH_ORX_BIN": self.pathless()}, consult=False)
-        self.assertEqual(data, {})
+        self.assertEqual(sorted(data["agent"]),
+                         ["tezgah-cheap", "tezgah-frontier", "tezgah-orchestrator",
+                          "tezgah-standard"])
 
     def pathless(self):
         return os.path.join(self.home, "nope")
@@ -446,14 +463,18 @@ class OpencodePlugin(AgentsBase):
 
 
 class Gating(AgentsBase):
-    def test_no_capability_writes_nothing(self):
+    def test_no_capability_writes_only_the_tier_workers(self):
+        # routing needs no capability, so the tier workers (and the orchestrator
+        # that names them) are written even where no specialist is
         env = self.env(extra={"TEZGAH_CODEGRAPH_BIN": self.pathless(),
                               "TEZGAH_ORX_BIN": self.pathless()}, consult=False)
         out, proc = run_json([support.PROBE_AGENTS],
                              {"fn": "sync_root", "root": self.repo}, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIsNone(out)
-        self.assertEqual(self.names(CLAUDE), [])
+        self.assertEqual(out, "3 agent(s) written")
+        self.assertEqual(self.names(CLAUDE),
+                         ["tezgah-cheap.md", "tezgah-frontier.md",
+                          "tezgah-orchestrator.md", "tezgah-standard.md"])
 
     def pathless(self):
         return os.path.join(self.home, "nope")
@@ -570,7 +591,7 @@ class ContextWiring(AgentsBase):
         proc = subprocess.run([sys.executable, setup, "--agents", self.repo],
                               capture_output=True, text=True, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("4 agent(s) current", proc.stdout)
+        self.assertIn("7 agent(s) current", proc.stdout)
 
 
 if __name__ == "__main__":

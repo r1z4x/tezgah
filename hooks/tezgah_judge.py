@@ -220,7 +220,7 @@ def ask(state, questions, *, model=MODEL, timeout=30):
 def _answer(result, id):
     """The raw answer object for one question id, or None.
 
-    One guard for the three callers, because each of them had its own: a missing
+    One guard for every caller, because each of them had its own: a missing
     answer, an answer of the wrong shape and an answer of `null` all have to read
     the same way in every caller, and three copies of that is three places for the
     fourth caller to disagree."""

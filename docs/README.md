@@ -30,6 +30,7 @@ reader with one question in mind, and every non-obvious claim in it carries a
 | What is recorded, and what stops an unverified "done"? | [evidence](evidence.md) |
 | What does each status mark mean? | [status-line](status-line.md) |
 | What is the judgement seam, who may call it and how is it switched off? | [judge](judge.md) |
+| Which model runs which subagent, and how does `tezgah-route` pick one? | [models](models.md) |
 | Where does a research line live, and what does `tezgah-research check` refuse? | [research](research.md) |
 | What does each host get, and what can it observe? | [hosts](hosts.md) |
 | Which skills ship, and how does one reach a host? | [skills](skills.md) |

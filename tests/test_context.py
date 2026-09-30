@@ -898,6 +898,9 @@ class ContextBudget(ChildCall):
 
     def test_one_byte_over_budget_gives_up_the_lowest_value_block_first(self):
         repo = self.repo_with_state()
+        # the first session in a root writes the tier workers once and says so;
+        # settle it, so the two texts below differ only in the budget
+        self.session_start_text(repo)
         whole = self.session_start_text(repo)
         out = self.session_start_text(repo, limit=len(whole.encode()) - 1)
         # exactly one block was given up, and it is the lowest-value one
@@ -916,6 +919,9 @@ class ContextBudget(ChildCall):
 
     def test_the_drop_is_logged_with_what_went_and_at_what_size(self):
         repo = self.repo_with_state()
+        # the first session in a root writes the tier workers once and says so;
+        # settle it, so the two texts below differ only in the budget
+        self.session_start_text(repo)
         limit = len(self.session_start_text(repo).encode()) - 1
         self.session_start_text(repo, limit=limit)
         log = os.path.join(self.home, ".cache", "tezgah", "context-drops.log")
@@ -1128,6 +1134,9 @@ class ResumeBlock(ChildCall):
 
     def test_a_tight_budget_gives_up_the_plan_table_before_the_resume_block(self):
         repo = self.full_repo()
+        # the first session in a root writes the tier workers once and says so;
+        # settle it, so the two texts below differ only in the budget
+        self.session(repo, session="settle")
         whole = self.session(repo)
         out = self.session(repo, limit=len(whole.encode()) - 1)
         # one byte over drops the lowest-value block that is actually present -

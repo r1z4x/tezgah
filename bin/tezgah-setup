@@ -792,7 +792,7 @@ def install_common(new_roots, hosts):
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
-            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")), ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")), ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp")), ("tezgah-design", os.path.join(HERE, "bin", "tezgah-design")), ("tezgah-decisions", os.path.join(HERE, "bin", "tezgah-decisions"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations. Not here on purpose: tezgah-dsh (wired as ~/.local/bin/dsh, see dsh_launcher) and tezgah-import-ai-research (dev-time only, its docstring)
+            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")), ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")), ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp")), ("tezgah-design", os.path.join(HERE, "bin", "tezgah-design")), ("tezgah-decisions", os.path.join(HERE, "bin", "tezgah-decisions")), ("tezgah-route", os.path.join(HERE, "bin", "tezgah-route"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations. Not here on purpose: tezgah-dsh (wired as ~/.local/bin/dsh, see dsh_launcher) and tezgah-import-ai-research (dev-time only, its docstring)
         print(link(src, os.path.join(tp.BIN_DIR, name)))
     mkdirp(tezgah_apps.ARTIFACTS)
     print("%s app artifacts -> %s" % (OK, tezgah_apps.ARTIFACTS))
@@ -1898,7 +1898,7 @@ def install_omp():
         hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
         if write_if_changed(hook_dst, hook):
             print("%s %s (contract + gate + status line)" % (OK, hook_dst))
-        register_omp_hook(hook_dst)
+        register_omp(hook_dst)
 
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
@@ -2866,7 +2866,7 @@ def uninstall_omp():
         print("%s removed %s" % (OK, hook))
     else:
         unlink_tezgah(hook)
-    unregister_omp_hook(hook)
+    unregister_omp(hook)
     mcp_path = os.path.join(OMP_AGENT, "mcp.json")
     cfg = read_json(mcp_path, None)
     if isinstance(cfg, dict):
@@ -3668,7 +3668,7 @@ def host_checks_omp():
         # alone serves the seam, an omp login-store record alone serves omp.
         ("judgement seam key resolvable (env or key file)",
          tp.have_judge_key()),
-        ("status line answers", omp_hook_answers()),
+        ("status line answers", omp_hook_answers()), ("tier models in task.agentModelOverrides", tier_models_current()),
     ]
     # omp reads orx's shim from its native `~/.agents/skills` root (ORX_AGENTS);
     # the row is asked only where orx is selected, as the install is
@@ -4516,6 +4516,36 @@ def hosts_row():
     return ("config.json hosts (%s) match the hosts wired (%s)"
             % (", ".join(recorded) or "none", ", ".join(wired) or "none"),
             recorded == wired)
+
+
+# --- tier models on omp ------------------------------------------------------
+# Kept at the end of the file on purpose: the docs cite this file by line, and a
+# helper inserted above the cited lines would move them.
+
+def register_omp(hook_dst):
+    """The bridge in omp's `extensions`, then the tier workers' models in
+    `task.agentModelOverrides` (hooks/tezgah_models.py), the user's entries kept."""
+    register_omp_hook(hook_dst)
+    status = tezgah_agents.tm.apply_omp()
+    ok = bool(status) and "NOT" not in status
+    print("%s %s" % (OK if ok else NO,
+                     status or "omp not answering: tier model overrides not written"))
+
+
+def unregister_omp(hook_dst):
+    """Undo register_omp: the bridge and every tezgah-* model override."""
+    unregister_omp_hook(hook_dst)
+    status = tezgah_agents.tm.apply_omp(remove=True)
+    if status:
+        print("%s %s" % (OK if "NOT" not in status else NO, status))
+
+
+def tier_models_current():
+    """Every tezgah-* override omp should carry is there, with the table's model."""
+    tm = tezgah_agents.tm
+    current = tm.omp_get("task.agentModelOverrides") or {}
+    want = tm.omp_overrides(tm.omp_mode((tm.omp_get("modelRoles") or {}).get("default")))
+    return all(current.get(k) == v for k, v in want.items())
 
 
 if __name__ == "__main__":
