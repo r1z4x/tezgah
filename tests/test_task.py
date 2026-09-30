@@ -543,13 +543,30 @@ class Cli(TempHome):
         sha = self.head()
         self.plan("001-a.md", phase="implementation", allowed=["hooks/**"],
                   checkpoint="pending %s" % sha)
+        self.dirty("hooks/x.py")          # the dirty tree the checkpoint is about
         first = self.task("status").stdout
         self.assertIn("checkpoint: pending on %s" % sha, first)
-        self.dirty("hooks/x.py")
         self.commit("hooks/x.py", message="checkpoint: before 001-a")
         after = self.task("status").stdout
         self.assertIn("checkpoint: satisfied - HEAD moved off %s" % sha, after)
         self.assertNotIn("writes are refused", after)
+
+    def test_the_checkpoint_line_reads_the_tree_the_way_the_gate_does(self):
+        # The gate refuses only while HEAD is the recorded sha AND the tree is
+        # dirty (hooks/tezgah_gate.checkpoint_reason). A user who discards the
+        # uncommitted work instead of committing it leaves the tree clean with
+        # HEAD still the recorded sha - the gate allows the write, so the status
+        # line must not claim the phase is refused.
+        sha = self.head()
+        self.plan("001-a.md", phase="implementation", allowed=["hooks/**"],
+                  checkpoint="pending %s" % sha)
+        self.dirty(".gitignore")
+        self.assertIn("checkpoint: pending on %s" % sha, self.task("status").stdout)
+        subprocess.run(["git", "-C", self.repo, "checkout", "--", ".gitignore"],
+                       check=True, capture_output=True, env=dict(os.environ, **GIT_ENV))
+        out = self.task("status").stdout
+        self.assertIn("checkpoint: satisfied - the tree is clean again", out)
+        self.assertNotIn("writes are refused", out)
 
     def test_verification_lists_every_item_and_the_projects_diff_base(self):
         path = self.plan("001-first.md", allowed=["hooks/**"])
