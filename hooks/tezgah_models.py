@@ -221,6 +221,8 @@ def omp_overrides(mode):
     mode that is measured as a flash model, so security-sensitive work would run
     below the row. Only `tezgah-orchestrator` stays outside the record - it is
     the main thread's own agent."""
+    if mode not in ("anthropic", "any"):
+        return {}  # `off` asks for nothing; the record stays as the user left it
     if mode == "any" and not openrouter_ready():
         return {}  # nothing can run here; `apply_omp` says so and writes nothing
     family = "anthropic" if mode == "anthropic" else "any"

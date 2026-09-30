@@ -285,6 +285,12 @@ class OmpOverrides(unittest.TestCase):
             tm.apply_omp(remove=True)
         self.assertEqual(store["task.agentModelOverrides"], {})
 
+    def test_the_off_mode_wants_nothing_at_all(self):
+        # the status row reads this: an `off` machine must not look like one with
+        # a missing override, because no repair could ever clear that row
+        self.assertEqual(tm.omp_overrides("off"), {})
+        self.assertEqual(tm.omp_role_overrides("off"), {})
+
     def test_the_any_mode_is_empty_without_a_credential(self):
         # nothing can run through OpenRouter here, so the table emits no selector
         # for that mode at all - which is what the omp status row reads as current

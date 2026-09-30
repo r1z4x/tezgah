@@ -4552,8 +4552,11 @@ def tier_models_current():
     mode = tm.omp_mode(roles.get("default"))
     want = tm.omp_overrides(mode)
     want_roles = tm.omp_role_overrides(mode)
-    return (not want or all(current.get(k) == v for k, v in want.items())) and \
-        all(roles.get(k.split(".", 1)[-1]) == v for k, v in want_roles.items())
+    # an `any` mode with no reachable credential wants nothing either (omp_overrides
+    # answers {} for it), which is the same not-applicable state as `off`
+    return (not want and not want_roles or
+            (all(current.get(k) == v for k, v in want.items()) and
+             all(roles.get(k.split(".", 1)[-1]) == v for k, v in want_roles.items())))
 
 
 if __name__ == "__main__":
