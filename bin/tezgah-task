@@ -157,13 +157,26 @@ def checkpoint_state(value, path):
     """The checkpoint line `show` prints for a plan in `implementation`: the sha
     the work returns to, or the commit the phase waits for - named with the sha it
     has to move off and with the one command that does it, because that command's
-    completion is what clears the gate's refusal."""
+    completion is what clears the gate's refusal.
+
+    The refusal is `HEAD != the recorded sha`, so the line reads the checkout
+    rather than the record alone: after the commit the refusal names, the record
+    still carries `pending <sha>` until the next phase move rewrites it, and a
+    status that kept printing "writes are refused" would report a boundary the
+    gate has already lifted."""
     sha = tt.checkpoint_sha(value)
     if sha:
-        print("  checkpoint: pending on %s - the tree held uncommitted changes "
-              "when the phase began, so this phase's writes are refused until the "
-              "commit that moves HEAD off it: %s"
-              % (sha, tt.checkpoint_command(path)))
+        head = subprocess.run(["git", "-C", os.path.dirname(path) or ".",
+                               "rev-parse", "HEAD"], capture_output=True,
+                              text=True).stdout.strip()
+        if head and head != sha:
+            print("  checkpoint: satisfied - HEAD moved off %s, so this phase's "
+                  "writes are allowed" % sha)
+        else:
+            print("  checkpoint: pending on %s - the tree held uncommitted changes "
+                  "when the phase began, so this phase's writes are refused until "
+                  "the commit that moves HEAD off it: %s"
+                  % (sha, tt.checkpoint_command(path)))
     elif value:
         print("  checkpoint: %s" % value)
     else:

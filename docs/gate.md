@@ -20,7 +20,7 @@ Each host's pre-tool hook calls it and wraps the string in that host's own deny 
 | opencode | `hosts/opencode/plugins/tezgah.js:1611` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:1725` |
 
 Every refusal is also recorded before it is returned: `_deny` appends a ledger row `deny` whose `detail` is `"<rule>: <reason, first 80 chars>"`, plus any
-`extra` (`hooks/tezgah_gate.py:1360-1375-1206`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
+`extra` (`hooks/tezgah_gate.py:1360-1375`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
 
 A call the gate lets through is also where it keeps the pre-write bytes: `capture` runs for a write tool, and for a shell command that writes a file through a
 redirect or `tee` - the same shape the task phase rule reads, `write_paths` returns the target for both routes, and a shell write gets its pre-state the same
@@ -35,7 +35,7 @@ identical call; *standing*, only changing the call does.
 
 ### Explorer — the grep-only subagent
 
-Trigger: tool `agent`/`task`/`subagent` whose `subagent_type` is `explore` or `explorer`, case-insensitively (`hooks/tezgah_gate.py:1058-1059`, `explored` `hooks/tezgah_gate.py:373-387-372`). Told: use
+Trigger: tool `agent`/`task`/`subagent` whose `subagent_type` is `explore` or `explorer`, case-insensitively (`hooks/tezgah_gate.py:1058-1059`, `explored` `hooks/tezgah_gate.py:368-372`). Told: use
 the general-purpose agent and name the codegraph tools in its prompt (`EXPLORE_DENY` `hooks/tezgah_gate.py:217-223`). Standing: no mark, every such
 request is refused.
 
@@ -276,7 +276,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` h
 1. Write the check inside `decision` (`hooks/tezgah_gate.py:1376-1570`). A rule is a function returning a `str` reason or `None`; keep an argument-shaped rule
    above the repeat guards (`hooks/tezgah_gate.py:1269-1275`) — the drift refusal stays last, below every other rule — and put its constants beside its own section.
    Moving this file shifts every line-number citation on this page, so re-run `bin/tezgah-docs --citations` in the same pass as the suite and re-anchor what it flags.
-2. Return through `_deny(session_id, "<rule>", reason, tool, inp, base)` so the ledger counts the refusal (`hooks/tezgah_gate.py:1360-1375-1206`); gate it on the kill switch it belongs
+2. Return through `_deny(session_id, "<rule>", reason, tool, inp, base)` so the ledger counts the refusal (`hooks/tezgah_gate.py:1360-1375`); gate it on the kill switch it belongs
    to (`off(...)`), the way the shortcut and repeat rules use `verify-off` (`hooks/tezgah_gate.py:1233`, `hooks/tezgah_gate.py:1336`). The rule name is now a record too: add its row to
    [Rule provenance](#rule-provenance), or `bin/tezgah-docs --citations` refuses the rule for having none.
 3. Extend `tests/test_gate.py`. It drives the real function through `tests/_probe_gate.py` (`tests/support.py:20`), which also carries the `capture_log` stub
@@ -288,7 +288,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` h
 ## Source of truth
 
 - `hooks/tezgah_gate.py` — `decision` `hooks/tezgah_gate.py:1376-1570`; every rule constant and refusal text `hooks/tezgah_gate.py:113-213`; `attribution`/`attribution_edit` `hooks/tezgah_gate.py:237-271`; `explored`
-  `hooks/tezgah_gate.py:373-387-372`; `searched_identifier` `hooks/tezgah_gate.py:373-387`, `index_slug` `hooks/tezgah_gate.py:388-407`, `first_nudge` `hooks/tezgah_gate.py:408-424`, `nudge_reason` `hooks/tezgah_gate.py:425-445`; `LOOP_ATTEMPTS` `hooks/tezgah_gate.py:446-446`, `loop_reason` `hooks/tezgah_gate.py:471-501`,
+  `hooks/tezgah_gate.py:368-372`; `searched_identifier` `hooks/tezgah_gate.py:373-387`, `index_slug` `hooks/tezgah_gate.py:388-407`, `first_nudge` `hooks/tezgah_gate.py:408-424`, `nudge_reason` `hooks/tezgah_gate.py:425-445`; `LOOP_ATTEMPTS` `hooks/tezgah_gate.py:446-446`, `loop_reason` `hooks/tezgah_gate.py:471-501`,
   `RETRY_CEILING` `hooks/tezgah_gate.py:468-470`, `retry_reason` `hooks/tezgah_gate.py:502-527`; `secret_command` `hooks/tezgah_gate.py:528-562`, `race_reason` `hooks/tezgah_gate.py:618-655`,
   `drift_reason` `hooks/tezgah_gate.py:1137-1166`, `effectful` `hooks/tezgah_gate.py:1064-1072`, `_deny` `hooks/tezgah_gate.py:1360-1375`; the plan rule's own section `hooks/tezgah_gate.py:1072-1185` — `plan_reason` `hooks/tezgah_gate.py:1333-1359`, `_branch` `hooks/tezgah_gate.py:1239-1261`, `_product_path` `hooks/tezgah_gate.py:1315-1332`, `PLAN_DENY` `hooks/tezgah_gate.py:1211-1220`; `write_paths` `hooks/tezgah_gate.py:590-617`, `shell_target` `hooks/tezgah_gate.py:942-981`, `SHELL_AS_WRITE` `hooks/tezgah_gate.py:587-589`; the `capture` call `hooks/tezgah_gate.py:1306-1325` (a write tool's target, and a shell write's)
 - `hooks/projects-pretooluse.py` — the Claude and dsh envelope; `hooks/tezgah_paths.py` — `off`, `root_for`, `cache_dir`

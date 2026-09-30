@@ -380,10 +380,12 @@ class SkillRecording(TempHome):
         # used to swallow it and answer a different question with exit 0, which
         # read as a success for a flag the user never got.
         for extra in (("--all",), ("--skill-fitness", "--all"),
-                      ("--failure-shapes", "--all"), ("--all", "--json")):
+                      ("--failure-shapes", "--all"), ("--all", "--json"),
+                      ("--skill-fitness", "--trend"),
+                      ("--skill-fitness", "--weeks=3")):
             proc = run([self.cli] + list(extra), env=self.envv)
             self.assertEqual(proc.returncode, 2, extra)
-            self.assertIn("--all only means something with --counters", proc.stderr)
+            self.assertIn("only means something with --counters", proc.stderr)
         # and the report itself is untouched by the check
         proc = run([self.cli, "--skill-fitness"], env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)

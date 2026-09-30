@@ -660,8 +660,11 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   // this field leaves the name unrecoverable - and the same rule as the Python
   // writer's: the name as the host spelled it, and an empty one left out with
   // the rest of the unknown fields.
+  // Redacted and cut like `detail` above, and like the Python writer's
+  // `_stored_text`: the name can come from a fabricated call, so it is free text
+  // from the host and gets the whole-text redaction and the same cap.
   const callName = String(tool || "").trim()
-  if (callName) row.tool = callName
+  if (callName) row.tool = redact(callName).slice(0, DETAIL_MAX)
   // A write tool's `edit` row and a shell call that writes a file (`run`) carry
   // the same after-state pair, because the gate captured the same target for both
   // (hooks/tezgah_integrity.note_tool). A check row is not one: the row that

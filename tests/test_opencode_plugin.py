@@ -1040,6 +1040,24 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(ti._counts(rows, tools=True)["tools"],
                          {"bash": 1, "write": 1})
 
+    def test_the_tool_field_is_redacted_and_cut_like_the_detail(self):
+        # The name can come from a fabricated call, so it is free text from the
+        # host and gets what every free-text field gets: the whole-text redaction
+        # and the same cap as `detail`. The Python writer stores it through
+        # `_stored_text` (tests/test_gate.py pins that half); this is the
+        # opencode twin, which used to write the raw name into the row.
+        # Two shapes, because the two rules bite on different input: a prefixed
+        # token is redacted (the pattern is word-anchored, so the value has to be
+        # the whole name), and a long ordinary name is cut, not stored whole.
+        secret = "ghp_" + "a" * 36
+        self.after(secret, {"prompt": "x"}, result={"output": "ok"})
+        self.after("call_" + "b" * 300, {"prompt": "x"}, result={"output": "ok"})
+        rows = self.ledger()
+        self.assertNotIn(secret, rows[0]["tool"])
+        self.assertTrue(rows[0]["tool"].startswith("[redacted:"), rows[0]["tool"])
+        self.assertLessEqual(len(rows[1]["tool"]), 200)
+        self.assertNotIn("b" * 300, rows[1]["tool"])
+
     def test_the_id_is_the_hash_the_python_writer_computes(self):
         # sha1(tool + " " + canonical)[:12], the frozen formula, computed by the
         # Python half itself: an id that drifts here is an opencode row the

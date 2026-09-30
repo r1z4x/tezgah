@@ -188,16 +188,11 @@ def main():
         sys.stderr.write("tezgah-status: --all only means something with "
                          "--counters\n")
         return 2
-    if "--skill-fitness" in flags:
-        fit = skill_fitness()
-        if "--json" in flags:
-            print(json.dumps(fit, sort_keys=True))
-            return 0
-        print_fitness(fit)
-        return 0
-    # `--trend` and `--weeks` are modifiers of the same fold: alone they read
+    # `--trend` and `--weeks` are modifiers of the counters fold: alone they read
     # like a report of their own, and a silent no-op would print the status line
-    # instead - the answer to a question that was never asked.
+    # instead - the answer to a question that was never asked. The check sits
+    # above every report branch, `--skill-fitness` included, for the same reason
+    # `--all`'s does: a branch that returns first would swallow the flag.
     modifier = next((name for name, given in (("--trend", "--trend" in flags),
                                               ("--weeks", weeks is not None))
                      if given), None)
@@ -205,6 +200,13 @@ def main():
         sys.stderr.write("tezgah-status: %s only means something with "
                          "--counters\n" % modifier)
         return 2
+    if "--skill-fitness" in flags:
+        fit = skill_fitness()
+        if "--json" in flags:
+            print(json.dumps(fit, sort_keys=True))
+            return 0
+        print_fitness(fit)
+        return 0
     if "--counters" in flags:
         import tezgah_integrity as ti
         trend = "--trend" in flags

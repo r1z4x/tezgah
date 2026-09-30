@@ -62,7 +62,8 @@ def read(path):
 
 
 def plan_text(ident=None, phase=None, allowed=None, title="a plan", body="the goal",
-              spike=None, spike_box="one focused session", spike_recorded=None):
+              spike=None, spike_box="one focused session", spike_recorded=None,
+              checkpoint=None):
     """One plan file: the keys a real one carries, plus whichever of the optional
     ones the test is about. The four spike keys go together, so one `spike=`
     writes the block and `spike_recorded=` is what the answer fills in."""
@@ -78,6 +79,8 @@ def plan_text(ident=None, phase=None, allowed=None, title="a plan", body="the go
         front += ["spike: %s" % spike, "spike_box: %s" % spike_box,
                   "spike_recorded: %s" % (spike_recorded or ""),
                   "spike_throwaway: true"]
+    if checkpoint is not None:
+        front.append("checkpoint: %s" % checkpoint)
     return "---\n%s\n---\n## Goal\n%s\n" % ("\n".join(front), body)
 
 
@@ -530,6 +533,23 @@ class Cli(TempHome):
         self.assertEqual(tt.frontmatter(read(path))["checkpoint"], self.head())
 
     # ---------------------------------------------- verification and close
+
+    def test_the_checkpoint_line_stops_claiming_a_lifted_refusal(self):
+        # The gate's refusal is `HEAD != the recorded sha`, so the status line
+        # reads the checkout too: after the commit the refusal names - the
+        # documented way out - the record still says `pending <sha>` until a
+        # later phase move rewrites it, and printing "writes are refused" there
+        # would report a boundary the gate has already lifted.
+        sha = self.head()
+        self.plan("001-a.md", phase="implementation", allowed=["hooks/**"],
+                  checkpoint="pending %s" % sha)
+        first = self.task("status").stdout
+        self.assertIn("checkpoint: pending on %s" % sha, first)
+        self.dirty("hooks/x.py")
+        self.commit("hooks/x.py", message="checkpoint: before 001-a")
+        after = self.task("status").stdout
+        self.assertIn("checkpoint: satisfied - HEAD moved off %s" % sha, after)
+        self.assertNotIn("writes are refused", after)
 
     def test_verification_lists_every_item_and_the_projects_diff_base(self):
         path = self.plan("001-first.md", allowed=["hooks/**"])

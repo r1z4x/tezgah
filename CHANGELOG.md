@@ -44,7 +44,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   It now has its section, and the page carries a `## Rule provenance` table: one
   row per gate rule and per Stop class, naming the incident that produced it, where
   the evidence is written down, the test that pins it, and the commit it arrived
-  in - 23 rows, `designed` where no incident is recorded, because the ratio
+  in - 24 rows, `designed` where no incident is recorded, because the ratio
   between the two is the maturity signal. `bin/tezgah-docs --citations` reads the
   rule names off the source with `ast` and fails on a rule with no row and on a
   row whose `pin` names no test, so the table cannot drift away from the code and
