@@ -653,7 +653,7 @@ class OpenRouterFallback(JudgeCase):
         self.assertEqual(len(Fake.seen), 1, "more than one request went out")
         body = Fake.seen[0]["body"]
         self.assertEqual(Fake.seen[0]["path"], "/v1/chat/completions")
-        self.assertEqual(body["model"], tezgah_judge.FALLBACK_MODEL)
+        self.assertEqual(body["model"], tezgah_judge.fallback_model())
         self.assertEqual(body["temperature"], 0)
         self.assertEqual(body["response_format"], {"type": "json_object"})
         self.assertEqual([m["role"] for m in body["messages"]],
@@ -663,7 +663,7 @@ class OpenRouterFallback(JudgeCase):
         self.assertEqual(sorted(asked["questions"]), ["urgent"])
         self.assertEqual(out["answers"], {"urgent": {"noul": 0.8}})
         self.assertEqual(out["usage"], {"input_tokens": 11, "output_tokens": 3})
-        self.assertEqual(out["model"], tezgah_judge.FALLBACK_MODEL)
+        self.assertEqual(out["model"], tezgah_judge.fallback_model())
         self.assertIsInstance(out["latency_ms"], int)
 
     def test_a_choice_answer_maps_into_what_the_callers_read(self):
