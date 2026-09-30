@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-09-30
+
 ### Added
 
 - **The evidence readers: a drift series, a tool-firing histogram, and a
@@ -2583,6 +2585,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.25.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.25.0
 [0.24.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.24.0
 [0.21.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.21.0
 [0.20.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.20.0
