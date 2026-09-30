@@ -6,6 +6,7 @@
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
   tezgah-research check [<slug>] [--json] [--strict] [--orx]  the discipline checks
   tezgah-research status                           one line per research line
+  tezgah-research --all                            every checkout's lines (git worktrees)
   tezgah-research claim <slug>                     record one claim from stdin
   tezgah-research predict <slug>                   record one prediction from stdin
   tezgah-research components [--json]              what predicts what, per component
@@ -547,11 +548,21 @@ def cmd_close(args):
 
 
 
+def cmd_all(args):
+    if args:
+        return misuse("--all takes no arguments")
+    for row in tr.across(repo_root(os.getcwd())):
+        print(row)
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
     cmd, rest = argv[1], argv[2:]
+    if cmd == "--all":
+        return cmd_all(rest)
     if cmd == "init":
         return cmd_init(rest)
     if cmd == "commit":
@@ -574,7 +585,7 @@ def main(argv):
         return cmd_compare(rest)
     if cmd == "close":
         return cmd_close(rest)
-    return misuse("unknown command %r (init, commit, check, status, claim, predict, "
+    return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "
                   "components, migrate, source, compare, close)" % cmd)
 
 

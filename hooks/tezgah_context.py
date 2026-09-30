@@ -23,7 +23,7 @@ from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
 from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
                           consult_options, ensure_workspace, have_judge_key, off,
                           orx_bin, pony_level, root_for, roots, tool,
-                          writable_dir)
+                          workspace, worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
     # once per user prompt for the phase line. The module is newer than some
@@ -610,6 +610,30 @@ def open_plans(root):
             "open plan work happens on its `plan/NNN-slug` branch." % "\n".join(lines))
 
 
+def sibling_line(root):
+    """One line naming every checkout of this repository with its open plan and
+    research line counts, or "" when it has one checkout. Fork-free (the pinned
+    session-start git budget): `worktrees` reads `.git/worktrees/*/gitdir`, and
+    the counts are directory listings. Each checkout keeps its own `.tezgah`;
+    this only makes the others visible."""
+    checkouts = worktrees(root)
+    if len(checkouts) < 2:
+        return ""
+    here = os.path.realpath(root)
+    items = []
+    for checkout in checkouts:
+        ws = workspace(checkout)
+        state = ("no workspace yet" if not os.path.isdir(ws) else
+                 "%d open plan(s), %d research line(s)"
+                 % (len(glob.glob(os.path.join(ws, "plans", "open", "*.md"))),
+                    len(tezgah_research.slugs(checkout))))
+        items.append("%s (%s%s)" % (checkout, "this checkout, " if checkout == here
+                                    else "", state))
+    return ("Worktrees: %d checkouts of this repository, each with its own "
+            "`.tezgah`: %s. Detail: `%s --all`."
+            % (len(checkouts), "; ".join(items), tool("tezgah-research")))
+
+
 def task_line(task):
     """The active task, one line: what it is, its phase, and what it may write.
 
@@ -1113,7 +1137,8 @@ CONTEXT_BUDGET = {"session_start": 12000, "post_compact": 12000,
 DEFAULT_BUDGET = 12000
 # The blocks in the order they are given up when the budget is exceeded, lowest
 # value first: text another surface already carries (the plan table
-# lives in the plan-status skill, the lessons file is on disk, the
+# lives in the plan-status skill, the sibling checkouts in `tezgah-research
+# --all`, the lessons file is on disk, the
 # generated-subagent note is a one-time fact), then the tooling-availability
 # lines, then the live state lines - the stale-graph glance, then the resume
 # block, which outlives every status and availability line because it is the only
@@ -1126,7 +1151,7 @@ DEFAULT_BUDGET = 12000
 # the per-turn reminder ARE the rules, and a budget that could spend them would
 # turn bloat into rule loss - which is the failure the budget exists to prevent,
 # not one it may cause.
-DROP_ORDER = ("knowledge", "lessons", "plans", "subagents", "steer",
+DROP_ORDER = ("knowledge", "worktrees", "lessons", "plans", "subagents", "steer",
               "consult", "research", "research_broken", "graph", "offnote",
               "orchestrate", "index", "resume", "scratch", "task", "delta",
               "pointer")
@@ -1421,6 +1446,9 @@ def context_for(event, cwd, payload=None, with_core=True):
         plans = open_plans(root)
         if plans:
             parts.append(("plans", plans))
+        siblings = sibling_line(root) if root not in roots() else ""
+        if siblings:
+            parts.append(("worktrees", siblings))
         # The project's own rule files, agents and skills (tezgah-migrate's
         # index): they stay where the project keeps them, and one line makes a
         # session read the rows its task touches instead of never seeing them.

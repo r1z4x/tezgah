@@ -639,6 +639,7 @@ tests/test_opencode_plugin.py
 tests/test_packaging.py
 tests/test_packaging_scripts.py
 tests/test_paths.py
+tests/test_paths_worktree.py
 tests/test_platform.py
 tests/test_providers.py
 tests/test_research.py

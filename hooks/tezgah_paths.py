@@ -181,15 +181,92 @@ def roots():
 
 
 def root_for(path):
-    """The configured root containing path, or None when tezgah is not armed here."""
+    """The configured root containing path, or None when tezgah is not armed here.
+
+    A linked worktree outside every root is armed when its main checkout is under
+    one, and answers its own top level: every caller treats the answer as a base
+    `path` sits under, so the configured root would not do there."""
     try:
         real = os.path.realpath(path)
     except OSError:
         return None
-    for r in roots():
+    rs = roots()
+    for r in rs:
         if real == r or real.startswith(r + os.sep):
             return r
+    main = linked_main(real)
+    if main and any(main == r or main.startswith(r + os.sep) for r in rs):
+        return _toplevel(real)
     return None
+
+
+def _toplevel(real):
+    """The nearest directory at or above `real` holding a `.git` entry, else None."""
+    cur = real
+    while not os.path.lexists(os.path.join(cur, ".git")):
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+    return cur
+
+
+def linked_main(path):
+    """The main checkout of the linked worktree holding `path`, else None.
+
+    Read from the worktree's `.git` pointer file (`gitdir: <main>/.git/worktrees/
+    <name>`), never from git: `root_for` runs on every gate call and a session
+    start's git forks are pinned. A plain checkout (`.git` is a directory), a
+    submodule (a `/modules/` pointer) and a bare main (no `.git` component)
+    answer None."""
+    top = _toplevel(os.path.realpath(path))
+    if not top:
+        return None
+    try:
+        with open(os.path.join(top, ".git"), encoding="utf-8") as fh:
+            line = fh.readline().strip()
+    except (OSError, UnicodeDecodeError):  # a directory is the plain checkout
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    gitdir = os.path.normpath(os.path.join(top, line[len("gitdir:"):].strip()))
+    dotgit = os.path.dirname(os.path.dirname(gitdir))
+    if os.path.basename(os.path.dirname(gitdir)) != "worktrees" \
+            or os.path.basename(dotgit) != ".git":
+        return None
+    return os.path.realpath(os.path.dirname(dotgit))
+
+
+def worktrees(repo):
+    """Every checkout of the repository `repo` is in, main first, as real paths;
+    [] outside a git checkout.
+
+    Fork-free, from `<main>/.git/worktrees/*/gitdir` (each names a linked
+    worktree's `.git`). An entry whose target is gone - deleted without `git
+    worktree remove` - is skipped: git itself keeps it, marked prunable, until
+    `git worktree prune`. Each checkout keeps its own `.tezgah`; this only names
+    them."""
+    main = linked_main(repo)
+    if not main:
+        main = _toplevel(os.path.realpath(repo))
+        if not main or not os.path.isdir(os.path.join(main, ".git")):
+            return []
+    base = os.path.join(main, ".git", "worktrees")
+    out = [main]
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return out
+    for name in names:
+        try:
+            with open(os.path.join(base, name, "gitdir"), encoding="utf-8") as fh:
+                pointer = fh.readline().strip()
+        except (OSError, UnicodeDecodeError):
+            continue
+        dot = os.path.join(base, name, pointer)
+        if pointer and os.path.exists(dot):
+            out.append(os.path.realpath(os.path.dirname(dot)))
+    return out
 
 
 def which_user(name):
