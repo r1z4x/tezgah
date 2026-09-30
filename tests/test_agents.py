@@ -97,7 +97,9 @@ class Generation(AgentsBase):
         # orchestrator is the main thread's own agent and keeps the session model
         self.sync()
         cheap = self.read(CLAUDE, "tezgah-cheap.md")
-        self.assertIn("model: claude-opus-5-5\neffort: low", cheap)
+        # the alias, not the full id: an alias follows the provider and keeps the
+        # main session's variant, where a full id breaks on Bedrock or a gateway
+        self.assertIn("model: opus\neffort: low", cheap)
         self.assertIn("effort: high", self.read(CLAUDE, "tezgah-reviewer.md"))
         self.assertIn("effort: medium", self.read(CLAUDE, "tezgah-explorer.md"))
         self.assertIn("model: inherit", self.read(CLAUDE, "tezgah-orchestrator.md"))
