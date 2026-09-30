@@ -64,8 +64,8 @@ be told apart and the same summary can be recognised twice), the host's own word
 stored** — it is the whole conversation by proxy and the ledger is a redacted channel — so a row can
 never be read back as prose. The constraint report is `constraint_found` of `constraint_expected`: how
 many of the fixed sentences tezgah injects the summary still carries, counted against the very text the
-block renders (`constraint_lines`, `hooks/tezgah_context.py:1154-1172`, over `POINTER_LINE`
-`:1146-1147` and the active plan's front matter). It is a **report and never a refusal**: a compaction
+block renders (`constraint_lines`, `hooks/tezgah_context.py:1162-1180`, over `POINTER_LINE`
+`:1154-1155` and the active plan's front matter). It is a **report and never a refusal**: a compaction
 that dropped a rule is a finding to report, not a turn to block. A host that hands no summary writes no
 row, and `tezgah-status --counters` folds the rows into `compactions`, `compact_chars` (the newest
 summary's length) and `compact_constraint_rate` — which stays `None` until one row carries both counts,
@@ -228,7 +228,7 @@ is. Every denial is itself a `deny` row.
 ## The session store for the status marks
 
 `<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1520-1543`) and read
-by `used()` (`hooks/tezgah_context.py:1544-1560`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
+by `used()` (`hooks/tezgah_context.py:1552-1568`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
 and the kinds are the used-tool marks [status-line.md](status-line.md) lights up (`graph`, `consult`,
 `research`). It is separate from the [ledger](glossary.md#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all

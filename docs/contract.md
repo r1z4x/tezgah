@@ -99,7 +99,7 @@ path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
 `hooks/tezgah_integrity.py:2046-2070`) - the turn is told the command and the
 rule: evidence from a scratch path is evidence about the code path, so a claim
 about the running system needs a check that ran against it (`SCRATCH_REMINDER`,
-`hooks/tezgah_context.py:1133-1139`, appended at `hooks/tezgah_context.py:1286`).
+`hooks/tezgah_context.py:1141-1147`, appended at `hooks/tezgah_context.py:1286`).
 It is a reminder and not a block because whether a scratch script exercises the
 real system is not decidable from the command; one passing check against a real
 path makes the reader answer `None`, so a session that also ran the real thing is
@@ -123,7 +123,7 @@ analysis: five axes, one evidence class per finding.**` :745 *(conditional)*,
 stay English.**` :788, `**Session scope: the user's repo, not tezgah.**` :794,
 `**Kill switches:**` :803.
 
-`always_on_core()` (`hooks/tezgah_context.py:958-968`) drops the five
+`always_on_core()` (`hooks/tezgah_context.py:963-973`) drops the five
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:847-852`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, product analysis, the code graph, and the
@@ -139,7 +139,7 @@ its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
 hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
-(`hooks/tezgah_context.py:949-957`) is that text with the kill-switch filtering
+(`hooks/tezgah_context.py:954-962`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
@@ -235,7 +235,7 @@ they survive every other switch being off.
    `output-styles/tezgah.md` from a fresh Python process when the paragraph is
    always-on — a warm interpreter serves a stale `CORE`.
 6. Last step, the tests that pin it: add the label to `KillSwitchEnforcement`
-   (`tests/test_context.py:624-798`) and, for a conditional rule, to the
+   (`tests/test_context.py:629-803`) and, for a conditional rule, to the
    `ArmingConformance` label map (`tests/test_context.py:1726-1760`); then run the mirror pair —
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py:1914-1924`) and

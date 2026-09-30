@@ -10,10 +10,10 @@ are definitions, not rules: the rule text belongs to [contract](contract.md),
 [gate](gate.md) and [evidence](evidence.md).
 
 ### always-on
-The part of the contract every session pays for - the invariants plus the one-line [pointer](#pointer) - built by `always_on_core()` (`hooks/tezgah_context.py:958-968`) out of [CORE](#core) with the [conditional rules](#conditional-rule) removed; it is not the whole contract, whose long tail is the `tezgah-contract` [skill](#skill) ([contract](contract.md)).
+The part of the contract every session pays for - the invariants plus the one-line [pointer](#pointer) - built by `always_on_core()` (`hooks/tezgah_context.py:963-973`) out of [CORE](#core) with the [conditional rules](#conditional-rule) removed; it is not the whole contract, whose long tail is the `tezgah-contract` [skill](#skill) ([contract](contract.md)).
 
 ### budget
-The byte ceiling one injected event may spend: `CONTEXT_BUDGET` per event with `DEFAULT_BUDGET` behind it (`hooks/tezgah_context.py:1042-1044`), enforced by `budgeted()` (`hooks/tezgah_context.py:1096-1132`), which gives up whole blocks lowest value first along `DROP_ORDER` (`hooks/tezgah_context.py:1058-1060`); bytes, never tokens, because the module has no tokenizer (`hooks/tezgah_context.py:1040-1041`). Not the [metadata band](#metadata-band), which is the installer's measurement of the same text rather than a runtime bound.
+The byte ceiling one injected event may spend: `CONTEXT_BUDGET` per event with `DEFAULT_BUDGET` behind it (`hooks/tezgah_context.py:1042-1044`), enforced by `budgeted()` (`hooks/tezgah_context.py:1104-1140`), which gives up whole blocks lowest value first along `DROP_ORDER` (`hooks/tezgah_context.py:1065-1068`); bytes, never tokens, because the module has no tokenizer (`hooks/tezgah_context.py:1040-1041`). Not the [metadata band](#metadata-band), which is the installer's measurement of the same text rather than a runtime bound.
 
 ### capture
 The pre-write copy the gate takes of every file a write is about to change, `capture()` (`hooks/tezgah_snapshot.py:192`), called on the gate's allow path (`hooks/tezgah_gate.py:1313-1332`) and capped at `CAP` snapshots and `MAX_BYTES` per file (`hooks/tezgah_snapshot.py:51-52`); a file too large or unreadable is left uncaptured and writes no row, so nothing claims a copy that is not there. Not a transaction: the copy is bytes on disk, not a rollback that runs itself.
@@ -28,7 +28,7 @@ A rule armed for one prompt only, when its task class matches - `spec`, `consult
 The whole working document, `CONTRACT` as the join of every block (`hooks/tezgah_policy.py:874-898`), shipped on demand as `skills/tezgah-contract/SKILL.md`, with the always-on [CORE](#core) as its summary and the [pointer](#pointer) line as the way in (`hooks/tezgah_policy.py:847-852`). Its clauses are [contract](contract.md)'s subject.
 
 ### CORE
-The single string holding the whole always-on contract, one bold-labelled paragraph per [rule](#rule) (`hooks/tezgah_policy.py:622-838`), filtered against [per-repo marks](#per-repo-mark) and [kill switches](#kill-switch) by `core_split()` (`hooks/tezgah_context.py:892-948`). Not [contract](#contract), the on-demand join of every block.
+The single string holding the whole always-on contract, one bold-labelled paragraph per [rule](#rule) (`hooks/tezgah_policy.py:622-838`), filtered against [per-repo marks](#per-repo-mark) and [kill switches](#kill-switch) by `core_split()` (`hooks/tezgah_context.py:897-953`). Not [contract](#contract), the on-demand join of every block.
 
 ### deny
 A refusal the gate returns and records: `_deny()` writes a `deny` row carrying the rule name and the first 80 characters of the reason (`hooks/tezgah_gate.py:1198-1213`). Not the reason text itself - the adapter renders the reason into its own envelope ([hosts](hosts.md)).
@@ -65,10 +65,10 @@ The label on an evidence [row](#row) saying what happened: `classify()` gives `e
 A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:386-388`, `:46`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:825-832`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
 
 ### legend
-The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hooks/tezgah_context.py:1744-1769`), printed by `tezgah-status --legend` (`bin/tezgah-status:73-75`). Not the marks themselves.
+The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hooks/tezgah_context.py:1752-1777`), printed by `tezgah-status --legend` (`bin/tezgah-status:73-75`). Not the marks themselves.
 
 ### mark
-One item of the armed/used checklist as a host shows it, a segment carrying `key`, `state`, `glyph`, `text` and `group` from `health_segments()` (`hooks/tezgah_context.py:1773-1841`, `hooks/tezgah_context.py:1773-1776`), for example `pony✓` or `consult○`. Not a [kind](#kind), which is a ledger row, and not the [state](#state), which is the value one mark carries.
+One item of the armed/used checklist as a host shows it, a segment carrying `key`, `state`, `glyph`, `text` and `group` from `health_segments()` (`hooks/tezgah_context.py:1781-1849`, `hooks/tezgah_context.py:1773-1776`), for example `pony✓` or `consult○`. Not a [kind](#kind), which is a ledger row, and not the [state](#state), which is the value one mark carries.
 
 ### metadata band
 One measured row of always-on context the installer reports in bytes: the core contract, the per-turn reminder, skill metadata, subagent metadata and the conditional rules (`context_budget()`, `bin/tezgah-setup:3133-3159`, rows at `bin/tezgah-setup:3150-3156`), with the MCP tool schemas as the one band it cannot count and measures by handshake instead (`mcp_schema_report()`, `bin/tezgah-setup:3196-3232`). Not the [budget](#budget): a band is a measurement, a budget a bound.
@@ -80,7 +80,7 @@ One measured row of always-on context the installer reports in bytes: the core c
 The one-time hint that sends a first identifier-shaped search to the code graph, `first_nudge()` consuming a per-session mark before the grep is denied (`hooks/tezgah_gate.py:405-421`) with the text naming the graph tools (`nudge_reason()`, `hooks/tezgah_gate.py:422`). Not a deny: it is spent by being delivered, and the identical call passes on the retry.
 
 ### observable measure
-A used-mark a surface is able to see at all, so it can say "armed, not used yet" without inventing it: `health_segments(observable=...)` (`hooks/tezgah_context.py:1773-1774`) with the five tool-use measures in `TOOL_USE_MEASURES` (`hooks/tezgah_context.py:1770-1772`), a measure outside the set rendering as `info` rather than `ready`. Which host can see a skill read is [hosts](hosts.md)'s.
+A used-mark a surface is able to see at all, so it can say "armed, not used yet" without inventing it: `health_segments(observable=...)` (`hooks/tezgah_context.py:1773-1774`) with the five tool-use measures in `TOOL_USE_MEASURES` (`hooks/tezgah_context.py:1778-1780`), a measure outside the set rendering as `info` rather than `ready`. Which host can see a skill read is [hosts](hosts.md)'s.
 
 ### once-only
 A mark consumed by its own first use, so the thing it protects happens once: the grep [nudge](#nudge) is written before the deny so later greps pass (`hooks/tezgah_gate.py:1286-1287`). Not a licence for the session: the identical call passes on the retry.
@@ -125,7 +125,7 @@ One bold-labelled paragraph of the contract, the unit a [kill switch](#kill-swit
 One host conversation, identified by the id `session_of()` reads from a payload under whichever name the host uses (`hooks/tezgah_context.py:1019-1021`), keying the [ledger](#evidence-ledger) filename (`hooks/tezgah_integrity.py:478-488`), the [session store](#session-store) and the per-turn markers (`note_turn()`, `hooks/tezgah_integrity.py:959-982`). Not a [turn](#turn), of which one session has many.
 
 ### session store
-The used-tool marks one session wrote, `<cache>/sessions/<slug>.jsonl`, appended by `record()` (`hooks/tezgah_context.py:1520-1543`) and read by `used()` (`hooks/tezgah_context.py:1544-1560`) to feed the "used" half of the status marks, with a missing kind recorded nowhere at all. Not the [evidence ledger](#evidence-ledger).
+The used-tool marks one session wrote, `<cache>/sessions/<slug>.jsonl`, appended by `record()` (`hooks/tezgah_context.py:1520-1543`) and read by `used()` (`hooks/tezgah_context.py:1552-1568`) to feed the "used" half of the status marks, with a missing kind recorded nowhere at all. Not the [evidence ledger](#evidence-ledger).
 
 ### skill
 `skills/<name>/SKILL.md` - frontmatter with `name` and `description`, then instructions the model reads by choice; [skills](skills.md) owns the layer. Not a [rule](#rule), which is injected, and not a [slash command](#slash-command).
@@ -146,7 +146,7 @@ The stored pre-write bytes of one file plus its manifest, created by [capture](#
 The ledger field naming the untrusted channel a result came through - `web`, `mcp`, `network` or `tier` - set only when there was one (`hooks/tezgah_integrity.py:1411-1413`, `untrusted_source` `hooks/tezgah_integrity.py:1475-1498`), a missing `source` meaning the user or this workspace, which is what every reader assumes. Not a record of what the content said.
 
 ### state
-The value of one status [mark](#mark): `on`, `ready`, `off` or `info` (`hooks/tezgah_context.py:1774`), drawn as `✓ ○ ✗` or nothing by `GLYPHS` (`hooks/tezgah_context.py:1692-1694`) and mapped to a colour by `COLORS` (`hooks/tezgah_context.py:1695`), with `off` winning over the observable test because a kill switch is visible everywhere ([status-line](status-line.md)). Not a glyph, which is only how the state is drawn.
+The value of one status [mark](#mark): `on`, `ready`, `off` or `info` (`hooks/tezgah_context.py:1774`), drawn as `✓ ○ ✗` or nothing by `GLYPHS` (`hooks/tezgah_context.py:1700-1702`) and mapped to a colour by `COLORS` (`hooks/tezgah_context.py:1703`), with `off` winning over the observable test because a kill switch is visible everywhere ([status-line](status-line.md)). Not a glyph, which is only how the state is drawn.
 
 ### step kind
 One of the row kinds that count as a step of work - `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` (`STEP_KINDS`, `hooks/tezgah_integrity.py:1029-1031`), summed into `steps` and into the drift threshold, while `deny`, `nudge`, `claim` and `turn` are the machinery around the work (`:978-979`). `interrupted` is the one that is not a failure: the host said the call was stopped, so the row carries no `exit` and no `fail_class`, no reader folds it as a failed check and no attempt is spent on it (`:846-850`). Not any row.
@@ -167,7 +167,7 @@ One user prompt and everything before the next one, delimited on the ledger by a
 A result that arrived from outside the user and this workspace - a fetched page, an MCP server's answer, a shell read that left the machine, or the tier's own answer (`bin/consult`, `bin/codegen`: a model over the network, however deliberately the session asked for it) - named by `untrusted_source()` and labelled by `untrusted_label()` (`hooks/tezgah_integrity.py:1499-1513`, `hooks/tezgah_integrity.py:1475-1498`), the label and the [taint](#taint) notice being `hooks/tezgah_untrusted.py:2-22`. Not a deny: the model may use the text, but instructions inside it are data, never a request.
 
 ### used kind
-The tool kind a session was observed to use, one word per call, recorded by `record()` (`hooks/tezgah_context.py:1520-1543`) and read by `used()` (`hooks/tezgah_context.py:1544-1560`) to turn an armed mark into a used one, with `shell_kind()` and `skill_read_kind()` as the classifiers. Not a [step kind](#step-kind): this is the status line's vocabulary, not the ledger's.
+The tool kind a session was observed to use, one word per call, recorded by `record()` (`hooks/tezgah_context.py:1520-1543`) and read by `used()` (`hooks/tezgah_context.py:1552-1568`) to turn an armed mark into a used one, with `shell_kind()` and `skill_read_kind()` as the classifiers. Not a [step kind](#step-kind): this is the status line's vocabulary, not the ledger's.
 
 ### vendored
 Copied into this repository from an upstream project and kept, with its licence, rather than depended on: `skills/ai-research` is the large case (`ai_research_dir()`, `hooks/tezgah_paths.py:159-166`), and a vendored file carries a `<!-- vendored from ... -->` header checked against a manifest (`tests/test_ai_research_library.py:72`, `:145`). Not a git submodule.
@@ -176,7 +176,7 @@ Copied into this repository from an upstream project and kept, with its licence,
 The [kind](#kind) family for a check: `verify` when it ran but no outcome was seen, `verify_ok` when the host reported exit 0 with output on an unmasked command, `verify_fail` when it failed (`note_tool()`, `hooks/tezgah_integrity.py:1669-1777`, `:1619-1624`, with `passing_check()` as the acceptance test, `:1694-1708`). Only `verify_ok` supports a "done" claim; it is not the check's own result, since the ledger records what the host reported. An `interrupted` row sits outside the family: the host said the call was stopped rather than answering it, so there is no outcome to be one of the three (`:1639-1643`).
 
 ### version prefix
-The product's own name and version at the head of the [status line](status-line.md), `tezgah v0.12.1`: one segment from `version_segment()` (`hooks/tezgah_context.py:1985-2000`) carrying no glyph and the [state](#state) `info` - nothing is armed or used by it - and a group of its own, so the marks separate from it the way the groups separate from one another. Its number comes from `version()` (`hooks/tezgah_context.py:1955-1984`), the one reader `bin/tezgah-setup --version` also calls: the local plugin manifest, else the newest release heading in `CHANGELOG.md`, read bounded and never raising, and an unreadable version leaves the bare name rather than a placeholder. Not a [mark](#mark): a mark reports a switch or a capability, this reports which build is talking.
+The product's own name and version at the head of the [status line](status-line.md), `tezgah v0.12.1`: one segment from `version_segment()` (`hooks/tezgah_context.py:1993-2008`) carrying no glyph and the [state](#state) `info` - nothing is armed or used by it - and a group of its own, so the marks separate from it the way the groups separate from one another. Its number comes from `version()` (`hooks/tezgah_context.py:1963-1992`), the one reader `bin/tezgah-setup --version` also calls: the local plugin manifest, else the newest release heading in `CHANGELOG.md`, read bounded and never raising, and an unreadable version leaves the bare name rather than a placeholder. Not a [mark](#mark): a mark reports a switch or a capability, this reports which build is talking.
 
 ### workspace
 The ledger field naming which [root](#root) a row happened under, `root_for(cwd)` (`hooks/tezgah_integrity.py:1548`), recorded so a refusal can say where it was stopped. Not the cwd the call ran in, and not the repository.
