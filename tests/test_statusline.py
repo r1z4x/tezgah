@@ -322,13 +322,16 @@ class SkillRecording(TempHome):
 
     def test_a_new_kind_lights_no_mark(self):
         # the line is unchanged by a `skill:` kind, and the control below proves
-        # the assertion can fail: `consult` is a kind the line does read
+        # the assertion can fail: `graph` is a kind the line does read, and the
+        # one measure no machine can turn off (consult, research and judge all
+        # need an option the host may not have, so a control using one of those
+        # passed locally and failed on a bare runner)
         line = lambda: tc.render_line(tc.health_segments(  # noqa: E731
             self.repo, "s", observable=tc.TOOL_USE_MEASURES))
         before = line()
         tc.record("s", "skill:harness")
         self.assertEqual(line(), before)
-        tc.record("s", "consult")
+        tc.record("s", "graph")
         self.assertNotEqual(line(), before)
 
     def test_the_report_counts_the_sessions_that_opened_a_skill(self):
