@@ -77,6 +77,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `402 ... you can only afford 6172` - the routing works, the account could not
   pay for the request, which is exactly the state `off` is for.
 
+### Added
+
+- **A `zai` column, and `--mode zai`.** The table's non-Anthropic column was an
+  OpenRouter id by construction, so a machine whose funded provider is z.ai could
+  only be routed by hand-editing `task.agentModelOverrides`. The table now carries
+  `zai/glm-5.3-flash` (cheap, explore) and `zai/glm-5.3` (standard, frontier,
+  `modelRoles.plan`/`.slow`), both probed through omp on 2026-10-01, and
+  `omp_mode` reads a `zai/` session default as that column instead of falling to
+  `any`. Measured: with those selectors a real `tezgah-cheap` spawn completed in
+  25 s and answered `ok`, which is the first routed worker that has run on this
+  machine.
+
 ### Changed
 
 - **consult cannot ask the model the session runs on.** `bin/consult` reads the

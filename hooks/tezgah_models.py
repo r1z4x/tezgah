@@ -50,7 +50,7 @@ READ_ON = "2026-09-30"
 STALE_DAYS = 60
 OVERLAY = os.path.join(tp.CONFIG_DIR, "models.json")
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
-MODES = ("auto", "anthropic", "any", "off")
+MODES = ("auto", "anthropic", "zai", "any", "off")
 # The two status markers `bin/tezgah-setup` classifies an `apply_omp()` line by:
 # a skip is not a write and not a failure - the user's omp is left untouched, and
 # nothing is left to repair, which is why the status report excuses it rather
@@ -71,15 +71,25 @@ TIERS = ("cheap", "standard", "frontier")
 
 # slot -> family -> (model, effort). Anthropic and OpenAI names are the hosts'
 # own ids; `any` names are OpenRouter ids.
+# The `zai` column names the provider the way omp's own config does
+# (`zai/glm-5.3-flash:auto` in this machine's `modelRoles.memory`), so a machine
+# whose funded provider is z.ai routes without a hand-edit. Both ids were probed
+# on 2026-10-01 (`omp -p --model zai/glm-5.3-flash "..."` -> `ok`), and the split
+# follows the snapshot: GLM-5.3 Flash 92.0 SWE-bench Verified at $0.018/test
+# against GLM-5.3's 95.4 at $0.34 (vals.ai, artifacts/model-table.json), so the
+# cheap slots take the flash id and standard the plain one.
 SLOTS = {
     "cheap": {"anthropic": ("claude-opus-5-5", "low"),
               "openai": ("gpt-6.1-sol", "low"),
+              "zai": ("zai/glm-5.3-flash", None),
               "any": ("z-ai/glm-5.3-flash", None)},
     "explore": {"anthropic": ("claude-opus-5-5", "medium"),
                 "openai": ("gpt-6.1-sol", "low"),
+                "zai": ("zai/glm-5.3-flash", None),
                 "any": ("deepseek/deepseek-v4.1-flash", None)},
     "standard": {"anthropic": ("claude-opus-5-5", "medium"),
                  "openai": ("gpt-6.1-sol", "high"),
+                 "zai": ("zai/glm-5.3", None),
                  "any": ("openai/gpt-6.1-sol", "high")},
     # The frontier row names a concrete model on every family: the strongest
     # Anthropic run the snapshot prices (Opus 5.5 @high, 56.6 Terminal-Bench 4.0
@@ -87,6 +97,7 @@ SLOTS = {
     # through OpenRouter at $4/$20 per 1M (docs/models.md, read 2026-09-30).
     "frontier": {"anthropic": ("claude-opus-5-5", "high"),
                  "openai": ("gpt-6-astra", "high"),
+                 "zai": ("zai/glm-5.3", None),
                  "any": ("anthropic/claude-opus-5.5", "high")},
 }
 AGENT_SLOT = {"tezgah-cheap": "cheap", "tezgah-standard": "standard",
@@ -183,16 +194,19 @@ def openrouter_ready():
 
 
 def omp_mode(default_selector=None):
-    """`anthropic` or `any`: the saved mode, else the default's own family.
+    """`anthropic`, `zai` or `any`: the saved mode, else the default's own family.
 
     A non-Anthropic default reads as `any`, never as a silent fall back to the
     Anthropic column - the caller decides what to do when the OpenRouter
     credential the `any` selectors need is missing (`apply_omp` writes nothing
     and says so)."""
     mode = overlay().get("mode")
-    if mode in ("anthropic", "any", "off"):
+    if mode in ("anthropic", "zai", "any", "off"):
         return mode
-    return "anthropic" if str(default_selector or "").startswith("anthropic/") else "any"
+    for family in ("anthropic", "zai"):
+        if str(default_selector or "").startswith(family + "/"):
+            return family
+    return "any"
 
 
 # The omp roles this table writes, as flat `modelRoles.<role>` keys: `plan` is
@@ -202,14 +216,18 @@ def omp_mode(default_selector=None):
 OMP_ROLES = ("plan", "slow")
 
 
+# The prefix each family's stored id needs to become an omp selector. `zai` needs
+# none: its id already is `<provider>/<model>`, the shape omp's own config uses.
+FAMILY_PREFIX = {"anthropic": "anthropic/", "zai": "", "any": "openrouter/"}
+
+
 def _selector(family, slot):
     """`<provider>/<model>[:<effort>]` for one slot on one family, the shape omp
     takes for a model override and for a role alike (omp://models.md:492-505):
-    the Anthropic column names the host's own id, `any` an OpenRouter id."""
+    the Anthropic column names the host's own id, `zai` a z.ai id, `any` an
+    OpenRouter one."""
     model, effort = SLOTS[slot][family]
-    selector = ("anthropic/" + model if family == "anthropic"
-                else "openrouter/" + model)
-    return selector + (":" + effort if effort else "")
+    return FAMILY_PREFIX[family] + model + (":" + effort if effort else "")
 
 
 def omp_overrides(mode):
@@ -221,11 +239,11 @@ def omp_overrides(mode):
     mode that is measured as a flash model, so security-sensitive work would run
     below the row. Only `tezgah-orchestrator` stays outside the record - it is
     the main thread's own agent."""
-    if mode not in ("anthropic", "any"):
+    if mode not in ("anthropic", "zai", "any"):
         return {}  # `off` asks for nothing; the record stays as the user left it
     if mode == "any" and not openrouter_ready():
         return {}  # nothing can run here; `apply_omp` says so and writes nothing
-    family = "anthropic" if mode == "anthropic" else "any"
+    family = mode if mode in ("anthropic", "zai") else "any"
     return {agent: _selector(family, slot)
             for agent, slot in dict(AGENT_SLOT, **BUNDLED).items()}
 
@@ -239,11 +257,11 @@ def omp_role_overrides(mode):
     whatever model the session happened to start with; `slow` follows it. The
     same OpenRouter gate as `omp_overrides` applies, and `off` resolves to {} -
     it writes nothing."""
-    if mode not in ("anthropic", "any"):
+    if mode not in ("anthropic", "zai", "any"):
         return {}
     if mode == "any" and not openrouter_ready():
         return {}
-    family = "anthropic" if mode == "anthropic" else "any"
+    family = mode if mode in ("anthropic", "zai") else "any"
     return {"modelRoles." + role: _selector(family, "frontier")
             for role in OMP_ROLES}
 

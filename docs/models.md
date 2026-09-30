@@ -15,8 +15,8 @@ a mean of about 435k cached tokens, so one Opus -> Sonnet -> Opus switch pair co
 about $3.26 against about $0.02 saved per explore turn. Routing therefore happens
 where it is free: at the subagent a task is handed to.
 
-Every generated agent has a slot (`AGENT_SLOT`, `hooks/tezgah_models.py:92-95`)
-and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py:74-91`). The
+Every generated agent has a slot (`AGENT_SLOT`, `hooks/tezgah_models.py:103-108`)
+and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py:81-102`). The
 three tier workers - `tezgah-cheap`, `tezgah-standard`, `tezgah-frontier` - are
 generated in every tezgah root because routing needs no capability (`ROLES`,
 `hooks/tezgah_agents.py:261-296`; their brief, `_worker_body`,
@@ -28,12 +28,12 @@ cheap trajectory on a frontier model was the most expensive option measured
 
 ## The table (snapshot 2026-09-30)
 
-| slot | agents | anthropic | openai | any (OpenRouter id) |
+| slot | agents | anthropic | zai (omp's own provider) | openai | any (OpenRouter id) |
 |---|---|---|---|---|
-| cheap | tezgah-cheap, tezgah-verifier | Opus 5.5 @low | GPT-6.1 Sol @low | GLM-5.3 Flash |
-| explore | tezgah-explorer | Opus 5.5 @medium | GPT-6.1 Sol @low | DeepSeek V4.1 Flash |
-| standard | tezgah-standard | Opus 5.5 @medium | GPT-6.1 Sol @high | GPT-6.1 Sol @high |
-| frontier | tezgah-frontier, tezgah-reviewer, tezgah-researcher | Opus 5.5 @high | GPT-6 Astra @high | Opus 5.5 @high |
+| cheap | tezgah-cheap, tezgah-verifier | Opus 5.5 @low | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | GLM-5.3 Flash |
+| explore | tezgah-explorer | Opus 5.5 @medium | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | DeepSeek V4.1 Flash |
+| standard | tezgah-standard | Opus 5.5 @medium | `zai/glm-5.3` | GPT-6.1 Sol @high | GPT-6.1 Sol @high |
+| frontier | tezgah-frontier, tezgah-reviewer, tezgah-researcher | Opus 5.5 @high | `zai/glm-5.3` | GPT-6 Astra @high | Opus 5.5 @high |
 
 Why these, briefly. Inside the Anthropic family the lever is effort, not model:
 Opus 5.5 and Sonnet 5.5 read cache at the same $0.20 per 1M tokens, and on
@@ -75,7 +75,7 @@ omp's bundled agents are routed through the same record (omp's own docs: `omp://
 ## The router
 
 `tezgah-route "<brief>"` prints the worker to spawn and why (`main`,
-`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:522-546`). The order is
+`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:540-564`). The order is
 fixed:
 
 1. A brief naming stored data, a persistence or schema change, a migration,
@@ -84,12 +84,12 @@ fixed:
    the judge under-routed in its measurement.
 2. Otherwise the brief - redacted with the ledger's own reader
    (`redact`, `hooks/tezgah_integrity.py:524`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
-   `hooks/tezgah_models.py:500-521`). Measured on 40 English briefs labelled by
+   `hooks/tezgah_models.py:518-539`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100.
 3. With no judgement (`judge-off`, no key, a failed call) `--phase` picks the tier
-   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:498-499`), and
+   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:516-517`), and
    with no phase the middle tier is used.
 
 The brief leaves the machine for the judge, like every judgement ([judge](judge.md)).
@@ -101,11 +101,11 @@ the tier to the gate outcome of the work it routed.
 `tezgah-route --refresh` re-reads OpenRouter's public model list, writes prices to
 `~/.config/tezgah/models.json`, flags a model that left the list or whose price
 moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py:98-102`;
-`refresh`, `hooks/tezgah_models.py:406-440`), resolves opencode selectors, and
+`refresh`, `hooks/tezgah_models.py:424-458`), resolves opencode selectors, and
 re-applies omp's overrides. Scores are not re-read - they need a key - so
 `tezgah-route --check` reports the snapshot's age and exits 1 past 60 days or with
 a flag (`check`, `hooks/tezgah_models.py:462-475`); that is the moment to re-read
-the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|any|auto|off` pins
+the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|zai|any|auto|off` pins
 omp's family instead of following the session default; `off` removes every entry
 and role the table wrote and writes nothing, which is the way back when the
 provider those selectors need has no budget - a measured case, not a
