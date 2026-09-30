@@ -18,7 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `model_reasoning_effort` on Codex, a selector resolved from `opencode models` on
   opencode, and `task.agentModelOverrides` on omp (Anthropic effort levels when
   the session default is an Anthropic model, cheaper families otherwise;
-  frontier left to the default; the user's own entries kept; removed on
+  every slot written, the frontier row included, so no agent in the row runs on
+  the session default; the user's own entries kept; removed on
   uninstall). `bin/tezgah-route "<brief>"` names the worker - deterministic
   overrides for stored data, credentials and security, then one Jev Choice
   (measured 0.025 under-route on 40 briefs, 392 ms median), then the static phase
@@ -29,7 +30,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bundled agents (`scout`, `sonic`, `task`) and touches only the entries tezgah
   itself wrote - a value the user changed by hand is left alone, and an `any`
   mode without an OpenRouter credential writes nothing rather than naming models
-  that cannot run. The brief is redacted with the ledger's reader before it is
+  that cannot run. The same record also pins `modelRoles.plan` and `.slow` to the
+  frontier row, so plan mode designs on a real frontier model instead of whatever
+  the session started on, and `frontier_model`/`cheap_model` are the table's
+  accessors, so a caller that needs a cheap or a strong model names none of its
+  own. The brief is redacted with the ledger's reader before it is
   sent, and a brief the override pattern matches (stored data, schema or persistence
   changes, migrations, credentials and key shapes, the gate, security) never leaves
   the machine at all. Claude agents use the `opus` alias (a full id breaks on
