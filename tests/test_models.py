@@ -129,6 +129,29 @@ class OmpOverrides(unittest.TestCase):
         self.assertEqual(store["task.agentModelOverrides"]["tezgah-standard"],
                          "openai/gpt-6.1-sol")
 
+    def test_the_off_mode_removes_every_entry_and_writes_nothing(self):
+        # the way back when the provider the selectors need has no budget:
+        # `--mode off` is not `--uninstall`, it only clears the routing
+        store = {"task.agentModelOverrides":
+                 {"tezgah-cheap": "openrouter/z-ai/glm-5.3-flash", "sonic": "@fast"},
+                 "modelRoles": {"default": "deepseek/deepseek-flash:high"}}
+        state = {"mode": "off", "omp_written": {"tezgah-cheap": "openrouter/z-ai/glm-5.3-flash"}}
+
+        def omp(*args):
+            if args[0] == "set":
+                store[args[1]] = json.loads(args[2])
+            elif args[0] == "reset":
+                store[args[1]] = {}
+            return mock.Mock(stdout="")
+
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "_omp", side_effect=omp), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            self.assertIn("removed (off)", tm.apply_omp())
+        self.assertEqual(store["task.agentModelOverrides"], {"sonic": "@fast"})
+
     def test_remove_drops_an_adopted_entry_that_has_no_record(self):
         # an install from before the ownership record: the entry is ours (it is
         # one of the table's own selectors), so uninstall must take it away
