@@ -52,11 +52,11 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2322-2370` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
 | `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1198-1213`, first-nudge `hooks/tezgah_gate.py:1352` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:184-186`, `:263-266` | `_snapshot_hash` `hooks/tezgah_integrity.py:1594-1607`; no counter |
-| `compact` | `note_compaction` `hooks/tezgah_integrity.py:983-1010`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1173-1191`) | `_counts` `hooks/tezgah_integrity.py:1146-1166` (what `counters` folds with) |
+| `compact` | `note_compaction` `hooks/tezgah_integrity.py:983-1010`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1179-1197`) | `_counts` `hooks/tezgah_integrity.py:1146-1166` (what `counters` folds with) |
 
 **`compact` is what a compaction kept, from the record.** When the host hands the PostCompact
 payload the text the model is about to receive — Claude's `compact_summary` — the shared path
-(`hooks/tezgah_context.py:1210-1211`, reached by Claude's hook, codex/hook.py, omp's hook and dsh's
+(`hooks/tezgah_context.py:1216-1217`, reached by Claude's hook, codex/hook.py, omp's hook and dsh's
 bridge alike, because it is the same funnel each prompt goes through) writes one row: the summary's
 length (`summary_chars`), a 12-hex sha256 of it (`summary_hash`, so two compactions of one session can
 be told apart and the same summary can be recognised twice), the host's own word for why it compacted
@@ -64,7 +64,7 @@ be told apart and the same summary can be recognised twice), the host's own word
 stored** — it is the whole conversation by proxy and the ledger is a redacted channel — so a row can
 never be read back as prose. The constraint report is `constraint_found` of `constraint_expected`: how
 many of the fixed sentences tezgah injects the summary still carries, counted against the very text the
-block renders (`constraint_lines`, `hooks/tezgah_context.py:1162-1180`, over `POINTER_LINE`
+block renders (`constraint_lines`, `hooks/tezgah_context.py:1160-1178`, over `POINTER_LINE`
 `:1154-1155` and the active plan's front matter). It is a **report and never a refusal**: a compaction
 that dropped a rule is a finding to report, not a turn to block. A host that hands no summary writes no
 row, and `tezgah-status --counters` folds the rows into `compactions`, `compact_chars` (the newest
@@ -227,15 +227,15 @@ is. Every denial is itself a `deny` row.
 
 ## The session store for the status marks
 
-`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1520-1543`) and read
-by `used()` (`hooks/tezgah_context.py:1552-1568`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
+`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1526-1549`) and read
+by `used()` (`hooks/tezgah_context.py:1550-1566`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
 and the kinds are the used-tool marks [status-line.md](status-line.md) lights up (`graph`, `consult`,
 `research`). It is separate from the [ledger](glossary.md#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all
-(`hooks/tezgah_context.py:1531-1532`), and the reader wants a set of kinds rather than an ordered,
+(`hooks/tezgah_context.py:1537-1538`), and the reader wants a set of kinds rather than an ordered,
 turn-scoped history. The ledger pays a redaction scan and a lock per row; a mark needs neither. The
 one mark that is also evidence is `orch`: `record()` writes it as an `orch` row in the session's
-ledger too (`hooks/tezgah_context.py:1533-1534`), because a subagent event reaches no other ledger
+ledger too (`hooks/tezgah_context.py:1539-1540`), because a subagent event reaches no other ledger
 writer and `fanout` is folded from the ledger.
 
 ## Snapshots and rollback

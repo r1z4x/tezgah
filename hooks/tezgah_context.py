@@ -1056,10 +1056,10 @@ DEFAULT_BUDGET = 12000
 # scratch-path warning, which is about evidence the turn may already have claimed
 # - then the active task's phase, which outlives both because a phase is what
 # stops a refused write before it happens - then the delta, and the skill pointer
-# last. A key absent from this tuple is never dropped: the always-on core and the
-# per-turn
-# reminder ARE the rules, and a budget that can spend them turns bloat into rule
-# loss.
+# last. A key absent from this tuple is never dropped: the always-on core and
+# the per-turn reminder ARE the rules, and a budget that could spend them would
+# turn bloat into rule loss - which is the failure the budget exists to prevent,
+# not one it may cause.
 DROP_ORDER = ("knowledge", "lessons", "plans", "subagents", "steer",
               "consult", "research", "research_broken", "graph", "offnote",
               "orchestrate", "index", "resume", "scratch", "task", "delta",
