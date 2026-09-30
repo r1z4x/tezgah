@@ -1182,6 +1182,18 @@ def _check_claims(base, errors, warnings, roots=(), strict=False):
     # cited token may resolve against - and the one `run_log` searches for a
     # receipt kept outside the line.
     repo = roots[-1] if roots else base
+    # Every id some row supersedes: those rows are historical, and the line's own
+    # doctrine is that a correction is a NEW row rather than an edit. So a path in
+    # a superseded row's proof that has since moved is reported, not refused -
+    # refusing it would make the correction impossible to land, which is how
+    # closing a plan used to break every line that had cited it.
+    superseded = set()
+    for raw in rows:
+        try:
+            give = json.loads(raw)
+        except ValueError:
+            continue
+        superseded.update(_supersedes(give)[0])
     parsed = []
     for n, raw in enumerate(rows, 1):
         raw = raw.strip()
@@ -1201,6 +1213,11 @@ def _check_claims(base, errors, warnings, roots=(), strict=False):
             errors.append("claim %s carries no falsification criterion" % cid)
         if not claim.get("proof"):
             errors.append("claim %s cites no evidence" % cid)
+        elif cid in superseded:
+            _soft(errors, warnings, strict,
+                  "claim %s is superseded, so its proof is the historical row's "
+                  "and is not re-resolved; the row that supersedes it carries the "
+                  "current proof" % cid)
         else:
             for token in _cited(claim["proof"]):
                 if not _resolves(token, (base,) + tuple(roots)):

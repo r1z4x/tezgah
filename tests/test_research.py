@@ -409,6 +409,31 @@ class Unfinished(Workspace):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertEqual(tr.slugs(repo), ["alpha", "beta"])
 
+    def test_a_superseded_claim_keeps_a_proof_path_that_moved(self):
+        """A correction is a new row, so a plan that closes and changes folder -
+        or any cited file that is reorganised - must not leave the older row
+        refusing for ever: that would make the correction impossible to land, and
+        it is how closing a plan broke every line that had cited it. The
+        superseded row is reported, the row that supersedes it is checked in
+        full."""
+        repo = self.repo()
+        base = self.line(repo)
+        self.write(os.path.join(base, "to_human", "report.md"), "# report\n")
+        self.claims(repo,
+                    dict(CLAIM, id="c1", proof=".tezgah/plans/open/009-gone.md"),
+                    dict(CLAIM, id="c2", supersedes="c1",
+                         proof="to_human/report.md"))
+        self.assertEqual(self.errors(repo), [])
+        self.assertTrue(hit("c1 is superseded, so its proof is the historical",
+                            tr.check(repo, "q")["q"]["warnings"]))
+        # and the row that supersedes it is still held to its own proof
+        self.claims(repo,
+                    dict(CLAIM, id="c3", supersedes="c2",
+                         proof=".tezgah/plans/open/009-gone.md"))
+        self.assertEqual(named(self.errors(repo), "which is not in this line"),
+                         ["claim c3 cites .tezgah/plans/open/009-gone.md, "
+                          "which is not in this line"])
+
     def test_a_superseded_claim_is_read_through_the_row_that_replaced_it(self):
         # `claims.jsonl` is append-only, so the older row keeps the status it was
         # left in - `c1` stays `hypothesis` for ever - and the relation that says

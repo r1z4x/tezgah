@@ -24,6 +24,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unchanged and carry on", governed by `reminder-off`; no host's PostToolUse side
   carries the notice any more. The measurement is not causal and is recorded as
   such: the rise sat in short turns the rule cannot reach.
+- **A superseded claim is not refused for a proof path that moved.** Closing a
+  plan moves its file into `.tezgah/plans/done/`, and two research lines that had
+  cited the open path began failing `tezgah-research check` for a claim they had
+  already corrected in a later row - with no way to repair it, because the line's
+  own doctrine says a correction is a new row and never an edit. The checker now
+  treats a claim another row supersedes as the historical one it is: its proof is
+  reported (`claim C13 is superseded, so its proof is the historical row's ...`)
+  and not refused, while the row that supersedes it is still held to its own
+  proof in full.
 - **Codex prints no context on PostCompact**, the same way Claude's hook script
   now does: Codex's PostCompact output schema allows only the common fields, and
   the block reaches the model through the SessionStart that fires again with
