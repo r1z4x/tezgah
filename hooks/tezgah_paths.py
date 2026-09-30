@@ -431,6 +431,9 @@ def tool(name):
 # protocol committed before its results, a plan moved to done/) has one without
 # ever entering the project's history.
 WORKSPACE = ".tezgah"
+# git's own XDG config directory: `~/.config/git/config`, read as one of the
+# identity channels by `seed_identity`.
+CONFIG_DIR_GIT = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
 WORKSPACE_IGNORES = ("/.tezgah/", "/.codegraph/")
 # The private repository commits as the identity it is configured with - the one
 # `ensure_workspace` copies from the project that owns it - and never as a name
@@ -486,23 +489,99 @@ def ensure_workspace(repo):
     return ws
 
 
+def _git_config_paths(repo):
+    """The config files that could hold this project's identity, most local first.
+
+    `git config` would answer this in one fork, and a session start forks git for
+    its own questions - the budget test counts them per question - so the two
+    files are read here instead: the repository's own config (following a
+    worktree's `gitdir:` pointer, and its common config), then the user's."""
+    out = []
+    dot = os.path.join(repo, ".git")
+    if os.path.isfile(dot):
+        try:
+            with open(dot, encoding="utf-8", errors="replace") as fh:
+                line = fh.readline().strip()
+        except OSError:
+            line = ""
+        if line.startswith("gitdir:"):
+            gitdir = line[len("gitdir:"):].strip()
+            gitdir = gitdir if os.path.isabs(gitdir) else os.path.join(repo, gitdir)
+            out += [os.path.join(gitdir, "config"),
+                    os.path.join(gitdir, "..", "..", "config")]
+    elif os.path.isdir(dot):
+        out.append(os.path.join(dot, "config"))
+    out.append(os.path.join(CONFIG_DIR_GIT, "config"))
+    out.append(os.path.join(HOME, ".gitconfig"))
+    return out
+
+
+def _identity_in(path):
+    """`(name, email)` from one git config file. No `include` is followed and no
+    value is expanded: the plain `[user]` lines are what a project sets."""
+    name = email = None
+    section = ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line[0] in "#;":
+                    continue
+                if line.startswith("[") and line.endswith("]"):
+                    section = line[1:-1].split('"')[0].strip().lower()
+                    continue
+                if section != "user" or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip().lower()
+                value = value.strip().strip('"')
+                if key == "name" and name is None:
+                    name = value
+                elif key == "email" and email is None:
+                    email = value
+    except OSError:
+        return None, None
+    return name, email
+
+
 def seed_identity(repo, ws=None):
     """Copy the project's git identity into the workspace, at creation.
 
     The workspace is tezgah's own repository, so its commits have to carry the
     person who owns the code: without this, a machine whose global identity is
     unset refuses the commit, and the earlier answer - forcing a name in our own
-    argv - wrote a repository's history under a committer nobody holds. Fail-open
-    like the rest of this module: no identity anywhere leaves git to say so,
-    which is its own honest error."""
-    import subprocess  # deferred: see ensure_workspace
+    argv - wrote a repository's history under a committer nobody holds. Read from
+    the config files rather than through `git config`, so a session start forks no
+    extra git (see `_git_config_paths`). Fail-open: no identity anywhere leaves git
+    to say so, which is its own honest error."""
     ws = ws or workspace(repo)
-    for key in IDENTITY_KEYS:
-        value = subprocess.run(["git", "-C", repo, "config", "--get", key],
-                               capture_output=True, text=True).stdout.strip()
-        if value:
-            subprocess.run(["git", "-C", ws, "config", "--local", key, value],
-                           capture_output=True)
+    found = {}
+    for path in _git_config_paths(repo):
+        name, email = _identity_in(path)
+        if name and "user.name" not in found:
+            found["user.name"] = name
+        if email and "user.email" not in found:
+            found["user.email"] = email
+        if len(found) == len(IDENTITY_KEYS):
+            break
+    if not found:
+        return
+    path = os.path.join(ws, ".git", "config")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+    except OSError:
+        return
+    if "[user]" in body:
+        return
+    # inside the `[user]` section the key loses its prefix: `name`, not `user.name`
+    block = "".join("\t%s = %s\n" % (key.split(".")[-1], found[key])
+                    for key in IDENTITY_KEYS if key in found)
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("[user]\n" + block)
+    except OSError:
+        pass
 
 
 def ws_git(repo, *args, **kw):
