@@ -61,9 +61,11 @@ def read(path):
         return fh.read()
 
 
-def plan_text(ident=None, phase=None, allowed=None, title="a plan", body="the goal"):
-    """One plan file: the keys a real one carries, plus whichever of the two new
-    optional ones the test is about."""
+def plan_text(ident=None, phase=None, allowed=None, title="a plan", body="the goal",
+              spike=None, spike_box="one focused session", spike_recorded=None):
+    """One plan file: the keys a real one carries, plus whichever of the optional
+    ones the test is about. The four spike keys go together, so one `spike=`
+    writes the block and `spike_recorded=` is what the answer fills in."""
     front = ["id: %s" % ident] if ident else []
     front += ["title: %s" % title, "status: open",
               "created: 2026-01-01", "updated: 2026-01-01"]
@@ -72,6 +74,10 @@ def plan_text(ident=None, phase=None, allowed=None, title="a plan", body="the go
     if allowed is not None:
         front.append("allowed_paths:")
         front += ["  - %s" % glob for glob in allowed]
+    if spike is not None:
+        front += ["spike: %s" % spike, "spike_box: %s" % spike_box,
+                  "spike_recorded: %s" % (spike_recorded or ""),
+                  "spike_throwaway: true"]
     return "---\n%s\n---\n## Goal\n%s\n" % ("\n".join(front), body)
 
 
@@ -210,6 +216,28 @@ class Record(unittest.TestCase):
         self.assertIn("## Goal\nno frontmatter here\n", read(bare))
         self.assertEqual(tt.active(self.repo, self.base)["id"], "002")
 
+    # ------------------------------------------------------- the spike reader
+
+    def test_spike_unanswered_needs_both_keys(self):
+        # the question with no recorded answer is the unanswered state; a plan
+        # without the question runs no spike, and an answer with no question is
+        # not a spike either - neither invents a requirement
+        answered = ("---\nspike: does it scale\nspike_recorded: .tezgah/x.md\n---\n")
+        asked = "---\nspike: does it scale\nspike_recorded:\n---\n"
+        self.assertTrue(tt.spike_unanswered(asked))
+        self.assertFalse(tt.spike_unanswered(answered))
+        self.assertFalse(tt.spike_unanswered("---\nid: 001\n---\n"))
+        self.assertFalse(tt.spike_unanswered("---\nspike_recorded: x.md\n---\n"))
+
+    # ------------------------------------------- the checkpoint the CLI records
+
+    def test_checkpoint_reads_the_record_and_names_the_same_commit(self):
+        self.assertEqual(tt.checkpoint("---\ncheckpoint: pending\n---\n"), "pending")
+        self.assertIsNone(tt.checkpoint("---\nid: 001\n---\n"))
+        self.assertEqual(tt.slug("/x/.tezgah/plans/open/007-a-b.md"), "007-a-b")
+        self.assertEqual(tt.checkpoint_command("/x/007-a-b.md"),
+                         'git add -A && git commit -m "checkpoint: before 007-a-b"')
+
 
 class Cli(TempHome):
     """The CLI end to end: one command per record, read back through the same
@@ -223,10 +251,42 @@ class Cli(TempHome):
         os.makedirs(self.open)
 
     def init_repo(self):
-        """A real repository: the CLI asks git for the top-level, so the answer
-        must not depend on what happens to sit above the temp directory."""
+        """A real repository with one commit and the project's own gitignore: the
+        CLI asks git for the top-level, so the answer must not depend on what
+        happens to sit above the temp directory - and it reads the tree's
+        cleanliness for the checkpoint, so the fixture must be able to be clean,
+        which `.tezgah/` being ignored (as plan-add writes it) is what makes it."""
+        env = dict(os.environ, **GIT_ENV)
         subprocess.run(["git", "init", "-q", self.repo], check=True,
-                       capture_output=True, env=dict(os.environ, **GIT_ENV))
+                       capture_output=True, env=env)
+        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
+            fh.write("/.tezgah/\n")
+        self.commit(".gitignore", message="init")
+
+    def commit(self, *paths, message="a commit"):
+        """Commit these repo paths, so the working tree can be clean or dirty at
+        a known moment - what the checkpoint records and refuses on."""
+        env = dict(os.environ, **GIT_ENV)
+        subprocess.run(["git", "-C", self.repo, "add", "--"] + list(paths),
+                       check=True, capture_output=True, env=env)
+        subprocess.run(["git", "-C", self.repo, "-c", "user.name=t",
+                        "-c", "user.email=t@localhost", "commit", "-q",
+                        "-m", message], check=True, capture_output=True, env=env)
+
+    def head(self):
+        out = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"],
+                             capture_output=True, text=True,
+                             env=dict(os.environ, **GIT_ENV))
+        return out.stdout.strip()
+
+    def dirty(self, rel):
+        """One uncommitted file inside the repo: the state the checkpoint is
+        about. Returns its path."""
+        path = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("x = 1\n")
+        return path
 
     def plan(self, name, **kwargs):
         path = os.path.join(self.open, name)
@@ -360,6 +420,101 @@ class Cli(TempHome):
         self.task("allow", "apps/**")
         payload, _ = run_json([CLI, "status", "--json"], env=self.env(), cwd=self.repo)
         self.assertEqual(payload["active"]["allowed_from"], "from tezgah-task allow")
+
+    # ------------------------------------ what a writing phase cannot start on
+
+    def test_a_writing_phase_is_refused_when_no_acceptance_item_names_a_command(
+            self):
+        # What CI's `--acceptance --strict` reports is refused here, before the
+        # work rather than after the push: a plan whose every item names no
+        # command has nothing the work can be held to. The refusal names the
+        # file and the reader, so the plan and the report cannot disagree.
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        with open(path, "a") as fh:
+            fh.write("## Acceptance\n" + MISSING_ITEM)
+        before = self.snapshot()
+        refused = self.task("start", "001", "--phase", "implementation")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.assertIn("hooks/tezgah_task.py:acceptance_items", refused.stdout)
+        self.assertIn(path, refused.stdout)
+        self.assertEqual(self.snapshot(), before)
+        # discovery only reads, so nothing is owed yet; both writing phases are
+        self.assertEqual(self.task("start", "001", "--phase", "discovery").returncode, 0)
+        for phase in ("implementation", "verification"):
+            refused = self.task("phase", phase)
+            self.assertEqual(refused.returncode, 1, refused.stdout)
+            self.assertIn("acceptance_items", refused.stdout)
+        self.assertEqual(self.status()["phase"], "discovery")
+        # one item that names its command is enough to move
+        with open(path, "a") as fh:
+            fh.write(COMMAND_ITEM)
+        self.assertEqual(self.task("phase", "implementation").returncode, 0)
+
+    def test_a_declared_unverifiable_item_and_an_absent_section_are_not_refused(
+            self):
+        # the word with a why is a decision the plan made, not a gap; and a plan
+        # carrying no Acceptance items at all is the different defect the report
+        # does not gate either, so neither reader invents one
+        first = self.plan("001-first.md", allowed=["hooks/**"])
+        with open(first, "a") as fh:
+            fh.write("## Acceptance\n" + UNVERIFIABLE_ITEM)
+        self.assertEqual(self.task("start", "001", "--phase", "implementation").returncode, 0)
+        self.assertEqual(self.task("stop").returncode, 0)
+        self.plan("002-second.md", allowed=["hooks/**"])
+        self.assertEqual(self.task("start", "002", "--phase", "implementation").returncode, 0)
+
+    def test_implementation_is_refused_while_the_spike_is_unanswered(self):
+        # a spike is a question the plan answers before the build, and the record
+        # says which: `spike_recorded:` empty is the unanswered state
+        path = self.plan("001-first.md", allowed=["hooks/**"], spike="does it scale")
+        before = self.snapshot()
+        refused = self.task("start", "001", "--phase", "implementation")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.assertIn("spike", refused.stdout)
+        self.assertIn(path, refused.stdout)
+        self.assertEqual(self.snapshot(), before)
+        # the reading phase is where the spike is run, so it is not refused
+        self.assertEqual(self.task("start", "001", "--phase", "discovery").returncode, 0)
+        self.assertEqual(self.task("phase", "implementation").returncode, 1)
+        self.assertEqual(self.status()["phase"], "discovery")
+        tt.set_fields(path, spike_recorded=".tezgah/research/spike.md")
+        self.assertEqual(self.task("phase", "implementation").returncode, 0)
+
+    def test_entering_implementation_records_the_pre_work_commit(self):
+        # the one state a large refactor has to return to: the commit the work
+        # branches from, recorded where the gate reads it
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        proc = self.task("start", "001", "--phase", "implementation")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(tt.frontmatter(read(path))["checkpoint"], self.head())
+        self.assertIn("checkpoint: %s" % self.head(), proc.stdout)
+
+    def test_only_the_implementation_phase_gets_a_checkpoint(self):
+        # discovery writes nothing to return from, and verification is the phase
+        # after the build
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        self.assertEqual(self.task("start", "001", "--phase", "discovery").returncode, 0)
+        self.assertNotIn("checkpoint", tt.frontmatter(read(path)))
+        self.assertEqual(self.task("phase", "verification").returncode, 0)
+        self.assertNotIn("checkpoint", tt.frontmatter(read(path)))
+
+    def test_a_dirty_tree_records_a_pending_checkpoint_and_names_the_commit(self):
+        # uncommitted work has no commit to record, so the record says so and the
+        # gate refuses that phase's writes until the commit lands - the same
+        # command the CLI prints
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        self.dirty("hooks/x.py")
+        proc = self.task("start", "001", "--phase", "implementation")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(tt.frontmatter(read(path))["checkpoint"], tt.CHECKPOINT_PENDING)
+        self.assertIn("checkpoint: pending", proc.stdout)
+        self.assertIn('git add -A && git commit -m "checkpoint: before 001-first"',
+                      proc.stdout)
+        # the commit is the way out: re-entering records the sha it created
+        self.commit("hooks/x.py", message="checkpoint: before 001-first")
+        proc = self.task("phase", "implementation")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(tt.frontmatter(read(path))["checkpoint"], self.head())
 
     # ---------------------------------------------- verification and close
 
@@ -506,6 +661,14 @@ class Acceptance(unittest.TestCase):
         self.plan(self.open, "001-a.md", acceptance_plan(COMMAND_ITEM))
         self.assertEqual([i["state"] for i in self.report()["items"]], ["checkable"])
         self.assertEqual(self.by_state("missing"), [])
+
+    def test_a_command_ending_in_the_current_directory_is_checkable(self):
+        # `.` is a path like any other: `ruff check .` is the command, and read
+        # as a bare word it was reported as naming no command at all - which is
+        # exactly the item the repository's own plan carries (`ruff check .`).
+        self.plan(self.open, "001-a.md",
+                  acceptance_plan("- [ ] lint: `ruff check .`\n"))
+        self.assertEqual([i["state"] for i in self.report()["items"]], ["checkable"])
 
     def test_an_item_with_no_command_is_reported_with_its_plan_and_line(self):
         text = acceptance_plan(COMMAND_ITEM, MISSING_ITEM)

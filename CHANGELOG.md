@@ -6,6 +6,80 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The evidence readers: a drift series, a tool-firing histogram, and a
+  never-fired skill report.** `README.md` has long admitted that the gate's
+  mechanism is verified while "its effect on the work is not measured yet", and
+  the ledger already held the rows that would measure it. `bin/tezgah-status
+  --counters --trend [--weeks=N]` now buckets the same fold by week and prints
+  `false_completion/claims` and `tool_error_rate` per bucket with the direction of
+  the last three, plus the tool-firing histogram the ledger's new `tool` field
+  makes possible: the top names, and the shipped programs that never ran, so an
+  unused tool or MCP server can be retired on evidence rather than on suspicion.
+  `bin/tezgah-status --skill-fitness` reports which of the shipped skills were
+  opened and which never were. Both ride the existing `_counts` fold so the series
+  can never contradict the totals it is drawn from, and both are opt-in: without
+  the flag the report is byte-identical to before. Measured on this machine's
+  corpus (58,928 rows): a six-week series reading `0.5636 (155/275)`, `0.7048
+  (74/105)`, `0.4792 (23/48)`, and `18 of 23` shipped programs ever fired. The
+  skill report is a floor, not a verdict, and says so: a host that cannot observe a
+  read records none, only `ponytail` and `i-have-adhd` have a mark on the status
+  line, and the others are recorded as a `skill:<name>` kind the line ignores.
+
+- **A `tool` field on the ledger row.** The name of the call, where the host
+  reports one. `classify` folds a tool name into `run`/`edit`, so before this the
+  only rows carrying a name were the `unknown` and MCP `external` ones - which is
+  why a firing histogram could not be computed from the ledger at all. Additive,
+  like every other key: a row written before the field carries none, and the
+  histogram counts the rows that name one rather than guessing at the rest.
+
+- **The task rule on the gate page, and a rule ledger.** `docs/gate.md` is the
+  page that answers "why was my command denied", and the task rule - the boundary
+  a user sets with `bin/tezgah-task`, enforced on every write - was missing from
+  it: a session refused by it landed on the page that explained 14 other rules.
+  It now has its section, and the page carries a `## Rule provenance` table: one
+  row per gate rule and per Stop class, naming the incident that produced it, where
+  the evidence is written down, the test that pins it, and the commit it arrived
+  in - 23 rows, `designed` where no incident is recorded, because the ratio
+  between the two is the maturity signal. `bin/tezgah-docs --citations` reads the
+  rule names off the source with `ast` and fails on a rule with no row and on a
+  row whose `pin` names no test, so the table cannot drift away from the code and
+  a new rule cannot be added without one.
+
+- **The plan is held to its own Acceptance, to its spike, and to a checkpoint
+  before the build.** Three holes, one artifact. `bin/tezgah-task` now refuses
+  `implementation` and `verification` for a plan whose Acceptance items all stand
+  unspecified - the condition `render_table.py --acceptance --strict` already
+  reports, in CI, after the work is done - reusing that same reader so the gate
+  and the report cannot disagree. A plan may carry `spike:` / `spike_box:` /
+  `spike_recorded:` / `spike_throwaway:`, and an unanswered spike blocks
+  `implementation`; the throwaway half needs no second mechanism, because
+  `allowed_paths:` already pins a spike's writes to a scratch path. And a move into
+  `implementation` records `checkpoint: <HEAD sha>` when the tree is clean, or
+  `checkpoint: pending` when it is not, which makes the first write of the phase
+  refused until the commit named in the refusal lands. The switch is the record,
+  not the live tree, and that is the load-bearing decision: a rule keyed on the
+  tree would refuse the phase's own product from its second write on, while a
+  `pending` marker that a commit clears names one command and then stops asking.
+  `docs/glossary.md` says the snapshot layer is "Not a checkpoint" - this is the
+  checkpoint, at the plan's own boundary.
+
+- **`bin/tezgah-decisions`: the ADR record.** The repository demanded an ADR and
+  gave nowhere to put one - `skills/feature-audit/SKILL.md` makes a
+  capability-change proposal owe "the ADR (context, decision, status,
+  consequences) and what it supersedes", `docs/feature-audit.md` restates it as
+  the load-bearing artifact, and the consult rule is armed on `adrs?` /
+  `architecture decision record` - so a session was told a decision warranted a
+  record and had no path, template, status vocabulary or checker. It has all four
+  now: `.tezgah/decisions/NNN-slug.md` in the private `.tezgah` repository beside
+  `plans/` and `research/`, read through the plan layer's existing frontmatter and
+  section reader rather than a second parser, and a checker that refuses a record
+  with no status, a status outside proposed/accepted/deprecated/superseded, and a
+  `supersedes:` naming no record. A record's id is its file name, so a
+  `supersedes:` cannot be moved by editing frontmatter. `README.md`, the
+  `plan-add` skill and the feature-audit proposal all name the path now.
+
 ## [0.24.0] - 2026-09-30
 
 ### Changed

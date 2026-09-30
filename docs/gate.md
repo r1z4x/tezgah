@@ -85,6 +85,17 @@ Trigger: a write tool whose path, or `apply_patch` header, another session recor
 `hooks/tezgah_gate.py:613`, reader `writers_elsewhere` `hooks/tezgah_integrity.py:893-958`). Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
 `hooks/tezgah_gate.py:563`). Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py:547`) — a notice would not close a silent overwrite — and it lifts only by time.
 
+### Task — the user's own phase and path allowlist
+
+Trigger: a write tool, or a shell command that writes a file, while an active task is set — a plan file under `.tezgah/plans/open` whose frontmatter carries a valid
+`phase` (`tezgah_task.active`). The phase refuses a write in a reading phase (`TASK_PHASE_DENY` `:655`) and a shell command that writes one (`TASK_SHELL_DENY` `:706`,
+against `SHELL_WRITE` `:697`); the allowlist refuses a target outside it (`TASK_SCOPE_DENY` `:659`); and the record itself is refused twice over — a write whose target IS it
+(`TASK_RECORD_DENY` `:668`) and a shell command that would change it through the CLI (`TASK_UNLOCK_DENY` `:672`, matched on the masked text by `TASK_CHANGE` `:679`). Told:
+none of them names the command that lifts it, on purpose — with the unlock printed, an armed arm removed or disabled the gate in 25 of 25 runs and obeyed it in none
+(`hooks/tezgah_gate.py:664-666`) — so each names the phase or the allowlist as the user's to change. Standing: only the record changing lifts it. Off: `task-off`
+(`hooks/tezgah_gate.py:1353`). It fails open wherever the question cannot be answered: no active task, no readable record; the record is written by `bin/tezgah-task` and
+never by the agent, so this rule refuses on a decision the user made rather than one the gate inferred.
+
 ### Secret — a credential on its way into a file
 
 Trigger: one simple command (split on `&&`, `||`, `;`, newline — `SEGMENT` `hooks/tezgah_gate.py:203-204`) carrying both a token (`SECRET_TOKEN` `hooks/tezgah_gate.py:186-193` — an
@@ -211,13 +222,55 @@ ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:1038`, `ORDE
 `hosts/opencode/plugins/tezgah.js:1683`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
 `fail`, and a row that narrowing would refuse reads `ok`/`ran` on both sides, so the outcome is identical.
 
+## Rule provenance
+
+A rule is a refusal with a cause: something happened, the check was written, and a case was added so it cannot happen again unnoticed. That record used to live
+only as a sentence inside each rule's own paragraph above. It is a table here instead, so it is one place and a machine reads it: `bin/tezgah-docs --citations`
+opens `docs/gate.md`, reads this table, and refuses a rule name the source can still produce with no row, and a row whose `pin` names a test that does not exist.
+The names are read off the source, not restated: the gate's rules are the `_deny(session_id, "<rule>", ...)` calls in `hooks/tezgah_gate.py`, and the Stop
+rule's triggers are the classes `_stop_block` returns, the four `_shape_block` hands back included.
+
+- `incident` — what produced the rule; `designed` where none is recorded. The ratio of incident-derived to designed rules is the maturity signal the research
+  entry names, which is why the distinction is written down rather than smoothed over.
+- `evidence` — where that incident is written down: the page section, the module comment, or the experiment's own preregistration.
+- `pin` — the case that guards it, as `tests/<file>.py::<test_name>`. The checker refuses a pin that names no test, so the case and the row move together.
+- `since` — the first commit in this repository's history that carries the rule (`git log -S`; where the history was rewritten, it is the earliest one left).
+
+| rule | incident | evidence | pin | since |
+|---|---|---|---|---|
+| `explorer` | designed | the grep-only subagent was replaced by the graph tools; no incident recorded | `tests/test_gate.py::test_explore_subagent_denies` | 2026-09-23 |
+| `shortcut` | E7c: with the write tools refused, 3 of 25 armed runs wrote a test skip through a heredoc | `benchmarks/lab PREREGISTRATION-E7.md`, on the `benchmarks/lab` branch | `tests/test_gate.py::test_a_shell_write_that_disables_a_test_is_denied` | 2026-09-23 |
+| `piped` | a real omp session: 13 checks ran piped and 3 of 6 completion claims were blocked | the Piped section above | `tests/test_gate.py::test_a_piped_check_is_refused_and_pipefail_passes` | 2026-09-27 |
+| `attribution` | E7c: the same 3 of 25 runs, a credit written through a heredoc | `benchmarks/lab PREREGISTRATION-E7.md` | `tests/test_gate.py::test_attribution_denies_a_credit_written_by_the_shell` | 2026-09-23 |
+| `lang` | a plan branch was created as `plan/004-admin-durum-onarimi`, and its slug is in the public history for good | `hooks/tezgah_gate.py:257-266` | `tests/test_gate.py::test_a_turkish_branch_name_is_refused` | 2026-09-23 |
+| `race` | two sessions on one file - a parent and its subagent, or two worktrees - landing on a stale read | `hooks/tezgah_gate.py:547-553` | `tests/test_gate.py::test_a_write_to_a_file_another_session_wrote_is_refused` | 2026-09-23 |
+| `task` | E7: with the unlocking command printed, an armed arm removed or disabled the gate in 25 of 25 runs; E7b: the heredoc redirect in 3 of 25 | `benchmarks/lab PREREGISTRATION-E7.md` | `tests/test_gate.py::test_a_reading_phase_refuses_a_write_inside_the_allowlist` | 2026-09-23 |
+| `secret` | E7c: the same 3 of 25 runs, a key written through a heredoc | `benchmarks/lab PREREGISTRATION-E7.md` | `tests/test_gate.py::test_a_credential_written_by_a_heredoc_is_denied` | 2026-09-23 |
+| `workspace` | sessions wrote root `plans/`, `research/` and `analysis/` (observed in `~/Projects`: Ustam, codexit, sharelinks-intelligence) | `hooks/tezgah_gate.py:848-850` | `tests/test_gate.py::test_untracked_root_kinds_are_refused_for_tools_and_redirects` | 2026-09-27 |
+| `plan` | a turn wrote four product files - a hook, its tests, its docs and the changelog - straight onto `main` | `hooks/tezgah_gate.py:1147-1153` | `tests/test_gate.py::test_the_third_product_write_on_main_is_refused` | 2026-09-29 |
+| `order` | FAVA: the shape found in 90% of real agent-instruction projects ("do not commit before running the tests") | the Ordering section above | `tests/test_gate.py::test_a_commit_is_refused_while_the_newest_check_failed` | 2026-09-23 |
+| `loop` | designed | the turn's own repeated failure; no incident recorded | `tests/test_gate.py::test_an_identical_failed_call_is_denied_after_the_ceiling` | 2026-09-23 |
+| `retry` | designed | the session ceiling over the same guard; no incident recorded | `tests/test_gate.py::test_a_fourth_identical_call_is_refused_whatever_the_outcome` | 2026-09-23 |
+| `drift` | plan 004's flip rule on the 2026-09-20 move to a result-channel notice: at 27 sessions the blocked-claim rate in turns under 25 work rows read 112/140 = 0.8000, against 59/142 = 0.4155 before | `hooks/tezgah_gate.py:1039-1051`; the 0.24.0 entry in `CHANGELOG.md` | `tests/test_gate.py::test_a_long_turn_restates_the_constraints_before_a_write` | 2026-09-30 |
+| `check failed` | designed | the newest check failing is its own class; no incident recorded | `tests/test_integrity.py::test_failed_check_blocks` | 2026-09-23 |
+| `partial failure` | designed | a failure the turn never resolved; no incident recorded | `tests/test_integrity.py::test_an_unresolved_failure_blocks_even_after_an_earlier_pass` | 2026-09-23 |
+| `stale evidence` | measured 2026-09-19: reading a rewrite as a change refused honest turns | `hooks/tezgah_integrity.py:1750-1752` | `tests/test_integrity.py::test_a_write_after_the_check_makes_the_check_stale` | 2026-09-23 |
+| `no verify_ok` | E2: 0 of 10 description-shaped claims refused before the `worked` trigger | `hooks/tezgah_integrity.py:2527-2530` | `tests/test_integrity.py::test_work_with_no_passing_check_is_refused_without_a_claim_word` | 2026-09-23 |
+| `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_integrity.py:2580-2582` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` | 2026-09-29 |
+| `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py:2673-2675` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` | 2026-09-29 |
+| `placating opener` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_sycophantic_opener_blocks` | 2026-09-23 |
+| `forbidden closer` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_closer_from_the_skills_own_list_blocks` | 2026-09-23 |
+| `list cap` | designed | output rule 8 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_list_over_the_cap_blocks_with_its_size` | 2026-09-27 |
+| `reply language` | measured 2026-09-19: the 161 final replies the claim vocabulary was read off | `hooks/tezgah_integrity.py:165-166` | `tests/test_integrity.py::test_english_prose_blocks_and_names_the_language` | 2026-09-27 |
+
 ## Adding a rule
 
 1. Write the check inside `decision` (`hooks/tezgah_gate.py:1207-1387`). A rule is a function returning a `str` reason or `None`; keep an argument-shaped rule
    above the repeat guards (`hooks/tezgah_gate.py:1269-1275`) — the drift refusal stays last, below every other rule — and put its constants beside its own section.
    Moving this file shifts every line-number citation on this page, so re-run `bin/tezgah-docs --citations` in the same pass as the suite and re-anchor what it flags.
 2. Return through `_deny(session_id, "<rule>", reason, tool, inp, base)` so the ledger counts the refusal (`hooks/tezgah_gate.py:1191-1206`); gate it on the kill switch it belongs
-   to (`off(...)`), the way the shortcut and repeat rules use `verify-off` (`hooks/tezgah_gate.py:1233`, `hooks/tezgah_gate.py:1336`).
+   to (`off(...)`), the way the shortcut and repeat rules use `verify-off` (`hooks/tezgah_gate.py:1233`, `hooks/tezgah_gate.py:1336`). The rule name is now a record too: add its row to
+   [Rule provenance](#rule-provenance), or `bin/tezgah-docs --citations` refuses the rule for having none.
 3. Extend `tests/test_gate.py`. It drives the real function through `tests/_probe_gate.py` (`tests/support.py:20`), which also carries the `capture_log` stub
    standing in for `tezgah_gate.capture` on the allow path (`tests/_probe_gate.py:20-30`). Only if the refusal envelope changes, touch
    `tests/test_claude_adapters.py:42-51` and the codex/cursor/omp hook tests.
@@ -235,4 +288,5 @@ ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:1038`, `ORDE
   `:152-159`; `call_id` `hooks/tezgah_integrity.py:438-462`; `_path` `:478`, `note` `hooks/tezgah_integrity.py:656-668`, `events` `hooks/tezgah_integrity.py:761-774`, `writers_elsewhere` `hooks/tezgah_integrity.py:893-958`, `mask` `hooks/tezgah_integrity.py:1219-1224`, `shortcut_command` `hooks/tezgah_integrity.py:1225-1249`,
   `shortcut_edit` `hooks/tezgah_integrity.py:1319-1355`
 - `hosts/opencode/plugins/tezgah.js` — the JavaScript mirror
+- `bin/tezgah-docs` — the rule-ledger check (`ledger_failures`) that reads this page's provenance table; `tests/test_docs.py` drives it
 - `tests/test_gate.py`, `tests/_probe_gate.py`, `tests/test_opencode_plugin.py`, `tests/test_claude_adapters.py`

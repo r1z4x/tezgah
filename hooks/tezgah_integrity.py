@@ -350,8 +350,15 @@ PERMANENT_ERROR = re.compile(
 # of the summary a host handed the PostCompact hook, and how many of the
 # constraint lines tezgah injected the summary still carried - a report
 # `counters` folds, never a field the gate reads.
+#
+# `tool` is the call's own name, for the reason the kind set is too coarse to
+# answer: `classify` folds `Bash`, `Write` and `apply_patch` into `run`/`edit`
+# and drops the name, so before this field no reader could count how often a
+# tool fires or retire one nobody calls (`_counts`' `tools`). It is additive
+# like the rest - a row written before it names its tool only where the name
+# survived in `detail` (an `unknown` row, an MCP `external` row).
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
-                           "source", "hash", "changed",
+                           "source", "hash", "changed", "tool",
                            "lines", "chars", "items", "longest_list",
                            "tr_share", "answer_first",
                            "summary_chars", "summary_hash",
@@ -1028,8 +1035,216 @@ FAILED_MARK = "[exit!=0]"
 # on it.
 STEP_KINDS = ("run", "edit", "verify", "verify_ok", "verify_fail", "interrupted")
 
+# The rows whose `detail` is a command line, which are the only rows a program
+# can have run in: an `edit` row's detail is the path it wrote and a `deny` row's
+# is a rule and a reason. STEP_KINDS minus `edit`, spelled out so a new step kind
+# has to be decided about here rather than inherited by accident.
+COMMAND_KINDS = ("run", "verify", "verify_ok", "verify_fail", "interrupted")
 
-def counters(session_id):
+# The drift series' bucket: one week on a fixed 7-day grid. A month is not a
+# fixed span and the bucket key has to be arithmetic - the rows carry `ts` and
+# nothing else - so the key is arithmetic on `ts` and never a date. The grid is
+# anchored on the epoch's first Monday, so a bucket prints as the week people
+# read a date in; the anchor is the only thing that decides which grid, and every
+# bucket in one report shares it.
+WEEK = 7 * 86400
+MONDAY = 4 * 86400  # 1970-01-05T00:00Z, the epoch's first Monday
+# The buckets the printed series covers when a reader asks for the trend and not
+# for a window: long enough to see a slope, short enough that a corpus which went
+# quiet reads as a gap in the printout rather than as a measured decline.
+DRIFT_WEEKS = 8
+
+# The programs a checkout of this layer ships: the extensionless files directly
+# under `bin/`. That is the one catalog of tezgah's own tools the fold can read
+# by itself - the catalog of MCP servers is the host's configuration, which this
+# layer does not hold, so that join is manual (`tezgah-setup --mcp-schemas`
+# measures the bytes each server costs and this histogram counts the fires; see
+# docs/evidence.md).
+BIN_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin")
+
+
+def _week(ts):
+    """The grid second a row's `ts` belongs to: the key a bucket is filed under,
+    the Monday of its week."""
+    return (int(ts or 0) - MONDAY) // WEEK * WEEK + MONDAY
+
+
+_CATALOG = {}
+
+
+def shipped_programs(directory=None):
+    """The programs this checkout ships, sorted: an extensionless file under
+    `bin/` (`consult`, `tezgah-rollback`) and not the `*.py` implementation
+    beside the ones that have one.
+
+    One listdir per directory per process: the fold asks for the catalog on
+    every row it scans and a checkout's `bin/` does not change under a running
+    report."""
+    d = directory or BIN_DIR
+    if d not in _CATALOG:
+        try:
+            _CATALOG[d] = sorted(
+                n for n in os.listdir(d)
+                if "." not in n and not n.startswith("_")
+                and os.path.isfile(os.path.join(d, n)))
+        except OSError:
+            _CATALOG[d] = []
+    return list(_CATALOG[d])
+
+
+_SHELL_PROGRAMS = None
+
+
+def _shell_programs():
+    """`tezgah_context.shell_programs`, imported on first use: that module
+    imports this one at module level, so the import has to be inside the call."""
+    global _SHELL_PROGRAMS
+    if _SHELL_PROGRAMS is None:
+        from tezgah_context import shell_programs
+        _SHELL_PROGRAMS = shell_programs
+    return _SHELL_PROGRAMS
+
+
+# One compiled alternation per catalog, keyed by the catalog itself: the
+# prefilter's only job is to keep the shell parser off the rows that cannot
+# mention a shipped program. Its lookarounds refuse a name that is part of a
+# longer word or a filename (`tezgah-design.py`, `docs/tezgah-status.md`); a
+# candidate that survives still has to sit at a command position, which is what
+# `_ran_programs` asks the tokenizer for.
+_RAN_RE = {}
+
+
+def _ran_programs(detail):
+    """The shipped programs one row's command really ran.
+
+    Read with the tokenizer the status line's `shell_kind` already uses, never as
+    a substring: `grep -n consult hooks/` names a program and runs nothing, which
+    is the accident that reader exists to prevent. The tokenizer is reached only
+    for a row the one-regex prefilter says mentions a shipped name at all,
+    because tokenizing every row of the corpus costs seconds where the scan costs
+    milliseconds."""
+    catalog = shipped_programs()
+    if not catalog or not detail:
+        return ()
+    key = tuple(catalog)
+    pattern = _RAN_RE.get(key)
+    if pattern is None:
+        pattern = _RAN_RE[key] = re.compile(
+            r"(?<![\w.-])(?:%s)(?![\w.-])" % "|".join(map(re.escape, catalog)))
+    if not pattern.search(detail):
+        return ()
+    names = set(catalog)
+    return [os.path.basename(w) for w in _shell_programs()(detail)
+            if os.path.basename(w) in names]
+
+
+def _tool_name(entry):
+    """The tool a ledger row names, lowercased, or "" when it names none.
+
+    A row written since the `tool` field landed carries the name there. Before
+    it, the name survived for exactly two kinds - an `unknown` row, whose detail
+    is `unknown tool: <name>`, and an MCP `external` row, whose detail is
+    `mcp <name>` - while a work row carried only the class `classify` mapped it
+    to. A corpus older than the field therefore under-counts, and no reader can
+    recover a name the writer dropped: the histogram is only ever as complete as
+    the corpus it read."""
+    name = str(entry.get("tool") or "").strip()
+    if not name:
+        detail = str(entry.get("detail") or "")
+        if detail.startswith(TOOL_NAME):
+            name = detail[len(TOOL_NAME):].strip()
+        elif detail.startswith(MCP_CHANNEL + " "):
+            name = detail[len(MCP_CHANNEL) + 1:].strip()
+    return name.lower()
+
+
+def _ratio(numerator, denominator):
+    """The ratio, or None when nothing carries the denominator.
+
+    None and not 0: a week with no claim and no decided attempt has no rate, and
+    printing 0.0 there is the reading this module refuses - a perfect week that
+    measured nothing."""
+    return round(numerator / denominator, 4) if denominator else None
+
+
+def _direction(rows, numerator, denominator):
+    """Which way a ratio went over the newest three buckets that carry a
+    denominator: "rising", "falling", "flat", or "n/a" when fewer than two can be
+    divided.
+
+    Compared by cross-multiplication on the counts, so two weeks that differ are
+    never called flat by a shared four-decimal rounding."""
+    seen = [r for r in rows if r[denominator]][-3:]
+    if len(seen) < 2:
+        return "n/a"
+    first, last = seen[0], seen[-1]
+    before = first[numerator] * last[denominator]
+    after = last[numerator] * first[denominator]
+    if before == after:
+        return "flat"
+    return "rising" if after > before else "falling"
+
+
+def drift_series(counts, weeks=DRIFT_WEEKS):
+    """`counts`' own buckets as the last `weeks` calendar weeks, oldest first,
+    each with its row count and the two ratios, plus the direction of the last
+    three buckets that carry a denominator.
+
+    Drawn from the buckets `_counts` filled in the same pass as the totals, so
+    the series cannot disagree with the totals it is drawn from: every ratio here
+    is the same numerator over the same denominator, only split by week. One
+    ledger is an anecdote and one week is a reading; the slope of
+    `false_completion / claims` and of `tool_error_rate` over the corpus is the
+    population signal the value alone cannot give.
+
+    A week the corpus holds no row for is printed with a zero row count and a
+    None rate, so a gap is visible as a gap. Nothing is windowed out of the
+    totals - this reader re-slices them."""
+    buckets = counts.get("weeks") or {}
+    out = {"rows": [], "false_completion_trend": "n/a",
+           "tool_error_trend": "n/a"}
+    if not buckets:
+        return out
+    newest = max(buckets)
+    for start in range(newest - (weeks - 1) * WEEK, newest + WEEK, WEEK):
+        b = buckets.get(start) or {}
+        out["rows"].append({
+            "start": start,
+            "date": time.strftime("%Y-%m-%d", time.gmtime(start)),
+            "events": b.get("events", 0),
+            "claims": b.get("claims", 0),
+            "false_completion": b.get("false_completion", 0),
+            "decided": b.get("decided", 0),
+            "errors": b.get("errors", 0),
+            "false_completion_rate": _ratio(b.get("false_completion", 0),
+                                            b.get("claims", 0)),
+            "tool_error_rate": _ratio(b.get("errors", 0), b.get("decided", 0)),
+        })
+    out["false_completion_trend"] = _direction(
+        out["rows"], "false_completion", "claims")
+    out["tool_error_trend"] = _direction(out["rows"], "errors", "decided")
+    return out
+
+
+def unfired_programs(counts):
+    """The programs this checkout ships that the corpus never ran, sorted.
+
+    The absence is the evidence: a tool nobody calls leaves no row, so the only
+    way to name it is the catalog minus what fired - which is why `_counts`
+    keeps `programs` and why this reader reads the checkout's `bin/` rather than
+    a hand-kept list that would go stale on the next added tool.
+
+    A fold that was not asked for the histogram has no `programs` key, and the
+    answer there is nothing: every program would read as never fired, which is
+    the one direction this report must not get wrong."""
+    if "programs" not in counts:
+        return []
+    ran = set(counts.get("programs") or ())
+    return [p for p in shipped_programs() if p not in ran]
+
+
+def counters(session_id, weeks=False, tools=False):
     """One session's ledger, aggregated: what the gate refused, what ran, what
     failed, which cheap-model tier was used, and the trace metrics.
 
@@ -1051,11 +1266,17 @@ def counters(session_id):
     is folded apart: `subagent_results` counts the reports a session read, and
     `subagent_bytes_p50`/`subagent_bytes_max` fold the sizes the hosts reported
     over the rows that carry one - a result whose host measured no text (omp
-    reports a part count) counts as a result with no size, never as a zero."""
-    return _counts(events(session_id))
+    reports a part count) counts as a result with no size, never as a zero.
+
+    `weeks` and `tools` add the two report folds to the same pass (`_counts`
+    documents them): the per-week buckets a drift series is sliced from, and the
+    per-tool firing histogram. Both are off unless asked for, so a caller that
+    wants only the totals pays for only the totals and the JSON it prints stays
+    what it always was."""
+    return _counts(events(session_id), weeks=weeks, tools=tools)
 
 
-def counters_all():
+def counters_all(weeks=False, tools=False):
     """Every real-session ledger on this machine in one set of counters, plus
     `ledgers`, the files that went into it, and `fixtures`, the ones left out
     because every workspace they name is a probe or benchmark tree (see
@@ -1067,18 +1288,37 @@ def counters_all():
 
     Bound: none, deliberately. A window or a row cap would make the total
     contradict the per-session numbers it sums, and a cap a reader cannot see is
-    worse than a slow answer (1166 ledgers, 6.5 MB folded in 0.17 s)."""
+    worse than a slow answer (1166 ledgers, 6.5 MB folded in 0.17 s).
+
+    `weeks` and `tools` are the two report folds (`_counts` documents them), off
+    by default so the JSON every other caller prints stays what it was."""
     read = [events_path(path) for path in ledgers()]
     real = [rows for rows in read if not fixture_ledger(rows)]
-    out = _counts(row for rows in real for row in rows)
+    out = _counts((row for rows in real for row in rows), weeks=weeks,
+                  tools=tools)
     out["ledgers"], out["fixtures"] = len(real), len(read) - len(real)
     return out
 
 
-def _counts(rows):
+def _counts(rows, weeks=False, tools=False):
     """`counters`' arithmetic over rows already read: the one implementation
     both readers fold with, so a total and the sessions it sums cannot drift
-    apart."""
+    apart.
+
+    `weeks` adds `weeks`: the same rows bucketed by `ts` on the fixed 7-day grid,
+    each bucket counting the events, the claims and the decided attempts it
+    holds, which `drift_series` re-slices into a slope. The buckets are filled in
+    this one pass, so a bucket can never contradict the total it is a part of.
+
+    `tools` adds two histograms: `tools`, the firings of every tool name the
+    corpus carries (`_tool_name`), and `programs`, the shipped `bin/` programs
+    seen really running in a command row (`_ran_programs`). `tools_never` is what
+    a reader derives from the second against `shipped_programs()` - a program
+    with no row fired nowhere, and that absence is the retirement evidence.
+
+    Both are off by default: a caller that wanted only the totals pays for only
+    the totals, and the JSON the printers print without the flag stays
+    byte-identical."""
     out = {"events": 0, "denies": {}, "nudges": 0, "kinds": {},
            "consult": 0, "codegen": 0, "codegen_failed": 0, "judge": 0,
            "shape": 0, "replies": 0, "shape_blocked": 0, "fanout": 0,
@@ -1088,6 +1328,10 @@ def _counts(rows):
            "subagent_bytes_max": None,
            "compactions": 0, "compact_chars": None,
            "compact_constraint_rate": None}
+    if weeks:
+        out["weeks"] = {}
+    if tools:
+        out["tools"], out["programs"] = {}, {}
     decided = errors = 0
     report_sizes = []
     constraints = [0, 0]  # found, expected - over the rows that carry both
@@ -1102,6 +1346,24 @@ def _counts(rows):
             decided += 1
             if entry.get("exit"):
                 errors += 1
+        if weeks:
+            bucket = out["weeks"].setdefault(
+                _week(entry.get("ts")),
+                {"events": 0, "claims": 0, "false_completion": 0,
+                 "decided": 0, "errors": 0})
+            bucket["events"] += 1
+            if entry.get("exit") is not None:
+                bucket["decided"] += 1
+                if entry.get("exit"):
+                    bucket["errors"] += 1
+        if tools:
+            name = _tool_name(entry)
+            if name:
+                out["tools"][name] = out["tools"].get(name, 0) + 1
+            if kind in COMMAND_KINDS:
+                for program in _ran_programs(detail):
+                    out["programs"][program] = \
+                        out["programs"].get(program, 0) + 1
         if kind == "deny":
             rule = detail.split(":", 1)[0].strip() or "other"
             out["denies"][rule] = out["denies"].get(rule, 0) + 1
@@ -1109,6 +1371,7 @@ def _counts(rows):
             out["nudges"] += 1
         elif kind == "claim":
             out["claims"] += 1
+            refused = False
             if detail.startswith("blocked"):
                 # a reply blocked for its shape made no false claim: the rate
                 # the module calls its effect must not count a list cap
@@ -1116,6 +1379,14 @@ def _counts(rows):
                     out["shape_blocked"] += 1
                 else:
                     out["false_completion"] += 1
+                    refused = True
+            if weeks:
+                # the same bucket this row's events went into, so a claim cannot
+                # sit in a week's total and outside its ratio
+                bucket = out["weeks"][_week(entry.get("ts"))]
+                bucket["claims"] += 1
+                if refused:
+                    bucket["false_completion"] += 1
         if kind == "judge":
             # by the row's kind, not a `detail` substring like the two below: a
             # judgement's detail carries the caller and the model, so a substring
@@ -1752,6 +2023,11 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
             return
         kind, detail = "unknown", TOOL_NAME + name
     fields = {"id": call_id(tool, inp),
+              # the call's own name, which `classify` folds away: the kind says
+              # what class of work the call was, and only this field says which
+              # tool made it - the histogram `_counts` folds and the report
+              # `--trend` prints. An empty name is dropped with the rest.
+              "tool": str(tool or "").strip() or None,
               # an interrupted call reported no outcome, so it gets neither an
               # `exit` nor a failure class: the host said the call was stopped,
               # not what the tool answered, and a class would name an error text

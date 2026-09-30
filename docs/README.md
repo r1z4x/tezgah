@@ -54,8 +54,9 @@ reader with one question in mind, and every non-obvious claim in it carries a
   case, and that case is where the drift lands: a citation that names a symbol
   (`note_tool` `hooks/tezgah_integrity.py:1669-1777`) must point inside that symbol's body, so
   `bin/tezgah-docs --citations` re-runs that half of the audit in one command and
-  counts the citations it cannot judge - 355 judged and 755 not judgeable on this
-  tree, 2026-09-20. Those 755 are the next audit's work list rather than a claim
+  counts the citations it cannot judge - 324 judged and 913 not judgeable on this
+  tree, 2026-09-30 (the counts move with the tree: the same command read 355 and 755
+  on the day it was written). Those 913 are the next audit's work list rather than a claim
   of cleanliness. It is a report, not a gate - a
   symbol named beside a path is judged in that file, and a citation with no
   symbol beside it is left unjudged rather than guessed at.

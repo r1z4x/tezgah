@@ -10,6 +10,10 @@ import unittest
 import support
 from support import TempHome, run
 
+sys.path.insert(0, os.path.join(support.REPO, "hooks"))
+import tezgah_context as tc  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
+
 SEGMENT = ("pony\u25cb exec\u2713 adhd\u25cb  \u00b7  consult\u25cb research\u2717 graph\u25cb"
            " orch\u25cb judge\u25cb  \u00b7  idx\u2013")
 NO_ROOT = ("pony\u25cb exec\u2713 adhd\u25cb  \u00b7  consult\u25cb research\u2717 graph\u25cb"
@@ -249,6 +253,133 @@ def changelog_version():
 # The line's first chip: the product's own name and version, its own group, so
 # the marks separate from it with the separator they already use.
 PREFIX = "tezgah v%s  \u00b7  " % changelog_version()
+
+
+class SkillRecording(TempHome):
+    """Which skill a read opened, and the report over the recorded sessions.
+
+    `SKILL_MARKS` is the two skills the always-on core tells a session to read -
+    a mark whose skill the core never names can never flip, so the table cannot
+    be widened to the shipped list - and every other shipped skill records
+    `skill:<name>` instead, a kind no mark reads. The report is a measurement,
+    not a gate: the skill nobody opened is invisible from reading the skill, and
+    this is the one reader that names it."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.cache = os.path.join(self.home, ".cache", "tezgah")
+        # cache_dir() reads tezgah_paths.CACHE at call time, which is the one
+        # place a test repoints so the real store is never read or written
+        self.addCleanup(setattr, tp, "CACHE", tp.CACHE)
+        tp.CACHE = self.cache
+        self.envv = self.env()
+        self.cli = os.path.join(support.REPO, "bin", "tezgah-status")
+
+    def session(self, name, kinds, mtime=None):
+        """One recorded session file: the store's own row, `{"kind": kind}`."""
+        d = os.path.join(self.cache, "sessions")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, name + ".jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            for kind in kinds:
+                fh.write(json.dumps({"kind": kind}) + "\n")
+        if mtime is not None:
+            # the window is files by mtime, so a test that picks the newest has
+            # to set it rather than hope two writes land in different clock ticks
+            os.utime(path, (mtime, mtime))
+        return path
+
+    def opened(self, *sessions):
+        """The rows the CLI prints for the sessions given, `--skill-fitness`."""
+        for name, kinds in sessions:
+            self.session(name, kinds)
+        proc = run([self.cli, "--skill-fitness"], env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout
+
+    def test_a_read_of_a_shipped_skill_records_its_name(self):
+        # the mark table keeps its two entries; every other shipped skill reaches
+        # the store under `skill:<name>` so the report can see it at all
+        skill = os.path.join(support.REPO, "skills", "harness", "SKILL.md")
+        kind = tc.skill_read_kind("read", {"file_path": skill})
+        self.assertEqual(kind, "skill:harness")
+        tc.record("s", kind)
+        self.assertEqual(tc.used("s"), {"skill:harness"})
+        # omp's read tool takes the internal URL, the same SKILL.md
+        self.assertEqual(tc.skill_read_kind("read", {"path": "skill://harness"}),
+                         "skill:harness")
+
+    def test_the_two_marked_skills_keep_their_marks(self):
+        # the status line's own input: a change here would move a pinned mark
+        for path, mark in (("skills/ponytail/SKILL.md", "pony"),
+                           ("skill://i-have-adhd", "adhd"),
+                           ("skill://i-have-adhd/SKILL.md", "adhd"),
+                           ("skill://not-a-shipped-skill", None),
+                           ("skills/not-a-shipped-skill/SKILL.md", None)):
+            self.assertEqual(tc.skill_read_kind("read", {"file_path": path}), mark,
+                             path)
+
+    def test_a_new_kind_lights_no_mark(self):
+        # the line is unchanged by a `skill:` kind, and the control below proves
+        # the assertion can fail: `consult` is a kind the line does read
+        line = lambda: tc.render_line(tc.health_segments(  # noqa: E731
+            self.repo, "s", observable=tc.TOOL_USE_MEASURES))
+        before = line()
+        tc.record("s", "skill:harness")
+        self.assertEqual(line(), before)
+        tc.record("s", "consult")
+        self.assertNotEqual(line(), before)
+
+    def test_the_report_counts_the_sessions_that_opened_a_skill(self):
+        self.session("a", ["skill:harness", "skill:harness"])
+        self.session("b", ["pony"])
+        self.session("c", ["consult"])
+        fit = tc.skill_fitness()
+        # a session counts once however many times it recorded the kind, and a
+        # marked skill counts under its own name - the reads recorded before
+        # `skill:` existed are not lost
+        self.assertEqual(fit["skills"],
+                         [{"name": "harness", "mark": None, "sessions": 1},
+                          {"name": "ponytail", "mark": "pony", "sessions": 1}])
+        # every shipped skill is in exactly one of the two lists
+        self.assertEqual(set(fit["never"]) | {s["name"] for s in fit["skills"]},
+                         set(tc.shipped_skills()))
+        self.assertNotIn("harness", fit["never"])
+        self.assertNotIn("ponytail", fit["never"])
+        self.assertIn("tezgah-contract", fit["never"])
+        self.assertTrue(fit["never"], "a fresh store opened nothing, so every "
+                                      "skill it never opened has to be named")
+
+    def test_the_window_is_the_newest_sessions_and_says_so(self):
+        self.session("old", ["skill:harness"], mtime=1000)
+        self.session("mid", ["pony"], mtime=2000)
+        self.session("new", ["consult"], mtime=3000)
+        fit = tc.skill_fitness(window=2)
+        self.assertEqual((fit["sessions"], fit["recorded"]), (2, 3))
+        self.assertEqual([s["name"] for s in fit["skills"]], ["ponytail"])
+        self.assertIn("harness", fit["never"])
+
+    def test_the_cli_prints_the_report_and_its_json(self):
+        for name, kinds in (("a", ["skill:harness"]), ("b", ["pony"])):
+            self.session(name, kinds)
+        out = self.opened()
+        self.assertIn("sessions read: 2 of 2 recorded", out)
+        self.assertIn("harness", out)
+        self.assertIn("never opened:", out)
+        parsed, proc = support.run_json([self.cli, "--skill-fitness", "--json"],
+                                        env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(parsed["skills"],
+                         [{"name": "harness", "mark": None, "sessions": 1},
+                          {"name": "ponytail", "mark": "pony", "sessions": 1}])
+
+    def test_the_session_store_keeps_the_kind_a_host_writes(self):
+        # end to end through the CLI the report reads: what `record` wrote is
+        # what the report names, with no second reader of the store
+        tc.record("s1", "skill:design-contract")
+        rows = tc.skill_fitness()
+        self.assertEqual([s["name"] for s in rows["skills"]], ["design-contract"])
 
 
 if __name__ == "__main__":

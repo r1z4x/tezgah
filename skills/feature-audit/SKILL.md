@@ -216,7 +216,7 @@ class and its falsifier:
 | Rollout | flag name, type and expected lifetime, initial exposure, kill-switch owner, abort threshold and its window | an unmeasurable threshold, or a flag with no lifetime |
 | Verification | the check that fails before and passes after, named by file or command | a check that also passes on the pre-change commit |
 | Reversibility | what the new path writes, the exact restore step, or the plain sentence "one-way door, approval required" | data written with no restore step and no label |
-| Decision | the ADR (context, decision, status, consequences) and what it supersedes | an ADR without a status |
+| Decision | the ADR under `.tezgah/decisions/` (`bin/tezgah-decisions`) - context, decision, status, consequences - and what it supersedes | an ADR without a status, or an ADR kept nowhere a reader can open |
 | Appetite | the time box, what is out of bounds, and what happens when it ends | no box, or an implicit extension |
 
 **The load-bearing rule: the proposal must carry an artifact something other than

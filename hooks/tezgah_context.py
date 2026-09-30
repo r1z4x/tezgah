@@ -352,8 +352,55 @@ def _pony_level_line():
 # summary - the marks that carry it are the ones whose whole job is "the full
 # text was loaded". Matched on the path, so a read of any other file costs
 # nothing.
+#
+# Only the two skills the always-on core names are in here, and that is the
+# constraint rather than an omission: a mark whose skill the core never tells a
+# session to read can never flip, which tests/test_context.py pins by requiring
+# every entry here to appear in the core. Any other shipped skill is recorded
+# under SKILL_KIND instead - a kind no mark reads, so the line and its legend
+# are untouched.
 SKILL_MARKS = {"ponytail": "pony", "i-have-adhd": "adhd"}
+# The kind a read of any OTHER shipped skill is recorded under, for the one
+# reader that asks which skills a session opened: `skill:<name>`. It is display
+# state in the same store as the marks (`record`), and the fitness report reads
+# it back (`skill_fitness`).
+SKILL_KIND = "skill:"
 READ_TOOL_NAMES = ("read", "read_file", "readfile", "view_file")
+
+_SKILLS = {}
+
+
+def shipped_skills(directory=None):
+    """The skills this checkout ships, sorted: a directory under `skills/` that
+    has a SKILL.md in it.
+
+    Read from the checkout rather than kept as a list, because a list goes stale
+    on the next added skill and a report that names a skill the checkout does
+    not have is worse than no report. One listdir per directory per process: the
+    reader runs per skill read on a host that forwards reads."""
+    d = directory or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
+    if d not in _SKILLS:
+        try:
+            _SKILLS[d] = sorted(n for n in os.listdir(d)
+                                if os.path.isfile(os.path.join(d, n, "SKILL.md")))
+        except OSError:
+            _SKILLS[d] = []
+    return list(_SKILLS[d])
+
+
+def _skill_read_name(path):
+    """The skill name a read path names, or "".
+
+    The two shapes `skill_read_kind` matches, split out so the name is read once:
+    `<...>/skills/<name>/SKILL.md` from a path, and the internal URL omp's read
+    tool takes, `skill://<name>` (with or without the SKILL.md tail)."""
+    m = re.search(r"(?:^|/)skills/([^/]+)/SKILL\.md$", path)
+    if m:
+        return m.group(1)
+    if path.startswith("skill://"):
+        return path[len("skill://"):].split("/")[0]
+    return ""
 
 
 def skill_read_kind(tool, inp):
@@ -363,7 +410,15 @@ def skill_read_kind(tool, inp):
     this (Claude parses its transcript, opencode classifies in-process, omp's
     embedded runner filters before it asks python). On codex, cursor and dsh a
     read is not observable at that price, so those marks stay at their armed
-    state and the legend says so."""
+    state and the legend says so.
+
+    A read of one of the two marked skills earns its mark (`SKILL_MARKS`); a read
+    of any OTHER shipped skill earns `skill:<name>`. That second kind lights
+    nothing - no flag's measure is spelled `skill:...` - so the status line and
+    its legend are exactly what they were, while `skill_fitness` can say which
+    skills a session actually opened. The name has to be a shipped skill (a
+    directory under `skills/` with a SKILL.md): `skill://other` earns nothing, as
+    it always did."""
     if str(tool or "").strip().lower() not in READ_TOOL_NAMES:
         return None
     path = ""
@@ -377,6 +432,9 @@ def skill_read_kind(tool, inp):
         if (path.endswith("skills/%s/SKILL.md" % name)
                 or path in ("skill://" + name, "skill://%s/SKILL.md" % name)):
             return mark
+    name = _skill_read_name(path)
+    if name and name in shipped_skills():
+        return SKILL_KIND + name
     return None
 
 
@@ -1570,6 +1628,79 @@ def used(session_id):
     except OSError:
         pass
     return out
+
+
+# How many of the newest recorded session files a fitness report reads. A row is
+# `{"kind": kind}` and carries no timestamp, so the window can only be files by
+# mtime - the moment the session last recorded anything, which for a used-kind
+# store is its last event.
+FITNESS_WINDOW = 200
+
+
+def _mtime(path):
+    """A file's mtime, or 0 when it is gone: the window is a sort key, and a
+    session that vanished mid-report must not crash the report."""
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def skill_fitness(window=FITNESS_WINDOW):
+    """Which shipped skills the recorded sessions opened, and which opened none.
+
+    A skill is a dependency that has to keep earning the context lines it costs,
+    and the one thing nothing measured is the skill that never fires: accretion
+    is invisible from reading the skill, which is what makes the record worth
+    keeping (`record` writes the used-kinds store, `skill_read_kind` names the
+    skill a read opened). This is a measurement, not a gate - it names the
+    candidates, and retiring one stays the owner's call.
+
+    The window is the newest `window` session files by mtime, because the rows
+    carry no timestamp. A session counts as having opened a skill when it
+    recorded that skill's kind: `skill:<name>`, or the mark the status line draws
+    for the two marked skills, so reads recorded before `SKILL_KIND` existed
+    still count. Sessions on a host that cannot see a read record neither, and
+    the report cannot tell that session from one that read nothing - the number
+    is a floor, not a census.
+
+    Returns `sessions` and `recorded` (the files read and the files present),
+    `skills` (the opened ones ranked by session count, each with the mark the
+    line draws for it, or None), and `never` (the shipped skills no session in
+    the window opened)."""
+    catalog = shipped_skills()
+    d = os.path.join(cache_dir(), "sessions")
+    try:
+        files = sorted((os.path.join(d, n) for n in os.listdir(d)
+                        if n.endswith(".jsonl")),
+                       key=_mtime, reverse=True)
+    except OSError:
+        files = []
+    opened = {}
+    for path in files[:window]:
+        kinds = set()
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        kinds.add(json.loads(line)["kind"])
+                    except (ValueError, KeyError, TypeError):
+                        pass  # a torn line, the way `used` reads one
+        except OSError:
+            continue
+        for name in catalog:
+            mark = SKILL_MARKS.get(name)
+            if (SKILL_KIND + name) in kinds or (mark and mark in kinds):
+                opened[name] = opened.get(name, 0) + 1
+    return {
+        "sessions": len(files[:window]),
+        "recorded": len(files),
+        "skills": [{"name": name, "mark": SKILL_MARKS.get(name),
+                    "sessions": count}
+                   for name, count in sorted(opened.items(),
+                                             key=lambda kv: (-kv[1], kv[0]))],
+        "never": [name for name in catalog if name not in opened],
+    }
 
 
 def repo_marks(cwd):

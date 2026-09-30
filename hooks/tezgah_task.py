@@ -23,7 +23,17 @@ nothing.
 
 A plan's body is read here too, and only here: the acceptance report
 (`tezgah-render-table --acceptance`) counts the items that name no command, so
-the record the gate reads and the items the report counts have one reader.
+the record the gate reads and the items the report counts have one reader. Two
+readers of the body were added beside it and read in the same place - the
+`## Acceptance` items a plan cannot enter a writing phase without
+(`acceptance_gap`), and the spike a plan declares and has not answered
+(`spike_unanswered`) - for the same reason: the CLI refuses the phase move and
+the CI report counts the same items, and one module keeps them agreeing.
+
+The `checkpoint:` key is read here for the same reason again: bin/tezgah-task
+writes it when the phase moves to `implementation`, and the gate refuses a write
+in that phase while it reads `pending` - the sha of the pre-work commit, or the
+word that says there is none to return to yet.
 """
 import os
 import re
@@ -129,9 +139,14 @@ _SPAN = re.compile(r"`([^`\n]+)`")
 
 def _argument(token):
     """One token only a command carries: an option (`--citations`), a path
-    (`bin/tezgah-docs`, `hooks/x.py`) or a script (`run.sh`). A bare word is not
-    one, so a backticked phrase is not read as a command."""
+    (`bin/tezgah-docs`, `hooks/x.py`), the current directory (`.`, `..`) or a
+    script (`run.sh`). A bare word is not one, so a backticked phrase is not read
+    as a command. `.` counts because it is a path like any other and is what the
+    commonest lint invocation ends in (`ruff check .`) - read as a bare word, the
+    item that names it was reported as naming no command at all."""
     if len(token) > 1 and token.startswith("-"):
+        return True
+    if token in (".", ".."):
         return True
     if token.endswith((".py", ".sh", ".js", ".bash")):
         return True
@@ -199,6 +214,65 @@ def acceptance_items(text):
     return out
 
 
+def acceptance_gap(text):
+    """The plan's Acceptance items when nothing in them can check the work: every
+    item the section carries is `missing`, so none names a command and none
+    declares itself `unverifiable`. [] otherwise, and [] when the plan has no
+    Acceptance items at all.
+
+    A plan with an empty or absent section is a different defect - the format asks
+    plan-add to write the items, and the report the CI runs does not gate that
+    case either - so refusing it here would tax every plan that predates the rule
+    while the two readers still agreed about every item either of them can see.
+    Returns the items so a refusal can count them."""
+    items = acceptance_items(text)
+    return items if items and all(item["state"] == "missing" for item in items) else []
+
+
+# The `checkpoint:` values a plan can carry: a commit sha, or this literal while
+# the tree still holds work no commit names. The CLI writes it, the gate reads it.
+CHECKPOINT_PENDING = "pending"
+
+
+def checkpoint(text):
+    """The plan's `checkpoint:` value: the pre-work commit the phase's work
+    branches from, the literal `pending` while that work is uncommitted, or None
+    when the plan carries no such field - a phase started before the field
+    existed, which no rule holds to it."""
+    return frontmatter(text).get("checkpoint")
+
+
+def slug(path):
+    """A plan file's slug: its name without `.md` (`001-aipatternbook-v1`), which
+    is the branch's own tail (`plan/NNN-slug`) and what a checkpoint commit names.
+    Built here so the CLI's note and the gate's refusal cannot spell it two
+    ways."""
+    name = os.path.basename(path)
+    return name[:-3] if name.endswith(".md") else name
+
+
+def checkpoint_command(path):
+    """The one command that makes a plan's boundary real: a commit whose message
+    marks where the risky work starts. Named by the CLI's note and by the gate's
+    refusal - the same string, from the same caller-visible place."""
+    return 'git add -A && git commit -m "checkpoint: before %s"' % slug(path)
+
+
+def spike_unanswered(text):
+    """True when the plan runs a spike (`spike:` names its one question) that has
+    not answered yet (`spike_recorded:` names nothing), else False.
+
+    The four keys are optional and their absence invents nothing: no `spike:`
+    question means no spike, which is how a plan that predates the field is never
+    held to it - the fail-open direction every reader here takes. `spike_box:` is
+    the time box and `spike_throwaway:` the throwaway contract; nothing reads
+    either, because the throwaway half is already enforceable through
+    `allowed_paths` (a spike pins its allowlist to a scratch path that is never
+    merged) and a second mechanism for one rule is the copy that drifts."""
+    fields = frontmatter(text)
+    return bool(fields.get("spike")) and not fields.get("spike_recorded")
+
+
 ACCEPTANCE_DIRS = ("open", "done")
 
 
@@ -239,8 +313,9 @@ def acceptance_report(root):
 def active(cwd, base):
     """The active task as a dict, or None. Scans `<repo_root>/.tezgah/plans/open/*.md`
     sorted by name, first file whose frontmatter carries a valid `phase`.
-    Dict: {"id","title","phase","allowed_paths","path"}: id/title are the
-    frontmatter values (id falls back to the filename's NNN), path is the file.
+    Dict: {"id","title","phase","allowed_paths","checkpoint","path"}: id/title are
+    the frontmatter values (id falls back to the filename's NNN), checkpoint is
+    the frontmatter value or None when the plan carries none, path is the file.
     Never raises: an unreadable directory or file means None (readers fail
     open)."""
     directory = os.path.join(repo_root(cwd, base), ".tezgah", "plans", "open")
@@ -264,6 +339,9 @@ def active(cwd, base):
                 "title": fields.get("title", ""),
                 "phase": fields["phase"],
                 "allowed_paths": allowed_paths(text),
+                # read from the frontmatter already in hand, so the gate's
+                # checkpoint rule costs this module no second read of the plan
+                "checkpoint": fields.get("checkpoint"),
                 "path": path}
     return None
 

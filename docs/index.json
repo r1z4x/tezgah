@@ -93,6 +93,7 @@
    "audience": "agent, reviewer, maintainer",
    "answers": [
     "why was my command denied",
+    "why was my write refused by the active task",
     "which commands run without an ask and why the consent rule was removed",
     "what does the gate not catch on purpose",
     "how do I add a gate rule"

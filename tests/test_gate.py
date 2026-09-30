@@ -1182,9 +1182,9 @@ class TaskGate(TempHome):
         return self.decide({"file_path": path})
 
     def plan(self, phase=None, allowed=("hooks/**",), name="017-gate-rule.md",
-             task_id="017"):
+             task_id="017", checkpoint=None):
         """A plan file in the shape bin/tezgah-task leaves one: frontmatter
-        (id, the optional phase and allowlist), then the body."""
+        (id, the optional phase, allowlist and checkpoint), then the body."""
         path = os.path.join(self.repo, ".tezgah", "plans", "open", name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         lines = ["---", "id: %s" % task_id, "title: the task rule",
@@ -1194,8 +1194,41 @@ class TaskGate(TempHome):
         if allowed is not None:
             lines.append("allowed_paths:")
             lines += ["  - %s" % pattern for pattern in allowed]
+        if checkpoint is not None:
+            lines.append("checkpoint: %s" % checkpoint)
         with open(path, "w") as fh:
             fh.write("\n".join(lines + ["---", "", "Body."]) + "\n")
+        return path
+
+    def init_git(self):
+        """A real repository with one commit and the project's own gitignore, so
+        the tree can be clean or dirty on purpose: the checkpoint rule reads
+        `git status`, and a checkout git cannot describe refuses nothing. Returns
+        the environment a later git call in this fixture needs."""
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull,
+                   GIT_CONFIG_SYSTEM=os.devnull, GIT_TERMINAL_PROMPT="0")
+        subprocess.run(["git", "init", "-q", self.repo], check=True,
+                       capture_output=True, env=env)
+        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
+            fh.write("/.tezgah/\n")
+        self.git(env, "add", ".gitignore")
+        self.git(env, "commit", "-q", "-m", "init")
+        return env
+
+    def git(self, env, *args):
+        """One git call in the fixture repository, with an identity and no real
+        user config - the checkpoint rule is about the tree's state, so the
+        fixture has to be able to produce each one."""
+        subprocess.run(["git", "-C", self.repo, "-c", "user.name=t",
+                        "-c", "user.email=t@localhost"] + list(args),
+                       check=True, capture_output=True, env=env)
+
+    def dirty(self, rel="hooks/x.py"):
+        """One uncommitted file in the repo - the state the checkpoint names."""
+        path = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("x = 1\n")
         return path
 
     # ---- no record, no requirement ----------------------------------------
@@ -1388,6 +1421,63 @@ class TaskGate(TempHome):
                         "bin/tezgah-task --help"):
             self.assertIsNone(self.decide({"command": command}, tool="Bash"),
                               command)
+
+    # ---- the checkpoint the implementation phase starts from --------------
+    def test_a_write_is_refused_while_the_checkpoint_is_pending_and_dirty(self):
+        # The phase's own restore point. `pending` in the record says the tree
+        # holds work no commit names, so the phase's first write would build on
+        # state nobody can return to - the per-file snapshots
+        # (bin/tezgah-rollback) are not one state to return to, which is what
+        # docs/glossary.md says of them.
+        env = self.init_git()
+        self.plan(phase="implementation", allowed=("hooks/**",), checkpoint="pending")
+        path = self.dirty()
+        reason = self.write_path(path)
+        self.assertIsNotNone(reason)
+        self.assertIn("Checkpoint", reason)
+        self.assertIn("git add -A && git commit -m \"checkpoint: before 017-gate-rule\"",
+                      reason)
+        # naming the commit is naming what the rule asks for, not a way to move
+        # the phase: nothing here lifts the boundary without making it real
+        self.assertNotIn("tezgah-task phase", reason)
+        # the commit is the whole way out - no second command, no state kept
+        self.git(env, "add", "-A")
+        self.git(env, "commit", "-q", "-m", "checkpoint: before 017-gate-rule")
+        self.assertIsNone(self.write_path(path))
+
+    def test_only_a_pending_checkpoint_in_implementation_refuses(self):
+        # a recorded sha is a state to return to, and a record from before the
+        # field existed carries no requirement at all - the same fail-open
+        # direction as every other rule here; `verification` is after the build,
+        # so the field says nothing there
+        self.init_git()
+        self.dirty()
+        for phase, checkpoint in (("implementation", "0123456789ab"),
+                                  ("implementation", None),
+                                  ("verification", "pending")):
+            self.plan(phase=phase, allowed=("hooks/**",), checkpoint=checkpoint)
+            self.assertIsNone(self.write_path("hooks/x.py"), (phase, checkpoint))
+
+    def test_a_pending_checkpoint_covers_the_shell_write(self):
+        # the shell is a write route like any other (E7b), so the phase's start
+        # state covers it too; a shell line that changes no file is not this
+        # rule's
+        self.init_git()
+        self.plan(phase="implementation", allowed=("hooks/**",), checkpoint="pending")
+        self.dirty()
+        reason = self.decide({"command": "cat > hooks/y.py <<'EOF'\ny\nEOF"},
+                             tool="Bash")
+        self.assertIsNotNone(reason)
+        self.assertIn("Checkpoint", reason)
+        self.assertIsNone(self.decide({"command": "git status --short"}, tool="Bash"))
+
+    def test_the_checkpoint_half_goes_with_the_same_switch(self):
+        self.init_git()
+        self.plan(phase="implementation", allowed=("hooks/**",), checkpoint="pending")
+        self.dirty()
+        self.assertIsNotNone(self.write_path("hooks/x.py"))
+        self.touch(os.path.join(self.home, ".config", "tezgah", "task-off"))
+        self.assertIsNone(self.write_path("hooks/x.py"))
 
     # ---- kill switch ------------------------------------------------------
     def test_task_off_removes_the_rule(self):

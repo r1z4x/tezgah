@@ -13,7 +13,7 @@ prefix plus a hash of the session id, so a filename can never be turned back int
 derives the path from the session id (`:656-666`). The row is built in exactly one place (`:649-652`), and its shape is
 `{"kind": …, "ts": …, "v": …, "detail": …}` plus whatever `LEDGER_FIELDS` keys the writer knew — for a check
 the host reported passing, `{"kind": "verify_ok", "ts": 1758000000, "v": 2, "detail": "pytest -q",
-"id": "a1b2c3d4e5f6", "exit": 0, "out_bytes": 4312}`. `v` names the shape the row was written under
+"id": "a1b2c3d4e5f6", "exit": 0, "out_bytes": 4312, "tool": "Bash"}`. `v` names the shape the row was written under
 (`ROW_VERSION`, `hooks/tezgah_integrity.py:376-378`), and a reader folding a corpus across a version
 change has to know what moved: at 2 the step vocabulary gained `interrupted`, so a version 1 row's
 `verify_fail` may name a check that failed or a call the host stopped.
@@ -27,11 +27,16 @@ credential-redacted **before** it is stored, over the whole text, and
 truncated to `DETAIL_MAX = 200` only afterwards, so a marker the cut halves still reads as a marker
 (`:488-513`, `:528`, `:630-634`): a named key keeps its name and loses its value, a `Bearer` token or
 a prefixed token family loses it (`:470-498`). The optional fields are exactly `LEDGER_FIELDS`
-(`hooks/tezgah_integrity.py:353-358`) — `id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`,
+(`hooks/tezgah_integrity.py:353-358`) — `id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`, `tool`,
 plus the reply-shape names `lines`, `chars`, `items`, `longest_list`, `tr_share`, `answer_first` and the compaction
 row's `summary_chars`, `summary_hash`, `constraint_found`, `constraint_expected` — and
 a key outside that set is dropped, a `None` value left out, because every reader treats a missing key
-as `None` (`:639-641`). The append is one locked line, an exclusive `flock` with a 1 s bound falling
+as `None` (`:639-641`). `tool` is the call's own name (`Bash`, `Write`, `mcp__codegen__status`),
+written by `note_tool` (`hooks/tezgah_integrity.py:1868-1873`) because `classify` folds the name into
+a kind and drops it; it is what `_counts`' tool histogram counts and what the retirement report on
+`tezgah-status --counters --trend` prints. A row written before it names its tool only where the name
+survived in `detail` — an `unknown` row and an MCP `external` row — so a corpus older than the field
+under-counts and says so. The append is one locked line, an exclusive `flock` with a 1 s bound falling
 back to an unlocked write (`:603-612`), and is best effort: a write failure is never the caller's.
 
 What never reaches the ledger: tool result bodies (only `out_bytes`, a size,
@@ -47,8 +52,8 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | Kind | Written by | Read by |
 |---|---|---|
 | `turn` | `note_turn` `hooks/tezgah_integrity.py:959-982`, from the prompt path | `_turn_start` `hooks/tezgah_integrity.py:836-848`, scoping every turn rule; `_claim_key` `hooks/tezgah_integrity.py:2103-2119` |
-| `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the Stop rule's `worked` set `:2345`; `counters.steps` `:1075-1076`; `last_verify`/`partial_state` |
-| `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the taint notice, via `source`; nothing counts them as work |
+| `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1669-1777`, the call's own name in `tool` | the Stop rule's `worked` set `:2345`; `counters.steps` `:1075-1076`; `last_verify`/`partial_state`; the `--trend` tool histogram |
+| `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the taint notice, via `source`; the `--trend` tool histogram; nothing counts them as work |
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2322-2370` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
 | `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1191-1206`, first-nudge `hooks/tezgah_gate.py:1345` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:184-186`, `:263-266` | `_snapshot_hash` `hooks/tezgah_integrity.py:1594-1607`; no counter |
@@ -230,13 +235,40 @@ is. Every denial is itself a `deny` row.
 `<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1534-1557`) and read
 by `used()` (`hooks/tezgah_context.py:1558-1574`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
 and the kinds are the used-tool marks [status-line.md](status-line.md) lights up (`graph`, `consult`,
-`research`). It is separate from the [ledger](glossary.md#ledger) because it is display state, not
+`research`, `judge`), plus one kind per shipped skill a read opened. It is separate from the
+[ledger](glossary.md#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all
 (`hooks/tezgah_context.py:1545-1546`), and the reader wants a set of kinds rather than an ordered,
 turn-scoped history. The ledger pays a redaction scan and a lock per row; a mark needs neither. The
 one mark that is also evidence is `orch`: `record()` writes it as an `orch` row in the session's
 ledger too (`hooks/tezgah_context.py:1547-1548`), because a subagent event reaches no other ledger
 writer and `fanout` is folded from the ledger.
+
+**Which skill a read opened.** `skill_read_kind` (`hooks/tezgah_context.py:405-439`) earns the mark
+the status line draws for the two skills the always-on core tells a session to read (`SKILL_MARKS`:
+`pony` for `ponytail`, `adhd` for `i-have-adhd`) and `skill:<name>` for any other *shipped* skill -
+one read from the checkout's `skills/` (`shipped_skills` `hooks/tezgah_context.py:372-390`), so an
+unshipped name earns nothing, which is what `skill://other` always got. `SKILL_MARKS` itself is not
+widened: a mark whose skill the always-on core never names can never flip, and
+`tests/test_context.py:1624-1637` requires every entry to be named there. A `skill:` kind is
+therefore invisible to the line and its legend - no mark's measure is spelled that way - while
+`skill_fitness(window)` (`hooks/tezgah_context.py:1445-1501`) reads it back for the one question the
+line never asked.
+
+**The fitness report.** `tezgah-status --skill-fitness` prints, per shipped skill, how many of the
+recorded sessions opened it, and names the ones none did: a skill is a dependency that has to keep
+earning the context lines it costs, and accretion is invisible from reading the skill itself. It is a
+measurement, not a gate - it names the candidates for retirement, and deleting one stays the owner's
+call. Three ceilings are honest parts of the number, not bugs: the window is the newest
+`FITNESS_WINDOW = 200` session files by mtime, because a row carries no timestamp; a session counts
+as having opened a skill when it recorded that skill's kind, so reads recorded before `skill:` existed
+still count through the two marks; and a host that cannot see a read at all (codex, cursor, dsh -
+[status-line.md](status-line.md) owns which) records nothing, so the count is a floor, not a census.
+The two marked skills are the only ones any host recorded before `skill:<name>` landed, so the first
+report after this change reads mostly as a recording gap and fills in as sessions run; it says so on
+its own line rather than in a footnote nobody opens.
+The heavier half the mechanism names - a with/without lift measurement against a real oracle - is
+deliberately not here.
 
 ## Snapshots and rollback
 
@@ -336,7 +368,8 @@ opencode's plugin writes that `external` row itself and carries the channel alon
 number of files it read, and `fixtures`, the ledgers left out because every workspace they name is a temp, OpenResearch run or arm-bench tree (`fixture_ledger`). Both fold their rows through `_counts` (`hooks/tezgah_integrity.py:1078-1173`), the one implementation
 of the arithmetic, so a total cannot drift from the sessions it sums - the `:NNN` rows below are that
 fold. `counters_all` bounds nothing: a window or a row cap would make the total contradict the
-per-session numbers it claims to be, and the whole corpus here folds in 0.17 s.
+per-session numbers it claims to be, and the whole corpus here folds in 0.4 s (58,928 rows, 1,120
+real ledgers, measured 2026-09-30).
 
 Each key, as both readers produce it:
 
@@ -359,8 +392,51 @@ Each key, as both readers produce it:
 The one ratio that matters is **`false_completion / claims`**: how often a reply claiming completion
 or verification had to be refused — the only number here that measures the layer's effect rather than
 its traffic, and the one its own docstring names as the point of the counters (`:1046-1047`). One
+- `weeks`, `tools`, `programs` — present only when the caller asked (`counters(..., weeks=True,
+  tools=True)`), which is what `tezgah-status --counters --trend` passes; see below.
 ledger is an anecdote; `--counters --all` is the same ratio over the corpus, 0.224 across 1454
 ledgers when this was written, which is the reading no single session could give.
+
+### The drift series and the firing histograms
+
+`tezgah-status --counters --trend [--weeks=N]` prints two reports the same fold carries, because a
+value is a reading and the thing worth watching is the population over time. Both are filled inside
+`_counts` (`hooks/tezgah_integrity.py:1238-1344`) in the same pass as the totals, so neither can
+disagree with the number it is drawn from; both are off unless the flag asks, so the plain and the
+`--json` output of a reader who did not ask are byte-identical to what they were.
+
+- **The drift series** — `weeks`, every row bucketed by `ts` on a fixed 7-day grid (`WEEK`, anchored
+  on the Monday of the epoch's first week, `_week` `hooks/tezgah_integrity.py:1008-1013`), each bucket
+  counting its events, claims, refused claims and decided attempts. `drift_series(counters, weeks)`
+  (`hooks/tezgah_integrity.py:1130-1170`) re-slices them into the last `weeks` calendar weeks, oldest
+  first, with `false_completion/claims` and `tool_error_rate` per bucket, and the direction of the
+  newest three weeks that carry a denominator (`_direction` `:1112-1129`, compared by
+  cross-multiplication so a shared rounding is never called flat). A week with no row prints a zero
+  row count and `n/a` for both ratios, never `0.0`: an empty week is not a week with a perfect rate,
+  and a gap has to read as a gap. Nothing is windowed out of the totals.
+- **The tool firings** — `tools`, a histogram over `_tool_name(entry)` (`hooks/tezgah_integrity.py:1083-1101`):
+  the row's `tool` field, else the name an `unknown` row (`unknown tool: <name>`) or an MCP `external`
+  row (`mcp <name>`) kept in `detail`. A work row written before the `tool` field landed carries no
+  name at all - `classify` folded it into a kind - so an old corpus under-counts, which is the
+  honest ceiling and the reason the field exists. A read tool is not in it either: reads record no
+  row by design.
+- **The shipped programs** — `programs`, the `bin/` programs a command row really ran, read with the
+  tokenizer the status line already uses (`_ran_programs` `hooks/tezgah_integrity.py:1059-1081`), and
+  `unfired_programs(counters)` (`:1171-1187`), the catalog minus that set. The absence is the
+  evidence: a tool nobody calls leaves no row, so the only way to name it is a catalog, and the one
+  catalog this layer holds is its own `bin/` (`shipped_programs` `:1017-1036`). The prefilter is one
+  regex per catalog and the tokenizer runs only on a row that mentions a shipped name, which is why
+  the tool histogram costs about 0.6 s over the whole corpus where the plain fold costs 0.4 s (58,928
+  rows, measured 2026-09-30). A
+  program reached through an interpreter (`python3 bin/consult q`) counts as never fired, the same
+  ceiling `shell_kind` has and for the same reason.
+
+**The MCP half of a retirement decision is manual, and deliberately so.** This layer does not hold
+the catalog of MCP servers - that is the host's configuration - so a server that never fires leaves
+nothing here to name. `tezgah-setup --mcp-schemas` measures what each wired server costs on every
+request; the histogram here counts what fired; joining the two is a reader's step, not a call this
+report makes (calling it would couple the two CLIs and re-measure a config that may not be the one
+the corpus ran under).
 
 ## Source of truth
 

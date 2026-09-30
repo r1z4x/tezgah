@@ -43,6 +43,8 @@ bin/tezgah-capture
 bin/tezgah-capture.py
 bin/tezgah-context
 bin/tezgah-context.py
+bin/tezgah-decisions
+bin/tezgah-decisions.py
 bin/tezgah-design
 bin/tezgah-design.py
 bin/tezgah-docs
@@ -602,6 +604,7 @@ tests/test_components.py
 tests/test_consult_arena.py
 tests/test_context.py
 tests/test_cursor_hook.py
+tests/test_decisions.py
 tests/test_design_cli.py
 tests/test_docs.py
 tests/test_docs_router.py

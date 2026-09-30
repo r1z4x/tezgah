@@ -432,6 +432,7 @@ knowing:
 | `bin/tezgah-setup --deps [--dry-run]` | Install missing optional tools (orx, cursor-agent, dsh) |
 | `bin/tezgah-research init\|check\|status\|claim\|migrate\|source` | Runs and checks a research line: state, findings, claims with their kind and evidence, the protocol-before-results rule, and the literature index; `check --strict` refuses what the checker cannot verify, `migrate` fills the fields older lines lack |
 | `bin/tezgah-task start\|phase\|allow\|stop\|status\|review\|close` | The active task: one plan's `phase:` and its `allowed_paths:` globs, which the gate then enforces on every write - and the call itself, when a session makes it; `review` records a fresh reviewer's verdict and `close` moves a plan to done only with an approve |
+| `bin/tezgah-decisions check [PATH]` | The ADR record under `.tezgah/decisions/`: one `NNN-slug.md` per significant decision (context, decision, status, consequences, supersedes), in the private `.tezgah` repository; `check` refuses a record with no status, a status outside proposed/accepted/deprecated/superseded, and a `supersedes:` naming no record |
 | `bin/tezgah-gate check` | The gate's own decision for one call on stdin - what a host whose plugin is not Python asks instead of mirroring a rule |
 | `bin/tezgah-doctor [--clean] [--prune-sessions DAYS]` | Report harness disk use; `--clean` deletes old index logs and vacuums the opencode DB; `--prune-sessions` deletes idle sessions (the only action that actually shrinks the DB) |
 | `/tezgah:plan-add` | Turn a piece of work into a tracked plan |

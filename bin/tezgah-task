@@ -28,6 +28,20 @@ fresh reviewer's read of the diff, `review` records its verdict as
 review is missing or not `approve`. `close` refuses the active task - that one
 is the user's to stop first.
 
+Two things the plan owes are asked here, at the only moment they can still be
+fixed - the phase move - because the record is the user's and the refusal is
+this CLI's: a writing phase needs at least one Acceptance item that names the
+command proving it (or says `unverifiable` and why), since the report CI runs
+afterwards reads the same items and refuses the same plan too late; and
+`implementation` needs the plan's spike answered, so the build starts on
+evidence rather than on the guess the spike exists to retire.
+
+Entering `implementation` also records where the risky work returns to: a
+`checkpoint:` field holding the pre-work commit's sha, or the literal `pending`
+while the tree still holds changes no commit names. `pending` is what the gate
+refuses a write in, and a clean commit is the whole way out of it - the
+per-file snapshots (bin/tezgah-rollback) are not one state to return to.
+
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
 with nothing written - 2 misuse.
 """
@@ -137,6 +151,21 @@ def allow_source(text):
     return allow, "any path in the repo (no allowlist)"
 
 
+def checkpoint_state(value, path):
+    """The checkpoint line `show` prints for a plan in `implementation`: the sha
+    the work returns to, or the state that says no commit was recorded because
+    the tree held work none named - with the one command that makes it one."""
+    if value == tt.CHECKPOINT_PENDING:
+        print("  checkpoint: pending - the tree held uncommitted changes when the "
+              "phase began, so no commit is recorded and this phase's first write "
+              "is refused until one exists: %s" % tt.checkpoint_command(path))
+    elif value:
+        print("  checkpoint: %s" % value)
+    else:
+        print("  checkpoint: none (one is recorded when the phase moves to "
+              "implementation)")
+
+
 def show(path):
     """Print the record as it stands on disk, read back through the parser the
     gate uses: the CLI reports what was written, not what it meant to write."""
@@ -148,6 +177,8 @@ def show(path):
                                  phase or "(none)"))
     print("  allowed: %s" % ("%s (%s)" % (", ".join(allow), source) if allow else source))
     print("  path: %s" % path)
+    if phase == "implementation":
+        checkpoint_state(fields.get("checkpoint"), path)
     if phase == "verification":
         verification_steps(text, path)
     return 0
@@ -162,6 +193,75 @@ def diff_base(root):
         if out.returncode == 0 and out.stdout.strip():
             return out.stdout.strip()[:12]
     return "<base>"
+
+
+def git_out(root, *args):
+    """One git command's stdout in `root`, or None when git cannot answer: not a
+    repository, no such revision, git missing. Every caller below reads None as
+    "this question has no answer here" and refuses nothing on the strength of it,
+    so a tree git cannot describe is never held to a rule about its state."""
+    try:
+        out = subprocess.run(["git", "-C", root] + list(args),
+                             capture_output=True, text=True)
+    except OSError:
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def tree_dirty(root):
+    """Does the project's working tree hold changes no commit names? `git status
+    --porcelain` is the whole answer, and a tree git cannot describe reads as
+    clean - a refusal has to rest on a state the user can see, and a checkout
+    without git is not the tree this rule is about."""
+    listed = git_out(root, "status", "--porcelain")
+    return bool(listed)
+
+
+def checkpoint_fields(root, phase):
+    """The `checkpoint:` the record gets from a move to `phase`: the pre-work
+    commit's sha, or `pending` while the tree holds uncommitted work.
+
+    `{}` for every phase but `implementation` - the boundary is the writing
+    phase's own, and `discovery` writes nothing to return from. A tree with
+    nothing committed at all (a fresh `git init`) has no sha to name, so it takes
+    the same `pending` as a dirty one: the commit command creates the state and
+    the sha is recorded when the phase is re-entered on the clean tree."""
+    if phase != "implementation":
+        return {}
+    sha = None if tree_dirty(root) else git_out(root, "rev-parse", "HEAD")
+    return {"checkpoint": sha or tt.CHECKPOINT_PENDING}
+
+
+def phase_problems(phase, text, path):
+    """Every reason this plan cannot enter `phase`, as problem-channel lines: an
+    Acceptance section in which nothing can check the work, and - for
+    `implementation` - a spike that has not answered yet.
+
+    Both are read from the plan this CLI is about to move, through the same
+    readers the CI report uses, so the phase the gate then holds a write to is a
+    phase the plan can actually be checked in. They live here, at the phase move,
+    and not in the gate: the phase has one writer, this command, and the record
+    is the user's to write - a gate rule would have to re-read the same body on
+    every write to ask a question whose answer changes only here."""
+    out = []
+    if phase in tt.WRITE_PHASES:
+        items = tt.acceptance_gap(text)
+        if items:
+            out.append(
+                "%s cannot enter %s: all %d of its Acceptance items name no "
+                "command and none declares `unverifiable` (read by "
+                "hooks/tezgah_task.py:acceptance_items), so the work has no check "
+                "to be held to. Give at least one item the command that proves "
+                "it, or `unverifiable` and why; "
+                "`tezgah-render-table --acceptance` reports the same items"
+                % (path, phase, len(items)))
+    if phase == "implementation" and tt.spike_unanswered(text):
+        out.append(
+            "%s cannot enter implementation: its spike is unanswered - `spike:` "
+            "names the question and `spike_recorded:` names no answer, so the "
+            "build would start on the guess the spike exists to retire. Record "
+            "where the answer landed (`spike_recorded:`) first" % path)
+    return out
 
 
 def verification_steps(text, path):
@@ -242,6 +342,7 @@ def cmd_start(args):
         return problems([bad_phase(phase)])
     if problem:
         return problems([problem])
+    text = read(path)
     fields = {"phase": phase, "updated": today()}
     if allow:
         fields.update(allowed_paths=allow, allowed_from="--allow")
@@ -249,12 +350,13 @@ def cmd_start(args):
         fields.update(allowed_paths=[], allowed_from=ANY_PATH)
     else:
         # the plan's own scope, as plan-add wrote it (or an earlier --allow)
-        text = read(path)
         allow = tt.allowed_paths(text)
         any_path = tt.frontmatter(text).get("allowed_from") == ANY_PATH
-    bad = scope_problem(phase, allow, any_path)
+    bad = (scope_problem(phase, allow, any_path)
+           or phase_problems(phase, text, path))
     if bad:
         return problems(bad)
+    fields.update(checkpoint_fields(root, phase))
     for other in plans(root):
         if other == path:
             continue
@@ -279,17 +381,23 @@ def cmd_phase(args):
     phase = args[0]
     if phase not in tt.TASK_PHASES:
         return problems([bad_phase(phase)])
-    task = active_here(repo_root(os.getcwd()))
+    root = repo_root(os.getcwd())
+    task = active_here(root)
     if not task:
         return problems(["no active task: start one with "
                          "`tezgah-task start <id> --phase %s`" % phase])
+    text = read(task["path"])
     fields = {"phase": phase, "updated": today()}
     if any_path:
         fields.update(allowed_paths=[], allowed_from=ANY_PATH)
-    granted = (any_path or tt.frontmatter(read(task["path"])).get("allowed_from")
+    granted = (any_path or tt.frontmatter(text).get("allowed_from")
                == ANY_PATH)
     bad = (scope_problem(phase, task["allowed_paths"], granted)
-           or write_fields(task["path"], **fields))
+           or phase_problems(phase, text, task["path"]))
+    if bad:
+        return problems(bad)
+    fields.update(checkpoint_fields(root, phase))
+    bad = write_fields(task["path"], **fields)
     if bad:
         return problems(bad)
     return show(task["path"])

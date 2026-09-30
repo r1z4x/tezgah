@@ -3,7 +3,15 @@
 The layer is only reachable if its index is true, so these tests pin the index
 against the directory rather than pinning any page's prose: a page that exists
 without an entry, or an entry that names a file nobody wrote, fails here.
+
+The other promise a page makes is its citations, and one of them is checkable
+in full: the rule-provenance table in docs/gate.md names, for every rule, the
+case that guards it. `bin/tezgah-docs --citations` checks that record and this
+module drives it, so a rule with no row and a row whose `pin` names no test
+both fail there rather than in a reader's trust.
 """
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -27,6 +35,21 @@ def read(path):
 def index():
     with open(INDEX, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def docs_module():
+    """bin/tezgah-docs as a module, for the rule-ledger check it carries.
+
+    Loaded by path, the way tests/test_packaging.py loads bin/tezgah-setup: the
+    script has no `.py` in its name, so it is imported under one of its own."""
+    if "tezgah_docs_ledger" in sys.modules:
+        return sys.modules["tezgah_docs_ledger"]
+    loader = importlib.machinery.SourceFileLoader("tezgah_docs_ledger", CLI)
+    module = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader("tezgah_docs_ledger", loader))
+    sys.modules["tezgah_docs_ledger"] = module
+    loader.exec_module(module)
+    return module
 
 
 class DocsLayer(unittest.TestCase):
@@ -187,6 +210,41 @@ class DocsLayer(unittest.TestCase):
                     self.assertLessEqual(
                         int(start), int(end or start),
                         "%s ends before it starts" % token)
+
+
+class RuleLedger(unittest.TestCase):
+    """The record that maps a refused rule to the case that guards it.
+
+    `docs/gate.md`'s `## Rule provenance` table is read by the citation pass
+    (`bin/tezgah-docs --citations`, the audit's sibling): every rule name the
+    gate can produce has a row, and every row's `pin` names a test that exists.
+    The first test holds the real table to that; the next two prove the check
+    itself, on a doctored table, so removing either half turns them red."""
+
+    def test_every_rule_has_a_row_and_every_pin_names_a_test(self):
+        module = docs_module()
+        self.assertEqual(module.ledger_failures(module.ledger_rows()), [])
+
+    def test_a_rule_with_no_row_is_refused(self):
+        module = docs_module()
+        rows = module.ledger_rows()
+        rule = rows.pop(0)["rule"]
+        failures = module.ledger_failures(rows)
+        self.assertTrue(any(rule in f for f in failures),
+                        "%s was not refused for having no row: %r"
+                        % (rule, failures))
+
+    def test_a_row_whose_pin_names_no_test_is_refused(self):
+        # The drift the check is for: the case a row leans on is renamed or
+        # deleted and the row goes on naming it.
+        module = docs_module()
+        rows = module.ledger_rows()
+        self.assertTrue(rows, "no rule-provenance rows were parsed")
+        rows[0]["pin"] = "tests/test_gate.py::test_this_case_was_deleted"
+        failures = module.ledger_failures(rows)
+        self.assertTrue(
+            any("test_this_case_was_deleted" in f for f in failures),
+            "a pin naming a deleted test was not refused: %r" % (failures,))
 
 
 if __name__ == "__main__":

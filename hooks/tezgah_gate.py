@@ -31,10 +31,15 @@ Rules, all only inside a tezgah root:
   8. a write while an active task is set - a plan file under .tezgah/plans/open whose
      frontmatter carries a valid `phase` - is refused when that phase is one
      that only reads, or when the file is outside the task's `allowed_paths`
-     (`task`). The record is the user's own, written by bin/tezgah-task and
+     refused (`task`). The record is the user's own, written by bin/tezgah-task and
      never by the agent, so the refusal leans on a decision the user made rather
      than one this gate inferred: no active task means no requirement, and the
-     rule invents nothing. Two further refusals close the ways a session could
+     rule invents nothing. The record also carries where the phase returns to - a
+     `checkpoint:` sha, or `pending` while the tree still holds work no commit
+     names - and a write in `implementation` is refused while it reads `pending`
+     and the tree is dirty, so the phase's work starts from a named state rather
+     than on top of uncommitted changes; the per-file snapshots are not one
+     state to return to. Two further refusals close the ways a session could
      move the boundary instead of respecting it: a write whose target IS that
      record, and a shell command that would change it through the CLI. Both were
      measured open before they were closed - with the refusal naming the command
@@ -777,6 +782,69 @@ def task_reason(inp, cwd, base):
     return None
 
 
+# --- the implementation phase's checkpoint -----------------------------------
+# What this closes: a large refactor has no single restore point. The reversible
+# boundary the gate keeps is per file, not per work unit - hooks/tezgah_snapshot.py
+# captures the pre-write bytes, 200 snapshots at 2 MiB each with the oldest
+# evicted, and the glossary says so outright: "Not a checkpoint of the session,
+# only of the files a write was about to change" (docs/glossary.md:143). The plan
+# machine already names the exact moment the risky work starts - bin/tezgah-task
+# writes `phase: implementation` and this module then holds writes to the plan's
+# own allowlist - so that moment gets a named state too: the CLI records
+# `checkpoint:` as the pre-work commit's sha, or as `pending` while the tree
+# still holds work no commit names.
+#
+# Why the refusal is here and not only in the CLI: the CLI stands at the phase
+# move and is where the sha is written, but the write is the moment the un-named
+# state would be built on, and a plan can already be in `implementation` when
+# this rule lands (a record with no `checkpoint:` key at all passes - no field,
+# no requirement, the same fail-open direction as every other rule here). Keying
+# the refusal on the live tree alone would refuse the phase's own work - the
+# first write makes the tree dirty and it stays that way - so the record, not the
+# tree, is the switch, and the live tree is only what tells the two states apart
+# inside `pending`.
+#
+# The refusal names the one command that makes the boundary real. That is not the
+# mistake TASK_PHASE_DENY records: the E7 lesson is a refusal that names how to
+# take the constraint off (the phase is the user's to move), while the checkpoint
+# command *satisfies* the requirement - running it is the work the rule asks for,
+# so naming it is naming what the rule wants rather than a way around it.
+CHECKPOINT_DENY = (
+    "Checkpoint gate: the active task %s is in phase `implementation` and its "
+    "plan records no checkpoint commit (`checkpoint: pending`), so this write "
+    "would start the work on top of changes no commit names - and the per-file "
+    "snapshots are not one state to return to. The command that makes the "
+    "boundary real is %s; running it satisfies this rule and moves nothing.")
+
+
+def checkpoint_reason(inp, cwd, base):
+    """A deny reason when the active task is in `implementation`, its plan's
+    `checkpoint:` says `pending`, and the tree still holds uncommitted work -
+    else None. The section above carries what this closes and why the record and
+    not the tree is the switch."""
+    if tezgah_task is None:
+        return None
+    command = inp.get("command")
+    if command is not None and not SHELL_WRITE.search(mask(str(command))):
+        # a shell line that changes no file is not this rule's, the same read of
+        # the same shape table task_shell_reason makes
+        return None
+    task = tezgah_task.active(cwd, base)
+    if (not task or task["phase"] != "implementation"
+            or task.get("checkpoint") != tezgah_task.CHECKPOINT_PENDING):
+        return None
+    import subprocess  # deferred: only a plan still pending its checkpoint pays
+    try:
+        listed = subprocess.run(
+            ["git", "-C", tezgah_task.repo_root(cwd, base), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if listed.returncode != 0 or not listed.stdout.strip():
+        return None
+    return CHECKPOINT_DENY % (task["id"], tezgah_task.checkpoint_command(task["path"]))
+
+
 # --- workspace: per-project tezgah state lives under <repo>/.tezgah only ------
 # What this closes: sessions wrote `plans/`, `research/` and `analysis/` at the
 # project root (observed in ~/Projects: Ustam, codexit, sharelinks-intelligence),
@@ -1292,6 +1360,14 @@ def decision(tool, inp, cwd, session_id=None):
                 return _deny(session_id, "task", reason, tool, inp, base)
         if t in WRITE_TOOLS:
             reason = task_reason(inp, cwd, base)
+            if reason:
+                return _deny(session_id, "task", reason, tool, inp, base)
+        # The checkpoint: the same phase, the state it starts from. After the
+        # scope rule, because a path outside the allowlist is the more specific
+        # fault in the same call (see checkpoint_reason for why the rule is here
+        # at all and not only at the phase move).
+        if t in WRITE_TOOLS + BASH_TOOLS:
+            reason = checkpoint_reason(inp, cwd, base)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
     # Workspace: tezgah state belongs under .tezgah/, never a root plans/,

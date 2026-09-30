@@ -3089,5 +3089,213 @@ class CountersAll(TempHome):
         return None
 
 
+# The week the fixtures below are written against: a fixed Monday far enough
+# from the epoch that a `weeks_ago` offset is unambiguous.
+BASE = ti.MONDAY + 3000 * ti.WEEK
+
+
+def at(weeks_ago, seconds=3600):
+    """An epoch second inside the week `weeks_ago` weeks before BASE."""
+    return BASE - weeks_ago * ti.WEEK + seconds
+
+
+class DriftSeries(unittest.TestCase):
+    """The counter fold's week buckets: the slope, not the value.
+
+    `--counters --all` gives one number for the whole corpus, and a harness that
+    is getting worse - or better - reads exactly like a flat one. The buckets
+    are filled inside `_counts`, in the same pass as the totals, so the series
+    cannot contradict the number it is drawn from. These run in process because
+    the property under test is the arithmetic, not a surface."""
+
+    def claim(self, weeks_ago, blocked=False):
+        return {"kind": "claim", "ts": at(weeks_ago),
+                "detail": "blocked: stale evidence" if blocked else "ok"}
+
+    def ran(self, weeks_ago, code=0):
+        return {"kind": "run", "ts": at(weeks_ago), "detail": "ls", "exit": code}
+
+    def test_the_buckets_are_the_totals_split_by_week(self):
+        # every per-bucket count has to add up to the total the headline number
+        # is folded from: a series that disagrees with its own total is a second
+        # reader, which is the thing this placement exists to prevent
+        rows = [self.claim(0), self.claim(1, blocked=True), self.claim(1),
+                self.ran(0), self.ran(2, code=1)]
+        counts = ti._counts(rows, weeks=True)
+        buckets = list(counts["weeks"].values())
+        self.assertEqual(len(buckets), 3)
+        for key, total in (("events", "events"), ("claims", "claims"),
+                           ("false_completion", "false_completion")):
+            self.assertEqual(sum(b[key] for b in buckets), counts[total])
+        self.assertEqual(ti._ratio(sum(b["errors"] for b in buckets),
+                                   sum(b["decided"] for b in buckets)),
+                         counts["tool_error_rate"])
+
+    def test_the_series_orders_the_weeks_and_names_the_direction(self):
+        # the defect rate halves and the error rate doubles over the weeks that
+        # carry a denominator; both directions have to come out of the counts
+        rows = [self.claim(2, blocked=True), self.claim(2),
+                self.claim(1, blocked=True), self.claim(1),
+                self.claim(0), self.claim(0),
+                self.ran(2), self.ran(2), self.ran(1), self.ran(1, code=1),
+                self.ran(0, code=1), self.ran(0, code=1)]
+        series = ti.drift_series(ti._counts(rows, weeks=True), weeks=3)
+        self.assertEqual([r["date"] for r in series["rows"]],
+                         [time.strftime("%Y-%m-%d", time.gmtime(at(w)))
+                          for w in (2, 1, 0)])
+        self.assertEqual([r["events"] for r in series["rows"]], [4, 4, 4])
+        self.assertEqual([r["false_completion_rate"] for r in series["rows"]],
+                         [0.5, 0.5, 0.0])
+        self.assertEqual([r["tool_error_rate"] for r in series["rows"]],
+                         [0.0, 0.5, 1.0])
+        self.assertEqual(series["false_completion_trend"], "falling")
+        self.assertEqual(series["tool_error_trend"], "rising")
+
+    def test_a_week_with_no_row_prints_no_rate(self):
+        # a corpus that went quiet for two weeks is a gap in the series, not two
+        # perfect weeks: 0.0000 there would read as the harness improving
+        rows = [self.claim(3, blocked=True), self.ran(3, code=1), self.claim(0)]
+        series = ti.drift_series(ti._counts(rows, weeks=True), weeks=4)
+        self.assertEqual([r["events"] for r in series["rows"]], [2, 0, 0, 1])
+        for gap in series["rows"][1:3]:
+            self.assertIsNone(gap["false_completion_rate"])
+            self.assertIsNone(gap["tool_error_rate"])
+        # the direction reads only the weeks that carry a denominator
+        self.assertEqual(series["false_completion_trend"], "falling")
+
+    def test_a_week_of_one_claim_still_has_a_denominator(self):
+        # None is "nothing to divide", not "a small number": a week with one
+        # claim and one refusal is 1.0, and reading it as None would hide the
+        # worst week the corpus can have
+        series = ti.drift_series(ti._counts([self.claim(1, blocked=True)],
+                                            weeks=True), weeks=1)
+        self.assertEqual(series["rows"][-1]["false_completion_rate"], 1.0)
+
+    def test_the_reader_asked_for_no_series_gets_none(self):
+        # the default fold is what every other caller prints, and a key it did
+        # not ask for would change the JSON under it
+        self.assertNotIn("weeks", ti._counts([self.claim(0)]))
+        self.assertEqual(ti.drift_series(ti._counts([self.claim(0)]))["rows"], [])
+
+
+class ToolFirings(TempHome):
+    """Which tool a call was, and which shipped program ran.
+
+    `classify` folds every host tool name into a kind (`Bash` -> `run`), so
+    before the `tool` field no reader could say how often a tool fires - and the
+    tool nobody calls is exactly the one a retirement report has to name."""
+
+    def setUp(self):
+        super().setUp()
+        self.evidence = os.path.join(self.home, ".cache", "tezgah", "evidence")
+        os.makedirs(self.evidence)
+        self.envv = self.env()
+        self.cli = os.path.join(support.REPO, "bin", "tezgah-status")
+
+    def ledger(self, name, rows):
+        """Rows written straight into the file, because `note_path` stamps `ts`
+        with the clock and a series test has to choose the week a row lands in."""
+        with open(os.path.join(self.evidence, name), "w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(dict(row, v=ti.ROW_VERSION)) + "\n")
+
+    def counts(self, *args):
+        out, proc = support.run_json(
+            [self.cli, "--counters", "--all", "--trend", "--json"] + list(args),
+            env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_a_recorder_row_carries_the_name_the_histogram_counts(self):
+        # end to end: the host hands `note_tool` a name, the row keeps it, and
+        # the fold counts it - a kind alone cannot tell `Bash` from `Write`
+        for tool, payload in (("Bash", {"command": "ls"}),
+                              ("Write", {"file_path": "a.py", "content": "x"})):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "s", "tool": tool,
+                      "input": payload, "failed": False}, env=self.envv)
+        with open(os.path.join(self.evidence, os.listdir(self.evidence)[0])) as fh:
+            rows = [json.loads(line) for line in fh]
+        self.assertEqual(sorted(r["tool"] for r in rows), ["Bash", "Write"])
+        self.assertEqual(self.counts()["tools"], {"bash": 1, "write": 1})
+
+    def test_the_names_older_rows_kept_are_counted_too(self):
+        # a corpus older than the field carries the name only where it survived
+        # in `detail`: an unclassified call and an MCP server's answer
+        self.ledger("old.jsonl", [
+            {"kind": "unknown", "detail": "unknown tool: Fabricated"},
+            {"kind": "external", "detail": "mcp mcp__codegen__status",
+             "source": "mcp"},
+            {"kind": "run", "detail": "ls", "exit": 0},
+        ])
+        self.assertEqual(self.counts()["tools"],
+                         {"fabricated": 1, "mcp__codegen__status": 1})
+
+    def test_the_histogram_costs_nothing_to_a_reader_who_did_not_ask(self):
+        # the flagged fold adds keys; the plain one must not, or every existing
+        # JSON consumer breaks for a report it never asked for
+        self.ledger("a.jsonl", [{"kind": "run", "detail": "bin/consult q",
+                                 "exit": 0, "tool": "Bash"}])
+        out, proc = support.run_json([self.cli, "--counters", "--all", "--json"],
+                                     env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            set(out) & {"weeks", "tools", "programs"}, set())
+
+    def test_a_shipped_program_with_no_row_is_named_and_one_that_ran_is_not(self):
+        # the absence is the evidence, so it can only come from a catalog: this
+        # layer's own `bin/`, read at fold time rather than kept as a list that
+        # goes stale on the next added tool
+        self.ledger("a.jsonl", [{"kind": "run", "detail": "consult 'x'",
+                                 "exit": 0}])
+        counts = self.counts()
+        catalog = ti.shipped_programs()
+        self.assertTrue(catalog, "the checkout ships no bin/ program")
+        never = ti.unfired_programs(counts)
+        for name in catalog:
+            self.assertEqual(name in never, name != "consult", name)
+
+    def test_naming_a_program_is_not_running_it(self):
+        # the firing test is the module's own command-position tokenizer, not a
+        # substring: `grep -n consult hooks/` names the program and runs nothing,
+        # and a substring reader would retire the wrong tool
+        self.ledger("a.jsonl", [{"kind": "run", "detail": "grep -n consult hooks/",
+                                 "exit": 0}])
+        self.assertIn("consult", ti.unfired_programs(self.counts()))
+
+    def test_the_plain_report_is_byte_identical_without_the_flag(self):
+        # the whole point of the flag: a reader who did not ask gets the report
+        # they had, character for character, and the series is appended after it
+        self.ledger("a.jsonl", [{"kind": "claim", "detail": "ok"},
+                                {"kind": "claim", "detail": "blocked: stale evidence"}])
+        plain = support.run([self.cli, "--counters", "--all"], env=self.envv)
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        self.assertNotIn("drift:", plain.stdout)
+        self.assertNotIn("tool firings:", plain.stdout)
+        trend = support.run([self.cli, "--counters", "--all", "--trend"],
+                            env=self.envv)
+        self.assertEqual(trend.returncode, 0, trend.stderr)
+        self.assertTrue(trend.stdout.startswith(plain.stdout), trend.stdout)
+        self.assertIn("false_completion/claims", trend.stdout)
+        self.assertIn("never fired:", trend.stdout)
+
+    def test_the_window_is_read_from_the_flag_and_the_json_carries_the_fold(self):
+        self.ledger("a.jsonl", [{"kind": "claim", "ts": at(9),
+                                 "detail": "blocked: x"},
+                                {"kind": "claim", "ts": at(0), "detail": "ok"}])
+        out = self.counts("--weeks=2")
+        self.assertEqual(len(out["series"]["rows"]), 2)
+        self.assertEqual(out["series"]["rows"][-1]["claims"], 1)
+        self.assertIn("never", out)
+
+    def test_the_two_flags_are_refused_without_counters(self):
+        # `--trend` alone reads like a report of its own; it is a modifier, and
+        # a silent no-op would print the status line instead
+        for args in (["--trend"], ["--weeks=3"], ["--weeks=x", "--counters"]):
+            proc = support.run([self.cli] + args, env=self.envv)
+            self.assertEqual(proc.returncode, 2, args)
+            self.assertIn("tezgah-status:", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,8 @@ page instead of guessing and a script can assert the layer is intact.
   tezgah-docs <words...>      the pages matching every word of the query
   tezgah-docs --json [QUERY]  the matching entries as JSON
   tezgah-docs --read QUERY    print the first matching page in full
-  tezgah-docs --citations     the citations that no longer show what they name
+  tezgah-docs --citations     the citations that no longer show what they name,
+                              and the rule ledger's rows that no longer hold
 
 Matching is word-based and case-insensitive against an entry's title, its
 questions, its sources and its path; every word must match, so a second word
@@ -18,6 +19,7 @@ no credential, turns that off and leaves this command as it was); it answers
 `none` for a query no page covers. Exit codes: 0 with matches, 1 with none, 2
 usage.
 """
+import ast
 import glob
 import json
 import os
@@ -154,6 +156,139 @@ def citations(known):
     return flagged, judged, unjudged
 
 
+# --- the rule ledger --------------------------------------------------------
+# Every refusal has a rule name and an origin, and until now both lived only as
+# prose spread through docs/gate.md: the rule name in the section, the incident
+# in a sentence inside it. The table under that page's `## Rule provenance` is
+# that record moved to where a machine reads it - one row per refused rule, with
+# the incident that produced it, where that incident is written down, the test
+# that guards it, and the commit it first appeared in. This check is the
+# citation audit's sibling and rides the same `--citations` pass, because both
+# answer "is what the page promises still true" and both are re-run after a
+# change to the module a page documents.
+#
+# Two things are refused, and both are drift a reader cannot see: a rule name
+# the gate can still produce that has no row (a rule landed, or was renamed,
+# with no incident and no case written down), and a row whose `pin` names a test
+# that does not exist (the case was deleted or renamed and the row goes on
+# naming it). Unlike the citation audit this is a gate and not a report: the
+# ledger is small and every row is checkable, so a wrong one is a failure.
+#
+# The rule names are read off the source rather than restated here, the way the
+# audit reads a symbol: the gate's rules are the `_deny(session_id, "<rule>",
+# ...)` calls in hooks/tezgah_gate.py, and the Stop rule's triggers are the
+# classes `_stop_block` returns - including the four `_shape_block` hands back,
+# which is why that function is read too.
+
+GATE = os.path.join(HERE, "hooks", "tezgah_gate.py")
+STOP = os.path.join(HERE, "hooks", "tezgah_integrity.py")
+LEDGER = os.path.join(HERE, "docs", "gate.md")
+LEDGER_COLUMNS = ("rule", "incident", "evidence", "pin", "since")
+
+
+def source(path):
+    """A module's text, read once (closed, so the suite sees no leak warning)."""
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def returned_classes(node):
+    """The string classes a decision function returns as its first element.
+
+    The class is the first element of the returned tuple (`("check failed",
+    "…")`), and a `(None, None)` or a name (`return shaped`) is not one."""
+    out = set()
+    for sub in ast.walk(node):
+        if not isinstance(sub, ast.Return) or sub.value is None:
+            continue
+        first = sub.value.elts[0] if isinstance(sub.value, ast.Tuple) \
+            and sub.value.elts else sub.value
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            out.add(first.value)
+    return out
+
+
+def gate_rules():
+    """The rule names `_deny` writes into the ledger, read off the source."""
+    tree = ast.parse(source(GATE))
+    out = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name) and node.func.id == "_deny"):
+            continue
+        if len(node.args) > 1 and isinstance(node.args[1], ast.Constant) \
+                and isinstance(node.args[1].value, str):
+            out.add(node.args[1].value)
+    return out
+
+
+def stop_triggers():
+    """The classes `_stop_block` can return, the shape half included."""
+    tree = ast.parse(source(STOP))
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name in (
+                "_stop_block", "_shape_block"):
+            out |= returned_classes(node)
+    return out
+
+
+def ledger_rows():
+    """The rule-provenance rows in docs/gate.md, as {column: value} dicts.
+
+    The header row is the table's own signature, so no other table on the page
+    is read; one backticked cell (`\`explorer\``) loses its backticks here."""
+    try:
+        with open(LEDGER, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return []
+    rows, header = [], False
+    for line in lines:
+        if not line.lstrip().startswith("|"):
+            header = False
+            continue
+        cells = [c.strip().strip("`") for c in line.strip().strip("|").split("|")]
+        if tuple(cells) == LEDGER_COLUMNS:
+            header = True
+            continue
+        if not header or all(c and set(c) <= set("-") for c in cells):
+            continue
+        rows.append(dict(zip(LEDGER_COLUMNS, cells)))
+    return rows
+
+
+def pin_exists(pin):
+    """True when `pin` names a test that exists, as `<file>.py::<test_name>`."""
+    path, sep, name = pin.partition("::")
+    if not sep or not name:
+        return False
+    full = os.path.join(HERE, path)
+    if not os.path.isfile(full):
+        return False
+    try:
+        with open(full, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return False
+    return re.search(r"^\s*def %s\(" % re.escape(name), text, re.M) is not None
+
+
+def ledger_failures(rows):
+    """The two ways the record lies: a rule with no row, a pin that names no
+    test. An empty list is the record being true."""
+    out = []
+    known = {row["rule"] for row in rows}
+    for name in sorted(gate_rules() | stop_triggers()):
+        if name not in known:
+            out.append("rule `%s` has no provenance row in docs/gate.md" % name)
+    for row in rows:
+        if not pin_exists(row["pin"]):
+            out.append("row `%s` names no test that exists: %s"
+                       % (row["rule"], row["pin"]))
+    return out
+
+
 NONE = "none"
 # `none` is an option on purpose: without it the question has to pick a page, and
 # a query that names nothing in the layer (a typo, a nonsense word) would come
@@ -245,7 +380,13 @@ def main(argv):
         print("citations: %d judged (%d outside the symbol they name), "
               "%d not judgeable (no single symbol named beside them)"
               % (judged, len(flagged), unjudged))
-        return 1 if flagged else 0
+        ledger = ledger_failures(ledger_rows())
+        for problem in ledger:
+            print("rule ledger: %s" % problem)
+        if ledger:
+            print("rule ledger: %d row(s) of the provenance table do not hold"
+                  % len(ledger))
+        return 1 if flagged or ledger else 0
     query = " ".join(a for a in argv if not a.startswith("--")).strip()
     found = matches(query) if query else entries()
     if not found:
