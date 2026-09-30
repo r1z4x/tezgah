@@ -37,10 +37,12 @@ afterwards reads the same items and refuses the same plan too late; and
 evidence rather than on the guess the spike exists to retire.
 
 Entering `implementation` also records where the risky work returns to: a
-`checkpoint:` field holding the pre-work commit's sha, or the literal `pending`
-while the tree still holds changes no commit names. `pending` is what the gate
-refuses a write in, and a clean commit is the whole way out of it - the
-per-file snapshots (bin/tezgah-rollback) are not one state to return to.
+`checkpoint:` field holding the pre-work commit's sha, or `pending <sha>` while
+the tree still holds changes no commit names - `<sha>` being the `HEAD` of that
+moment. The gate refuses a write in the phase only while the recorded sha is
+still HEAD and the tree is still dirty, so committing is the whole way out of it
+and the commit clears the refusal by itself; the per-file snapshots
+(bin/tezgah-rollback) are not one state to return to.
 
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
 with nothing written - 2 misuse.
@@ -153,12 +155,15 @@ def allow_source(text):
 
 def checkpoint_state(value, path):
     """The checkpoint line `show` prints for a plan in `implementation`: the sha
-    the work returns to, or the state that says no commit was recorded because
-    the tree held work none named - with the one command that makes it one."""
-    if value == tt.CHECKPOINT_PENDING:
-        print("  checkpoint: pending - the tree held uncommitted changes when the "
-              "phase began, so no commit is recorded and this phase's first write "
-              "is refused until one exists: %s" % tt.checkpoint_command(path))
+    the work returns to, or the commit the phase waits for - named with the sha it
+    has to move off and with the one command that does it, because that command's
+    completion is what clears the gate's refusal."""
+    sha = tt.checkpoint_sha(value)
+    if sha:
+        print("  checkpoint: pending on %s - the tree held uncommitted changes "
+              "when the phase began, so this phase's writes are refused until the "
+              "commit that moves HEAD off it: %s"
+              % (sha, tt.checkpoint_command(path)))
     elif value:
         print("  checkpoint: %s" % value)
     else:
@@ -219,16 +224,23 @@ def tree_dirty(root):
 
 def checkpoint_fields(root, phase):
     """The `checkpoint:` the record gets from a move to `phase`: the pre-work
-    commit's sha, or `pending` while the tree holds uncommitted work.
+    commit's sha, or `pending <sha>` while the tree holds uncommitted work -
+    `<sha>` being the `HEAD` of that moment, which the commit the gate's refusal
+    names moves off. That comparison is what lets the commit clear the refusal by
+    itself, instead of the refusal outliving it and locking the phase for an agent
+    that may not rerun this CLI.
 
     `{}` for every phase but `implementation` - the boundary is the writing
     phase's own, and `discovery` writes nothing to return from. A tree with
     nothing committed at all (a fresh `git init`) has no sha to name, so it takes
-    the same `pending` as a dirty one: the commit command creates the state and
-    the sha is recorded when the phase is re-entered on the clean tree."""
+    a bare `pending`: nothing to compare against, and the gate then holds nothing
+    to it."""
     if phase != "implementation":
         return {}
-    sha = None if tree_dirty(root) else git_out(root, "rev-parse", "HEAD")
+    sha = git_out(root, "rev-parse", "HEAD")
+    if tree_dirty(root):
+        return {"checkpoint": ("%s %s" % (tt.CHECKPOINT_PENDING, sha)) if sha
+                else tt.CHECKPOINT_PENDING}
     return {"checkpoint": sha or tt.CHECKPOINT_PENDING}
 
 

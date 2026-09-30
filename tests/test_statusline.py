@@ -374,6 +374,21 @@ class SkillRecording(TempHome):
                          [{"name": "harness", "mark": None, "sessions": 1},
                           {"name": "ponytail", "mark": "pony", "sessions": 1}])
 
+    def test_all_is_a_misuse_wherever_it_is_written_without_counters(self):
+        # `--all` is a modifier of the counters fold, so it means the same thing in
+        # every other position: the same misuse the bare flag is. A report branch
+        # used to swallow it and answer a different question with exit 0, which
+        # read as a success for a flag the user never got.
+        for extra in (("--all",), ("--skill-fitness", "--all"),
+                      ("--failure-shapes", "--all"), ("--all", "--json")):
+            proc = run([self.cli] + list(extra), env=self.envv)
+            self.assertEqual(proc.returncode, 2, extra)
+            self.assertIn("--all only means something with --counters", proc.stderr)
+        # and the report itself is untouched by the check
+        proc = run([self.cli, "--skill-fitness"], env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("sessions read:", proc.stdout)
+
     def test_the_session_store_keeps_the_kind_a_host_writes(self):
         # end to end through the CLI the report reads: what `record` wrote is
         # what the report names, with no second reader of the store

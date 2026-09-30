@@ -356,7 +356,11 @@ PERMANENT_ERROR = re.compile(
 # and drops the name, so before this field no reader could count how often a
 # tool fires or retire one nobody calls (`_counts`' `tools`). It is additive
 # like the rest - a row written before it names its tool only where the name
-# survived in `detail` (an `unknown` row, an MCP `external` row).
+# survived in `detail` (an `unknown` row, an MCP `external` row). It is also the
+# first FREE-TEXT field here: every other one is an id, a path or a number, while
+# a host can send any string as the tool name (the fabricated-tool path in
+# `note_tool`'s `unknown` branch stores it verbatim), so it is stored the way
+# `detail` is - through `_stored_text`, redacted and then cut (`FREE_TEXT_FIELDS`).
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool",
                            "lines", "chars", "items", "longest_list",
@@ -546,6 +550,24 @@ def redact(text):
 # credential near the end cannot hide by being half-stored.
 DETAIL_MAX = 200
 
+# The ledger fields that carry free text rather than an id, a path or a number:
+# they are stored the way `detail` is (redacted over the whole value, then cut to
+# DETAIL_MAX), because a host can put anything in them - `tool` is the first, and
+# the fabricated-tool path stores the host's own string. A new free-text field
+# joins this set rather than being stored raw.
+FREE_TEXT_FIELDS = frozenset(("tool",))
+
+
+def _stored_text(value):
+    """One free-text value as the ledger stores it: redacted over the WHOLE text,
+    then cut to DETAIL_MAX. What is not stored cannot leak, and a scan that
+    stopped at the budget would store the first half of a credential whose second
+    half is the secret; the cut comes after, so a marker it halves stays visible
+    as a marker - a row that shows `[redac` is altered and says so. The same
+    reader serves `detail` and every field in `FREE_TEXT_FIELDS`, so the two
+    cannot drift."""
+    return redact(str(value or ""))[:DETAIL_MAX]
+
 
 # How long an append waits for the lock before falling back to the unlocked
 # write it replaces. The holders are other hook processes appending one line, so
@@ -650,12 +672,15 @@ def note_path(path, kind, detail="", **fields):
     text: what is not stored cannot leak, and a scan that stopped at the budget
     would store the first half of a credential whose second half is the secret.
     The cut comes after, so a marker it halves stays visible as a marker - a row
-    that shows `[redac` is altered and says so, which is the point."""
+    that shows `[redac` is altered and says so, which is the point. Every field
+    in `FREE_TEXT_FIELDS` goes through the same reader, because a host can put
+    anything in one."""
     if not path or not kind:
         return
     row = {"kind": kind, "ts": int(time.time()), "v": ROW_VERSION,
-           "detail": redact(str(detail or ""))[:DETAIL_MAX]}
-    row.update({k: v for k, v in fields.items()
+           "detail": _stored_text(detail)}
+    row.update({k: _stored_text(v) if k in FREE_TEXT_FIELDS else v
+                for k, v in fields.items()
                 if v is not None and k in LEDGER_FIELDS})
     _append(path, json.dumps(row) + "\n")
 
@@ -1312,9 +1337,10 @@ def _counts(rows, weeks=False, tools=False):
 
     `tools` adds two histograms: `tools`, the firings of every tool name the
     corpus carries (`_tool_name`), and `programs`, the shipped `bin/` programs
-    seen really running in a command row (`_ran_programs`). `tools_never` is what
-    a reader derives from the second against `shipped_programs()` - a program
-    with no row fired nowhere, and that absence is the retirement evidence.
+    seen really running in a command row (`_ran_programs`). There is no third
+    key: what a reader derives from the second against `shipped_programs()` is
+    `unfired_programs(counters)` - a program with no row fired nowhere, and that
+    absence is the retirement evidence.
 
     Both are off by default: a caller that wanted only the totals pays for only
     the totals, and the JSON the printers print without the flag stays

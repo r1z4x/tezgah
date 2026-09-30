@@ -55,8 +55,8 @@
 // Hook names a given opencode build does not know are skipped by the runtime
 // (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
 // lacks is safe and must never be a load-time error.
-import { createReadStream, existsSync, mkdirSync, realpathSync, rmSync,
-  writeFileSync } from "node:fs"
+import { createReadStream, existsSync, mkdirSync, readdirSync, realpathSync,
+  rmSync, writeFileSync } from "node:fs"
 import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -599,9 +599,9 @@ const DETAIL_MAX = 200
 // The bash tool returns `metadata.exit` (the process exit code), so a check's
 // real outcome is available: exit 0 -> verify_ok, non-zero -> verify_fail, and
 // `verify` only when the code is absent (aborted/spawn failure).
-// The row carries the contract's fields - id, exit, out_bytes, workspace - so
-// an opencode session is not second-class in the metrics. A field the host did
-// not report stays out of the row: an absent exit is not an exit of 0.
+// The row carries the contract's fields - id, exit, out_bytes, workspace, tool
+// - so an opencode session is not second-class in the metrics. A field the host
+// did not report stays out of the row: an absent exit is not an exit of 0.
 // A name outside every list - a tool this host does not have (a fabricated
 // call), or one it added since this was written - records as `unknown` with the
 // name in the detail, as hooks/tezgah_integrity.note_tool does: dropping the
@@ -653,6 +653,15 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   if (source) row.source = source
   if (typeof exit === "number") row.exit = exit
   if (out !== null) row.out_bytes = Buffer.byteLength(out)
+  // The call's own name, the field hooks/tezgah_integrity.note_tool writes
+  // because `classify` folds the name into a kind and drops it: it is what
+  // `_counts`' tool histogram counts and what `tezgah-status --counters
+  // --trend` prints. A work row's `detail` is its command, so a row without
+  // this field leaves the name unrecoverable - and the same rule as the Python
+  // writer's: the name as the host spelled it, and an empty one left out with
+  // the rest of the unknown fields.
+  const callName = String(tool || "").trim()
+  if (callName) row.tool = callName
   // A write tool's `edit` row and a shell call that writes a file (`run`) carry
   // the same after-state pair, because the gate captured the same target for both
   // (hooks/tezgah_integrity.note_tool). A check row is not one: the row that
@@ -1443,19 +1452,59 @@ function commandKind(command) {
 // mark: reading the full text is the only signal that the always-on summary was
 // not the whole rule. Matched in-process so ordinary reads stay free. Mirrors
 // hooks/tezgah_context.skill_read_kind - the two halves must agree on the path
-// shape and on the mark names.
+// shape, on the mark names, and on which name is a shipped skill.
 const SKILL_MARKS = { ponytail: "pony", "i-have-adhd": "adhd" }
+// The kind a read of any OTHER shipped skill records - `skill:<name>`, spelled
+// exactly as hooks/tezgah_context.SKILL_KIND. No mark's measure is spelled this
+// way, so the status line and its legend cannot light on it; the reader is the
+// fitness report (`tezgah-status --skill-fitness`), which folds it per skill.
+const SKILL_KIND = "skill:"
+
+// The skills this checkout ships, the catalogue hooks/tezgah_context
+// .shipped_skills() reads: a directory under `skills/` with a SKILL.md in it.
+// tezgah-setup links every shipped skill into opencode's own skill dir, so the
+// host's installed list is read here rather than kept as a list of this file's
+// own that goes stale on the next added skill. Read once (a skill-shaped read is
+// the only caller), and an unreadable dir is an empty catalogue: the two marks
+// below are matched by name whatever it holds.
+let skillsMemo = null
+function shippedSkills() {
+  if (skillsMemo) return skillsMemo
+  const dir = join(dirname(CONFIG), "opencode", "skills")
+  try {
+    skillsMemo = readdirSync(dir).filter(
+      (name) => existsSync(join(dir, name, "SKILL.md")))
+  } catch {
+    skillsMemo = []
+  }
+  return skillsMemo
+}
+
+// The skill name a read path names, or "": `<...>/skills/<name>/SKILL.md`, and
+// the `skill://<name>` URL form, with or without its tail
+// (hooks/tezgah_context._skill_read_name).
+function skillReadName(path) {
+  const m = /(?:^|\/)skills\/([^/]+)\/SKILL\.md$/.exec(path)
+  if (m) return m[1]
+  const url = /^skill:\/\/([^/]+)/.exec(path)
+  return url ? url[1] : ""
+}
 
 function skillReadKind(tool, args) {
   // the read names the integrity mirror above already lists: a second list here
   // would be a second definition of "a read", and a skill read by `cat` counts
   if (!READ_TOOLS.has(String(tool || "").toLowerCase())) return null
   const raw = (args && (args.filePath || args.file_path || args.path)) || ""
-  const path = String(raw).replace(/\\/g, "/")
-  for (const [name, mark] of Object.entries(SKILL_MARKS)) {
-    if (path.endsWith("skills/" + name + "/SKILL.md")) return mark
+  const name = skillReadName(String(raw).replace(/\\/g, "/"))
+  if (!name) return null
+  // The two skills the always-on core tells a session to read keep their own
+  // mark. Any other name earns `skill:<name>` and only when the checkout ships
+  // it: `skill://other` earns nothing, as it always did
+  // (hooks/tezgah_context.skill_read_kind).
+  if (Object.prototype.hasOwnProperty.call(SKILL_MARKS, name)) {
+    return SKILL_MARKS[name]
   }
-  return null
+  return shippedSkills().includes(name) ? SKILL_KIND + name : null
 }
 
 async function classify(tool, args) {

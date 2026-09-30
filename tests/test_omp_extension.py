@@ -337,6 +337,65 @@ class OmpExtension(TempHome):
         self.assertEqual([p["input"]["path"] for p in self.asked(log)],
                          ["skill://ponytail"])
 
+    def fake_checkout(self, skills=("harness",)):
+        """A checkout layout with a fake hook in it: @HOOK@ is always
+        <checkout>/hosts/omp/hook.py, and the bridge reads the catalogue from
+        <checkout>/skills (hooks/tezgah_context.shipped_skills)."""
+        checkout = os.path.join(self.home, "checkout")
+        for name in skills:
+            self.touch(os.path.join(checkout, "skills", name, "SKILL.md"))
+        hook, log = self.fake_hook({})
+        fake = os.path.join(checkout, "hosts", "omp", "hook.py")
+        os.makedirs(os.path.dirname(fake), exist_ok=True)
+        os.symlink(hook, fake)
+        return checkout, log
+
+    def test_a_shipped_skill_read_reaches_the_hook_but_a_stranger_does_not(self):
+        # The mark is for the two skills the always-on core names; every other
+        # SHIPPED skill a read opens is recorded as `skill:<name>`, which is what
+        # the fitness report folds. This bridge is the only thing that decides
+        # whether python ever hears about the read, so its catalogue is the
+        # checkout's own `skills/` - and an unshipped name stays out, as
+        # Python's skill_read_kind has it.
+        checkout, log = self.fake_checkout()
+        self.ext = self.make_ext(os.path.join(checkout, "hosts", "omp", "hook.py"),
+                                 "skills.ts")
+        shipped = os.path.join(checkout, "skills", "harness", "SKILL.md")
+        self.results(self.drive([
+            {"event": "tool_result", "arg": {"toolName": "read",
+                                             "input": {"path": shipped}}},
+            {"event": "tool_result", "arg": {"toolName": "read",
+                                             "input": {"path": "skill://harness"}}},
+            {"event": "tool_result", "arg": {"toolName": "read",
+                                             "input": {"path": "skill://other"}}},
+            {"event": "tool_result", "arg": {"toolName": "read",
+                                             "input": {"path": os.path.join(
+                                                 self.home, "README.md")}}},
+            {"event": "tool_result", "arg": {"toolName": "read",
+                                             "input": {"path": "skill://ponytail"}}},
+        ]))
+        self.assertEqual([p["input"]["path"] for p in self.asked(log)],
+                         [shipped, "skill://harness", "skill://ponytail"])
+
+    def test_a_shipped_skill_read_is_recorded_for_the_fitness_report(self):
+        # end to end through the real hook: the read the bridge lets through is
+        # the one python classifies, and the kind it records is the fitness
+        # report's - not one of the two the status line draws marks for
+        path = os.path.join(support.REPO, "skills", "harness", "SKILL.md")
+        out = self.drive([{"event": "tool_result", "arg": {
+            "toolName": "read", "input": {"path": path}}}])
+        self.results(out)
+        self.assertEqual(self.store(), ["skill:harness"])
+
+    def store(self):
+        """The used-kind store the status line and the fitness report read."""
+        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
+                            support.slug("s") + ".jsonl")
+        if not os.path.exists(path):
+            return []
+        with open(path) as fh:
+            return [json.loads(line)["kind"] for line in fh if line.strip()]
+
     def test_the_idx_glyph_rides_the_per_tool_redraw(self):
         # the redraw after a watched tool must not pay for the git probe: the
         # bridge hands back the glyph the probed answer carried, and only the

@@ -711,7 +711,26 @@ TASK_SHELL_DENY = (
     "asks for and say what the write was for.")
 
 
-def task_shell_reason(inp, cwd, base):
+# The marker a caller passes when it has NOT read the record, so a rule reads it
+# itself; a resolved `None` (no active task) is passed as None and is never
+# re-read. `decision` resolves once and hands the same dict to all four rules,
+# because each read re-lists `.tezgah/plans/open/` and re-parses the plan on a
+# path every write of every session takes.
+_UNRESOLVED = object()
+
+
+def _task(cwd, base, task):
+    """The active record: the caller's when it resolved one, else resolved here.
+    A missing tezgah_task module yields None - the rule is lost, never the
+    session, the same fail-open the guarded import takes."""
+    if task is not _UNRESOLVED:
+        return task
+    if tezgah_task is None:
+        return None
+    return tezgah_task.active(cwd, base)
+
+
+def task_shell_reason(inp, cwd, base, task=_UNRESOLVED):
     """A deny reason when the active task's phase only reads and this shell
     command writes a file, else None.
 
@@ -721,9 +740,7 @@ def task_shell_reason(inp, cwd, base):
     however they are made. The allowlist is not consulted here - a shell line's
     targets are not read (see SHELL_WRITE), so the reading phases are the whole
     requirement, and the same fail-open holds: no record, no requirement."""
-    if tezgah_task is None:
-        return None
-    task = tezgah_task.active(cwd, base)
+    task = _task(cwd, base, task)
     if not task or task["phase"] in tezgah_task.WRITE_PHASES:
         return None
     if not SHELL_WRITE.search(mask(str(inp.get("command") or ""))):
@@ -731,7 +748,7 @@ def task_shell_reason(inp, cwd, base):
     return TASK_SHELL_DENY % (task["id"], task["phase"])
 
 
-def task_record_reason(inp, cwd, base):
+def task_record_reason(inp, cwd, base, task=_UNRESOLVED):
     """A deny reason when this write's target IS the active task's record.
 
     The other route to the same hole as TASK_UNLOCK_DENY, and the one a write
@@ -739,9 +756,7 @@ def task_record_reason(inp, cwd, base):
     files can retype the phase instead of running the CLI. Refused whatever the
     phase and whatever the allowlist says - the record is not inside its own
     scope, because a scope that can widen itself is not one."""
-    if tezgah_task is None:
-        return None
-    task = tezgah_task.active(cwd, base)
+    task = _task(cwd, base, task)
     if not task:
         return None
     record = os.path.relpath(task["path"],
@@ -752,7 +767,7 @@ def task_record_reason(inp, cwd, base):
     return None
 
 
-def task_reason(inp, cwd, base):
+def task_reason(inp, cwd, base, task=_UNRESOLVED):
     """A deny reason when the active task's phase or allowlist excludes this
     write, else None. No active task -> None: this rule never invents a
     requirement the user did not set.
@@ -764,9 +779,7 @@ def task_reason(inp, cwd, base):
     repo root is refused by `relative` before any pattern is tried - a `**`
     allowlist must not reach out of the repo - and the refusal names the file as
     the call spelled it, because the agent has to recognize its own argument."""
-    if tezgah_task is None:
-        return None
-    task = tezgah_task.active(cwd, base)
+    task = _task(cwd, base, task)
     if not task:
         return None
     if task["phase"] not in tezgah_task.WRITE_PHASES:
@@ -791,18 +804,29 @@ def task_reason(inp, cwd, base):
 # machine already names the exact moment the risky work starts - bin/tezgah-task
 # writes `phase: implementation` and this module then holds writes to the plan's
 # own allowlist - so that moment gets a named state too: the CLI records
-# `checkpoint:` as the pre-work commit's sha, or as `pending` while the tree
-# still holds work no commit names.
+# `checkpoint:` as the pre-work commit's sha when the tree was clean, or as
+# `pending <sha>` when it was not, `<sha>` being the HEAD of that moment.
 #
 # Why the refusal is here and not only in the CLI: the CLI stands at the phase
 # move and is where the sha is written, but the write is the moment the un-named
 # state would be built on, and a plan can already be in `implementation` when
-# this rule lands (a record with no `checkpoint:` key at all passes - no field,
-# no requirement, the same fail-open direction as every other rule here). Keying
-# the refusal on the live tree alone would refuse the phase's own work - the
-# first write makes the tree dirty and it stays that way - so the record, not the
-# tree, is the switch, and the live tree is only what tells the two states apart
-# inside `pending`.
+# this rule lands.
+#
+# The recorded sha is what the refusal is keyed on, and the tree only says the
+# two states apart inside it: the sha is written at the phase move, and the commit
+# the refusal names moves HEAD off it, so the refusal clears itself and the phase
+# proceeds. Keying on the word `pending` alone did not: the commit left the record
+# saying `pending`, only bin/tezgah-task rewrites that record, the agent may not
+# run it, and the phase was then locked until the user happened to re-run the
+# phase command - a gate that refuses the thing it asks for. Keying on the live
+# tree alone would refuse the phase's own work, since the first write makes the
+# tree dirty and it stays that way.
+#
+# Fail-open wherever the question cannot be answered: no record, no `checkpoint:`
+# key, a checkpoint that is a plain sha (the boundary is already real), a `pending`
+# with no sha, a sha this checkout's HEAD does not name, a repo whose HEAD cannot
+# be read, and `task-off` above. A refusal has to rest on something a reader can
+# check, and a rule that cannot answer must not refuse.
 #
 # The refusal names the one command that makes the boundary real. That is not the
 # mistake TASK_PHASE_DENY records: the E7 lesson is a refusal that names how to
@@ -811,17 +835,22 @@ def task_reason(inp, cwd, base):
 # so naming it is naming what the rule wants rather than a way around it.
 CHECKPOINT_DENY = (
     "Checkpoint gate: the active task %s is in phase `implementation` and its "
-    "plan records no checkpoint commit (`checkpoint: pending`), so this write "
-    "would start the work on top of changes no commit names - and the per-file "
-    "snapshots are not one state to return to. The command that makes the "
-    "boundary real is %s; running it satisfies this rule and moves nothing.")
+    "plan records a pending checkpoint (`checkpoint: pending <sha>`), so this "
+    "write would start the work on top of changes no commit names - and the "
+    "per-file snapshots are not one state to return to. The command that makes "
+    "the boundary real is %s; it moves HEAD off the recorded sha, so running it "
+    "satisfies this rule and moves nothing.")
 
 
-def checkpoint_reason(inp, cwd, base):
+def checkpoint_reason(inp, cwd, base, task=_UNRESOLVED):
     """A deny reason when the active task is in `implementation`, its plan's
-    `checkpoint:` says `pending`, and the tree still holds uncommitted work -
-    else None. The section above carries what this closes and why the record and
-    not the tree is the switch."""
+    `checkpoint:` waits for a commit (`pending <sha>`), that sha is still HEAD,
+    and the tree still holds uncommitted work - else None.
+
+    The recorded sha, not the word `pending`, is the switch: the commit the
+    refusal names moves HEAD off it, so the refusal clears by itself. The section
+    above carries what this closes, why the record and not the tree is the
+    switch, and every shape that fails open."""
     if tezgah_task is None:
         return None
     command = inp.get("command")
@@ -829,15 +858,21 @@ def checkpoint_reason(inp, cwd, base):
         # a shell line that changes no file is not this rule's, the same read of
         # the same shape table task_shell_reason makes
         return None
-    task = tezgah_task.active(cwd, base)
-    if (not task or task["phase"] != "implementation"
-            or task.get("checkpoint") != tezgah_task.CHECKPOINT_PENDING):
+    task = _task(cwd, base, task)
+    if not task or task["phase"] != "implementation":
+        return None
+    sha = tezgah_task.checkpoint_sha(task.get("checkpoint"))
+    if not sha:
+        return None
+    # HEAD read from the ref file, not a fork: this question is asked on every
+    # write of the phase, and an unreadable HEAD fails open.
+    root = tezgah_task.repo_root(cwd, base)
+    if _head(root) != sha:
         return None
     import subprocess  # deferred: only a plan still pending its checkpoint pays
     try:
-        listed = subprocess.run(
-            ["git", "-C", tezgah_task.repo_root(cwd, base), "status", "--porcelain"],
-            capture_output=True, text=True, timeout=5)
+        listed = subprocess.run(["git", "-C", root, "status", "--porcelain"],
+                                capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return None
     if listed.returncode != 0 or not listed.stdout.strip():
@@ -1183,6 +1218,24 @@ PLAN_DENY = (
     "`MANIFEST` are counted; a `.tezgah/` path never is.")
 
 
+def _gitdir(root):
+    """The `.git` directory the checkout at `root` keeps its refs in, or "" when
+    `root` does not name one: no `.git` entry, or a `.git` file that is not the
+    `gitdir:` pointer a worktree writes."""
+    dot = os.path.join(root, ".git")
+    if not os.path.isfile(dot):
+        return dot
+    try:
+        with open(dot, encoding="utf-8", errors="replace") as fh:
+            line = fh.readline().strip()
+    except OSError:
+        return ""
+    if not line.startswith("gitdir:"):
+        return ""
+    target = line[len("gitdir:"):].strip()
+    return target if os.path.isabs(target) else os.path.join(root, target)
+
+
 def _branch(root):
     """The branch the checkout at `root` is on, or "" when there is none to name:
     not a git repository (no `.git`), an unreadable HEAD, or a detached HEAD.
@@ -1190,25 +1243,73 @@ def _branch(root):
     Read from `.git/HEAD` rather than a `git` fork: the gate runs this on every
     product write, and one file read is the whole cost. A worktree's `.git` is a
     file naming the real gitdir, which is followed."""
-    dot = os.path.join(root, ".git")
-    if os.path.isfile(dot):
-        try:
-            with open(dot, encoding="utf-8", errors="replace") as fh:
-                line = fh.readline().strip()
-        except OSError:
-            return ""
-        if not line.startswith("gitdir:"):
-            return ""
-        target = line[len("gitdir:"):].strip()
-        dot = target if os.path.isabs(target) else os.path.join(root, target)
+    gitdir = _gitdir(root)
+    if not gitdir:
+        return ""
     try:
-        with open(os.path.join(dot, "HEAD"), encoding="utf-8",
+        with open(os.path.join(gitdir, "HEAD"), encoding="utf-8",
                   errors="replace") as fh:
             ref = fh.readline().strip()
     except OSError:
         return ""
     head = "ref: refs/heads/"
     return ref[len(head):] if ref.startswith(head) else ""
+
+
+# A commit id as git writes it: 40 hex for the default object store, 64 for
+# sha256. Both are accepted so the reader does not fail open on a repo whose
+# object format the module never had to know.
+_SHA = re.compile(r"[0-9a-fA-F]{40,64}")
+
+
+def _packed_sha(gitdir, ref):
+    """The sha `gitdir/packed-refs` names for `ref`, or "": a ref `git gc` folded
+    out of its loose file still resolves, which is what keeps the reader from
+    failing open on a repacked repository. The header line and a tag's `^`-peeled
+    line carry no `ref` match, so only the ref's own line can answer."""
+    try:
+        with open(os.path.join(gitdir, "packed-refs"), encoding="utf-8",
+                  errors="replace") as fh:
+            for line in fh:
+                sha, _, name = line.strip().partition(" ")
+                if name.strip() == ref and _SHA.fullmatch(sha):
+                    return sha
+    except OSError:
+        pass
+    return ""
+
+
+def _head(root):
+    """The sha `HEAD` names for the checkout at `root`, or "" when the question
+    cannot be answered: not a git repository, an unreadable HEAD, a ref with
+    neither a loose file nor a packed-refs line, or a detached HEAD holding
+    something that is not a sha.
+
+    Read from `.git/HEAD` - the ref file, or the packed-refs line beside it -
+    rather than a `git` fork, the way `_branch` reads the branch: the checkpoint
+    rule asks this on every write of an `implementation` phase, and an
+    unanswerable question must pass. ponytail: a worktree's packed refs live in
+    the common dir, not in the worktree gitdir this reads, so a repacked ref in a
+    linked worktree falls back to "" - the fail-open direction."""
+    gitdir = _gitdir(root)
+    if not gitdir:
+        return ""
+    try:
+        with open(os.path.join(gitdir, "HEAD"), encoding="utf-8",
+                  errors="replace") as fh:
+            ref = fh.readline().strip()
+    except OSError:
+        return ""
+    if not ref.startswith("ref: "):
+        return ref if _SHA.fullmatch(ref) else ""
+    name = ref[len("ref: "):].strip()
+    try:
+        with open(os.path.join(gitdir, name), encoding="utf-8",
+                  errors="replace") as fh:
+            sha = fh.readline().strip()
+    except OSError:
+        sha = ""
+    return sha if _SHA.fullmatch(sha) else _packed_sha(gitdir, name)
 
 
 def _product_path(path, root, cwd):
@@ -1347,19 +1448,25 @@ def decision(tool, inp, cwd, session_id=None):
     # through the CLI is refused with it: a boundary the agent can move is not a
     # boundary, and both routes to moving this one were measured open (E7).
     if not off("task-off"):
+        # The record is read once and handed to every rule below: each read lists
+        # `.tezgah/plans/open/` and parses a plan, and this path is every write of
+        # every session. Reads and non-write tools pay nothing.
+        task = _UNRESOLVED
+        if tezgah_task is not None and t in WRITE_TOOLS + BASH_TOOLS:
+            task = tezgah_task.active(cwd, base)
         if t in WRITE_TOOLS:
-            reason = task_record_reason(inp, cwd, base)
+            reason = task_record_reason(inp, cwd, base, task)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
         if t in BASH_TOOLS and TASK_CHANGE.search(
                 mask(str(inp.get("command") or ""))):
             return _deny(session_id, "task", TASK_UNLOCK_DENY, tool, inp, base)
         if t in BASH_TOOLS:
-            reason = task_shell_reason(inp, cwd, base)
+            reason = task_shell_reason(inp, cwd, base, task)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
         if t in WRITE_TOOLS:
-            reason = task_reason(inp, cwd, base)
+            reason = task_reason(inp, cwd, base, task)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
         # The checkpoint: the same phase, the state it starts from. After the
@@ -1367,7 +1474,7 @@ def decision(tool, inp, cwd, session_id=None):
         # fault in the same call (see checkpoint_reason for why the rule is here
         # at all and not only at the phase move).
         if t in WRITE_TOOLS + BASH_TOOLS:
-            reason = checkpoint_reason(inp, cwd, base)
+            reason = checkpoint_reason(inp, cwd, base, task)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
     # Workspace: tezgah state belongs under .tezgah/, never a root plans/,

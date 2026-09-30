@@ -33,6 +33,9 @@ their status line; this CLI is how every host (and a human) gets it:
                            per shipped skill, over the recorded sessions: how
                            many opened it and which were never opened. A
                            measurement, not a gate; `--json` carries the fold.
+                           `--all`/`--trend`/`--weeks` are modifiers of the
+                           counters fold and are a misuse here (exit 2), the same
+                           as they are anywhere else without `--counters`.
   tezgah-status --failure-shapes
                            the recurring refusal shapes mined from every ledger
                            on this machine, with the corpus size read: one row
@@ -177,6 +180,14 @@ def main():
     if "--legend" in flags:
         sys.stdout.write(LEGEND)
         return 0
+    # Placed above the report branches, not below them: `--all` is a modifier of
+    # the counters fold wherever it is written, so `--skill-fitness --all` is the
+    # same misuse `--all` alone is - a report branch that silently swallowed the
+    # flag would answer a question the user did not ask.
+    if "--all" in flags and "--counters" not in flags:
+        sys.stderr.write("tezgah-status: --all only means something with "
+                         "--counters\n")
+        return 2
     if "--skill-fitness" in flags:
         fit = skill_fitness()
         if "--json" in flags:
@@ -184,10 +195,6 @@ def main():
             return 0
         print_fitness(fit)
         return 0
-    if "--all" in flags and "--counters" not in flags:
-        sys.stderr.write("tezgah-status: --all only means something with "
-                         "--counters\n")
-        return 2
     # `--trend` and `--weeks` are modifiers of the same fold: alone they read
     # like a report of their own, and a silent no-op would print the status line
     # instead - the answer to a question that was never asked.

@@ -32,7 +32,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only rows carrying a name were the `unknown` and MCP `external` ones - which is
   why a firing histogram could not be computed from the ledger at all. Additive,
   like every other key: a row written before the field carries none, and the
-  histogram counts the rows that name one rather than guessing at the rest.
+  histogram counts the rows that name one rather than guessing at the rest,
+  and both row writers carry it - the Python one and opencode's plugin, whose
+  rows named no tool at all until now (which is why a histogram over a corpus
+  written under that host read low).
 
 - **The task rule on the gate page, and a rule ledger.** `docs/gate.md` is the
   page that answers "why was my command denied", and the task rule - the boundary
@@ -57,13 +60,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `implementation`; the throwaway half needs no second mechanism, because
   `allowed_paths:` already pins a spike's writes to a scratch path. And a move into
   `implementation` records `checkpoint: <HEAD sha>` when the tree is clean, or
-  `checkpoint: pending` when it is not, which makes the first write of the phase
-  refused until the commit named in the refusal lands. The switch is the record,
-  not the live tree, and that is the load-bearing decision: a rule keyed on the
-  tree would refuse the phase's own product from its second write on, while a
-  `pending` marker that a commit clears names one command and then stops asking.
-  `docs/glossary.md` says the snapshot layer is "Not a checkpoint" - this is the
-  checkpoint, at the plan's own boundary.
+  `checkpoint: pending <the sha HEAD is at>` when it is not: while the record
+  still names that sha and the worktree is still dirty, the phase's writes are
+  refused, and the commit the refusal names moves HEAD off the recorded sha and
+  lifts the rule by itself. The switch is the record *and* the sha it names,
+  which is the part the first draft got wrong: keyed on the live tree alone, the
+  rule would refuse the phase's own product from its second write on, and a bare
+  `pending` word would need a second phase move that only the user may run - the
+  branch review found exactly that, and the recorded sha is the repair. It fails
+  open wherever the pair cannot be answered: no record, no `checkpoint:` key, a
+  sha git cannot resolve, a HEAD the checkout cannot describe. `docs/glossary.md`
+  says the snapshot layer is "Not a checkpoint" - this is the checkpoint, at the
+  plan's own boundary.
 
 - **`bin/tezgah-decisions`: the ADR record.** The repository demanded an ADR and
   gave nowhere to put one - `skills/feature-audit/SKILL.md` makes a

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { delimiter, dirname, join } from "node:path";
 
 // tezgah-setup substitutes the absolute path of hosts/omp/hook.py, the python
 // half that owns the contract, the gate and the evidence ledger. This file is
@@ -213,20 +213,52 @@ const WATCHED = ["bash", "shell", "command", "edit", "write", "multiedit",
 
 // A read of a tezgah skill file is the one read whose result moves a status
 // mark, and matching it here keeps the rule that made reads unwatched: ordinary
-// reads never reach python. Mirror of hooks/tezgah_context.skill_read_kind.
+// reads never reach python. Mirror of hooks/tezgah_context.skill_read_kind,
+// which names the kind python records - the mark `SKILL_MARKS` draws for the two
+// skills the always-on core tells a session to read, and `skill:<name>` for any
+// other shipped skill, the kind the fitness report folds
+// (`tezgah-status --skill-fitness`) and no status mark is spelled with.
 const SKILL_MARKS: Record<string, string> =
   { ponytail: "pony", "i-have-adhd": "adhd" };
 const READ_TOOLS = ["read", "read_file", "readfile", "view_file"];
 
-// omp's read tool also takes the internal URL `skill://<name>`, which is the
-// same SKILL.md: both shapes earn the mark.
+// The skills this checkout ships, the catalogue hooks/tezgah_context
+// .shipped_skills() reads: a directory under the checkout's `skills/` with a
+// SKILL.md in it. The template's @HOOK@ is <checkout>/hosts/omp/hook.py, so the
+// checkout is two directories above the hook. Read once and only for a
+// skill-shaped read; a checkout this cannot read leaves an empty catalogue, and
+// the two marks above are still matched by name whatever it holds.
+let skillsMemo: string[] | undefined;
+function shippedSkills(): string[] {
+  if (skillsMemo) return skillsMemo;
+  const dir = join(dirname(dirname(dirname(HOOK))), "skills");
+  try {
+    skillsMemo = readdirSync(dir).filter(
+      (name) => existsSync(join(dir, name, "SKILL.md")));
+  } catch {
+    skillsMemo = [];
+  }
+  return skillsMemo;
+}
+
+// The skill name a read path names, or "": `<...>/skills/<name>/SKILL.md`, and
+// the internal URL omp's read tool also takes, `skill://<name>`, which is the
+// same SKILL.md with or without its tail
+// (hooks/tezgah_context._skill_read_name).
+function skillName(path: string): string {
+  const m = /(?:^|\/)skills\/([^/]+)\/SKILL\.md$/.exec(path);
+  if (m) return m[1];
+  const url = /^skill:\/\/([^/]+)/.exec(path);
+  return url ? url[1] : "";
+}
+
 function skillRead(tool: string, args: any): boolean {
   if (!READ_TOOLS.includes(tool.toLowerCase())) return false;
   const raw = args?.filePath ?? args?.file_path ?? args?.path ?? "";
-  const path = String(raw).replace(/\\/g, "/");
-  return Object.keys(SKILL_MARKS).some(
-    (name) => path.endsWith("skills/" + name + "/SKILL.md")
-      || path === "skill://" + name || path === "skill://" + name + "/SKILL.md");
+  const name = skillName(String(raw).replace(/\\/g, "/"));
+  if (!name) return false;
+  return Object.prototype.hasOwnProperty.call(SKILL_MARKS, name)
+    || shippedSkills().includes(name);
 }
 
 // The gate is only consulted for the tools the shared rule knows: the refusal

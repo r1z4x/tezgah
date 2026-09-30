@@ -1027,6 +1027,19 @@ class OpenCodePlugin(TempHome):
         self.assertTrue(all(c in "0123456789abcdef" for c in row["id"]), row)
         self.assertEqual(row["workspace"], self.roots)
 
+    def test_a_row_carries_the_tool_name_the_histogram_counts(self):
+        # The name lives in the row, not in `detail`: a work row's detail is its
+        # command, so a row without this field leaves the tool unrecoverable and
+        # the histogram can only fall back to a detail prefix. Same field and
+        # same empty-means-absent rule as hooks/tezgah_integrity.note_tool, and
+        # the Python half's own fold is what reads it back.
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        self.after("write", {"filePath": "/tmp/x.py", "content": "x"})
+        rows = self.ledger()
+        self.assertEqual([row["tool"] for row in rows], ["bash", "write"])
+        self.assertEqual(ti._counts(rows, tools=True)["tools"],
+                         {"bash": 1, "write": 1})
+
     def test_the_id_is_the_hash_the_python_writer_computes(self):
         # sha1(tool + " " + canonical)[:12], the frozen formula, computed by the
         # Python half itself: an id that drifts here is an opencode row the
@@ -1231,6 +1244,64 @@ class OpenCodePlugin(TempHome):
         self.after("bash", {"command": "timeout 30 consult --online q"})
         self.assertIn("consult", self.used())
 
+    # ---- skill reads: the kind the fitness report folds --------------------
+    def opencode_skills(self):
+        """opencode's own skill dir, as tezgah-setup links it: a symlink per
+        shipped skill to its directory in the checkout. It is the catalogue this
+        half reads (`dirname(CONFIG)/opencode/skills`)."""
+        d = os.path.join(self.home, ".config", "opencode", "skills")
+        os.makedirs(d, exist_ok=True)
+        for name in ("harness", "ponytail"):
+            os.symlink(os.path.join(support.REPO, "skills", name),
+                       os.path.join(d, name))
+
+    def test_a_shipped_skill_read_records_its_kind_and_never_a_mark(self):
+        # A read of any SHIPPED skill is what `tezgah-status --skill-fitness`
+        # counts, so it has to be recorded here; the status line's two marks stay
+        # tied to the two skills the always-on core names, because `skill:<name>`
+        # is a kind no mark's measure is spelled with.
+        self.opencode_skills()
+        base = os.path.join(support.REPO, "skills")
+        self.after("read", {"filePath": os.path.join(base, "harness",
+                                                     "SKILL.md")},
+                   session="harness")
+        self.after("read", {"filePath": "skill://harness"}, session="url")
+        self.after("read", {"filePath": os.path.join(base, "ponytail",
+                                                     "SKILL.md")},
+                   session="pony")
+        self.assertEqual(self.used("harness"), ["skill:harness"])
+        self.assertEqual(self.used("url"), ["skill:harness"])
+        self.assertEqual(self.used("pony"), ["pony"])
+        # a name the checkout does not ship earns nothing, as Python's
+        # skill_read_kind has it, and neither does an ordinary read
+        self.after("read", {"filePath": "/tmp/skills/not-a-skill/SKILL.md"})
+        self.after("read", {"filePath": os.path.join(base, "harness",
+                                                     "reference.md")})
+        self.assertEqual(self.used(), [])
+        # and the recorded kind cannot light a mark: read back through the Python
+        # half's own renderer over this store, a non-marked skill leaves both
+        # marks armed (○) while the marked skill's own read turns its mark on (✓)
+        armed = self.marks("harness")
+        self.assertEqual([armed["pony"], armed["adhd"]],
+                         [["ready", "\u25cb"], ["ready", "\u25cb"]])
+        self.assertEqual(self.marks("pony")["pony"], ["on", "\u2713"])
+
+    def marks(self, session):
+        """The two skill marks as the Python status line draws them for this
+        store, keyed by mark: `[state, glyph]`. The line's own renderer is the
+        reference, so a kind `record` writes that is not a mark's measure is
+        shown to draw nothing rather than assumed to."""
+        script = (
+            "import json, sys; sys.path.insert(0, %r);"
+            "from tezgah_context import health_segments;"
+            "print(json.dumps({s['key']: [s['state'], s.get('glyph')]"
+            " for s in health_segments(%r, %r)}))"
+            % (os.path.join(support.REPO, "hooks"), self.repo, session))
+        proc = subprocess.run([sys.executable, "-c", script],
+                              capture_output=True, text=True, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
     # ---- untrusted content: the channel, the label, the sink ---------------
     # The corpus both halves are checked against: the plugin's answer is read off
     # the row it wrote and the line it put in front of the result, and the Python
@@ -1287,6 +1358,11 @@ class OpenCodePlugin(TempHome):
                 self.assertIsNone(expected, (tool, args))
                 continue
             self.assertEqual(rows[-1].get("source"), expected, (tool, args, rows))
+            # the call's own name is the field the histogram folds, so both
+            # writers have to agree on it too - and on the empty-means-absent
+            # rule hooks/tezgah_integrity.note_tool writes it under
+            name = str(tool).strip()
+            self.assertEqual(rows[-1].get("tool"), name or None, (tool, args))
             label = ti.untrusted_label(expected)
             self.assertEqual(res["output"]["output"],
                              (label + "\n\nR") if label else "R", (tool, args))

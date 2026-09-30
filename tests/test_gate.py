@@ -1100,6 +1100,30 @@ class Gate(TempHome):
         self.assertIsNone(
             self.decide("Bash", {"command": "pytest -q"}, session_id="fresh"))
 
+    def test_the_tool_field_is_stored_redacted_and_cut(self):
+        # `tool` is the ledger's first free-text field - the fabricated-tool path
+        # stores whatever string the host sent - so it is stored the way `detail`
+        # is: a credential shape in it is replaced, and an oversized name is cut
+        # rather than written whole.
+        name = "sk-live-" + "a" * 24 + "x" * 400
+        _, proc = run_json(
+            [support.PROBE_INTEGRITY],
+            {"fn": "note_tool", "session": "tools", "tool": name,
+             "input": {"command": "ls"}},
+            env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "events", "session": "tools"},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        stored = out[-1]["tool"]
+        self.assertNotIn("a" * 24, stored)
+        self.assertIn("[redacted:", stored)
+        self.assertLessEqual(len(stored), ti.DETAIL_MAX)
+        # the `unknown` row carries the same name in its detail, so a reader that
+        # looks there sees the same redaction rather than the raw string
+        self.assertNotIn("a" * 24, out[-1]["detail"])
+
     # ---- kill switch -------------------------------------------------------
     def test_pretooluse_off_kills_denials(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "pretooluse-off"))
@@ -1222,6 +1246,14 @@ class TaskGate(TempHome):
         subprocess.run(["git", "-C", self.repo, "-c", "user.name=t",
                         "-c", "user.email=t@localhost"] + list(args),
                        check=True, capture_output=True, env=env)
+
+    def head(self):
+        """The sha the fixture repository's HEAD names: what a `pending`
+        checkpoint records and what the commit has to move off."""
+        out = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"],
+                             capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return out.stdout.strip()
 
     def dirty(self, rel="hooks/x.py"):
         """One uncommitted file in the repo - the state the checkpoint names."""
@@ -1423,14 +1455,21 @@ class TaskGate(TempHome):
                               command)
 
     # ---- the checkpoint the implementation phase starts from --------------
-    def test_a_write_is_refused_while_the_checkpoint_is_pending_and_dirty(self):
-        # The phase's own restore point. `pending` in the record says the tree
-        # holds work no commit names, so the phase's first write would build on
-        # state nobody can return to - the per-file snapshots
-        # (bin/tezgah-rollback) are not one state to return to, which is what
-        # docs/glossary.md says of them.
+    def test_the_commit_a_pending_checkpoint_names_clears_the_refusal(self):
+        # The phase's own restore point. `pending <sha>` says the tree holds work
+        # no commit names, so the phase's first write would build on state nobody
+        # can return to - the per-file snapshots (bin/tezgah-rollback) are not one
+        # state to return to, which is what docs/glossary.md says of them.
+        #
+        # The recorded sha is what the refusal is keyed on, and this is the defect
+        # it closes: keyed on the word `pending`, the commit the refusal names left
+        # the record saying `pending`, only bin/tezgah-task rewrites that record,
+        # the agent may not run it - and the phase was locked until the user
+        # happened to re-run the phase command. Here the commit is the whole way
+        # out, exactly as the refusal says.
         env = self.init_git()
-        self.plan(phase="implementation", allowed=("hooks/**",), checkpoint="pending")
+        self.plan(phase="implementation", allowed=("hooks/**",),
+                  checkpoint="pending %s" % self.head())
         path = self.dirty()
         reason = self.write_path(path)
         self.assertIsNotNone(reason)
@@ -1440,7 +1479,32 @@ class TaskGate(TempHome):
         # naming the commit is naming what the rule asks for, not a way to move
         # the phase: nothing here lifts the boundary without making it real
         self.assertNotIn("tezgah-task phase", reason)
-        # the commit is the whole way out - no second command, no state kept
+        self.git(env, "add", "-A")
+        self.git(env, "commit", "-q", "-m", "checkpoint: before 017-gate-rule")
+        self.assertIsNone(self.write_path(path))
+
+    def test_the_cli_record_and_the_gate_agree_on_the_commit(self):
+        # F1 end to end, through the two surfaces that share this record: the CLI
+        # moves the plan into `implementation` on a dirty tree, the `pending <sha>`
+        # it writes is what the gate compares, the phase's first write is refused,
+        # and the commit the refusal names is what lets the next one through - no
+        # second command, no re-run of the phase, nothing the agent may not do.
+        env = self.init_git()
+        plan = self.plan(phase=None, allowed=("hooks/**",))
+        path = self.dirty()
+        proc = support.run([os.path.join(support.REPO, "bin", "tezgah-task"),
+                            "start", "017", "--phase", "implementation"],
+                           env=self.envv, cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        with open(plan) as fh:
+            self.assertIn("checkpoint: pending %s" % self.head(), fh.read())
+        reason = self.write_path(path)
+        self.assertIsNotNone(reason)
+        self.assertIn("Checkpoint", reason)
+        # and the same answer from a subdirectory: the recorded sha is compared
+        # against the repo root's HEAD, not against whatever cwd the call came from
+        self.assertIsNotNone(self.decide({"file_path": path},
+                                         cwd=os.path.join(self.repo, "hooks")))
         self.git(env, "add", "-A")
         self.git(env, "commit", "-q", "-m", "checkpoint: before 017-gate-rule")
         self.assertIsNone(self.write_path(path))
@@ -1454,16 +1518,38 @@ class TaskGate(TempHome):
         self.dirty()
         for phase, checkpoint in (("implementation", "0123456789ab"),
                                   ("implementation", None),
-                                  ("verification", "pending")):
+                                  ("verification", "pending %s" % self.head())):
             self.plan(phase=phase, allowed=("hooks/**",), checkpoint=checkpoint)
             self.assertIsNone(self.write_path("hooks/x.py"), (phase, checkpoint))
+
+    def test_every_shape_the_rule_cannot_answer_fails_open(self):
+        # What F1 left behind must not lock a phase: a bare `pending` (a record
+        # written before the sha was recorded, or a branch with no commit), a sha
+        # this checkout's HEAD does not name (the commit already happened), and a
+        # repo git cannot describe - each is a question the rule cannot answer, and
+        # a rule that cannot answer must not refuse.
+        self.init_git()
+        self.dirty()
+        for checkpoint in ("pending", "pending " + "0" * 40):
+            self.plan(phase="implementation", allowed=("hooks/**",),
+                      checkpoint=checkpoint)
+            self.assertIsNone(self.write_path("hooks/x.py"), checkpoint)
+
+    def test_a_repo_with_no_readable_head_fails_open(self):
+        # no `.git` at all: the recorded sha names no HEAD here, so the question
+        # has no answer and the rule refuses nothing
+        self.plan(phase="implementation", allowed=("hooks/**",),
+                  checkpoint="pending %s" % ("a" * 40))
+        self.dirty()
+        self.assertIsNone(self.write_path("hooks/x.py"))
 
     def test_a_pending_checkpoint_covers_the_shell_write(self):
         # the shell is a write route like any other (E7b), so the phase's start
         # state covers it too; a shell line that changes no file is not this
         # rule's
         self.init_git()
-        self.plan(phase="implementation", allowed=("hooks/**",), checkpoint="pending")
+        self.plan(phase="implementation", allowed=("hooks/**",),
+                  checkpoint="pending %s" % self.head())
         self.dirty()
         reason = self.decide({"command": "cat > hooks/y.py <<'EOF'\ny\nEOF"},
                              tool="Bash")
@@ -1473,7 +1559,8 @@ class TaskGate(TempHome):
 
     def test_the_checkpoint_half_goes_with_the_same_switch(self):
         self.init_git()
-        self.plan(phase="implementation", allowed=("hooks/**",), checkpoint="pending")
+        self.plan(phase="implementation", allowed=("hooks/**",),
+                  checkpoint="pending %s" % self.head())
         self.dirty()
         self.assertIsNotNone(self.write_path("hooks/x.py"))
         self.touch(os.path.join(self.home, ".config", "tezgah", "task-off"))
@@ -1490,6 +1577,36 @@ class TaskGate(TempHome):
         self.assertIsNone(self.write_path(".tezgah/plans/open/017-gate-rule.md"))
         self.assertIsNone(self.decide({"command": "bin/tezgah-task stop"},
                                       tool="Bash"))
+
+    def test_a_write_resolves_the_users_record_once(self):
+        # F2, read in process because the cost is the whole behaviour: every rule
+        # below the task block used to call tezgah_task.active itself, so one write
+        # re-listed `.tezgah/plans/open/` and re-parsed the plan three times on the
+        # path every tool call of every session takes. `decision` now resolves it
+        # once and hands it down. The count is the only thing a passing call
+        # observes, so the reader is wrapped and counted here.
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        calls = []
+        real = tg.tezgah_task.active
+        saved = tg.root_for, tg.off, tg.capture
+
+        def counted(cwd, base):
+            calls.append(cwd)
+            return real(cwd, base)
+
+        tg.root_for = lambda path: self.repo
+        tg.off = lambda name: False
+        tg.capture = None  # the snapshot half is not this test's
+        tg.tezgah_task.active = counted
+        try:
+            reason = tg.decision(
+                "Write", {"file_path": os.path.join(self.repo, "hooks", "x.py")},
+                self.repo, session_id="one-read-fixture")
+        finally:
+            tg.tezgah_task.active = real
+            tg.root_for, tg.off, tg.capture = saved
+        self.assertIsNone(reason)
+        self.assertEqual(len(calls), 1)
 
 
 class LangGate(TempHome):

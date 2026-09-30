@@ -238,6 +238,15 @@ class Record(unittest.TestCase):
         self.assertEqual(tt.checkpoint_command("/x/007-a-b.md"),
                          'git add -A && git commit -m "checkpoint: before 007-a-b"')
 
+    def test_checkpoint_sha_is_the_head_only_a_pending_record_names(self):
+        # The one reader of the `pending <sha>` form, shared by the CLI's note and
+        # the gate's refusal. Every other shape names no tree to compare, so the
+        # gate fails open there instead of locking the phase it guards.
+        self.assertEqual(tt.checkpoint_sha("pending abc123"), "abc123")
+        for value in ("pending", "", None, "abc123", "pending a b",
+                      "pending ", "done abc123"):
+            self.assertEqual(tt.checkpoint_sha(value), "", repr(value))
+
 
 class Cli(TempHome):
     """The CLI end to end: one command per record, read back through the same
@@ -499,15 +508,19 @@ class Cli(TempHome):
         self.assertNotIn("checkpoint", tt.frontmatter(read(path)))
 
     def test_a_dirty_tree_records_a_pending_checkpoint_and_names_the_commit(self):
-        # uncommitted work has no commit to record, so the record says so and the
-        # gate refuses that phase's writes until the commit lands - the same
-        # command the CLI prints
+        # uncommitted work has no commit to record, so the record names the HEAD
+        # the commit has to move off along with the word `pending` - that sha is
+        # what the gate compares, which is why the commit the CLI prints clears the
+        # refusal by itself; the same command, and the same sha, are what the CLI
+        # prints here
         path = self.plan("001-first.md", allowed=["hooks/**"])
         self.dirty("hooks/x.py")
+        head = self.head()
         proc = self.task("start", "001", "--phase", "implementation")
         self.assertEqual(proc.returncode, 0, proc.stdout)
-        self.assertEqual(tt.frontmatter(read(path))["checkpoint"], tt.CHECKPOINT_PENDING)
-        self.assertIn("checkpoint: pending", proc.stdout)
+        self.assertEqual(tt.frontmatter(read(path))["checkpoint"],
+                         "%s %s" % (tt.CHECKPOINT_PENDING, head))
+        self.assertIn("checkpoint: pending on %s" % head, proc.stdout)
         self.assertIn('git add -A && git commit -m "checkpoint: before 001-first"',
                       proc.stdout)
         # the commit is the way out: re-entering records the sha it created

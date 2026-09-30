@@ -31,9 +31,12 @@ readers of the body were added beside it and read in the same place - the
 the CI report counts the same items, and one module keeps them agreeing.
 
 The `checkpoint:` key is read here for the same reason again: bin/tezgah-task
-writes it when the phase moves to `implementation`, and the gate refuses a write
-in that phase while it reads `pending` - the sha of the pre-work commit, or the
-word that says there is none to return to yet.
+writes it when the phase moves to `implementation` - the pre-work commit's sha
+when the tree was clean, or `pending <sha>` when it was not, `<sha>` being the
+`HEAD` the commit the phase waits for has to move off (`checkpoint_sha`, the one
+reader of that form). The gate refuses a write in that phase only while the
+recorded sha is still HEAD and the tree is still dirty, so the commit its refusal
+names clears it by itself.
 """
 import os
 import re
@@ -229,17 +232,33 @@ def acceptance_gap(text):
     return items if items and all(item["state"] == "missing" for item in items) else []
 
 
-# The `checkpoint:` values a plan can carry: a commit sha, or this literal while
-# the tree still holds work no commit names. The CLI writes it, the gate reads it.
+# The `checkpoint:` values a plan can carry: a commit sha (the tree was clean at
+# the phase move, so the boundary is already real), or `pending <sha>` while the
+# tree still holds work no commit names - `<sha>` being the `HEAD` the commit the
+# gate's refusal names has to move off. The CLI writes both, the gate reads both.
 CHECKPOINT_PENDING = "pending"
 
 
 def checkpoint(text):
     """The plan's `checkpoint:` value: the pre-work commit the phase's work
-    branches from, the literal `pending` while that work is uncommitted, or None
-    when the plan carries no such field - a phase started before the field
-    existed, which no rule holds to it."""
+    branches from, `pending <sha>` while that work is uncommitted, or None when
+    the plan carries no such field - a phase started before the field existed,
+    which no rule holds to it."""
     return frontmatter(text).get("checkpoint")
+
+
+def checkpoint_sha(value):
+    """The `HEAD` a `pending` checkpoint has to move off, or "" when the value
+    names no tree to compare: a plain sha (the boundary is already real), a bare
+    `pending` (a record written before the sha was recorded, or a branch with no
+    commit to name at all), None, or any other shape. The gate fails open on ""
+    because it cannot tell whether the commit landed, and a refusal it cannot
+    answer would lock the very phase it guards - the defect this sha exists to
+    close."""
+    parts = str(value or "").split()
+    if len(parts) == 2 and parts[0] == CHECKPOINT_PENDING:
+        return parts[1]
+    return ""
 
 
 def slug(path):
@@ -254,7 +273,9 @@ def slug(path):
 def checkpoint_command(path):
     """The one command that makes a plan's boundary real: a commit whose message
     marks where the risky work starts. Named by the CLI's note and by the gate's
-    refusal - the same string, from the same caller-visible place."""
+    refusal - the same string, from the same caller-visible place - and running it
+    is also what clears the refusal: it moves HEAD off the sha the record wrote
+    (`checkpoint_sha`)."""
     return 'git add -A && git commit -m "checkpoint: before %s"' % slug(path)
 
 

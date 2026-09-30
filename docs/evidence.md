@@ -34,10 +34,13 @@ a key outside that set is dropped, a `None` value left out, because every reader
 as `None` (`:639-641`). `tool` is the call's own name (`Bash`, `Write`, `mcp__codegen__status`),
 written by `note_tool` (`hooks/tezgah_integrity.py:1868-1873`) because `classify` folds the name into
 a kind and drops it; it is what `_counts`' tool histogram counts and what the retirement report on
-`tezgah-status --counters --trend` prints. A row written before it names its tool only where the name
-survived in `detail` — an `unknown` row and an MCP `external` row — so a corpus older than the field
-under-counts and says so. The append is one locked line, an exclusive `flock` with a 1 s bound falling
-back to an unlocked write (`:603-612`), and is best effort: a write failure is never the caller's.
+`tezgah-status --counters --trend` prints. Both writers write it — `note_tool`, and opencode's
+plugin, whose row carries the same field under the same empty-means-absent rule
+(`hosts/opencode/plugins/tezgah.js:654-662`) — so no live host leaves it out. A row written *before*
+the field landed names its tool only where the name survived in `detail` — an `unknown` row and an
+MCP `external` row — so the one cause of an under-count is the corpus's age, and it shrinks as
+sessions run. The append is one locked line, an exclusive `flock` with a 1 s bound falling
+back to an unlocked write (`:586-595`), and is best effort: a write failure is never the caller's.
 
 What never reaches the ledger: tool result bodies (only `out_bytes`, a size,
 `hooks/projects-posttooluse.py:44-61`), the prompt text (the `turn` row keeps `sha1(prompt)[:12]`,
@@ -52,7 +55,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | Kind | Written by | Read by |
 |---|---|---|
 | `turn` | `note_turn` `hooks/tezgah_integrity.py:959-982`, from the prompt path | `_turn_start` `hooks/tezgah_integrity.py:836-848`, scoping every turn rule; `_claim_key` `hooks/tezgah_integrity.py:2103-2119` |
-| `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1669-1777`, the call's own name in `tool` | the Stop rule's `worked` set `:2345`; `counters.steps` `:1075-1076`; `last_verify`/`partial_state`; the `--trend` tool histogram |
+| `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1669-1777`, the call's own name in `tool`, on opencode the plugin writes these same kinds and the same field (`hosts/opencode/plugins/tezgah.js:614-672`) | the Stop rule's `worked` set `:2345`; `counters.steps` `:1075-1076`; `last_verify`/`partial_state`; the `--trend` tool histogram |
 | `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the taint notice, via `source`; the `--trend` tool histogram; nothing counts them as work |
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2322-2370` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
 | `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1191-1206`, first-nudge `hooks/tezgah_gate.py:1345` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
@@ -95,7 +98,7 @@ pipe's status is then its first failing stage's, so the host's verdict is the ch
 trimmed form before it runs ([gate.md](gate.md), the `piped` rule). The `out_bytes` half
 bites only where the host reported a result size — Codex (`hosts/codex/hook.py:158`), Cursor
 (`hosts/cursor/hook.py:239,268`) and omp, whose bridge measures it and sends `result_len`
-(`hosts/omp/tezgah-hook.ts.in:286-290`), now do — and 6 of 1423 `verify_ok` rows across 1454 local ledgers carry the field
+(`hosts/omp/tezgah-hook.ts.in:606-610`), now do — and 6 of 1423 `verify_ok` rows across 1454 local ledgers carry the field
 (measured 2026-09-19), so an absent field still passes: the guard narrows a check whose
 result was measured empty, it does not require the measurement. `last_verify`
 (`hooks/tezgah_integrity.py:2007-2016`) folds the ordered rows to `ok`/`fail`/`ran`/`None`, because a set cannot tell a failure
@@ -253,7 +256,13 @@ widened: a mark whose skill the always-on core never names can never flip, and
 `tests/test_context.py:1624-1637` requires every entry to be named there. A `skill:` kind is
 therefore invisible to the line and its legend - no mark's measure is spelled that way - while
 `skill_fitness(window)` (`hooks/tezgah_context.py:1445-1501`) reads it back for the one question the
-line never asked.
+line never asked. Three surfaces recognise a read, and they have to agree on the two forms
+(`skills/<name>/SKILL.md` and `skill://<name>`) and on which name is shipped: the Python hook omp's
+bridge calls (`hosts/omp/hook.py:71`), omp's own filter, which decides whether python hears about the
+read at all (`hosts/omp/tezgah-hook.ts.in:225-262`, its catalogue the checkout `@HOOK@` names), and
+opencode's plugin, which classifies in process because that host has no Python hook
+(`hosts/opencode/plugins/tezgah.js:1463-1508`, its catalogue the host's own installed skill dir
+(`dirname(CONFIG)/opencode/skills`), which `tezgah-setup` fills with every shipped skill).
 
 **The fitness report.** `tezgah-status --skill-fitness` prints, per shipped skill, how many of the
 recorded sessions opened it, and names the ones none did: a skill is a dependency that has to keep
@@ -262,8 +271,19 @@ measurement, not a gate - it names the candidates for retirement, and deleting o
 call. Three ceilings are honest parts of the number, not bugs: the window is the newest
 `FITNESS_WINDOW = 200` session files by mtime, because a row carries no timestamp; a session counts
 as having opened a skill when it recorded that skill's kind, so reads recorded before `skill:` existed
-still count through the two marks; and a host that cannot see a read at all (codex, cursor, dsh -
-[status-line.md](status-line.md) owns which) records nothing, so the count is a floor, not a census.
+still count through the two marks; and only the hosts that classify a read in process record one
+here, so the count is a floor, not a census. Which host records what, since this store is the
+report's only source: **omp** (the extension's filter lets the read through,
+`hosts/omp/tezgah-hook.ts.in:255-262`, and the hook classifies it, `hosts/omp/hook.py:71`) and
+**opencode** (the plugin classifies it, `hosts/opencode/plugins/tezgah.js:1493-1508`) record the mark
+or `skill:<name>` for every shipped skill, in either form; **Claude** sees a read, but only in its
+transcript, which feeds the status line and writes no row here (`statusline.py:58-107`), so a Claude
+session reads in this report as one that opened nothing - marks included; **codex**, **cursor** and
+**dsh** record no read at all (cursor's `classify` has no skill branch; dsh runs the shared hook whose
+`used_kind` knows no skill kind), and [status-line.md](status-line.md) owns which surface can see a
+read for the marks. Both in-process mirrors take the same two forms and the same shipped-name rule as
+`skill_read_kind`, so a read is recorded on every host that can see one; a host that records none is
+a recording gap, not a skill nobody opened.
 The two marked skills are the only ones any host recorded before `skill:<name>` landed, so the first
 report after this change reads mostly as a recording gap and fills in as sessions run; it says so on
 its own line rather than in a footnote nobody opens.
@@ -354,9 +374,9 @@ label reaches the model on every host that has a surface for it: Claude and dsh 
 cannot import the core in process and mirrors the control in JavaScript instead — the channel on the
 call's own row, the label and the taint notice in front of the result the hook is handed, including
 the `external` row an MCP answer or a fetched page earns (`untrustedSource`
-`hosts/opencode/plugins/tezgah.js:1228`, `labelResult` `:1735`, with the tier's argv reader at
-`:1558`). The two halves are pinned against each other over a shared corpus, so neither can move
-without failing the other's test (`tests/test_opencode_plugin.py:1305`). One difference is deliberate:
+`hosts/opencode/plugins/tezgah.js:1242`, `labelResult` `:1315`, with the tier's argv reader
+`tierRead` at `:1225`). The two halves are pinned against each other over a shared corpus, so neither
+can move without failing the other's test (`tests/test_opencode_plugin.py:1307`). One difference is deliberate:
 opencode's plugin writes that `external` row itself and carries the channel alone, since the UI rule
 `_screen_read` belongs to the Python half and does not run there.
 
@@ -401,16 +421,16 @@ ledgers when this was written, which is the reading no single session could give
 
 `tezgah-status --counters --trend [--weeks=N]` prints two reports the same fold carries, because a
 value is a reading and the thing worth watching is the population over time. Both are filled inside
-`_counts` (`hooks/tezgah_integrity.py:1238-1344`) in the same pass as the totals, so neither can
+`_counts` (`hooks/tezgah_integrity.py:1263-1370`) in the same pass as the totals, so neither can
 disagree with the number it is drawn from; both are off unless the flag asks, so the plain and the
 `--json` output of a reader who did not ask are byte-identical to what they were.
 
 - **The drift series** — `weeks`, every row bucketed by `ts` on a fixed 7-day grid (`WEEK`, anchored
-  on the Monday of the epoch's first week, `_week` `hooks/tezgah_integrity.py:1008-1013`), each bucket
+  on the Monday of the epoch's first week, `_week` `hooks/tezgah_integrity.py:1033-1038`), each bucket
   counting its events, claims, refused claims and decided attempts. `drift_series(counters, weeks)`
   (`hooks/tezgah_integrity.py:1130-1170`) re-slices them into the last `weeks` calendar weeks, oldest
   first, with `false_completion/claims` and `tool_error_rate` per bucket, and the direction of the
-  newest three weeks that carry a denominator (`_direction` `:1112-1129`, compared by
+  newest three weeks that carry a denominator (`_direction` `:1137-1154`, compared by
   cross-multiplication so a shared rounding is never called flat). A week with no row prints a zero
   row count and `n/a` for both ratios, never `0.0`: an empty week is not a week with a perfect rate,
   and a gap has to read as a gap. Nothing is windowed out of the totals.
@@ -418,13 +438,16 @@ disagree with the number it is drawn from; both are off unless the flag asks, so
   the row's `tool` field, else the name an `unknown` row (`unknown tool: <name>`) or an MCP `external`
   row (`mcp <name>`) kept in `detail`. A work row written before the `tool` field landed carries no
   name at all - `classify` folded it into a kind - so an old corpus under-counts, which is the
-  honest ceiling and the reason the field exists. A read tool is not in it either: reads record no
-  row by design.
+  honest ceiling and the reason the field exists; every row written since carries it, because both
+  writers write it (`note_tool` `hooks/tezgah_integrity.py:1868-1873`, and opencode's plugin
+  `hosts/opencode/plugins/tezgah.js:654-662` - before that second one did, an opencode work row was
+  the other half of this under-count, with its name unrecoverable in the command `detail`). A read
+  tool is not in it either: reads record no row by design.
 - **The shipped programs** — `programs`, the `bin/` programs a command row really ran, read with the
-  tokenizer the status line already uses (`_ran_programs` `hooks/tezgah_integrity.py:1059-1081`), and
+  tokenizer the status line already uses (`_ran_programs` `hooks/tezgah_integrity.py:1084-1107`), and
   `unfired_programs(counters)` (`:1171-1187`), the catalog minus that set. The absence is the
   evidence: a tool nobody calls leaves no row, so the only way to name it is a catalog, and the one
-  catalog this layer holds is its own `bin/` (`shipped_programs` `:1017-1036`). The prefilter is one
+  catalog this layer holds is its own `bin/` (`shipped_programs` `:1042-1061`). The prefilter is one
   regex per catalog and the tokenizer runs only on a row that mentions a shipped name, which is why
   the tool histogram costs about 0.6 s over the whole corpus where the plain fold costs 0.4 s (58,928
   rows, measured 2026-09-30). A
@@ -447,5 +470,11 @@ the corpus ran under).
 - `hooks/tezgah_snapshot.py` — capture, cap, restore
 - `hooks/tezgah_context.py` — the session store (`record`/`used`)
 - `hooks/tezgah_gate.py` — the shortcut and sink denies
+- `hosts/opencode/plugins/tezgah.js` — the host with no Python hook: its own ledger
+  and used-store rows (`recordEvidence`, `record`, `skillReadKind`)
+- `hosts/omp/tezgah-hook.ts.in` — the omp bridge: which tool result reaches the hook
+  at all, and the skill-read filter
 - `bin/tezgah-rollback`, `bin/tezgah-capture`, `bin/tezgah-status`
 - `tests/test_integrity.py`, `tests/test_snapshot.py` — the pinned behaviour
+- `tests/test_opencode_plugin.py`, `tests/test_omp_extension.py` — the JS mirrors
+  pinned against the Python half
