@@ -6,6 +6,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The `drift` rule refuses again.** Plan 004's pre-registered revert of the
+  2026-09-20 change that had moved the long-turn re-statement from a refusal to
+  a notice on the tool-result channel. The change was held under a flip rule:
+  revert if, with at least 20 after-change sessions, the blocked-claim rate in
+  turns under 25 work rows stays above 0.5345. At 27 sessions it read
+  112/140 = 0.8000 (101/123 = 0.8211 without the ledgers of the day of the read),
+  against 59/142 = 0.4155 before. A ruling committed before the deciding check
+  named one way out - a before window that predates the checkers producing
+  today's blocked classes - and the re-fold over only the before-window claims
+  written after all three existed read 49/99 = 0.4949, below the floor, so the
+  revert stands and the null is recorded. The refusal is back as it was: last in
+  `decision`, once per turn (the `drift` mark is written before the deny, so the
+  identical call passes on the next attempt), wording "re-issue this call
+  unchanged and carry on", governed by `reminder-off`; no host's PostToolUse side
+  carries the notice any more. The measurement is not causal and is recorded as
+  such: the rise sat in short turns the rule cannot reach.
+- **Codex prints no context on PostCompact**, the same way Claude's hook script
+  now does: Codex's PostCompact output schema allows only the common fields, and
+  the block reaches the model through the SessionStart that fires again with
+  `source: "compact"`.
+- **The resume block reads a plan's newest `## State` section.** Plans append
+  State sections as the work moves; the block had read the first one, and named a
+  plan whose only open item was its review "Not started".
+
 ### Added
 
 - **A resume block, and a record of what a compaction kept.** A session that

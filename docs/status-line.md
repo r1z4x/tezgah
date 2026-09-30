@@ -130,7 +130,7 @@ was never opened", so it declares what it can see and those marks render `info`
 `TOOL_USE_MEASURES`, hooks/tezgah_context.py:1281). The `--observable=` flag carries it on the CLI
 (bin/tezgah-status:30-34,56-57,129-132). Two callers pass the tool-use set: Cursor's
 status line (statusline.py:109-114) and Codex, which renders the line plain into
-`systemMessage` (hosts/codex/hook.py:197-199,195-198); dsh passes the literal flag
+`systemMessage` (hosts/codex/hook.py:190-192,195-198); dsh passes the literal flag
 string (hosts/dsh/statusline/lib/index.js:18,47-48), which names the five marks its
 own hook can record - `judge` included, since dsh wires the same PostToolUse hook
 every other host does. The set is what a host can write, not what it happens to
@@ -155,7 +155,7 @@ hosts/cursor/hook.py:224,250,256,272,280,295, hosts/opencode/plugins/tezgah.js:1
 hosts/opencode/plugins/tezgah.js:1776, hosts/omp/hook.py:148. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
-its line has (hooks/projects-posttooluse.py:26-30).
+its line has (hooks/projects-posttooluse.py:29-32).
 
 Claude's line never reads the store: it parses `tool_use` blocks out of
 `payload["transcript_path"]` plus the subagent transcripts under it, which is how

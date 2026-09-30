@@ -28,7 +28,7 @@ nothing about a host's event names or output envelope.
 |---|---|---|
 | `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `context_for` `hooks/tezgah_context.py:1206-1412` |
 | `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `CORE` `hooks/tezgah_policy.py:622-838`, `CONDITIONAL_KEYS` `hooks/tezgah_policy.py:842-846` |
-| `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:4-67`, `decision` `hooks/tezgah_gate.py:1214-1395` |
+| `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:4-65`, `decision` `hooks/tezgah_gate.py:1207-1387` |
 | `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-23`, `note_tool` `hooks/tezgah_integrity.py:1669-1777`, `stop_reason` `hooks/tezgah_integrity.py:2322-2370` |
 | `tezgah_guard.py` | the one catch around an entry point's call into the core, so a crash costs an envelope rather than a session, and the `crash` ledger row that keeps it countable | `hooks/tezgah_guard.py:2-25`, `safe` `:29` |
 | `tezgah_paths.py` | where tezgah is armed: [roots](glossary.md#root), kill switches, the config dir, and the writable cache dir - the fallback resolved on use rather than at import, so a gated call does not pay for `tempfile`, `shutil` or `sqlite3` | `hooks/tezgah_paths.py:2-14`, `cache_dir` `hooks/tezgah_paths.py:138-158`, `fallback_cache` `hooks/tezgah_paths.py:123-137` |
@@ -54,7 +54,7 @@ passes Codex's tool names through a translation table before calling the gate
 the same split in another language: the TypeScript extension is "only the
 bridge" and substitutes the absolute path of
 the Python half (`hosts/omp/tezgah-hook.ts.in:3-6`), whose `handle()` dispatches
-every event (`hosts/omp/hook.py:118-193`). Cursor (`hosts/cursor/hook.py:2-23`) and
+every event (`hosts/omp/hook.py:118-188`). Cursor (`hosts/cursor/hook.py:2-23`) and
 opencode (`hosts/opencode/plugins/tezgah.js:1-39`) follow the same rule; opencode
 is the one host whose plugin cannot call the core in process, so it shells out
 through `bin/tezgah-context` and `bin/tezgah-capture` instead of copying it
@@ -105,14 +105,14 @@ One session, in order. Each step names the file that handles the event on Claude
 3. **PreToolUse** — `hooks/projects-pretooluse.py:24` calls `decision` and emits
    the deny envelope (`hooks/projects-pretooluse.py:25-30`). The gate is the same
    object on every host: `hosts/omp/hook.py:119`, `hosts/codex/hook.py:104`.
-4. **PostToolUse** — `hooks/projects-posttooluse.py:68` writes the evidence row
-   through `note_tool` (`hooks/projects-posttooluse.py:128`), records the used
-   kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:101`),
+4. **PostToolUse** — `hooks/projects-posttooluse.py:64` writes the evidence row
+   through `note_tool` (`hooks/projects-posttooluse.py:117`), records the used
+   kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:90`),
    and attaches the untrusted-content label when the result came from outside.
 5. **Stop** — `hooks/projects-stop.py:33` calls `stop_reason`, which reads the
    ledger and can refuse the turn (`hooks/tezgah_integrity.py:2322-2370`). omp and
    Codex reach the same function from their own Stop events
-   (`hosts/omp/hook.py:175`).
+   (`hosts/omp/hook.py:170`).
 
 `SubagentStart` and `PostCompact` reuse steps 1 and 2 with their own event key;
 on `subagent_start` the payload is the short brief, not the whole CORE

@@ -16,7 +16,7 @@ The part of the contract every session pays for - the invariants plus the one-li
 The byte ceiling one injected event may spend: `CONTEXT_BUDGET` per event with `DEFAULT_BUDGET` behind it (`hooks/tezgah_context.py:1053-1055`), enforced by `budgeted()` (`hooks/tezgah_context.py:1110-1139`), which gives up whole blocks lowest value first along `DROP_ORDER` (`hooks/tezgah_context.py:1071-1074`); bytes, never tokens, because the module has no tokenizer (`hooks/tezgah_context.py:1051-1052`). Not the [metadata band](#metadata-band), which is the installer's measurement of the same text rather than a runtime bound.
 
 ### capture
-The pre-write copy the gate takes of every file a write is about to change, `capture()` (`hooks/tezgah_snapshot.py:192`), called on the gate's allow path (`hooks/tezgah_gate.py:1313-1332`) and capped at `CAP` snapshots and `MAX_BYTES` per file (`hooks/tezgah_snapshot.py:51-52`); a file too large or unreadable is left uncaptured and writes no row, so nothing claims a copy that is not there. Not a transaction: the copy is bytes on disk, not a rollback that runs itself.
+The pre-write copy the gate takes of every file a write is about to change, `capture()` (`hooks/tezgah_snapshot.py:192`), called on the gate's allow path (`hooks/tezgah_gate.py:1306-1325`) and capped at `CAP` snapshots and `MAX_BYTES` per file (`hooks/tezgah_snapshot.py:51-52`); a file too large or unreadable is left uncaptured and writes no row, so nothing claims a copy that is not there. Not a transaction: the copy is bytes on disk, not a rollback that runs itself.
 
 ### claim
 A ledger [row](#row) recording the [Stop rule](#stop-rule)'s verdict on one reply, `detail` being `ok` or `blocked: <reason class>`, written by `stop_reason()` (`hooks/tezgah_integrity.py:2322-2370`, row at `:2275`). Not a deny: nothing ran, the turn simply may not end.
@@ -31,7 +31,7 @@ The whole working document, `CONTRACT` as the join of every block (`hooks/tezgah
 The single string holding the whole always-on contract, one bold-labelled paragraph per [rule](#rule) (`hooks/tezgah_policy.py:622-838`), filtered against [per-repo marks](#per-repo-mark) and [kill switches](#kill-switch) by `core_split()` (`hooks/tezgah_context.py:903-959`). Not [contract](#contract), the on-demand join of every block.
 
 ### deny
-A refusal the gate returns and records: `_deny()` writes a `deny` row carrying the rule name and the first 80 characters of the reason (`hooks/tezgah_gate.py:1198-1213`). Not the reason text itself - the adapter renders the reason into its own envelope ([hosts](hosts.md)).
+A refusal the gate returns and records: `_deny()` writes a `deny` row carrying the rule name and the first 80 characters of the reason (`hooks/tezgah_gate.py:1191-1206`). Not the reason text itself - the adapter renders the reason into its own envelope ([hosts](hosts.md)).
 
 ### digest
 The identity of one tool call, `call_id()` = `sha1(tool.lower() + " " + canonical(args))[:12]` (`hooks/tezgah_integrity.py:438-462`); both the gate and the post-tool hook compute it here, so a [row](#row) and the call it belongs to agree. Not a session id.
@@ -44,7 +44,7 @@ One JSONL file per session recording what ran, `<cache>/evidence/<slug>.jsonl` (
 The count of [claim](#claim) rows a stop refused, `false_completion` in `counters()`, read against `claims` so the rate is meaningful (`hooks/tezgah_integrity.py:1032-1057`, `:1086-1091`). Not the count of [denies](#deny): a deny is the gate refusing a call, a false completion is the Stop rule refusing the end of a turn.
 
 ### gate
-The pre-tool refusal layer, `decision()` (`hooks/tezgah_gate.py:1214-1395`), which runs only inside a [root](#root) (`:1098-1100`) and returns a reason or nothing ([gate](gate.md)). Not the [Stop rule](#stop-rule), which runs after the reply.
+The pre-tool refusal layer, `decision()` (`hooks/tezgah_gate.py:1207-1387`), which runs only inside a [root](#root) (`:1091-1093`) and returns a reason or nothing ([gate](gate.md)). Not the [Stop rule](#stop-rule), which runs after the reply.
 
 ### group
 The partition a status [mark](#mark) carries so a renderer separates the marks the same way: `_GROUP` maps each key to an index and `render_line()` joins groups with `  ·  ` (`hooks/tezgah_context.py:1700-1701`, `hooks/tezgah_context.py:1901-1911`). Not a [state](#state).
@@ -77,13 +77,13 @@ One measured row of always-on context the installer reports in bytes: the core c
 `output-styles/tezgah.md`, a by-hand duplicate of `always_on_core()` kept for the host path that is hookless, which a test holds to the generator (`tests/test_context.py:1954-1964`). Not generated: an edit to [CORE](#core) must be carried into it by hand - a lesson the local `.tezgah/lessons.md` ledger holds; that file is untracked by design, so it carries no `path:line` here.
 
 ### nudge
-The one-time hint that sends a first identifier-shaped search to the code graph, `first_nudge()` consuming a per-session mark before the grep is denied (`hooks/tezgah_gate.py:405-421`) with the text naming the graph tools (`nudge_reason()`, `hooks/tezgah_gate.py:422`). Not a deny: it is spent by being delivered, and the identical call passes on the retry.
+The one-time hint that sends a first identifier-shaped search to the code graph, `first_nudge()` consuming a per-session mark before the grep is denied (`hooks/tezgah_gate.py:403-419`) with the text naming the graph tools (`nudge_reason()`, `hooks/tezgah_gate.py:420`). Not a deny: it is spent by being delivered, and the identical call passes on the retry.
 
 ### observable measure
 A used-mark a surface is able to see at all, so it can say "armed, not used yet" without inventing it: `health_segments(observable=...)` (`hooks/tezgah_context.py:1787-1788`) with the five tool-use measures in `TOOL_USE_MEASURES` (`hooks/tezgah_context.py:1784-1786`), a measure outside the set rendering as `info` rather than `ready`. Which host can see a skill read is [hosts](hosts.md)'s.
 
 ### once-only
-A mark consumed by its own first use, so the thing it protects happens once: the grep [nudge](#nudge) is written before the deny so later greps pass (`hooks/tezgah_gate.py:1286-1287`). Not a licence for the session: the identical call passes on the retry.
+A mark consumed by its own first use, so the thing it protects happens once: the grep [nudge](#nudge) is written before the deny so later greps pass (`hooks/tezgah_gate.py:1279-1280`). Not a licence for the session: the identical call passes on the retry.
 
 ### per-repo mark
 An opt-out file in the repo tree - `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons` - collected by `repo_marks()` walking up to the enclosing root (`hooks/tezgah_context.py:1575-1591`). Not a [kill switch](#kill-switch): a mark travels with the repo, a switch with the machine.
@@ -113,7 +113,7 @@ Putting a [snapshot](#snapshot)'s bytes back, `restore()` (`hooks/tezgah_snapsho
 A directory tezgah is armed over, from `TEZGAH_ROOTS`, the config file or `~/Projects` (`hooks/tezgah_paths.py:8-14`), resolved by `roots()` longest first (`:167-182`) and looked up per path by `root_for()` (`hooks/tezgah_paths.py:183-194`). Not a repository: one root may contain many repositories.
 
 ### root boundary
-The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:1215-1216`), the context builder returns nothing (`hooks/tezgah_context.py:1217-1218`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:1798-1799`). Not a repository boundary.
+The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:1208-1209`), the context builder returns nothing (`hooks/tezgah_context.py:1217-1218`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:1798-1799`). Not a repository boundary.
 
 ### row
 One line of an [evidence ledger](#evidence-ledger): `{"kind","ts","detail"}` plus whatever the writer knew of `LEDGER_FIELDS` (`id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`), written by `note_path()` (`hooks/tezgah_integrity.py:634-655`, `:501`) with `detail` redacted and cut to `DETAIL_MAX` (`hooks/tezgah_integrity.py:540-547`). A missing key means the writer did not know it, never null.
@@ -152,7 +152,7 @@ The value of one status [mark](#mark): `on`, `ready`, `off` or `info` (`hooks/te
 One of the row kinds that count as a step of work - `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` (`STEP_KINDS`, `hooks/tezgah_integrity.py:1029-1031`), summed into `steps` and into the drift threshold, while `deny`, `nudge`, `claim` and `turn` are the machinery around the work (`:978-979`). `interrupted` is the one that is not a failure: the host said the call was stopped, so the row carries no `exit` and no `fail_class`, no reader folds it as a failed check and no attempt is spent on it (`:846-850`). Not any row.
 
 ### Stop rule
-The end-of-turn refusal, `stop_reason()` (`hooks/tezgah_integrity.py:2322-2370`), run by the Stop hooks of Claude, Codex, Cursor and omp (`hooks/projects-stop.py:33`, `hosts/codex/hook.py:193`, `hosts/cursor/hook.py:357`, `hosts/omp/hook.py:188`): it blocks on a placating opener or a banned sign-off on the last prose line, on a completion claim the newest check does not support, on a check that passed before the newest write the gate saw change the tree, or on a turn that recorded work with no passing check (`_stop_block()`, `hooks/tezgah_integrity.py:2384-2544`), and an explicit "doğrulanmadı" clears it. Not the [gate](#gate), which runs before a call ([evidence](evidence.md)).
+The end-of-turn refusal, `stop_reason()` (`hooks/tezgah_integrity.py:2322-2370`), run by the Stop hooks of Claude, Codex, Cursor and omp (`hooks/projects-stop.py:33`, `hosts/codex/hook.py:186`, `hosts/cursor/hook.py:352`, `hosts/omp/hook.py:190`): it blocks on a placating opener or a banned sign-off on the last prose line, on a completion claim the newest check does not support, on a check that passed before the newest write the gate saw change the tree, or on a turn that recorded work with no passing check (`_stop_block()`, `hooks/tezgah_integrity.py:2384-2544`), and an explicit "doğrulanmadı" clears it. Not the [gate](#gate), which runs before a call ([evidence](evidence.md)).
 
 ### surface
 A place a host can show tezgah's output - a status line, a TUI widget, a `systemMessage` - and therefore the reason the same [marks](#mark) render differently per host (`hooks/tezgah_context.py:1792-1801`, `hooks/tezgah_context.py:1901-1911`); each host's surfaces are [hosts](hosts.md)'s. Not the host itself.

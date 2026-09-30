@@ -20,7 +20,7 @@ change has to know what moved: at 2 the step vocabulary gained `interrupted`, so
 
 `kind` is the event kind, `detail` is free text (the command, a path, a short reason) and `ts` is
 epoch seconds. A **write row's** `detail` is the path the call wrote, from the gate's one reader of
-every host dialect (`write_paths`, `hooks/tezgah_gate.py:587-614`): `file_path`, `filePath`, `path`,
+every host dialect (`write_paths`, `hooks/tezgah_gate.py:585-612`): `file_path`, `filePath`, `path`,
 `notebook_path`, or an `apply_patch` body's first `*** Update File:` header — the paths
 `changed_files()` (`hooks/tezgah_integrity.py:1655-1668`) folds when a reader asks which files a session changed. `detail` is
 credential-redacted **before** it is stored, over the whole text, and
@@ -35,7 +35,7 @@ as `None` (`:639-641`). The append is one locked line, an exclusive `flock` with
 back to an unlocked write (`:603-612`), and is best effort: a write failure is never the caller's.
 
 What never reaches the ledger: tool result bodies (only `out_bytes`, a size,
-`hooks/projects-posttooluse.py:48-65`), the prompt text (the `turn` row keeps `sha1(prompt)[:12]`,
+`hooks/projects-posttooluse.py:44-61`), the prompt text (the `turn` row keeps `sha1(prompt)[:12]`,
 `hooks/tezgah_integrity.py:963`), read/search calls (`hooks/tezgah_integrity.py:1631-1632`), and any credential, already replaced.
 
 ## The kinds, by what reads them
@@ -50,7 +50,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the Stop rule's `worked` set `:2345`; `counters.steps` `:1075-1076`; `last_verify`/`partial_state` |
 | `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:1669-1777` | the taint notice, via `source`; nothing counts them as work |
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2322-2370` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
-| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1198-1213`, first-nudge `hooks/tezgah_gate.py:1352` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
+| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1191-1206`, first-nudge `hooks/tezgah_gate.py:1345` | `counters` `hooks/tezgah_integrity.py:1032-1057` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:184-186`, `:263-266` | `_snapshot_hash` `hooks/tezgah_integrity.py:1594-1607`; no counter |
 | `compact` | `note_compaction` `hooks/tezgah_integrity.py:983-1010`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1187-1205`) | `_counts` `hooks/tezgah_integrity.py:1146-1166` (what `counters` folds with) |
 
@@ -115,8 +115,8 @@ the Stop rule and the loop ceilings ignore both.
 
 The checker is `_stop_block` (`hooks/tezgah_integrity.py:2384-2605`), reached through `stop_reason`
 (`hooks/tezgah_integrity.py:2322-2370`). Four hosts block on it — Claude (`hooks/projects-stop.py:33-35`), Codex
-(`hosts/codex/hook.py:191-196`), Cursor (`hosts/cursor/hook.py:353-358`), omp
-(`hosts/omp/hook.py:172-176`) — all with `{"decision": "block", "reason": …}`, all inert outside a
+(`hosts/codex/hook.py:184-189`), Cursor (`hosts/cursor/hook.py:348-353`), omp
+(`hosts/omp/hook.py:167-171`) — all with `{"decision": "block", "reason": …}`, all inert outside a
 [root](glossary.md#root) and under the `verify-off` [kill switch](glossary.md#kill-switch)
 (`hooks/projects-stop.py:28`). Ten triggers, in order, each naming its reason class (`_stop_block`
 `hooks/tezgah_integrity.py:2384-2605`).
@@ -209,7 +209,7 @@ command (`_failed_check` `hooks/tezgah_integrity.py:2371-2383`) and tells the mo
 line, or fix it and re-run.
 
 **The escape hatches, and the deny that answers each.** The gate refuses these before they run, under
-the same `verify-off` switch (`hooks/tezgah_gate.py:1075-1203`), as rule `shortcut`:
+the same `verify-off` switch (`hooks/tezgah_gate.py:1068-1196`), as rule `shortcut`:
 
 - `--no-verify` on a git/commit/push-style command (`NO_VERIFY` `:139`, `GITISH` `:140-141`) —
   `shortcut_command` `hooks/tezgah_integrity.py:1225-1249`.
@@ -317,14 +317,14 @@ The taint is a notice, not a refusal: the gate's sink rule, which held an effect
 until the user's own approval was on the ledger, was removed with the consent rule
 ([gate](gate.md)). The
 label reaches the model on every host that has a surface for it: Claude and dsh through
-`hooks/projects-posttooluse.py:87-100`, Codex (`hosts/codex/hook.py:168-169`), Cursor
-(`hosts/cursor/hook.py:251-252`), omp (`hosts/omp/hook.py:146-170`), and opencode, whose plugin
+`hooks/projects-posttooluse.py:85-89`, Codex (`hosts/codex/hook.py:171-173`), Cursor
+(`hosts/cursor/hook.py:251-252`), omp (`hosts/omp/hook.py:146-165`), and opencode, whose plugin
 cannot import the core in process and mirrors the control in JavaScript instead — the channel on the
 call's own row, the label and the taint notice in front of the result the hook is handed, including
 the `external` row an MCP answer or a fetched page earns (`untrustedSource`
 `hosts/opencode/plugins/tezgah.js:1228`, `labelResult` `:1735`, with the tier's argv reader at
 `:1558`). The two halves are pinned against each other over a shared corpus, so neither can move
-without failing the other's test (`tests/test_opencode_plugin.py:1285`). One difference is deliberate:
+without failing the other's test (`tests/test_opencode_plugin.py:1305`). One difference is deliberate:
 opencode's plugin writes that `external` row itself and carries the channel alone, since the UI rule
 `_screen_read` belongs to the Python half and does not run there.
 

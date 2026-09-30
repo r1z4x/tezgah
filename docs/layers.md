@@ -67,7 +67,7 @@ host.
 
 Owns the rule text (`CORE` `hooks/tezgah_policy.py:622-838`), the per-turn reminder
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:853-873`), the refusal before a call
-(`decision()` `hooks/tezgah_gate.py:1214-1395`), the record after one (`note()`
+(`decision()` `hooks/tezgah_gate.py:1207-1387`), the record after one (`note()`
 `hooks/tezgah_integrity.py:656-668`), the end-of-turn verdict (`stop_reason()`
 `hooks/tezgah_integrity.py:2322-2370`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:192`), the status marks, and the per-repo plans,
