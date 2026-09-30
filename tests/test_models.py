@@ -323,6 +323,45 @@ class OmpOverrides(unittest.TestCase):
         with mock.patch.object(tm, "openrouter_ready", return_value=False):
             self.assertEqual(tm.omp_overrides("any"), {})
 
+    def test_a_value_the_table_generates_on_another_column_is_adopted(self):
+        # measured on this machine: three entries held the zai column's own
+        # selector, `_ours_by_shape` only knew anthropic/any, so the next
+        # `--mode anthropic` left them at zai
+        store = {"task.agentModelOverrides": {"tezgah-cheap": "zai/glm-5.3-flash"},
+                 "modelRoles": {"default": "deepseek/deepseek-flash:high"}}
+        state = {"mode": "anthropic"}  # the mode the switch is moving to
+
+        def omp(*args):
+            if args[0] == "set":
+                store[args[1]] = json.loads(args[2])
+            elif args[0] == "reset":
+                store[args[1]] = {}
+            return mock.Mock(stdout="")
+
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "_omp", side_effect=omp), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            tm.apply_omp()
+        self.assertEqual(store["task.agentModelOverrides"]["tezgah-cheap"],
+                         "anthropic/claude-opus-5-5:low")
+        self.assertEqual(state["omp_written"]["tezgah-cheap"],
+                         "anthropic/claude-opus-5-5:low")
+
+    def test_a_value_identical_to_what_we_want_is_recorded_as_ours(self):
+        store = {"task.agentModelOverrides": {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+        state = {}
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "_omp", return_value=mock.Mock(stdout="")), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            tm.apply_omp()
+        self.assertEqual(state["omp_written"]["tezgah-cheap"],
+                         "anthropic/claude-opus-5-5:low")
+
     def test_a_write_from_before_the_record_is_adopted_by_its_shape(self):
         store = {"task.agentModelOverrides":
                  {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},

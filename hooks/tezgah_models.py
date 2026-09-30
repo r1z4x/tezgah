@@ -315,9 +315,12 @@ def _ours_by_shape(key, value):
     adopted the same way, from `omp_role_overrides`."""
     if not isinstance(value, str):
         return False
-    return any(omp_overrides(mode).get(key) == value or
-               omp_role_overrides(mode).get(key) == value
-               for mode in ("anthropic", "any"))
+    # every column, not the two that existed first: a machine whose funded
+    # provider is z.ai holds the zai column's own selectors, and reading those as
+    # the user's left three entries behind on a mode switch (measured 2026-10-01).
+    return any((omp_overrides(mode) or {}).get(key) == value or
+               (omp_role_overrides(mode) or {}).get(key) == value
+               for mode in MODES)
 
 
 def _reconcile(current, written, want):
@@ -336,7 +339,10 @@ def _reconcile(current, written, want):
         mine = (key in written and cur == written[key]) or (
             key not in written and _ours_by_shape(key, cur))
         if key in want:
-            if cur is None or mine:
+            # byte-identical to what we want counts as ours: claiming it writes
+            # the same value and only records ownership, which is what lets the
+            # next mode switch move it instead of leaving it behind
+            if cur is None or mine or cur == want[key]:
                 new[key], owns[key] = want[key], want[key]
             else:
                 new[key] = cur  # the user's own choice for this key wins

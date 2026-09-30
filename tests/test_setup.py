@@ -1842,9 +1842,14 @@ class ReadmeSnippets(unittest.TestCase):
     subprocess.
     """
 
-    LINES = ("bin/tezgah-setup --install --hosts omp",
-             "bin/tezgah-setup --install --hosts claude,codex,cursor,opencode,dsh",
-             "bin/tezgah-setup --roots ~/work:~/oss --install")
+    # Only the language-neutral core of each command is pinned: the prose around
+    # it differs per translation. The three checkout-path commands (`--hosts omp`,
+    # `--hosts claude,...`, `--roots ... --install`) moved behind docs/ when the
+    # READMEs were slimmed to what a user actually pastes, so the pin follows them.
+    # The invariant is unchanged: a command that no longer matches the installer is
+    # a real bug in every language.
+    LINES = ("packaging/install.sh | sh",
+             "npm i -g @r1z4x/tezgah && tezgah --install")
 
     def test_every_readme_carries_the_current_install_snippet(self):
         import glob
