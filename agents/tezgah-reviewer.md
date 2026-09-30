@@ -9,7 +9,7 @@ description: >
   performance, then classifies every finding as confirmed, refuted, or
   unverified. Refuted and unverified findings are never reported as bugs.
 disallowedTools: Write, Edit, NotebookEdit, Bash, Agent
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 60
 ---

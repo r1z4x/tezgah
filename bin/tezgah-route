@@ -77,7 +77,8 @@ def main(argv):
     out = tm.route(brief, args.phase, ask)
     judged = out.pop("judged")
     if judged:
-        usage = judged.get("usage") or {}
+        usage = judged.get("usage")
+        usage = usage if isinstance(usage, dict) else {}
         detail = "tezgah-route {} tier={} in={} out={} ms={}".format(
             judged.get("model", tezgah_judge.MODEL), out["tier"],
             usage.get("input_tokens"), usage.get("output_tokens"),

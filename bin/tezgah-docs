@@ -237,7 +237,7 @@ def ledger_rows():
     """The rule-provenance rows in docs/gate.md, as {column: value} dicts.
 
     The header row is the table's own signature, so no other table on the page
-    is read; one backticked cell (`\`explorer\``) loses its backticks here."""
+    is read; a cell written as a code span (`` `explorer` ``) loses its backticks here."""
     try:
         with open(LEDGER, encoding="utf-8") as fh:
             lines = fh.read().splitlines()

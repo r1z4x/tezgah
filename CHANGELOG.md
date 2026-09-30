@@ -30,9 +30,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   itself wrote - a value the user changed by hand is left alone, and an `any`
   mode without an OpenRouter credential writes nothing rather than naming models
   that cannot run. The brief is redacted with the ledger's reader before it is
-  sent, and a brief about stored data, credentials or security never leaves the
-  machine. Claude agents use the `opus` alias (a full id breaks on Bedrock,
-  Vertex and gateways) and opencode agents carry `reasoningEffort`. Cursor,
+  sent, and a brief the override pattern matches (stored data, schema or persistence
+  changes, migrations, credentials and key shapes, the gate, security) never leaves
+  the machine at all. Claude agents use the `opus` alias (a full id breaks on
+  Bedrock, Vertex and gateways) and opencode agents carry `reasoningEffort` where
+  the slot defines one. `--uninstall` drops every entry the table wrote, including
+  on a machine installed before that ownership record existed. Cursor,
   Codex's default subagent and Claude's built-in subagents are listed as not
   routed yet, each with what would close it, in `docs/models.md`; dsh's surface
   was found (`agent-default-model` plugin config, patchable by tezgah) but its

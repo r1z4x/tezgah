@@ -45,6 +45,12 @@ STALE_DAYS = 60
 OVERLAY = os.path.join(tp.CONFIG_DIR, "models.json")
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 MODES = ("auto", "anthropic", "any")
+# The two status markers `bin/tezgah-setup` classifies an `apply_omp()` line by:
+# a skip is not a write and not a failure - the user's omp is left untouched, and
+# nothing is left to repair, which is why the status report excuses it rather
+# than showing it as a missing row.
+SKIP_MARK = "skipped:"
+FAIL_MARK = "NOT written"
 # omp's own agent dir: the same one `omp_config` in bin/tezgah-setup pins with
 # PI_CODING_AGENT_DIR, so a write lands beside the hook the installer registered.
 OMP_AGENT = os.path.join(tp.HOME, ".omp", "agent")
@@ -164,8 +170,11 @@ def omp_mode(default_selector=None):
 
 def omp_overrides(mode):
     """{agent: omp selector} for `task.agentModelOverrides`, tezgah roles and the
-    bundled agents alike. Frontier agents get no entry: they inherit the session
-    default, the strongest model the user chose, in either mode."""
+    bundled agents alike, or {} when the mode cannot run on this machine. Frontier
+    agents get no entry: they inherit the session default, the strongest model the
+    user chose, in either mode."""
+    if mode == "any" and not openrouter_ready():
+        return {}  # nothing can run here; `apply_omp` says so and writes nothing
     out = {}
     for agent, slot in dict(AGENT_SLOT, **BUNDLED).items():
         if slot == "frontier":
@@ -220,7 +229,9 @@ def _ours_by_shape(key, value):
 
     The adoption rule for a machine tezgah wrote to before it recorded
     `omp_written`: only one of our own selectors is ever taken over, so a value
-    the user picked by hand is never claimed."""
+    the user picked by hand is never claimed - unless it is a byte-identical copy
+    of the selector this table generates for that key in some mode, which is
+    indistinguishable from our own write and is treated as ours."""
     if not isinstance(value, str):
         return False
     return any(omp_overrides(mode).get(key) == value for mode in ("anthropic", "any"))
@@ -248,8 +259,8 @@ def apply_omp(remove=False):
     if not remove:
         mode = omp_mode((omp_get("modelRoles") or {}).get("default"))
         if mode == "any" and not openrouter_ready():
-            return ("omp model overrides skipped: the any mode needs an OpenRouter "
-                    "key (or `tezgah-route --mode anthropic`)")
+            return ("omp model overrides %s the any mode needs an OpenRouter key "
+                    "(or `tezgah-route --mode anthropic`)" % SKIP_MARK)
         want = omp_overrides(mode)
     new, owns = {}, {}
     for key in sorted(set(current) | set(written) | set(want)):
@@ -261,8 +272,12 @@ def apply_omp(remove=False):
                 new[key], owns[key] = want[key], want[key]
             else:
                 new[key] = cur  # the user's own choice for this agent wins
-        elif mine or key in written:
-            if cur is not None and cur != written.get(key):
+        elif mine:
+            # ours, and no longer wanted: drop it. `cur != written.get(key)` is
+            # only a user change when tezgah actually recorded a value - an
+            # adopted entry has no record, so comparing against None would keep
+            # every pre-record install's overrides forever.
+            if key in written and cur is not None and cur != written[key]:
                 new[key] = cur  # the user changed ours: keep it
         elif cur is not None:
             new[key] = cur
@@ -367,13 +382,14 @@ def check(today=None):
 # when it names a file, because an over-route costs money and an under-route
 # costs a rework loop.
 OVERRIDE = re.compile(
-    r"stored data|on disk|\bpersist\w*|\bschema\b|"
-    r"\bmigrat(?:e|es|ed|ing|ion|ions)\b|"
-    r"\bcredential\w*|\bsecrets?\b|\bpasswords?\b(?!-less)|\bapi key\b|"
-    r"\baccess token\b|\brefresh token\b|\bsession token\b|"
-    r"\bjwt\b|\boauth\b|\bauthn\b|"
-    r"tezgah_gate|tezgah_integrity|\bsecurity\b|threat model|\bencrypt\w*|"
-    r"\bauthentication\b|\bauthorization\b", re.I)
+    r"stored data|on disk|\bpersist\w*|\bschemas?\b|"
+    r"\bmigrat(?:e|es|ed|ing|ion|ions|or)\b|"
+    r"\bcredential\w*|\bsecrets?\b|\bpasswords?\b(?!-less)|"
+    r"\bapi[- ]keys?\b|\baccess token\b|\brefresh token\b|\bsession token\b|"
+    r"\bsession cookies?\b|\bsigning keys?\b|\bjwt\b|\boauth\b|\bauthn\b|"
+    r"\bauthz?\b|tezgah_gate|tezgah_integrity|\bsecurity\b|threat model|"
+    r"\bencrypt\w*|\bauthentication\b|\bauthorization\b|\bpii\b|"
+    r"customer records", re.I)
 JEV_TIER = {"mechanical": "cheap", "standard": "standard", "frontier": "frontier"}
 PHASE_TIER = {"explore": "standard", "code": "standard", "mechanical": "cheap",
               "plan": "frontier", "review": "frontier", "research": "frontier"}

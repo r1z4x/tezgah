@@ -1743,14 +1743,14 @@ def omp_config(*args):
     """Run `omp config <args>` against the agent dir tezgah writes into, or None.
 
     PI_CODING_AGENT_DIR pins the CLI to OMP_AGENT, so the registration lands
-    beside the hook it names whatever profile the calling shell selected."""
+    beside the hook it names whatever profile the shell picked, and cwd is HOME so a project `extensions:` array is never copied machine-wide."""
     omp = tp.omp_bin()
     if not omp:
         return None
     env = dict(os.environ, PI_CODING_AGENT_DIR=OMP_AGENT)
     try:
         proc = subprocess.run([omp, "config", *args], capture_output=True,
-                              text=True, timeout=30, env=env)
+                              text=True, timeout=30, env=env, cwd=tp.HOME)
     except (OSError, subprocess.SubprocessError):
         return None
     return proc if proc.returncode == 0 else None
@@ -4527,9 +4527,10 @@ def register_omp(hook_dst):
     `task.agentModelOverrides` (hooks/tezgah_models.py), the user's entries kept."""
     register_omp_hook(hook_dst)
     status = tezgah_agents.tm.apply_omp()
-    ok = bool(status) and "NOT" not in status
-    print("%s %s" % (OK if ok else NO,
-                     status or "omp not answering: tier model overrides not written"))
+    mark = OK if status and tezgah_agents.tm.FAIL_MARK not in status and \
+        tezgah_agents.tm.SKIP_MARK not in status else (
+            " skip " if status and tezgah_agents.tm.SKIP_MARK in status else NO)
+    print("%s %s" % (mark, status or "omp not answering: tier model overrides not written"))
 
 
 def unregister_omp(hook_dst):
@@ -4537,7 +4538,7 @@ def unregister_omp(hook_dst):
     unregister_omp_hook(hook_dst)
     status = tezgah_agents.tm.apply_omp(remove=True)
     if status:
-        print("%s %s" % (OK if "NOT" not in status else NO, status))
+        print("%s %s" % (OK if tezgah_agents.tm.FAIL_MARK not in status else NO, status))
 
 
 def tier_models_current():
@@ -4545,7 +4546,7 @@ def tier_models_current():
     tm = tezgah_agents.tm
     current = tm.omp_get("task.agentModelOverrides") or {}
     want = tm.omp_overrides(tm.omp_mode((tm.omp_get("modelRoles") or {}).get("default")))
-    return all(current.get(k) == v for k, v in want.items())
+    return not want or all(current.get(k) == v for k, v in want.items())
 
 
 if __name__ == "__main__":

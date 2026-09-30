@@ -15,8 +15,8 @@ a mean of about 435k cached tokens, so one Opus -> Sonnet -> Opus switch pair co
 about $3.26 against about $0.02 saved per explore turn. Routing therefore happens
 where it is free: at the subagent a task is handed to.
 
-Every generated agent has a slot (`AGENT_SLOT`, `hooks/tezgah_models.py:75-80`)
-and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py:61-74`). The
+Every generated agent has a slot (`AGENT_SLOT`, `hooks/tezgah_models.py:81-86`)
+and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py:67-80`). The
 three tier workers - `tezgah-cheap`, `tezgah-standard`, `tezgah-frontier` - are
 generated in every tezgah root because routing needs no capability (`ROLES`,
 `hooks/tezgah_agents.py:261-296`; their brief, `_worker_body`,
@@ -70,26 +70,26 @@ omp's bundled agents are routed through the same record (omp's own docs: `omp://
 - **Claude Code's built-in subagents** (Explore, general-purpose, Plan) run on the session model. `CLAUDE_CODE_SUBAGENT_MODEL` and a settings `env` block exist but carry no effort, and whether a project agent with a built-in's name replaces it is not stated where it can be cited - so nothing is generated on a guess. What would close it: a documented per-agent effort for built-ins, or a confirmed name-collision rule.
 - **Codex's default subagent** (spawned with no agent file): only `.codex/agents/*.toml` carries a model today. What would close it: a documented `[agents]` default settable from a repo-scoped file tezgah already writes.
 - **opencode's built-in agents**: the injected JSON could carry `model`/`reasoningEffort` for them, but the merge semantics for a built-in entry are not documented where they can be cited, and a wrong merge would replace a built-in prompt instead of adding a model.
-- **dsh**: the model is a plugin config, not an agent field. The composed profile carries `agent-default-model` with `config: {provider, model}` (`dsh --profile web --dump-config`, 2026-09-30), and tezgah's managed patch block already patches plugin config by id (its `llm-pi-ai` row), so a `- id: agent-default-model` row with `config.model` would set the profile's model - one model for the whole session, not per subagent: no `subagent*` entry in the composed tree carries a model. Not written yet because dsh's own provider (`deepseek-official`) does not list its model ids in the composed tree, and this table has no verified DeepSeek id to put there - a guessed id would break the boot. What would close it: the provider's model list (or user confirmation of one id), then one patch row.
+- **dsh**: the model is a plugin config, not an agent field. The composed profile carries `agent-default-model` with `config: {provider: deepseek-official, model: deepseek-flash}` (`dsh --profile web --dump-config`, 2026-09-30) and tezgah's managed patch block already patches plugin config by id (its `llm-pi-ai` row), so a `- id: agent-default-model` row would set the profile's model. Not written, because that knob is one model for the whole session - no `subagent*` entry in the composed tree carries a model - and a single session-wide model is the main thread's setting, which this design deliberately leaves alone ([why the main thread keeps one model](#the-shape)). What would close it: a per-agent model in dsh's config surface.
 
 ## The router
 
 `tezgah-route "<brief>"` prints the worker to spawn and why (`main`,
-`bin/tezgah-route:32-89`; `route`, `hooks/tezgah_models.py:399-423`). The order is
+`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:418-442`). The order is
 fixed:
 
 1. A brief naming stored data, a persistence or schema change, a migration,
    credentials, a token or key shape, the gate or security goes
-   to frontier by rule (`OVERRIDE`, `hooks/tezgah_models.py:262-265`) - the class
+   to frontier by rule (`OVERRIDE`, `hooks/tezgah_models.py:384-392`) - the class
    the judge under-routed in its measurement.
 2. Otherwise the brief - redacted with the ledger's own reader
    (`redact`, `hooks/tezgah_integrity.py:524`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
-   `hooks/tezgah_models.py:377-398`). Measured on 40 English briefs labelled by
+   `hooks/tezgah_models.py:396-417`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100.
 3. With no judgement (`judge-off`, no key, a failed call) `--phase` picks the tier
-   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:375-376`), and
+   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:394-395`), and
    with no phase the middle tier is used.
 
 The brief leaves the machine for the judge, like every judgement ([judge](judge.md)).
@@ -100,11 +100,11 @@ the tier to the gate outcome of the work it routed.
 
 `tezgah-route --refresh` re-reads OpenRouter's public model list, writes prices to
 `~/.config/tezgah/models.json`, flags a model that left the list or whose price
-moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py:70-74`;
-`refresh`, `hooks/tezgah_models.py:284-318`), resolves opencode selectors, and
+moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py:87-91`;
+`refresh`, `hooks/tezgah_models.py:302-336`), resolves opencode selectors, and
 re-applies omp's overrides. Scores are not re-read - they need a key - so
 `tezgah-route --check` reports the snapshot's age and exits 1 past 60 days or with
-a flag (`check`, `hooks/tezgah_models.py:244-257`); that is the moment to re-read
+a flag (`check`, `hooks/tezgah_models.py:360-373`); that is the moment to re-read
 the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|any|auto` pins
 omp's family instead of following the session default. `tezgah-setup --install`
 writes omp's overrides and `--uninstall` removes only the `tezgah-*` entries; the
