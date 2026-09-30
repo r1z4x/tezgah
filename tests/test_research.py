@@ -4552,6 +4552,57 @@ class HistoryBridge(Workspace):
         self.assertTrue(hit("blobs differ", errors), errors)
         self.assertTrue(hit(self.protocol_blob(repo, anchor), errors), errors)
 
+    def test_a_results_file_extended_since_the_anchor_is_still_bridged(self):
+        repo = self.repo()
+        self.unmoved(repo)
+        anchor = self.old_history(repo)
+        # A row appended after the anchor was pinned and before the re-root: the
+        # run only ever appends, so the anchor's rows are the head of the file the
+        # rewrite holds, and a grown file is not a disagreement.
+        self.append_line(os.path.join(self.exp_dir(repo), "results.jsonl"),
+                         {"run": 2, "p95": 0.8, "scope": "real",
+                          "source": "run.py run 2"})
+        rewrite = self.reroot(repo)
+        self.declare(repo, anchor, rewrite)
+        self.assertEqual(self.errors(repo), [])
+        report = tr.check(repo, "q")["q"]
+        self.assertTrue(hit("(results extended since the anchor)", report["notes"]),
+                        report["notes"])
+
+    def test_a_protocol_extended_since_the_anchor_is_still_refused(self):
+        repo = self.repo()
+        self.unmoved(repo)
+        anchor = self.old_history(repo)
+        # Only the results file is append-only: a protocol that grew after the
+        # anchor is still an edited plan, so a prefix is refused there - the pair
+        # the bridge tied together is unchanged.
+        with open(os.path.join(self.exp_dir(repo), "protocol.md"), "a") as fh:
+            fh.write("outcome: p95 dropped\n")
+        rewrite = self.reroot(repo)
+        self.declare(repo, anchor, rewrite)
+        errors = self.errors(repo)
+        self.assertTrue(hit("protocol.md blobs differ", errors), errors)
+
+    def test_an_experiment_added_by_the_rewrite_warns_where_strict_refuses(self):
+        repo = self.repo()
+        self.unmoved(repo)
+        anchor = self.old_history(repo)
+        # A second experiment opened after the anchor was pinned: the re-root is
+        # the only commit that ever added its files, so the anchor holds no order
+        # for it. The line is younger than the anchor, which is unprovable rather
+        # than false, so it warns and `--strict` still refuses it.
+        self.protocol(repo, h="h2")
+        self.results(repo, h="h2")
+        rewrite = self.reroot(repo)
+        self.declare(repo, anchor, rewrite)
+        self.assertEqual(self.errors(repo), [])
+        warnings = self.warnings(repo)
+        self.assertTrue(hit("this experiment's files first appear in the rewrite",
+                            warnings), warnings)
+        strict = self.errors(repo, strict=True)
+        self.assertTrue(hit("this experiment's files first appear in the rewrite",
+                            strict), strict)
+
     def test_a_bridge_whose_tag_is_missing_is_refused_naming_it(self):
         repo = self.repo()
         self.unmoved(repo)

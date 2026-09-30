@@ -419,6 +419,26 @@ def _blob(top, rev, rel):
     return None, None
 
 
+def _added_at(repo, commit, rel):
+    """True when `commit` itself added `rel` - the shape a one-commit re-root has,
+    where the root commit is the whole history of the files it landed. `-1`
+    because the question is about that commit and not its ancestors."""
+    out, err = _git(repo, "log", "-1", "--diff-filter=A", "--format=%H", commit,
+                    "--", rel)
+    return bool(out) and not err
+
+
+def _is_prefix(repo, older, newer):
+    """True when blob `older`'s content is a strict prefix of `newer`'s: the rows a
+    run appended, with every row before them unchanged. Read whole because git has
+    no prefix primitive, and as text because a results file is UTF-8 JSON lines."""
+    old, err = _run(["git", "-C", repo, "cat-file", "blob", older])
+    if err:
+        return False
+    new, err = _run(["git", "-C", repo, "cat-file", "blob", newer])
+    return not err and new != old and new.startswith(old)
+
+
 def _changed_after(repo, path, rev):
     """True/False, or None when git cannot say: whether `path` holds a different
     blob at `rev` than at the tip of the history that carries it.
@@ -516,7 +536,8 @@ def _bridged_commit(repo, commit):
     return None
 
 
-def _bridged_order(repo, declared, rewrite, proto, results, h, errors, notes):
+def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
+                   strict, notes):
     """Record the declared bridge's answer for one experiment.
 
     The shape it answers is the one a re-root leaves: `rewrite` is the commit that
@@ -527,6 +548,16 @@ def _bridged_order(repo, declared, rewrite, proto, results, h, errors, notes):
     sha the tag does not resolve to or a blob that moved is a refusal naming which
     of them failed, so a clean clone without the tag is told exactly that; a
     bridge that proves the order adds the `order: bridged via <tag>` note instead.
+
+    Two shapes are tolerated because they are the run's own doing and not a
+    disagreement. A results file the run appended to between the anchor and the
+    re-root holds the anchor's rows and then more, so the anchor's blob is a
+    prefix of the rewrite's - order preserved, rows added - and the note says the
+    file grew. Only results.jsonl is append-only: the protocol must be identical,
+    never merely a prefix, because an edited plan is exactly what the rule
+    refuses. And an experiment whose files the anchor never added at all is
+    younger than the anchor - a line opened after the move - which the bridge
+    cannot order rather than orders wrongly, so it warns and `--strict` refuses.
     """
     tag, anchor = declared["anchor_tag"], declared["anchor_sha"]
     resolved, err = _git(repo, "rev-parse", "%s^{commit}" % tag)
@@ -547,10 +578,31 @@ def _bridged_order(repo, declared, rewrite, proto, results, h, errors, notes):
                        prel)
     r_old, rerr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",
                        rrel)
-    if perr or rerr or not p_old or not r_old:
+    if perr or rerr:
         errors.append("experiment %s: the order bridge's anchor %s holds no add of "
                       "protocol.md and results.jsonl to order (%s)"
-                      % (h, anchor[:8], perr or rerr or "none"))
+                      % (h, anchor[:8], perr or rerr))
+        return
+    if not p_old and not r_old:
+        # Neither file was ever added before the re-root: the experiment is younger
+        # than the anchor - a line opened after the move - so the anchor holds no
+        # order to bridge. The rewrite commit is then the only commit that added
+        # them, and that is what says the files came with the re-root rather than
+        # from somewhere else; without it the refusal stands. Unprovable, not
+        # false: the files were written after the anchor, not against it.
+        if _added_at(repo, rewrite, prel) and _added_at(repo, rewrite, rrel):
+            _soft(errors, warnings, strict,
+                  "experiment %s: this experiment's files first appear in the "
+                  "rewrite, so the pre-rewrite anchor holds no order to bridge" % h)
+            return
+        errors.append("experiment %s: the order bridge's anchor %s holds no add of "
+                      "protocol.md and results.jsonl to order"
+                      % (h, anchor[:8]))
+        return
+    if not p_old or not r_old:
+        errors.append("experiment %s: the order bridge's anchor %s holds no add of "
+                      "protocol.md and results.jsonl to order"
+                      % (h, anchor[:8]))
         return
     p_old_add, r_old_add = p_old[-1], r_old[-1]
     if p_old_add == r_old_add or _ancestor(repo, p_old_add, r_old_add) is not True:
@@ -577,12 +629,23 @@ def _bridged_order(repo, declared, rewrite, proto, results, h, errors, notes):
                       "%s - so the file the rewrite holds is not the one the anchor "
                       "ordered" % (h, ", ".join(protocol)))
         return
+    extended = False
     if len(set(rows)) != 1:
-        errors.append("experiment %s: the order bridge's results.jsonl blobs differ "
-                      "- %s - so the file the rewrite holds is not the one the "
-                      "anchor ordered" % (h, ", ".join(rows)))
-        return
-    notes.append("experiment %s: order: bridged via %s" % (h, tag))
+        # A run only appends, so the anchor's rows are the head of the file the
+        # rewrite holds: a strict prefix is the same order, later rows - not a
+        # disagreement. Anything else (a rewrite, a reordering, a missing blob)
+        # still means the file the rewrite holds is not the one the anchor ordered.
+        at_rewrite, at_anchor = rows
+        extended = bool(at_rewrite and at_anchor) \
+            and _is_prefix(repo, at_anchor, at_rewrite)
+        if not extended:
+            errors.append("experiment %s: the order bridge's results.jsonl blobs "
+                          "differ - %s - so the file the rewrite holds is not the "
+                          "one the anchor ordered" % (h, ", ".join(rows)))
+            return
+    notes.append("experiment %s: order: bridged via %s%s"
+                 % (h, tag, " (results extended since the anchor)" if extended
+                    else ""))
 
 
 def _read_json(path):
@@ -1627,7 +1690,8 @@ def _check_experiments(repo, base, errors, warnings, git, strict, notes):
             errors.append("experiment %s has results but no analysis.md" % h)
         _check_rows(results, "experiment %s" % h, errors, warnings, strict)
         if git:
-            _check_protocol_order(repo, h, proto, results, errors, warnings, notes)
+            _check_protocol_order(repo, h, proto, results, errors, warnings, strict,
+                                  notes)
     return out
 
 
@@ -1817,12 +1881,14 @@ def _check_rows(path, label, errors, warnings, strict):
     return rows
 
 
-def _check_protocol_order(repo, h, proto, results, errors, warnings, notes):
+def _check_protocol_order(repo, h, proto, results, errors, warnings, strict, notes):
     """protocol.md must have entered the history before results.jsonl, and must
     not have changed after it. Two proofs are accepted: the current rule - a
     strict add-before-add in HEAD's lineage, with the protocol's blob unchanged
     since the run - and, for a tree that was re-rooted in one commit, the declared
-    history bridge (`bridge`)."""
+    history bridge (`bridge`). `strict` reaches the bridge because one of its
+    answers is a warning - an experiment younger than the anchor - which
+    `--strict` refuses."""
     proto_add, proto_err = added_commits(repo, proto)
     res_add, res_err = added_commits(repo, results)
     if proto_err or res_err:
@@ -1841,7 +1907,8 @@ def _check_protocol_order(repo, h, proto, results, errors, warnings, notes):
     if p_add == r_add:
         declared = bridge(repo)
         if declared is not None and p_add.startswith(declared["rewrite_commit"]):
-            _bridged_order(repo, declared, p_add, proto, results, h, errors, notes)
+            _bridged_order(repo, declared, p_add, proto, results, h, errors,
+                           warnings, strict, notes)
             return
         errors.append("experiment %s: one commit added both protocol.md and "
                       "results.jsonl, so the plan cannot be shown to precede the "

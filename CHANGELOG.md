@@ -33,6 +33,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reported (`claim C13 is superseded, so its proof is the historical row's ...`)
   and not refused, while the row that supersedes it is still held to its own
   proof in full.
+- **A grown results file and a post-rewrite experiment are no longer refused.**
+  The declared history bridge tied an experiment's current files to the blobs the
+  pre-rewrite anchor ordered by equality alone, so the one shape a run leaves
+  behind failed `tezgah-research check`: a `results.jsonl` the run appended to
+  after the anchor was pinned. The comparison now accepts the anchor's
+  `results.jsonl` as a prefix of the rewrite's - the rows it ordered, and then
+  the later ones - and the `order: bridged via <tag>` note says the file was
+  extended. `protocol.md` is still required to be identical, never a prefix,
+  because an edited plan is what the rule refuses. An experiment whose files the
+  anchor never added at all - a line opened after the move, whose files the
+  re-root commit alone added - is reported as a warning naming that reason
+  instead of refused: the bridge cannot order a line younger than itself, which
+  is unprovable rather than false, so `check` passes it and `check --strict`
+  still refuses it.
 - **Codex prints no context on PostCompact**, the same way Claude's hook script
   now does: Codex's PostCompact output schema allows only the common fields, and
   the block reaches the model through the SessionStart that fires again with

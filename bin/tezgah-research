@@ -27,7 +27,9 @@ which `init` creates and `commit` writes to, and a line the project itself
 committed before the move keeps its order proof in the project's history.
 
 `check --strict` also fails the guarantees the checker cannot decide - an
-experiment file no repository can commit, a protocol that answers neither
+experiment file no repository can commit, an experiment younger than the
+pre-rewrite anchor the history bridge orders by (its files first appear in the
+re-root), a protocol that answers neither
 what it predicts nor what would falsify it, a report a concluded line owes that
 states nowhere what the evidence does not show, a claim written before `kind`
 existed, a results row written before `source` did, a results file whose rows
