@@ -91,9 +91,10 @@ cannot move a machine that already judges with Jev (`credential()`,
 that were asked for, dropping any answer whose type does not match its question
 (`_chat_answers()`, `hooks/tezgah_judge.py:337`; `_clean_answer()`,
 `hooks/tezgah_judge.py:357`) - so a dropped answer reads the same as no answer at
-all, which is what the callers already handled. The model is
-`deepseek/deepseek-v4-flash` unless `TEZGAH_JUDGE_MODEL` names another
-(`fallback_model()`, `hooks/tezgah_judge.py:141`), and whichever model answered
+all, which is what the callers already handled. The model is the table's cheap row
+(`cheap_model`, `hooks/tezgah_models.py`) unless `TEZGAH_JUDGE_MODEL` names
+another, and a table that cannot be read falls back to its own literal
+(`fallback_model()`, `hooks/tezgah_judge.py:141`); whichever model answered
 rides back on the result, which is what the callers' cost rows print.
 
 ## The switches
