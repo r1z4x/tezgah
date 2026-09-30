@@ -79,12 +79,18 @@ class OmpOverrides(unittest.TestCase):
             self.assertEqual(out[agent], "openrouter/anthropic/claude-opus-5.5:high")
 
     def test_the_frontier_row_is_concrete_on_every_family(self):
+        # every family names a model; the effort suffix is per family, because a
+        # thinking level omp accepts for one provider is not one it accepts for
+        # another (the zai column carries none: none was verified there)
         for family, (model, effort) in tm.SLOTS["frontier"].items():
             self.assertTrue(model and model != "inherit", family)
-            self.assertEqual(effort, "high", family)
+            if family == "zai":
+                self.assertIsNone(effort, "no thinking suffix is verified for zai")
+            else:
+                self.assertEqual(effort, "high", family)
 
     def test_the_accessors_are_the_table_and_none_for_an_unknown_family(self):
-        for family in ("anthropic", "openai", "any"):
+        for family in ("anthropic", "zai", "openai", "any"):
             self.assertEqual(tm.frontier_model(family), tm.SLOTS["frontier"][family])
             self.assertEqual(tm.cheap_model(family), tm.SLOTS["cheap"][family])
             self.assertTrue(tm.frontier_model(family)[0])
@@ -114,8 +120,10 @@ class OmpOverrides(unittest.TestCase):
     def test_auto_mode_follows_the_session_default_family(self):
         with mock.patch.object(tm, "overlay", return_value={}):
             self.assertEqual(tm.omp_mode("anthropic/claude-opus-5-5:high"), "anthropic")
-            self.assertEqual(tm.omp_mode("zai/glm-5.3"), "any")
-            self.assertEqual(tm.omp_mode(None), "any", "no default is not Anthropic")
+            self.assertEqual(tm.omp_mode("zai/glm-5.3"), "zai",
+                             "a z.ai default is the column whose ids omp itself uses")
+            self.assertEqual(tm.omp_mode("deepseek/deepseek-flash:high"), "any")
+            self.assertEqual(tm.omp_mode(None), "any", "no default names no family")
         with mock.patch.object(tm, "overlay", return_value={"mode": "any"}):
             self.assertEqual(tm.omp_mode("anthropic/claude-opus-5-5:high"), "any")
 
@@ -285,6 +293,24 @@ class OmpOverrides(unittest.TestCase):
             tm.apply_omp(remove=True)
         self.assertEqual(store["task.agentModelOverrides"], {})
 
+    def test_the_zai_mode_names_the_zai_column(self):
+        # the provider whose ids omp's own config already uses, so a machine whose
+        # funded provider is z.ai routes without a hand-edited override
+        out = tm.omp_overrides("zai")
+        self.assertEqual(out["tezgah-cheap"], "zai/glm-5.3-flash")
+        self.assertEqual(out["tezgah-explorer"], "zai/glm-5.3-flash")
+        self.assertEqual(out["tezgah-standard"], "zai/glm-5.3")
+        self.assertEqual(out["tezgah-frontier"], "zai/glm-5.3")
+        self.assertEqual(tm.omp_role_overrides("zai"),
+                         {"modelRoles.plan": "zai/glm-5.3",
+                          "modelRoles.slow": "zai/glm-5.3"})
+
+    def test_auto_mode_follows_a_zai_default(self):
+        with mock.patch.object(tm, "overlay", return_value={}):
+            self.assertEqual(tm.omp_mode("zai/glm-5.3-flash:auto"), "zai")
+            self.assertEqual(tm.omp_mode("anthropic/claude-opus-5-5:high"), "anthropic")
+            self.assertEqual(tm.omp_mode("deepseek/deepseek-flash:high"), "any")
+
     def test_the_off_mode_wants_nothing_at_all(self):
         # the status row reads this: an `off` machine must not look like one with
         # a missing override, because no repair could ever clear that row
@@ -312,7 +338,10 @@ class OmpOverrides(unittest.TestCase):
                          "anthropic/claude-opus-5-5:low")
 
     def test_the_any_mode_writes_nothing_without_an_openrouter_key(self):
-        store = {"task.agentModelOverrides": {}, "modelRoles": {"default": "zai/glm-5.3"}}
+        # a default that is neither Anthropic nor z.ai: those two columns need no
+        # OpenRouter credential, so the skip only applies to the `any` one
+        store = {"task.agentModelOverrides": {},
+                 "modelRoles": {"default": "deepseek/deepseek-flash:high"}}
         called = []
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
                 mock.patch.object(tm, "_omp", side_effect=lambda *a: called.append(a)), \
