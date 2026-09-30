@@ -6,7 +6,8 @@ Usage:
   consult -                              read the question from redirected stdin
   consult --use M1[,M2] [--judge M]      record which members answer (no question: record only)
   consult "question" --no-referee        panel only, no cross-examination
-  consult "question" --judge MEMBER      referee (default: the recorded judge, else first that answered)
+  consult "question" --judge MEMBER      referee (default: the recorded judge, else a member
+                                         that is not on this session's own model)
   consult "question" --provider deepseek one HTTP provider for this run, not the record
   consult "question" --models m1,m2      that provider's models for this run
   consult "question" --online            enable live web search (:online, OpenRouter)
@@ -22,6 +23,14 @@ Members (what --use records into ~/.config/tezgah/config.json "consult"):
 Key lookup order: the provider's env var, then its key file. CONSULT_URL
 overrides the endpoint (a gateway, or a test server), CONSULT_MODELS the
 OpenRouter panel for one run, CONSULT_JUDGE the referee.
+
+CONSULT_SESSION_MODEL names the model this session itself runs on when a host
+hook knows it; otherwise consult reads omp's own `modelRoles.default`. A
+recorded member whose model is that one is skipped - a second opinion from the
+model already answering is the weakest one on offer - and the referee is never
+it. `--use` naming that member in the same run overrides the skip. A CLI member
+whose configured model consult cannot read (bare `cli:omp`) counts as unknown,
+not as the session's, and is named as such.
 
 With no --provider/--models/--online the recorded members answer. When every
 recorded member fails, OpenRouter's default panel is the last fallback if its
@@ -298,6 +307,56 @@ def own_cli():
     return "cli:claude" if os.environ.get("CLAUDECODE") else None
 
 
+def session_model():
+    """The model this session itself runs on, or None when it cannot be read.
+
+    CONSULT_SESSION_MODEL first: a host hook can set it, and a pinned value
+    outranks the machine's own omp record. Otherwise omp's own answer -
+    `modelRoles.default`, read the way `hooks/tezgah_models.py` reads it (same
+    binary lookup, HOME as cwd so a project layer cannot answer for it) - so a
+    session that never set the knob is still recognized as running on it. A
+    missing binary, a non-zero exit or any malformed output is None: consult
+    never raises here, it just applies no exclusion."""
+    pin = os.environ.get("CONSULT_SESSION_MODEL", "").strip()
+    if pin:
+        return pin
+    exe = tp.omp_bin()
+    if not exe:
+        return None
+    env = dict(os.environ, PI_CODING_AGENT_DIR=os.path.join(tp.HOME, ".omp", "agent"))
+    try:
+        proc = subprocess.run([exe, "config", "get", "modelRoles", "--json"],
+                              capture_output=True, text=True, timeout=30,
+                              env=env, cwd=tp.HOME)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        value = json.loads(proc.stdout).get("value") if proc.returncode == 0 else None
+        default = (value or {}).get("default")
+    except (ValueError, AttributeError):
+        return None
+    return str(default).strip() or None
+
+
+def same_model(a, b):
+    """Whether two model ids name the same model, as the session record and a
+    consult member spell it: case-insensitive, with an effort suffix (`:high`)
+    or OpenRouter's `:online` dropped, and a provider prefix (`openai/`) on
+    either side ignored when the ids otherwise agree."""
+
+    def key(model):
+        return (model or "").split(":")[0].strip().lower()
+    a, b = key(a), key(b)
+    return bool(a) and (a == b or a.endswith("/" + b) or b.endswith("/" + a))
+
+
+def on_session(call, session):
+    """True when this panel call runs on the session's own model. A call whose
+    model is unknown (a bare CLI member) is NOT the session's: unknown and equal
+    are different answers, and only the second is a reason to skip."""
+    return bool(session and call[4] and same_model(call[4], session))
+
+
 def options():
     """What this machine can run now, the calling host's own CLI last: a second
     opinion from the model already answering is the weakest one on offer."""
@@ -509,18 +568,51 @@ def main():
             sys.stdout.flush()
             os._exit(4)
 
-    todo = [c for m in members for c in calls(m)]
+    session = session_model()
+    # A member THIS run names with --use is the user overriding the skip for it;
+    # the record alone is not, which is the whole point of the skip. An explicit
+    # --provider/--models run names its own models too, so it is never skipped.
+    named = {option(p) for p in (parse(m) for m in (use or [])) if p}
+    todo, skipped, kept, unknown = [], [], [], []
+    skip_opts = set()
+    for call in (c for m in members for c in calls(m)):
+        if session and not explicit and on_session(call, session):
+            if call[1] in named:
+                kept.append(call[0])
+            else:
+                skipped.append(call[0])
+                skip_opts.add(call[1])
+                continue
+        elif session and call[2] == "cli" and not call[4]:
+            # A bare `cli:omp` answers with whatever it is configured for, and
+            # that is not readable here - unknown, never read as the session's.
+            unknown.append(call[0])
+        todo.append(call)
+    if session:
+        print("consult: this session's model is %s" % session)
+        for label in skipped:
+            print("skipped: %s (runs on this session's own model)" % label)
+        for label in unknown:
+            print("unknown: %s (a CLI whose model cannot be read, so it is not "
+                  "excluded)" % label)
+        for label in kept:
+            print("asked anyway: %s (runs on this session's own model, kept "
+                  "because --use named it)" % label)
+    else:
+        print("consult: no session model could be read (CONSULT_SESSION_MODEL, or "
+              "omp's modelRoles.default), so no member was skipped")
     deadline = timeout + 15  # wall-clock cap per call: urllib's socket timeout resets on slow :online streams
     pool = concurrent.futures.ThreadPoolExecutor(max(len(todo), 2))
     answers, failures = panel(pool, todo, question, timeout, deadline)
     fallback = None
+    spare = [c for c in calls("openrouter") if not on_session(c, session)]
     if not answers and not explicit and "openrouter" not in {c[1] for c in todo} \
-            and key_for("openrouter"):
+            and key_for("openrouter") and spare:
         # The owner's order: the recorded members first, OpenRouter only when
         # every one of them failed, and never a second time once it has.
         fallback = "openrouter"
         print("## fallback: every recorded member failed, asking OpenRouter's default panel\n")
-        more, lost = panel(pool, calls("openrouter"), question, timeout, deadline)
+        more, lost = panel(pool, spare, question, timeout, deadline)
         answers += more
         failures += lost
 
@@ -535,7 +627,10 @@ def main():
     if referee and answers:
         name = judge or os.environ.get("CONSULT_JUDGE", "").strip() or recorded.get("judge")
         if not name:
-            jcall = answers[0][0]
+            # Never the session's own model when another member answered: a
+            # referee that is the panel's weakest opinion judges its own kind.
+            jcall = next((c for c, _a in answers if not on_session(c, session)),
+                         answers[0][0])
         elif parse(name):
             jcall = calls(name)[0]
         else:  # a bare model id: the run's own HTTP provider answers it
@@ -584,7 +679,7 @@ def main():
     if not answers and not explicit:
         # The recorded choice is the user's, so consult never swaps it on its
         # own: it names what is left and the agent asks again.
-        lost = {c[1] for c, _cls in failures}
+        lost = {c[1] for c, _cls in failures} | skip_opts
         left = [o for o in options() if o not in lost]
         for opt in left:
             print(offer_line("reoffer", opt))

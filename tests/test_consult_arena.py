@@ -81,6 +81,10 @@ class ArenaCase(unittest.TestCase):
             "OPENROUTER_API_KEY": "test",
             "CONSULT_URL": "http://127.0.0.1:%d/v1/chat/completions"
                            % self.server.server_address[1],
+            # consult reads the session's own model from omp's record; pin the
+            # lookup to a path that is not there so a case is deterministic on a
+            # machine that has omp installed (SessionModel swaps in a fake).
+            "TEZGAH_OMP_BIN": os.path.join(os.path.realpath(self.tmp.name), "no-omp"),
         }
 
     def consult(self, *args, stdin=None):
@@ -308,6 +312,94 @@ class Credit(ArenaCase):
         self.assertIn("failed: a (credit)", p.stdout)
 
 
+# A stand-in omp: answers `config get modelRoles --json` with FAKE_OMP_DEFAULT
+# and logs its argv, so a case asserts consult made the documented read.
+FAKE_OMP = '''#!%s
+import json, os, sys
+with open(os.environ["FAKE_OMP_LOG"], "a") as fh:
+    fh.write(json.dumps(sys.argv[1:]) + "\\n")
+print(json.dumps({"value": {"default": os.environ.get("FAKE_OMP_DEFAULT", "")}}))
+''' % sys.executable
+
+
+class SessionModel(ArenaCase):
+    """The session's own model, read from omp's record: the recorded member that
+    runs on it is skipped and named, --use still asks it, the referee is never
+    it, and no read at all means no exclusion."""
+
+    def setUp(self):
+        super().setUp()
+        self.fake_omp("a")
+
+    def fake_omp(self, default):
+        path = os.path.join(self.tmp.name, "omp")
+        with open(path, "w") as fh:
+            fh.write(FAKE_OMP)
+        os.chmod(path, 0o755)
+        self.env["TEZGAH_OMP_BIN"] = path
+        self.env["FAKE_OMP_LOG"] = os.path.join(self.tmp.name, "omp.log")
+        self.env["FAKE_OMP_DEFAULT"] = default
+
+    def omp_runs(self):
+        try:
+            with open(self.env["FAKE_OMP_LOG"]) as fh:
+                return [json.loads(line) for line in fh]
+        except OSError:
+            return []
+
+    def record(self, members):
+        p = self.consult("--use", members)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+    def test_the_omp_record_skips_the_member_on_the_session_model_and_names_it(self):
+        self.record("openrouter:a,openrouter:b")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(["config", "get", "modelRoles", "--json"], self.omp_runs())
+        self.assertIn("skipped: a (runs on this session's own model)", p.stdout)
+        # a is never asked; b answers and referees
+        self.assertEqual(self.models(), ["b", "b"])
+
+    def test_use_naming_it_asks_it_anyway_with_the_note(self):
+        p = self.consult("q?", "--use", "openrouter:a")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(Fake.seen[0]["model"], "a")
+        self.assertIn("asked anyway: a", p.stdout)
+
+    def test_the_referee_is_a_member_that_is_not_the_session_model(self):
+        p = self.consult("q?", "--use", "openrouter:a,openrouter:b")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(sorted(self.models()[:2]), ["a", "b"])
+        self.assertTrue(Fake.seen[-1]["messages"][0]["content"].startswith(REFEREE))
+        self.assertEqual(Fake.seen[-1]["model"], "b")
+        self.assertIn("## referee (b)", p.stdout)
+
+    def test_no_session_model_skips_nothing_and_says_so(self):
+        self.fake_omp("")  # an omp record with no modelRoles.default
+        self.record("openrouter:a,openrouter:b")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("no session model", p.stdout)
+        self.assertEqual(sorted(self.models()[:2]), ["a", "b"])
+
+    def test_a_missing_omp_is_also_no_session_model(self):
+        self.env["TEZGAH_OMP_BIN"] = os.path.join(self.tmp.name, "no-omp")
+        self.record("openrouter:a,openrouter:b")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("no session model", p.stdout)
+        self.assertEqual(sorted(self.models()[:2]), ["a", "b"])
+
+    def test_the_env_knob_names_the_session_model_ahead_of_the_record(self):
+        self.env["CONSULT_SESSION_MODEL"] = "a"
+        self.fake_omp("b")  # the record disagrees; the knob wins
+        self.record("openrouter:a,openrouter:b")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("skipped: a", p.stdout)
+        self.assertEqual(self.models(), ["b", "b"])
+
+
 # A stand-in agent CLI: logs its argv and cwd, then answers, referees or fails
 # as FAKE_<NAME> says. The prompt is its last argument.
 FAKE_CLI = '''#!%s
@@ -470,6 +562,33 @@ class CliMembers(ArenaCase):
         self.assertEqual(p.returncode, 5, p.stdout + p.stderr)
         self.assertIn("cli:codex (missing)", p.stdout)
         self.assertEqual(self.lines(p.stdout, "reoffer"), ["cli:claude"])
+
+
+class UnknownCliModel(ArenaCase):
+    """A bare `cli:<name>` member: consult cannot read which model the CLI is
+    configured for, so it counts as unknown - asked, and named as unknown."""
+
+    def setUp(self):
+        super().setUp()
+        self.bin = os.path.join(self.tmp.name, "fakebin")
+        os.makedirs(self.bin)
+        self.env["PATH"] = self.bin + ":/usr/bin:/bin"
+        for path in (os.path.join(self.bin, "claude"), os.path.join(self.tmp.name, "omp")):
+            with open(path, "w") as fh:
+                fh.write(FAKE_CLI if path.endswith("claude") else FAKE_OMP)
+            os.chmod(path, 0o755)
+        self.env["FAKE_LOG"] = os.path.join(self.tmp.name, "cli.log")
+        self.env["TEZGAH_OMP_BIN"] = os.path.join(self.tmp.name, "omp")
+        self.env["FAKE_OMP_LOG"] = os.path.join(self.tmp.name, "omp.log")
+        self.env["FAKE_OMP_DEFAULT"] = "a"
+
+    def test_a_cli_whose_model_is_unreadable_is_named_unknown_and_still_asked(self):
+        p = self.consult("--use", "cli:claude")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = self.consult("q?", "--no-referee")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("unknown: cli:claude", p.stdout)
+        self.assertIn("cli answer from claude", p.stdout)
 
 
 if __name__ == "__main__":
