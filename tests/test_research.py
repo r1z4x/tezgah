@@ -450,13 +450,18 @@ class Unfinished(Workspace):
                     dict(CLAIM, id="c2", supersedes="c1",
                          statement="the yield is 12 over 3 runs",
                          proof="to_human/report.md"))
-        self.assertEqual([w for w in tr.check(repo, "q")["q"]["warnings"]
-                          if "asserts" in w], [])
-        # the live row is still checked
+        # c1 is the superseded row, so its unreachable figure is not warned for;
+        # c2 is live here and is held to its own numbers (12 is in the report, 3
+        # is not).
+        first = tr.check(repo, "q")["q"]["warnings"]
+        self.assertFalse(any(w.startswith("claim c1 asserts") for w in first), first)
+        self.assertTrue(hit("claim c2 asserts", first))
+        # and a correction on top of c2 silences c2 in turn
         self.claims(repo, dict(CLAIM, id="c3", supersedes="c2",
-                               statement="the yield is 0.99 over 3 runs",
+                               statement="the yield is 12 over 3 runs",
                                proof="to_human/report.md"))
-        self.assertTrue(hit("claim c3 asserts", tr.check(repo, "q")["q"]["warnings"]))
+        after = tr.check(repo, "q")["q"]["warnings"]
+        self.assertFalse(any(w.startswith("claim c2 asserts") for w in after), after)
 
     def test_a_superseded_claim_is_read_through_the_row_that_replaced_it(self):
         # `claims.jsonl` is append-only, so the older row keeps the status it was
