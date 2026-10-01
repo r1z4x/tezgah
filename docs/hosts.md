@@ -122,11 +122,11 @@ three harness configurations while swapping the model inside one harness moved i
 | Host | tezgah names its model by | the model wire it speaks | checked against |
 |---|---|---|---|
 | claude | frontmatter `model:` + `effort:` (`hooks/tezgah_models.py:10`) | the Anthropic API; a managed gateway is reached through `ANTHROPIC_BASE_URL` and `allowedProviders` (Claude Code's gateway and settings docs) | vendor documentation |
-| codex | `model` + `model_reasoning_effort` (`hooks/tezgah_models.py:11`) | `unverified`: the CLI's configuration reference moves the wire per provider, and the repository's own `docs/config.md` now only links out to it | - |
-| cursor | frontmatter `model:` + `effort:` (`hooks/tezgah_models.py:10`) | `unverified`: the CLI is closed and names no wire publicly | - |
+| codex | `model` + `model_reasoning_effort` (`hooks/tezgah_models.py:11`) | OpenAI's Responses API by default and selectable per provider: a `model_providers` entry sets `wire_api = "responses"`, and `openai_base_url` moves the built-in provider's base URL (Codex's own configuration reference, checked 2026-10-01) | vendor documentation |
+| cursor | frontmatter `model:` + `effort:` (`hooks/tezgah_models.py:10`) | `unverified`: the CLI's public documentation names no wire (checked 2026-10-01) | - |
 | opencode | a selector read from `opencode models` (`hooks/tezgah_models.py:12`) | the AI SDK: `@ai-sdk/openai-compatible` for `/v1/chat/completions`, `@ai-sdk/openai` for `/v1/responses`, beside its own Anthropic and Bedrock providers (opencode's provider docs) | vendor documentation |
-| omp | the session default's family, otherwise `task.agentModelOverrides` and `modelRoles.plan` (`hooks/tezgah_models.py:13-16`) | `unverified` here: the session's configured provider decides, and this repository has not recorded which one | - |
-| dsh | the Claude-family scripts through the bridge (`hosts/dsh/hooks.json:2-19`); `README.md:27-28` calls it "DeepSeek's dsh harness" | `unverified`: the harness is named in the README and its wire is not | - |
+| omp | the session default's family, otherwise `task.agentModelOverrides` and `modelRoles.plan` (`hooks/tezgah_models.py:13-16`) | whichever provider the selected model names - Anthropic Messages, OpenAI Responses, OpenAI chat completions, Google, Bedrock - with text-based dialects where a native tool API is unavailable; the OpenRouter route dispatches to Responses unless `PI_OPENROUTER_RESPONSES=0` (omp's own `provider-compat-reference` documentation) | the tool's own documentation |
+| dsh | the Claude-family scripts through the bridge (`hosts/dsh/hooks.json:2-19`); `README.md:27-28` calls it "DeepSeek's dsh harness" | `unverified`: its own `--help` describes it as "an ordered stack of plugin-bundle patch layers" and names no model API, and its profile directory names a provider (DeepSeek) rather than a wire (checked 2026-10-01) | - |
 
 `unverified` is the point of the column rather than a gap in it. A wrong dialect
 here is worse than a blank one: a reader would use it to explain a score, and the
