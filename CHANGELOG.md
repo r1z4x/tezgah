@@ -8,6 +8,64 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A cross-family fallback chain per omp agent.** `omp_overrides` wrote one
+  model for every agent (all ten on `anthropic/claude-opus-5-5`), so one 429 on
+  the account every slot shared killed every subagent - measured 2026-10-01: 24
+  of 26 post-routing 429s hit a subagent's first request, and four reviews plus
+  three implementation agents died on it in one day. Each entry is now a
+  comma-separated chain - the mode's family first, then every other family with a
+  detectable credential, rotated by the agent's name so a 429 on one fallback
+  does not move every agent onto the same next family. Role fallbacks go to
+  `retry.fallbackChains.plan`/`.slow`, the only chain keys tezgah owns.
+- **`tests/impacted.py`: the tests a change touches, in parallel.** Changed paths
+  map to test modules (owner module, importers, entry-point references, a
+  hand-known table) and run as one process each with an isolated HOME/TMPDIR;
+  `--all` shards the whole suite (measured 148.9 s across 8 shards against 566.9 s
+  serial), and an unmapped path runs everything. `tests/test_impacted.py` holds
+  every shipped source file to a non-empty set.
+- **The research layer carries the ask.** A line records the user's words
+  verbatim (`init --ask`), a tier (`quick` gets no line), and one success
+  criterion per part of the ask; `verdict` records each criterion's judgement with
+  its evidence pointer, and `conclude` refuses until every criterion has one. A
+  criterion that is `not-met` is a result, but a line closed over one needs the
+  user's acknowledgement (`close --ack`) and stays listed as unanswered.
+- **Research lines live under `open/` and `done/`,** the way plans do, with one
+  resolver every reader uses, and `migrate-layout` moves a workspace's flat lines
+  across by their own state (idempotent).
+- **`docs/vision.md`:** the operating model behind the rules - answer first, cost
+  once per revision, a bounded review loop, doubt that lowers nothing, and the
+  numbers each principle rests on.
+
+### Changed
+
+- **Checks have tiers, and the full suite runs once per final tree.**
+  `AGENTS.md`, `docs/testing.md`, `CONTRIBUTING.md` and `RELEASING.md` now name
+  the edit-loop set, the pre-commit set and the pre-merge sharded run with their
+  measured wall times; the old "run before every commit" wording cost 11 serial
+  suite runs and 106 minutes in one session, 10 of them green confirmations.
+- The reviewer brief has a scope and a budget: round 2 reads the delta since the
+  sha `tezgah-task review` records, test results are input rather than a task, and
+  a third round is a pivot signal.
+
+### Fixed
+
+- **The retry ceiling no longer refuses a check after the tree changed.** It
+  counted command text across edits, so agents renamed their log files to dodge
+  it; a verification command is now exempt when a write row follows its newest
+  attempt.
+- **A suite run redirected to `/tmp` is not scratch evidence.** The stand-in
+  classifier read any `/tmp` in the command, including the prescribed output
+  redirect (`pytest > /tmp/check.log 2>&1`), and told a session its green run was
+  a stand-in. Output redirects to temp paths are stripped first, `&>`/`&>>`
+  included.
+- **The race guard no longer refuses a write to a message channel.** Writes to
+  `agent://` and `xd://` targets were treated as files another session had just
+  written; only the harness's own channels are skipped, and `file://`/`s3://`
+  targets stay guarded.
+- `test_migrate` fixtures carry their own git identity and `test_models` mocks the
+  OpenRouter credential, so CI decides on behaviour rather than on the runner's
+  git version or a developer's key file.
+
 - **A neuter matrix proves each anti-shortcut guard is load-bearing.**
   `tests/neuter_matrix.py` reverts one guard per clone of HEAD (`--no-verify`,
   hook-skipping env, `core.hooksPath`, `|| true`, piped check, added test skip,
