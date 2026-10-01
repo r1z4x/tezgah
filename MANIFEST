@@ -99,6 +99,7 @@ docs/research.md
 docs/skills.md
 docs/status-line.md
 docs/testing.md
+docs/vision.md
 hooks/hooks.json
 hooks/projects-auto-init.py
 hooks/projects-posttooluse.py
@@ -614,6 +615,7 @@ tests/e2e_omp_statusline.py
 tests/e2e_packaged_install.py
 tests/e2e_plan_flow.py
 tests/e2e_tezgah_mcp.py
+tests/impacted.py
 tests/neuter_matrix.py
 tests/routing-fixtures.md
 tests/support.py
@@ -641,6 +643,7 @@ tests/test_guard.py
 tests/test_hint_coverage.py
 tests/test_host_models.py
 tests/test_identity.py
+tests/test_impacted.py
 tests/test_index.py
 tests/test_install_tree.py
 tests/test_integrity.py
