@@ -34,7 +34,7 @@ answer is a `None`, never an exception.
 A judgement is an aid, never the claim. It ranks units or names a page; the agent
 still reads the selected refs and owns the finding, and the ledger's step kinds
 are untouched, so a model answer can never license a "done" (`STEP_KINDS`,
-`hooks/tezgah_integrity.py:1096-1101`).
+`hooks/tezgah_integrity.py:1097-1102`).
 
 The state leaves the machine. A judgement sends the state and the questions to
 `api.typesafe.ai` - for the triage that is the screen's own text, so a screen
@@ -45,7 +45,7 @@ the price of a machine that has no Jev credential still having a judge at all:
 the destination changes, not what is sent. Nothing else goes: no session id, no
 workspace path, no environment. The state is not rewritten because sending it is
 the point - with one exception: `bin/tezgah-route` sends its brief through the
-ledger's own redactor (`redact`, `hooks/tezgah_integrity.py:559`), because a
+ledger's own redactor (`redact`, `hooks/tezgah_integrity.py:560`), because a
 delegation brief can quote an error message or a token, and a brief matching the
 router's override pattern (stored data, credentials, security) is never sent at
 all. Three of the callers are explicit - a person runs the tool - and the
@@ -59,13 +59,13 @@ switches below are the off buttons.
 |---|---|---|
 | `bin/tezgah-triage` | the analyze-app snapshot triage. `--select FILE --task T` asks one question per repeating unit of the screen in one request and prints the line ids under the selected units with their refs (`select_request`, `bin/tezgah-triage:230-248`; the units are the tree's own repeating pieces, `units`, `bin/tezgah-triage:204-229`). `--states` asks one judgement per state over a component's subtree (`states`, `bin/tezgah-triage:308-431`) | exit 1 with one reason (`no_judgement`, `bin/tezgah-triage:107-113`), and the loop reads the tree directly |
 | `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:195-228`; the question wording is `ASK`, `bin/tezgah-docs:162-169`) | returns `None`; the command prints what it always printed and exits 1 |
-| `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py:144-176`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py:81-109`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py:46-48`) and an 8 s timeout (`ASK_TIMEOUT`, `hooks/tezgah_skill_pick.py:49-54`) | returns `""`; the turn loses the hint |
-| `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:546-570`; `TIER_QUESTION`, `hooks/tezgah_models.py:524-545`) - see [models](models.md) | the static phase table, else the middle tier |
+| `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py:144-176`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py:84-112`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py:46-48`) and an 8 s timeout (`ASK_TIMEOUT`, `hooks/tezgah_skill_pick.py:49-54`) | returns `""`; the turn loses the hint |
+| `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:657-681`; `TIER_QUESTION`, `hooks/tezgah_models.py:635-656`) - see [models](models.md) | the static phase table, else the middle tier |
 
 The third caller is the one no shell row can see: it runs on the prompt path,
 caches one answer per `(session, prompt)` (`_remember`,
-`hooks/tezgah_skill_pick.py:191-206`; `suggest`,
-`hooks/tezgah_skill_pick.py:207-222`), and asks at all only when its own marker is
+`hooks/tezgah_skill_pick.py:194-209`; `suggest`,
+`hooks/tezgah_skill_pick.py:210-225`), and asks at all only when its own marker is
 armed. The other two are bin tools a session runs by name.
 
 ## The credential's channels
@@ -125,20 +125,20 @@ measured rather than assumed - 0 of 184 live calls returned `None` - so the seco
 attempt costs a healthy call nothing (`_transient`,
 `hooks/tezgah_judge.py:261-273`); `docs/operations.md` records the run. Each
 caller also records one `judge` row of cost on the ledger when a session id is
-known (`note`, `hooks/tezgah_integrity.py:723-735`), counted by the row's kind
-(`counters`, `hooks/tezgah_integrity.py:1307-1338`).
+known (`note`, `hooks/tezgah_integrity.py:724-736`), counted by the row's kind
+(`counters`, `hooks/tezgah_integrity.py:1308-1339`).
 
 ## What the seam never does
 
 1. **No always-on rule paragraph.** It is on-demand, and the conditional keys
    exist exactly so a session that never asks does not carry the text
-   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:842-846`). Naming it buys discovery
+   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:846-850`). Naming it buys discovery
    for one clause; a paragraph would cost the always-on block.
 2. **Nothing in the gate, the Stop rule, the shortcut parser or
    the PreToolUse hot path.** Refusal reproducibility is an invariant with tests
    behind it, and a probabilistic answer on a denial path is a policy bug.
 3. **No seam-level cache, and no caller cache beyond the prompt-keyed one that
-   exists** (`_remember`, `hooks/tezgah_skill_pick.py:191-206`). A judgement costs
+   exists** (`_remember`, `hooks/tezgah_skill_pick.py:194-209`). A judgement costs
    a fraction of a cent, so a cache is not worth its state file, and a naive one
    would make two runs of the same command disagree.
 4. **No SDK, no `requests`, no async, no local model.** Each would trade one of
@@ -151,7 +151,7 @@ known (`note`, `hooks/tezgah_integrity.py:723-735`), counted by the row's kind
    the tools' own docstrings, and the user-facing surface is already the two tool
    names.
 7. **A judgement never counts as a check or a step.** The step kinds stay as they
-   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:1096-1101`); the cost row is a
+   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:1097-1102`); the cost row is a
    counter, not evidence.
 
 ## Source of truth

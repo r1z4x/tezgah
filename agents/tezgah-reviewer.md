@@ -78,6 +78,14 @@ Every reported finding carries one of these, and the words mean exactly this:
 A severity is lowered only by evidence. A check you could not complete never
 downgrades a confirmed finding; keep its severity and mark it provisional.
 
+## Scope and budget
+
+A second round reads only the delta since the sha the first round recorded
+(`tezgah-task review` prints it). Test results are input: read the author's
+output file, do not run the suite, and run at most one `-k` test when a specific
+accusation needs it. Stop at two rounds - a third pass over one change is a sign
+the design needs a pivot, not another patch.
+
 ## Constraints, scored separately
 
 The task named constraints the change had to keep - preserve this behaviour,

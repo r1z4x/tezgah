@@ -614,6 +614,30 @@ class Cli(TempHome):
         self.assertEqual(fields["status"], "done")
         self.assertTrue(fields["review"].startswith("tezgah-reviewer approve "))
 
+    def test_review_records_the_sha_so_the_next_round_reads_only_the_delta(self):
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        with open(path, "a") as fh:
+            fh.write("## Acceptance\n" + COMMAND_ITEM)
+        env = dict(os.environ, **GIT_ENV)
+        ident = ["-c", "user.name=t", "-c", "user.email=t@localhost"]
+        subprocess.run(["git", "-C", self.repo] + ident +
+                       ["commit", "-q", "--allow-empty", "-m", "base"],
+                       check=True, env=env)
+        head = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"],
+                              capture_output=True, text=True, env=env).stdout.strip()[:12]
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "changes").returncode, 0)
+        fields = tt.frontmatter(read(path))
+        self.assertEqual(fields["reviewed_sha"], head)
+        self.assertEqual(fields["review_round"], "1")
+        out = self.task("start", "001", "--phase", "verification").stdout
+        self.assertIn("review round 2", out)
+        self.assertIn("git diff %s..HEAD" % head, out)
+        self.assertNotIn("2-round budget is spent", out)
+        self.task("review", "001", "tezgah-reviewer", "changes")
+        self.assertEqual(tt.frontmatter(read(path))["review_round"], "2")
+        out = self.task("status").stdout
+        self.assertIn("2-round budget is spent", out)
+
     def test_close_refuses_the_active_task_and_discards_without_review(self):
         self.plan("001-first.md", phase="discovery")
         self.plan("002-second.md")

@@ -79,7 +79,7 @@ import re
 from tezgah_integrity import (BASH_TOOLS, HEREDOC, STEP_KINDS, WRITE_TOOLS,
                               _turn_start, call_id, cut, events, mask, note,
                               prior_calls, shortcut_command, shortcut_edit,
-                              turn_rows)
+                              turn_rows, verify_command)
 from tezgah_paths import cache_dir, off, root_for, roots
 
 try:  # The ordering rule's two readers (the newest check's state, folded the way
@@ -510,7 +510,13 @@ def retry_reason(tool, inp, session_id):
     is that half: the count is every attempt of the id that ran in the session,
     outcome-blind, and the user's turn does not reset it. A refused call never
     ran, so the gate's own denials are not attempts and cannot walk a call up to
-    the ceiling by themselves."""
+    the ceiling by themselves.
+
+    A verification command is the exception, and the tree is the switch: a check
+    re-run after the tree changed is not a blind repeat - the edit-loop cadence
+    needs it - so its attempts are counted since the last write row only. What
+    still hits the ceiling is a check run four times on an unchanged tree, which
+    is the spin this guard exists for."""
     if not session_id:
         return None
     digest = call_id(tool, inp)
@@ -519,12 +525,36 @@ def retry_reason(tool, inp, session_id):
     attempts = prior_calls(session_id, digest)[1]
     if attempts < RETRY_CEILING:
         return None
+    if str(tool or "").lower() in BASH_TOOLS \
+            and verify_command((inp or {}).get("command")) \
+            and _tree_changed_since_last_attempt(session_id, digest):
+        return None
     return ("Retry ceiling denied: this is attempt %d of an identical call in "
             "this session, past the ceiling of %d attempts whatever their "
             "outcome. An unchanged repeat is not a retry - change the arguments "
             "or the target, or stop and report what is still unknown. (The "
             "`loop` guard is the narrower rule: the identical attempts that "
             "FAILED, counted per user turn.)" % (attempts + 1, RETRY_CEILING))
+
+
+def _tree_changed_since_last_attempt(session_id, digest):
+    """True when any write row sits between the newest attempt of this call and
+    now: the tree the last check ran on is gone, so a re-run reads a new state.
+
+    prior_calls' scan is reused: the rows it counted attempts over are the rows
+    this reads, so there is no second ledger scan. A row with no `id` is a deny
+    or a nudge, never a real call. Any failure here fails open - the ceiling is
+    the conservative answer."""
+    try:
+        rows = events(session_id, tail=200)
+        idx = [i for i, row in enumerate(rows)
+               if row.get("id") == digest and row.get("exit") is not None]
+        start = idx[0] if idx else len(rows)
+        return any(str(row.get("tool", "")).lower() in WRITE_TOOLS
+                   or str(row.get("kind", "")) in ("edit",)
+                   for row in rows[start:])
+    except Exception:
+        return False
 
 
 def secret_command(command):
@@ -630,6 +660,11 @@ def race_reason(inp, session_id):
     if writers_elsewhere is None or not session_id:
         return None
     for path in write_paths(inp):
+        # an internal URI (`agent://Main`, `xd://<tool>`) is not a file: two
+        # observed refusals today wrote tool replies through those schemes and
+        # this guard read the scheme as a relative path
+        if re.match(r"^[a-z][a-z0-9+.-]*://", path, re.I):
+            continue
         others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN)
         if others:
             return RACE_DENY % (", ".join(str(s) for s in others[:3]),

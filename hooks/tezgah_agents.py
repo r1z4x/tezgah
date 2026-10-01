@@ -193,6 +193,12 @@ def _reviewer_body(host):
         "is lowered only by evidence: a check you could not complete never\n"
         "downgrades a confirmed finding - keep its severity and mark it\n"
         "provisional. Disclose the order you read the files in.\n\n"
+        "Scope and budget. On a second round read only the delta since the sha the\n"
+        "first round recorded (`tezgah-task review` prints it): re-reading the whole\n"
+        "diff re-reports what was already triaged. Test results are input, not a task\n"
+        "- read the author's output file; do not run the suite, and run at most one\n"
+        "`-k` test when a specific accusation needs it. Stop at two rounds: a third\n"
+        "pass over one change is a sign the design needs a pivot, not another patch.\n\n"
         "%s" % (_graph_howto(host), _may_use(host)))
 
 

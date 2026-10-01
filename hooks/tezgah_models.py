@@ -12,8 +12,11 @@ per family, and each host gets the family it can run:
   opencode              any         a selector `refresh` found in `opencode models`
   omp                   anthropic when the session default is an Anthropic model,
                         any otherwise (or `tezgah-route --mode`); written to omp's
-                        `task.agentModelOverrides`, and to its `modelRoles.plan`
-                        and `.slow`, on the frontier row
+                        `task.agentModelOverrides` as a per-agent fallback chain
+                        (the mode's family, then every other family this machine
+                        holds a credential for), and to its `modelRoles.plan` and
+                        `.slow`, on the frontier row, with their fallbacks in
+                        `retry.fallbackChains`
 
 Two accessors are the table's public face, so a caller that needs a cheap or a
 strong model names none of its own: `frontier_model(family)` and
@@ -39,6 +42,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import urllib.request
 
@@ -193,6 +197,54 @@ def openrouter_ready():
         return False
 
 
+# The families omp can run from this table, in fallback order once the mode's own
+# family has gone first. `openai` is absent on purpose: omp's `openai-codex`
+# provider lists none of the column's ids on this machine (`omp models
+# openai-codex`, 2026-10-01: gpt-5.5, gpt-5.6-luna/-terra, gpt-6-luna), so a
+# pattern for it would never resolve.
+OMP_FAMILIES = ("anthropic", "zai", "any")
+# family -> (omp's auth-store provider id, the env names omp reads for it)
+# (omp://providers.md:39, omp://environment-variables.md:39-40,71,73).
+OMP_AUTH = {"anthropic": ("anthropic", ("ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY")),
+            "zai": ("zai", ("ZAI_API_KEY",)),
+            "any": ("openrouter", ("OPENROUTER_API_KEY",))}
+
+
+def _omp_stored_providers():
+    """The provider ids omp's local auth store holds an enabled credential for.
+
+    Only the provider column is read, never a secret. An auth broker, a store
+    that cannot be opened or a schema that moved all read as empty: what this
+    cannot see it does not claim."""
+    path = os.path.join(OMP_AGENT, "agent.db")
+    if not os.path.exists(path):
+        return set()
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=1)
+        try:
+            rows = con.execute("SELECT provider FROM auth_credentials "
+                               "WHERE disabled_cause IS NULL").fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return set()
+    return {row[0] for row in rows}
+
+
+def funded_families():
+    """The `OMP_FAMILIES` with a credential this machine shows: an omp auth-store
+    entry, an env key omp reads, or (for `any`) `openrouter_ready`.
+
+    A credential is not a balance - a funded-looking key can still answer 402 -
+    which is why each agent gets a chain rather than one more pin. A family whose
+    credential cannot be detected is left out, never guessed in."""
+    stored = _omp_stored_providers()
+    return [family for family in OMP_FAMILIES
+            if OMP_AUTH[family][0] in stored
+            or any(os.environ.get(env, "").strip() for env in OMP_AUTH[family][1])
+            or (family == "any" and openrouter_ready())]
+
+
 def omp_mode(default_selector=None):
     """`anthropic`, `zai` or `any`: the saved mode, else the default's own family.
 
@@ -230,21 +282,40 @@ def _selector(family, slot):
     return FAMILY_PREFIX[family] + model + (":" + effort if effort else "")
 
 
+def _chain(mode, slot, funded):
+    """[selector, ...] for one slot: the mode's family first - the user picked it,
+    so it leads even when its credential is not visible from here - then every
+    other funded family, each on that slot's own row."""
+    families = [mode] + [f for f in OMP_FAMILIES if f != mode and f in funded]
+    return [_selector(family, slot) for family in families]
+
+
+def _runnable(mode):
+    return mode in OMP_FAMILIES and not (mode == "any" and not openrouter_ready())
+
+
 def omp_overrides(mode):
-    """{agent: omp selector} for `task.agentModelOverrides`, tezgah roles and the
-    bundled agents alike, or {} when the mode cannot run on this machine.
+    """{agent: omp selector chain} for `task.agentModelOverrides`, tezgah roles
+    and the bundled agents alike, or {} when the mode cannot run on this machine.
+
+    Each value is a comma-separated chain, which omp splits into one pattern per
+    entry and turns into a per-spawn fallback chain - the first resolvable
+    pattern is primary, the rest its fallbacks (omp://settings.md:544,
+    omp://task-agent-discovery.md:42). One pin per agent made one provider's 429
+    every subagent's failure, the account being the one the main thread spends
+    (measured 2026-10-01: 24 of 26 post-routing 429s at a subagent's first
+    request, all on one Opus account). With one funded family the chain is that
+    family's selector alone.
 
     Every slot is written, frontier included: a frontier agent the record left
     out would run on whatever model the session started with, and in the `any`
     mode that is measured as a flash model, so security-sensitive work would run
     below the row. Only `tezgah-orchestrator` stays outside the record - it is
     the main thread's own agent."""
-    if mode not in ("anthropic", "zai", "any"):
-        return {}  # `off` asks for nothing; the record stays as the user left it
-    if mode == "any" and not openrouter_ready():
-        return {}  # nothing can run here; `apply_omp` says so and writes nothing
-    family = mode if mode in ("anthropic", "zai") else "any"
-    return {agent: _selector(family, slot)
+    if not _runnable(mode):
+        return {}  # `off` asks for nothing; `any` without a key cannot run here
+    funded = funded_families()
+    return {agent: ",".join(_chain(mode, slot, funded))
             for agent, slot in dict(AGENT_SLOT, **BUNDLED).items()}
 
 
@@ -254,16 +325,27 @@ def omp_role_overrides(mode):
 
     Plan mode is the one surface where a session designs on its own tokens, so
     it is pinned to the frontier row of the mode's family rather than left on
-    whatever model the session happened to start with; `slow` follows it. The
-    same OpenRouter gate as `omp_overrides` applies, and `off` resolves to {} -
-    it writes nothing."""
-    if mode not in ("anthropic", "zai", "any"):
+    whatever model the session happened to start with; `slow` follows it. A role
+    holds one selector (omp://models.md, "Role aliases and settings"): its
+    fallbacks are `omp_role_chains`. The same OpenRouter gate as `omp_overrides`
+    applies, and `off` resolves to {} - it writes nothing."""
+    if not _runnable(mode):
         return {}
-    if mode == "any" and not openrouter_ready():
-        return {}
-    family = mode if mode in ("anthropic", "zai") else "any"
-    return {"modelRoles." + role: _selector(family, "frontier")
+    return {"modelRoles." + role: _selector(mode, "frontier")
             for role in OMP_ROLES}
+
+
+def omp_role_chains(mode):
+    """{"retry.fallbackChains.<role>": [selector, ...]} for `OMP_ROLES`: the
+    frontier row of every other funded family, which omp tries after the role's
+    own model fails (omp://settings.md:544). Empty with one funded family, and
+    for a mode that cannot run. Only these two role keys are tezgah's: the
+    `default` chain and the provider-keyed ones stay the user's."""
+    if not _runnable(mode):
+        return {}
+    rest = _chain(mode, "frontier", funded_families())[1:]
+    return {"retry.fallbackChains." + role: rest
+            for role in OMP_ROLES} if rest else {}
 
 
 def _omp(*args):
@@ -318,6 +400,15 @@ def _ours_by_shape(key, value):
     # every column, not the two that existed first: a machine whose funded
     # provider is z.ai holds the zai column's own selectors, and reading those as
     # the user's left three entries behind on a mode switch (measured 2026-10-01).
+    # A plain selector still counts on every column even though the table now
+    # writes chains: pre-chain installs hold single-family selectors, and the
+    # bytes are ours whichever shape we wrote.
+    slot = AGENT_SLOT.get(key) or BUNDLED.get(key)
+    if slot and any(_selector(family, slot) == value for family in OMP_FAMILIES):
+        return True
+    if key.split(".", 1)[-1] in OMP_ROLES and any(
+            _selector(family, "frontier") == value for family in OMP_FAMILIES):
+        return True
     return any((omp_overrides(mode) or {}).get(key) == value or
                (omp_role_overrides(mode) or {}).get(key) == value
                for mode in MODES)
@@ -377,6 +468,7 @@ def apply_omp(remove=False):
     one-line status, or None when omp is not answering."""
     current = omp_get("task.agentModelOverrides")
     roles = omp_get("modelRoles")
+    chains = omp_get("retry.fallbackChains") or {}
     if current is None or roles is None:
         return None
     written = overlay().get("omp_written") or {}
@@ -407,13 +499,32 @@ def apply_omp(remove=False):
             merged.pop(role, None)
         else:
             merged[role] = value
-    if owns == written and new == current and merged == roles:
+    # the roles' fallbacks live in omp's retry table, under keys tezgah owns:
+    # `default` and the provider-keyed chains stay the user's
+    flat_chains = {"retry.fallbackChains." + role: chains.get(role)
+                   for role in OMP_ROLES}
+    want_chains = {} if remove else omp_role_chains(mode)
+    new_chains, owns_chains = _reconcile(flat_chains, written, want_chains)
+    owns.update(owns_chains)
+    merged_chains = dict(chains)
+    for key in flat_chains:
+        role = key.split(".", 1)[1]
+        value = new_chains.get(key)
+        if value is None:
+            merged_chains.pop(role, None)
+        else:
+            merged_chains[role] = value
+    if owns == written and new == current and merged == roles \
+            and merged_chains == chains:
         return "omp model overrides current (%s)" % (mode or "none")
     # the write comes first: recording what tezgah owns before the record it
     # describes exists would leave a failed write claiming entries it never wrote
     if new != current and _omp_set("task.agentModelOverrides", new) is None:
         return "omp model overrides NOT written"
     if merged != roles and _omp_set("modelRoles", merged) is None:
+        return "omp model overrides NOT written"
+    if merged_chains != chains and _omp_set("retry.fallbackChains",
+                                            merged_chains) is None:
         return "omp model overrides NOT written"
     data = overlay()
     data["omp_written"] = owns

@@ -14,6 +14,10 @@ opencode, dsh and omp say exactly the same thing.
 """
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import tezgah_research as tr  # noqa: E402  (the layer's own line resolver)
 
 PONYTAIL = """
 ## Code style: ponytail (auto-armed, tezgah roots only)
@@ -978,16 +982,12 @@ def open_lines(repo):
     Sorted by slug so the sentence reads the same on every turn, and so a line
     that gets closed drops out of it instead of moving another one somewhere
     else."""
-    base = os.path.join(repo, ".tezgah", "research")
-    try:
-        names = sorted(os.listdir(base))
-    except OSError:
-        return []
+    # the layer's own resolver lists the lines wherever the layout puts them:
+    # walking the root here read the `open/` folder itself as a line
+    names = tr.slugs(repo)
     out = []
     for name in names:
-        if not os.path.isdir(os.path.join(base, name)):
-            continue
-        reasons = _open_reasons(os.path.join(base, name))
+        reasons = _open_reasons(tr.line_dir(repo, name))
         if reasons:
             out.append((name, reasons))
     return out

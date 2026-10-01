@@ -128,18 +128,28 @@ def cmd_init(args):
         return misuse("init <slug>: %r is not a slug - lowercase letters, digits "
                       "and dashes" % args[0])
     question, allow, supersedes = "", None, None
+    ask, tier = "", str(tr.DEFAULT_TIER)
     rest = args[1:]
     while rest:
         flag = rest.pop(0)
         if flag == "--question" and rest:
             question = rest.pop(0)
+        elif flag == "--ask" and rest:
+            ask = rest.pop(0)
+        elif flag == "--tier" and rest:
+            tier = rest.pop(0)
         elif flag == "--allow-open" and rest:
             allow = rest.pop(0)
         elif flag == "--supersedes" and rest:
             supersedes = rest.pop(0)
         else:
-            return misuse('init <slug> [--question "..."] [--allow-open "<reason>"] '
-                          '[--supersedes <slug>]')
+            return misuse('init <slug> --ask "<the user\'s words>" [--tier quick|study|program]'
+                          ' [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]')
+    problems = tr.ask_problems(ask, tier)
+    if problems:
+        for problem in problems:
+            print("FAIL init: %s" % problem)
+        return 1
     if allow is not None and not allow.strip():
         return misuse("--allow-open needs the reason the new line is worth opening "
                       "over the unfinished ones")
@@ -178,7 +188,7 @@ def cmd_init(args):
         return 1
     created = time.strftime("%Y-%m-%d")
     made = tr.init(repo, slug, question=question, created=created,
-                   supersedes=supersedes)
+                   supersedes=supersedes, ask=ask, tier=tier)
     if allow is not None:
         problem = tr.note_open(repo, slug, allow, created)
         if problem:
@@ -529,16 +539,96 @@ def cmd_compare(args):
     return 0
 
 
+def cmd_verdict(args):
+    """Record one success criterion's verdict, with the evidence it rests on."""
+    if len(args) < 3:
+        return misuse('verdict <slug> <id> met|not-met|unanswerable --evidence "<ref>"')
+    slug, sid, verdict = args[0], args[1], args[2]
+    evidence = ""
+    rest = args[3:]
+    while rest:
+        flag = rest.pop(0)
+        if flag == "--evidence" and rest:
+            evidence = rest.pop(0)
+        else:
+            return misuse('verdict <slug> <id> met|not-met|unanswerable --evidence "<ref>"')
+    repo = repo_root(os.getcwd())
+    if slug not in tr.slugs(repo):
+        return misuse("no such research line: %s" % slug)
+    path = os.path.join(tr.line_dir(repo, slug), "state.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print("FAIL %s: state.json does not parse (%s)" % (slug, exc))
+        return 1
+    if not isinstance(state, dict):
+        print("FAIL %s: state.json is not an object" % slug)
+        return 1
+    problems = tr.verdict_problems(state, [(sid, verdict, evidence)])
+    if problems:
+        for problem in problems:
+            print("FAIL verdict: %s" % problem)
+        return 1
+    for row in state.get("success") or []:
+        if str(row.get("id")) == sid:
+            row["verdict"] = verdict
+            row["evidence"] = evidence
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(state, indent=2) + "\n")
+    print("criterion %s: %s (%s)" % (sid, verdict, evidence))
+    return 0
+
+
+def cmd_conclude(args):
+    """Conclude a line once every success criterion carries a verdict."""
+    if len(args) != 1:
+        return misuse("conclude <slug>")
+    slug = args[0]
+    repo = repo_root(os.getcwd())
+    if slug not in tr.slugs(repo):
+        return misuse("no such research line: %s" % slug)
+    problems, _state = tr.conclude_line(repo, slug, time.strftime("%Y-%m-%d"))
+    if problems:
+        for problem in problems:
+            print("FAIL conclude: %s" % problem)
+        return 1
+    print("concluded %s; it moved to research/done/%s" % (slug, slug))
+    return 0
+
+
+def cmd_migrate_layout(args):
+    """Move flat `research/<slug>` directories into `open/` or `done/`."""
+    if args:
+        return misuse("migrate-layout takes no arguments")
+    repo = repo_root(os.getcwd())
+    moved = tr.migrate_layout(repo)
+    for slug, folder in moved:
+        print("moved %s -> research/%s/%s" % (slug, folder, slug))
+    print("migrate-layout: %d line(s) moved" % len(moved))
+    return 0
+
+
 def cmd_close(args):
     """Conclude a line as a deliberate limit, writing what was left and why."""
-    if len(args) != 3 or args[1] != "--limit" or not args[2].strip():
-        return misuse('close <slug> --limit "<what is left and why>"')
-    slug, limit = args[0], args[2]
+    ack = ""
+    rest = list(args)
+    if "--ack" in rest:
+        i = rest.index("--ack")
+        if i + 1 >= len(rest):
+            return misuse('--ack "<what the user said>" needs the words')
+        ack = rest[i + 1]
+        rest = rest[:i] + rest[i + 2:]
+    if len(rest) != 3 or rest[1] != "--limit" or not rest[2].strip():
+        return misuse('close <slug> --limit "<what is left and why>" '
+                      '[--ack "<what the user said about the unmet criteria>"]')
+    slug, limit = rest[0], rest[2]
     repo = repo_root(os.getcwd())
     known = tr.slugs(repo)
     if slug not in known:
         return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
-    left, problem = tr.close_line(repo, slug, limit, time.strftime("%Y-%m-%d"))
+    left, problem = tr.close_line(repo, slug, limit,
+                                  time.strftime("%Y-%m-%d"), ack=ack)
     if problem:
         print("FAIL %s: %s" % (slug, problem))
         return 1
@@ -583,6 +673,12 @@ def main(argv):
         return cmd_source(rest)
     if cmd == "compare":
         return cmd_compare(rest)
+    if cmd == "verdict":
+        return cmd_verdict(rest)
+    if cmd == "conclude":
+        return cmd_conclude(rest)
+    if cmd == "migrate-layout":
+        return cmd_migrate_layout(rest)
     if cmd == "close":
         return cmd_close(rest)
     return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "

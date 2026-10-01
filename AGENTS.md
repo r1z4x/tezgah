@@ -12,17 +12,32 @@ Reach a page with `bin/tezgah-docs <words>` (it reads `docs/index.json`) instead
 of grepping the tree; a page that is not in the index is not reachable, and
 `tests/test_docs.py` keeps the two in step.
 
-## Checks (run before every commit)
+## Checks, by tier
+
+The full suite is ~570 s serially and the sharded run is ~105 s; neither belongs
+in the edit loop. Three tiers, and the measured wall time of each (2026-10-01):
 
 ```sh
+# while editing: the modules the change touches (~10-95 s, parallel)
+python3 tests/impacted.py --run hooks/tezgah_integrity.py bin/tezgah-task
+
+# before a commit: that set plus the cheap whole-tree checks (~40 s + lint)
 python3 -m compileall -q hooks hosts bin statusline.py   # byte-compile every script
-python3 -m unittest discover -s tests                     # stdlib test suite
 ruff check .                                              # lint; config in pyproject.toml
-python3 bin/tezgah-docs --citations                       # every citation still shows what it names
-python3 skills/plan-add/render_table.py --acceptance --strict  # an open plan names how it is proven
+python3 bin/tezgah-docs --citations                       # only when hooks/ or bin/ changed
+python3 skills/plan-add/render_table.py --acceptance --strict
+
+# once per final tree, before a merge (~105 s + the e2e scripts)
+python3 tests/impacted.py --all                           # the whole suite, sharded
 python3 tests/e2e_packaged_install.py                     # install from the built artifact, not the checkout
 TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py        # the plan and decision rules, in a real project
 ```
+
+`tests/impacted.py --ref <branch>` maps whatever changed since that ref;
+`--list` prints the set without running. A change to `tests/support.py`,
+`hooks/tezgah_paths.py` or any path the map does not know runs the full suite -
+that is the fail-safe, not a bug. Never run `--all` in the edit loop, and never
+twice on one revision.
 
 - `ruff` is installed as a uv tool (`uv tool install ruff`); without it, run the
   same check via `uvx ruff check .`. There is no other linter or type checker.

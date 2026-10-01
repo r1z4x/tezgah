@@ -18,7 +18,7 @@ itself (`.claude-plugin/plugin.json`, mirrored in
 
    ```bash
    python3 -m compileall -q hooks hosts bin statusline.py
-   python3 -m unittest discover -s tests
+   python3 tests/impacted.py --all
    ruff check .
    python3 bin/tezgah-docs --citations
    python3 skills/plan-add/render_table.py --acceptance --strict

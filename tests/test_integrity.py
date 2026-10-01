@@ -650,6 +650,26 @@ class ScratchEvidenceReader(unittest.TestCase):
             self.seed(self.passed(command))
             self.assertEqual(self.command(), command, command)
 
+    def test_an_output_redirect_to_temp_is_not_a_scratch_run(self):
+        # the prescribed shape is `pytest > /tmp/check.log 2>&1`: the log's path
+        # is not the path the check ran against, and reading it as scratch told
+        # a session its green suite was a stand-in (measured 2026-10-01)
+        for command in ("python3 -m unittest discover -s tests > /tmp/suite.log 2>&1",
+                        "pytest -q >> /tmp/suite.log 2>&1",
+                        "ruff check . > $TMPDIR/ruff.log 2>&1"):
+            self.seed(self.passed(command))
+            self.assertIsNone(self.command(), command)
+
+    def test_a_scratch_target_beside_a_temp_log_is_still_scratch(self):
+        self.seed(self.passed("python3 /tmp/probe.py > /tmp/probe.log 2>&1"))
+        self.assertEqual(self.command(),
+                         "python3 /tmp/probe.py > /tmp/probe.log 2>&1")
+
+    def test_the_impacted_runner_is_a_check(self):
+        for command in ("python3 tests/impacted.py --run hooks/x.py",
+                        "python3 tests/impacted.py --all"):
+            self.assertIsNotNone(ti.verify_command(command), command)
+
     def test_a_stand_in_segment_is_scratch_and_a_longer_word_is_not(self):
         for command in ("python3 tools/fixtures/gen.py", "node fake/server.js",
                         "python3 stub.py", "python3 samples/big.py",

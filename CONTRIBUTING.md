@@ -13,9 +13,15 @@ Run the same three checks CI runs:
 
 ```bash
 python3 -m compileall -q hooks hosts bin statusline.py   # byte-compile every script
-python3 -m unittest discover -s tests                     # stdlib test suite
+python3 tests/impacted.py --ref origin/main               # the modules your change touches
 ruff check .                                              # lint; config in pyproject.toml
+python3 tests/impacted.py --all                           # the sharded full suite, once
 ```
+
+`tests/impacted.py --ref <ref>` maps every path your change touched to the test
+modules that exercise it and runs them in parallel; `--all` shards the whole
+suite (~105 s against ~570 s serial). A change to `tests/support.py` or an
+unmapped path runs everything - that is the fail-safe.
 
 `ruff` comes from `requirements-dev.txt` (`pip install -r requirements-dev.txt`),
 the only development dependency.

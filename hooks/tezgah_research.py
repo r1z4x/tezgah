@@ -268,21 +268,107 @@ def _soft(errors, warnings, hard, message):
     (errors if hard else warnings).append(message)
 
 
+OPEN = "open"
+DONE = "done"
+
+
 def root(repo):
     return os.path.join(repo, ".tezgah", "research")
 
 
+def layout_roots(repo):
+    """Where a line may live, in precedence order: `open/`, `done/`, then the
+    flat root a workspace that has not run `migrate-layout` still holds. One
+    resolver for every reader, so a line is found wherever it sits and a new one
+    is written under `open/`."""
+    base = root(repo)
+    return [os.path.join(base, OPEN), os.path.join(base, DONE), base]
+
+
 def slugs(repo):
-    try:
-        names = os.listdir(root(repo))
-    except OSError:
-        return []
-    return sorted(n for n in names if os.path.isdir(os.path.join(root(repo), n))
-                  and not n.startswith("."))
+    seen = {}
+    for folder in layout_roots(repo):
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            if name.startswith(".") or not name:
+                continue
+            # the layout folders are not lines: the flat root still holds them
+            if folder == root(repo) and name in (OPEN, DONE):
+                continue
+            if os.path.isdir(os.path.join(folder, name)):
+                seen.setdefault(name, folder)
+    return sorted(seen)
 
 
 def line_dir(repo, slug):
-    return os.path.join(root(repo), slug)
+    """The one resolver: the first layout root that holds the line, else the
+    `open/` path a new line is created at."""
+    for folder in layout_roots(repo):
+        path = os.path.join(folder, slug)
+        if os.path.isdir(path):
+            return path
+    return os.path.join(root(repo), OPEN, slug)
+
+
+def sealed(repo, slug):
+    """True when the line sits under `done/`: concluded or closed."""
+    return os.path.isdir(os.path.join(root(repo), DONE, slug))
+
+
+def legacy_layout(repo):
+    """The flat lines a workspace still holds, for `migrate-layout` and for the
+    one-line notice `check`/`status` print when it finds any."""
+    base = root(repo)
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return []
+    return sorted(n for n in names
+                  if not n.startswith(".") and n not in (OPEN, DONE)
+                  and os.path.isdir(os.path.join(base, n)))
+
+
+def migrate_layout(repo):
+    """[(slug, folder)] for the flat lines moved into `open/` or `done/`.
+
+    A concluded or closed line goes to `done/`, everything else to `open/`, and
+    the move is a rename inside the workspace so the private repository sees it
+    as a rename on the next `commit`. Idempotent: a workspace already in the two
+    folders has nothing flat to move and returns []."""
+    moved = []
+    for slug in legacy_layout(repo):
+        state, _exc = _read_json(os.path.join(root(repo), slug, "state.json"))
+        concluded = isinstance(state, dict) and (
+            str(state.get("phase")) == "concluded" or bool(state.get("closed")))
+        folder = DONE if concluded else OPEN
+        _path, problem = move_line(repo, slug, folder)
+        if not problem:
+            moved.append((slug, folder))
+    return moved
+
+
+def line_state(repo, slug):
+    """`state.json` for a line, wherever the layout puts it, or {}."""
+    state, _exc = _read_json(os.path.join(line_dir(repo, slug), "state.json"))
+    return state if isinstance(state, dict) else {}
+
+
+def move_line(repo, slug, folder):
+    """Move a line between layout folders. Returns (new path, problem)."""
+    src = line_dir(repo, slug)
+    dst_root = os.path.join(root(repo), folder)
+    dst = os.path.join(dst_root, slug)
+    if os.path.realpath(src) == os.path.realpath(dst):
+        return dst, None
+    try:
+        os.makedirs(dst_root, exist_ok=True)
+        os.rename(src, dst)
+    except OSError as exc:
+        return src, str(exc)
+    return dst, None
 
 
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
@@ -675,9 +761,60 @@ def _check_state(base, errors, warnings, strict):
     _check_evaluation(state, errors, warnings, strict)
     _check_hypotheses(state, errors)
     _check_sessions(state, errors)
+    _check_success(state, errors, warnings, strict)
     # The one rule about `phase` that is not read from the field: the line's own
     # artifacts are the other authority beside it, and a field behind them warns.
     _check_derived_phase(base, state.get("phase"), warnings)
+
+
+def _check_success(state, errors, warnings, strict):
+    """The ask contract, on a line opened under `ASK_RULES`.
+
+    Two refusals, both about the line answering the user rather than itself: a
+    line that names no success criterion has nothing a conclusion could be
+    judged against (the shape checks this layer already had let a report pass
+    that answered nothing - measured 2026-10-01: 4 of 11 sampled lines concluded
+    with the ask unanswered), and a concluded line whose criteria carry no
+    verdict is that same exit with the paperwork of a result. Older lines are
+    untouched: they were opened under rules that did not ask for either field."""
+    # the contract is keyed on the line stating an ask, not on its rules number:
+    # a line that never named the user's words keeps the rules it was opened
+    # under, whatever version its state.json carries
+    if not str(state.get("ask") or "").strip():
+        return
+    rows = success_rows(state.get("success"))
+    if not rows:
+        # the same shape as the evaluation lock: at bootstrap the missing field
+        # is the ordinary state of a line that has not started (a warning, and a
+        # refusal under `--strict`); past it the line has run something, and a
+        # result with no criterion to judge it is the failure this rule exists for
+        _soft(errors, warnings,
+              strict or str(state.get("phase")) != "bootstrap",
+              "no success criteria: state.json `success` names one per part of "
+              "the ask, written before any experiment - a line without them "
+              "cannot say whether it answered")
+        return
+    for sid, criterion, verdict, evidence in rows:
+        if not sid or not criterion:
+            errors.append("a success criterion carries no id or no text")
+        if verdict and verdict not in VERDICTS:
+            errors.append("success criterion %s: verdict %r is not one of %s"
+                          % (sid, verdict, ", ".join(VERDICTS)))
+        if verdict in VERDICTS and not evidence:
+            errors.append("success criterion %s: a verdict with no evidence "
+                          "pointer is an opinion" % sid)
+    if str(state.get("phase")) == "concluded":
+        unjudged = [sid for sid, _c, verdict, _e in rows if verdict not in VERDICTS]
+        if unjudged:
+            errors.append("concluded with no verdict for %s: judge each criterion "
+                          "(`tezgah-research verdict`) before concluding"
+                          % ", ".join(unjudged))
+        if unanswered(state) and not (state.get("closed") or {}).get("ack") \
+                and not _user_event(state):
+            errors.append("concluded with a criterion not met and no "
+                          "acknowledgement: record what the user said (`close "
+                          "--ack`), or the line is an unanswered ask wearing a "
+                          "conclusion")
 
 
 def _check_evaluation(state, errors, warnings, strict):
@@ -3106,7 +3243,7 @@ def broken_open_lines(repo):
     return out
 
 
-def close_line(repo, slug, limit, date=""):
+def close_line(repo, slug, limit, date="", ack=""):
     """(reasons left, problem): conclude `slug` as a deliberate limit. The open
     reasons at the moment of closing are written into `state.json` `closed` and
     into `log.md`, so the limit says exactly what was left and why, and the line
@@ -3118,8 +3255,16 @@ def close_line(repo, slug, limit, date=""):
     if exc or not isinstance(state, dict):
         return [], "state.json does not parse (%s)" % (exc or "not an object")
     reasons = _open_reasons(base)
-    state.update(phase="concluded", direction="conclude",
-                 closed={"limit": limit, "date": date, "left": reasons})
+    if str(state.get("ask") or "").strip() and unanswered(state) \
+            and not str(ack or "").strip() and not _user_event(state):
+        return reasons, ("the line's own criteria are not all met: close records a "
+                         "limit only with --ack \"<what the user said>\" (or a "
+                         "session event tagged user), so an unanswered line is a "
+                         "decision someone made rather than a silent exit")
+    closed = {"limit": limit, "date": date, "left": reasons}
+    if ack:
+        closed["ack"] = ack
+    state.update(phase="concluded", direction="conclude", closed=closed)
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(state, indent=2) + "\n")
@@ -3128,8 +3273,59 @@ def close_line(repo, slug, limit, date=""):
                      % (date, limit, "; ".join(reasons) or "nothing"))
     except OSError as exc:
         return reasons, str(exc)
+    moved, problem = move_line(repo, slug, DONE)
+    if problem:
+        return reasons, problem
     return reasons, None
 
+
+def _user_event(state):
+    """True when the line records a session event tagged `user`: the one proof a
+    human looked, which is what a limit over an unmet criterion needs."""
+    for event in state.get("sessions") or []:
+        if isinstance(event, dict) and event.get("tag") == "user":
+            return True
+    return False
+
+
+
+def conclude_line(repo, slug, date=""):
+    """(problems, state): conclude `slug` when its own criteria allow it.
+
+    The rule the layer was missing (measured 2026-10-01: four of eleven sampled
+    lines concluded with the ask unanswered, and `close --limit` was the way out):
+    every success criterion names a verdict with an evidence pointer, and the
+    line then moves to `done/`. A criterion left `not-met` is allowed - a
+    negative result is a result - but it is recorded, and `status` keeps listing
+    the line as unanswered."""
+    base = line_dir(repo, slug)
+    path = os.path.join(base, "state.json")
+    state, exc = _read_json(path)
+    if exc or not isinstance(state, dict):
+        return ["state.json does not parse (%s)" % (exc or "not an object")], None
+    rows = success_rows(state.get("success"))
+    unjudged = [sid for sid, _c, verdict, _e in rows if verdict not in VERDICTS]
+    problems = []
+    if not rows:
+        problems.append("no success criteria: write one per part of the ask "
+                        "(state.json `success`) before concluding")
+    if unjudged:
+        problems.append("no verdict for %s: record it with "
+                        "`tezgah-research verdict <slug> <id> met|not-met|unanswerable "
+                        "--evidence <ref>`" % ", ".join(unjudged))
+    if problems:
+        return problems, None
+    state.update(phase="concluded", direction="conclude")
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(state, indent=2) + "\n")
+        with open(os.path.join(base, "log.md"), "a", encoding="utf-8") as fh:
+            fh.write("- %s concluded: %s\n" % (date, ", ".join(
+                "%s %s" % (sid, verdict) for sid, _c, verdict, _e in rows)))
+    except OSError as exc:
+        return [str(exc)], None
+    _moved, problem = move_line(repo, slug, DONE)
+    return ([problem] if problem else []), state
 
 
 def open_lines(repo):
@@ -3705,7 +3901,77 @@ evidence that drove it.
 """
 
 
-def init(repo, slug, question="", created="", supersedes=None):
+TIERS = ("quick", "study", "program")
+DEFAULT_TIER = "study"
+VERDICTS = ("met", "not-met", "unanswerable")
+# A line opened under this rule set carries the user's ask verbatim, a tier, and
+# one success criterion per part of the ask, each judged met/not-met/unanswerable
+# before the line may conclude.
+ASK_RULES = 3
+
+
+def ask_problems(ask, tier):
+    """The problems with an opening ask, one per line.
+
+    The ask is the user's own words: without it the line aims at the question the
+    agent framed, and "was it answered" has nothing to be judged against
+    (measured 2026-10-01: 0 of 416 claims in this workspace cited a part of the
+    ask). `quick` is the scope ladder's first rung and gets no line at all - the
+    answer belongs in the reply, with its evidence."""
+    problems = []
+    if str(ask or "").strip() == "":
+        problems.append("no --ask: the research layer needs the user's own words, "
+                        "verbatim, or nothing can say whether the line answered them")
+    if tier not in TIERS:
+        problems.append("tier %r is not one of %s" % (tier, ", ".join(TIERS)))
+    elif tier == "quick":
+        problems.append("a `quick` question gets no line: answer it in the reply "
+                        "with its evidence, then open a line only if it is not settled")
+    return problems
+
+
+def success_rows(rows):
+    """The success criteria as (id, criterion, verdict, evidence) tuples."""
+    out = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        out.append((str(row.get("id") or ""), str(row.get("criterion") or ""),
+                    str(row.get("verdict") or ""), str(row.get("evidence") or "")))
+    return out
+
+
+def unanswered(state):
+    """True when this line's own criteria say it did not answer the ask: any
+    verdict that is `not-met`, or a conclusion with a criterion left unjudged."""
+    rows = success_rows(state.get("success"))
+    if not rows:
+        return False
+    if any(verdict == "not-met" for _id, _c, verdict, _e in rows):
+        return True
+    return (str(state.get("phase")) == "concluded"
+            and any(verdict not in VERDICTS for _id, _c, verdict, _e in rows))
+
+
+def verdict_problems(state, rows):
+    """The problems with a verdict call, one per line."""
+    known = {row[0] for row in success_rows(state.get("success"))}
+    problems = []
+    if not rows:
+        problems.append("no success criterion yet: the line states none, so a "
+                        "verdict has nothing to answer")
+    for sid, verdict, evidence in rows:
+        if sid not in known:
+            problems.append("no success criterion %r in this line" % sid)
+        if verdict not in VERDICTS:
+            problems.append("verdict %r is not one of %s" % (verdict, ", ".join(VERDICTS)))
+        if not evidence.strip():
+            problems.append("criterion %s carries no --evidence: a verdict without "
+                            "a pointer is an opinion" % sid)
+    return problems
+
+
+def init(repo, slug, question="", created="", supersedes=None, ask="", tier=DEFAULT_TIER):
     """Scaffold a research line. Returns the paths created (never overwrites).
 
     Refuses a slug `slugs()` cannot list - see `valid_slug` - so no caller can
@@ -3713,7 +3979,7 @@ def init(repo, slug, question="", created="", supersedes=None):
     if not valid_slug(slug):
         raise ValueError("not a research slug: %r" % slug)
     tp.ensure_workspace(repo)
-    base = line_dir(repo, slug)
+    base = line_dir(repo, slug)  # a new line lands under open/
     made = []
     for sub in ("experiments", "literature", "to_human"):
         path = os.path.join(base, sub)
@@ -3721,6 +3987,14 @@ def init(repo, slug, question="", created="", supersedes=None):
     state = dict(STATE_TEMPLATE)
     state["question"] = question
     state["created"] = created
+    # the ask contract is the new lines' rule set; a line opened by the Python
+    # API without an ask keeps the rules it has always had
+    if ask:
+        state["rules"] = ASK_RULES
+    if ask:
+        state["ask"] = ask
+    if tier in TIERS:
+        state["tier"] = tier
     if supersedes:
         state["supersedes"] = supersedes
     files = {

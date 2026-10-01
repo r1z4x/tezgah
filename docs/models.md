@@ -15,12 +15,12 @@ a mean of about 435k cached tokens, so one Opus -> Sonnet -> Opus switch pair co
 about $3.26 against about $0.02 saved per explore turn. Routing therefore happens
 where it is free: at the subagent a task is handed to.
 
-Every generated agent has a slot (`AGENT_SLOT`, `hooks/tezgah_models.py:103-108`)
-and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py:81-102`). The
+Every generated agent has a slot (`AGENT_SLOT`, `hooks/tezgah_models.py:107-112`)
+and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py:85-106`). The
 three tier workers - `tezgah-cheap`, `tezgah-standard`, `tezgah-frontier` - are
 generated in every tezgah root because routing needs no capability (`ROLES`,
-`hooks/tezgah_agents.py:266-301`; their brief, `_worker_body`,
-`hooks/tezgah_agents.py:247-265`). A cheaper worker that meets work above its tier
+`hooks/tezgah_agents.py:272-307`; their brief, `_worker_body`,
+`hooks/tezgah_agents.py:253-271`). A cheaper worker that meets work above its tier
 answers `ESCALATE: <why>`, and the router restarts the task on `tezgah-frontier`
 with the original brief rather than handing the failed trajectory up: continuing a
 cheap trajectory on a frontier model was the most expensive option measured
@@ -56,7 +56,7 @@ invoices).
 | Claude Code | anthropic | the agent file's alias and `effort:` (`_model_lines`): an alias follows the provider and keeps the main session's variant, where a full id breaks on Bedrock, Vertex and a gateway (code.claude.com/docs/en/sub-agents) |
 | Codex | openai | `model` and `model_reasoning_effort` in `.codex/agents/*.toml` |
 | opencode | any | a selector `--refresh` found in `opencode models` for the slot's model under any configured provider (`resolve_opencode`); none found, no model line, so the agent inherits. The slot's effort rides the JSON agent config as `reasoningEffort` (opencode.ai/docs/agents) |
-| omp | anthropic when the session default is an Anthropic model, any otherwise (`omp_mode`); a non-Anthropic default is `any`, never a silent fall back to the Anthropic column | `task.agentModelOverrides`, which omp resolves before the agent or bundled model (omp's own docs: `omp://task-agent-discovery.md`, *Model and structured-output precedence*); every slot is written, the frontier row included, so no agent in the row runs on the session default; `apply_omp` also writes `modelRoles.plan` and `.slow` on that frontier row (same record, same ownership) so plan mode designs on it; `apply_omp` writes through the installer's own binary and agent dir, from HOME so a repository's `.omp/config.yml` never leaks machine-wide, and touches only the entries tezgah wrote (recorded in `~/.config/tezgah/models.json` as `omp_written`; a machine written before that record is adopted by its value, `_ours_by_shape`) |
+| omp | anthropic when the session default is an Anthropic model, any otherwise (`omp_mode`); a non-Anthropic default is `any`, never a silent fall back to the Anthropic column | `task.agentModelOverrides`, which omp resolves before the agent or bundled model (omp's own docs: `omp://task-agent-discovery.md`, *Model and structured-output precedence*); every slot is written, the frontier row included, so no agent in the row runs on the session default; each override is a **cross-family fallback chain** (`omp_overrides`): the mode's family first, then every other family this machine holds a credential for (`funded_families` reads omp's auth store and the provider env keys; a family it cannot see is left out, never guessed in) - omp splits the chain into per-spawn patterns (omp's own docs: `omp://settings.md (its `retry.fallbackChains` section)`), so one provider's 429 falls through instead of killing the spawn, measured before this: 24 of 26 post-routing 429s hit a subagent's first request, all on one Opus account every slot shared; `apply_omp` also writes `modelRoles.plan` and `.slow` on that frontier row (same record, same ownership) so plan mode designs on it, and their fallbacks go to `retry.fallbackChains.<role>`, the only chain keys tezgah owns (`default` and provider-keyed chains stay the user's); `apply_omp` writes through the installer's own binary and agent dir, from HOME so a repository's `.omp/config.yml` never leaks machine-wide, and touches only the entries tezgah wrote (recorded in `~/.config/tezgah/models.json` as `omp_written`; a machine written before that record is adopted by its value, `_ours_by_shape`) |
 | dsh | - | none: no model setting was found to write |
 
 The orchestrator agent keeps `model: inherit`: it is the main thread's own agent.
@@ -75,7 +75,7 @@ omp's bundled agents are routed through the same record (omp's own docs: `omp://
 ## The router
 
 `tezgah-route "<brief>"` prints the worker to spawn and why (`main`,
-`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:546-570`). The order is
+`bin/tezgah-route:34-94`; `route`, `hooks/tezgah_models.py:657-681`). The order is
 fixed:
 
 1. A brief naming stored data, a persistence or schema change, a migration,
@@ -83,13 +83,13 @@ fixed:
    to frontier by rule (`OVERRIDE`, `hooks/tezgah_models.py:486-494`) - the class
    the judge under-routed in its measurement.
 2. Otherwise the brief - redacted with the ledger's own reader
-   (`redact`, `hooks/tezgah_integrity.py:559`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
-   `hooks/tezgah_models.py:524-545`). Measured on 40 English briefs labelled by
+   (`redact`, `hooks/tezgah_integrity.py:560`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
+   `hooks/tezgah_models.py:635-656`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100.
 3. With no judgement (`judge-off`, no key, a failed call) `--phase` picks the tier
-   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:522-523`), and
+   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:633-634`), and
    with no phase the middle tier is used.
 
 The brief leaves the machine for the judge, like every judgement ([judge](judge.md)).
@@ -101,7 +101,7 @@ the tier to the gate outcome of the work it routed.
 `tezgah-route --refresh` re-reads OpenRouter's public model list, writes prices to
 `~/.config/tezgah/models.json`, flags a model that left the list or whose price
 moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py:98-102`;
-`refresh`, `hooks/tezgah_models.py:430-464`), resolves opencode selectors, and
+`refresh`, `hooks/tezgah_models.py:541-575`), resolves opencode selectors, and
 re-applies omp's overrides. Scores are not re-read - they need a key - so
 `tezgah-route --check` reports the snapshot's age and exits 1 past 60 days or with
 a flag (`check`, `hooks/tezgah_models.py:462-475`); that is the moment to re-read

@@ -63,8 +63,14 @@ class Route(unittest.TestCase):
 
 
 class OmpOverrides(unittest.TestCase):
+    def overrides(self, mode, funded):
+        with mock.patch.object(tm, "funded_families", return_value=list(funded)), \
+                mock.patch.object(tm, "openrouter_ready",
+                                  return_value="any" in funded):
+            return tm.omp_overrides(mode)
+
     def test_the_anthropic_mode_carries_effort_and_the_frontier_row(self):
-        out = tm.omp_overrides("anthropic")
+        out = self.overrides("anthropic", funded=("anthropic",))
         self.assertEqual(out["tezgah-cheap"], "anthropic/claude-opus-5-5:low")
         self.assertEqual(out["tezgah-explorer"], "anthropic/claude-opus-5-5:medium")
         # the frontier agents are written too: a session that started on a
@@ -73,8 +79,7 @@ class OmpOverrides(unittest.TestCase):
             self.assertEqual(out[agent], "anthropic/claude-opus-5-5:high")
 
     def test_any_mode_writes_the_frontier_row_through_openrouter(self):
-        with mock.patch.object(tm, "openrouter_ready", return_value=True):
-            out = tm.omp_overrides("any")
+        out = self.overrides("any", funded=("any",))
         for agent in ("tezgah-frontier", "tezgah-reviewer", "tezgah-researcher"):
             self.assertEqual(out[agent], "openrouter/anthropic/claude-opus-5.5:high")
 
@@ -116,8 +121,7 @@ class OmpOverrides(unittest.TestCase):
     def test_any_mode_goes_through_openrouter(self):
         # the credential is mocked, not read: a machine without a key answered
         # {} and made this case fail on CI while passing on a developer's box
-        with mock.patch.object(tm, "openrouter_ready", return_value=True):
-            out = tm.omp_overrides("any")
+        out = self.overrides("any", funded=("any",))
         self.assertEqual(out["tezgah-cheap"], "openrouter/z-ai/glm-5.3-flash")
         self.assertEqual(out["tezgah-standard"], "openrouter/openai/gpt-6.1-sol:high")
 
@@ -133,7 +137,8 @@ class OmpOverrides(unittest.TestCase):
 
     def test_apply_keeps_every_entry_it_does_not_own_and_removes_its_own(self):
         store = {"task.agentModelOverrides": {"sonic": "@fast", "tezgah-old": "x"},
-                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"},
+                 "retry.fallbackChains": {}}
         state = {}
 
         def omp(*args):
@@ -144,6 +149,8 @@ class OmpOverrides(unittest.TestCase):
             return mock.Mock(stdout="")
 
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", side_effect=omp), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -167,8 +174,11 @@ class OmpOverrides(unittest.TestCase):
     def test_a_value_the_user_changed_is_never_replaced(self):
         state = {"omp_written": {"tezgah-standard": "anthropic/claude-opus-5-5:medium"}}
         store = {"task.agentModelOverrides": {"tezgah-standard": "openai/gpt-6.1-sol"},
-                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"},
+                 "retry.fallbackChains": {}}
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", return_value=mock.Mock(stdout="")), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -180,7 +190,8 @@ class OmpOverrides(unittest.TestCase):
     def test_apply_writes_the_plan_and_slow_roles_and_keeps_every_other_role(self):
         store = {"task.agentModelOverrides": {},
                  "modelRoles": {"default": "anthropic/claude-opus-5-5:high",
-                                "memory": "zai/glm-5.3-flash:auto"}}
+                                "memory": "zai/glm-5.3-flash:auto"},
+                 "retry.fallbackChains": {}}
         state = {}
 
         def omp(*args):
@@ -191,6 +202,8 @@ class OmpOverrides(unittest.TestCase):
             return mock.Mock(stdout="")
 
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", side_effect=omp), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -213,7 +226,8 @@ class OmpOverrides(unittest.TestCase):
         store = {"task.agentModelOverrides": {},
                  "modelRoles": {"default": "deepseek/deepseek-flash:high",
                                 "plan": "openrouter/anthropic/claude-opus-5.5:high",
-                                "slow": "@plan"}}
+                                "slow": "@plan"},
+                 "retry.fallbackChains": {}}
         state = {"mode": "off", "omp_written": {
             "modelRoles.plan": "openrouter/anthropic/claude-opus-5.5:high"}}
 
@@ -225,6 +239,8 @@ class OmpOverrides(unittest.TestCase):
             return mock.Mock(stdout="")
 
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", side_effect=omp), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -237,13 +253,16 @@ class OmpOverrides(unittest.TestCase):
     def test_a_failed_role_write_records_no_ownership(self):
         store = {"task.agentModelOverrides":
                  {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},
-                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"},
+                 "retry.fallbackChains": {}}
         state = {}
 
         def omp(*args):
             return None if args[1] == "modelRoles" else mock.Mock(stdout="")
 
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", side_effect=omp), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -256,7 +275,8 @@ class OmpOverrides(unittest.TestCase):
         # `--mode off` is not `--uninstall`, it only clears the routing
         store = {"task.agentModelOverrides":
                  {"tezgah-cheap": "openrouter/z-ai/glm-5.3-flash", "sonic": "@fast"},
-                 "modelRoles": {"default": "deepseek/deepseek-flash:high"}}
+                 "modelRoles": {"default": "deepseek/deepseek-flash:high"},
+                 "retry.fallbackChains": {}}
         state = {"mode": "off", "omp_written": {"tezgah-cheap": "openrouter/z-ai/glm-5.3-flash"}}
 
         def omp(*args):
@@ -267,6 +287,8 @@ class OmpOverrides(unittest.TestCase):
             return mock.Mock(stdout="")
 
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", side_effect=omp), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -279,7 +301,8 @@ class OmpOverrides(unittest.TestCase):
         # one of the table's own selectors), so uninstall must take it away
         store = {"task.agentModelOverrides":
                  {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},
-                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"},
+                 "retry.fallbackChains": {}}
         state = {}
 
         def omp(*args):
@@ -290,6 +313,8 @@ class OmpOverrides(unittest.TestCase):
             return mock.Mock(stdout="")
 
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", side_effect=omp), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -300,7 +325,7 @@ class OmpOverrides(unittest.TestCase):
     def test_the_zai_mode_names_the_zai_column(self):
         # the provider whose ids omp's own config already uses, so a machine whose
         # funded provider is z.ai routes without a hand-edited override
-        out = tm.omp_overrides("zai")
+        out = self.overrides("zai", funded=("zai",))
         self.assertEqual(out["tezgah-cheap"], "zai/glm-5.3-flash")
         self.assertEqual(out["tezgah-explorer"], "zai/glm-5.3-flash")
         self.assertEqual(out["tezgah-standard"], "zai/glm-5.3")
@@ -332,7 +357,8 @@ class OmpOverrides(unittest.TestCase):
         # selector, `_ours_by_shape` only knew anthropic/any, so the next
         # `--mode anthropic` left them at zai
         store = {"task.agentModelOverrides": {"tezgah-cheap": "zai/glm-5.3-flash"},
-                 "modelRoles": {"default": "deepseek/deepseek-flash:high"}}
+                 "modelRoles": {"default": "deepseek/deepseek-flash:high"},
+                 "retry.fallbackChains": {}}
         state = {"mode": "anthropic"}  # the mode the switch is moving to
 
         def omp(*args):
@@ -343,6 +369,8 @@ class OmpOverrides(unittest.TestCase):
             return mock.Mock(stdout="")
 
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", side_effect=omp), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -355,9 +383,12 @@ class OmpOverrides(unittest.TestCase):
 
     def test_a_value_identical_to_what_we_want_is_recorded_as_ours(self):
         store = {"task.agentModelOverrides": {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},
-                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"},
+                 "retry.fallbackChains": {}}
         state = {}
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", return_value=mock.Mock(stdout="")), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -369,9 +400,12 @@ class OmpOverrides(unittest.TestCase):
     def test_a_write_from_before_the_record_is_adopted_by_its_shape(self):
         store = {"task.agentModelOverrides":
                  {"tezgah-cheap": "anthropic/claude-opus-5-5:low"},
-                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"},
+                 "retry.fallbackChains": {}}
         state = {}
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", return_value=mock.Mock(stdout="")), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",
@@ -384,9 +418,12 @@ class OmpOverrides(unittest.TestCase):
         # a default that is neither Anthropic nor z.ai: those two columns need no
         # OpenRouter credential, so the skip only applies to the `any` one
         store = {"task.agentModelOverrides": {},
-                 "modelRoles": {"default": "deepseek/deepseek-flash:high"}}
+                 "modelRoles": {"default": "deepseek/deepseek-flash:high"},
+                 "retry.fallbackChains": {}}
         called = []
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", side_effect=lambda *a: called.append(a)), \
                 mock.patch.object(tm, "openrouter_ready", return_value=False), \
                 mock.patch.object(tm, "overlay", return_value={}):
@@ -395,7 +432,7 @@ class OmpOverrides(unittest.TestCase):
         self.assertEqual(called, [], "nothing may be written when the tier cannot run")
 
     def test_bundled_agents_are_routed_and_the_reviewers_inherit(self):
-        out = tm.omp_overrides("anthropic")
+        out = self.overrides("anthropic", funded=("anthropic",))
         self.assertEqual(out["sonic"], "anthropic/claude-opus-5-5:low")
         self.assertEqual(out["scout"], "anthropic/claude-opus-5-5:medium")
         self.assertEqual(out["task"], "anthropic/claude-opus-5-5:medium")
@@ -465,9 +502,12 @@ class OmpOverrides(unittest.TestCase):
         # ownership is what lets a later run tell tezgah's entries from the
         # user's: a write that never landed must not claim any
         store = {"task.agentModelOverrides": {},
-                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"}}
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"},
+                 "retry.fallbackChains": {}}
         state = {}
         with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families",
+                                  return_value=["anthropic"]), \
                 mock.patch.object(tm, "_omp", return_value=None), \
                 mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
                 mock.patch.object(tm, "save_overlay",

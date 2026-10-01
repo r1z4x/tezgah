@@ -454,6 +454,39 @@ class Gate(TempHome):
         self.assertIn("past the ceiling of 3 attempts whatever their outcome",
                       reason)
 
+    def test_a_check_after_a_write_is_not_a_blind_repeat(self):
+        # the edit-loop cadence: the same check re-run after an edit must pass
+        # the ceiling, because the tree it reads changed (measured 2026-10-01:
+        # the ceiling refused the 4th run and agents renamed their log files)
+        for _ in range(3):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "edits", "tool": "Bash",
+                      "input": {"command": "pytest -q"}, "failed": False,
+                      "cwd": self.repo}, env=self.envv)
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": "edits", "tool": "Write",
+                  "input": {"file_path": os.path.join(self.repo, "x.py")},
+                  "failed": False, "cwd": self.repo}, env=self.envv)
+        self.assertIsNone(
+            self.decide("Bash", {"command": "pytest -q"}, session_id="edits"))
+
+    def test_a_check_with_no_edit_between_still_hits_the_ceiling(self):
+        for _ in range(3):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "spin-check", "tool": "Bash",
+                      "input": {"command": "pytest -q"}, "failed": False,
+                      "cwd": self.repo}, env=self.envv)
+        reason = self.decide("Bash", {"command": "pytest -q"},
+                             session_id="spin-check")
+        self.assertIn("Retry ceiling", reason)
+
+    def test_an_internal_uri_is_not_a_file_the_race_guard_reads(self):
+        # `write agent://Main` and `write xd://<tool>` were both refused for a
+        # foreign write to a "file" that is a message channel
+        self.assertIsNone(tg.race_reason(
+            {"file_path": "agent://Main"}, "mine"))
+        self.assertIsNone(tg.race_reason({"file_path": "xd://gate_check"}, "mine"))
+
     def test_the_session_ceiling_respects_verify_off(self):
         for _ in range(3):
             run_json([support.PROBE_INTEGRITY],
