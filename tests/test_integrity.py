@@ -110,7 +110,10 @@ class ShortcutCommand(unittest.TestCase):
                   "NOH=/tmp/x git --config-env=core.hooksPath=NOH commit",
                   "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath "
                   "GIT_CONFIG_VALUE_0=/tmp/x git commit",
-                  "GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/x'\" git commit"):
+                  "GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/x'\" git commit",
+                  # a quoted key is still the key
+                  "git -c 'core.hooksPath=/dev/null' push",
+                  'git --config-env "core.hooksPath=NOH" commit'):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
     def test_hooks_path_without_a_commit_or_as_a_read_passes(self):
@@ -123,8 +126,19 @@ class ShortcutCommand(unittest.TestCase):
                   # a hook install that names pre-push/commit-msg is no commit
                   "git config core.hooksPath .githooks && "
                   "chmod +x .githooks/commit-msg .githooks/pre-push",
-                  "git config core.hooksPath x; echo commit"):
+                  "git config core.hooksPath x; echo commit",
+                  # a read on its own line, and an env name inside a message
+                  "git config core.hooksPath\ngit commit -m x",
+                  'git commit -m "docs: GIT_CONFIG_PARAMETERS=core.hooksPath"'):
             self.assertIsNone(ti.shortcut_command(c), c)
+
+    def test_a_long_run_of_git_options_is_read_in_linear_time(self):
+        # the option alternatives must not overlap: `--x` read two ways per
+        # token was exponential and hung the gate on a long line
+        start = time.monotonic()
+        ti.shortcut_command("git " + "--x " * 3000 + "y")
+        ti.shortcut_command("git " + "-c " * 40 + "x")
+        self.assertLess(time.monotonic() - start, 2.0)
 
     def test_skip_env_needs_a_hook_runner(self):
         # SKIP=/HUSKY= only turn checks off inside a hook runner; a read that

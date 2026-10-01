@@ -245,12 +245,14 @@ class OpenCodePlugin(TempHome):
                         'git config core.hooksPath "$D" && git commit -m x',
                         "NOH=/x git --config-env=core.hooksPath=NOH commit",
                         "GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/x "
-                        "GIT_CONFIG_COUNT=1 git push"):
+                        "GIT_CONFIG_COUNT=1 git push",
+                        "git -c 'core.hooksPath=/dev/null' push"):
             self.denied(self.before("bash", {"command": command}))
         for command in ("git config core.hooksPath .githooks",
                         "git config --get core.hooksPath && git commit -m x",
                         "git config core.hooksPath .githooks && "
-                        "chmod +x .githooks/pre-push"):
+                        "chmod +x .githooks/pre-push",
+                        'git commit -m "docs: GIT_CONFIG_PARAMETERS=core.hooksPath"'):
             self.allowed(self.before("bash", {"command": command}))
 
     def test_neutered_check_denied(self):

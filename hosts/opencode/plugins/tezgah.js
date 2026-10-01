@@ -264,23 +264,18 @@ const NEUTER = /\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])/
 const SKIP_ENV = /\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b/
 const NO_VERIFY = /--no-verify\b/
 const GITISH = /\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b/i
-// mirrors HOOKS_KEY/HOOKS_VALUE/HOOKS_ENV/GIT_WRITE and _hooks_path_set in
-// hooks/tezgah_integrity.py: a hooksPath assignment beside a git commit/push
-// skips the hooks like --no-verify
-const HOOKS_KEY =
-  /-c\s+core\.hookspath\s*=|--config-env[= ]\s*core\.hookspath\s*=|\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath(?=\s)/gi
-const HOOKS_VALUE = /\s+[^\s;&|]/y
-const HOOKS_ENV = /\bGIT_CONFIG_(?:KEY_\d+|PARAMETERS)\s*=[^\n;&|]*core\.hookspath/i
+// mirrors HOOKS_SET/GIT_WRITE and _hooks_path_set in hooks/tezgah_integrity.py:
+// a hooksPath assignment beside a git commit/push skips the hooks like
+// --no-verify; read on the raw text, counted only where it starts unmasked
+const HOOKS_SET =
+  /-c\s+['"]?core\.hookspath\s*=|--config-env[= ]\s*['"]?core\.hookspath\s*=|\bGIT_CONFIG_(?:KEY_\d+|PARAMETERS)\s*=[^\n;&|]*core\.hookspath|\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath[^\S\n]+[^\s;&|]/gi
 const GIT_WRITE =
-  /\bgit\b(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+(?:commit|push)\b/
+  /\bgit\b(?:\s+-[cC](?:\s+[^\s-]\S*)?|\s+--?(?![cC]\b)\w[\w-]*(?:=\S+)?)*\s+(?:commit|push)\b/
 
 function hooksPathSet(c, raw) {
-  // masking keeps every offset, so the value is read off the raw text
-  if (HOOKS_ENV.test(raw)) return true
-  for (const m of c.matchAll(HOOKS_KEY)) {
-    if (!m[0].toLowerCase().endsWith("hookspath")) return true
-    HOOKS_VALUE.lastIndex = m.index + m[0].length
-    if (HOOKS_VALUE.test(raw)) return true
+  // masking keeps every offset: a raw match counts where c still holds it
+  for (const m of raw.matchAll(HOOKS_SET)) {
+    if (c[m.index] === raw[m.index]) return true
   }
   return false
 }

@@ -34,14 +34,14 @@ The single string holding the whole always-on contract, one bold-labelled paragr
 A refusal the gate returns and records: `_deny()` writes a `deny` row carrying the rule name and the first 80 characters of the reason (`hooks/tezgah_gate.py:1193-1208`). Not the reason text itself - the adapter renders the reason into its own envelope ([hosts](hosts.md)).
 
 ### digest
-The identity of one tool call, `call_id()` = `sha1(tool.lower() + " " + canonical(args))[:12]` (`hooks/tezgah_integrity.py:461-485`); both the gate and the post-tool hook compute it here, so a [row](#row) and the call it belongs to agree. Not a session id.
+The identity of one tool call, `call_id()` = `sha1(tool.lower() + " " + canonical(args))[:12]` (`hooks/tezgah_integrity.py:464-488`); both the gate and the post-tool hook compute it here, so a [row](#row) and the call it belongs to agree. Not a session id.
 
 <a id="ledger"></a>
 ### evidence ledger
-One JSONL file per session recording what ran, `<cache>/evidence/<slug>.jsonl` (`hooks/tezgah_integrity.py:502`), appended by `note()` (`hooks/tezgah_integrity.py:711-723`) and read by `events()` (`hooks/tezgah_integrity.py:816-829`), with its contract in the module docstring (`hooks/tezgah_integrity.py:2-24`) and every reader failing open. Not the [session store](#session-store), which holds only used-tool marks.
+One JSONL file per session recording what ran, `<cache>/evidence/<slug>.jsonl` (`hooks/tezgah_integrity.py:505`), appended by `note()` (`hooks/tezgah_integrity.py:714-726`) and read by `events()` (`hooks/tezgah_integrity.py:819-832`), with its contract in the module docstring (`hooks/tezgah_integrity.py:2-24`) and every reader failing open. Not the [session store](#session-store), which holds only used-tool marks.
 
 ### false completion
-The count of [claim](#claim) rows a stop refused, `false_completion` in `counters()`, read against `claims` so the rate is meaningful (`hooks/tezgah_integrity.py:1055-1080`, `:1109-1114`). Not the count of [denies](#deny): a deny is the gate refusing a call, a false completion is the Stop rule refusing the end of a turn.
+The count of [claim](#claim) rows a stop refused, `false_completion` in `counters()`, read against `claims` so the rate is meaningful (`hooks/tezgah_integrity.py:1058-1083`, `:1112-1117`). Not the count of [denies](#deny): a deny is the gate refusing a call, a false completion is the Stop rule refusing the end of a turn.
 
 ### gate
 The pre-tool refusal layer, `decision()` (`hooks/tezgah_gate.py:1378-1572`), which runs only inside a [root](#root) (`:1091-1093`) and returns a reason or nothing ([gate](gate.md)). Not the [Stop rule](#stop-rule), which runs after the reply.
@@ -59,7 +59,7 @@ The [skill](#skill) that picks and runs a multi-agent harness for a task too wid
 One coding agent tezgah is installed into - claude, codex, cursor, opencode, dsh, omp - with its config location in `HOST_DIRS` (`hooks/tezgah_paths.py:52`), its presence test in `host_installed()` (`hooks/tezgah_paths.py:69-79`) and its adapter under `hosts/<name>/` ([hosts](hosts.md)); also written "agent host", and the agent runtime the current literature calls the agent harness ([harness](#harness), [layers](layers.md)). Not a [root](#root): a host is a program, a root is a directory tezgah is armed over.
 
 ### kind
-The label on an evidence [row](#row) saying what happened: `classify()` gives `edit` or `run`/`verify` (`hooks/tezgah_integrity.py:1379-1386`), `note_tool()` refines a check into `verify_ok`/`verify_fail` (`:1750-1752`), writes `interrupted` when the host said the call was stopped (`:1759`) and adds `external` (`:1779`) or `unknown` (`:1792`), and the machinery adds `deny`, `nudge`, `turn`, `claim`, `drift`, `snapshot`, `rollback`; `kinds()` returns the distinct set (`:712-714`).
+The label on an evidence [row](#row) saying what happened: `classify()` gives `edit` or `run`/`verify` (`hooks/tezgah_integrity.py:1382-1389`), `note_tool()` refines a check into `verify_ok`/`verify_fail` (`:1750-1752`), writes `interrupted` when the host said the call was stopped (`:1759`) and adds `external` (`:1779`) or `unknown` (`:1792`), and the machinery adds `deny`, `nudge`, `turn`, `claim`, `drift`, `snapshot`, `rollback`; `kinds()` returns the distinct set (`:715-717`).
 
 ### kill switch
 A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:493-495`, `:46`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:825-832`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
@@ -116,13 +116,13 @@ A directory tezgah is armed over, from `TEZGAH_ROOTS`, the config file or `~/Pro
 The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:1210-1211`), the context builder returns nothing (`hooks/tezgah_context.py:1244-1245`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:1828-1829`). Not a repository boundary.
 
 ### row
-One line of an [evidence ledger](#evidence-ledger): `{"kind","ts","detail"}` plus whatever the writer knew of `LEDGER_FIELDS` (`id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`, `tool`), written by `note_path()` (`hooks/tezgah_integrity.py:686-710`, `:524`) with `detail` redacted and cut to `DETAIL_MAX` (`hooks/tezgah_integrity.py:574-580`). A missing key means the writer did not know it, never null. `tool` is the call's own name where the host reports one, which is what makes a firing histogram possible: `classify` folds the name into `run`/`edit`, so a row that predates the field carries none.
+One line of an [evidence ledger](#evidence-ledger): `{"kind","ts","detail"}` plus whatever the writer knew of `LEDGER_FIELDS` (`id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`, `tool`), written by `note_path()` (`hooks/tezgah_integrity.py:689-713`, `:527`) with `detail` redacted and cut to `DETAIL_MAX` (`hooks/tezgah_integrity.py:577-583`). A missing key means the writer did not know it, never null. `tool` is the call's own name where the host reports one, which is what makes a firing histogram possible: `classify` folds the name into `run`/`edit`, so a row that predates the field carries none.
 
 ### rule
 One bold-labelled paragraph of the contract, the unit a [kill switch](#kill-switch) drops and a test pins: `CORE_RULES` pairs each key with the label it must start with (`hooks/tezgah_context.py:304-323`) and `core_split()` drops exactly the paragraph whose label matches (`:927-983`). Not a [skill](#skill), which the model chooses to read.
 
 ### session
-One host conversation, identified by the id `session_of()` reads from a payload under whichever name the host uses (`hooks/tezgah_context.py:1056-1058`), keying the [ledger](#evidence-ledger) filename (`hooks/tezgah_integrity.py:501-511`), the [session store](#session-store) and the per-turn markers (`note_turn()`, `hooks/tezgah_integrity.py:1014-1037`). Not a [turn](#turn), of which one session has many.
+One host conversation, identified by the id `session_of()` reads from a payload under whichever name the host uses (`hooks/tezgah_context.py:1056-1058`), keying the [ledger](#evidence-ledger) filename (`hooks/tezgah_integrity.py:504-514`), the [session store](#session-store) and the per-turn markers (`note_turn()`, `hooks/tezgah_integrity.py:1017-1040`). Not a [turn](#turn), of which one session has many.
 
 ### session store
 The used-tool marks one session wrote, `<cache>/sessions/<slug>.jsonl`, appended by `record()` (`hooks/tezgah_context.py:1564-1587`) and read by `used()` (`hooks/tezgah_context.py:1646-1666`) to feed the "used" half of the status marks, with a missing kind recorded nowhere at all. Not the [evidence ledger](#evidence-ledger).
@@ -143,13 +143,13 @@ A file under `commands/` wired only through the Claude plugin channel and named 
 The stored pre-write bytes of one file plus its manifest, created by [capture](#capture) and read only by [rollback](#rollback) (`hooks/tezgah_snapshot.py:2-17`), the capture also writing a `snapshot` row whose `detail` is the file's realpath and whose `hash` is its pre-write sha256 (`:184`). Not a checkpoint of the session, only of the files a write was about to change.
 
 ### source
-The ledger field naming the untrusted channel a result came through - `web`, `mcp`, `network` or `tier` - set only when there was one (`hooks/tezgah_integrity.py:1434-1436`, `untrusted_source` `hooks/tezgah_integrity.py:1811-1834`), a missing `source` meaning the user or this workspace, which is what every reader assumes. Not a record of what the content said.
+The ledger field naming the untrusted channel a result came through - `web`, `mcp`, `network` or `tier` - set only when there was one (`hooks/tezgah_integrity.py:1437-1439`, `untrusted_source` `hooks/tezgah_integrity.py:1811-1834`), a missing `source` meaning the user or this workspace, which is what every reader assumes. Not a record of what the content said.
 
 ### state
 The value of one status [mark](#mark): `on`, `ready`, `off` or `info` (`hooks/tezgah_context.py:1818`), drawn as `✓ ○ ✗` or nothing by `GLYPHS` (`hooks/tezgah_context.py:1867-1869`) and mapped to a colour by `COLORS` (`hooks/tezgah_context.py:1870-1870`), with `off` winning over the observable test because a kill switch is visible everywhere ([status-line](status-line.md)). Not a glyph, which is only how the state is drawn.
 
 ### step kind
-One of the row kinds that count as a step of work - `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` (`STEP_KINDS`, `hooks/tezgah_integrity.py:1084-1089`), summed into `steps` and into the drift threshold, while `deny`, `nudge`, `claim` and `turn` are the machinery around the work (`:1001-1002`). `interrupted` is the one that is not a failure: the host said the call was stopped, so the row carries no `exit` and no `fail_class`, no reader folds it as a failed check and no attempt is spent on it (`:869-873`). Not any row.
+One of the row kinds that count as a step of work - `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` (`STEP_KINDS`, `hooks/tezgah_integrity.py:1087-1092`), summed into `steps` and into the drift threshold, while `deny`, `nudge`, `claim` and `turn` are the machinery around the work (`:1004-1005`). `interrupted` is the one that is not a failure: the host said the call was stopped, so the row carries no `exit` and no `fail_class`, no reader folds it as a failed check and no attempt is spent on it (`:872-876`). Not any row.
 
 ### Stop rule
 The end-of-turn refusal, `stop_reason()` (`hooks/tezgah_integrity.py:2669-2717`), run by the Stop hooks of Claude, Codex, Cursor and omp (`hooks/projects-stop.py:33`, `hosts/codex/hook.py:186`, `hosts/cursor/hook.py:352`, `hosts/omp/hook.py:190`): it blocks on a placating opener or a banned sign-off on the last prose line, on a completion claim the newest check does not support, on a check that passed before the newest write the gate saw change the tree, or on a turn that recorded work with no passing check (`_stop_block()`, `hooks/tezgah_integrity.py:2731-2952`), and an explicit "doğrulanmadı" clears it. Not the [gate](#gate), which runs before a call ([evidence](evidence.md)).
@@ -161,7 +161,7 @@ A place a host can show tezgah's output - a status line, a TUI widget, a `system
 The state of a turn that has read content tezgah cannot vouch for and not yet marked an effect, `turn_channel()` (`hooks/tezgah_untrusted.py:47`) plus the line the model reads on the next effect, `taint_notice()` (`:69`). A state, not a verdict: whether the content caused the write is not observable.
 
 ### turn
-One user prompt and everything before the next one, delimited on the ledger by a `turn` marker row written by `note_turn()` (`hooks/tezgah_integrity.py:1014-1037`) and found by `_turn_start()` (`hooks/tezgah_integrity.py:891-903`), with the loop guard's count, the drift threshold and the [taint](#taint) all turn-scoped. Not a request/response pair.
+One user prompt and everything before the next one, delimited on the ledger by a `turn` marker row written by `note_turn()` (`hooks/tezgah_integrity.py:1017-1040`) and found by `_turn_start()` (`hooks/tezgah_integrity.py:894-906`), with the loop guard's count, the drift threshold and the [taint](#taint) all turn-scoped. Not a request/response pair.
 
 ### untrusted content
 A result that arrived from outside the user and this workspace - a fetched page, an MCP server's answer, a shell read that left the machine, or the tier's own answer (`bin/consult`, `bin/codegen`: a model over the network, however deliberately the session asked for it) - named by `untrusted_source()` and labelled by `untrusted_label()` (`hooks/tezgah_integrity.py:1835-1849`, `hooks/tezgah_integrity.py:1811-1834`), the label and the [taint](#taint) notice being `hooks/tezgah_untrusted.py:2-22`. Not a deny: the model may use the text, but instructions inside it are data, never a request.

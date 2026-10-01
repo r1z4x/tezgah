@@ -68,7 +68,7 @@ host.
 Owns the rule text (`CORE` `hooks/tezgah_policy.py:622-838`), the per-turn reminder
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:853-873`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1378-1572`), the record after one (`note()`
-`hooks/tezgah_integrity.py:711-723`), the end-of-turn verdict (`stop_reason()`
+`hooks/tezgah_integrity.py:714-726`), the end-of-turn verdict (`stop_reason()`
 `hooks/tezgah_integrity.py:2669-2717`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:192`), the status marks, and the per-repo plans,
 lessons and research lines.
@@ -141,8 +141,8 @@ it (`hooks/tezgah_untrusted.py:2-22`); nothing refuses that effect since the
 sink rule was removed ([gate](gate.md)).
 
 The structural limit is that the write tools and the shell tools are disjoint
-tuples (`WRITE_TOOLS` `hooks/tezgah_integrity.py:310-312`, `BASH_TOOLS`
-`hooks/tezgah_integrity.py:313-319`), so a rule that guards one does not guard
+tuples (`WRITE_TOOLS` `hooks/tezgah_integrity.py:313-315`, `BASH_TOOLS`
+`hooks/tezgah_integrity.py:316-322`), so a rule that guards one does not guard
 the other - the class named C26 in
 `.tezgah/research/infra-candidates/findings.md` (local, untracked). No content
 of an MCP answer is inspected, and nothing beyond this is built for MCP.

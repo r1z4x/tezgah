@@ -142,25 +142,28 @@ GITISH = re.compile(r"\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b", r
 # `git -c core.hooksPath=/dev/null commit`, `git config core.hooksPath <dir> &&
 # git commit`, `--config-env` and the GIT_CONFIG_KEY_n/GIT_CONFIG_PARAMETERS env
 # skip the hooks exactly as --no-verify does. Only an assignment counts: a
-# standalone `git config core.hooksPath .githooks` (husky's own setup), a
-# `--get`/`--unset`, and a hook install that merely names `pre-push` pass. The
-# key is found on the masked text and the config form's value on the raw text,
-# so `git config core.hooksPath "$D"` is an assignment while a commit message
-# naming the key is not; the env forms read the raw text, where their key
-# usually sits inside quotes.
+# standalone `git config core.hooksPath .githooks` (husky's own setup), a read
+# (`--get`, `get`, no value), an `--unset`, and a hook install that merely names
+# `pre-push` pass. The pattern runs on the raw text, so a quoted key or value
+# (`-c 'core.hooksPath=x'`, `"$D"`) is still read, and a match counts only where
+# it starts in command position - unmasked - so a commit message that names the
+# key or the env var is not an assignment.
 # ponytail: a hooksPath set in one call and a commit in the next is not seen;
 # that needs the session's earlier calls, not one command line.
-HOOKS_KEY = re.compile(
-    r"-c\s+core\.hookspath\s*=|--config-env[= ]\s*core\.hookspath\s*=|"
-    r"\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath(?=\s)",
+HOOKS_SET = re.compile(
+    r"-c\s+['\"]?core\.hookspath\s*=|"
+    r"--config-env[= ]\s*['\"]?core\.hookspath\s*=|"
+    r"\bGIT_CONFIG_(?:KEY_\d+|PARAMETERS)\s*=[^\n;&|]*core\.hookspath|"
+    r"\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath"
+    r"[^\S\n]+[^\s;&|]",
     re.I)
-HOOKS_VALUE = re.compile(r"\s+[^\s;&|]")
-HOOKS_ENV = re.compile(
-    r"\bGIT_CONFIG_(?:KEY_\d+|PARAMETERS)\s*=[^\n;&|]*core\.hookspath", re.I)
 # `git [global options] commit|push` - the subcommand, not the word inside a
-# hook name such as `pre-push` or `commit-msg`
+# hook name such as `pre-push` or `commit-msg`. `-c`/`-C` take a value that
+# never starts with `-`, and may show none once a quoted value is masked away;
+# only the first alternative reads them, so a run of options parses one way.
 GIT_WRITE = re.compile(
-    r"\bgit\b(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+(?:commit|push)\b")
+    r"\bgit\b(?:\s+-[cC](?:\s+[^\s-]\S*)?|\s+--?(?![cC]\b)\w[\w-]*(?:=\S+)?)*"
+    r"\s+(?:commit|push)\b")
 # tests disabled so a failure disappears; checked only when newly introduced
 SKIP_TEST = re.compile(
     r"@pytest\.mark\.(?:skip|skipif|xfail|only)\b|"
@@ -1544,13 +1547,10 @@ def mask(text):
 
 def _hooks_path_set(c, raw):
     """True when this command line assigns core.hooksPath. `c` is `raw`
-    masked; masking keeps every offset, so the config form's value is read off
-    the raw text right after the key found in the masked one."""
-    if HOOKS_ENV.search(raw):
-        return True
-    return any(not m.group(0).lower().endswith("hookspath")
-               or HOOKS_VALUE.match(raw, m.end())
-               for m in HOOKS_KEY.finditer(c))
+    masked, and masking keeps every offset, so a match on the raw text counts
+    only where the masked text still holds its first character."""
+    return any(c[m.start()] == raw[m.start()]
+               for m in HOOKS_SET.finditer(raw))
 
 
 def shortcut_command(cmd):

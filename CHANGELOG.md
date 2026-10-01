@@ -21,11 +21,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `git -c core.hooksPath=/dev/null commit` and
   `git config core.hooksPath <dir> && git commit`, which skip the same hooks. A
   `core.hooksPath` assignment in the same command as a `git commit`/`git push`
-  is now denied - `-c`, `git config` (quoted values included), `--config-env`
-  and the `GIT_CONFIG_KEY_n`/`GIT_CONFIG_PARAMETERS` env - in the Python gate and
-  in the opencode plugin; husky's standalone `git config core.hooksPath
-  .githooks`, a `--get`/`--unset`, and a hook install that names `pre-push`
-  still pass. A redirect set in one call and committed in the next is not seen.
+  is now denied - `-c`, `git config` (quoted keys and values included),
+  `--config-env` and the `GIT_CONFIG_KEY_n`/`GIT_CONFIG_PARAMETERS` env - in the
+  Python gate and in the opencode plugin; husky's standalone `git config
+  core.hooksPath .githooks`, a read or `--unset`, a hook install that names
+  `pre-push`, and a commit message that names the key or the env var still
+  pass. A redirect set in one call and committed in the next is not seen.
 - `test_a_hung_attempt_is_killed_with_its_whole_group` no longer fails under
   load on macOS: `sh` forks `sleep`, which stays a zombie for a moment after its
   group is killed, and macOS answers `EPERM` for a zombie-only group; the test

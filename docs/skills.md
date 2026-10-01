@@ -32,7 +32,7 @@ skill is simply not read.
 
 opencode's plugin does inject prompt-time text - the builder's per-turn block,
 the conditional rules included
-([hosts/opencode/plugins/tezgah.js:1734-1755]) - but that text names at most one
+([hosts/opencode/plugins/tezgah.js:1729-1750]) - but that text names at most one
 skill (the hint), never the roster, so the installer writes one:
 `~/.config/tezgah/opencode-skills.md` always-on and
 `opencode-skills.full.md` on demand ([bin/tezgah-setup:106-109]), the first
