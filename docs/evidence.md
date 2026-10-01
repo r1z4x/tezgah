@@ -119,6 +119,25 @@ a screen read from a file read and the taint notice reads the channel from `sour
 `unknown` (`:1660-1663`) is a tool name no list knows, its name in the `detail`. The step counter,
 the Stop rule and the loop ceilings ignore both.
 
+## What a source has to record before its numbers count
+
+A row is not evidence by itself: what a reader can do with it depends on how much
+the thing that produced it recorded. The RL-environment tooling this repository
+has read makes the same distinction at the model wire - a server that will not
+return token ids can still serve rollouts, but they are marked *evaluation only*,
+and asking one of them for training data raises instead of quietly returning a
+weaker sample (FineEnvs multi-harness RL, its OpenEnv chapter, "What gets
+recorded").
+
+tezgah's version of that rule is already enforced in the research layer and is
+stated here for the first time. A [claim](research.md) carries a `kind` and a
+`proof` that names an artifact a reader can open, and the one case the claim
+checker leaves out is a proof that names no artifact at all
+(`hooks/tezgah_research.py:1497`) - it is reported rather than labelled, because a
+guessed kind would only move the refusal one step later. A source that cannot
+meet the rule does not become a weaker claim: it is labelled for what it is, and
+the work that produced it is the work that has to be redone.
+
 ## The Stop rule, end to end
 
 The checker is `_stop_block` (`hooks/tezgah_integrity.py:2686-2907`), reached through `stop_reason`
