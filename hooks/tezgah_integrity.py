@@ -2188,11 +2188,17 @@ def _last_pass(rows):
 
 
 def _stale_paths(rows):
-    """The files written after the newest passing check, for the refusal text."""
+    """The files written after the newest passing check, for the refusal text.
+
+    A long path keeps its tail, not its head: the file name is the part a reader
+    acts on, and a head cut at 80 characters left `/var/folders/.../control-`
+    with no file named at all."""
     names = []
     for row in rows[_last_pass(rows) + 1:]:
         if row.get("kind") == "edit" and _changed_write(row):
-            name = str(row.get("detail") or "").strip()[:80]
+            name = str(row.get("detail") or "").strip()
+            if len(name) > 80:
+                name = "..." + name[-77:]
             if name and name not in names:
                 names.append(name)
     return names

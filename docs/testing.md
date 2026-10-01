@@ -53,9 +53,7 @@ question the suite cannot ask of itself - would a test fail if a guard went?
 `tests/neuter_matrix.py` clones HEAD once per anti-shortcut guard, reverts that
 guard, and runs the gate's test modules; a mutant that still passes is a guard no
 test notices, and an unmutated control that fails voids the run. The guard list is
-hand-written (`MUTANTS`), so a new deny rule is covered once a row names it. It
-runs under `/tmp` on purpose: the stale-evidence reasons shorten a long path, and
-macOS's `/var/folders/.../T/` cuts the name `test_integrity` looks for.
+hand-written (`MUTANTS`), so a new deny rule is covered once a row names it.
 
 The dsh and omp status-line scripts are not in CI.
 

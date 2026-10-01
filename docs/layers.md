@@ -69,7 +69,7 @@ Owns the rule text (`CORE` `hooks/tezgah_policy.py:622-838`), the per-turn remin
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:853-873`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1378-1572`), the record after one (`note()`
 `hooks/tezgah_integrity.py:711-723`), the end-of-turn verdict (`stop_reason()`
-`hooks/tezgah_integrity.py:2663-2711`), the pre-write snapshots (`capture()`
+`hooks/tezgah_integrity.py:2669-2717`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:192`), the status marks, and the per-repo plans,
 lessons and research lines.
 

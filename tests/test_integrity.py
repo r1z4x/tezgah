@@ -1016,7 +1016,7 @@ class StaleEvidence(unittest.TestCase):
         self.edit("v2\n")
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIn("Stale evidence", reason)
-        self.assertIn(self.target, reason)
+        self.assertIn(os.path.basename(self.target), reason)
         self.assertEqual([r["detail"] for r in ti.events("s")
                           if r["kind"] == "claim"], ["blocked: stale evidence"])
 
@@ -1046,7 +1046,7 @@ class StaleEvidence(unittest.TestCase):
         ti.note_tool("s", "Write", {"file_path": new}, failed=False)
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIn("Stale evidence", reason)
-        self.assertIn(new, reason)
+        self.assertIn(os.path.basename(new), reason)
 
     def test_a_write_outside_the_workspace_is_not_a_change_to_the_tree(self):
         # The fold asks one question - is the newest check newer than the newest
@@ -1495,8 +1495,8 @@ class DesignContractEvidence(unittest.TestCase):
         self.screen_read()
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIn("tezgah-design check", reason)
-        # the path is shown the way the sibling branch shows it, cut at 80
-        # characters, so the directory is what survives of a long fixture path
+        # the path is shown the way the sibling branch shows it, a long one cut
+        # to its last 77 characters, so the directory and the file name survive
         self.assertIn("admin/components/", reason)
         self.assertEqual([r["detail"] for r in ti.events("s")
                           if r["kind"] == "claim"], ["blocked: no ui_ok"])
