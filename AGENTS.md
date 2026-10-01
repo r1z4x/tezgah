@@ -55,6 +55,15 @@ printed. No model call, no network. It is in the CI `test` job; it prints
 `SKIP: ...` and exits 0 when `git` is missing, and 1 under
 `TEZGAH_E2E_STRICT=1`, the same contract as the artifact smoke.
 
+### Anti-shortcut guards, mutated
+
+`TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py` clones HEAD once per guard
+in the gate's mechanical integrity half, reverts that one guard and runs the
+gate's test modules; it fails if a mutant survives or the unmutated control is
+red. It reads HEAD, so commit first. Run it after adding or changing a deny rule
+(and add the rule's row to `MUTANTS`); CI runs it weekly
+(`.github/workflows/neuter.yml`), not per push.
+
 ### App-analysis MCP, end to end
 
 `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py` starts the exact

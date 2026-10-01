@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A neuter matrix proves each anti-shortcut guard is load-bearing.**
+  `tests/neuter_matrix.py` reverts one guard per clone of HEAD (`--no-verify`,
+  hook-skipping env, `core.hooksPath`, `|| true`, piped check, added test skip,
+  masking, and the opencode mirror of the hooksPath rule) and fails if the gate's
+  tests still pass; `.github/workflows/neuter.yml` runs it weekly.
+
 ### Fixed
 
 - **A `core.hooksPath` redirect is a hook bypass.** The gate denied
@@ -18,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in the opencode plugin; husky's standalone `git config core.hooksPath
   .githooks`, a `--get`/`--unset`, and a hook install that names `pre-push`
   still pass. A redirect set in one call and committed in the next is not seen.
+- `test_a_hung_attempt_is_killed_with_its_whole_group` no longer fails under
+  load on macOS: `sh` forks `sleep`, which stays a zombie for a moment after its
+  group is killed, and macOS answers `EPERM` for a zombie-only group; the test
+  now waits up to 5 s for `ESRCH` instead of reading the first answer.
 
 ### Changed
 

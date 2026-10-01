@@ -89,7 +89,9 @@ def main():
         return 1 if strict else 0
     rows = [m for m in MUTANTS if m[1] != PLUGIN or shutil.which("node")]
     skipped = [m[0] for m in MUTANTS if m not in rows]
-    work = tempfile.mkdtemp(prefix="tezgah-neuter-")
+    # a short base: the stale-evidence reasons shorten a long path, and under
+    # macOS's /var/folders/.../T/ that cuts the name the tests look for
+    work = tempfile.mkdtemp(prefix="nm-", dir="/tmp" if os.path.isdir("/tmp") else None)
     try:
         name, status, last = run("control", None, work)
         if status:

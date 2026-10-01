@@ -3,6 +3,7 @@
 .github/ISSUE_TEMPLATE/feature_request.yml
 .github/PULL_REQUEST_TEMPLATE.md
 .github/workflows/ci.yml
+.github/workflows/neuter.yml
 .github/workflows/release.yml
 .gitignore
 .mcp.json
@@ -597,6 +598,7 @@ tests/e2e_omp_statusline.py
 tests/e2e_packaged_install.py
 tests/e2e_plan_flow.py
 tests/e2e_tezgah_mcp.py
+tests/neuter_matrix.py
 tests/routing-fixtures.md
 tests/support.py
 tests/test_agents.py
