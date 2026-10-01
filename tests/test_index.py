@@ -123,8 +123,21 @@ class IndexWorker(TempHome):
         self.assertNotEqual(rc, 0, "a timed-out attempt must report failure")
         with open(pidfile, encoding="utf-8") as fh:
             pid = int(fh.read().strip())
-        with self.assertRaises(ProcessLookupError):
-            os.killpg(pid, 0)
+        # `sh` forks `sleep` instead of exec'ing it, so after the group is
+        # killed and `sh` reaped, `sleep` is an orphan zombie until init reaps
+        # it; macOS answers EPERM for a group holding only zombies. Gone means
+        # ESRCH within a bounded wait, which the killed group reaches quickly.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                os.killpg(pid, 0)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                pass
+            self.assertLess(time.monotonic(), deadline,
+                            "process group %d still present after 5s" % pid)
+            time.sleep(0.05)
 
     def test_an_attempt_that_finishes_is_not_killed(self):
         self.assertEqual(worker.run_bounded(["true"], timeout=30), 0)
