@@ -25,7 +25,7 @@ A ledger [row](#row) recording the [Stop rule](#stop-rule)'s verdict on one repl
 A rule armed for one prompt only, when its task class matches - `spec`, `consult`, `research`, `product`, `graph` (`hooks/tezgah_policy.py:842`) - selected by `classify_prompt()` against the prompt hints (`hooks/tezgah_context.py:890-895`, `hooks/tezgah_context.py:82-294`) and injected only on the turn that matched (`hooks/tezgah_context.py:1278-1282`). Not an [always-on](#always-on) rule, though it sits in [CORE](#core) even while unarmed.
 
 ### contract
-The whole working document, `CONTRACT` as the join of every block (`hooks/tezgah_policy.py:874-898`), shipped on demand as `skills/tezgah-contract/SKILL.md`, with the always-on [CORE](#core) as its summary and the [pointer](#pointer) line as the way in (`hooks/tezgah_policy.py:847-852`). Its clauses are [contract](contract.md)'s subject.
+The whole working document, `CONTRACT` as the join of every block (`hooks/tezgah_policy.py:874-898`), shipped on demand as `skills/tezgah-contract/SKILL.md`, with the always-on [CORE](#core) as its summary and the [pointer](#pointer) line as the way in (`hooks/tezgah_policy.py:851-856`). Its clauses are [contract](contract.md)'s subject.
 
 ### CORE
 The single string holding the whole always-on contract, one bold-labelled paragraph per [rule](#rule) (`hooks/tezgah_policy.py:622-838`), filtered against [per-repo marks](#per-repo-mark) and [kill switches](#kill-switch) by `core_split()` (`hooks/tezgah_context.py:987-1043`). Not [contract](#contract), the on-demand join of every block.
@@ -50,7 +50,7 @@ The pre-tool refusal layer, `decision()` (`hooks/tezgah_gate.py:1413-1607`), whi
 The partition a status [mark](#mark) carries so a renderer separates the marks the same way: `_GROUP` maps each key to an index and `render_line()` joins groups with `  ·  ` (`hooks/tezgah_context.py:1730-1731`, `hooks/tezgah_context.py:1931-1941`). Not a [state](#state).
 
 ### harness
-This project's own frame for the work, tezgah being the wrapper it puts around a coding agent - the injected contract, the [gate](#gate) and the [ledger](#evidence-ledger) - whose per-turn text still travels in the `<harness-reminder>` envelope (`hooks/tezgah_policy.py:853-873`). Two neighbours share the word: the agent runtime itself, which the current literature calls a complete agent harness (arXiv 2606.10106; `README.md:27-28` calls dsh one) and the multi-agent selection of the `harness` [skill](#skill), including the graph workflows the policy lists under "Graph harnesses" (`hooks/tezgah_policy.py:609-621`); [layers](layers.md) draws the three apart. Not the [host](#host): the host is the agent, the harness is what tezgah puts around it.
+This project's own frame for the work, tezgah being the wrapper it puts around a coding agent - the injected contract, the [gate](#gate) and the [ledger](#evidence-ledger) - whose per-turn text still travels in the `<harness-reminder>` envelope (`hooks/tezgah_policy.py:857-877`). Two neighbours share the word: the agent runtime itself, which the current literature calls a complete agent harness (arXiv 2606.10106; `README.md:27-28` calls dsh one) and the multi-agent selection of the `harness` [skill](#skill), including the graph workflows the policy lists under "Graph harnesses" (`hooks/tezgah_policy.py:609-621`); [layers](layers.md) draws the three apart. Not the [host](#host): the host is the agent, the harness is what tezgah puts around it.
 
 ### harness skill
 The [skill](#skill) that picks and runs a multi-agent harness for a task too wide for one context window - a code-graph workflow such as `graph-map` or a briefed subagent set (`skills/harness/SKILL.md:2-8`). Not tezgah's own wrapper around a [host](#host) ([harness](#harness), [layers](layers.md)).
@@ -98,13 +98,13 @@ The status table in `.tezgah/plans/README.md` (`.tezgah/plans/README.md:3`), own
 Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:3815-3829`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:3957-4016`, `bin/tezgah-setup:3709`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
 
 ### pointer
-The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py:847-852`). Not a rule.
+The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py:851-856`). Not a rule.
 
 ### probe
 A small side effect tezgah makes when an answer cannot be read directly: a write probe to decide whether a directory is usable (`hooks/tezgah_paths.py:88`, `:100-104`), and the cached git fork that decides whether the graph stamp is behind HEAD (`hooks/tezgah_context.py:1618-1635`). Not a check of the work.
 
 ### reminder
-The compact per-turn text every user turn pays for, `PROMPT_REMINDER` (`hooks/tezgah_policy.py:853-873`), injected as the `reminder` block (`hooks/tezgah_context.py:1275`) and carrying the standing constraints rather than the long rationale. Not [CORE](#core), which is paid once per session.
+The compact per-turn text every user turn pays for, `PROMPT_REMINDER` (`hooks/tezgah_policy.py:857-877`), injected as the `reminder` block (`hooks/tezgah_context.py:1275`) and carrying the standing constraints rather than the long rationale. Not [CORE](#core), which is paid once per session.
 
 ### rollback
 Putting a [snapshot](#snapshot)'s bytes back, `restore()` (`hooks/tezgah_snapshot.py:218`), reached only through `tezgah-rollback` (`bin/tezgah-rollback:2-13`), which writes a `rollback` row (`hooks/tezgah_snapshot.py:263-265`). Tezgah never rolls back on its own.

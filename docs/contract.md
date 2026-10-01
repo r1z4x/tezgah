@@ -17,11 +17,11 @@ host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 
 | Surface | Text | Paid |
 |---|---|---|
-| always-on core | `CORE` (`hooks/tezgah_policy.py:622-838`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
-| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:842-846`) | only on the turn whose prompt matches its task class |
-| per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:853-873`) | every user prompt |
+| always-on core | `CORE` (`hooks/tezgah_policy.py:626-845`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
+| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:846-850`) | only on the turn whose prompt matches its task class |
+| per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:857-877`) | every user prompt |
 | skill suggestion | one `<skill_relevance>` line naming at most one installed skill, written by `suggest` (`hooks/tezgah_skill_pick.py:210-225`); off unless `skill-suggest-on` is armed | only on a turn the judgement answers with a skill |
-| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:874-898`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
+| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:878-902`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
 
 The skill suggestion is the one surface a judgement writes rather than a constant.
 The roster reaches a session as an index of host-truncated one-liners, so which
@@ -127,7 +127,7 @@ stay English.**` :788, `**Session scope: the user's repo, not tezgah.**` :794,
 `**Kill switches:**` :803.
 
 `always_on_core()` (`hooks/tezgah_context.py:1053-1063`) drops the five
-conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:847-852`):
+conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:851-856`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, product analysis, the code graph, and the
 per-repo design contract `bin/tezgah-design` checks a UI change against (the one
@@ -223,9 +223,9 @@ they survive every other switch being off.
 
 1. Write the full text as a constant in `hooks/tezgah_policy.py`.
 2. If not every session should pay it, add the key to `CONDITIONAL_KEYS`
-   (`hooks/tezgah_policy.py:842-846`), a pattern to `PROMPT_HINTS`
+   (`hooks/tezgah_policy.py:846-850`), a pattern to `PROMPT_HINTS`
    (`hooks/tezgah_context.py:82-294`) and a line to `POINTERS`
-   (`hooks/tezgah_policy.py:847-852`); the two halves are asserted together
+   (`hooks/tezgah_policy.py:851-856`); the two halves are asserted together
    (`tests/test_context.py:1861-1870`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
    pair to `CORE_RULES` (`hooks/tezgah_context.py:304-323`). The label is the

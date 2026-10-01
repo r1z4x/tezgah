@@ -376,7 +376,7 @@ class Unfinished(Workspace):
     def test_init_refuses_over_an_unfinished_line_and_creates_nothing(self):
         repo = self.repo()
         self.line(repo, "alpha", phase="inner")
-        proc = self.cli(repo, "init", "beta")
+        proc = self.cli(repo, "init", "beta", "--ask", "is beta worth it?")
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("init refused", proc.stdout)
         self.assertIn("alpha: ", proc.stdout)
@@ -387,7 +387,7 @@ class Unfinished(Workspace):
     def test_allow_open_scaffolds_and_records_the_reason(self):
         repo = self.repo()
         self.line(repo, "alpha", phase="inner")
-        proc = self.cli(repo, "init", "beta", "--allow-open", "because X")
+        proc = self.cli(repo, "init", "beta", "--ask", "is beta worth it?", "--allow-open", "because X")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         log = read(os.path.join(tr.line_dir(repo, "beta"), "log.md"))
         self.assertIn("because X", log)
@@ -396,7 +396,7 @@ class Unfinished(Workspace):
     def test_an_empty_reason_is_misuse(self):
         repo = self.repo()
         self.line(repo, "alpha", phase="inner")
-        proc = self.cli(repo, "init", "beta", "--allow-open", "   ")
+        proc = self.cli(repo, "init", "beta", "--ask", "is beta worth it?", "--allow-open", "   ")
         self.assertEqual(proc.returncode, 2, (proc.stdout, proc.stderr))
         self.assertEqual(proc.stdout, "")
         self.assertEqual(tr.slugs(repo), ["alpha"])
@@ -405,7 +405,7 @@ class Unfinished(Workspace):
         repo = self.repo()
         self.concluded(repo)
         self.assertEqual(tr.open_lines(repo), [])
-        proc = self.cli(repo, "init", "beta")
+        proc = self.cli(repo, "init", "beta", "--ask", "is beta worth it?")
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertEqual(tr.slugs(repo), ["alpha", "beta"])
 
@@ -1030,7 +1030,7 @@ class Reports(Workspace):
 class Cli(Workspace):
     def test_init_scaffolds_and_exits_zero(self):
         repo = self.repo()
-        proc = self.cli(repo, "init", "probing", "--question", "does x help?")
+        proc = self.cli(repo, "init", "probing", "--ask", "does x help?", "--question", "does x help?")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         base = tr.line_dir(repo, "probing")
         self.assertIn(base, proc.stdout)
@@ -1405,7 +1405,7 @@ class Tracking(Workspace):
         repo = self.repo()
         self.write(os.path.join(repo, ".gitignore"), "# mine\n/build/")
         self.commit(repo, "the user's ignore", when=BEFORE)
-        proc = self.cli(repo, "init", "q")
+        proc = self.cli(repo, "init", "q", "--ask", "does q hold?")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(os.path.isdir(os.path.join(repo, ".tezgah", ".git")))
         body = read(os.path.join(repo, ".gitignore"))
@@ -1429,7 +1429,7 @@ class Tracking(Workspace):
         self.commit(repo, "results", when=AFTER)
         self.assertFalse(hit("ignored by", self.warnings(repo)), self.warnings(repo))
         self.assertEqual(self.errors(repo), [])
-        rel = "research/q/experiments/h1/results.jsonl"
+        rel = "research/open/q/experiments/h1/results.jsonl"
         self.assertEqual(len(self.ws_log(repo, rel)), 1)
         self.assertEqual(self.git(repo, "log", "--format=%H", "--", ".tezgah").strip(), "")
 
@@ -1454,7 +1454,7 @@ class Tracking(Workspace):
         self.commit(repo, "results", when=AFTER)
         self.git(os.path.join(repo, ".tezgah"), "init", "-q")
         self.commit(repo, "import", when=AFTER)
-        self.assertEqual(len(self.ws_log(repo, "research/q/experiments/h1/protocol.md")), 1)
+        self.assertEqual(len(self.ws_log(repo, "research/open/q/experiments/h1/protocol.md")), 1)
         errors = self.errors(repo)
         self.assertFalse(hit(BOTH_TOGETHER, errors), errors)
         self.assertEqual(errors, [])
@@ -1535,7 +1535,7 @@ class Tracking(Workspace):
         self.assertTrue(hit("results.jsonl is ignored by .gitignore:1:*.jsonl", warnings),
                         warnings)
         self.assertTrue(hit("`git -C .tezgah add -f "
-                            "research/q/experiments/h1/results.jsonl`", warnings),
+                            "research/open/q/experiments/h1/results.jsonl`", warnings),
                         warnings)
         self.assertEqual(self.errors(repo), [])
         self.assertTrue(hit("ignored by", self.errors(repo, strict=True)))
@@ -1565,7 +1565,7 @@ class Tracking(Workspace):
         self.results(repo)
         second = self.cli(repo, "commit", "q", "results h1")
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
-        self.assertEqual(len(self.ws_log(repo, "research/q")), 2)
+        self.assertEqual(len(self.ws_log(repo, "research/open/q")), 2)
         self.assertEqual(self.errors(repo), [])
         # the project's own index is never touched
         self.assertEqual(self.git(repo, "diff", "--cached", "--name-only").strip(), "")
@@ -3254,16 +3254,17 @@ class CliEdges(Workspace):
 
     def test_repo_root_falls_back_outside_a_git_repository(self):
         path = self.make_repo("plain")
-        proc = self.cli(path, "init", "q", "--question", "does it help?")
+        proc = self.cli(path, "init", "q", "--ask", "does it help?", "--question", "does it help?")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn(os.path.join(path, ".tezgah", "research", "q"), proc.stdout)
+        self.assertIn(os.path.join(path, ".tezgah", "research", "open", "q"),
+                      proc.stdout)
         status = self.cli(path, "status")
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("q: ok", status.stdout)
 
     def test_init_normalizes_the_slug(self):
         repo = self.repo()
-        proc = self.cli(repo, "init", "  My Probe Line  ")
+        proc = self.cli(repo, "init", "  My Probe Line  ", "--ask", "does the probe hold?")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(os.path.isdir(tr.line_dir(repo, "my-probe-line")))
         self.assertEqual(tr.slugs(repo), ["my-probe-line"])
@@ -3282,7 +3283,7 @@ class CliEdges(Workspace):
 
     def test_init_prints_the_next_steps_and_the_kill_switch(self):
         repo = self.repo()
-        proc = self.cli(repo, "init", "q")
+        proc = self.cli(repo, "init", "q", "--ask", "does q hold?")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("COMMIT it before the run", proc.stdout)
         self.assertIn("kill switch: research-off", proc.stdout)
@@ -4263,11 +4264,12 @@ class Standards(Workspace):
         repo = self.repo()
         self.line(repo, "v1", question="which admin layout?", phase="concluded")
         self.state(repo, "v1", closed={"limit": "superseded by v2"})
-        proc = self.cli(repo, "init", "v2", "--question", "which admin layout?")
+        proc = self.cli(repo, "init", "v2", "--ask", "which admin layout?",
+                        "--question", "which admin layout?")
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("--supersedes v1", proc.stdout)
-        proc = self.cli(repo, "init", "v2", "--question", "which admin layout?",
-                        "--supersedes", "v1")
+        proc = self.cli(repo, "init", "v2", "--ask", "which admin layout?",
+                        "--question", "which admin layout?", "--supersedes", "v1")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.state(repo, "v2", direction="conclude")
         needle = "supersedes v1 and no variant carries its deliverable"
@@ -4457,7 +4459,7 @@ class Standards(Workspace):
         self.protocol(repo, "alpha")
         self.results(repo, "alpha")
         self.commit(repo, "both at once", when=BEFORE)
-        proc = self.cli(repo, "init", "beta", "--allow-open", "because X")
+        proc = self.cli(repo, "init", "beta", "--ask", "is beta worth it?", "--allow-open", "because X")
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("alpha:", proc.stdout)
         self.assertEqual(tr.slugs(repo), ["alpha"])
@@ -4466,7 +4468,7 @@ class Standards(Workspace):
         self.assertEqual(tr.open_lines(repo), [])
         log = read(os.path.join(tr.line_dir(repo, "alpha"), "log.md"))
         self.assertIn("order unprovable", log)
-        self.assertEqual(self.cli(repo, "init", "beta").returncode, 0)
+        self.assertEqual(self.cli(repo, "init", "beta", "--ask", "is beta worth it?").returncode, 0)
 
 
 class HistoryBridge(Workspace):
@@ -4703,6 +4705,116 @@ class HistoryBridge(Workspace):
                    json.dumps(row) + "\n")
         errors = self.errors(repo)
         self.assertTrue(hit("not an ancestor of HEAD", errors), errors)
+
+
+class AskContract(Workspace):
+    """The ask contract and the open/done layout (rules 3, 2026-10-01).
+
+    The layer was missing both: a line never recorded the user's words, so
+    "answered" had nothing to be judged against, and `close --limit` was an
+    unconditional exit (4 of 11 sampled lines concluded with the ask unanswered).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.repo_path = self.repo()
+        tr.init(self.repo_path, "q", question="does it help?", created="2026-01-01",
+                ask="does it help?", tier="study")
+
+    def cli(self, *args):
+        return super().cli(self.repo_path, *args)
+
+    def write_success(self, rows):
+        path = os.path.join(tr.line_dir(self.repo_path, "q"), "state.json")
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        state["success"] = rows
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+
+    def errors(self, strict=False):
+        return tr.check_line(self.repo_path, "q", git=False, strict=strict)[0]
+
+    def test_init_lands_the_line_under_open(self):
+        self.assertTrue(tr.line_dir(self.repo_path, "q").endswith(
+            os.path.join("research", "open", "q")))
+
+    def test_init_without_an_ask_is_refused(self):
+        proc = self.cli("init", "no-ask")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("--ask", proc.stdout)
+
+    def test_a_quick_question_gets_no_line(self):
+        proc = self.cli("init", "quick-one", "--ask", "one number", "--tier", "quick")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("answer it in the reply", proc.stdout)
+        self.assertNotIn("quick-one", tr.slugs(self.repo_path))
+
+    def test_a_line_past_bootstrap_without_criteria_is_refused(self):
+        path = os.path.join(tr.line_dir(self.repo_path, "q"), "state.json")
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        state["phase"] = "inner"
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        self.assertTrue(any("no success criteria" in e for e in self.errors()))
+
+    def test_a_verdict_needs_a_criterion_and_evidence(self):
+        self.write_success([{"id": "S1", "criterion": "the table answers it"}])
+        self.assertEqual(self.cli("verdict", "q", "S9", "met",
+                                  "--evidence", "x").returncode, 1)
+        self.assertEqual(self.cli("verdict", "q", "S1", "met").returncode, 1)
+
+    def test_conclude_refuses_until_every_criterion_has_a_verdict(self):
+        self.write_success([{"id": "S1", "criterion": "the table answers it"}])
+        proc = self.cli("conclude", "q")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("no verdict for S1", proc.stdout)
+
+    def test_conclude_moves_the_line_to_done(self):
+        self.write_success([{"id": "S1", "criterion": "the table answers it"}])
+        self.assertEqual(self.cli("verdict", "q", "S1", "met",
+                                  "--evidence", "report.md#S1").returncode, 0)
+        proc = self.cli("conclude", "q")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertTrue(tr.sealed(self.repo_path, "q"))
+        self.assertIn("q", tr.slugs(self.repo_path))
+
+    def test_a_closed_line_over_an_unmet_criterion_needs_an_ack(self):
+        self.write_success([{"id": "S1", "criterion": "the table answers it"}])
+        self.assertEqual(self.cli("verdict", "q", "S1", "not-met",
+                                  "--evidence", "report.md#unmeasured").returncode, 0)
+        refused = self.cli("close", "q", "--limit", "stopped")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.assertIn("--ack", refused.stdout)
+        ok = self.cli("close", "q", "--limit", "stopped", "--ack", "user said stop")
+        self.assertEqual(ok.returncode, 0, ok.stdout)
+        self.assertTrue(tr.sealed(self.repo_path, "q"))
+
+    def test_an_unmet_verdict_marks_the_line_unanswered(self):
+        self.write_success([{"id": "S1", "criterion": "x", "verdict": "not-met",
+                             "evidence": "report.md"}])
+        self.assertTrue(tr.unanswered(tr.line_state(self.repo_path, "q")))
+
+    def test_the_resolver_finds_a_flat_legacy_line(self):
+        os.makedirs(os.path.join(tr.root(self.repo_path), "legacy"), exist_ok=True)
+        with open(os.path.join(tr.root(self.repo_path), "legacy", "state.json"), "w") as fh:
+            fh.write('{"question": "old"}')
+        self.assertIn("legacy", tr.slugs(self.repo_path))
+        self.assertEqual(tr.line_dir(self.repo_path, "legacy"),
+                         os.path.join(tr.root(self.repo_path), "legacy"))
+
+    def test_migrate_layout_moves_flat_lines_by_their_state(self):
+        os.makedirs(os.path.join(tr.root(self.repo_path), "oldopen"), exist_ok=True)
+        os.makedirs(os.path.join(tr.root(self.repo_path), "olddone"), exist_ok=True)
+        with open(os.path.join(tr.root(self.repo_path), "oldopen", "state.json"), "w") as fh:
+            fh.write('{"question": "x", "phase": "inner"}')
+        with open(os.path.join(tr.root(self.repo_path), "olddone", "state.json"), "w") as fh:
+            fh.write('{"question": "y", "phase": "concluded"}')
+        moved = dict(tr.migrate_layout(self.repo_path))
+        self.assertEqual(moved, {"oldopen": "open", "olddone": "done"})
+        self.assertEqual(tr.migrate_layout(self.repo_path), [], "idempotent")
+        self.assertEqual(tr.slugs(self.repo_path), ["olddone", "oldopen", "q"])
 
 
 if __name__ == "__main__":
