@@ -182,8 +182,8 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
   that has crashed has refused nothing.
 - **The root boundary.** Every hook is inert outside a configured root:
   a linked `git worktree` counts as inside when its main checkout is, read from
-  its `.git` pointer file rather than a git fork (`linked_main`,
-  `hooks/tezgah_paths.py:216-232`), and answers its own top level so every path
+  its `.git` pointer file rather than a git fork (`worktree_top`,
+  `hooks/tezgah_paths.py:233-248`), and answers its own top level so every path
   stays under the base `root_for` returns (`hooks/tezgah_paths.py:183-202`);
   `context_for` returns `None` (`hooks/tezgah_context.py:1244-1245`), the gate only acts
   inside one (`hooks/tezgah_gate.py:4`), and the status line is the single

@@ -20,8 +20,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   vendored clone, a submodule) answers for itself and `worktrees` never lists the
   outer repo's checkouts for it. `root_for` uses the new `worktree_top`, which
   tries every `.git`-holding ancestor: a path under the worktree's own `.tezgah`
-  or under a repo nested in it is armed to the worktree root, not to the nearest
-  `.git` holder.
+  or under a plain repo nested in it is armed to the worktree root, not to the
+  nearest `.git` holder (a nested *linked worktree of another repo* still answers
+  None, as at the base).
 - **A checkout git can no longer list is still shown.**
   `tezgah-research --all` and the session-start worktree line append the current
   checkout when its admin entry is gone (a moved worktree), instead of printing

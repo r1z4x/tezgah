@@ -110,7 +110,7 @@ The compact per-turn text every user turn pays for, `PROMPT_REMINDER` (`hooks/te
 Putting a [snapshot](#snapshot)'s bytes back, `restore()` (`hooks/tezgah_snapshot.py:218`), reached only through `tezgah-rollback` (`bin/tezgah-rollback:2-13`), which writes a `rollback` row (`hooks/tezgah_snapshot.py:263-265`). Tezgah never rolls back on its own.
 
 ### root
-A directory tezgah is armed over, from `TEZGAH_ROOTS`, the config file or `~/Projects` (`hooks/tezgah_paths.py:8-14`), resolved by `roots()` longest first (`:167-182`) and looked up per path by `root_for()` (`hooks/tezgah_paths.py:183-204`); a linked `git worktree` outside every root is inside when its main checkout is, and answers its own top level (`linked_main`, `hooks/tezgah_paths.py:216-232`). Not a repository: one root may contain many repositories.
+A directory tezgah is armed over, from `TEZGAH_ROOTS`, the config file or `~/Projects` (`hooks/tezgah_paths.py:8-14`), resolved by `roots()` longest first (`:167-182`) and looked up per path by `root_for()` (`hooks/tezgah_paths.py:183-204`); a linked `git worktree` outside every root is inside when its main checkout is, and answers its own top level (`worktree_top`, `hooks/tezgah_paths.py:233-248`). Not a repository: one root may contain many repositories.
 
 ### root boundary
 The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:1210-1211`), the context builder returns nothing (`hooks/tezgah_context.py:1244-1245`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:1828-1829`). Not a repository boundary.

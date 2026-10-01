@@ -172,9 +172,12 @@ class WorktreeBridge(TempHome):
         moved = os.path.join(self.home, "moved")
         shutil.move(self.outside, moved)  # its admin entry still names the old path
         admin = os.path.join(self.main, ".git", "worktrees")
-        names = os.listdir(admin)
-        self.assertTrue(min(len(open(os.path.join(admin, n, "gitdir")).read()) > 0
-                            for n in names), names)
+        pointers = []
+        for name in os.listdir(admin):
+            with open(os.path.join(admin, name, "gitdir"), encoding="utf-8") as fh:
+                pointers.append(fh.read().strip())
+        self.assertTrue(any(p.startswith(self.outside + os.sep) for p in pointers),
+                        pointers)
         self.assertNotIn(moved, tp.worktrees(self.main))
         line = os.path.join(moved, ".tezgah", "research", "delta")
         os.makedirs(line)
