@@ -62,6 +62,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `agent://` and `xd://` targets were treated as files another session had just
   written; only the harness's own channels are skipped, and `file://`/`s3://`
   targets stay guarded.
+- **A temp fixture that fails to clean up no longer fails an unrelated test.**
+  `TempHome` used a plain `TemporaryDirectory`, so a file a fixture-spawned
+  process created between the cleanup's `listdir` and its `rmdir` turned a green
+  run red in CI (`OSError: Directory not empty`, 2026-10-01).
 - `test_migrate` fixtures carry their own git identity and `test_models` mocks the
   OpenRouter credential, so CI decides on behaviour rather than on the runner's
   git version or a developer's key file.

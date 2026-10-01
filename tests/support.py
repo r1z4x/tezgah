@@ -106,7 +106,12 @@ class TempHome(unittest.TestCase):
     """A test with a fresh temp HOME and a Projects root inside it."""
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory(dir=FIXTURE_PARENT)
+        # a fixture-spawned process can create a file between the cleanup's
+        # listdir and its rmdir; a temp dir that fails to clean is not a test
+        # outcome, and the failure landed on an unrelated test's teardown in CI
+        # (2026-10-01, OSError: Directory not empty, test_agents)
+        self._tmp = tempfile.TemporaryDirectory(dir=FIXTURE_PARENT,
+                                               ignore_cleanup_errors=True)
         self.addCleanup(self._tmp.cleanup)
         self.home = os.path.realpath(self._tmp.name)
         self.roots = os.path.join(self.home, "Projects")
