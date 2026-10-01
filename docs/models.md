@@ -19,8 +19,8 @@ Every generated agent has a slot (`AGENT_SLOT`, `hooks/tezgah_models.py:107-112`
 and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py:85-106`). The
 three tier workers - `tezgah-cheap`, `tezgah-standard`, `tezgah-frontier` - are
 generated in every tezgah root because routing needs no capability (`ROLES`,
-`hooks/tezgah_agents.py:266-301`; their brief, `_worker_body`,
-`hooks/tezgah_agents.py:247-265`). A cheaper worker that meets work above its tier
+`hooks/tezgah_agents.py:272-307`; their brief, `_worker_body`,
+`hooks/tezgah_agents.py:253-271`). A cheaper worker that meets work above its tier
 answers `ESCALATE: <why>`, and the router restarts the task on `tezgah-frontier`
 with the original brief rather than handing the failed trajectory up: continuing a
 cheap trajectory on a frontier model was the most expensive option measured

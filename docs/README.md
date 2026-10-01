@@ -38,6 +38,7 @@ reader with one question in mind, and every non-obvious claim in it carries a
 | How do I check a change, and how do I test it? | [testing](testing.md) |
 | How do I install, upgrade or repair this? | [operations](operations.md) |
 | What does this word mean here? | [glossary](glossary.md) |
+| How is a session meant to run, and what does each tier cost? | [vision](vision.md) |
 
 ## How these pages are written
 
