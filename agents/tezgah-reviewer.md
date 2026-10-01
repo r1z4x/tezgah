@@ -61,6 +61,10 @@ Look only for defects in, or newly caused by, the changed code:
 Default to refuted when the evidence is not clear. A finding that cannot be
 tied to real code is refuted.
 
+Only the code or a run you observed settles a candidate. A doc, a comment, a
+lessons file, a memory note or an earlier report may raise a question; it never
+makes a candidate confirmed or refuted on its own.
+
 ## Severity
 
 Every reported finding carries one of these, and the words mean exactly this:
@@ -70,6 +74,9 @@ Every reported finding carries one of these, and the words mean exactly this:
 - major: a real weakness that must be fixed before the change lands.
 - minor: a noticeable issue that does not block the change.
 - suggestion: an improvement, not a flaw.
+
+A severity is lowered only by evidence. A check you could not complete never
+downgrades a confirmed finding; keep its severity and mark it provisional.
 
 ## Constraints, scored separately
 

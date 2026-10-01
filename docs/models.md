@@ -19,8 +19,8 @@ Every generated agent has a slot (`AGENT_SLOT`, `hooks/tezgah_models.py:103-108`
 and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py:81-102`). The
 three tier workers - `tezgah-cheap`, `tezgah-standard`, `tezgah-frontier` - are
 generated in every tezgah root because routing needs no capability (`ROLES`,
-`hooks/tezgah_agents.py:261-296`; their brief, `_worker_body`,
-`hooks/tezgah_agents.py:242-260`). A cheaper worker that meets work above its tier
+`hooks/tezgah_agents.py:266-301`; their brief, `_worker_body`,
+`hooks/tezgah_agents.py:247-265`). A cheaper worker that meets work above its tier
 answers `ESCALATE: <why>`, and the router restarts the task on `tezgah-frontier`
 with the original brief rather than handing the failed trajectory up: continuing a
 cheap trajectory on a frontier model was the most expensive option measured
@@ -83,7 +83,7 @@ fixed:
    to frontier by rule (`OVERRIDE`, `hooks/tezgah_models.py:486-494`) - the class
    the judge under-routed in its measurement.
 2. Otherwise the brief - redacted with the ledger's own reader
-   (`redact`, `hooks/tezgah_integrity.py:524`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
+   (`redact`, `hooks/tezgah_integrity.py:552`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
    `hooks/tezgah_models.py:524-545`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a

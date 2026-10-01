@@ -264,6 +264,93 @@ const NEUTER = /\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])/
 const SKIP_ENV = /\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b/
 const NO_VERIFY = /--no-verify\b/
 const GITISH = /\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b/i
+// mirrors _shell_segments/_hooks_redirect in hooks/tezgah_integrity.py: a
+// core.hooksPath assignment in the same line as a git commit/push skips the
+// hooks like --no-verify; read word by word through shellWords (shlex's reading)
+const HOOKS_KEY = "core.hookspath"
+const GIT_CONFIG_ENV = /^GIT_CONFIG_(?:KEY_\d+|PARAMETERS)$/
+const ENV_WORD = /^[A-Za-z_]\w*=/
+const GIT_VALUE_OPTS = new Set(["-C", "-c", "--git-dir", "--work-tree",
+  "--namespace", "--config-env", "--super-prefix"])
+const CONFIG_READS = ["--get", "--unset", "--list", "--remove", "--rename", "--edit"]
+const CONFIG_READ_OPTS = new Set(["-l", "-e"])
+const CONFIG_READ_SUBS = new Set(["get", "unset", "list", "edit",
+  "remove-section", "rename-section"])
+const ROUGH_WORDS = /[;&|()]+|[^\s;&|()<>]+/g
+
+// unquoted backticks become `;` (hooks/tezgah_integrity._unquoted_backticks)
+function unquotedBackticks(text) {
+  let out = "", quote = null, i = 0
+  while (i < text.length) {
+    let ch = text[i]
+    if (ch === "\\" && quote !== "'" && i + 1 < text.length) {
+      out += text.slice(i, i + 2); i += 2; continue
+    }
+    if (quote) { if (ch === quote) quote = null }
+    else if (ch === "'" || ch === '"') quote = ch
+    else if (ch === "`") ch = ";"
+    out += ch
+    i++
+  }
+  return out
+}
+
+// The line's simple commands as word lists: heredoc bodies blanked, a continued
+// line joined, unquoted backticks split, each line read by shellWords - or, when
+// it cannot read it, roughly (ROUGH_WORDS) - and split at a run of `;&|()`.
+function shellSegments(cmd) {
+  const segs = []
+  const text = unquotedBackticks(blankHeredocs(String(cmd || "")).replace(/\\\n/g, " "))
+  for (const line of text.split(/\r\n|\r|\n/)) {
+    const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
+    let cur = []
+    for (const word of words) {
+      if (word && ";&|()".includes(word[0])) { if (cur.length) segs.push(cur); cur = [] }
+      else cur.push(word)
+    }
+    if (cur.length) segs.push(cur)
+  }
+  return segs
+}
+
+function namesHooksKey(setting) {
+  return setting.toLowerCase().split("=")[0] === HOOKS_KEY
+}
+
+function hooksRedirect(cmd) {
+  let assigns = false, writes = false
+  for (const words of shellSegments(cmd)) {
+    let i = 0
+    while (i < words.length && words[i].split("/").pop() !== "git") {
+      if (ENV_WORD.test(words[i])) {
+        const eq = words[i].indexOf("=")
+        if (GIT_CONFIG_ENV.test(words[i].slice(0, eq)) &&
+            words[i].slice(eq + 1).toLowerCase().includes(HOOKS_KEY)) assigns = true
+      }
+      i++
+    }
+    i++
+    let sub = null
+    while (i < words.length) {
+      const word = words[i]
+      if (word.startsWith("--config-env=")) assigns = assigns || namesHooksKey(word.slice(13))
+      else if ((word === "-c" || word === "--config-env") && i + 1 < words.length)
+        assigns = assigns || namesHooksKey(words[i + 1])
+      if (GIT_VALUE_OPTS.has(word)) { i += 2; continue }
+      if (word.startsWith("-")) { i++; continue }
+      sub = word.toLowerCase()
+      break
+    }
+    if (sub === "commit" || sub === "push") writes = true
+    else if (sub === "config") {
+      const args = words.slice(i + 1).map((a) => a.toLowerCase())
+      const reads = args.some((a) => CONFIG_READS.some((p) => a.startsWith(p)) ||
+        CONFIG_READ_OPTS.has(a)) || (args.length > 0 && CONFIG_READ_SUBS.has(args[0]))
+      if (!reads && args.slice(0, -1).includes(HOOKS_KEY)) assigns = true
+    }
+  }
+  return assigns && writes
+}
 const SKIP_TEST = new RegExp(
   "@pytest\\.mark\\.(?:skip|skipif|xfail|only)\\b|" +
   "@unittest\\.(?:skip|skipIf|skipTest|expectedFailure)\\b|" +
@@ -380,6 +467,11 @@ function shortcutCommand(cmd) {
   if (SKIP_ENV.test(c) && GITISH.test(c))
     return "Verification bypass denied: an env var that skips the hooks " +
       "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them instead."
+  if (hooksRedirect(cmd))
+    return "Verification bypass denied: `core.hooksPath` is redirected in the " +
+      "same command as a commit/push, so git runs a hooks directory that does " +
+      "not hold the checks - the same skip as `--no-verify`. Run the checks " +
+      "and commit without it."
   if (verifyCommand(c) && NEUTER.test(c))
     return "Verification neutered: this check is chained with `|| true` / " +
       "`; true`, so it reports success no matter what it found. Run it plain " +
@@ -1109,11 +1201,17 @@ function shellWords(line) {
   const text = String(line || "")
   const out = []
   let word = ""
+  // shlex keeps a word that was only quotes (`''` is one empty word)
+  let quoted = false
   let i = 0
-  const push = () => { if (word) { out.push(word); word = "" } }
+  const push = () => {
+    if (word || quoted) { out.push(word); word = ""; quoted = false }
+  }
   while (i < text.length) {
     const c = text[i]
     if (/\s/.test(c)) { push(); i += 1; continue }
+    // shlex's commenter: an unquoted `#` ends the line, mid-word too
+    if (c === "#") break
     if (";&|()<>".includes(c)) {
       push()
       let run = c
@@ -1123,6 +1221,7 @@ function shellWords(line) {
       continue
     }
     if (c === "'") {
+      quoted = true
       const end = text.indexOf("'", i + 1)
       if (end === -1) return null
       word += text.slice(i + 1, end)
@@ -1130,6 +1229,7 @@ function shellWords(line) {
       continue
     }
     if (c === '"') {
+      quoted = true
       i += 1
       while (i < text.length && text[i] !== '"') {
         if (text[i] === "\\" && i + 1 < text.length

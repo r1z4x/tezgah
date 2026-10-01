@@ -98,6 +98,73 @@ class ShortcutCommand(unittest.TestCase):
                   "HUSKY=0 git commit -m x"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
+    def test_hooks_path_redirect_beside_a_commit_denied(self):
+        for c in ("git -c core.hooksPath=/dev/null commit -m x",
+                  "git -c core.hookspath=/tmp/none push",
+                  "git config core.hooksPath /tmp/nohooks && git commit -m x",
+                  "git config --local core.hooksPath x; git push origin main",
+                  # a quoted value is still an assignment
+                  'git config core.hooksPath "$D" && git commit -m x',
+                  "git config core.hooksPath '' && git commit -m x",
+                  # the same key through --config-env and the config env vars
+                  "NOH=/tmp/x git --config-env=core.hooksPath=NOH commit",
+                  "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath "
+                  "GIT_CONFIG_VALUE_0=/tmp/x git commit",
+                  "GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/x'\" git commit",
+                  # a quoted key is still the key
+                  "git -c 'core.hooksPath=/dev/null' push",
+                  'git --config-env "core.hooksPath=NOH" commit',
+                  "git config 'core.hooksPath' /dev/null; git commit -m x",
+                  # a quoted word earlier on the line does not hide the real one
+                  'git -c "user.name=config" -c core.hooksPath=/dev/null '
+                  'commit -m "core.hooksPath now"',
+                  'X="GIT_CONFIG_KEY_9=" GIT_CONFIG_KEY_0=core.hooksPath '
+                  'GIT_CONFIG_VALUE_0=/x GIT_CONFIG_COUNT=1 git commit -m x',
+                  # a continued line is one command
+                  "git -c core.hooksPath=/x \\\n  commit -m x",
+                  # a line shlex cannot read is still read, not dropped
+                  "git -c core.hooksPath=/x commit -m $'it\\'s'",
+                  # an unquoted backtick body is a command of its own
+                  "echo `git -c core.hooksPath=/x commit -m x`",
+                  # a vertical tab is not a line break
+                  'git -c core.hooksPath=/x commit -m "a\x0bb"',
+                  # legacy `name value`: the value `get` is still a value
+                  "git config core.hooksPath get && git commit -m x"):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+
+    def test_hooks_path_without_a_commit_or_as_a_read_passes(self):
+        # husky's own setup, a read of the value, an unset, and a message that
+        # names the key are not bypasses
+        for c in ("git config core.hooksPath .githooks",
+                  "git config --get core.hooksPath && git commit -m x",
+                  "git config --unset core.hooksPath && git commit -m x",
+                  'git commit -m "gate: deny core.hooksPath redirects"',
+                  # a hook install that names pre-push/commit-msg is no commit
+                  "git config core.hooksPath .githooks && "
+                  "chmod +x .githooks/commit-msg .githooks/pre-push",
+                  "git config core.hooksPath x; echo commit",
+                  # a read on its own line, and an env name inside a message
+                  "git config core.hooksPath\ngit commit -m x",
+                  'git commit -m "docs: GIT_CONFIG_PARAMETERS=core.hooksPath"',
+                  # the key inside a message beside a path named config
+                  'git commit config/hooks.sh -m "set core.hooksPath in setup"',
+                  'git -C config commit -m "core.hooksPath x"',
+                  # a heredoc body and a comment are data
+                  "git commit -F - <<'MSG'\ngit -c core.hooksPath=/x commit\nMSG",
+                  "git commit -m x # git -c core.hooksPath=/x commit",
+                  # the subcommand form of a read, and backticks in a message
+                  "git config get core.hooksPath && git commit -m x",
+                  "git commit -m 'deny `git -c core.hooksPath=x commit`'"):
+            self.assertIsNone(ti.shortcut_command(c), c)
+
+    def test_a_long_run_of_git_options_is_read_in_linear_time(self):
+        # a pattern whose option alternatives overlapped read `--x` two ways
+        # per token and hung the gate on a long line; the word reader must not
+        start = time.monotonic()
+        ti.shortcut_command("git " + "--x " * 3000 + "y")
+        ti.shortcut_command("git " + "-c " * 40 + "x")
+        self.assertLess(time.monotonic() - start, 2.0)
+
     def test_skip_env_needs_a_hook_runner(self):
         # SKIP=/HUSKY= only turn checks off inside a hook runner; a read that
         # merely mentions them must pass (the gate denied this before the guard)
@@ -988,7 +1055,7 @@ class StaleEvidence(unittest.TestCase):
         self.edit("v2\n")
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIn("Stale evidence", reason)
-        self.assertIn(self.target, reason)
+        self.assertIn(os.path.basename(self.target), reason)
         self.assertEqual([r["detail"] for r in ti.events("s")
                           if r["kind"] == "claim"], ["blocked: stale evidence"])
 
@@ -1018,7 +1085,7 @@ class StaleEvidence(unittest.TestCase):
         ti.note_tool("s", "Write", {"file_path": new}, failed=False)
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIn("Stale evidence", reason)
-        self.assertIn(new, reason)
+        self.assertIn(os.path.basename(new), reason)
 
     def test_a_write_outside_the_workspace_is_not_a_change_to_the_tree(self):
         # The fold asks one question - is the newest check newer than the newest
@@ -1467,8 +1534,8 @@ class DesignContractEvidence(unittest.TestCase):
         self.screen_read()
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIn("tezgah-design check", reason)
-        # the path is shown the way the sibling branch shows it, cut at 80
-        # characters, so the directory is what survives of a long fixture path
+        # the path is shown the way the sibling branch shows it, a long one cut
+        # to its last 77 characters, so the directory and the file name survive
         self.assertIn("admin/components/", reason)
         self.assertEqual([r["detail"] for r in ti.events("s")
                           if r["kind"] == "claim"], ["blocked: no ui_ok"])

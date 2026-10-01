@@ -4,6 +4,57 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A neuter matrix proves each anti-shortcut guard is load-bearing.**
+  `tests/neuter_matrix.py` reverts one guard per clone of HEAD (`--no-verify`,
+  hook-skipping env, `core.hooksPath`, `|| true`, piped check, added test skip,
+  masking, and the opencode mirror of the hooksPath rule) and fails if the gate's
+  tests still pass; `.github/workflows/neuter.yml` runs it weekly.
+
+### Fixed
+
+- **A `core.hooksPath` redirect is a hook bypass.** The gate denied
+  `git commit --no-verify` and `HUSKY=0 git commit` but passed
+  `git -c core.hooksPath=/dev/null commit` and
+  `git config core.hooksPath <dir> && git commit`, which skip the same hooks. A
+  `core.hooksPath` assignment in the same command as a `git commit`/`git push`
+  is now denied - `-c`, `git config` (quoted keys and values included),
+  `--config-env` and the `GIT_CONFIG_KEY_n`/`GIT_CONFIG_PARAMETERS` env - in the
+  Python gate and in the opencode plugin; husky's standalone `git config
+  core.hooksPath .githooks`, a read or `--unset`, a hook install that names
+  `pre-push`, and a commit message that names the key or the env var still
+  pass. The line is read word by word through shlex, the same reading the
+  program-position rules use; an unquoted backtick body counts as a command,
+  and a line shlex cannot parse is read roughly instead of being skipped. A
+  redirect set in one call and committed in the next, and a backtick inside
+  double quotes, are not seen.
+- `test_a_hung_attempt_is_killed_with_its_whole_group` no longer fails under
+  load on macOS: `sh` forks `sleep`, which stays a zombie for a moment after its
+  group is killed, and macOS answers `EPERM` for a zombie-only group; the test
+  now waits up to 5 s for `ESRCH` instead of reading the first answer.
+- **A stale-evidence refusal names the file again.** The Stop hook cut each
+  written path to its first 80 characters, so a long path (any file under
+  macOS's `/var/folders/.../T/`) showed only its directories and lost the file
+  name; it now keeps the last 77 characters behind `...`. The same names feed
+  the design-contract refusal.
+- **The opencode plugin reads a shell line the way shlex does in two more
+  places.** Its `shellWords` dropped a word that was only quotes (`''`) and read
+  past an unquoted `#`; it now keeps the empty word and stops at the comment, as
+  `tezgah_context.shell_programs`' shlex does, so the two hosts answer the same
+  line the same way.
+
+### Changed
+
+- **The reviewer settles a finding only on code or an observed run.** Both
+  reviewer surfaces (the generated brief and `agents/tezgah-reviewer.md`) now say
+  that a doc, comment, lessons file, memory note or earlier report may raise a
+  question but never confirms or refutes a candidate, and that a check the
+  reviewer could not complete never downgrades a confirmed finding's severity -
+  it stays, marked provisional.
+
 ## [0.27.1] - 2026-10-01
 
 ### Fixed

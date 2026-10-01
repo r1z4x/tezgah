@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import statistics
 import time
 
@@ -138,6 +139,33 @@ NEUTER = re.compile(
 SKIP_ENV = re.compile(r"\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b")
 NO_VERIFY = re.compile(r"--no-verify\b")
 GITISH = re.compile(r"\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b", re.I)
+# a hooks directory swapped in the same command as the commit/push it serves:
+# `git -c core.hooksPath=/dev/null commit`, `git config core.hooksPath <dir> &&
+# git commit`, `--config-env` and the GIT_CONFIG_KEY_n/GIT_CONFIG_PARAMETERS env
+# skip the hooks exactly as --no-verify does. Read word by word
+# (`_hooks_redirect`), not by a pattern over the line: quoting moves the key
+# into or out of a word, and every regex form either missed a quoted key or
+# read one inside a commit message. Only an assignment counts: husky's
+# standalone `git config core.hooksPath .githooks`, a read or `--unset`, and a
+# hook install that merely names `pre-push` pass.
+# ponytail: a hooksPath set in one call and a commit in the next is not seen;
+# that needs the session's earlier calls, not one command line.
+HOOKS_KEY = "core.hookspath"
+GIT_CONFIG_ENV = re.compile(r"GIT_CONFIG_(?:KEY_\d+|PARAMETERS)")
+ENV_WORD = re.compile(r"[A-Za-z_]\w*=")
+# git's global options that take the next word as their value
+GIT_VALUE_OPTS = frozenset(("-C", "-c", "--git-dir", "--work-tree", "--namespace",
+                            "--config-env", "--super-prefix"))
+# `git config` arguments that make it a read or a removal, never an assignment:
+# an option anywhere, or a subcommand word only first - in the legacy
+# `name value` form `git config core.hooksPath get` sets the value `get`
+CONFIG_READS = ("--get", "--unset", "--list", "--remove", "--rename", "--edit")
+CONFIG_READ_OPTS = frozenset(("-l", "-e"))
+CONFIG_READ_SUBS = frozenset(("get", "unset", "list", "edit", "remove-section",
+                              "rename-section"))
+# a line shlex cannot read (`$'it\'s'`) is still read, leaning to the deny side:
+# quotes dropped, words split at whitespace and at `;&|()` runs
+ROUGH_WORDS = re.compile(r"[;&|()]+|[^\s;&|()<>]+")
 # tests disabled so a failure disappears; checked only when newly introduced
 SKIP_TEST = re.compile(
     r"@pytest\.mark\.(?:skip|skipif|xfail|only)\b|"
@@ -1519,6 +1547,105 @@ def mask(text):
                         _blank_heredocs(str(text or "")))
 
 
+def _unquoted_backticks(text):
+    """`text` with each backtick outside quotes turned into `;`: a command
+    substitution's body is a command of its own, as `$( )` already is through
+    shlex's `(` and `)`. ponytail: one inside double quotes still runs in bash
+    and is read as part of a word here, the same blind spot `mask` has."""
+    out, quote, i = [], None, 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and quote != "'" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "`":
+            ch = ";"
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _shell_segments(cmd):
+    """The line's simple commands as word lists, read the way
+    `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
+    `;&|()<>` - so quotes, escapes and comments are gone, heredoc bodies are
+    blanked first, a continued line is joined, and an unquoted backtick ends a
+    command. A line shlex cannot read is read roughly (`ROUGH_WORDS`) rather
+    than dropped. A run of `;&|()` ends a command; a redirection does not."""
+    segs = []
+    text = _unquoted_backticks(
+        _blank_heredocs(str(cmd or "")).replace("\\\n", " "))
+    for line in re.split(r"\r\n|\r|\n", text):
+        try:
+            lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
+            lex.whitespace_split = True
+            words = list(lex)
+        except ValueError:
+            words = ROUGH_WORDS.findall(re.sub(r"['\"`]", "", line))
+        cur = []
+        for word in words:
+            if word and word[0] in ";&|()":
+                if cur:
+                    segs.append(cur)
+                cur = []
+            else:
+                cur.append(word)
+        if cur:
+            segs.append(cur)
+    return segs
+
+
+def _names_hooks_key(setting):
+    """True for `core.hooksPath` or `core.hooksPath=<value>`, any case."""
+    return setting.lower().partition("=")[0] == HOOKS_KEY
+
+
+def _hooks_redirect(cmd):
+    """True when one command line both assigns core.hooksPath and runs a git
+    commit or push."""
+    assigns = writes = False
+    for words in _shell_segments(cmd):
+        i = 0
+        while i < len(words) and os.path.basename(words[i]) != "git":
+            if ENV_WORD.match(words[i]):
+                name, _, value = words[i].partition("=")
+                if GIT_CONFIG_ENV.fullmatch(name) and HOOKS_KEY in value.lower():
+                    assigns = True
+            i += 1
+        i += 1
+        sub = None
+        while i < len(words):
+            word = words[i]
+            if word.startswith("--config-env="):
+                assigns = assigns or _names_hooks_key(word[13:])
+            elif word in ("-c", "--config-env") and i + 1 < len(words):
+                assigns = assigns or _names_hooks_key(words[i + 1])
+            if word in GIT_VALUE_OPTS:
+                i += 2
+                continue
+            if word.startswith("-"):
+                i += 1
+                continue
+            sub = word.lower()
+            break
+        if sub in ("commit", "push"):
+            writes = True
+        elif sub == "config":
+            args = [a.lower() for a in words[i + 1:]]
+            reads = (any(a.startswith(CONFIG_READS) or a in CONFIG_READ_OPTS
+                         for a in args)
+                     or bool(args) and args[0] in CONFIG_READ_SUBS)
+            if not reads and HOOKS_KEY in args[:-1]:
+                assigns = True
+    return assigns and writes
+
+
 def shortcut_command(cmd):
     """A deny reason when the command neuters verification, else None.
 
@@ -1534,6 +1661,11 @@ def shortcut_command(cmd):
         return ("Verification bypass denied: an env var that skips the hooks "
                 "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them "
                 "instead of disabling them.")
+    if _hooks_redirect(cmd):
+        return ("Verification bypass denied: `core.hooksPath` is redirected in "
+                "the same command as a commit/push, so git runs a hooks directory "
+                "that does not hold the checks - the same skip as `--no-verify`. "
+                "Run the checks, fix what they report, and commit without it.")
     if verify_command(c) and NEUTER.search(c):
         return ("Verification neutered: this check is chained with `|| true` / "
                 "`; true`, so it reports success no matter what it found. Run it "
@@ -2149,11 +2281,17 @@ def _last_pass(rows):
 
 
 def _stale_paths(rows):
-    """The files written after the newest passing check, for the refusal text."""
+    """The files written after the newest passing check, for the refusal text.
+
+    A long path keeps its tail, not its head: the file name is the part a reader
+    acts on, and a head cut at 80 characters left `/var/folders/.../control-`
+    with no file named at all."""
     names = []
     for row in rows[_last_pass(rows) + 1:]:
         if row.get("kind") == "edit" and _changed_write(row):
-            name = str(row.get("detail") or "").strip()[:80]
+            name = str(row.get("detail") or "").strip()
+            if len(name) > 80:
+                name = "..." + name[-77:]
             if name and name not in names:
                 names.append(name)
     return names
