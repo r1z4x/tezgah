@@ -133,7 +133,7 @@ tezgah's version of that rule is already enforced in the research layer and is
 stated here for the first time. A [claim](research.md) carries a `kind` and a
 `proof` that names an artifact a reader can open, and the one case the claim
 checker leaves out is a proof that names no artifact at all
-(`hooks/tezgah_research.py:1497`) - it is reported rather than labelled, because a
+(`hooks/tezgah_research.py:1498`) - it is reported rather than labelled, because a
 guessed kind would only move the refusal one step later. A source that cannot
 meet the rule does not become a weaker claim: it is labelled for what it is, and
 the work that produced it is the work that has to be redone.
