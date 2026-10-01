@@ -156,10 +156,16 @@ ENV_WORD = re.compile(r"[A-Za-z_]\w*=")
 # git's global options that take the next word as their value
 GIT_VALUE_OPTS = frozenset(("-C", "-c", "--git-dir", "--work-tree", "--namespace",
                             "--config-env", "--super-prefix"))
-# `git config` arguments that make it a read or a removal, never an assignment
+# `git config` arguments that make it a read or a removal, never an assignment:
+# an option anywhere, or a subcommand word only first - in the legacy
+# `name value` form `git config core.hooksPath get` sets the value `get`
 CONFIG_READS = ("--get", "--unset", "--list", "--remove", "--rename", "--edit")
-CONFIG_READ_WORDS = frozenset(("-l", "-e", "get", "unset", "list", "edit",
-                               "remove-section", "rename-section"))
+CONFIG_READ_OPTS = frozenset(("-l", "-e"))
+CONFIG_READ_SUBS = frozenset(("get", "unset", "list", "edit", "remove-section",
+                              "rename-section"))
+# a line shlex cannot read (`$'it\'s'`) is still read, leaning to the deny side:
+# quotes dropped, words split at whitespace and at `;&|()` runs
+ROUGH_WORDS = re.compile(r"[;&|()]+|[^\s;&|()<>]+")
 # tests disabled so a failure disappears; checked only when newly introduced
 SKIP_TEST = re.compile(
     r"@pytest\.mark\.(?:skip|skipif|xfail|only)\b|"
@@ -1541,21 +1547,47 @@ def mask(text):
                         _blank_heredocs(str(text or "")))
 
 
+def _unquoted_backticks(text):
+    """`text` with each backtick outside quotes turned into `;`: a command
+    substitution's body is a command of its own, as `$( )` already is through
+    shlex's `(` and `)`. ponytail: one inside double quotes still runs in bash
+    and is read as part of a word here, the same blind spot `mask` has."""
+    out, quote, i = [], None, 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and quote != "'" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "`":
+            ch = ";"
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _shell_segments(cmd):
     """The line's simple commands as word lists, read the way
     `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
     `;&|()<>` - so quotes, escapes and comments are gone, heredoc bodies are
-    blanked first, a continued line is joined, and a line shlex cannot read is
-    dropped. A run of `;&|()` ends a command; a redirection does not."""
+    blanked first, a continued line is joined, and an unquoted backtick ends a
+    command. A line shlex cannot read is read roughly (`ROUGH_WORDS`) rather
+    than dropped. A run of `;&|()` ends a command; a redirection does not."""
     segs = []
-    text = _blank_heredocs(str(cmd or "")).replace("\\\n", " ")
-    for line in text.splitlines():
+    text = _unquoted_backticks(
+        _blank_heredocs(str(cmd or "")).replace("\\\n", " "))
+    for line in re.split(r"\r\n|\r|\n", text):
         try:
             lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
             lex.whitespace_split = True
             words = list(lex)
         except ValueError:
-            continue
+            words = ROUGH_WORDS.findall(re.sub(r"['\"`]", "", line))
         cur = []
         for word in words:
             if word and word[0] in ";&|()":
@@ -1606,8 +1638,10 @@ def _hooks_redirect(cmd):
             writes = True
         elif sub == "config":
             args = [a.lower() for a in words[i + 1:]]
-            if not any(a.startswith(CONFIG_READS) or a in CONFIG_READ_WORDS
-                       for a in args) and HOOKS_KEY in args[:-1]:
+            reads = (any(a.startswith(CONFIG_READS) or a in CONFIG_READ_OPTS
+                         for a in args)
+                     or bool(args) and args[0] in CONFIG_READ_SUBS)
+            if not reads and HOOKS_KEY in args[:-1]:
                 assigns = True
     return assigns and writes
 

@@ -34,7 +34,7 @@ answer is a `None`, never an exception.
 A judgement is an aid, never the claim. It ranks units or names a page; the agent
 still reads the selected refs and owns the finding, and the ledger's step kinds
 are untouched, so a model answer can never license a "done" (`STEP_KINDS`,
-`hooks/tezgah_integrity.py:1083-1088`).
+`hooks/tezgah_integrity.py:1089-1094`).
 
 The state leaves the machine. A judgement sends the state and the questions to
 `api.typesafe.ai` - for the triage that is the screen's own text, so a screen
@@ -45,7 +45,7 @@ the price of a machine that has no Jev credential still having a judge at all:
 the destination changes, not what is sent. Nothing else goes: no session id, no
 workspace path, no environment. The state is not rewritten because sending it is
 the point - with one exception: `bin/tezgah-route` sends its brief through the
-ledger's own redactor (`redact`, `hooks/tezgah_integrity.py:546`), because a
+ledger's own redactor (`redact`, `hooks/tezgah_integrity.py:552`), because a
 delegation brief can quote an error message or a token, and a brief matching the
 router's override pattern (stored data, credentials, security) is never sent at
 all. Three of the callers are explicit - a person runs the tool - and the
@@ -125,8 +125,8 @@ measured rather than assumed - 0 of 184 live calls returned `None` - so the seco
 attempt costs a healthy call nothing (`_transient`,
 `hooks/tezgah_judge.py:261-273`); `docs/operations.md` records the run. Each
 caller also records one `judge` row of cost on the ledger when a session id is
-known (`note`, `hooks/tezgah_integrity.py:710-722`), counted by the row's kind
-(`counters`, `hooks/tezgah_integrity.py:1294-1325`).
+known (`note`, `hooks/tezgah_integrity.py:716-728`), counted by the row's kind
+(`counters`, `hooks/tezgah_integrity.py:1300-1331`).
 
 ## What the seam never does
 
@@ -151,7 +151,7 @@ known (`note`, `hooks/tezgah_integrity.py:710-722`), counted by the row's kind
    the tools' own docstrings, and the user-facing surface is already the two tool
    names.
 7. **A judgement never counts as a check or a step.** The step kinds stay as they
-   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:1083-1088`); the cost row is a
+   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:1089-1094`); the cost row is a
    counter, not evidence.
 
 ## Source of truth

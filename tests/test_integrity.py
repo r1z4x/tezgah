@@ -121,7 +121,15 @@ class ShortcutCommand(unittest.TestCase):
                   'X="GIT_CONFIG_KEY_9=" GIT_CONFIG_KEY_0=core.hooksPath '
                   'GIT_CONFIG_VALUE_0=/x GIT_CONFIG_COUNT=1 git commit -m x',
                   # a continued line is one command
-                  "git -c core.hooksPath=/x \\\n  commit -m x"):
+                  "git -c core.hooksPath=/x \\\n  commit -m x",
+                  # a line shlex cannot read is still read, not dropped
+                  "git -c core.hooksPath=/x commit -m $'it\\'s'",
+                  # an unquoted backtick body is a command of its own
+                  "echo `git -c core.hooksPath=/x commit -m x`",
+                  # a vertical tab is not a line break
+                  'git -c core.hooksPath=/x commit -m "a\x0bb"',
+                  # legacy `name value`: the value `get` is still a value
+                  "git config core.hooksPath get && git commit -m x"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
     def test_hooks_path_without_a_commit_or_as_a_read_passes(self):
@@ -143,7 +151,10 @@ class ShortcutCommand(unittest.TestCase):
                   'git -C config commit -m "core.hooksPath x"',
                   # a heredoc body and a comment are data
                   "git commit -F - <<'MSG'\ngit -c core.hooksPath=/x commit\nMSG",
-                  "git commit -m x # git -c core.hooksPath=/x commit"):
+                  "git commit -m x # git -c core.hooksPath=/x commit",
+                  # the subcommand form of a read, and backticks in a message
+                  "git config get core.hooksPath && git commit -m x",
+                  "git commit -m 'deny `git -c core.hooksPath=x commit`'"):
             self.assertIsNone(ti.shortcut_command(c), c)
 
     def test_a_long_run_of_git_options_is_read_in_linear_time(self):

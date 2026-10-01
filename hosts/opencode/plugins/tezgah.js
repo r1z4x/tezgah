@@ -273,18 +273,36 @@ const ENV_WORD = /^[A-Za-z_]\w*=/
 const GIT_VALUE_OPTS = new Set(["-C", "-c", "--git-dir", "--work-tree",
   "--namespace", "--config-env", "--super-prefix"])
 const CONFIG_READS = ["--get", "--unset", "--list", "--remove", "--rename", "--edit"]
-const CONFIG_READ_WORDS = new Set(["-l", "-e", "get", "unset", "list", "edit",
+const CONFIG_READ_OPTS = new Set(["-l", "-e"])
+const CONFIG_READ_SUBS = new Set(["get", "unset", "list", "edit",
   "remove-section", "rename-section"])
+const ROUGH_WORDS = /[;&|()]+|[^\s;&|()<>]+/g
+
+// unquoted backticks become `;` (hooks/tezgah_integrity._unquoted_backticks)
+function unquotedBackticks(text) {
+  let out = "", quote = null, i = 0
+  while (i < text.length) {
+    let ch = text[i]
+    if (ch === "\\" && quote !== "'" && i + 1 < text.length) {
+      out += text.slice(i, i + 2); i += 2; continue
+    }
+    if (quote) { if (ch === quote) quote = null }
+    else if (ch === "'" || ch === '"') quote = ch
+    else if (ch === "`") ch = ";"
+    out += ch
+    i++
+  }
+  return out
+}
 
 // The line's simple commands as word lists: heredoc bodies blanked, a continued
-// line joined, each line read by shellWords (null drops it, as shlex's
-// ValueError does), split at a run of `;&|()`; a redirection is not a split.
+// line joined, unquoted backticks split, each line read by shellWords - or, when
+// it cannot read it, roughly (ROUGH_WORDS) - and split at a run of `;&|()`.
 function shellSegments(cmd) {
   const segs = []
-  const text = blankHeredocs(String(cmd || "")).replace(/\\\n/g, " ")
+  const text = unquotedBackticks(blankHeredocs(String(cmd || "")).replace(/\\\n/g, " "))
   for (const line of text.split(/\r\n|\r|\n/)) {
-    const words = shellWords(line)
-    if (!words) continue
+    const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
     let cur = []
     for (const word of words) {
       if (word && ";&|()".includes(word[0])) { if (cur.length) segs.push(cur); cur = [] }
@@ -326,8 +344,9 @@ function hooksRedirect(cmd) {
     if (sub === "commit" || sub === "push") writes = true
     else if (sub === "config") {
       const args = words.slice(i + 1).map((a) => a.toLowerCase())
-      if (!args.some((a) => CONFIG_READS.some((p) => a.startsWith(p)) || CONFIG_READ_WORDS.has(a)) &&
-          args.slice(0, -1).includes(HOOKS_KEY)) assigns = true
+      const reads = args.some((a) => CONFIG_READS.some((p) => a.startsWith(p)) ||
+        CONFIG_READ_OPTS.has(a)) || (args.length > 0 && CONFIG_READ_SUBS.has(args[0]))
+      if (!reads && args.slice(0, -1).includes(HOOKS_KEY)) assigns = true
     }
   }
   return assigns && writes
