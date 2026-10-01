@@ -153,28 +153,35 @@ class WorktreeBridge(TempHome):
         """F3: the walk tries every `.git`-holding ancestor, so the worktree's
         own `.tezgah` and a nested repo still answer the worktree."""
         ws = os.path.join(self.outside, ".tezgah", "research")
+        os.makedirs(os.path.join(self.outside, ".tezgah", ".git"))
         os.makedirs(ws)
         nested = os.path.join(self.outside, "nested")
-        os.makedirs(nested)
+        os.makedirs(os.path.join(nested, ".git"))
         with self.no_fork:
+            # the answer is the worktree, not the `.tezgah` or the nested repo
             self.assertEqual(tp.root_for(ws), self.outside)
-            self.assertEqual(tp.root_for(nested), self.outside)
+            self.assertEqual(tp.root_for(os.path.join(nested, "deep")), self.outside)
+            # ... while the nested repo answers for itself, never the checkout
+            self.assertIsNone(tp.linked_main(nested))
+            self.assertEqual(tp.worktrees(nested), [nested])
 
     def test_all_still_names_this_checkout_when_its_admin_entry_is_gone(self):
         """F4: a checkout git can no longer list (its admin entry removed, e.g.
         after an `mv`) is still this checkout and still shown."""
         import tezgah_research as tr
+        moved = os.path.join(self.home, "moved")
+        shutil.move(self.outside, moved)  # its admin entry still names the old path
         admin = os.path.join(self.main, ".git", "worktrees")
-        for name in os.listdir(admin):
-            with open(os.path.join(admin, name, "gitdir"), encoding="utf-8") as fh:
-                if fh.readline().strip().startswith(self.outside):
-                    shutil.rmtree(os.path.join(admin, name))
-        line = os.path.join(self.outside, ".tezgah", "research", "delta")
+        names = os.listdir(admin)
+        self.assertTrue(min(len(open(os.path.join(admin, n, "gitdir")).read()) > 0
+                            for n in names), names)
+        self.assertNotIn(moved, tp.worktrees(self.main))
+        line = os.path.join(moved, ".tezgah", "research", "delta")
         os.makedirs(line)
         with open(os.path.join(line, "state.json"), "w") as fh:
             json.dump({"question": "q", "phase": "inner"}, fh)
-        rows = tr.across(self.outside)
-        self.assertIn(self.outside + " (this checkout)", rows)
+        rows = tr.across(moved)
+        self.assertIn(moved + " (this checkout)", rows)
         self.assertTrue(any(r.startswith("  delta: ") for r in rows), rows)
 
     def test_research_all_renders_every_checkouts_lines(self):

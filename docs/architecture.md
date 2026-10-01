@@ -161,7 +161,7 @@ and private git repository, never a share of the main checkout's. It sees the
 others read-only - the session-start line above and `tezgah-research --all` -
 through `worktrees`, which lists `<main>/.git/worktrees/*/gitdir` with no git
 fork and skips an entry whose checkout is gone, as git's own `prunable` does
-(`hooks/tezgah_paths.py:256-285`).
+(`hooks/tezgah_paths.py:270-299`).
 
 ## Invariants
 
@@ -183,8 +183,8 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
 - **The root boundary.** Every hook is inert outside a configured root:
   a linked `git worktree` counts as inside when its main checkout is, read from
   its `.git` pointer file rather than a git fork (`linked_main`,
-  `hooks/tezgah_paths.py:214-235`), and answers its own top level so every path
-  stays under the base `root_for` returns (`hooks/tezgah_paths.py:183-200`);
+  `hooks/tezgah_paths.py:216-232`), and answers its own top level so every path
+  stays under the base `root_for` returns (`hooks/tezgah_paths.py:183-202`);
   `context_for` returns `None` (`hooks/tezgah_context.py:1244-1245`), the gate only acts
   inside one (`hooks/tezgah_gate.py:4`), and the status line is the single
   deliberate exception, because a globally loaded rules file must still show that

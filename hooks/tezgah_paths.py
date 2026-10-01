@@ -194,9 +194,11 @@ def root_for(path):
     for r in rs:
         if real == r or real.startswith(r + os.sep):
             return r
-    main = linked_main(real)
-    if main and any(main == r or main.startswith(r + os.sep) for r in rs):
-        return _toplevel(real)
+    top = worktree_top(real)
+    if top:
+        main = _linked_main_at(top)
+        if main and any(main == r or main.startswith(r + os.sep) for r in rs):
+            return top
     return None
 
 
@@ -212,21 +214,33 @@ def _toplevel(real):
 
 
 def linked_main(path):
-    """The main checkout of the linked worktree holding `path`, else None.
+    """The main checkout of the nearest linked worktree holding `path`, else None.
 
-    Read from the worktree's `.git` pointer file (`gitdir: <main>/.git/worktrees/
+    Nearest only: `worktrees` asks it about the repository it was handed, so a
+    repo nested inside a worktree (a vendored clone, a submodule) answers None and
+    never the checkout it sits in; `worktree_top` is the ancestor walk `root_for`
+    uses. Read from the `.git` pointer file (`gitdir: <main>/.git/worktrees/
     <name>`), never from git: `root_for` runs on every gate call and a session
-    start's git forks are pinned. Every `.git`-holding ancestor is tried, nearest
-    first, so a path under the worktree's own `.tezgah` or under a nested repo
-    still finds the worktree it sits in. A plain checkout (`.git` is a directory),
-    a submodule (a `/modules/` pointer) and a bare main (no `.git` component)
+    start's git forks are pinned. A plain checkout (`.git` is a directory), a
+    submodule (a `/modules/` pointer) and a bare main (no `.git` component)
     answer None."""
+    top = _toplevel(os.path.realpath(path))
+    if not top:
+        return None
+    return _linked_main_at(top)
+
+
+def worktree_top(path):
+    """The top of the linked worktree holding `path`, else None.
+
+    Every `.git`-holding ancestor is tried, nearest first, so a path under the
+    worktree's own `.tezgah` or under a repo nested in it still answers the
+    worktree. A `.git` directory, a pointer git did not write and a submodule
+    pointer are all skipped in favour of an enclosing worktree."""
     cur = os.path.realpath(path)
     while True:
-        if os.path.lexists(os.path.join(cur, ".git")):
-            main = _linked_main_at(cur)
-            if main:
-                return main
+        if os.path.lexists(os.path.join(cur, ".git")) and _linked_main_at(cur):
+            return cur
         parent = os.path.dirname(cur)
         if parent == cur:
             return None

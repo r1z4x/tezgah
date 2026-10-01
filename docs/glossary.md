@@ -62,7 +62,7 @@ One coding agent tezgah is installed into - claude, codex, cursor, opencode, dsh
 The label on an evidence [row](#row) saying what happened: `classify()` gives `edit` or `run`/`verify` (`hooks/tezgah_integrity.py:1356-1363`), `note_tool()` refines a check into `verify_ok`/`verify_fail` (`:1711-1713`), writes `interrupted` when the host said the call was stopped (`:1720`) and adds `external` (`:1740`) or `unknown` (`:1753`), and the machinery adds `deny`, `nudge`, `turn`, `claim`, `drift`, `snapshot`, `rollback`; `kinds()` returns the distinct set (`:689-691`).
 
 ### kill switch
-A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:479-481`, `:46`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:825-832`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
+A file whose presence removes exactly its own rule from the injected text and from the gate, not merely from the status line: `off()` checks the canonical config dir and the legacy `~/.claude` (`hooks/tezgah_paths.py:493-495`, `:46`), and the list is in [CORE](#core) (`hooks/tezgah_policy.py:825-832`). Not a [per-repo mark](#per-repo-mark): a switch is per machine, a mark per repo.
 
 ### legend
 The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hooks/tezgah_context.py:1919-1944`), printed by `tezgah-status --legend` (`bin/tezgah-status:73-75`). Not the marks themselves.
@@ -110,7 +110,7 @@ The compact per-turn text every user turn pays for, `PROMPT_REMINDER` (`hooks/te
 Putting a [snapshot](#snapshot)'s bytes back, `restore()` (`hooks/tezgah_snapshot.py:218`), reached only through `tezgah-rollback` (`bin/tezgah-rollback:2-13`), which writes a `rollback` row (`hooks/tezgah_snapshot.py:263-265`). Tezgah never rolls back on its own.
 
 ### root
-A directory tezgah is armed over, from `TEZGAH_ROOTS`, the config file or `~/Projects` (`hooks/tezgah_paths.py:8-14`), resolved by `roots()` longest first (`:167-182`) and looked up per path by `root_for()` (`hooks/tezgah_paths.py:183-202`); a linked `git worktree` outside every root is inside when its main checkout is, and answers its own top level (`linked_main`, `hooks/tezgah_paths.py:214-235`). Not a repository: one root may contain many repositories.
+A directory tezgah is armed over, from `TEZGAH_ROOTS`, the config file or `~/Projects` (`hooks/tezgah_paths.py:8-14`), resolved by `roots()` longest first (`:167-182`) and looked up per path by `root_for()` (`hooks/tezgah_paths.py:183-204`); a linked `git worktree` outside every root is inside when its main checkout is, and answers its own top level (`linked_main`, `hooks/tezgah_paths.py:216-232`). Not a repository: one root may contain many repositories.
 
 ### root boundary
 The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:1210-1211`), the context builder returns nothing (`hooks/tezgah_context.py:1244-1245`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:1828-1829`). Not a repository boundary.

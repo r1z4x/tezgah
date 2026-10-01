@@ -13,11 +13,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   never see its own `.codegraph/codegraph.db`: the graph mark stayed `idx-`, the
   "graph is behind HEAD" notice never fired and the gate's nudge never ran. The
   base is now excluded only when it is a configured root.
-- **The `.git` pointer is validated.** `linked_main` accepted any `.git` file of
-  the right shape; it now requires the admin directory git writes (`commondir`),
-  so a pointer to nowhere does not arm a directory. It also tries every
-  `.git`-holding ancestor, so a path under the worktree's own `.tezgah` or under a
-  nested repo still finds the worktree it sits in.
+- **The `.git` pointer is validated, and the base is the worktree itself.**
+  `linked_main` accepted any `.git` file of the right shape; it now requires the
+  admin directory git writes (`commondir`), so a pointer to nowhere does not arm a
+  directory - and it stays nearest-only, so a repo nested inside a worktree (a
+  vendored clone, a submodule) answers for itself and `worktrees` never lists the
+  outer repo's checkouts for it. `root_for` uses the new `worktree_top`, which
+  tries every `.git`-holding ancestor: a path under the worktree's own `.tezgah`
+  or under a repo nested in it is armed to the worktree root, not to the nearest
+  `.git` holder.
 - **A checkout git can no longer list is still shown.**
   `tezgah-research --all` and the session-start worktree line append the current
   checkout when its admin entry is gone (a moved worktree), instead of printing
