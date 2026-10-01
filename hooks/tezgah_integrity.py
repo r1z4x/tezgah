@@ -138,6 +138,18 @@ NEUTER = re.compile(
 SKIP_ENV = re.compile(r"\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b")
 NO_VERIFY = re.compile(r"--no-verify\b")
 GITISH = re.compile(r"\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b", re.I)
+# a hooks directory swapped in the same command as the commit/push it serves:
+# `git -c core.hooksPath=/dev/null commit` and `git config core.hooksPath <dir>
+# && git commit` skip the hooks exactly as --no-verify does. Only an assignment
+# counts: a standalone `git config core.hooksPath .githooks` (husky's own setup)
+# and a `--get`/`--unset` beside a commit pass.
+# ponytail: a hooksPath set in one call and a commit in the next is not seen;
+# that needs the session's earlier calls, not one command line.
+HOOKS_PATH = re.compile(
+    r"-c\s+core\.hookspath\s*=|"
+    r"\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath\s+[^\s;&|]",
+    re.I)
+GIT_WRITE = re.compile(r"\b(?:commit|push)\b")
 # tests disabled so a failure disappears; checked only when newly introduced
 SKIP_TEST = re.compile(
     r"@pytest\.mark\.(?:skip|skipif|xfail|only)\b|"
@@ -1534,6 +1546,11 @@ def shortcut_command(cmd):
         return ("Verification bypass denied: an env var that skips the hooks "
                 "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them "
                 "instead of disabling them.")
+    if HOOKS_PATH.search(c) and GIT_WRITE.search(c):
+        return ("Verification bypass denied: `core.hooksPath` is redirected in "
+                "the same command as a commit/push, so git runs a hooks directory "
+                "that does not hold the checks - the same skip as `--no-verify`. "
+                "Run the checks, fix what they report, and commit without it.")
     if verify_command(c) and NEUTER.search(c):
         return ("Verification neutered: this check is chained with `|| true` / "
                 "`; true`, so it reports success no matter what it found. Run it "

@@ -98,6 +98,22 @@ class ShortcutCommand(unittest.TestCase):
                   "HUSKY=0 git commit -m x"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
+    def test_hooks_path_redirect_beside_a_commit_denied(self):
+        for c in ("git -c core.hooksPath=/dev/null commit -m x",
+                  "git -c core.hookspath=/tmp/none push",
+                  "git config core.hooksPath /tmp/nohooks && git commit -m x",
+                  "git config --local core.hooksPath x; git push origin main"):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+
+    def test_hooks_path_without_a_commit_or_as_a_read_passes(self):
+        # husky's own setup, a read of the value, an unset, and a message that
+        # names the key are not bypasses
+        for c in ("git config core.hooksPath .githooks",
+                  "git config --get core.hooksPath && git commit -m x",
+                  "git config --unset core.hooksPath && git commit -m x",
+                  'git commit -m "gate: deny core.hooksPath redirects"'):
+            self.assertIsNone(ti.shortcut_command(c), c)
+
     def test_skip_env_needs_a_hook_runner(self):
         # SKIP=/HUSKY= only turn checks off inside a hook runner; a read that
         # merely mentions them must pass (the gate denied this before the guard)

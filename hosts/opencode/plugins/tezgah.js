@@ -264,6 +264,11 @@ const NEUTER = /\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])/
 const SKIP_ENV = /\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b/
 const NO_VERIFY = /--no-verify\b/
 const GITISH = /\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b/i
+// mirrors HOOKS_PATH/GIT_WRITE in hooks/tezgah_integrity.py: a hooksPath
+// assignment beside a commit/push skips the hooks like --no-verify
+const HOOKS_PATH =
+  /-c\s+core\.hookspath\s*=|\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath\s+[^\s;&|]/i
+const GIT_WRITE = /\b(?:commit|push)\b/
 const SKIP_TEST = new RegExp(
   "@pytest\\.mark\\.(?:skip|skipif|xfail|only)\\b|" +
   "@unittest\\.(?:skip|skipIf|skipTest|expectedFailure)\\b|" +
@@ -380,6 +385,11 @@ function shortcutCommand(cmd) {
   if (SKIP_ENV.test(c) && GITISH.test(c))
     return "Verification bypass denied: an env var that skips the hooks " +
       "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them instead."
+  if (HOOKS_PATH.test(c) && GIT_WRITE.test(c))
+    return "Verification bypass denied: `core.hooksPath` is redirected in the " +
+      "same command as a commit/push, so git runs a hooks directory that does " +
+      "not hold the checks - the same skip as `--no-verify`. Run the checks " +
+      "and commit without it."
   if (verifyCommand(c) && NEUTER.test(c))
     return "Verification neutered: this check is chained with `|| true` / " +
       "`; true`, so it reports success no matter what it found. Run it plain " +

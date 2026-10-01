@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A `core.hooksPath` redirect is a hook bypass.** The gate denied
+  `git commit --no-verify` and `HUSKY=0 git commit` but passed
+  `git -c core.hooksPath=/dev/null commit` and
+  `git config core.hooksPath <dir> && git commit`, which skip the same hooks. A
+  `core.hooksPath` assignment in the same command as a commit or push is now
+  denied, in the Python gate and in the opencode plugin; husky's standalone
+  `git config core.hooksPath .githooks` and a `--get`/`--unset` still pass. A
+  redirect set in one call and committed in the next is not seen.
+
+### Changed
+
+- **The reviewer settles a finding only on code or an observed run.** Both
+  reviewer surfaces (the generated brief and `agents/tezgah-reviewer.md`) now say
+  that a doc, comment, lessons file, memory note or earlier report may raise a
+  question but never confirms or refutes a candidate, and that a check the
+  reviewer could not complete never downgrades a confirmed finding's severity -
+  it stays, marked provisional.
+
 ## [0.27.1] - 2026-10-01
 
 ### Fixed

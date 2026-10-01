@@ -239,6 +239,14 @@ class OpenCodePlugin(TempHome):
                         "HUSKY=0 git commit -m x"):
             self.denied(self.before("bash", {"command": command}))
 
+    def test_hooks_path_redirect_matches_the_python_gate(self):
+        for command in ("git -c core.hooksPath=/dev/null commit -m x",
+                        "git config core.hooksPath /tmp/x && git commit -m x"):
+            self.denied(self.before("bash", {"command": command}))
+        for command in ("git config core.hooksPath .githooks",
+                        "git config --get core.hooksPath && git commit -m x"):
+            self.allowed(self.before("bash", {"command": command}))
+
     def test_neutered_check_denied(self):
         for command in ("pytest || true", "ruff check . ; true",
                         "cargo test || exit 0"):

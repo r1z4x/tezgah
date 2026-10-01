@@ -231,6 +231,12 @@ class Gate(TempHome):
         self.assertIsNotNone(reason)
         self.assertIn("bypass", reason.lower())
 
+    def test_hooks_path_redirect_denied(self):
+        reason = self.decide(
+            "Bash", {"command": "git -c core.hooksPath=/dev/null commit -m x"})
+        self.assertIsNotNone(reason)
+        self.assertIn("core.hooksPath", reason)
+
     def test_neutered_check_denied(self):
         reason = self.decide("Bash", {"command": "pytest -q || true"})
         self.assertIsNotNone(reason)

@@ -23,7 +23,7 @@ Here tezgah only *configures* servers and classifies a call by its name: the
 app-analysis servers are rendered into each host's own config from one spec
 (`hooks/tezgah_apps.py:1-5`), Codex's rows are appended by `ensure_toml_mcp`
 (`bin/tezgah-setup:641-673`), and a tool name starting `mcp__` is classified
-`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:1708-1712`).
+`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:1725-1729`).
 
 ## Agent framework
 
@@ -68,8 +68,8 @@ host.
 Owns the rule text (`CORE` `hooks/tezgah_policy.py:622-838`), the per-turn reminder
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:853-873`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1378-1572`), the record after one (`note()`
-`hooks/tezgah_integrity.py:688-700`), the end-of-turn verdict (`stop_reason()`
-`hooks/tezgah_integrity.py:2624-2672`), the pre-write snapshots (`capture()`
+`hooks/tezgah_integrity.py:700-712`), the end-of-turn verdict (`stop_reason()`
+`hooks/tezgah_integrity.py:2641-2689`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:192`), the status marks, and the per-repo plans,
 lessons and research lines.
 
@@ -131,18 +131,18 @@ one.
 
 This is the checkable consequence of the transport layer here. A hook is handed
 the call, so that is all the classification can use (`untrusted_source`
-`hooks/tezgah_integrity.py:1772-1795`): an MCP answer enters the ledger as an
+`hooks/tezgah_integrity.py:1789-1812`): an MCP answer enters the ledger as an
 untrusted channel, the channel being `mcp` (`untrusted_source`
-`hooks/tezgah_integrity.py:1772-1795`), and an answer that is no step of work
+`hooks/tezgah_integrity.py:1789-1812`), and an answer that is no step of work
 of its own earns a row of kind `external` (`note_tool`
-`hooks/tezgah_integrity.py:1966-2079`). The compensating control is the taint
+`hooks/tezgah_integrity.py:1983-2096`). The compensating control is the taint
 notice: the first effect in a turn that has read an untrusted channel carries
 it (`hooks/tezgah_untrusted.py:2-22`); nothing refuses that effect since the
 sink rule was removed ([gate](gate.md)).
 
 The structural limit is that the write tools and the shell tools are disjoint
-tuples (`WRITE_TOOLS` `hooks/tezgah_integrity.py:287-289`, `BASH_TOOLS`
-`hooks/tezgah_integrity.py:290-296`), so a rule that guards one does not guard
+tuples (`WRITE_TOOLS` `hooks/tezgah_integrity.py:299-301`, `BASH_TOOLS`
+`hooks/tezgah_integrity.py:302-308`), so a rule that guards one does not guard
 the other - the class named C26 in
 `.tezgah/research/infra-candidates/findings.md` (local, untracked). No content
 of an MCP answer is inspected, and nothing beyond this is built for MCP.

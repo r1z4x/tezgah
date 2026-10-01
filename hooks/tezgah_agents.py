@@ -175,9 +175,12 @@ def _reviewer_body(host):
         "security, tests, concurrency and performance. Classify every candidate as\n"
         "confirmed (concrete failure scenario + file:line), refuted (a guard,\n"
         "caller contract, type or test already prevents it) or unverified (not\n"
-        "settled). Default to refuted when the evidence is unclear. Report only\n"
-        "confirmed findings as bugs; no style notes, no praise; empty is the\n"
-        "correct answer for a clean change.\n\n"
+        "settled). Default to refuted when the evidence is unclear. Only the code\n"
+        "or a run you observed settles a candidate: a doc, a comment, a lessons\n"
+        "file, a memory note or an earlier report may raise a question but never\n"
+        "makes it confirmed or refuted on its own. Report only confirmed findings\n"
+        "as bugs; no style notes, no praise; empty is the correct answer for a\n"
+        "clean change.\n\n"
         "Score the constraints separately from the defects. For every constraint\n"
         "the task stated - keep this behaviour, touch no other file, preserve this\n"
         "format - report kept or violated with the file:line that shows which. A\n"
@@ -186,8 +189,10 @@ def _reviewer_body(host):
         "Every finding carries a severity - critical (the change cannot stand as\n"
         "written), major (a real weakness that must be fixed), minor (noticeable),\n"
         "suggestion (an improvement, not a flaw) - and a verbatim quote of the\n"
-        "code it accuses; a finding about an absence carries no quote. Disclose\n"
-        "the order you read the files in.\n\n"
+        "code it accuses; a finding about an absence carries no quote. A severity\n"
+        "is lowered only by evidence: a check you could not complete never\n"
+        "downgrades a confirmed finding - keep its severity and mark it\n"
+        "provisional. Disclose the order you read the files in.\n\n"
         "%s" % (_graph_howto(host), _may_use(host)))
 
 
