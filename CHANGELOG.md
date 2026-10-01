@@ -30,6 +30,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   load on macOS: `sh` forks `sleep`, which stays a zombie for a moment after its
   group is killed, and macOS answers `EPERM` for a zombie-only group; the test
   now waits up to 5 s for `ESRCH` instead of reading the first answer.
+- **A stale-evidence refusal names the file again.** The Stop hook cut each
+  written path to its first 80 characters, so a long path (any file under
+  macOS's `/var/folders/.../T/`) showed only its directories and lost the file
+  name; it now keeps the last 77 characters behind `...`. The same names feed
+  the design-contract refusal.
 
 ### Changed
 
