@@ -252,7 +252,14 @@ class OpenCodePlugin(TempHome):
                         "git config core.hooksPath '' && git commit -m x",
                         "git -c core.hooksPath=/x commit -m $'it\\'s'",
                         "echo `git -c core.hooksPath=/x commit -m x`",
-                        "git config core.hooksPath get && git commit -m x"):
+                        "git config core.hooksPath get && git commit -m x",
+                        "git 2>/dev/null -c core.hooksPath=/dev/null commit",
+                        "git -c core.hooksPath=/dev/null &>/dev/null commit",
+                        "git -c core.hooksPath=/dev/null 2>&1 commit",
+                        "x=a#b git -c core.hooksPath=/dev/null commit",
+                        "[ $# -eq 0 ] && git -c core.hooksPath=/dev/null commit",
+                        "git -c $'core.hooksPath'=/dev/null commit",
+                        "git config core.hooksPath -- --unset && git commit"):
             self.denied(self.before("bash", {"command": command}))
         for command in ("git config core.hooksPath .githooks",
                         "git config --get core.hooksPath && git commit -m x",
@@ -262,7 +269,10 @@ class OpenCodePlugin(TempHome):
                         'git commit config/hooks.sh -m "set core.hooksPath in setup"',
                         "git commit -m x # git -c core.hooksPath=/x commit",
                         "git config get core.hooksPath && git commit -m x",
-                        "git commit -m 'deny `git -c core.hooksPath=x commit`'"):
+                        "git commit -m 'deny `git -c core.hooksPath=x commit`'",
+                        "git config core.hooksPath > /tmp/hp && git commit -m x",
+                        "git config core.hooksPath --type=path && git push",
+                        "echo git -c core.hooksPath=/x commit"):
             self.allowed(self.before("bash", {"command": command}))
 
     def test_neutered_check_denied(self):

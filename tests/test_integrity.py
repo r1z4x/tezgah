@@ -129,7 +129,21 @@ class ShortcutCommand(unittest.TestCase):
                   # a vertical tab is not a line break
                   'git -c core.hooksPath=/x commit -m "a\x0bb"',
                   # legacy `name value`: the value `get` is still a value
-                  "git config core.hooksPath get && git commit -m x"):
+                  "git config core.hooksPath get && git commit -m x",
+                  # a redirection is not an argument and not a subcommand
+                  "git 2>/dev/null -c core.hooksPath=/dev/null commit",
+                  "git -c core.hooksPath=/dev/null >/tmp/log commit",
+                  "git -c core.hooksPath=/dev/null &>/dev/null commit",
+                  "git -c core.hooksPath=/dev/null 2>&1 commit",
+                  "git -c core.hooksPath=/dev/null </dev/null push",
+                  # bash starts a comment at a word, not mid-word
+                  "x=a#b git -c core.hooksPath=/dev/null commit",
+                  "[ $# -eq 0 ] && git -c core.hooksPath=/dev/null commit",
+                  # ANSI-C and locale quoting around the key
+                  "git -c $'core.hooksPath'=/dev/null commit",
+                  'git -c $"core.hooksPath"=/dev/null commit',
+                  # after `--` a lookalike option is a value
+                  "git config core.hooksPath -- --unset && git commit"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
     def test_hooks_path_without_a_commit_or_as_a_read_passes(self):
@@ -154,7 +168,16 @@ class ShortcutCommand(unittest.TestCase):
                   "git commit -m x # git -c core.hooksPath=/x commit",
                   # the subcommand form of a read, and backticks in a message
                   "git config get core.hooksPath && git commit -m x",
-                  "git commit -m 'deny `git -c core.hooksPath=x commit`'"):
+                  "git commit -m 'deny `git -c core.hooksPath=x commit`'",
+                  # a read with a redirection or an option after it is a read
+                  "git config core.hooksPath > /tmp/hp && git commit -m x",
+                  "git config core.hooksPath 2>/dev/null && git commit -m x",
+                  "git config core.hooksPath --type=path && git push",
+                  # a line that merely mentions git is not git
+                  "echo git -c core.hooksPath=/x commit",
+                  "printf '%s' x=a#b && git commit -m y",
+                  # a redirection on a plain commit is not the key
+                  "git commit -m x > /tmp/log"):
             self.assertIsNone(ti.shortcut_command(c), c)
 
     def test_a_long_run_of_git_options_is_read_in_linear_time(self):
