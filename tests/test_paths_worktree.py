@@ -121,6 +121,62 @@ class WorktreeBridge(TempHome):
         self.assertTrue(os.path.isdir(os.path.join(made, ".git")))
         self.assertFalse(os.path.exists(os.path.join(self.main, ".tezgah")))
 
+    def test_an_armed_worktree_finds_its_own_codegraph_index(self):
+        """F1: a worktree base is a project, so the slug walk must include it.
+        A configured root is still excluded (a root is not a project)."""
+        import tezgah_gate as gate
+        db = os.path.join(self.outside, ".codegraph")
+        os.makedirs(db)
+        open(os.path.join(db, "codegraph.db"), "w").close()
+        with self.no_fork:
+            base = tp.root_for(self.outside)
+            self.assertIsNotNone(gate.index_slug(self.outside, base))
+            self.assertIsNone(gate.index_slug(os.path.dirname(self.outside), base))
+        # the in-root rule is unchanged: the root itself is still not a project
+        root_db = os.path.join(self.roots, ".codegraph")
+        os.makedirs(root_db)
+        open(os.path.join(root_db, "codegraph.db"), "w").close()
+        self.assertIsNone(gate.index_slug(self.main, tp.root_for(self.main)))
+
+    def test_a_pointer_to_nowhere_is_not_a_worktree(self):
+        """F2: git validates a pointer against its admin directory; a `.git`
+        file naming a path git never wrote does not arm the directory."""
+        fake = os.path.join(self.home, "elsewhere", "ghost")  # outside every root
+        os.makedirs(fake)
+        with open(os.path.join(fake, ".git"), "w") as fh:
+            fh.write("gitdir: %s/.git/worktrees/ghost\n" % self.main)
+        with self.no_fork:
+            self.assertIsNone(tp.linked_main(fake))
+            self.assertIsNone(tp.root_for(fake))
+
+    def test_a_path_below_an_armed_worktree_is_armed_too(self):
+        """F3: the walk tries every `.git`-holding ancestor, so the worktree's
+        own `.tezgah` and a nested repo still answer the worktree."""
+        ws = os.path.join(self.outside, ".tezgah", "research")
+        os.makedirs(ws)
+        nested = os.path.join(self.outside, "nested")
+        os.makedirs(nested)
+        with self.no_fork:
+            self.assertEqual(tp.root_for(ws), self.outside)
+            self.assertEqual(tp.root_for(nested), self.outside)
+
+    def test_all_still_names_this_checkout_when_its_admin_entry_is_gone(self):
+        """F4: a checkout git can no longer list (its admin entry removed, e.g.
+        after an `mv`) is still this checkout and still shown."""
+        import tezgah_research as tr
+        admin = os.path.join(self.main, ".git", "worktrees")
+        for name in os.listdir(admin):
+            with open(os.path.join(admin, name, "gitdir"), encoding="utf-8") as fh:
+                if fh.readline().strip().startswith(self.outside):
+                    shutil.rmtree(os.path.join(admin, name))
+        line = os.path.join(self.outside, ".tezgah", "research", "delta")
+        os.makedirs(line)
+        with open(os.path.join(line, "state.json"), "w") as fh:
+            json.dump({"question": "q", "phase": "inner"}, fh)
+        rows = tr.across(self.outside)
+        self.assertIn(self.outside + " (this checkout)", rows)
+        self.assertTrue(any(r.startswith("  delta: ") for r in rows), rows)
+
     def test_research_all_renders_every_checkouts_lines(self):
         for checkout, slug, phase in ((self.main, "alpha", "concluded"),
                                       (self.outside, "beta", "inner")):

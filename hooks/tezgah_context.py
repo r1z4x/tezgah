@@ -617,9 +617,11 @@ def sibling_line(root):
     the counts are directory listings. Each checkout keeps its own `.tezgah`;
     this only makes the others visible."""
     checkouts = worktrees(root)
+    here = os.path.realpath(root)
+    if here not in checkouts:
+        checkouts.append(here)
     if len(checkouts) < 2:
         return ""
-    here = os.path.realpath(root)
     items = []
     for checkout in checkouts:
         ws = workspace(checkout)

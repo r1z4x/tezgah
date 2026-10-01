@@ -105,7 +105,7 @@ calls (`check_line`, `tezgah_research.py:2001`).
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
 | `tezgah-research check [<slug>] [--json] [--strict] [--orx]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `tezgah_research.py:2261`) | 0 clean, 1 a line failed a rule or names no line |
 | `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `tezgah_research.py:2237`) | 0 |
-| `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py:3191-3207`) | 0, 2 misuse |
+| `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py:3191-3210`) | 0, 2 misuse |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
 | `tezgah-research predict <slug>` | reads one prediction row from stdin and either appends it under the same lock or refuses it with one reason per problem; a row whose `commit` git cannot place is appended with the warning printed, which is the fail-open `check` uses, and a row written now has to name at least one component the manifest defines (`append_prediction`, `tezgah_research.py:2999`) | 0, 1 refused, 2 misuse |
 | `tezgah-research components [--json]` | the per-component report: one bucket per component the manifest defines, in the manifest's own order, then any key a row names that the manifest does not, each holding the prediction rows that name it and each row's state, and last the rows that name no component; it prints the number of components and rows it read (`component_report`, `tezgah_research.py:3160`) | 0, 2 misuse |
@@ -294,7 +294,7 @@ Refused:
   (`prediction_problems`, `tezgah_research.py:2872`); a row whose commit changed
   a **frozen** path is refused unless it carries a human `granted_by`, and the
   frozen set is one module-level tuple, `FROZEN_PATHS`
-  (`hooks/tezgah_research.py:3775`), read only through `_frozen`
+  (`hooks/tezgah_research.py:3778`), read only through `_frozen`
   (`tezgah_research.py:2836`) so the write path and the checker cannot drift
   apart: `hooks/tezgah_gate.py` and `hooks/tezgah_integrity.py` (the verifier and
   the ledger's write path), `hooks/tezgah_research.py` (this module - the
@@ -537,7 +537,7 @@ only record of a verdict; `unmeasured` when `value_after` is empty, which is the
 round that has not run; `held` when it is filled, which is the number that came
 back. A row whose `claim` the line does not hold decides nothing - the filled
 `value_after` is not a verdict - so it stays `unmeasured` and the report prints
-why, beside the row. `PREDICTION_STATES` (`hooks/tezgah_research.py:4014`) is
+why, beside the row. `PREDICTION_STATES` (`hooks/tezgah_research.py:4017`) is
 that vocabulary, and the headers count it.
 
 It is a **report, not a gate**: it exits 0 whatever the rows look like, because
@@ -582,17 +582,17 @@ installed `bin/tezgah-research`) and the `orx` manual step.
 
 The note, when orx is absent or a line is broken: a session is told that `orx` is
 not installed and to fall back to a host subagent rather than improvise the
-protocol (`context_for`, `hooks/tezgah_context.py:1289-1502`), and at session start and
+protocol (`context_for`, `hooks/tezgah_context.py:1291-1504`), and at session start and
 after a compaction a line with structural problems is named with its first error
 and the advice to run `check` before reporting a result (the note
-`research_broken` in `context_for`, `hooks/tezgah_context.py:1289-1502`).
+`research_broken` in `context_for`, `hooks/tezgah_context.py:1291-1504`).
 
 The mark: `research` in the status line. It is armed when `research-off` is
 absent and the research tooling is present (`health_segments`,
-`hooks/tezgah_context.py:1946-2014`) and turns used when a shell command really ran
+`hooks/tezgah_context.py:1948-2016`) and turns used when a shell command really ran
 the layer - `orx` or `tezgah-research`
 in a command position, classified by the shared tokenizer
-(`shell_kind`, `hooks/tezgah_context.py:1583-1608`), so a command that merely mentions
+(`shell_kind`, `hooks/tezgah_context.py:1585-1610`), so a command that merely mentions
 either name marks nothing. That is the same reader every host's status segment
 uses ([status line](status-line.md)).
 
@@ -601,7 +601,7 @@ uses ([status line](status-line.md)).
 `research-off` is the kill switch: with it armed the `RESEARCH` paragraph is
 dropped, the session note is not built, and the mark reads `off` rather than
 armed. It removes the rule, not just the mark - the diff is in `core_split`,
-`hooks/tezgah_context.py:985-1041` ([kill switch](glossary.md#kill-switch)).
+`hooks/tezgah_context.py:987-1043` ([kill switch](glossary.md#kill-switch)).
 
 ## Source of truth
 

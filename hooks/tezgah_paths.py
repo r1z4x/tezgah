@@ -216,12 +216,27 @@ def linked_main(path):
 
     Read from the worktree's `.git` pointer file (`gitdir: <main>/.git/worktrees/
     <name>`), never from git: `root_for` runs on every gate call and a session
-    start's git forks are pinned. A plain checkout (`.git` is a directory), a
-    submodule (a `/modules/` pointer) and a bare main (no `.git` component)
+    start's git forks are pinned. Every `.git`-holding ancestor is tried, nearest
+    first, so a path under the worktree's own `.tezgah` or under a nested repo
+    still finds the worktree it sits in. A plain checkout (`.git` is a directory),
+    a submodule (a `/modules/` pointer) and a bare main (no `.git` component)
     answer None."""
-    top = _toplevel(os.path.realpath(path))
-    if not top:
-        return None
+    cur = os.path.realpath(path)
+    while True:
+        if os.path.lexists(os.path.join(cur, ".git")):
+            main = _linked_main_at(cur)
+            if main:
+                return main
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+
+
+def _linked_main_at(top):
+    """`linked_main` for one directory: its main checkout when `top` is a linked
+    worktree, else None. A `.git` pointer whose admin directory git did not write
+    (its `commondir` missing) is not a worktree."""
     try:
         with open(os.path.join(top, ".git"), encoding="utf-8") as fh:
             line = fh.readline().strip()
@@ -232,7 +247,8 @@ def linked_main(path):
     gitdir = os.path.normpath(os.path.join(top, line[len("gitdir:"):].strip()))
     dotgit = os.path.dirname(os.path.dirname(gitdir))
     if os.path.basename(os.path.dirname(gitdir)) != "worktrees" \
-            or os.path.basename(dotgit) != ".git":
+            or os.path.basename(dotgit) != ".git" \
+            or not os.path.isfile(os.path.join(gitdir, "commondir")):
         return None
     return os.path.realpath(os.path.dirname(dotgit))
 

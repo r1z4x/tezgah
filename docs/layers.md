@@ -67,7 +67,7 @@ host.
 
 Owns the rule text (`CORE` `hooks/tezgah_policy.py:622-838`), the per-turn reminder
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:853-873`), the refusal before a call
-(`decision()` `hooks/tezgah_gate.py:1376-1570`), the record after one (`note()`
+(`decision()` `hooks/tezgah_gate.py:1378-1572`), the record after one (`note()`
 `hooks/tezgah_integrity.py:688-700`), the end-of-turn verdict (`stop_reason()`
 `hooks/tezgah_integrity.py:2624-2672`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:192`), the status marks, and the per-repo plans,
@@ -102,7 +102,7 @@ frameworks.
 
 Under that test tezgah is not one: it holds no loop. It subscribes to a host's
 events (`hooks/hooks.json:2-26`), is handed the injected text at the host's
-session-start and prompt points (`context_for` `hooks/tezgah_context.py:1289-1502`),
+session-start and prompt points (`context_for` `hooks/tezgah_context.py:1291-1504`),
 refuses a call before the host runs it (`hooks/projects-pretooluse.py:24`) and
 answers in the host's own output envelope. It has no model, no tool set and no
 context window of its own.

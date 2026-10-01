@@ -3195,7 +3195,10 @@ def across(repo):
     and nothing here writes to any of them."""
     here = os.path.realpath(repo)
     out = []
-    for checkout in tp.worktrees(repo) or [here]:
+    checkouts = tp.worktrees(repo) or [here]
+    if here not in checkouts:  # a moved or unreadable checkout is still this one
+        checkouts.append(here)
+    for checkout in checkouts:
         names = slugs(checkout)
         out.append("%s%s%s" % (checkout, " (this checkout)" if checkout == here else "",
                                "" if names else ": no research line"))

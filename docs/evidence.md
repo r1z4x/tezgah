@@ -20,7 +20,7 @@ change has to know what moved: at 2 the step vocabulary gained `interrupted`, so
 
 `kind` is the event kind, `detail` is free text (the command, a path, a short reason) and `ts` is
 epoch seconds. A **write row's** `detail` is the path the call wrote, from the gate's one reader of
-every host dialect (`write_paths`, `hooks/tezgah_gate.py:590-617`): `file_path`, `filePath`, `path`,
+every host dialect (`write_paths`, `hooks/tezgah_gate.py:592-619`): `file_path`, `filePath`, `path`,
 `notebook_path`, or an `apply_patch` body's first `*** Update File:` header — the paths
 `changed_files()` (`hooks/tezgah_integrity.py:1952-1965`) folds when a reader asks which files a session changed. `detail` is
 credential-redacted **before** it is stored, over the whole text, and
@@ -58,13 +58,13 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:1966-2079`, the call's own name in `tool`, on opencode the plugin writes these same kinds and the same field (`hosts/opencode/plugins/tezgah.js:614-672`) | the Stop rule's `worked` set `:2345`; `counters.steps` `:1075-1076`; `last_verify`/`partial_state`; the `--trend` tool histogram |
 | `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:1966-2079` | the taint notice, via `source`; the `--trend` tool histogram; nothing counts them as work |
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2624-2672` | `counters` `hooks/tezgah_integrity.py:1272-1303` |
-| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1360-1375`, first-nudge `hooks/tezgah_gate.py:1345` | `counters` `hooks/tezgah_integrity.py:1272-1303` |
+| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1362-1377`, first-nudge `hooks/tezgah_gate.py:1347` | `counters` `hooks/tezgah_integrity.py:1272-1303` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:184-186`, `:263-266` | `_snapshot_hash` `hooks/tezgah_integrity.py:1891-1904`; no counter |
-| `compact` | `note_compaction` `hooks/tezgah_integrity.py:1015-1047`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1212-1230`) | `_counts` `hooks/tezgah_integrity.py:1328-1470` (what `counters` folds with) |
+| `compact` | `note_compaction` `hooks/tezgah_integrity.py:1015-1047`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1214-1232`) | `_counts` `hooks/tezgah_integrity.py:1328-1470` (what `counters` folds with) |
 
 **`compact` is what a compaction kept, from the record.** When the host hands the PostCompact
 payload the text the model is about to receive — Claude's `compact_summary` — the shared path
-(`hooks/tezgah_context.py:1249-1250`, reached by Claude's hook, codex/hook.py, omp's hook and dsh's
+(`hooks/tezgah_context.py:1251-1252`, reached by Claude's hook, codex/hook.py, omp's hook and dsh's
 bridge alike, because it is the same funnel each prompt goes through) writes one row: the summary's
 length (`summary_chars`), a 12-hex sha256 of it (`summary_hash`, so two compactions of one session can
 be told apart and the same summary can be recognised twice), the host's own word for why it compacted
@@ -72,8 +72,8 @@ be told apart and the same summary can be recognised twice), the host's own word
 stored** — it is the whole conversation by proxy and the ledger is a redacted channel — so a row can
 never be read back as prose. The constraint report is `constraint_found` of `constraint_expected`: how
 many of the fixed sentences tezgah injects the summary still carries, counted against the very text the
-block renders (`constraint_lines`, `hooks/tezgah_context.py:1251-1269`, over `POINTER_LINE`
-`:1243-1247` and the active plan's front matter). It is a **report and never a refusal**: a compaction
+block renders (`constraint_lines`, `hooks/tezgah_context.py:1253-1271`, over `POINTER_LINE`
+`hooks/tezgah_context.py:1245-1249` and the active plan's front matter). It is a **report and never a refusal**: a compaction
 that dropped a rule is a finding to report, not a turn to block. A host that hands no summary writes no
 row, and `tezgah-status --counters` folds the rows into `compactions`, `compact_chars` (the newest
 summary's length) and `compact_constraint_rate` — which stays `None` until one row carries both counts,
@@ -217,7 +217,7 @@ command (`_failed_check` `hooks/tezgah_integrity.py:2673-2685`) and tells the mo
 line, or fix it and re-run.
 
 **The escape hatches, and the deny that answers each.** The gate refuses these before they run, under
-the same `verify-off` switch (`hooks/tezgah_gate.py:1068-1196`), as rule `shortcut`:
+the same `verify-off` switch (`hooks/tezgah_gate.py:1070-1198`), as rule `shortcut`:
 
 - `--no-verify` on a git/commit/push-style command (`NO_VERIFY` `:139`, `GITISH` `:140-141`) —
   `shortcut_command` `hooks/tezgah_integrity.py:1522-1546`.
@@ -235,16 +235,16 @@ is. Every denial is itself a `deny` row.
 
 ## The session store for the status marks
 
-`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1562-1585`) and read
-by `used()` (`hooks/tezgah_context.py:1644-1664`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
+`<cache>/sessions/<slug>.jsonl`, written by `record()` (`hooks/tezgah_context.py:1564-1587`) and read
+by `used()` (`hooks/tezgah_context.py:1646-1666`). A row is exactly `{"kind": kind}` — no timestamp, no outcome, no session —
 and the kinds are the used-tool marks [status-line.md](status-line.md) lights up (`graph`, `consult`,
 `research`, `judge`), plus one kind per shipped skill a read opened. It is separate from the
 [ledger](glossary.md#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all
-(`hooks/tezgah_context.py:1573-1574`), and the reader wants a set of kinds rather than an ordered,
+(`hooks/tezgah_context.py:1575-1576`), and the reader wants a set of kinds rather than an ordered,
 turn-scoped history. The ledger pays a redaction scan and a lock per row; a mark needs neither. The
 one mark that is also evidence is `orch`: `record()` writes it as an `orch` row in the session's
-ledger too (`hooks/tezgah_context.py:1575-1576`), because a subagent event reaches no other ledger
+ledger too (`hooks/tezgah_context.py:1577-1578`), because a subagent event reaches no other ledger
 writer and `fanout` is folded from the ledger.
 
 **Which skill a read opened.** `skill_read_kind` (`hooks/tezgah_context.py:406-440`) earns the mark
@@ -255,7 +255,7 @@ unshipped name earns nothing, which is what `skill://other` always got. `SKILL_M
 widened: a mark whose skill the always-on core never names can never flip, and
 `tests/test_context.py:1659-1672` requires every entry to be named there. A `skill:` kind is
 therefore invisible to the line and its legend - no mark's measure is spelled that way - while
-`skill_fitness(window)` (`hooks/tezgah_context.py:1473-1529`) reads it back for the one question the
+`skill_fitness(window)` (`hooks/tezgah_context.py:1475-1531`) reads it back for the one question the
 line never asked. Three surfaces recognise a read, and they have to agree on the two forms
 (`skills/<name>/SKILL.md` and `skill://<name>`) and on which name is shipped: the Python hook omp's
 bridge calls (`hosts/omp/hook.py:71`), omp's own filter, which decides whether python hears about the

@@ -80,7 +80,7 @@ from tezgah_integrity import (BASH_TOOLS, HEREDOC, STEP_KINDS, WRITE_TOOLS,
                               _turn_start, call_id, cut, events, mask, note,
                               prior_calls, shortcut_command, shortcut_edit,
                               turn_rows)
-from tezgah_paths import cache_dir, off, root_for
+from tezgah_paths import cache_dir, off, root_for, roots
 
 try:  # The ordering rule's two readers (the newest check's state, folded the way
     # the Stop rule folds it, and the command of that check for the refusal), and
@@ -393,12 +393,14 @@ def index_slug(cwd, base):
     so readiness is a repo-local fact: the old per-user cache slug (a path
     flattened into `~/.cache/<engine>/<slug>.db`) said what some other tool had
     indexed, not what this repo carries. The walk is the old one -
-    closest-ancestor-first, the root itself excluded, because a root is not a
-    project - and the name returned is still the key the index worker stamps HEAD
-    under, so index_mark and index_notice keep reading the same file."""
+    closest-ancestor-first, and the base itself excluded when it is a configured
+    root, because a root is not a project (a base that is an armed worktree is
+    one, so its own `.codegraph` is read) - and the name returned is still the
+    key the index worker stamps HEAD under, so index_mark and index_notice keep
+    reading the same file."""
     d = os.path.realpath(cwd)
-    base = os.path.realpath(base)
-    while d.startswith(base) and d != base:
+    base, rs = os.path.realpath(base), roots()
+    while d.startswith(base) and (d != base or base not in rs):
         if os.path.isfile(os.path.join(d, ".codegraph", "codegraph.db")):
             return re.sub(r"[^A-Za-z0-9]+", "-", d).strip("-")
         d = os.path.dirname(d)
