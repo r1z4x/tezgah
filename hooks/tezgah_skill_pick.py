@@ -46,6 +46,9 @@ ARM = "skill-suggest-on"
 GATE = 0.30
 # 10x the measured worst case (0.3-1.1 s live), so a slow reply costs the hint and
 # not the user's turn.
+ASK_TIMEOUT = 4.0
+# omp's bridge kills a hook at 10 s and judge.ask retries one transient
+# failure, so the per-ask budget is half the bridge: worst case 8 s.
 ASK_TIMEOUT = 8.0
 # The criteria the judge reads per skill, and what the appended line says the
 # skill is for. One line: it must not cost more than the index entry it points at
