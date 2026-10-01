@@ -282,11 +282,21 @@ def _selector(family, slot):
     return FAMILY_PREFIX[family] + model + (":" + effort if effort else "")
 
 
-def _chain(mode, slot, funded):
+def _chain(mode, slot, funded, agent=""):
     """[selector, ...] for one slot: the mode's family first - the user picked it,
     so it leads even when its credential is not visible from here - then every
-    other funded family, each on that slot's own row."""
+    other funded family, each on that slot's own row.
+
+    The fallbacks are rotated by the agent's own name (`agent`): identical chains
+    for every agent meant one family's 429 moved all of them onto the same next
+    family in the same moment, which is the cascade the chain exists to break
+    (independent review, 2026-10-01). The rotation is deterministic - the same
+    agent resolves the same order on every machine - so nothing here is random."""
     families = [mode] + [f for f in OMP_FAMILIES if f != mode and f in funded]
+    tail = families[1:]
+    if agent and len(tail) > 1:
+        shift = sum(ord(c) for c in agent) % len(tail)
+        families = families[:1] + tail[shift:] + tail[:shift]
     return [_selector(family, slot) for family in families]
 
 
@@ -315,7 +325,7 @@ def omp_overrides(mode):
     if not _runnable(mode):
         return {}  # `off` asks for nothing; `any` without a key cannot run here
     funded = funded_families()
-    return {agent: ",".join(_chain(mode, slot, funded))
+    return {agent: ",".join(_chain(mode, slot, funded, agent))
             for agent, slot in dict(AGENT_SLOT, **BUNDLED).items()}
 
 

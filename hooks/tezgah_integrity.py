@@ -2535,7 +2535,7 @@ SCRATCH_PATH = re.compile(
 # not read the command back as a scratch run (measured: a suite redirected to
 # /tmp/hp-suite.log was labelled stand-in, and the reminder invited re-runs).
 SCRATCH_LOG_REDIRECT = re.compile(
-    r"(?:^|\s)(?:>|\d?>|2?>>)\s*\S*(?:/tmp/|/var/folders/|\$\{?TMPDIR\b)\S*",
+    r"(?:^|\s)(?:&>>?|\d?>>?)\s*\S*(?:/tmp/|/var/folders/|\$\{?TMPDIR\b)\S*",
     re.I)
 
 

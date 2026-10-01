@@ -665,6 +665,13 @@ class ScratchEvidenceReader(unittest.TestCase):
         self.assertEqual(self.command(),
                          "python3 /tmp/probe.py > /tmp/probe.log 2>&1")
 
+    def test_an_ampersand_redirect_is_stripped_too(self):
+        # `&>`/`&>>` are redirects the first pattern missed (review 2026-10-01)
+        for command in ("pytest -q &> /tmp/suite.log", "pytest -q &>> /tmp/suite.log",
+                        "pytest -q >$TMPDIR/suite.log"):
+            self.seed(self.passed(command))
+            self.assertIsNone(self.command(), command)
+
     def test_the_impacted_runner_is_a_check(self):
         for command in ("python3 tests/impacted.py --run hooks/x.py",
                         "python3 tests/impacted.py --all"):

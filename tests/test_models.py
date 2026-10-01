@@ -431,6 +431,16 @@ class OmpOverrides(unittest.TestCase):
         self.assertIn("skipped", status)
         self.assertEqual(called, [], "nothing may be written when the tier cannot run")
 
+    def test_the_fallback_order_rotates_per_agent(self):
+        # identical chains moved every agent onto the same fallback at once, so a
+        # 429 there cascaded instead of falling through (review 2026-10-01)
+        out = self.overrides("anthropic", funded=("anthropic", "zai", "any"))
+        orders = {a: tuple(out[a].split(",")[1:]) for a in out}
+        self.assertGreater(len(set(orders.values())), 1, orders)
+        for agent, chain in out.items():
+            self.assertTrue(chain.startswith("anthropic/"), agent)
+            self.assertEqual(len(set(chain.split(","))), len(chain.split(",")), agent)
+
     def test_bundled_agents_are_routed_and_the_reviewers_inherit(self):
         out = self.overrides("anthropic", funded=("anthropic",))
         self.assertEqual(out["sonic"], "anthropic/claude-opus-5-5:low")
