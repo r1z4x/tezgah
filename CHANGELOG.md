@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-10-01
+
+### Fixed
+
+- **A worktree base is a project.** `index_slug` (the code-graph readiness walk)
+  excluded its base unconditionally, so an armed worktree outside every root could
+  never see its own `.codegraph/codegraph.db`: the graph mark stayed `idx-`, the
+  "graph is behind HEAD" notice never fired and the gate's nudge never ran. The
+  base is now excluded only when it is a configured root.
+- **The `.git` pointer is validated.** `linked_main` accepted any `.git` file of
+  the right shape; it now requires the admin directory git writes (`commondir`),
+  so a pointer to nowhere does not arm a directory. It also tries every
+  `.git`-holding ancestor, so a path under the worktree's own `.tezgah` or under a
+  nested repo still finds the worktree it sits in.
+- **A checkout git can no longer list is still shown.**
+  `tezgah-research --all` and the session-start worktree line append the current
+  checkout when its admin entry is gone (a moved worktree), instead of printing
+  another checkout's lines only.
+- The ponytail/`i-have-adhd` boundary sentence names the whole `Output` section
+  (that section holds more than one rule), and one comma-joined doc citation
+  re-anchored with its neighbours.
+
 ## [0.27.0] - 2026-10-01
 
 ### Added
@@ -2732,6 +2754,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.27.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.27.1
 [0.27.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.27.0
 [0.26.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.26.0
 [0.25.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.25.0
