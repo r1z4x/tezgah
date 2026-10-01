@@ -28,6 +28,25 @@ installing it, or use the version CI installs from `requirements-dev.txt:3`
 (`ruff==0.16.7`). There is no other linter and no type checker
 (`AGENTS.md:27`).
 
+## What the pins do not cover
+
+A pin is a claim about what ran, not a guarantee about what will. This repository
+has two, and both are about the language rather than about dependencies: the
+floor `py310` (`pyproject.toml:5`) and the CI matrix that proves it on 3.10 and
+3.12 (`.github/workflows/ci.yml:18`). There is no dependency lockfile to pin
+because there is no package: tezgah is a set of scripts run in place, and no
+`[project]` or build system is declared (`pyproject.toml:1-2`). The only
+third-party tool the checks name is ruff, at a version in
+`requirements-dev.txt:3`.
+
+The FineEnvs multi-harness RL tutorial carries far more machinery and says the
+same thing out loud: its validation record installs TRL and OpenEnv from upstream
+main, records the commit each run resolved to, states that this "is not a
+dependency lockfile", and lists its own unchecked GPU items as pending rather
+than implying the matrix is done. That is the shape to copy - say what is pinned,
+say what was resolved at the time, and say what a reader should therefore not
+conclude from either.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs four jobs:

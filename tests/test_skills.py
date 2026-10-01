@@ -492,6 +492,50 @@ class DesignLibrary(unittest.TestCase):
                          "SOURCE lists a file at the library root")
 
 
+class VendoredEnvSkills(unittest.TestCase):
+    """skills/rl-env: the nested vendored tree that ships a hash manifest.
+
+    Same rule `DesignLibrary` applies to its library, for the same reason: the
+    router lists only the entry point, so a body that drifted from upstream - or
+    a directory that arrived unvetted beside it - is invisible to every other
+    test here."""
+
+    ROOT = os.path.join(SKILLS, "rl-env")
+    ROW = re.compile(r"^\| `([^`]+)` \| `([^`]+)` \| `([0-9a-f]{64})` \|$", re.M)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = {rel: want for rel, _, want
+                    in cls.ROW.findall(read(os.path.join(cls.ROOT, "SOURCE")))}
+
+    def test_every_listed_body_is_present_and_matches_its_hash(self):
+        self.assertTrue(self.rows, "SOURCE records no file/hash pair")
+        for rel, want in sorted(self.rows.items()):
+            path = os.path.join(self.ROOT, rel)
+            self.assertTrue(os.path.isfile(path), "vendored file missing: %s" % rel)
+            with open(path, "rb") as fh:
+                digest = hashlib.sha256(fh.read()).hexdigest()
+            self.assertEqual(digest, want,
+                             "%s no longer matches the hash SOURCE records" % rel)
+
+    def test_the_tree_holds_no_directory_the_manifest_does_not_list(self):
+        listed = {rel.split("/")[0] for rel in self.rows}
+        found = {n for n in os.listdir(self.ROOT)
+                 if os.path.isdir(os.path.join(self.ROOT, n))}
+        self.assertEqual(found, listed,
+                         "the tree holds a directory SOURCE does not list")
+
+    def test_the_root_files_are_tezgahs_own(self):
+        # The same rule the other three vendored trees state: the entry point and
+        # the manifest are tezgah's, and no adopted body may sit at the root.
+        self.assertEqual(sorted(n for n in os.listdir(self.ROOT)
+                                if os.path.isfile(os.path.join(self.ROOT, n))),
+                         ["SKILL.md", "SOURCE"],
+                         "a file arrived beside the entry point and its manifest")
+        self.assertEqual([rel for rel in self.rows if "/" not in rel], [],
+                         "SOURCE lists a file at the tree root")
+
+
 class TapTarget(unittest.TestCase):
     """No adopted body may pair 44x44 with WCAG Level AA.
 
@@ -608,7 +652,7 @@ class Frontmatter(unittest.TestCase):
         # The exemption is the library roots, not a glob: a new body is linted
         # unless it arrives under a tree that ships its own hash manifest.
         self.assertEqual([os.path.basename(root) for root in self.roots],
-                         ["ai-research", "design-library", "pm-frameworks"],
+                         ["ai-research", "design-library", "pm-frameworks", "rl-env"],
                          "the vendored set changed: name it here, or lint it")
         for path in glob.glob(os.path.join(SKILLS, "**", "SKILL.md"), recursive=True):
             covered = (path in self.paths or

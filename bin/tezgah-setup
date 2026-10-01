@@ -123,7 +123,7 @@ LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "i-have-adhd", "no-ai-slop",
           "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
           "product-analysis", "feature-audit", "design-contract",
-          "design-library", "pm-frameworks", "ai-research"]
+          "design-library", "pm-frameworks", "ai-research", "rl-env"]
 
 
 def skills_linked(base):
@@ -137,7 +137,7 @@ def skills_linked(base):
 
 # Shipped by tezgah, reached only from a research task: the always-on router
 # collapses it to its bucket's count line like every other on-demand bucket.
-RESEARCH_SKILLS = frozenset(("ai-research",))
+RESEARCH_SKILLS = frozenset(("ai-research", "rl-env"))
 # opencode context hygiene tezgah arms: prune clears old tool results from the
 # prompt (stops a long session re-sending every output each step) and the
 # watcher ignore keeps fs-events out of noisy trees. Both merge; a user's

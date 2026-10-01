@@ -107,6 +107,17 @@ refuses a call before the host runs it (`hooks/projects-pretooluse.py:24`) and
 answers in the host's own output envelope. It has no model, no tool set and no
 context window of its own.
 
+The same boundary is drawn from the other end of the wire by the trainer's side
+of the field. In what Agent Lightning v1.0 calls *harnessed agentic RL*, "the
+harness, rather than the training engine, owns the environment interaction loop,
+while the trainer observes only sequences of LLM request-response pairs" (arXiv
+2608.17528), and the same work names the model API as the one interface
+guaranteed to exist outside a harness. tezgah stands on that guarantee at a
+different seam - the host's own event envelope, the one interface guaranteed to
+exist outside the host's loop - which is why the two are one boundary seen from
+two sides, and why a trainer and a policy layer can describe the same system
+without either owning it.
+
 What it is: the policy and evidence layer a host loads. The rules travel as text
 into the host's context, the gate stands in front of the host's tool calls, and
 the ledger records what the host ran - one text, one gate, one ledger, which is
@@ -126,6 +137,19 @@ A claim that says "apply X to the harness" is therefore unreadable until it says
 which. Write **host** for the runtime, **the harness skill** for multi-agent
 selection, and **tezgah's layer** (or "the policy and evidence layer") for this
 one.
+
+What not saying it costs is measured, and not small. The same model moved 13
+points across three harness configurations - the second trimming verbose tools
+and adding context compression and retries, the third adding self-checks, drift
+checks and rollback - while swapping the model inside one fixed harness moved
+the score 2.5-5; and a model moved out of the harness it was trained in shows a
+*degraded resolve rate*, or a *catastrophic format failure* whose output the new
+harness cannot parse at all. Those are a third party's measurements, reported in
+the FineEnvs multi-harness RL write-up (which cites Zhang et al. 2026 for the
+first pair and the Orchard paper for the second); this repository has run
+neither. They are here for one reason: a score that does not name the host it
+came from is not a number a reader can compare, which is the rule above applied
+to a benchmark instead of to a sentence.
 
 ## MCP: the gate sees the call, not its contents
 

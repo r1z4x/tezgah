@@ -108,6 +108,31 @@ An installed host whose core line is missing is a health check's business
 (`host_checks_<host>`), not a second copy: two delivery paths for one host is the
 same rules paid twice per session.
 
+## The model wire
+
+The matrix above is about events. This is about the other side of a host: which
+model API it speaks. tezgah's own half of that is already written down, because
+the router has to name a model per host where that host can express it
+(`hooks/tezgah_models.py:10-16`); the host's half never was, and it is the half a
+reader needs to explain a score, since the same model moved 13 points across
+three harness configurations while swapping the model inside one harness moved it
+2.5-5. [layers](layers.md#three-senses-of-one-word) draws the three senses of
+"harness" apart for the same reason.
+
+| Host | tezgah names its model by | the model wire it speaks | checked against |
+|---|---|---|---|
+| claude | frontmatter `model:` + `effort:` (`hooks/tezgah_models.py:10`) | the Anthropic API; a managed gateway is reached through `ANTHROPIC_BASE_URL` and `allowedProviders` (Claude Code's gateway and settings docs) | vendor documentation |
+| codex | `model` + `model_reasoning_effort` (`hooks/tezgah_models.py:11`) | OpenAI's Responses API by default and selectable per provider: a `model_providers` entry sets `wire_api = "responses"`, and `openai_base_url` moves the built-in provider's base URL (Codex's own configuration reference, checked 2026-10-01) | vendor documentation |
+| cursor | frontmatter `model:` + `effort:` (`hooks/tezgah_models.py:10`) | `unverified`: the CLI's public documentation names no wire (checked 2026-10-01) | - |
+| opencode | a selector read from `opencode models` (`hooks/tezgah_models.py:12`) | the AI SDK: `@ai-sdk/openai-compatible` for `/v1/chat/completions`, `@ai-sdk/openai` for `/v1/responses`, beside its own Anthropic and Bedrock providers (opencode's provider docs) | vendor documentation |
+| omp | the session default's family, otherwise `task.agentModelOverrides` and `modelRoles.plan` (`hooks/tezgah_models.py:13-16`) | whichever provider the selected model names - Anthropic Messages, OpenAI Responses, OpenAI chat completions, Google, Bedrock - with text-based dialects where a native tool API is unavailable; the OpenRouter route dispatches to Responses unless `PI_OPENROUTER_RESPONSES=0` (omp's own `provider-compat-reference` documentation) | the tool's own documentation |
+| dsh | the Claude-family scripts through the bridge (`hosts/dsh/hooks.json:2-19`); `README.md:27-28` calls it "DeepSeek's dsh harness" | `unverified`: its own `--help` describes it as "an ordered stack of plugin-bundle patch layers" and names no model API, and its profile directory names a provider (DeepSeek) rather than a wire (checked 2026-10-01) | - |
+
+`unverified` is the point of the column rather than a gap in it. A wrong dialect
+here is worse than a blank one: a reader would use it to explain a score, and the
+explanation would be invented. Fill a row only from that host's own documentation,
+and say which document it came from.
+
 ## The observability rule
 
 A skill read is observable only where the host gives a channel that does not cost
@@ -238,3 +263,4 @@ In order, each step verified by the one below it:
 - `hosts/omp/hook.py`, `hosts/omp/tezgah-hook.ts.in`
 - `hosts/opencode/plugins/tezgah.js`, `hosts/opencode/tui/tezgah-tui.tsx`
 - `statusline.py`, `bin/tezgah-status`, `hooks/tezgah_context.py`
+- `hooks/tezgah_models.py` - the per-host model surface in `## The model wire`

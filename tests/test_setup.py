@@ -1866,10 +1866,13 @@ class ContextBudget(SetupBase):
     """The status report must show what tezgah injects before the first turn."""
 
     # The `skill metadata` band before this plan's name, in chars, measured with
-    # the installer's own formula over the 15 names at `dc74a18`. It is the row
-    # the plan's ceiling is written against: the budget is this plus 2000 bytes,
-    # and a band that grows past it means some description grew, not this name.
-    BAND_BEFORE = 9757
+    # the installer's own formula. It is the row the plan's ceiling is written
+    # against: the budget is this plus 2000 bytes, and a band that grows past it
+    # means some description grew, not this name. Raised from 9757, the row at
+    # `dc74a18` over 15 names, to 10313 when `rl-env` shipped: a 17th name whose
+    # description is 542 characters, so the growth is recorded here deliberately
+    # rather than absorbed by the 2000-byte headroom.
+    BAND_BEFORE = 10313
 
     def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
         """The always-on cost of a shipped name, in the installer's own formula:
