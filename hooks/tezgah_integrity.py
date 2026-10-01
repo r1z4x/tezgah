@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import statistics
 import time
 
@@ -141,29 +142,24 @@ GITISH = re.compile(r"\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b", r
 # a hooks directory swapped in the same command as the commit/push it serves:
 # `git -c core.hooksPath=/dev/null commit`, `git config core.hooksPath <dir> &&
 # git commit`, `--config-env` and the GIT_CONFIG_KEY_n/GIT_CONFIG_PARAMETERS env
-# skip the hooks exactly as --no-verify does. Only an assignment counts: a
-# standalone `git config core.hooksPath .githooks` (husky's own setup), a read
-# (`--get`, `get`, no value), an `--unset`, and a hook install that merely names
-# `pre-push` pass. The pattern runs on the raw text, so a quoted key or value
-# (`-c 'core.hooksPath=x'`, `"$D"`) is still read, and a match counts only where
-# it starts in command position - unmasked - so a commit message that names the
-# key or the env var is not an assignment.
+# skip the hooks exactly as --no-verify does. Read word by word
+# (`_hooks_redirect`), not by a pattern over the line: quoting moves the key
+# into or out of a word, and every regex form either missed a quoted key or
+# read one inside a commit message. Only an assignment counts: husky's
+# standalone `git config core.hooksPath .githooks`, a read or `--unset`, and a
+# hook install that merely names `pre-push` pass.
 # ponytail: a hooksPath set in one call and a commit in the next is not seen;
 # that needs the session's earlier calls, not one command line.
-HOOKS_SET = re.compile(
-    r"-c\s+['\"]?core\.hookspath\s*=|"
-    r"--config-env[= ]\s*['\"]?core\.hookspath\s*=|"
-    r"\bGIT_CONFIG_(?:KEY_\d+|PARAMETERS)\s*=[^\n;&|]*core\.hookspath|"
-    r"\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath"
-    r"[^\S\n]+[^\s;&|]",
-    re.I)
-# `git [global options] commit|push` - the subcommand, not the word inside a
-# hook name such as `pre-push` or `commit-msg`. `-c`/`-C` take a value that
-# never starts with `-`, and may show none once a quoted value is masked away;
-# only the first alternative reads them, so a run of options parses one way.
-GIT_WRITE = re.compile(
-    r"\bgit\b(?:\s+-[cC](?:\s+[^\s-]\S*)?|\s+--?(?![cC]\b)\w[\w-]*(?:=\S+)?)*"
-    r"\s+(?:commit|push)\b")
+HOOKS_KEY = "core.hookspath"
+GIT_CONFIG_ENV = re.compile(r"GIT_CONFIG_(?:KEY_\d+|PARAMETERS)")
+ENV_WORD = re.compile(r"[A-Za-z_]\w*=")
+# git's global options that take the next word as their value
+GIT_VALUE_OPTS = frozenset(("-C", "-c", "--git-dir", "--work-tree", "--namespace",
+                            "--config-env", "--super-prefix"))
+# `git config` arguments that make it a read or a removal, never an assignment
+CONFIG_READS = ("--get", "--unset", "--list", "--remove", "--rename", "--edit")
+CONFIG_READ_WORDS = frozenset(("-l", "-e", "get", "unset", "list", "edit",
+                               "remove-section", "rename-section"))
 # tests disabled so a failure disappears; checked only when newly introduced
 SKIP_TEST = re.compile(
     r"@pytest\.mark\.(?:skip|skipif|xfail|only)\b|"
@@ -1545,12 +1541,75 @@ def mask(text):
                         _blank_heredocs(str(text or "")))
 
 
-def _hooks_path_set(c, raw):
-    """True when this command line assigns core.hooksPath. `c` is `raw`
-    masked, and masking keeps every offset, so a match on the raw text counts
-    only where the masked text still holds its first character."""
-    return any(c[m.start()] == raw[m.start()]
-               for m in HOOKS_SET.finditer(raw))
+def _shell_segments(cmd):
+    """The line's simple commands as word lists, read the way
+    `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
+    `;&|()<>` - so quotes, escapes and comments are gone, heredoc bodies are
+    blanked first, a continued line is joined, and a line shlex cannot read is
+    dropped. A run of `;&|()` ends a command; a redirection does not."""
+    segs = []
+    text = _blank_heredocs(str(cmd or "")).replace("\\\n", " ")
+    for line in text.splitlines():
+        try:
+            lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
+            lex.whitespace_split = True
+            words = list(lex)
+        except ValueError:
+            continue
+        cur = []
+        for word in words:
+            if word and word[0] in ";&|()":
+                if cur:
+                    segs.append(cur)
+                cur = []
+            else:
+                cur.append(word)
+        if cur:
+            segs.append(cur)
+    return segs
+
+
+def _names_hooks_key(setting):
+    """True for `core.hooksPath` or `core.hooksPath=<value>`, any case."""
+    return setting.lower().partition("=")[0] == HOOKS_KEY
+
+
+def _hooks_redirect(cmd):
+    """True when one command line both assigns core.hooksPath and runs a git
+    commit or push."""
+    assigns = writes = False
+    for words in _shell_segments(cmd):
+        i = 0
+        while i < len(words) and os.path.basename(words[i]) != "git":
+            if ENV_WORD.match(words[i]):
+                name, _, value = words[i].partition("=")
+                if GIT_CONFIG_ENV.fullmatch(name) and HOOKS_KEY in value.lower():
+                    assigns = True
+            i += 1
+        i += 1
+        sub = None
+        while i < len(words):
+            word = words[i]
+            if word.startswith("--config-env="):
+                assigns = assigns or _names_hooks_key(word[13:])
+            elif word in ("-c", "--config-env") and i + 1 < len(words):
+                assigns = assigns or _names_hooks_key(words[i + 1])
+            if word in GIT_VALUE_OPTS:
+                i += 2
+                continue
+            if word.startswith("-"):
+                i += 1
+                continue
+            sub = word.lower()
+            break
+        if sub in ("commit", "push"):
+            writes = True
+        elif sub == "config":
+            args = [a.lower() for a in words[i + 1:]]
+            if not any(a.startswith(CONFIG_READS) or a in CONFIG_READ_WORDS
+                       for a in args) and HOOKS_KEY in args[:-1]:
+                assigns = True
+    return assigns and writes
 
 
 def shortcut_command(cmd):
@@ -1568,7 +1627,7 @@ def shortcut_command(cmd):
         return ("Verification bypass denied: an env var that skips the hooks "
                 "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them "
                 "instead of disabling them.")
-    if GIT_WRITE.search(c) and _hooks_path_set(c, str(cmd or "")):
+    if _hooks_redirect(cmd):
         return ("Verification bypass denied: `core.hooksPath` is redirected in "
                 "the same command as a commit/push, so git runs a hooks directory "
                 "that does not hold the checks - the same skip as `--no-verify`. "

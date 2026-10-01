@@ -36,6 +36,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   macOS's `/var/folders/.../T/`) showed only its directories and lost the file
   name; it now keeps the last 77 characters behind `...`. The same names feed
   the design-contract refusal.
+- **The opencode plugin reads a shell line the way shlex does in two more
+  places.** Its `shellWords` dropped a word that was only quotes (`''`) and read
+  past an unquoted `#`; it now keeps the empty word and stops at the comment, as
+  `tezgah_context.shell_programs`' shlex does, so the two hosts answer the same
+  line the same way.
 
 ### Changed
 

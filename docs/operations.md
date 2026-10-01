@@ -183,7 +183,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 - `--refresh` does that for opencode alone, without a reinstall: opencode has no
   session-start hook, so its plugin calls it once per session when the stored
   hash no longer matches the source
-  (`hosts/opencode/plugins/tezgah.js:1833-1839`).
+  (`hosts/opencode/plugins/tezgah.js:1894-1900`).
 - `--sync` copies the checkout over the Claude plugin copy, because Claude Code
   runs `~/.claude/plugins/cache/<owner>/tezgah/<version>/` and never this
   checkout (`bin/tezgah-setup:3701-3759`); `--install` refreshes a stale copy itself
@@ -311,10 +311,10 @@ does not hold.
 
 | Invocation | What it does |
 |---|---|
-| `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings, the `.codegraph` bytes and index presence per repository, and the three host state dirs (`bin/tezgah-doctor:138-158`, `:292-295`) |
-| `tezgah-doctor --clean` | vacuums opencode's database, and only when opencode is not running (`:211-221`, `:330-354`) |
+| `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings, the `.codegraph` bytes and index presence per repository, and the three host state dirs (`bin/tezgah-doctor:138-158`, `:345-348`) |
+| `tezgah-doctor --clean` | vacuums opencode's database, and only when opencode is not running (`:211-221`, `:383-407`) |
 | `tezgah-doctor --coverage` | every tracked file the codegraph index does not hold, in two classes — a supported extension the index is missing, and a shebang-only script with no `.py` twin — with the file counts it read, so an empty result cannot read as "everything is covered" |
-| `tezgah-doctor --prune-sessions DAYS` | deletes sessions idle longer than DAYS through `opencode session delete`, then vacuums; skipped when opencode is running or its CLI is missing (`:241-260`, `:319-331`) |
+| `tezgah-doctor --prune-sessions DAYS` | deletes sessions idle longer than DAYS through `opencode session delete`, then vacuums; skipped when opencode is running or its CLI is missing (`:241-260`, `:372-384`) |
 
 `VACUUM` alone cannot shrink that database — its pages are all live — so
 `--prune-sessions` is the action that actually reclaims space

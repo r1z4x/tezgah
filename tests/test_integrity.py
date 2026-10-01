@@ -113,7 +113,15 @@ class ShortcutCommand(unittest.TestCase):
                   "GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/x'\" git commit",
                   # a quoted key is still the key
                   "git -c 'core.hooksPath=/dev/null' push",
-                  'git --config-env "core.hooksPath=NOH" commit'):
+                  'git --config-env "core.hooksPath=NOH" commit',
+                  "git config 'core.hooksPath' /dev/null; git commit -m x",
+                  # a quoted word earlier on the line does not hide the real one
+                  'git -c "user.name=config" -c core.hooksPath=/dev/null '
+                  'commit -m "core.hooksPath now"',
+                  'X="GIT_CONFIG_KEY_9=" GIT_CONFIG_KEY_0=core.hooksPath '
+                  'GIT_CONFIG_VALUE_0=/x GIT_CONFIG_COUNT=1 git commit -m x',
+                  # a continued line is one command
+                  "git -c core.hooksPath=/x \\\n  commit -m x"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
     def test_hooks_path_without_a_commit_or_as_a_read_passes(self):
@@ -129,12 +137,18 @@ class ShortcutCommand(unittest.TestCase):
                   "git config core.hooksPath x; echo commit",
                   # a read on its own line, and an env name inside a message
                   "git config core.hooksPath\ngit commit -m x",
-                  'git commit -m "docs: GIT_CONFIG_PARAMETERS=core.hooksPath"'):
+                  'git commit -m "docs: GIT_CONFIG_PARAMETERS=core.hooksPath"',
+                  # the key inside a message beside a path named config
+                  'git commit config/hooks.sh -m "set core.hooksPath in setup"',
+                  'git -C config commit -m "core.hooksPath x"',
+                  # a heredoc body and a comment are data
+                  "git commit -F - <<'MSG'\ngit -c core.hooksPath=/x commit\nMSG",
+                  "git commit -m x # git -c core.hooksPath=/x commit"):
             self.assertIsNone(ti.shortcut_command(c), c)
 
     def test_a_long_run_of_git_options_is_read_in_linear_time(self):
-        # the option alternatives must not overlap: `--x` read two ways per
-        # token was exponential and hung the gate on a long line
+        # a pattern whose option alternatives overlapped read `--x` two ways
+        # per token and hung the gate on a long line; the word reader must not
         start = time.monotonic()
         ti.shortcut_command("git " + "--x " * 3000 + "y")
         ti.shortcut_command("git " + "-c " * 40 + "x")

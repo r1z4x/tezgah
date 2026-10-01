@@ -151,8 +151,8 @@ the command really ran it (34-38,84) and is the one writer that can earn `judge`
 (a run of `bin/tezgah-triage` or `bin/tezgah-docs`, `shell_kind`, hooks/tezgah_context.py:1062-1077)
 — plus `hooks/projects-auto-init.py:48`
 (`orch` on subagent start), hosts/codex/hook.py:163,168,
-hosts/cursor/hook.py:224,250,256,272,280,295, hosts/opencode/plugins/tezgah.js:1392-1399,
-hosts/opencode/plugins/tezgah.js:1796, hosts/omp/hook.py:148. Both Claude (hooks/hooks.json) and dsh
+hosts/cursor/hook.py:224,250,256,272,280,295, hosts/opencode/plugins/tezgah.js:1453-1460,
+hosts/opencode/plugins/tezgah.js:1857, hosts/omp/hook.py:148. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
 its line has (hooks/projects-posttooluse.py:29-32).
@@ -232,7 +232,7 @@ the used marks cannot light up (bin/tezgah-status:128). `--color`/`--no-color` f
 `replies`, `shape` and the `kinds` seen (bin/tezgah-status:72-97); with `--json`
 as JSON. `replies` counts the `shape` rows, one per reply the Stop rule judged,
 and `shape` those that carried a report-only flag - `table-open`,
-`preamble-open`, `recap-close` (`shape_flags`, hooks/tezgah_integrity.py:1811-1842)
+`preamble-open`, `recap-close` (`shape_flags`, hooks/tezgah_integrity.py:1870-1901)
 - so a flag's rate has its denominator; the row also carries the reply's
 `longest_list` and `tr_share`, the two numbers the list-cap and language blocks
 read. `shape_blocked` counts the claim rows refused for their shape rather than
@@ -240,9 +240,9 @@ their evidence, which `false_completion` leaves out. `judge` is the seam's spend
 counted on the row's **kind** and never on a `detail` substring like `consult` and
 `codegen` are, because a judgement's detail carries the caller and the model and a
 substring would also count a commit message that says "judge"
-(hooks/tezgah_integrity.py:808-814). It is in neither `STEP_KINDS` nor the check
+(hooks/tezgah_integrity.py:804-810). It is in neither `STEP_KINDS` nor the check
 set: a judgement is a cost, and a model answer must never license a "done" claim
-(`STEP_KINDS`, hooks/tezgah_integrity.py:738). `tezgah-setup --status <path>` prints the plain line for a
+(`STEP_KINDS`, hooks/tezgah_integrity.py:734). `tezgah-setup --status <path>` prints the plain line for a
 repo (bin/tezgah-setup:4154-4156). A wrong or missing line usually ends in one of
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a

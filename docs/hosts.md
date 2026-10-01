@@ -20,7 +20,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 | claude | SessionStart, SubagentStart, PostCompact, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop - `hooks/hooks.json:2-26` | the managed block in `~/.claude/CLAUDE.md` (`CLAUDE_RULES`), Claude's global memory file; the SessionStart/PostCompact hook rows declare `TEZGAH_CORE_IN_FILE` (`hooks/hooks.json:4`) and the hook drops the core when the block is there, so the contract is paid for once (`hooks/projects-auto-init.py:1-6`; the static `output-styles/tezgah.md` mirror (`output-styles/tezgah.md:1`) is the hookless build's copy) | UserPromptSubmit -> `additionalContext` (`hooks/hooks.json:12-14`, `hooks/projects-auto-init.py:51-54`) | `statusLine` command in `~/.claude/settings.json` (`bin/tezgah-setup:527-548`), ANSI, forwards Orca first (`statusline.py:30-48`) | all seven: the transcript parse covers the two skill reads, `graph`, `orch` and the three shell kinds - `consult`, `research` and the judgement callers (`statusline.py:58-107`, `observable=None` at `:112`) |
 | codex | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, PostCompact, Stop (`bin/tezgah-setup:129-131`; named in `hosts/codex/hook.py:6-7`) | hook: the normalized events inject `context_for` (`hosts/codex/hook.py:197-203`) | UserPromptSubmit -> `additionalContext` (`hosts/codex/hook.py:197-203`) | no custom footer item (`tui.status_line` is a closed enum) - the line rides `systemMessage`, plain, at SessionStart and Stop (`hosts/codex/hook.py:10-12,182-184,195-198`) | five tool-use (`TOOL_USE_MEASURES` at `hosts/codex/hook.py:190,196`) |
 | cursor | 13 events: sessionStart, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, beforeSubmitPrompt, stop, beforeMCPExecution, afterShellExecution, afterMCPExecution, afterFileEdit, afterAgentResponse (`bin/tezgah-setup:132-182`) | hook: sessionStart -> `additional_context` (`hosts/cursor/hook.py:244-246`) | beforeSubmitPrompt -> `additional_context` plus `{"continue": true}` (`hosts/cursor/hook.py:353-359`) | `statusLine` in `~/.cursor/cli-config.json` -> `tezgah-statusline --cursor` (`bin/tezgah-setup:1101-1109`), ANSI (`statusline.py:116-117`) | five tool-use (`statusline.py:112`) |
-| opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1579-1846`) - `tool.execute.before` carries the whole gate, `tool.execute.after` the channel on the row, the provenance label on the result and the taint notice on the next effect (`untrustedSource` `hosts/opencode/plugins/tezgah.js:1248`, `labelResult` `:1323`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:905-938`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:1776-1821`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:969-980`) | all seven: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1475-1493`) |
+| opencode | no lifecycle events; plugin hooks: config, permission.ask, tool.execute.before, shell.env, experimental.session.compacting, chat.message, tool.execute.after (`hosts/opencode/plugins/tezgah.js:1640-1907`) - `tool.execute.before` carries the whole gate, `tool.execute.after` the channel on the row, the provenance label on the result and the taint notice on the next effect (`untrustedSource` `hosts/opencode/plugins/tezgah.js:1309`, `labelResult` `:1384`) | static only: generated `instructions` files, because there is no session-start injection point (`hosts/opencode/plugins/tezgah.js:3-6`, `bin/tezgah-setup:905-938`) | chat.message pushes a synthetic part (`hosts/opencode/plugins/tezgah.js:1837-1882`) | TUI plugin `tezgah-tui.tsx` declared in `tui.json`, runs `tezgah-status` on the event bus (`hosts/opencode/tui/tezgah-tui.tsx:1-11`; wiring `bin/tezgah-setup:969-980`) | all seven: skill reads and kinds are classified in process (`hosts/opencode/plugins/tezgah.js:1536-1554`) |
 | dsh | SessionStart, SubagentStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop (`hosts/dsh/hooks.json:2-19`) | hook: the same Claude-family scripts, named by `configPath` (`bin/tezgah-setup:1429-1430`) | UserPromptSubmit, through the bridge (`hosts/dsh/hooks.json:9-11`) | web-profile plugin: authenticated `GET /api/tezgah.status` -> `tezgah-status` (`hosts/dsh/statusline/lib/index.js:14,39-60`) | five tool-use: the route passes `--observable=consult,research,graph,orch,judge` (`hosts/dsh/statusline/lib/index.js:18,47-48`) |
 | omp | session_start, session_switch, turn_end, before_agent_start, tool_call, tool_result, session_stop (`hosts/omp/tezgah-hook.ts.in:177,198-199,201,221,235,267`) | both: static `RULES.md` (`bin/tezgah-setup:1299-1302`) and a session payload carrying only what a static file cannot know (`hosts/omp/hook.py:124-138`) | before_agent_start returns a hidden message (`hosts/omp/tezgah-hook.ts.in:236-253`) | extension draws `ctx.ui.setWidget` below the editor, `setStatus` as fallback (`hosts/omp/tezgah-hook.ts.in:20-27`); ANSI line from `hosts/omp/hook.py:86-108` | all seven: the embedded runner filters skill reads before asking python (`hosts/omp/tezgah-hook.ts.in:40-53`) and no `observable` is passed (`hosts/omp/hook.py:95-97`) |
 
@@ -112,7 +112,7 @@ same rules paid twice per session.
 
 A skill read is observable only where the host gives a channel that does not cost
 a process per read: Claude parses its transcript (`statusline.py:58-107`),
-opencode classifies in process (`hosts/opencode/plugins/tezgah.js:1475-1493`),
+opencode classifies in process (`hosts/opencode/plugins/tezgah.js:1536-1554`),
 omp filters in its embedded runner before it asks python
 (`hosts/omp/tezgah-hook.ts.in:40-53`). On codex, cursor and dsh a read is not
 observable at that price, so their surfaces pass the five tool-use measures as
@@ -173,15 +173,15 @@ In order, each step verified by the one below it:
   web-only `connection` service (`bin/tezgah-setup:1129-1134`).
 - **opencode carries the untrusted-content control in the plugin**, not by
   importing `hooks/tezgah_untrusted.py`, which a plugin cannot do in process: the
-  channel is decided in JS (`untrustedSource` `hosts/opencode/plugins/tezgah.js:1248`,
-  the tier's argv reader at `:1601-1610`), the label and the taint notice ride the
-  result the hook is handed (`labelResult` `:1323`). A shared corpus in
-  `tests/test_opencode_plugin.py:1282-1321` drives both halves over the same calls and
+  channel is decided in JS (`untrustedSource` `hosts/opencode/plugins/tezgah.js:1309`,
+  the tier's argv reader at `:1662-1671`), the label and the taint notice ride the
+  result the hook is handed (`labelResult` `:1384`). A shared corpus in
+  `tests/test_opencode_plugin.py:1287-1326` drives both halves over the same calls and
   fails if their answers differ, so neither can move without the other.
 - **opencode asks the core for the rules it cannot port, and counts the ask.** The
   task rule's phase and allowlist and the language rule's word list are answered by
   `bin/tezgah-gate check` rather than copied into JavaScript (`IDENT_CMD`
-  `hosts/opencode/plugins/tezgah.js:344`, the call site `:1690`) - one spawn per write
+  `hosts/opencode/plugins/tezgah.js:397`, the call site `:1751`) - one spawn per write
   and per identifier-creating command. The delegation fails open by design: a missing
   CLI, a non-zero exit, a broken pipe or a 10 s timeout refuses nothing (`collect`
   `hosts/opencode/plugins/tezgah.js:152-174`). One `delegation` row now records the class when the core could not
@@ -190,7 +190,7 @@ In order, each step verified by the one below it:
 - **opencode has no session-start hook**, so its always-on file must carry the
   pointer every hook host appends, and the per-session index, agent and contract
   refreshes ride the first `chat.message` instead (`bin/tezgah-setup:796-811`,
-  `hosts/opencode/plugins/tezgah.js:1808-1819`). It denies the native `skill`
+  `hosts/opencode/plugins/tezgah.js:1869-1880`). It denies the native `skill`
   tool - the generated router replaces the injected skill list
   (`bin/tezgah-setup:954-956`) - and `permission.ask` may never be emitted by a
   given build, which is why `tool.execute.before` stays the enforcing half
@@ -203,7 +203,7 @@ In order, each step verified by the one below it:
   their matcher carries**, so a name the PostToolUse side carries and the
   PreToolUse side does not is recorded in the ledger and never refused.
   `PowerShell` and `pwsh` are both `BASH_TOOLS` members
-  (`hooks/tezgah_integrity.py:252-253`), so every PreToolUse matcher names both
+  (`hooks/tezgah_integrity.py:248-249`), so every PreToolUse matcher names both
   spellings: the Claude-family wire (`hooks/hooks.json:16`,
   `hosts/dsh/hooks.json:13`), codex and cursor
   (`bin/tezgah-setup:117-124`, mirrored in `hosts/codex/hooks.json:10` and

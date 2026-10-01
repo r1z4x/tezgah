@@ -35,8 +35,8 @@ MUTANTS = (
     ("skip-env", INTEGRITY, "    if SKIP_ENV.search(c) and GITISH.search(c):\n",
      "    if False and SKIP_ENV.search(c) and GITISH.search(c):\n",
      "SKIP=/HUSKY=0 beside a git command"),
-    ("hooks-path", INTEGRITY, "def _hooks_path_set(c, raw):\n",
-     "def _hooks_path_set(c, raw):\n    return False\n",
+    ("hooks-path", INTEGRITY, "def _hooks_redirect(cmd):\n",
+     "def _hooks_redirect(cmd):\n    return False\n",
      "core.hooksPath assignment beside a commit/push"),
     ("neuter", INTEGRITY, "    if verify_command(c) and NEUTER.search(c):\n",
      "    if False and verify_command(c) and NEUTER.search(c):\n",
@@ -48,8 +48,8 @@ MUTANTS = (
     ("mask", INTEGRITY, "def mask(text):\n",
      "def mask(text):\n    return str(text or \"\")\n",
      "quoted text and heredocs read as data"),
-    ("js-hooks-path", PLUGIN, "function hooksPathSet(c, raw) {\n",
-     "function hooksPathSet(c, raw) {\n  return false\n",
+    ("js-hooks-path", PLUGIN, "function hooksRedirect(cmd) {\n",
+     "function hooksRedirect(cmd) {\n  return false\n",
      "the opencode mirror of the hooksPath rule"),
 )
 
