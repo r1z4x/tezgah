@@ -104,16 +104,20 @@ class OmpOverrides(unittest.TestCase):
         self.assertEqual(tm.omp_role_overrides("anthropic"),
                          {"modelRoles.plan": "anthropic/claude-opus-5-5:high",
                           "modelRoles.slow": "anthropic/claude-opus-5-5:high"})
-        self.assertEqual(
-            tm.omp_role_overrides("any"),
-            {"modelRoles.plan": "openrouter/anthropic/claude-opus-5.5:high",
-             "modelRoles.slow": "openrouter/anthropic/claude-opus-5.5:high"})
+        with mock.patch.object(tm, "openrouter_ready", return_value=True):
+            self.assertEqual(
+                tm.omp_role_overrides("any"),
+                {"modelRoles.plan": "openrouter/anthropic/claude-opus-5.5:high",
+                 "modelRoles.slow": "openrouter/anthropic/claude-opus-5.5:high"})
         self.assertEqual(tm.omp_role_overrides("off"), {})
         with mock.patch.object(tm, "openrouter_ready", return_value=False):
             self.assertEqual(tm.omp_role_overrides("any"), {})
 
     def test_any_mode_goes_through_openrouter(self):
-        out = tm.omp_overrides("any")
+        # the credential is mocked, not read: a machine without a key answered
+        # {} and made this case fail on CI while passing on a developer's box
+        with mock.patch.object(tm, "openrouter_ready", return_value=True):
+            out = tm.omp_overrides("any")
         self.assertEqual(out["tezgah-cheap"], "openrouter/z-ai/glm-5.3-flash")
         self.assertEqual(out["tezgah-standard"], "openrouter/openai/gpt-6.1-sol:high")
 
