@@ -24,9 +24,11 @@ keeps where its scope came from (`allowed_from:`), which `status` prints.
 
 `review` and `close` are the session's: the verification phase asks for a
 fresh reviewer's read of the diff, `review` records its verdict as
-`review: <reviewer> <verdict> <date>`, and `close NNN done` refuses a plan whose
-review is missing or not `approve`. `close` refuses the active task - that one
-is the user's to stop first.
+`review: <reviewer> <verdict> <date>` together with `reviewed_sha:` (the
+project's HEAD it read) and `review_round:`, so the next round reads only
+`git diff <reviewed_sha>..HEAD` and the two-round budget is countable; `close
+NNN done` refuses a plan whose review is missing or not `approve`. `close`
+refuses the active task - that one is the user's to stop first.
 
 Two things the plan owes are asked here, at the only moment they can still be
 fixed - the phase move - because the record is the user's and the refusal is
@@ -295,9 +297,12 @@ def phase_problems(phase, text, path):
 
 def verification_steps(text, path):
     """What the verification phase requires before the plan is done: the plan's
-    own acceptance commands run unpiped, and a fresh reviewer's read of the
-    diff, recorded with `review` - `close NNN done` refuses without it."""
-    ident = tt.frontmatter(text).get("id") or os.path.basename(path).split("-")[0]
+    own acceptance commands run once on the final tree, unpiped, and a fresh
+    reviewer's read of the diff, recorded with `review` - `close NNN done` refuses
+    without it. A round after the first reads only the delta since the sha the
+    last `review` recorded, and the review budget is two rounds."""
+    fields = tt.frontmatter(text)
+    ident = fields.get("id") or os.path.basename(path).split("-")[0]
     # every item, not only the ones the command reader recognises: `pnpm test`
     # carries no option or path and would otherwise vanish from the list
     items = ["%s%s" % (i["text"], "" if i["state"] == "checkable" else
@@ -305,15 +310,30 @@ def verification_steps(text, path):
                                    else "names no command"))
              for i in tt.acceptance_items(text)]
     # the project, not the private repository `.tezgah` may hold
-    base = diff_base(os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", "..")))
+    root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
+    reviewed = fields.get("reviewed_sha") or ""
+    prior = fields.get("review_round") or ""
+    rounds = int(prior) if prior.isdigit() else 0
     print("verification - required before this plan is done:")
-    print("  1. prove each acceptance item, every command run unpiped "
+    print("  1. prove the acceptance items ONCE, on the final tree - not again per "
+          "review round - every command run unpiped "
           "(`cmd > /tmp/check.log 2>&1`, then read the file):")
     for item in items or ["(the plan has no Acceptance items)"]:
         print("     - %s" % item)
-    print("  2. a fresh reviewer - the host's tezgah-reviewer subagent - "
-          "reads `git diff %s..HEAD`" % base)
-    print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`;"
+    if os.path.isfile(os.path.join(root, "tests", "impacted.py")):
+        print("     the one full run here is `python3 tests/impacted.py --all`")
+    if reviewed:
+        print("  2. review round %d: a fresh tezgah-reviewer reads only the delta "
+              "`git diff %s..HEAD` and the test output above; it does not re-run "
+              "the suite" % (rounds + 1, reviewed))
+        if rounds >= 2:
+            print("     the 2-round budget is spent: triage what is left as block "
+                  "(back to the user) or fix-later (recorded), never a third loop")
+    else:
+        print("  2. a fresh reviewer - the host's tezgah-reviewer subagent - "
+              "reads `git diff %s..HEAD` and the test output above" % diff_base(root))
+    print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`"
+          " (records the reviewed sha);"
           " `tezgah-task close %s done` refuses without an approve" % (ident, ident))
 
 
@@ -481,11 +501,22 @@ def cmd_review(args):
     path, problem = plan_path(repo_root(os.getcwd()), args[0])
     if problem:
         return problems([problem])
-    bad = write_fields(path, review="%s %s %s" % (args[1], args[2], today()),
-                       updated=today())
+    fields = tt.frontmatter(read(path))
+    prior = fields.get("review_round") or ""
+    # the project's HEAD, never the private `.tezgah` repository's: the next
+    # round's delta is `git diff <this>..HEAD` over the project
+    root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
+    sha = (git_out(root, "rev-parse", "HEAD") or "")[:12]
+    record = {"review": "%s %s %s" % (args[1], args[2], today()),
+              "review_round": str(int(prior) + 1 if prior.isdigit() else 1),
+              "updated": today()}
+    if sha:
+        record["reviewed_sha"] = sha
+    bad = write_fields(path, **record)
     if bad:
         return problems(bad)
-    print("review recorded: %s %s (%s)" % (args[1], args[2], path))
+    print("review recorded: %s %s round %s at %s (%s)" % (
+        args[1], args[2], record["review_round"], sha or "(no commit)", path))
     return 0
 
 

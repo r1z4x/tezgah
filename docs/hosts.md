@@ -228,7 +228,7 @@ In order, each step verified by the one below it:
   their matcher carries**, so a name the PostToolUse side carries and the
   PreToolUse side does not is recorded in the ledger and never refused.
   `PowerShell` and `pwsh` are both `BASH_TOOLS` members
-  (`hooks/tezgah_integrity.py:261-262`), so every PreToolUse matcher names both
+  (`hooks/tezgah_integrity.py:262-263`), so every PreToolUse matcher names both
   spellings: the Claude-family wire (`hooks/hooks.json:16`,
   `hosts/dsh/hooks.json:13`), codex and cursor
   (`bin/tezgah-setup:117-124`, mirrored in `hosts/codex/hooks.json:10` and

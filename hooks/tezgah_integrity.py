@@ -55,7 +55,8 @@ VERIFY = re.compile(
     r"swift\s+test|golangci-lint|shellcheck|"
     r"playwright|cypress|storybook|chromatic|percy|lighthouse|pa11y|backstop|"
     r"axe-core|reg-suit|"
-    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)"
+    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)|"
+    r"(?:[\w./-]*/)?tests[/\\]impacted\.py"
     r")\b", re.I)
 # A source file a person looks at: the rendered formats, so a build log or a
 # document written beside them is not a UI turn. Web first, then the native and
@@ -2529,9 +2530,21 @@ def last_check(session_id):
 SCRATCH_PATH = re.compile(
     r"/tmp/|/var/folders/|\$\{?TMPDIR\b|\b(?:fixture|fake|stub|sample|demo)s?\b",
     re.I)
-# How far back the scratch read looks. The newest check of a session that ran a
-# few hundred calls is in its tail, and a whole-file read on every prompt is the
-# cost this bound buys out of.
+# A path only the *output* touches is evidence about the real tree, not scratch:
+# the prescribed shape is `pytest > /tmp/check.log 2>&1`, so the log's path must
+# not read the command back as a scratch run (measured: a suite redirected to
+# /tmp/hp-suite.log was labelled stand-in, and the reminder invited re-runs).
+SCRATCH_LOG_REDIRECT = re.compile(
+    r"(?:^|\s)(?:>|\d?>|2?>>)\s*\S*(?:/tmp/|/var/folders/|\$\{?TMPDIR\b)\S*",
+    re.I)
+
+
+def _scratch_paths(detail):
+    """The command with every output redirect that targets a temp path removed:
+    what is left decides whether the check itself ran against scratch."""
+    return SCRATCH_LOG_REDIRECT.sub(" ", str(detail or ""))
+
+
 SCRATCH_TAIL = 200
 
 
@@ -2554,7 +2567,7 @@ def scratch_evidence(session_id, tail=SCRATCH_TAIL):
     for row in events(session_id, tail=tail):
         if not passing_check(row):
             continue
-        if not SCRATCH_PATH.search(str(row.get("detail") or "")):
+        if not SCRATCH_PATH.search(_scratch_paths(row.get("detail"))):
             return None
         scratch = row
     return scratch
