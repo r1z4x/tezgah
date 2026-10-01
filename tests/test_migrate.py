@@ -41,11 +41,25 @@ class Migrate(TempHome):
         self.assertEqual(out.returncode, 0, out.stderr)
         return out.stdout
 
+    def init_repo(self, name):
+        """A repository with an identity of its own.
+
+        The CLI seeds a project's identity into its new `.tezgah` from the
+        project's config files; `-c user.name` on the test's own git calls does
+        not persist, so without this the workspace commit falls back to git's
+        auto-detected ident - which git 2.55 refuses outright ("empty ident name
+        not allowed") and 2.50 accepted, making this suite pass or fail by git
+        version instead of by behaviour."""
+        repo = self.make_repo(name)
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.name", "t")
+        self.git(repo, "config", "user.email", "t@t")
+        return repo
+
     def legacy_repo(self, name="repo"):
         """Every legacy shape at once: tracked .tezgah, tracked plans/ in plan
         format, untracked analysis/ and research/, and a CLAUDE.md that stays."""
-        repo = self.make_repo(name)
-        self.git(repo, "init", "-q")
+        repo = self.init_repo(name)
         write(os.path.join(repo, ".gitignore"), "node_modules/\n")
         write(os.path.join(repo, ".tezgah", "lessons.md"), "- a lesson\n")
         write(os.path.join(repo, ".tezgah", "plans", "open", "009-new.md"), "new\n")
@@ -172,11 +186,9 @@ class Migrate(TempHome):
         self.assertEqual(self.backups(), backups)
 
     def test_discovery_skips_non_repos_the_tezgah_checkout_and_foreign_plans(self):
-        plain = self.make_repo("plain")
-        self.git(plain, "init", "-q")
+        plain = self.init_repo("plain")
         write(os.path.join(plain, "plans", "roadmap.txt"), "not tezgah plans\n")
-        checkout = self.make_repo("tezgah")
-        self.git(checkout, "init", "-q")
+        checkout = self.init_repo("tezgah")
         write(os.path.join(checkout, "hooks", "tezgah_policy.py"), "")
         write(os.path.join(checkout, "plans", "open", "001-x.md"), "x\n")
         worktree = self.make_repo("worktree")
