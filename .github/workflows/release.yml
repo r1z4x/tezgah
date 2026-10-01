@@ -42,9 +42,33 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
             echo "$NAME@$VERSION is already published"
-          else
-            npm publish --access public
+            exit 0
           fi
+          if OUT=$(npm publish --access public 2>&1); then
+            echo "$OUT" | tail -20
+            exit 0
+          fi
+          echo "$OUT" | tail -20
+          # npm accepts the tarball and then validates it, and a version still in
+          # that pipeline refuses a second publish (E409 "previously staged
+          # version"); it reaches the registry only when validation ends, so a
+          # release fired again in that window used to leave this job red for a
+          # version that was already on its way. Wait for the registry instead -
+          # and stay red if it never arrives. Any other refusal (auth, network,
+          # a rejected tarball) exits right here.
+          case "$OUT" in
+            *"previously staged version"*|*"previously published versions"*) ;;
+            *) exit 1 ;;
+          esac
+          for i in $(seq 1 20); do
+            sleep 30
+            if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+              echo "$NAME@$VERSION went live while npm validated it"
+              exit 0
+            fi
+          done
+          echo "::error::$NAME@$VERSION is not live 10 minutes after npm accepted it - check https://www.npmjs.com/package/$NAME?activeTab=versions"
+          exit 1
 
   brew-formula:
     runs-on: ubuntu-latest
