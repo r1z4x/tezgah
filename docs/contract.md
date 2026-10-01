@@ -98,8 +98,8 @@ One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
 `fixture`/`fake`/`stub`/`sample`/`demo` (`SCRATCH_PATH`,
-`hooks/tezgah_integrity.py:2356-2361`; `scratch_evidence`,
-`hooks/tezgah_integrity.py:2365-2389`) - the turn is told the command and the
+`hooks/tezgah_integrity.py:2378-2383`; `scratch_evidence`,
+`hooks/tezgah_integrity.py:2387-2411`) - the turn is told the command and the
 rule: evidence from a scratch path is evidence about the code path, so a claim
 about the running system needs a check that ran against it (`SCRATCH_REMINDER`,
 `hooks/tezgah_context.py:1232-1238`, appended at `hooks/tezgah_context.py:1327`).

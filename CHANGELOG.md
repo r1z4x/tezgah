@@ -12,10 +12,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `git commit --no-verify` and `HUSKY=0 git commit` but passed
   `git -c core.hooksPath=/dev/null commit` and
   `git config core.hooksPath <dir> && git commit`, which skip the same hooks. A
-  `core.hooksPath` assignment in the same command as a commit or push is now
-  denied, in the Python gate and in the opencode plugin; husky's standalone
-  `git config core.hooksPath .githooks` and a `--get`/`--unset` still pass. A
-  redirect set in one call and committed in the next is not seen.
+  `core.hooksPath` assignment in the same command as a `git commit`/`git push`
+  is now denied - `-c`, `git config` (quoted values included), `--config-env`
+  and the `GIT_CONFIG_KEY_n`/`GIT_CONFIG_PARAMETERS` env - in the Python gate and
+  in the opencode plugin; husky's standalone `git config core.hooksPath
+  .githooks`, a `--get`/`--unset`, and a hook install that names `pre-push`
+  still pass. A redirect set in one call and committed in the next is not seen.
 
 ### Changed
 

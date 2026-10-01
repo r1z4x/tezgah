@@ -102,7 +102,15 @@ class ShortcutCommand(unittest.TestCase):
         for c in ("git -c core.hooksPath=/dev/null commit -m x",
                   "git -c core.hookspath=/tmp/none push",
                   "git config core.hooksPath /tmp/nohooks && git commit -m x",
-                  "git config --local core.hooksPath x; git push origin main"):
+                  "git config --local core.hooksPath x; git push origin main",
+                  # a quoted value is still an assignment
+                  'git config core.hooksPath "$D" && git commit -m x',
+                  "git config core.hooksPath '' && git commit -m x",
+                  # the same key through --config-env and the config env vars
+                  "NOH=/tmp/x git --config-env=core.hooksPath=NOH commit",
+                  "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath "
+                  "GIT_CONFIG_VALUE_0=/tmp/x git commit",
+                  "GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/x'\" git commit"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
     def test_hooks_path_without_a_commit_or_as_a_read_passes(self):
@@ -111,7 +119,11 @@ class ShortcutCommand(unittest.TestCase):
         for c in ("git config core.hooksPath .githooks",
                   "git config --get core.hooksPath && git commit -m x",
                   "git config --unset core.hooksPath && git commit -m x",
-                  'git commit -m "gate: deny core.hooksPath redirects"'):
+                  'git commit -m "gate: deny core.hooksPath redirects"',
+                  # a hook install that names pre-push/commit-msg is no commit
+                  "git config core.hooksPath .githooks && "
+                  "chmod +x .githooks/commit-msg .githooks/pre-push",
+                  "git config core.hooksPath x; echo commit"):
             self.assertIsNone(ti.shortcut_command(c), c)
 
     def test_skip_env_needs_a_hook_runner(self):

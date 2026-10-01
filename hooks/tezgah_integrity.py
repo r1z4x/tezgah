@@ -139,17 +139,28 @@ SKIP_ENV = re.compile(r"\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b")
 NO_VERIFY = re.compile(r"--no-verify\b")
 GITISH = re.compile(r"\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b", re.I)
 # a hooks directory swapped in the same command as the commit/push it serves:
-# `git -c core.hooksPath=/dev/null commit` and `git config core.hooksPath <dir>
-# && git commit` skip the hooks exactly as --no-verify does. Only an assignment
-# counts: a standalone `git config core.hooksPath .githooks` (husky's own setup)
-# and a `--get`/`--unset` beside a commit pass.
+# `git -c core.hooksPath=/dev/null commit`, `git config core.hooksPath <dir> &&
+# git commit`, `--config-env` and the GIT_CONFIG_KEY_n/GIT_CONFIG_PARAMETERS env
+# skip the hooks exactly as --no-verify does. Only an assignment counts: a
+# standalone `git config core.hooksPath .githooks` (husky's own setup), a
+# `--get`/`--unset`, and a hook install that merely names `pre-push` pass. The
+# key is found on the masked text and the config form's value on the raw text,
+# so `git config core.hooksPath "$D"` is an assignment while a commit message
+# naming the key is not; the env forms read the raw text, where their key
+# usually sits inside quotes.
 # ponytail: a hooksPath set in one call and a commit in the next is not seen;
 # that needs the session's earlier calls, not one command line.
-HOOKS_PATH = re.compile(
-    r"-c\s+core\.hookspath\s*=|"
-    r"\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath\s+[^\s;&|]",
+HOOKS_KEY = re.compile(
+    r"-c\s+core\.hookspath\s*=|--config-env[= ]\s*core\.hookspath\s*=|"
+    r"\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath(?=\s)",
     re.I)
-GIT_WRITE = re.compile(r"\b(?:commit|push)\b")
+HOOKS_VALUE = re.compile(r"\s+[^\s;&|]")
+HOOKS_ENV = re.compile(
+    r"\bGIT_CONFIG_(?:KEY_\d+|PARAMETERS)\s*=[^\n;&|]*core\.hookspath", re.I)
+# `git [global options] commit|push` - the subcommand, not the word inside a
+# hook name such as `pre-push` or `commit-msg`
+GIT_WRITE = re.compile(
+    r"\bgit\b(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+(?:commit|push)\b")
 # tests disabled so a failure disappears; checked only when newly introduced
 SKIP_TEST = re.compile(
     r"@pytest\.mark\.(?:skip|skipif|xfail|only)\b|"
@@ -1531,6 +1542,17 @@ def mask(text):
                         _blank_heredocs(str(text or "")))
 
 
+def _hooks_path_set(c, raw):
+    """True when this command line assigns core.hooksPath. `c` is `raw`
+    masked; masking keeps every offset, so the config form's value is read off
+    the raw text right after the key found in the masked one."""
+    if HOOKS_ENV.search(raw):
+        return True
+    return any(not m.group(0).lower().endswith("hookspath")
+               or HOOKS_VALUE.match(raw, m.end())
+               for m in HOOKS_KEY.finditer(c))
+
+
 def shortcut_command(cmd):
     """A deny reason when the command neuters verification, else None.
 
@@ -1546,7 +1568,7 @@ def shortcut_command(cmd):
         return ("Verification bypass denied: an env var that skips the hooks "
                 "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them "
                 "instead of disabling them.")
-    if HOOKS_PATH.search(c) and GIT_WRITE.search(c):
+    if GIT_WRITE.search(c) and _hooks_path_set(c, str(cmd or "")):
         return ("Verification bypass denied: `core.hooksPath` is redirected in "
                 "the same command as a commit/push, so git runs a hooks directory "
                 "that does not hold the checks - the same skip as `--no-verify`. "

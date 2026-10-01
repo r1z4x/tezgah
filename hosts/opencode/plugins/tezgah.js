@@ -264,11 +264,26 @@ const NEUTER = /\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])/
 const SKIP_ENV = /\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b/
 const NO_VERIFY = /--no-verify\b/
 const GITISH = /\b(?:git|commit|push|husky|pre-commit|npm|yarn|pnpm)\b/i
-// mirrors HOOKS_PATH/GIT_WRITE in hooks/tezgah_integrity.py: a hooksPath
-// assignment beside a commit/push skips the hooks like --no-verify
-const HOOKS_PATH =
-  /-c\s+core\.hookspath\s*=|\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath\s+[^\s;&|]/i
-const GIT_WRITE = /\b(?:commit|push)\b/
+// mirrors HOOKS_KEY/HOOKS_VALUE/HOOKS_ENV/GIT_WRITE and _hooks_path_set in
+// hooks/tezgah_integrity.py: a hooksPath assignment beside a git commit/push
+// skips the hooks like --no-verify
+const HOOKS_KEY =
+  /-c\s+core\.hookspath\s*=|--config-env[= ]\s*core\.hookspath\s*=|\bconfig\b(?![^\n;&|]*--(?:get|unset))[^\n;&|]*\bcore\.hookspath(?=\s)/gi
+const HOOKS_VALUE = /\s+[^\s;&|]/y
+const HOOKS_ENV = /\bGIT_CONFIG_(?:KEY_\d+|PARAMETERS)\s*=[^\n;&|]*core\.hookspath/i
+const GIT_WRITE =
+  /\bgit\b(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+(?:commit|push)\b/
+
+function hooksPathSet(c, raw) {
+  // masking keeps every offset, so the value is read off the raw text
+  if (HOOKS_ENV.test(raw)) return true
+  for (const m of c.matchAll(HOOKS_KEY)) {
+    if (!m[0].toLowerCase().endsWith("hookspath")) return true
+    HOOKS_VALUE.lastIndex = m.index + m[0].length
+    if (HOOKS_VALUE.test(raw)) return true
+  }
+  return false
+}
 const SKIP_TEST = new RegExp(
   "@pytest\\.mark\\.(?:skip|skipif|xfail|only)\\b|" +
   "@unittest\\.(?:skip|skipIf|skipTest|expectedFailure)\\b|" +
@@ -385,7 +400,7 @@ function shortcutCommand(cmd) {
   if (SKIP_ENV.test(c) && GITISH.test(c))
     return "Verification bypass denied: an env var that skips the hooks " +
       "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them instead."
-  if (HOOKS_PATH.test(c) && GIT_WRITE.test(c))
+  if (GIT_WRITE.test(c) && hooksPathSet(c, String(cmd || "")))
     return "Verification bypass denied: `core.hooksPath` is redirected in the " +
       "same command as a commit/push, so git runs a hooks directory that does " +
       "not hold the checks - the same skip as `--no-verify`. Run the checks " +
