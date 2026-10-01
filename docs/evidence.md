@@ -20,7 +20,7 @@ change has to know what moved: at 2 the step vocabulary gained `interrupted`, so
 
 `kind` is the event kind, `detail` is free text (the command, a path, a short reason) and `ts` is
 epoch seconds. A **write row's** `detail` is the path the call wrote, from the gate's one reader of
-every host dialect (`write_paths`, `hooks/tezgah_gate.py:622-649`): `file_path`, `filePath`, `path`,
+every host dialect (`write_paths`, `hooks/tezgah_gate.py:630-657`): `file_path`, `filePath`, `path`,
 `notebook_path`, or an `apply_patch` body's first `*** Update File:` header — the paths
 `changed_files()` (`hooks/tezgah_integrity.py:2137-2150`) folds when a reader asks which files a session changed. `detail` is
 credential-redacted **before** it is stored, over the whole text, and
@@ -58,7 +58,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:2151-2264`, the call's own name in `tool`, on opencode the plugin writes these same kinds and the same field (`hosts/opencode/plugins/tezgah.js:734-792`) | the Stop rule's `worked` set `:2345`; `counters.steps` `:1195-1196`; `last_verify`/`partial_state`; the `--trend` tool histogram |
 | `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:2151-2264` | the taint notice, via `source`; the `--trend` tool histogram; nothing counts them as work |
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:2827-2875` | `counters` `hooks/tezgah_integrity.py:1308-1339` |
-| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1397-1412`, first-nudge `hooks/tezgah_gate.py:1382` | `counters` `hooks/tezgah_integrity.py:1308-1339` |
+| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1407-1422`, first-nudge `hooks/tezgah_gate.py:1382` | `counters` `hooks/tezgah_integrity.py:1308-1339` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:184-186`, `:263-266` | `_snapshot_hash` `hooks/tezgah_integrity.py:2076-2089`; no counter |
 | `compact` | `note_compaction` `hooks/tezgah_integrity.py:1051-1083`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1214-1232`) | `_counts` `hooks/tezgah_integrity.py:1364-1506` (what `counters` folds with) |
 

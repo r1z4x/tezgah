@@ -549,7 +549,9 @@ def _tree_changed_since_last_attempt(session_id, digest):
         rows = events(session_id, tail=200)
         idx = [i for i, row in enumerate(rows)
                if row.get("id") == digest and row.get("exit") is not None]
-        start = idx[0] if idx else len(rows)
+        # the NEWEST attempt, not the oldest: anchoring on the oldest let one
+        # early write exempt every later repeat for the rest of the session
+        start = idx[-1] if idx else len(rows)
         return any(str(row.get("tool", "")).lower() in WRITE_TOOLS
                    or str(row.get("kind", "")) in ("edit",)
                    for row in rows[start:])
@@ -609,6 +611,12 @@ RACE_DENY = (
 # ledger keeps no cwd, so normalizing here would compare `a.py` against
 # `./sub/../a.py` and disagree with the reader on the far side. A second session
 # that spells the path differently therefore escapes this rule.
+# The harness's internal channels: a write to one of these is a message or a
+# tool device, never a file on disk. Deliberately a list, not `scheme://`: a
+# file reached through a URI scheme is still a file two sessions can race on.
+URI_CHANNEL = re.compile(
+    r"^(?:agent|xd|local|artifact|proc|skill|mcp|omp|issue|pr|history|ssh|cfg)://",
+    re.I)
 WRITE_PATH = ("file_path", "filePath", "path", "notebook_path")
 PATCH_FILE = re.compile(r"(?m)^\*\*\* (?:Update|Add|Delete) File: (\S.*?)\s*$")
 # The write-tool name a shell write's target is handed to `capture` under. capture
@@ -662,8 +670,10 @@ def race_reason(inp, session_id):
     for path in write_paths(inp):
         # an internal URI (`agent://Main`, `xd://<tool>`) is not a file: two
         # observed refusals today wrote tool replies through those schemes and
-        # this guard read the scheme as a relative path
-        if re.match(r"^[a-z][a-z0-9+.-]*://", path, re.I):
+        # this guard read the scheme as a relative path. Only the harness's own
+        # channels are skipped - a `file://`, `s3://` or editor URI can name a
+        # real target two sessions both write, and stays guarded.
+        if URI_CHANNEL.match(path):
             continue
         others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN)
         if others:
