@@ -277,6 +277,10 @@ const CONFIG_READ_OPTS = new Set(["-l", "-e"])
 const CONFIG_READ_SUBS = new Set(["get", "unset", "list", "edit",
   "remove-section", "rename-section"])
 const ROUGH_WORDS = /[;&|()]+|[^\s;&|()<>]+/g
+// a redirection operator, or `&` in front of one: none of its words is an argument
+const REDIRECTION = /^(?=[&<>]*[<>])[&<>]+$/
+const GIT_WRAPPER = new Set(["sudo", "env", "nohup", "time", "timeout",
+  "command", "exec"])
 
 // unquoted backticks become `;` (hooks/tezgah_integrity._unquoted_backticks)
 function unquotedBackticks(text) {
@@ -302,9 +306,25 @@ function shellSegments(cmd) {
   const segs = []
   const text = unquotedBackticks(blankHeredocs(String(cmd || "")).replace(/\\\n/g, " "))
   for (const line of text.split(/\r\n|\r|\n/)) {
-    const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
-    let cur = []
-    for (const word of words) {
+    const words = shellWords(line, false) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
+    // a redirection is not an argument and not a command: its words (the fd
+    // before, the `&` of `2>&1`/`&>`, the target after) are dropped, as
+    // hooks/tezgah_integrity._shell_segments drops them
+    let cur = [], afterRedir = false
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i]
+      if (word.startsWith("#") && cur.length) break  // bash: a comment starts a word
+      if (word === "&" && i + 1 < words.length && REDIRECTION.test(words[i + 1])) continue
+      if (REDIRECTION.test(word)) {
+        if (cur.length && /^\d+$/.test(cur[cur.length - 1])) cur.pop()
+        afterRedir = true
+        continue
+      }
+      if (afterRedir) {
+        if (word === "&") continue
+        afterRedir = false
+        continue
+      }
       if (word && ";&|()".includes(word[0])) { if (cur.length) segs.push(cur); cur = [] }
       else cur.push(word)
     }
@@ -314,14 +334,17 @@ function shellSegments(cmd) {
 }
 
 function namesHooksKey(setting) {
-  return setting.toLowerCase().split("=")[0] === HOOKS_KEY
+  // a leading `$`: bash reads `$'core.hooksPath'` as the plain key, shlex keeps it
+  return setting.replace(/^\$+/, "").toLowerCase().split("=")[0] === HOOKS_KEY
 }
 
 function hooksRedirect(cmd) {
   let assigns = false, writes = false
   for (const words of shellSegments(cmd)) {
+    // the program has to be the segment's own first word, after env assignments
+    // and wrappers: `echo git -c core.hooksPath=x commit` runs echo
     let i = 0
-    while (i < words.length && words[i].split("/").pop() !== "git") {
+    while (i < words.length && (ENV_WORD.test(words[i]) || GIT_WRAPPER.has(words[i]))) {
       if (ENV_WORD.test(words[i])) {
         const eq = words[i].indexOf("=")
         if (GIT_CONFIG_ENV.test(words[i].slice(0, eq)) &&
@@ -329,6 +352,7 @@ function hooksRedirect(cmd) {
       }
       i++
     }
+    if (i >= words.length || words[i].split("/").pop() !== "git") continue
     i++
     let sub = null
     while (i < words.length) {
@@ -344,9 +368,13 @@ function hooksRedirect(cmd) {
     if (sub === "commit" || sub === "push") writes = true
     else if (sub === "config") {
       const args = words.slice(i + 1).map((a) => a.toLowerCase())
-      const reads = args.some((a) => CONFIG_READS.some((p) => a.startsWith(p)) ||
-        CONFIG_READ_OPTS.has(a)) || (args.length > 0 && CONFIG_READ_SUBS.has(args[0]))
-      if (!reads && args.slice(0, -1).includes(HOOKS_KEY)) assigns = true
+      const cut = args.indexOf("--")
+      const head = cut >= 0 ? args.slice(0, cut) : args
+      const reads = head.some((a) => CONFIG_READS.some((p) => a.startsWith(p)) ||
+        CONFIG_READ_OPTS.has(a)) || (head.length > 0 && CONFIG_READ_SUBS.has(head[0]))
+      const positional = head.filter((a) => !a.startsWith("-"))
+        .concat(cut >= 0 ? args.slice(cut + 1) : [])
+      if (!reads && positional.length >= 2 && positional[0] === HOOKS_KEY) assigns = true
     }
   }
   return assigns && writes
@@ -1197,7 +1225,10 @@ const PROGRAM_HEREDOC = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/
 // quote, or a backslash with nothing to escape - which the Python caller answers
 // by dropping that whole line, so `consult 'q` and `consult q's` reach no
 // program position on either side rather than one.
-function shellWords(line) {
+// `comments` is shlex's default commenter: a word-initial `#` ends the line.
+// The gate reader turns it off because bash does not end a line at `x=a#b`, and
+// stops at a word-initial `#` itself (shellSegments).
+function shellWords(line, comments = true) {
   const text = String(line || "")
   const out = []
   let word = ""
@@ -1210,8 +1241,7 @@ function shellWords(line) {
   while (i < text.length) {
     const c = text[i]
     if (/\s/.test(c)) { push(); i += 1; continue }
-    // shlex's commenter: an unquoted `#` ends the line, mid-word too
-    if (c === "#") break
+    if (comments && c === "#" && !word) break
     if (";&|()<>".includes(c)) {
       push()
       let run = c

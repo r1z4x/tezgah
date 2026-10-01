@@ -166,6 +166,13 @@ CONFIG_READ_SUBS = frozenset(("get", "unset", "list", "edit", "remove-section",
 # a line shlex cannot read (`$'it\'s'`) is still read, leaning to the deny side:
 # quotes dropped, words split at whitespace and at `;&|()` runs
 ROUGH_WORDS = re.compile(r"[;&|()]+|[^\s;&|()<>]+")
+# a redirection operator, or `&` in front of one (`&>`); shlex splits
+# `2>&1` into `2`, `>`, `&`, `1`, and none of those is an argument
+REDIRECTION = re.compile(r"^(?=[&<>]*[<>])[&<>]+$")
+# what a shell line puts between the start of a command and its program; the
+# same set in the JS mirror, so the two read a line identically
+GIT_WRAPPER = frozenset(("sudo", "env", "nohup", "time", "timeout", "command",
+                         "exec"))
 # tests disabled so a failure disappears; checked only when newly introduced
 SKIP_TEST = re.compile(
     r"@pytest\.mark\.(?:skip|skipif|xfail|only)\b|"
@@ -1574,10 +1581,17 @@ def _unquoted_backticks(text):
 def _shell_segments(cmd):
     """The line's simple commands as word lists, read the way
     `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
-    `;&|()<>` - so quotes, escapes and comments are gone, heredoc bodies are
-    blanked first, a continued line is joined, and an unquoted backtick ends a
-    command. A line shlex cannot read is read roughly (`ROUGH_WORDS`) rather
-    than dropped. A run of `;&|()` ends a command; a redirection does not."""
+    `;&|()<>` - so quotes and escapes are gone, heredoc bodies are blanked first,
+    a continued line is joined, and an unquoted backtick ends a command. A line
+    shlex cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
+
+    Two places where bash and shlex disagree, and bash wins because bash is what
+    runs the line: a `#` ends the line only at the start of a word (`x=a#b` is one
+    word, so `shlex`'s commenter is switched off and the split below drops the
+    rest of the line itself), and a redirection is neither a command nor an
+    argument - its words are dropped here, including the `&` of `2>&1`/`&>`,
+    which would otherwise end the segment in the middle of one command. A run of
+    `;&|()` still ends a command."""
     segs = []
     text = _unquoted_backticks(
         _blank_heredocs(str(cmd or "")).replace("\\\n", " "))
@@ -1585,11 +1599,30 @@ def _shell_segments(cmd):
         try:
             lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
             lex.whitespace_split = True
+            lex.commenters = ""
             words = list(lex)
         except ValueError:
             words = ROUGH_WORDS.findall(re.sub(r"['\"`]", "", line))
-        cur = []
-        for word in words:
+        cur, after_redir, i = [], False, 0
+        while i < len(words):
+            word = words[i]
+            i += 1
+            if word.startswith("#") and cur:
+                break  # bash: a comment starts a word; `x=a#b` is one word
+            if word == "&" and i < len(words) and REDIRECTION.match(words[i]):
+                continue  # `&>` is a redirection, not a separator
+            if REDIRECTION.match(word):
+                # the fd before the operator (`2>`), an `&` with its fd (`>&2`),
+                # or the target after it - none of them is an argument
+                if cur and cur[-1].isdigit():
+                    cur.pop()
+                after_redir = True
+                continue
+            if after_redir:
+                if word == "&":
+                    continue  # `>&2`: the `&` belongs to the operator
+                after_redir = False
+                continue
             if word and word[0] in ";&|()":
                 if cur:
                     segs.append(cur)
@@ -1602,22 +1635,32 @@ def _shell_segments(cmd):
 
 
 def _names_hooks_key(setting):
-    """True for `core.hooksPath` or `core.hooksPath=<value>`, any case."""
-    return setting.lower().partition("=")[0] == HOOKS_KEY
+    """True for `core.hooksPath` or `core.hooksPath=<value>`, any case. A leading
+    `$` is dropped: bash reads `$'core.hooksPath'` and `$"core.hooksPath"` as the
+    plain key, while shlex leaves the `$` on the word."""
+    return setting.lstrip("$").lower().partition("=")[0] == HOOKS_KEY
 
 
 def _hooks_redirect(cmd):
     """True when one command line both assigns core.hooksPath and runs a git
-    commit or push."""
+    commit or push.
+
+    The program has to be the segment's own first word, after env assignments and
+    the wrappers a shell line puts in front of it: a line that merely mentions
+    git (`echo git -c core.hooksPath=x commit`) runs echo, and reading it as git
+    denied a legitimate line."""
     assigns = writes = False
     for words in _shell_segments(cmd):
         i = 0
-        while i < len(words) and os.path.basename(words[i]) != "git":
+        while i < len(words) and (ENV_WORD.match(words[i])
+                                  or words[i] in GIT_WRAPPER):
             if ENV_WORD.match(words[i]):
                 name, _, value = words[i].partition("=")
                 if GIT_CONFIG_ENV.fullmatch(name) and HOOKS_KEY in value.lower():
                     assigns = True
             i += 1
+        if i >= len(words) or os.path.basename(words[i]) != "git":
+            continue
         i += 1
         sub = None
         while i < len(words):
@@ -1638,10 +1681,19 @@ def _hooks_redirect(cmd):
             writes = True
         elif sub == "config":
             args = [a.lower() for a in words[i + 1:]]
+            # `--` ends the options: what follows it is a value, so
+            # `core.hooksPath -- --unset` sets the value `--unset`
+            head = args[:args.index("--")] if "--" in args else args
             reads = (any(a.startswith(CONFIG_READS) or a in CONFIG_READ_OPTS
-                         for a in args)
-                     or bool(args) and args[0] in CONFIG_READ_SUBS)
-            if not reads and HOOKS_KEY in args[:-1]:
+                         for a in head)
+                     or bool(head) and head[0] in CONFIG_READ_SUBS)
+            # the legacy form is `name value`, two positionals: one positional is
+            # a read, whatever options follow it (`core.hooksPath --type=path`),
+            # and everything after `--` is positional even when it looks like an
+            # option (`core.hooksPath -- --unset` sets the value `--unset`)
+            positional = ([a for a in head if not a.startswith("-")]
+                          + (args[args.index("--") + 1:] if "--" in args else []))
+            if not reads and len(positional) >= 2 and positional[0] == HOOKS_KEY:
                 assigns = True
     return assigns and writes
 

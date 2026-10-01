@@ -28,9 +28,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pre-push`, and a commit message that names the key or the env var still
   pass. The line is read word by word through shlex, the same reading the
   program-position rules use; an unquoted backtick body counts as a command,
-  and a line shlex cannot parse is read roughly instead of being skipped. A
-  redirect set in one call and committed in the next, and a backtick inside
-  double quotes, are not seen.
+  and a line shlex cannot parse is read roughly instead of being skipped. It
+  reads like bash where shlex does not: a redirection between `git` and its
+  subcommand (`git 2>/dev/null -c core.hooksPath=/dev/null commit`), a mid-word
+  `#` (`x=a#b ...`), `$'core.hooksPath'`, and a value after `--` are all caught
+  now, a read with a redirection or a trailing option
+  (`git config core.hooksPath > /tmp/hp && git commit`) passes, and a line that
+  only mentions git (`echo git -c core.hooksPath=x commit`) is no longer read as
+  git. A redirect set in one call and committed in the next, a backtick or
+  `$( )` inside double quotes, an alias and a variable key are not seen.
 - `test_a_hung_attempt_is_killed_with_its_whole_group` no longer fails under
   load on macOS: `sh` forks `sleep`, which stays a zombie for a moment after its
   group is killed, and macOS answers `EPERM` for a zombie-only group; the test
