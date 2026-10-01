@@ -125,6 +125,7 @@ it ([tests/test_skills.py:54-69]).
 | `design-contract` | The artifact shape of the per-repo `.tezgah/design-contract.md` - colour roles, type scale, spacing unit and rhythm, the component inventory, the state set every interactive control and data view owes - the derivation rule that reads it out of the repository's own tokens, and the rules `bin/tezgah-design check` fails on; fires on a UI or component turn that needs a floor, a token, a state set, or the design check itself. |
 | `design-library` | The vendored MC Dean design/UX subset - 39 skills in the `cognitive-accessibility`, `adaptive-interfaces`, `inclusive-interaction`, `visual-critique` and `design-research` plugins - read one entry at a time through its own `INDEX.md`, never the tree; fires when a UI or product turn needs a cognitive-load, inclusive-interaction or visual-critique method tezgah has no counterpart for. |
 | `ai-research` | The vendored 98-skill library for AI/ML machinery - training and serving a model, benchmarks, interpretability, retrieval pipelines; read one entry, never the tree. |
+| `rl-env` | The vendored FineEnvs skill set for authoring an RL environment from a description - OpenEnv, OpenReward/ORS, Verifiers and NeMo Gym, plus the orchestrator that ports one description across all four; read one entry, never the tree. |
 
 ## Vendored material
 
@@ -134,7 +135,8 @@ original terms ([NOTICE:1-2]), and an adapted entry adds what the adaptation
 changed. A test fails if the adapted upstream or its licence stops being named
 ([tests/test_skills.py:150-152]). `skills/no-ai-slop`, `skills/ponytail`,
 `skills/i-have-adhd`, `skills/research`, `skills/product-analysis`,
-`skills/pm-frameworks` and `skills/ai-research` are MIT.
+`skills/pm-frameworks` and `skills/ai-research` are MIT; `skills/rl-env` is
+Apache-2.0 and keeps that repository's terms.
 `i-have-adhd` is adapted (the ten rules kept, two rewritten, the user-invocation
 frontmatter dropped so the router can reach it); `research` adapts the
 orchestration layer of Orchestra Research's AI-research-SKILLs library and copies
@@ -148,6 +150,19 @@ lines, at revision `773a52944ba4747a18bd4ae9ade53fff041adcbc`
 ([skills/ai-research/SOURCE:1-20]). No machine-scraped reference dumps and no
 LaTeX template trees were copied, and every drop is named in that file.
 `bin/tezgah-import-ai-research --check` verifies the tree against its manifest.
+
+`skills/rl-env` is the Apache-2.0 one: the five FineEnvs environment-authoring
+skills - `rl-env-from-description` plus the four framework ports - and every
+reference file they ship, 14 bodies byte-for-byte from
+`adithya-s-k/FineEnvs` at revision `26ab9c6` ([skills/rl-env/SOURCE:1-6]),
+under `skills/rl-env/<skill>/` at their upstream path. Nothing is adapted.
+Upstream's own install route is not used here: `npx skills add
+adithya-s-k/FineEnvs` writes into a host's skill directory, which the router
+does not read, the install report does not list and `SOURCE` cannot vouch for -
+the vendored copy is what the router reaches. The entry point
+`skills/rl-env/SKILL.md` is tezgah's own and is not in the manifest, and it is
+the file that says what the vendored bodies cannot: this repository runs no
+trainer, so an environment they build needs a machine that does.
 
 `skills/pm-frameworks` is the small one: two product-management methods -
 `intended-vs-implemented` and `opportunity-solution-tree` - byte-for-byte from
@@ -212,6 +227,8 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
 - `NOTICE`, `skills/ai-research/SOURCE`, `bin/tezgah-import-ai-research`
 - `skills/design-library/SOURCE`, `INDEX.md`, `EVALS.md` - the adapted library,
   its index and its three trap cases
+- `skills/rl-env/SOURCE` - the vendored FineEnvs environment-authoring set, its
+  upstream revision and the per-file sha256
 - `hooks/tezgah_policy.py` - the always-on rule text and the Claude skill name
 - `tests/test_setup.py`, `tests/test_skills.py` - the router-line, name
   resolution, frontmatter, collision and skill-standard tests

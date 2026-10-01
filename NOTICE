@@ -92,3 +92,19 @@ skills/design-library (designer-skills) - MIT, MC Dean,
                      sha256 and names both departures.
                      `skills/design-library/SKILL.md`, `INDEX.md` and `EVALS.md`
                      are tezgah's own files and are not part of the manifest.
+
+skills/rl-env      - Apache-2.0, Adithya S Kolavi and the FineEnvs authors,
+                     https://github.com/adithya-s-k/FineEnvs. VENDORED at
+                     revision 26ab9c60915005b6f536968ac0928482bb18c0f8
+                     (2026-10-01): the five environment-authoring skills and
+                     every reference file they ship, 14 files under
+                     `skills/rl-env/<skill>/`, byte-for-byte upstream including
+                     frontmatter, at their upstream path under `.claude/skills/`.
+                     Nothing is adapted and nothing is dropped. The entry point
+                     `skills/rl-env/SKILL.md` is tezgah's own and is not part of
+                     the manifest, and upstream's own install route
+                     (`npx skills add adithya-s-k/FineEnvs`) is deliberately not
+                     used: it writes into a host's skill directory, which is
+                     outside tezgah's router, its install report and this record.
+                     `skills/rl-env/SOURCE` carries the upstream paths and the
+                     per-file sha256.

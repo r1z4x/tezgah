@@ -33,3 +33,4 @@ Two rules for a row:
 | a UI or product turn that needs a cognitive-load or visual-critique method | `design-library` | cognitive-load |
 | a product question that needs the method, not the framework name: opportunity solution trees | `pm-frameworks` | opportunity solution trees |
 | AI or ML machinery: training, fine-tuning, serving, evaluating a model | `ai-research` | fine-tuning |
+| an agent that has to be trained with RL - build or port the environment it runs in | `rl-env` | RL training environment |

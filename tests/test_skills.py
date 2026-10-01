@@ -608,7 +608,7 @@ class Frontmatter(unittest.TestCase):
         # The exemption is the library roots, not a glob: a new body is linted
         # unless it arrives under a tree that ships its own hash manifest.
         self.assertEqual([os.path.basename(root) for root in self.roots],
-                         ["ai-research", "design-library", "pm-frameworks"],
+                         ["ai-research", "design-library", "pm-frameworks", "rl-env"],
                          "the vendored set changed: name it here, or lint it")
         for path in glob.glob(os.path.join(SKILLS, "**", "SKILL.md"), recursive=True):
             covered = (path in self.paths or
