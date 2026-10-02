@@ -1493,6 +1493,107 @@ class Tracking(Workspace):
         self.assertFalse(hit(BOTH_TOGETHER, errors), errors)
         self.assertEqual(errors, [])
 
+    def test_a_protocol_renamed_in_from_another_line_does_not_inherit_its_age(self):
+        # consult review of plan 032: following every rename let another line's
+        # older protocol, moved into this line after its results, read as added
+        # before them; only the line's own open/done moves are followed
+        repo = self.repo()
+        self.line(repo, slug="p")
+        self.protocol(repo, slug="p")
+        self.commit(repo, "another line's protocol", when=BEFORE)
+        self.line(repo)
+        self.results(repo)
+        self.commit(repo, "results with no protocol", when=AFTER)
+        ws = os.path.join(repo, ".tezgah")
+        self.git(ws, "mv", *self.rel(ws, os.path.join(self.exp_dir(repo, "p"), "protocol.md"),
+                                     os.path.join(self.exp_dir(repo), "protocol.md")))
+        self.commit(repo, "protocol moved in after the run", when=AFTER)
+        errors = self.errors(repo)
+        self.assertTrue(hit("entered the history after results.jsonl", errors)
+                        or hit(BOTH_TOGETHER, errors), errors)
+
+    def test_an_edit_after_the_run_is_caught_across_a_case_change(self):
+        # consult review round 2: the run's blob sits under the spelling the
+        # directory had then (the migration lowercased `D1` to `d1`), so the
+        # comparison has to read the historical name, not today's
+        repo = self.repo()
+        self.line(repo)
+        d = self.protocol(repo, h="H1")
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo, h="H1")
+        self.commit(repo, "results", when=AFTER)
+        ws = os.path.join(repo, ".tezgah")
+        exps = os.path.dirname(d)
+        self.git(ws, "mv", *self.rel(ws, d, os.path.join(exps, "tmp")))
+        self.git(ws, "mv", *self.rel(ws, os.path.join(exps, "tmp"), os.path.join(exps, "h1")))
+        self.commit(repo, "lowercase the experiment", when=AFTER)
+        self.write(os.path.join(exps, "h1", "protocol.md"),
+                   "# Protocol\n\nprediction: whatever the run showed\n")
+        self.commit(repo, "protocol rewritten after the run", when=AFTER)
+        errors = self.errors(repo)
+        self.assertTrue(hit("protocol.md changed after the run", errors), errors)
+
+    def test_a_decoy_spelling_at_the_run_does_not_hide_an_edit(self):
+        # consult review round 3: a second spelling of today's directory (`H1`
+        # beside `h1`) committed with the edited text must not be the blob the
+        # run is read under; today's name is tried first. Built in the index,
+        # because a case-insensitive work tree cannot hold both spellings.
+        repo = self.repo()
+        self.line(repo)
+        d = self.protocol(repo, h="h1")
+        self.commit(repo, "protocol", when=BEFORE)
+        ws = os.path.join(repo, ".tezgah")
+        edited = "# Protocol\n\nprediction: whatever the run showed\n"
+        decoy_file = os.path.join(self.home, "decoy-protocol.md")
+        self.write(decoy_file, edited)
+        blob = self.git(ws, "hash-object", "-w", decoy_file).strip()
+        rel = self.rel(ws, os.path.join(d, "protocol.md"))[0]
+        decoy = rel.replace("/h1/", "/H1/")
+        self.git(ws, "update-index", "--add", "--cacheinfo", "100644,%s,%s" % (blob, decoy))
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "decoy spelling")
+        self.results(repo, h="h1")
+        # by exact path: on a case-insensitive host `git add` would file it under
+        # the `H1/` spelling the index already holds, beside the decoy
+        res_rel = self.rel(ws, os.path.join(d, "results.jsonl"))[0]
+        res_blob = self.git(ws, "hash-object", "-w", os.path.join(d, "results.jsonl")).strip()
+        self.git(ws, "update-index", "--add", "--cacheinfo", "100644,%s,%s" % (res_blob, res_rel))
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "the run")
+        self.write(os.path.join(d, "protocol.md"), edited)
+        self.git(ws, "add", "-f", rel)
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "protocol rewritten after the run")
+        self.git(ws, "rm", "-q", "--cached", decoy)
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "drop the decoy")
+        errors = self.errors(repo)
+        self.assertTrue(hit("protocol.md changed after the run", errors), errors)
+
+    def test_a_decoy_under_todays_name_before_a_move_does_not_hide_an_edit(self):
+        # consult review round 4: a copy committed at the done/ path before the
+        # run, removed before the move, sat under today's name at the run commit;
+        # the run's protocol is the one beside the results it added
+        repo = self.repo()
+        self.line(repo)
+        d = self.protocol(repo)
+        edited = "# Protocol\n\nprediction: whatever the run showed\n"
+        decoy_dir = d.replace(os.path.join("research", "open"), os.path.join("research", "done"))
+        self.write(os.path.join(decoy_dir, "protocol.md"), edited)
+        self.commit(repo, "protocol, and a copy under the done/ name", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "the run", when=AFTER)
+        ws = os.path.join(repo, ".tezgah")
+        self.git(ws, "rm", "-q", "-r", self.rel(ws, os.path.dirname(os.path.dirname(
+            os.path.dirname(decoy_dir))))[0])
+        self.commit(repo, "drop the copy", when=AFTER)
+        self.assertEqual(tr.move_line(repo, "q", "done")[1], None)
+        self.write(os.path.join(tr.line_dir(repo, "q"), "experiments", "h1", "protocol.md"),
+                   edited)
+        self.commit(repo, "move to done and rewrite the protocol", when=AFTER)
+        errors = self.errors(repo)
+        self.assertTrue(hit("protocol.md changed after the run", errors), errors)
+
     def test_a_protocol_edited_after_the_run_is_refused_after_the_move_too(self):
         # following the rename must not lose the edit: the blob the run saw lives
         # under the old path

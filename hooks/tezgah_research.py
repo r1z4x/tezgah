@@ -432,37 +432,73 @@ def _ws_rel(repo, path):
 
 
 def _ws_log(repo, path, *args):
-    """(shas, error) of the private repository's `git log <args> -- path`, ([],
-    None) when `path` is not in one. `--all` because a repository with no commit
-    yet answers a plain `log` with a fatal, and the private one keeps one line of
-    history, not branches."""
+    """(shas, error) of the private repository's `git log <args>` over `path`'s
+    own layout names (`_own_names`), ([], None) when `path` is outside it."""
     rel = _ws_rel(repo, path)
     if rel is None:
         return [], None
-    out, err = _run(["git", "-C", tp.workspace(repo), "log", "--all", "--follow"]
-                    + list(args) + ["--format=%H", "--", rel])
-    return out.split(), err
+    pairs, err = _named_log(tp.workspace(repo), rel, ("--all",) + tuple(args))
+    return [sha for sha, _names in pairs], err
+
+
+def _own_names(rel):
+    """`rel` and the names the same file has in the line's other layouts: the flat
+    `research/<slug>/`, `open/<slug>/` and `done/<slug>/`, under the same prefix.
+
+    Closing a line moves it from open/ to done/ (`move_line`), and the order rules
+    ask git which commit first added a file; asked by the current path only, the
+    move read as the commit that added protocol, results, criteria and state
+    together, and every moved line failed (measured 2026-10-03). `git log
+    --follow` is not the answer: it walks any rename, so another line's older
+    protocol moved in after this line's results inherited its age (consult review
+    of plan 032), and its similarity guess tied a `decisions/d2` file to `d1`.
+    Only the line's own layouts are asked, by name. ponytail: a name is matched by
+    path, so a slug deleted and later reused shares its dead predecessor's
+    history - the flat layout read it the same way; a reused slug is the ceiling.
+    So is a results file renamed into place inside the line after its protocol
+    (`scratch.jsonl` to `results.jsonl`): the rename is its add here as it was
+    before - a file kept out of the history until after the plan defeats any
+    history-based order check."""
+    parts = rel.replace(os.sep, "/").split("/")
+    try:
+        i = parts.index("research")
+    except ValueError:
+        return [rel]
+    head, rest = parts[:i + 1], parts[i + 1:]
+    if rest[:1] in (["open"], ["done"]):
+        rest = rest[1:]
+    if not rest:
+        return [rel]
+    names = [rel] + ["/".join(head + layout + rest)
+                     for layout in ([], ["open"], ["done"])]
+    return list(dict.fromkeys(names))
+
+
+def _historical_names(top, rel, extra=()):
+    """`rel`'s own layout names plus every spelling git committed them under,
+    newest first: an exact-case blob read at an older commit needs the name the
+    tree held then (`decisions/D1` before the migration lowercased it)."""
+    pairs, _err = _named_log(top, rel, extra)
+    names = [name for _sha, found in pairs for name in found]
+    return list(dict.fromkeys(names + _own_names(rel)))
 
 
 def _named_log(top, rel, extra=()):
-    """[(sha, path)] newest first: every commit that touched `rel`, following
-    renames, with the path the file had in that commit, or [] when git cannot say.
-
-    Closing a line moves it from open/ to done/ (`move_line`), and without
-    `--follow` the move read as the commit that added protocol, results, criteria
-    and state together - every moved line failed the order rules though its
-    history holds the order (measured 2026-10-03). A reader that needs the file's
-    content at an older commit needs its old name as well, which this returns."""
-    out, err = _git_out(top, "log", *extra, "--follow", "--name-only",
-                        "--format=%x00%H", "--", rel)
+    """([(sha, [names])], error), newest first: the commits that touched any of
+    `rel`'s own layout names (`_own_names`), each with the names it touched.
+    Matched without case: the layout migration lowercased decision directories
+    (`decisions/D1` became `decisions/d1`)."""
+    specs = [":(icase)" + name for name in _own_names(rel)]
+    out, err = _git_out(top, "log", *extra, "--name-only", "--format=%x00%H",
+                        "--", *specs)
     if err:
-        return []
+        return [], err
     pairs = []
     for chunk in out.split("\x00")[1:]:
-        lines = [ln for ln in chunk.splitlines() if ln.strip()]
+        lines = [ln.strip() for ln in chunk.splitlines() if ln.strip()]
         if lines:
-            pairs.append((lines[0].strip(), lines[-1].strip() if len(lines) > 1 else rel))
-    return pairs
+            pairs.append((lines[0], lines[1:] or [rel]))
+    return pairs, None
 
 
 def _ignored(repo, path):
@@ -487,20 +523,6 @@ def _ignored(repo, path):
     return rel
 
 
-def _project_rels(repo, path):
-    """`path` relative to the project, then every earlier name the private
-    repository's rename chain gives it, under the project's `.tezgah/`: a line the
-    project committed before the move proves its order there under its old flat
-    name, which a lookup by the current done/ path never finds."""
-    rels = [os.path.relpath(path, repo)]
-    ws_rel = _ws_rel(repo, path)
-    if ws_rel is not None:
-        prefix = os.path.relpath(tp.workspace(repo), repo)
-        for _sha, name in _named_log(tp.workspace(repo), ws_rel, ("--all",)):
-            rels.append(os.path.join(prefix, name))
-    return list(dict.fromkeys(rels))
-
-
 def added_commits(repo, path):
     """((shas, newest first), error): the commits that added (or renamed into)
     `path` - the private repository's, then the project's. The last one is the
@@ -510,12 +532,8 @@ def added_commits(repo, path):
     ws, err = _ws_log(repo, path, "--diff-filter=AR")
     if err:
         return [], err
-    out, err = [], None
-    for rel in _project_rels(repo, path):
-        shas, err = _git(repo, "log", "--follow", "--diff-filter=AR", "--format=%H",
-                         "--", rel)
-        out += [s for s in shas if s not in out]
-    return ws + out, (None if ws else err)
+    pairs, err = _named_log(repo, os.path.relpath(path, repo), ("--diff-filter=AR",))
+    return ws + [sha for sha, _names in pairs], (None if ws else err)
 
 
 def _top_for(repo, path, sha):
@@ -563,7 +581,7 @@ def _is_prefix(repo, older, newer):
     return not err and new != old and new.startswith(old)
 
 
-def _changed_after(repo, path, rev):
+def _changed_after(repo, path, rev, beside=None):
     """True/False, or None when git cannot say: whether `path` holds a different
     blob at `rev` than at the tip of the history that carries it.
 
@@ -571,28 +589,58 @@ def _changed_after(repo, path, rev):
     that merely `git rm --cached`'d the path (the 2026-09-24 commit that
     untracked `.tezgah/`) or deleted it leaves the blob the run wrote alone, and
     a touch-based reader called that "the protocol changed after the run". A path
-    absent at either end is not a change."""
+    absent at the tip is not a change.
+
+    With `beside` (the results file `rev` added), the file the run saw is the one
+    in the directory `rev` added `beside` to - not a name guessed from today's
+    path or its spellings, which a decoy copy under today's name or a second
+    spelling answered instead (consult review rounds 3-4). That directory holding
+    no such file at `rev` is a change: the run did not run against this plan."""
     top = _top_for(repo, path, rev)
     if top is None:
         return None
     rel = os.path.relpath(path, top)
-    # the blob the run saw may sit under the name the file had then (a line moved
-    # from open/ to done/ after the run): compare it, not "absent, so unchanged"
-    names = [rel] + [name for _sha, name in _named_log(
-        top, rel, ("--all",) if top != repo else ())]
+    extra = ("--all",) if top != repo else ()
     at_rev = None
-    for name in dict.fromkeys(names):
-        at_rev, err = _blob(top, rev, name)
+    anchored = False
+    if beside is not None:
+        added = _added_name(top, os.path.relpath(beside, top), rev, extra)
+        if added:
+            anchored = True
+            name = "/".join(added.split("/")[:-1] + [rel.replace(os.sep, "/").split("/")[-1]])
+            at_rev, err = _blob(top, rev, name)
+            if err:
+                return None
+            if at_rev is None:
+                return True
+    if beside is not None and not anchored:
+        # the anchor was asked for and not found: say git could not compare
+        # rather than fall back to the name guessing it replaces (referee, round 5)
+        return None
+    if not anchored:
+        at_rev, err = _blob_by_name(top, rev, rel, extra)
         if err:
             return None
-        if at_rev is not None:
-            break
     at_tip, err = _blob(top, "HEAD", rel)
     if err:
         return None
     if at_rev is None or at_tip is None:
         return False
     return at_rev != at_tip
+
+
+def _added_name(top, rel, rev, extra=()):
+    """The name `rev` added (or renamed) `rel`'s file under, or None."""
+    pairs, err = _named_log(top, rel, tuple(extra) + ("--diff-filter=AR",))
+    if err:
+        return None
+    for sha, names in pairs:
+        if sha == rev:
+            for name in names:
+                found, berr = _blob(top, rev, name)
+                if not berr and found:
+                    return name
+    return None
 
 
 def _ancestor(top, older, newer):
@@ -668,14 +716,43 @@ def _bridged_commit(repo, commit):
     return None
 
 
-def _rel_at(repo, rev, rels):
-    """The first of `rels` that `rev` holds, else the first: the path a file had
-    at that commit, for a reader that compares blobs at fixed revisions."""
-    for rel in rels:
-        sha, err = _blob(repo, rev, rel)
-        if not err and sha:
-            return rel
-    return rels[0]
+def _rel_at(repo, rev, rel):
+    """The name `rel`'s file had at `rev` (`_name_at`), else `rel`: a bridge read
+    under a missing or ambiguous name finds no add and refuses."""
+    name, _sha, _err = _name_at(repo, rev, rel)
+    return name or rel
+
+
+def _name_at(top, rev, rel, extra=()):
+    """(name, blob, error): the name `rel`'s file had at `rev`.
+
+    Today's own layout names are tried first; a historical spelling only when
+    none of them is in that tree (`decisions/D1` before the migration lowercased
+    it). Two historical spellings both present at `rev` is an ambiguity, answered
+    with an error rather than a pick: a decoy `H1/` committed beside `h1/` with
+    the edited text was read as the run's protocol (consult review round 3)."""
+    for name in _own_names(rel):
+        sha, err = _blob(top, rev, name)
+        if err:
+            return None, None, err
+        if sha:
+            return name, sha, None
+    found = []
+    for name in _historical_names(top, rel, extra):
+        sha, err = _blob(top, rev, name)
+        if err:
+            return None, None, err
+        if sha:
+            found.append((name, sha))
+    if len(found) > 1:
+        return None, None, "%d spellings of %s at %s" % (len(found), rel, rev[:8])
+    return (found[0][0], found[0][1], None) if found else (None, None, None)
+
+
+def _blob_by_name(top, rev, rel, extra=()):
+    """(blob, error) of `rel`'s file at `rev` under the name it had then."""
+    _name, sha, err = _name_at(top, rev, rel, extra)
+    return sha, err
 
 
 def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
@@ -716,8 +793,8 @@ def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
         return
     # the name the files had at the rewrite: a line moved to done/ after the
     # re-root is not under its current path in the commits the bridge reads
-    prel = _rel_at(repo, rewrite, _project_rels(repo, proto))
-    rrel = _rel_at(repo, rewrite, _project_rels(repo, results))
+    prel = _rel_at(repo, rewrite, os.path.relpath(proto, repo))
+    rrel = _rel_at(repo, rewrite, os.path.relpath(results, repo))
     p_old, perr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",
                        prel)
     r_old, rerr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",
@@ -2125,7 +2202,7 @@ def _check_protocol_order(repo, h, proto, results, errors, warnings, strict, not
                       "results.jsonl - a protocol written after the run is not a "
                       "prediction" % h)
         return
-    changed = _changed_after(repo, proto, r_add)
+    changed = _changed_after(repo, proto, r_add, beside=results)
     if changed is None:
         warnings.append("experiment %s: git could not compare protocol.md with the "
                         "run, so whether it changed after is unverified" % h)
@@ -2427,19 +2504,21 @@ def file_versions(repo, path):
     in the project before the move has its older versions there."""
     versions = []
     ws_rel = _ws_rel(repo, path)
-    pairs = [(repo, rel, ()) for rel in _project_rels(repo, path)]
-    pairs.append((tp.workspace(repo), ws_rel, ("--all",)))
     seen = set()
-    for top, rel, extra in pairs:
+    for top, rel, extra in ((repo, os.path.relpath(path, repo), ()),
+                            (tp.workspace(repo), ws_rel, ("--all",))):
         if rel is None:
             continue
-        for sha, name in reversed(_named_log(top, rel, extra)):
+        pairs, err = _named_log(top, rel, extra)
+        for sha, names in reversed(pairs):
             if sha in seen:
                 continue
-            seen.add(sha)
-            text, err = _git_out(top, "show", "%s:%s" % (sha, name))
-            if not err:
-                versions.append((sha, text))
+            for name in names:
+                text, err = _git_out(top, "show", "%s:%s" % (sha, name))
+                if not err:
+                    seen.add(sha)
+                    versions.append((sha, text))
+                    break
     return versions
 
 
