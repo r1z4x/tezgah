@@ -606,6 +606,7 @@ tests/_probe_gate.py
 tests/_probe_integrity.py
 tests/_probe_paths.py
 tests/_probe_poisoned.py
+tests/bash_vectors.py
 tests/e2e_analyze_mobile.py
 tests/e2e_analyze_web.py
 tests/e2e_analyze_wiring.py
@@ -622,6 +623,7 @@ tests/support.py
 tests/test_agents.py
 tests/test_ai_research_library.py
 tests/test_apps_registry.py
+tests/test_bash_agreement.py
 tests/test_cheap_source.py
 tests/test_claude_adapters.py
 tests/test_codegen.py

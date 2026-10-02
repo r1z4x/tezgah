@@ -34,15 +34,17 @@ TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py        # the plan and decisio
 ```
 
 `tests/impacted.py --ref <branch>` maps whatever changed since that ref;
-`--list` prints the set without running. A change to `tests/support.py`,
-`hooks/tezgah_paths.py` or any path the map does not know runs the full suite -
-that is the fail-safe, not a bug. Never run `--all` in the edit loop, and never
-twice on one revision.
+`--list` prints the set without running. A helper under `tests/` (such as
+`tests/bash_vectors.py`) runs the test modules that `import` it. A change to
+`tests/support.py`, `hooks/tezgah_paths.py` or any path the map does not know
+runs the full suite - that is the fail-safe, not a bug. Never run `--all` in the
+edit loop, and never twice on one revision.
 
 - `ruff` is installed as a uv tool (`uv tool install ruff`); without it, run the
   same check via `uvx ruff check .`. There is no other linter or type checker.
-- CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.10 and 3.12,
-  so 3.10 is the floor: the checks run on it and on 3.12. An `apps-e2e` job runs
+- CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.10, 3.12, 3.13
+  and 3.14, so 3.10 is the floor and 3.14 the ceiling; its ubuntu legs also
+  measure the heredoc reader against bash 5.x. An `apps-e2e` job runs
   the app-MCP handshake below on node 20. The last two are the audits the suite
   is silent about: a green run says nothing about a citation that moved with a
   file, or about an open plan's item that never said how it is proven.

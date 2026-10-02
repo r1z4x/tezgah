@@ -91,7 +91,12 @@ def modules_for(path, cache):
     if path == "tests/support.py" or path.startswith("tests/_probe_"):
         return None
     if path.startswith("tests/"):
-        return [name] if ext == ".py" and name.startswith("test_") else None
+        if ext == ".py" and name.startswith("test_"):
+            return [name]
+        # a vectors/helper module the tests import by name runs with them;
+        # one nothing imports keeps the fail-safe
+        mods = _tests_mentioning("import %s" % stem, cache) if ext == ".py" else []
+        return mods or None
     # docs-only changes exercise the docs modules alone
     if path.startswith("docs/") or path in ("docs/index.json",):
         mods = [m for m in DOC_TARGETS if os.path.exists(

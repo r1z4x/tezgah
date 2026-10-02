@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The heredoc reader is measured against the bash that runs the command.**
+  `tests/test_bash_agreement.py` runs every vector the 2026-10-02 reviews found
+  through the `bash` on PATH with `git` shimmed, and requires the gate - Python
+  and the opencode mirror - to refuse each command whose `--no-verify` call
+  bash executes and to leave real heredoc bodies alone. A local run measures
+  macOS's bash 3.2; CI's ubuntu legs measure bash 5.x, which parses a command
+  substitution recursively.
+
 ## [0.29.1] - 2026-10-02
 
 ### Security

@@ -59,6 +59,13 @@ class TheMap(unittest.TestCase):
     def test_a_test_module_maps_to_itself(self):
         self.assertEqual(self.modules("tests/test_gate.py"), ["test_gate.py"])
 
+    def test_a_helper_the_tests_import_runs_with_its_importers(self):
+        # a vectors module that changes changes what its importers assert; one
+        # nothing imports stays the fail-safe
+        self.assertEqual(self.modules("tests/bash_vectors.py"),
+                         ["test_bash_agreement.py", "test_opencode_plugin.py"])
+        self.assertIsNone(self.modules("tests/no_such_helper.py"))
+
     def test_a_docs_change_maps_to_the_docs_modules_only(self):
         self.assertEqual(self.modules("docs/gate.md"), ["docs", "docs_router"])
 
