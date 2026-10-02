@@ -16,14 +16,16 @@ import sys
 import time
 
 import tezgah_research
-from tezgah_integrity import (changed_files, cut, last_check, note,
-                              note_compaction, note_turn, scratch_evidence)
+from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
+                              last_check, note, note_compaction, note_turn,
+                              scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            open_lines_note, pony_level_line)
-from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
-                          consult_options, ensure_workspace, have_judge_key, off,
-                          orx_bin, pony_level, root_for, roots, tool,
-                          workspace, workspace_from_repo, worktrees, writable_dir)
+from tezgah_paths import (CACHE, ai_research_dir, cache_dir, codegraph_bin,
+                          consult_options, ensure_workspace, fallback_cache,
+                          have_judge_key, off, orx_bin, pony_level, root_for,
+                          roots, tool, workspace, workspace_from_repo,
+                          worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
     # once per user prompt for the phase line. The module is newer than some
@@ -1298,6 +1300,162 @@ SCRATCH_REMINDER = (
 # stores no more than DETAIL_MAX of it.
 SCRATCH_CHARS = 120
 
+# --- a visible disarmed state (audit Phase 1.3) -------------------------------
+# The contract can reach the model through a static file or the prompt hook
+# while the tool hooks never run - an unloaded plugin, a matcher the host
+# renamed, a hook path that moved. The gate is then off and nothing says so.
+# What the prompt hook can observe is the host's own transcript (Claude and
+# Codex hand `transcript_path` to every hook) and this session's ledger: gated
+# tool calls in the transcript since the session's first turn marker, and not
+# one row from the tool hooks over the same span, is a gate that is not
+# running. Only a bounded tail of the transcript is read, the ledger is scanned
+# as bytes, and a session whose transcript holds no tool call never fires.
+GATE_TAIL = 262144
+GATE_MIN_CALLS = 3
+# The tool names whose calls the PostToolUse hooks record: Claude's matcher
+# (hooks/hooks.json) and Codex's shell, the one tool its PostToolUse is known to
+# fire for. A tool no hook records (Read, Grep) is not counted, so its absence
+# from the ledger is never read as a disarmed gate.
+GATED_TOOLS = re.compile(r"(?i)^(?:bash|powershell|pwsh|edit|write|multiedit|"
+                         r"notebookedit|webfetch|websearch|agent|task|"
+                         r"exec_command|shell|mcp__.+)$")
+GATE_INACTIVE = (
+    "tezgah gate inactive on this host: %d gated tool call(s) since this "
+    "session's first turn and not one row from the tool hooks, so the shortcut "
+    "denials and the Stop check are not running. Say so before claiming a check "
+    "passed, and ask the user to run `tezgah-setup --report`.")
+
+
+def _iso_epoch(value):
+    from datetime import datetime  # deferred: only a transcript row pays it
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _transcript_calls(path, since):
+    """Gated tool calls in the transcript's last GATE_TAIL bytes stamped at or
+    after `since` (epoch seconds). Claude writes `{"timestamp", "message":
+    {"content": [{"type": "tool_use", "name"}]}}`, Codex `{"timestamp",
+    "payload": {"type": "function_call", "name"}}`; anything else counts 0."""
+    if not isinstance(path, str) or not path.endswith(".jsonl"):
+        return 0
+    try:
+        with open(path, "rb") as fh:
+            size = fh.seek(0, 2)
+            fh.seek(max(0, size - GATE_TAIL))
+            lines = fh.read().split(b"\n")
+    except OSError:
+        return 0
+    if size > GATE_TAIL:
+        lines = lines[1:]  # the first line is cut, not a row
+    calls = 0
+    for raw in lines:
+        if b"tool_use" not in raw and b"function_call" not in raw:
+            continue
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        stamp = _iso_epoch(row.get("timestamp")) if isinstance(row, dict) else None
+        if stamp is None or stamp < since:
+            continue
+        names = []
+        msg = row.get("message")
+        if isinstance(msg, dict) and isinstance(msg.get("content"), list):
+            names = [b.get("name") for b in msg["content"]
+                     if isinstance(b, dict) and b.get("type") == "tool_use"]
+        pay = row.get("payload")
+        if isinstance(pay, dict) and pay.get("type") == "function_call":
+            names.append(pay.get("name"))
+        calls += sum(1 for n in names if isinstance(n, str) and GATED_TOOLS.match(n))
+    return calls
+
+
+# The ledger kinds a hook other than the tool hooks writes: the prompt hook's
+# turn marker and judge row, the Stop hook's claim and shape rows, compaction,
+# the subagent mark (SubagentStart writes it too) and the guard's crash row
+# (any hook). Every other kind - deny, nudge, drift, run, edit, verify*, ... -
+# can only come from PreToolUse or PostToolUse, so one is proof the gate ran.
+# Excluding, not listing: a kind the tool hooks gain later still counts. A row
+# from `deny` carries no `tool` field, and a session whose every gated call the
+# gate refused read as disarmed (review S3).
+NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"shape", b"compact",
+                           b"orch", b"crash"))
+
+
+def _ledger_lines(path):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read().split(b"\n")
+    except OSError:
+        return []
+
+
+def _ledger_since(session_id):
+    """(the session's first turn stamp, whether a tool-hook row follows it), or
+    (None, False) with no turn marker. Byte scan: only the marker is parsed.
+
+    Each hook is its own process and `cache_dir()` is memoised per process, so
+    a tool hook that found `~/.cache` unwritable (a sandboxed run) writes its
+    rows under the temp fallback while this prompt hook reads `~/.cache`. A row
+    in either candidate ledger, stamped after the marker, therefore counts.
+    ponytail: a tool hook under a different TMPDIR writes to a third directory
+    no reader here can name."""
+    lines = _ledger_lines(_ledger_path(session_id))
+    kind = re.compile(rb'"kind":\s*"([^"]*)"')
+    stamp = re.compile(rb'"ts":\s*(\d+)')
+
+    def tool_row(raw, since):
+        k, t = kind.search(raw), stamp.search(raw)
+        return bool(k and k.group(1) not in NOT_TOOL_HOOK
+                    and t and int(t.group(1)) >= since)
+    for raw in lines:
+        if b'"turn"' not in raw:
+            continue
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if row.get("kind") != "turn" or not isinstance(row.get("ts"), (int, float)):
+            continue
+        since = int(row["ts"])
+        own = os.path.realpath(_ledger_path(session_id))
+        others = {os.path.realpath(os.path.join(d, "evidence",
+                                                os.path.basename(own)))
+                  for d in (CACHE, fallback_cache())} - {own}
+        return row["ts"], any(tool_row(x, since) for x in lines) or any(
+            tool_row(x, since) for p in sorted(others) for x in _ledger_lines(p))
+    return None, False
+
+
+def _gate_mark(session_id):
+    return os.path.join(cache_dir(), "gate-inactive", slug(str(session_id)))
+
+
+def gate_inactive(session_id, payload):
+    """The disarmed-gate line for this prompt, or "" - and the status mark
+    `health_segments` reads, written or cleared to match."""
+    p = payload if isinstance(payload, dict) else {}
+    if not session_id or not p.get("transcript_path"):
+        return ""
+    since, rows = _ledger_since(session_id)
+    calls = 0 if since is None or rows else _transcript_calls(
+        p.get("transcript_path"), since)
+    inactive = calls >= GATE_MIN_CALLS
+    mark = _gate_mark(session_id)
+    try:
+        if inactive:
+            os.makedirs(os.path.dirname(mark), exist_ok=True)
+            open(mark, "w", encoding="utf-8").close()
+        elif os.path.exists(mark):
+            os.remove(mark)
+    except OSError:
+        pass
+    return GATE_INACTIVE % calls if inactive else ""
+
+
 # The handler a non-subagent block ends on, so a session knows where the detail
 # lives. Named, because it is also the constraint a compaction record counts
 # (plan 021): the checker and the injected text read the same constant, so the
@@ -1384,6 +1542,10 @@ def context_for(event, cwd, payload=None, with_core=True):
         prompt = prompt_text(payload)
         session_id = session_of(payload)
         note_turn(session_id, prompt, workspace=root_for(cwd))
+        # Before the reminder switch: the status mark follows the gate's state
+        # even when the per-turn text is off. Never in DROP_ORDER, so no budget
+        # gives it up - it says the rules below are not being enforced.
+        gate = gate_inactive(session_id, payload)
         # per-turn nudge: openers decay over long sessions. Kept short because
         # it is paid every turn, and on Claude the output style already carries
         # the same rules on every response. The conditional rules ride along
@@ -1391,6 +1553,8 @@ def context_for(event, cwd, payload=None, with_core=True):
         if off("reminder-off"):
             return None
         parts = [("reminder", render(prompt_reminder(dropped_switches(cwd))))]
+        if gate:
+            parts.append(("gate", gate))
         if prompt:
             _always, conditional, _dis = core_split(cwd)
             matched = classify_prompt(prompt)
@@ -1950,7 +2114,8 @@ RESET = "\033[0m"
 # Codex's systemMessage, omp's setStatus fallback) keeps its exact old shape.
 ICONS = {"pony": "\u2702", "exec": "\u25b6", "adhd": "\u25ce",
          "consult": "\u2696", "research": "\u2697", "graph": "\u232c",
-         "orch": "\u2387", "judge": "\u2691", "idx": "\u2315", "plans": "\u22ee"}
+         "orch": "\u2387", "judge": "\u2691", "idx": "\u2315", "plans": "\u22ee",
+         "gate": "\u2298"}
 # The head is the logo itself (assets/logo/tezgah-logo.svg): an amber worktop
 # over one central support, which reads as the letter t. Three upper half blocks
 # draw the worktop in the logo's top-face amber (#FFC55C); the middle one's
@@ -2003,6 +2168,9 @@ colored, and the glyph carries the state on its own where color does not):
   idx\u2713 indexed   idx\u21bb stale (HEAD moved)   idx\u2717 not indexed
   idx? cannot compare (no readable stamp)   idx\u2013 n/a
   plans N (M blk)   open plans under the repo, M of them blocked
+  gate\u2717 red     the tool hooks wrote no row while this session's transcript
+                    shows gated tool calls: the gate is not running on this
+                    host (shown only then)
 Outside a tezgah root the per-repo extras (idx, plans) are omitted.
 """
 
@@ -2063,6 +2231,11 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
         ("judge", not off("judge-off") and have_judge_key(), "judge"),
     ]
     segs = [version_segment()]
+    # Shown only when the prompt hook found the gate disarmed (gate_inactive):
+    # first, because it says every other mark is not being enforced.
+    if session_id and os.path.exists(_gate_mark(session_id)):
+        segs.append({"key": "gate", "state": "off", "glyph": GLYPHS["off"],
+                     "text": "gate", "group": 0})
     for name, on, meas in flags:
         if not on:
             state = "off"

@@ -821,6 +821,31 @@ class Gate(TempHome):
         self.assertIsNotNone(reason)
         self.assertIn("Credential", reason)
 
+    def test_a_quoted_heredoc_marker_hides_nothing_from_the_gate(self):
+        # review R1: `<<'X'` inside a quoted string or a comment is not a
+        # heredoc, so the commit after it is read and refused
+        for command in ("echo \"<<'X'\"\ngit commit --no-verify -m x\nX",
+                        "ls # <<'X'\ngit commit --no-verify -m x\nX",
+                        "echo \"<<'X'\"\npytest || true\nX"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIn("Verification", reason or "", command)
+        # and its "body" is not a file's content: no write body is read
+        self.assertIsNone(tg.shell_write_body(
+            "echo \"<<'X'\" > notes.txt\nprint('x')\nX", self.repo))
+
+    def test_heredocs_are_read_in_bash_contexts_by_the_gate(self):
+        # review S1: an arithmetic shift is not a heredoc, so the commit after
+        # it is refused; review S2: the `"$(cat <<'EOF' ...)"` message shape is
+        # a real heredoc, so its body is message text and the commit passes
+        for command in ("echo $((1<<2))\ngit commit --no-verify -m x\n2",
+                        "(( a = 1 <<b ))\ngit commit --no-verify -m x\nb"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIn("Verification", reason or "", command)
+        for body in ("git commit -n is now refused", "pytest || true is refused"):
+            command = ("git commit -m \"$(cat <<'EOF'\nfix: gate\n\n%s\nEOF\n)\""
+                       % body)
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
     def test_a_credential_write_has_no_repeat_escape(self):
         # this rule keeps refusing: the deny text names the
         # rephrase (a name, a length, a fingerprint), so the write is replaced

@@ -76,10 +76,10 @@ Adapters translate the returned reason into their own permission envelope.
 import os
 import re
 
-from tezgah_integrity import (BASH_TOOLS, HEREDOC, STEP_KINDS, WRITE_TOOLS,
-                              _turn_start, call_id, cut, events, mask, note,
-                              prior_calls, shortcut_command, shortcut_edit,
-                              turn_rows, verify_command)
+from tezgah_integrity import (BASH_TOOLS, STEP_KINDS, WRITE_TOOLS,
+                              _turn_start, call_id, cut, events, heredoc_bodies,
+                              mask, note, prior_calls, shortcut_command,
+                              shortcut_edit, turn_rows, verify_command)
 from tezgah_paths import cache_dir, off, root_for, roots
 
 try:  # The ordering rule's two readers (the newest check's state, folded the way
@@ -1032,27 +1032,6 @@ def shell_target(command):
     return raw.strip("'\"").rstrip(";|&)")
 
 
-def _heredoc_bodies(text):
-    """Every heredoc body in `text`, in order, read off the raw text."""
-    lines = str(text or "").split("\n")
-    out, i = [], 0
-    while i < len(lines):
-        m = HEREDOC.search(lines[i])
-        if not m:
-            i += 1
-            continue
-        tag = m.group(1)
-        j = i + 1
-        while j < len(lines) and lines[j].strip() != tag:
-            j += 1
-        if j == len(lines):  # unterminated: nothing was written by it
-            i += 1
-            continue
-        out.append("\n".join(lines[i + 1:j]))
-        i = j + 1
-    return out
-
-
 def shell_write_body(command, cwd=None):
     """The `{file_path, content}` a shell command writes into a file, or None when
     this command writes no file's content of its own.
@@ -1066,7 +1045,9 @@ def shell_write_body(command, cwd=None):
     c = str(command or "")
     if not c or not SHELL_WRITE.search(mask(c)):
         return None
-    bodies = _heredoc_bodies(c)
+    # the bodies bash reads (tezgah_integrity._heredocs): a `<<'X'` inside a
+    # quoted string or a comment is not one (review R1)
+    bodies = heredoc_bodies(c)
     if not bodies:
         return None
     path = shell_target(c)

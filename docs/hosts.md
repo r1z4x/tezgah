@@ -37,7 +37,7 @@ except claude, whose skills arrive with the plugin. `install_common` writes the
 shared config, contract hash and the CLI symlinks every host shell can call
 (`bin/tezgah-setup:438-487`).
 
-- **claude** - `install_claude` (`bin/tezgah-setup:883-904`): `~/.claude/statusline.py`,
+- **claude** - `install_claude` (`bin/tezgah-setup:886-907`): `~/.claude/statusline.py`,
   `~/.claude/workflows/{graph-map,graph-review,graph-impact}.js`, the
   `~/.claude/bin/{consult,codegen,tezgah-render-table}` links, two keys in
   `~/.claude/settings.json` - `statusLine` (`bin/tezgah-setup:527-548`) and the attribution
@@ -47,39 +47,39 @@ shared config, contract hash and the CLI symlinks every host shell can call
   `hooks/hooks.json`; no `hooks.json` is written into `~/.claude`. Claude runs a
   **copy** of the checkout under `~/.claude/plugins/cache`, refreshed by
   `--sync` (`bin/tezgah-setup:3701-3759`).
-- **codex** - `install_codex` (`bin/tezgah-setup:943-979`): `$CODEX_HOME/hooks.json`
+- **codex** - `install_codex` (`bin/tezgah-setup:946-982`): `$CODEX_HOME/hooks.json`
   (one group per event, PreToolUse carrying `CODEX_PRETOOL_MATCHER` at `:129-131`),
   `skills/*` symlinks, `~/.codex/bin/consult`, and `mcp_servers.*` tables in
-  `config.toml` (`ensure_toml_mcp`, `bin/tezgah-setup:984-1041`).
-- **cursor** - `install_cursor` (`bin/tezgah-setup:1515-1568`): `~/.cursor/hooks.json`
+  `config.toml` (`ensure_toml_mcp`, `bin/tezgah-setup:987-1044`).
+- **cursor** - `install_cursor` (`bin/tezgah-setup:1518-1571`): `~/.cursor/hooks.json`
   (tezgah entries replaced, a user's Orca entries merged), `skills/*` symlinks,
   `mcp.json` servers, and `cli-config.json` `statusLine`.
-- **opencode** - `install_opencode` (`bin/tezgah-setup:1423-1514`): the plugin under
+- **opencode** - `install_opencode` (`bin/tezgah-setup:1426-1517`): the plugin under
   both `plugins/` and `plugin/` (version drift), `skills/*` symlinks, the
   generated `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:759-795`) and
   `opencode-skills.md` + `.full.md` (`bin/tezgah-setup:1171-1238`), then `opencode.json`
   (`instructions`, `mcp`, `permission.skill=deny`, `compaction.prune`,
   `watcher.ignore`, the two `external_directory` grants) and `tui.json` +
   `tui-plugins/tezgah-tui.tsx`.
-- **dsh** - `install_dsh` (`bin/tezgah-setup:1782-1793`): `~/.dsh/skills/*` symlinks,
-  a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:1615-1671`) that
+- **dsh** - `install_dsh` (`bin/tezgah-setup:1785-1796`): `~/.dsh/skills/*` symlinks,
+  a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:1618-1674`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
   rows and the three `llm-pi-ai` routes, plus `~/.local/bin/dsh` ->
-  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:1684-1706`) links the statusline
+  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:1687-1709`) links the statusline
   package into the **web profile** and adds its row to
   `~/.dsh/profiles/web/cordis.patch.yml`.
-- **omp** - `install_omp` (`bin/tezgah-setup:1988-2046`): `~/.omp/agent/RULES.md`
+- **omp** - `install_omp` (`bin/tezgah-setup:1991-2049`): `~/.omp/agent/RULES.md`
   (managed block), `skills/*` symlinks, `agents/tezgah-*.md`, `mcp.json`
   (`$schema`, `mcpServers`), and `hooks/pre/tezgah-hook.ts` rendered from
   `hosts/omp/tezgah-hook.ts.in` with the python path substituted for `@HOOK@`.
   That path is then named in omp's `extensions:` setting through `omp config`
-  (`register_omp_hook`, `bin/tezgah-setup:1881-1897`): omp 18.2.11 loaded
+  (`register_omp_hook`, `bin/tezgah-setup:1884-1900`): omp 18.2.11 loaded
   nothing from `hooks/pre/` by discovery, the same file named there drew the
   status line, and omp dedupes a path that is both discovered and configured
-  (`OMP_EXTENSIONS`, `bin/tezgah-setup:1848-1850`). omp has no orx target of
+  (`OMP_EXTENSIONS`, `bin/tezgah-setup:1851-1853`). omp has no orx target of
   its own: orx's `codex` target writes the shim to `~/.agents/skills/orx`,
   omp's native `agents` skill root, so `install_openresearch` maps omp onto it
-  (`ORX_AGENTS`, `bin/tezgah-setup:166-167`).
+  (`ORX_AGENTS`, `bin/tezgah-setup:169-170`).
 
 An adapter is responsible for its host's **envelope** and its **surface**: it
 translates the host's event and tool names into the shared vocabulary (one call
@@ -162,12 +162,12 @@ In order, each step verified by the one below it:
    TS/JS host, the bridge file with a substituted python path
    (`hosts/omp/tezgah-hook.ts.in` rendered at `bin/tezgah-setup:1340-1341`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
-   (`bin/tezgah-setup:2047-2051`), and `uninstall_<host>()` removing only
+   (`bin/tezgah-setup:2050-2054`), and `uninstall_<host>()` removing only
    tezgah-managed links and blocks (`bin/tezgah-setup:2543-2694`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
-   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:3959-3963`); the
+   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:4210-4214`); the
    `--report` output is that list (`bin/tezgah-setup:3028-3106`). Give the row a home-qualified
-   label if the host's dir can be relocated (`host_checks_codex`, `bin/tezgah-setup:3757-3788`).
+   label if the host's dir can be relocated (`host_checks_codex`, `bin/tezgah-setup:4008-4039`).
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
@@ -181,6 +181,19 @@ In order, each step verified by the one below it:
 
 ## Host-specific limits worth knowing
 
+- **A disarmed gate is shown where the prompt hook can see it** (`gate_inactive`, audit
+  Phase 1.3). Detection needs the host to hand its prompt hook a `transcript_path` and to
+  run that hook while the tool hooks do not; it costs the last 256 KiB of the transcript and
+  one byte scan of the session ledger per prompt.
+  - **claude:** observed; the line rides the prompt context and `gate✗` shows on the status line.
+  - **codex:** observed (rollout JSONL, `function_call` items); Codex has no status line, so
+    `gate✗` appears only in the SessionStart/Stop status message.
+  - **cursor, dsh:** observed only if their prompt payload carries `transcript_path`
+    (unverified on a live host).
+  - **omp, opencode:** not applicable: the prompt hook and the gate live in one extension or
+    plugin process, so one cannot run without the other.
+  - Everywhere: a disarmed PreToolUse beside a working PostToolUse writes rows and is not
+    detected; `tezgah-setup --report --live` is the check for the wiring itself.
 - **Lessons and open plans are injected only when `.tezgah` came from tezgah.**
   `.tezgah/` is the user's private workspace, ignored by the project. When the
   project's own git index holds `.tezgah` or any path under it (as a file, a
@@ -280,7 +293,7 @@ In order, each step verified by the one below it:
   host whose shell the gate cannot see.
 - **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:3682-3700`),
   so a change is not live until `--sync` or a refresh
-  (`refresh_plugin_copy`, `bin/tezgah-setup:4310-4330`).
+  (`refresh_plugin_copy`, `bin/tezgah-setup:4561-4581`).
 - **omp spawns the MCP `command` as one executable** and takes the rest in
   `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1322-1324`),
   and `setStatus` strips ANSI, so only the widget path keeps the per-mark colors
@@ -290,7 +303,7 @@ In order, each step verified by the one below it:
   connects there (omp 18.2.11 `/mcp` listed codegraph, mobile-mcp and tezgah
   only). `install_omp` therefore writes no Playwright row and sweeps one an older
   release wrote, and the report calls that absence green
-  (`OMP_SUPERSEDED_MCP`, `bin/tezgah-setup:124-127`); `skills/analyze-app`
+  (`OMP_SUPERSEDED_MCP`, `bin/tezgah-setup:127-130`); `skills/analyze-app`
   sends omp to the native `browser` instead.
 
 ## Source of truth

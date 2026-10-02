@@ -654,46 +654,105 @@ def _index_paths(data, width=None):
 
 def workspace_from_repo(root):
     """True when `<root>/.tezgah` came with the repository rather than from
-    tezgah, so its lessons and plans are data, never standing constraints, and
-    no private workspace is initialised inside it.
+    tezgah, or that cannot be ruled out: its lessons and plans are then data,
+    never standing constraints, and no private workspace is initialised in it.
 
     `.tezgah/` is the user's private workspace: ignored by the project and kept
     in its own repository (`ensure_workspace`). A cloned hostile repository must
     not be able to place rule text into the hook channel framed as a standing
     constraint (audit L-16, SEC-11). It came with the clone when the project's
     own index holds `.tezgah` itself (a symlink or a submodule) or any path under
-    it, or when `.tezgah`, `lessons.md`, `plans` or `plans/open` is a symlink -
-    a tracked `.tezgah -> notes` holds no `.tezgah/` path at all (review F3).
-    Entry paths are compared case-insensitively on every platform: on APFS and
-    NTFS defaults a tracked `.TEZGAH/lessons.md` is the file `open` reads as
-    `.tezgah/lessons.md` (review N2); a repository that really tracks a
-    `.TEZGAH` of its own gets the notice, the safe side.
+    it (`_index_tracks_workspace`), or when `.tezgah`, `lessons.md`, `plans` or
+    `plans/open` is a symlink - a tracked `.tezgah -> notes` holds no `.tezgah/`
+    path at all (review F3). An index that cannot be told is True here, the side
+    of a notice (review F9). ponytail: a tree with no `.git` (an unpacked
+    tarball) carries no record of where `.tezgah` came from, so it answers False
+    and is injected - the ceiling of a provenance check that reads git."""
+    if any(os.path.islink(os.path.join(root, rel)) for rel in WORKSPACE_INJECTED):
+        return True
+    return _index_tracks_workspace(root) is not False
+
+
+def workspace_tracked(root):
+    """True only on positive evidence that the project's own index tracks
+    `.tezgah` or a path under it - the reading enforcement needs.
+
+    The injection side reads every can't-tell as "repository-provided"; the task
+    rule must not, because a None there switches the user's own plan guard off
+    in silence for a symlinked workspace of their own, an unreadable index or a
+    v4 query that timed out (review R2). The gate resolves the task on every
+    gated call, so the answer is kept in the cache keyed on the index files'
+    mtime and size: an unchanged index costs one stat per file and one small
+    read, never a re-parse or a `git ls-files` fork."""
+    gitdir = _gitdir_of(root)
+    if not gitdir:
+        return False
+    files = [p for p in _index_files(gitdir) if os.path.exists(p)]
+    if not files:
+        return False
+    try:
+        key = [[p, os.stat(p).st_mtime_ns, os.stat(p).st_size] for p in files]
+    except OSError:
+        return False
+    store = os.path.join(cache_dir(), "workspace-index.json")
+    try:
+        with open(store, encoding="utf-8") as fh:
+            known = json.load(fh)
+    except (OSError, ValueError):
+        known = {}
+    hit = known.get(root) if isinstance(known, dict) else None
+    if isinstance(hit, list) and len(hit) == 2 and hit[0] == key:
+        return hit[1] is True
+    answer = _index_tracks_workspace(root) is True
+    known = known if isinstance(known, dict) else {}
+    known[root] = [key, answer]
+    try:
+        tmp = "%s.%d.tmp" % (store, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(known, fh)
+        os.replace(tmp, store)
+    except OSError:
+        pass
+    return answer
+
+
+def _gitdir_of(root):
+    """The gitdir `<root>/.git` names: the directory itself, a worktree's
+    `gitdir:` target, "" for no `.git`, None for a `.git` that cannot be read."""
+    dot = os.path.join(root, ".git")
+    if not os.path.lexists(dot):
+        return ""
+    if os.path.isdir(dot):
+        return dot
+    try:
+        with open(dot, encoding="utf-8", errors="replace") as fh:
+            line = fh.readline().strip()
+    except OSError:
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    return os.path.join(root, line[len("gitdir:"):].strip())
+
+
+def _index_tracks_workspace(root):
+    """True when the project's index holds `.tezgah` or a `.tezgah/` path, False
+    when it was read and holds neither (or there is no `.git` or no index),
+    None when it cannot be told.
 
     Read from the index files, not from `git ls-files`, because the session-start
     git forks are pinned (GitSpawnBudget): v2/v3 store every path whole, so the
     entries are parsed (`_index_paths`); v4 prefix-compresses paths, so only
-    there one `git ls-files` runs. Every answer that cannot be made is True, the
-    side of a notice: an unreadable `.git` pointer or index, a foreign header,
-    an index whose entries cannot be told, and a v4 query that fails or times
-    out (review F9). A missing index is a repository that tracks nothing.
-    ponytail: a tree with no `.git` (an unpacked tarball) carries no record of
-    where `.tezgah` came from, so it answers False and is injected - the ceiling
-    of a provenance check that reads git."""
-    if any(os.path.islink(os.path.join(root, rel)) for rel in WORKSPACE_INJECTED):
-        return True
-    dot = os.path.join(root, ".git")
-    if not os.path.lexists(dot):
+    there one `git ls-files` runs. Can't-tell is an unreadable `.git` pointer or
+    index, a foreign header, entries no known width parses, and a v4 query that
+    fails or times out. Entry paths are compared case-insensitively on every
+    platform: on APFS and NTFS defaults a tracked `.TEZGAH/lessons.md` is the
+    file `open` reads as `.tezgah/lessons.md` (review N2); a repository that
+    really tracks a `.TEZGAH` of its own reads as tracked, the safe side."""
+    gitdir = _gitdir_of(root)
+    if gitdir is None:
+        return None
+    if not gitdir:
         return False
-    gitdir = dot
-    if not os.path.isdir(dot):
-        try:
-            with open(dot, encoding="utf-8", errors="replace") as fh:
-                line = fh.readline().strip()
-        except OSError:
-            return True
-        if not line.startswith("gitdir:"):
-            return True
-        gitdir = os.path.join(root, line[len("gitdir:"):].strip())
     files = _index_files(gitdir)
     if not os.path.exists(files[0]):
         return False
@@ -703,9 +762,9 @@ def workspace_from_repo(root):
             with open(path, "rb") as fh:
                 data = fh.read()
         except OSError:
-            return True
+            return None
         if data[:4] != b"DIRC":
-            return True
+            return None
         if int.from_bytes(data[4:8], "big") >= 4:
             import subprocess  # deferred: the gate imports this module per call
             try:
@@ -713,12 +772,13 @@ def workspace_from_repo(root):
                     ("git", "-C", root, "ls-files", "-z", "--", ":(icase).tezgah"),
                     capture_output=True, timeout=5)
             except Exception:
-                return True
-            return out.returncode != 0 or bool(out.stdout)
+                return None
+            return None if out.returncode else bool(out.stdout)
         paths = _index_paths(data, width)
-        if paths is None or any(p.lower() == b".tezgah"
-                                or p.lower().startswith(b".tezgah/")
-                                for p in paths):
+        if paths is None:
+            return None
+        if any(p.lower() == b".tezgah" or p.lower().startswith(b".tezgah/")
+               for p in paths):
             return True
     return False
 

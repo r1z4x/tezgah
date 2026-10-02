@@ -1530,6 +1530,130 @@ class CompactRecord(ChildCall):
         self.assertNotIn("the check had passed", json.dumps(rows))
 
 
+class GateLiveness(ChildCall):
+    """Audit Phase 1.3: a visible disarmed state. The prompt hook sees the
+    host's transcript and this session's ledger; gated tool calls in the one
+    and no tool-hook row in the other is a gate that is not running, and both
+    the next prompt and the status line must say so."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.transcript = os.path.join(self.home, "t.jsonl")
+        open(self.transcript, "w").close()
+
+    def prompt(self):
+        return self.child(
+            "import json, tezgah_context as tc\n"
+            "print(json.dumps(tc.context_for('user_prompt', %r, {'session_id': "
+            "'g1', 'prompt': 'x', 'transcript_path': %r})))\n"
+            % (self.repo, self.transcript))
+
+    def segments(self):
+        return self.child("import json, tezgah_context as tc\n"
+                          "print(json.dumps(tc.health_segments(%r, 'g1')))\n"
+                          % self.repo)
+
+    def transcript_rows(self, rows):
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z",
+                              time.gmtime(time.time() + 2))
+        with open(self.transcript, "a") as fh:
+            for row in rows:
+                fh.write(json.dumps(dict(row, timestamp=stamp)) + "\n")
+
+    def claude_tools(self, n):
+        self.transcript_rows([{"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "input": {}}]}}] * n)
+
+    def test_tool_calls_with_no_gate_rows_show_the_line_and_the_mark(self):
+        self.prompt()                      # the session's first turn marker
+        self.claude_tools(3)
+        out = self.prompt()
+        self.assertIn("tezgah gate inactive on this host: 3 gated tool call(s)", out)
+        gate = [s for s in self.segments() if s["key"] == "gate"]
+        self.assertEqual(gate, [{"key": "gate", "state": "off", "glyph": "\u2717",
+                                 "text": "gate", "group": 0}])
+
+    def test_a_codex_transcript_is_read_too(self):
+        self.prompt()
+        self.transcript_rows([{"type": "response_item", "payload": {
+            "type": "function_call", "name": "exec_command"}}] * 3)
+        self.assertIn("tezgah gate inactive", self.prompt())
+
+    def test_a_healthy_session_shows_neither_and_clears_the_mark(self):
+        self.prompt()
+        self.claude_tools(3)
+        self.prompt()                      # disarmed: the mark is written
+        self.child("import json, tezgah_integrity as ti\n"
+                   "ti.note_tool('g1', 'Bash', {'command': 'ls'})\n"
+                   "print('null')\n")
+        out = self.prompt()
+        self.assertNotIn("tezgah gate inactive", out)
+        self.assertNotIn("gate", [s["key"] for s in self.segments()])
+
+    def test_calls_the_gate_denied_are_proof_the_gate_ran(self):
+        # Review S3: a deny row carries no `tool` field, and a session whose
+        # every gated call the gate refused read as a disarmed gate.
+        self.prompt()
+        self.child("import json, tezgah_integrity as ti\n"
+                   "[ti.note('g1', 'deny', 'shortcut: x') for _ in range(3)]\n"
+                   "print('null')\n")
+        self.claude_tools(3)
+        self.assertNotIn("tezgah gate inactive", self.prompt())
+        self.assertNotIn("gate", [s["key"] for s in self.segments()])
+
+    def test_rows_from_other_hooks_are_not_proof(self):
+        # the prompt hook's judge row and the Stop hook's claim row run whether
+        # or not the tool hooks do, so they cannot clear the line
+        self.prompt()
+        self.child("import json, tezgah_integrity as ti\n"
+                   "ti.note('g1', 'judge', 'x'); ti.note('g1', 'claim', 'x')\n"
+                   "print('null')\n")
+        self.claude_tools(3)
+        self.assertIn("tezgah gate inactive", self.prompt())
+
+    def test_a_tool_row_in_the_fallback_ledger_counts(self):
+        # Each hook resolves cache_dir() in its own process: a tool hook that
+        # could not write ~/.cache leaves its rows under the temp fallback, and
+        # the prompt hook reading ~/.cache alone saw a disarmed gate.
+        fallback = os.path.join(self.home, "fallback")
+        self.prompt()
+        self.child("import json, os, tezgah_integrity as ti\n"
+                   "p = os.path.join(%r, 'evidence', ti._slug('g1') + '.jsonl')\n"
+                   "os.makedirs(os.path.dirname(p))\n"
+                   "ti.note_path(p, 'run', 'ls')\n"
+                   "print('null')\n" % fallback)
+        self.claude_tools(3)
+        out = self.child(
+            "import json, tezgah_context as tc\n"
+            "print(json.dumps(tc.context_for('user_prompt', %r, {'session_id': "
+            "'g1', 'prompt': 'x', 'transcript_path': %r})))\n"
+            % (self.repo, self.transcript),
+            extra={"TEZGAH_FALLBACK_CACHE": fallback})
+        self.assertNotIn("tezgah gate inactive", out)
+
+    def test_a_chat_only_session_never_fires(self):
+        self.prompt()
+        self.transcript_rows([{"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "hello"}]}}] * 5
+            + [{"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "Read", "input": {}}]}}] * 5)
+        self.assertNotIn("tezgah gate inactive", self.prompt())
+        self.assertNotIn("gate", [s["key"] for s in self.segments()])
+
+    def test_tool_calls_from_before_the_first_turn_do_not_count(self):
+        # a resumed session or one tezgah was installed into mid-way: what the
+        # transcript holds from before the first marker is not the gate's to see
+        with open(self.transcript, "w") as fh:
+            fh.write(json.dumps({"type": "assistant",
+                                 "timestamp": "2020-01-01T00:00:00.000Z",
+                                 "message": {"content": [
+                                     {"type": "tool_use", "name": "Bash"}]}})
+                     + "\n")
+        self.prompt()
+        self.assertNotIn("tezgah gate inactive", self.prompt())
+
+
 class StateDelta(ChildCall):
     """C1: the standing constraints are re-stated every turn and a long turn
     re-states them again without being able to say what moved. The per-turn

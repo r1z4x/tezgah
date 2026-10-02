@@ -401,7 +401,6 @@ const TEST_PATH =
 // are blanked - length preserved, so a match keeps its offset.
 const LITERALS =
   /'''[\s\S]*?'''|"""[\s\S]*?"""|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|\/\*[\s\S]*?\*\/|\/\/[^\n]*|#[^\n]*/g
-const HEREDOC = /<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?/
 // Mirrors hooks/tezgah_integrity.py WRITE_TOOLS exactly: the two halves must
 // agree on what counts as a write, or a credit or a skip marker lands on
 // whichever host has the narrower list.
@@ -457,23 +456,125 @@ const READ_TOOLS = new Set(["read", "read_file", "readfile", "notebookread",
   "search_files", "rg", "find", "glob", "glob_search", "ls", "list",
   "list_dir", "listdir", "list_files", "tree"])
 
-function blankHeredocs(text) {
-  const lines = String(text || "").split("\n")
-  const out = []
-  let i = 0
-  while (i < lines.length) {
-    const m = lines[i].match(HEREDOC)
-    if (!m) { out.push(lines[i]); i += 1; continue }
-    const tag = m[1]
-    let j = i + 1
-    while (j < lines.length && lines[j].trim() !== tag) j += 1
-    if (j === lines.length) { out.push(lines[i]); i += 1; continue }
-    out.push(lines[i])
-    for (let k = i + 1; k < j; k += 1) out.push(" ".repeat(lines[k].length))
-    out.push(lines[j])
-    i = j + 1
+// mirrors hooks/tezgah_integrity._heredoc_tag: the delimiter word at `j`, as
+// [tag with quotes removed, whether any of it was quoted, the index after it]
+function heredocTag(cmd, j) {
+  let tag = "", quoted = false, quote = null
+  while (j < cmd.length) {
+    const ch = cmd[j]
+    if (quote) { if (ch === quote) quote = null; else tag += ch }
+    else if (ch === "'" || ch === '"') { quote = ch; quoted = true }
+    else if (ch === "\\" && j + 1 < cmd.length) { quoted = true; tag += cmd[j + 1]; j++ }
+    else if (" \t\n;&|()<>".includes(ch)) break
+    else tag += ch
+    j++
   }
-  return out.join("\n")
+  return [tag, quoted, j]
+}
+
+// mirrors hooks/tezgah_integrity._command_position / ARITH_AFTER: `((` at a
+// command's start is arithmetic, never two subshells
+const ARITH_AFTER = new Set(["then", "do", "else", "elif", "if", "while",
+  "until", "!", "{", "time"])
+function commandPosition(cmd, i) {
+  let j = i - 1
+  while (j >= 0 && (cmd[j] === " " || cmd[j] === "\t")) j--
+  if (j < 0 || "\n;&|(".includes(cmd[j])) return true
+  let k = j
+  while (k >= 0 && !" \t\n;&|()".includes(cmd[k])) k--
+  return ARITH_AFTER.has(cmd.slice(k + 1, j + 1))
+}
+
+// mirrors hooks/tezgah_integrity._heredocs: every heredoc bash would read, as
+// [opStart, opEnd, tag, quoted, bodyStart, terminator [start, end] or null].
+// An operator counts only in a command context, outside a comment and not as
+// `<<<` (review R1). The contexts are a stack: a double-quoted string, an
+// arithmetic `$(( ))` / command-position `(( ))` where `<<` is a shift (review
+// S1), and a `$( )` that opens a command context even inside double quotes,
+// so `git commit -m "$(cat <<'EOF' ... EOF\n)"` is a real heredoc (review S2).
+// The scan stops at an unterminated one.
+function heredocs(cmd) {
+  const n = cmd.length, found = [], stack = [["top", 0]]
+  let pending = [], i = 0
+  while (i < n) {
+    const ch = cmd[i], frame = stack[stack.length - 1], kind = frame[0]
+    if (ch === "\n" && pending.length) {
+      let pos = i + 1
+      for (const [start, stop, tag, quoted, strip] of pending) {
+        const body = pos
+        let term = null
+        while (pos < n && tag) {
+          let end = cmd.indexOf("\n", pos)
+          if (end < 0) end = n
+          const line = cmd.slice(pos, end)
+          pos = end + 1
+          if ((strip ? line.replace(/^\t+/, "") : line) === tag) {
+            term = [end - line.length, end]
+            break
+          }
+        }
+        found.push([start, stop, tag, quoted, body, term])
+        if (!term) return found
+      }
+      pending = []
+      i = pos
+      continue
+    }
+    if (ch === "\\") { i += 2; continue }
+    if (kind === "arith") {
+      if (ch === "(") frame[1]++
+      else if (ch === ")") {
+        if (frame[1]) frame[1]--
+        else if (cmd.startsWith("))", i)) { stack.pop(); i += 2; continue }
+      }
+      i++
+      continue
+    }
+    if (cmd.startsWith("$((", i)) { stack.push(["arith", 0]); i += 3; continue }
+    if (cmd.startsWith("$(", i)) { stack.push(["cmd", 0]); i += 2; continue }
+    if (kind === '"') { if (ch === '"') stack.pop(); i++; continue }
+    if (ch === "'") {
+      const end = cmd.indexOf("'", i + 1)
+      i = end < 0 ? n : end + 1
+    } else if (cmd.startsWith("$'", i)) {
+      i += 2
+      while (i < n && cmd[i] !== "'") i += cmd[i] === "\\" ? 2 : 1
+      i++
+    } else if (ch === '"') { stack.push(['"', 0]); i++ }
+    else if (ch === "#" && (i === 0 || " \t\n;&|()<>".includes(cmd[i - 1]))) {
+      const end = cmd.indexOf("\n", i)
+      i = end < 0 ? n : end
+    } else if (cmd.startsWith("((", i) && commandPosition(cmd, i)) {
+      stack.push(["arith", 0]); i += 2
+    } else if (ch === "(" && kind === "cmd") { frame[1]++; i++ }
+    else if (ch === ")" && kind === "cmd") {
+      if (frame[1]) frame[1]--; else stack.pop()
+      i++
+    } else if (cmd.startsWith("<<<", i)) i += 3
+    else if (cmd.startsWith("<<", i)) {
+      let j = i + 2
+      const strip = j < n && cmd[j] === "-"
+      if (strip) j++
+      while (j < n && (cmd[j] === " " || cmd[j] === "\t")) j++
+      const [tag, quoted, after] = heredocTag(cmd, j)
+      pending.push([i, after, tag, quoted, strip])
+      i = after
+    } else i++
+  }
+  for (const [s, e, t, q] of pending) found.push([s, e, t, q, n, null])
+  return found
+}
+
+// every heredoc body blanked, length and newlines kept; an unterminated one is
+// left visible (hooks/tezgah_integrity._blank_heredocs)
+function blankHeredocs(text) {
+  const s = String(text || "")
+  const out = s.split("")
+  for (const [, , tag, , body, term] of heredocs(s)) {
+    if (!tag || !term) continue
+    for (let k = body; k < term[0]; k++) if (out[k] !== "\n") out[k] = " "
+  }
+  return out.join("")
 }
 
 function maskText(text) {
@@ -656,23 +757,12 @@ const SHELL_WRITE =
   />>?(?!\s*\/dev\/null)(?![&=])|\|\s*tee\b|(?<![\w-])(?:sed|perl)\s+(?:-\S+\s+)*(?:-[A-Za-z]*i[A-Za-z]*)(?![A-Za-z])|(?<![\w-])truncate\s|\bdd\s+[^|;&]*\bof=|(?<![\w-])(?:cp|mv)\s|(?<![\w-])patch\s|(?<![\w-])git\s+(?:apply\b|restore\b|checkout\s+--)/
 const SHELL_TARGET = />>?(?![&=])\s*(\S+)|(?<![\w-])tee\s+(?:-\S+\s+)*(\S+)/
 
-// Every heredoc body in `text`, in order, read off the raw text. Unterminated
-// markers are skipped the way the masker skips them.
+// Every terminated heredoc body in `text`, in order, from the one heredoc
+// reader (`heredocs`, hooks/tezgah_integrity.heredoc_bodies).
 function heredocBodies(text) {
-  const lines = String(text || "").split("\n")
-  const out = []
-  let i = 0
-  while (i < lines.length) {
-    const m = HEREDOC.exec(lines[i])
-    if (!m) { i += 1; continue }
-    const tag = m[1]
-    let j = i + 1
-    while (j < lines.length && lines[j].trim() !== tag) j += 1
-    if (j === lines.length) { i += 1; continue }
-    out.push(lines.slice(i + 1, j).join("\n"))
-    i = j + 1
-  }
-  return out
+  const s = String(text || "")
+  return heredocs(s).filter((h) => h[5])
+    .map(([, , , , body, term]) => s.slice(body, Math.max(body, term[0] - 1)))
 }
 
 // The file a shell command's own text writes, or "" - the real redirect's target

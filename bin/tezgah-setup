@@ -39,6 +39,8 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
+import time
 
 try:
     import fcntl
@@ -52,6 +54,7 @@ import tezgah_context  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 import tezgah_policy as policy  # noqa: E402
 import tezgah_agents  # noqa: E402
+import tezgah_integrity  # noqa: E402
 from tezgah_policy import (  # noqa: E402
     ADHD, CODEGRAPH_RULE, CODEGRAPH_STATIC, CONSULT, EXEC, NO_CONSULT,
     ORCHESTRATE, PONYTAIL, WORKFLOWS)
@@ -3480,6 +3483,254 @@ def context_budget_report():
     print("     %-34s run --mcp-schemas to measure" % "MCP tool schemas")
 
 
+# ------------------------------------------------------------------ live ----
+# `--report` reads what was WRITTEN; `--live` proves the hooks EXECUTE (audit
+# Phase 1.2: Codex's hooks were wired, untrusted and silently skipped while the
+# report said ok, H-1). Per host, one harmless PostToolUse for `true` goes
+# through the wiring the host itself reads - the command in its hooks.json,
+# the plugin file it imports, the extension it loads - never through tezgah's
+# own constants, and a ledger row for a dedicated session id must appear. The
+# event runs against a throwaway root (TEZGAH_ROOTS), so no repository is
+# touched, and every cache file named for the session is removed after.
+
+LIVE_TIMEOUT = 20
+# The JS half: loads the omp extension (`--experimental-strip-types`, the .ts as
+# omp's bun would) or the opencode plugin (an ES module, as opencode imports
+# it), registers its handlers against inert host objects and fires the one
+# tool-result handler. argv: host, module path, root, session id.
+LIVE_DRIVER = r"""
+const [host, mod, root, sid] = process.argv.slice(1);
+const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
+(async () => {
+  const m = await import(require("node:url").pathToFileURL(mod).href);
+  if (host === "omp") {
+    const handlers = {};
+    m.default(new Proxy({ on: (n, fn) => { handlers[n] = fn; } },
+                        { get: (t, k) => (k in t ? t[k] : noop) }));
+    if (!handlers.tool_result) throw new Error("the extension registered no tool_result handler");
+    const ctx = new Proxy({ cwd: root, sessionManager: { getSessionId: () => sid } },
+                          { get: (t, k) => (k in t ? t[k] : noop) });
+    await handlers.tool_result({ toolName: "bash", input: { command: "true" },
+                                 isError: false, content: "ok" }, ctx);
+  } else {
+    const hooks = await (m.Tezgah || m.default)({ directory: root, worktree: root,
+                                                  client: noop, $: noop });
+    const after = hooks && hooks["tool.execute.after"];
+    if (!after) throw new Error("the plugin registered no tool.execute.after hook");
+    await after({ tool: "bash", sessionID: sid, callID: "live", args: { command: "true" } },
+                { title: "", output: "ok", metadata: { exit: 0 }, args: { command: "true" } });
+  }
+})().catch((e) => { process.stderr.write(String((e && e.message) || e) + "\n"); process.exit(1); });
+"""
+
+
+def _hook_command(groups, want="Bash", own=False):
+    """The first tezgah command among a host's hook groups that fires for
+    `want`: a group's `matcher` (Claude's shape) or a bare entry (Cursor's).
+    In a shared file (codex, cursor) only an entry naming tezgah counts; tezgah's
+    own manifest (`own`, the plugin's and dsh's hooks.json) names its scripts
+    through ${CLAUDE_PLUGIN_ROOT}, so every entry there is tezgah's."""
+    for group in groups if isinstance(groups, list) else []:
+        if not isinstance(group, dict) or not (own or "tezgah" in json.dumps(group)):
+            continue
+        matcher = group.get("matcher")
+        if matcher and not re.fullmatch(matcher, want):
+            continue
+        for entry in group.get("hooks") or [group]:
+            if isinstance(entry, dict) and entry.get("command") and (
+                    own or "tezgah" in str(entry["command"])):
+                return entry["command"]
+    return None
+
+
+def _claude_plugin_root():
+    """The plugin copy Claude loads: the tezgah row of installed_plugins.json,
+    when settings.json enables it. (None, cause) otherwise."""
+    rows = read_json(INSTALLED_PLUGINS, {}).get("plugins") or {}
+    key = next((k for k in rows if k.split("@")[0] == "tezgah"), None)
+    if not key or not rows[key]:
+        return None, "no tezgah row in %s" % INSTALLED_PLUGINS
+    enabled = read_json(os.path.join(CLAUDE, "settings.json"), {}).get("enabledPlugins") or {}
+    if not enabled.get(key):
+        return None, "plugin %s is not enabled in settings.json" % key
+    return rows[key][-1].get("installPath"), None
+
+
+def _dsh_bridge():
+    """configPath and pluginRoot from tezgah's row in dsh's patch file."""
+    try:
+        with open(DSH_PATCH, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None, None
+    conf = re.search(r"configPath:\s*(\S+)", text)
+    root = re.search(r"pluginRoot:\s*(\S+)", text)
+    return (conf.group(1) if conf else None), (root.group(1) if root else None)
+
+
+def _node_for_ts():
+    """node able to strip TypeScript types (22.6+), or None."""
+    node = shutil.which("node")
+    if not node:
+        return None
+    try:
+        out = subprocess.run([node, "--version"], capture_output=True, text=True,
+                             timeout=10).stdout.strip().lstrip("v").split(".")
+        return node if (int(out[0]), int(out[1])) >= (22, 6) else None
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def live_plan(host):
+    """How one host's real wiring is driven: ("shell", command, payload, env),
+    ("node", argv-head, module path), or ("unverified"|"miss", cause)."""
+    claude_payload = {"hook_event_name": "PostToolUse", "tool_name": "Bash",
+                      "tool_input": {"command": "true"},
+                      "tool_response": {"exit_code": 0}}
+    if host == "codex":
+        groups = (read_json(os.path.join(CODEX, "hooks.json"), {}).get("hooks")
+                  or {}).get("PostToolUse")
+        cmd = _hook_command(groups)
+        if not cmd:
+            return ("miss", "no tezgah PostToolUse command in %s"
+                    % os.path.join(CODEX, "hooks.json"))
+        return ("shell", cmd, claude_payload, {})
+    if host == "claude":
+        root, cause = _claude_plugin_root()
+        if not root:
+            return ("miss", cause)
+        groups = (read_json(os.path.join(root, "hooks", "hooks.json"), {})
+                  .get("hooks") or {}).get("PostToolUse")
+        cmd = _hook_command(groups, own=True)
+        if not cmd:
+            return ("miss", "no PostToolUse command for Bash in %s/hooks/hooks.json" % root)
+        return ("shell", cmd, claude_payload, {"CLAUDE_PLUGIN_ROOT": root})
+    if host == "dsh":
+        conf, root = _dsh_bridge()
+        if not conf or not root:
+            return ("miss", "no tezgah hook bridge row in %s" % DSH_PATCH)
+        cmd = _hook_command((read_json(conf, {}).get("hooks") or {}).get("PostToolUse"),
+                            own=True)
+        if not cmd:
+            return ("miss", "no PostToolUse command for Bash in %s" % conf)
+        return ("shell", cmd, claude_payload, {"CLAUDE_PLUGIN_ROOT": root})
+    if host == "cursor":
+        cmd = _hook_command((read_json(os.path.join(CURSOR, "hooks.json"), {})
+                             .get("hooks") or {}).get("postToolUse"), "Shell")
+        if not cmd:
+            return ("miss", "no tezgah postToolUse command in %s"
+                    % os.path.join(CURSOR, "hooks.json"))
+        return ("shell", cmd, {"hook_event_name": "postToolUse", "tool_name": "Shell",
+                               "tool_input": {"command": "true"},
+                               "tool_output": json.dumps({"exitCode": 0})}, {})
+    if host == "opencode":
+        plugin = next((p for p in (os.path.join(OPENCODE, d, "tezgah.js")
+                                   for d in ("plugins", "plugin")) if os.path.exists(p)), None)
+        if not plugin:
+            return ("miss", "no tezgah.js under %s/plugins" % OPENCODE)
+        node = shutil.which("node")
+        if not node:
+            return ("unverified", "node is not on PATH to import %s" % plugin)
+        return ("node", [node, "--no-warnings"], plugin)
+    if host == "omp":
+        ext = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
+        if not os.path.exists(ext):
+            return ("miss", "no extension at %s" % ext)
+        registered = omp_extensions()
+        if registered is not None and ext not in registered:
+            return ("miss", "%s is not in omp's `extensions` list, so omp never "
+                    "loads it" % ext)
+        node = _node_for_ts()
+        if not node:
+            return ("unverified", "no node 22.6+ to load %s (omp's own loader "
+                    "needs a session)" % ext)
+        plan = ("node", [node, "--experimental-strip-types", "--no-warnings"], ext)
+        if registered is None:
+            return plan + ("registration unread: the omp CLI did not answer",)
+        return plan
+    return ("unverified", "no live probe for this host")
+
+
+def _live_cleanup(slug):
+    """Remove every cache file the synthetic session left (named by its slug)."""
+    for dirpath, _dirs, files in os.walk(tp.cache_dir()):
+        for name in files:
+            if slug in name:
+                try:
+                    os.remove(os.path.join(dirpath, name))
+                except OSError:
+                    pass
+
+
+def live_probe(host):
+    """(state, line) for one host: ok, miss or unverified."""
+    plan = live_plan(host)
+    if plan[0] == "miss":
+        return "miss", "live %s: %s" % (host, plan[1])
+    if plan[0] == "unverified":
+        return "unverified", "live %s: %s" % (host, plan[1])
+    sid = "tezgah-live-%d-%d" % (os.getpid(), int(time.time() * 1000))
+    slug = tezgah_integrity._slug(sid)
+    ledger = os.path.join(tp.cache_dir(), "evidence", slug + ".jsonl")
+    root = tempfile.mkdtemp(prefix="tezgah-live-")
+    env = dict(os.environ, TEZGAH_ROOTS=root)
+    started = time.monotonic()
+    try:
+        if plan[0] == "shell":
+            _kind, cmd, payload, extra = plan
+            env.update(extra)
+            payload = dict(payload, session_id=sid, conversation_id=sid, cwd=root)
+            proc = subprocess.run(cmd, shell=True, input=json.dumps(payload),
+                                  capture_output=True, text=True, env=env,
+                                  cwd=root, timeout=LIVE_TIMEOUT)
+        else:
+            proc = subprocess.run(plan[1] + ["-e", LIVE_DRIVER, host, plan[2],
+                                             root, sid],
+                                  capture_output=True, text=True, env=env,
+                                  cwd=root, timeout=LIVE_TIMEOUT)
+        ms = int((time.monotonic() - started) * 1000)
+        wrote = os.path.isfile(ledger) and os.path.getsize(ledger) > 0
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "miss", "live %s: the hook did not run (%s)" % (host, exc)
+    finally:
+        _live_cleanup(slug)
+        shutil.rmtree(root, ignore_errors=True)
+    if not wrote:
+        err = (proc.stderr or "").strip().splitlines()
+        return "miss", ("live %s: PostToolUse wrote no ledger row (exit %d%s)"
+                        % (host, proc.returncode,
+                           ": " + err[-1][:160] if err else ""))
+    line = "live %s: PostToolUse wrote a ledger row in %d ms" % (host, ms)
+    if host == "codex":
+        hooks = os.path.join(CODEX, "hooks.json")
+        try:
+            with open(os.path.join(CODEX, "config.toml"), encoding="utf-8") as fh:
+                toml = fh.read()
+        except OSError:
+            toml = ""
+        if not _codex_hooks_trusted(hooks, toml):
+            return "miss", ("live codex: the hook runs, but codex does not trust "
+                            "tezgah's group in %s [hooks.state], so codex skips it "
+                            "- approve it in one interactive codex run"
+                            % os.path.join(CODEX, "config.toml"))
+    if len(plan) > 3 and plan[0] == "node":
+        return "unverified", line + "; " + plan[3]
+    return "ok", line
+
+
+def live_report(hosts):
+    """Print one live row per host; 1 when any host is MISS. UNVERIFIED (no
+    way to drive the loader here) is reported, never as ok, and never fails."""
+    print("\nlive (one synthetic PostToolUse per host, through its own wiring):")
+    failed = False
+    for h in hosts:
+        state, line = live_probe(h)
+        mark = {"ok": OK, "miss": NO}.get(state, " UNVERIFIED ")
+        print("  %s %s" % (mark, line))
+        failed = failed or state == "miss"
+    return 1 if failed else 0
+
+
 def report(hosts):
     print("tezgah checkout: %s\n" % HERE)
     print("roots (%s):" % ("TEZGAH_ROOTS" if os.environ.get("TEZGAH_ROOTS")
@@ -4614,6 +4865,9 @@ def main(argv):
                     help="ask the install questions (a bare run on a terminal does this)")
     ap.add_argument("--report", action="store_true",
                     help="report what is armed, per host (a bare run on a pipe does this)")
+    ap.add_argument("--live", action="store_true",
+                    help="with the report: run one synthetic tool event through "
+                         "each host's own hook wiring and require a ledger row")
     ap.add_argument("--refresh", action="store_true",
                     help="re-render every always-on contract file of the armed "
                          "hosts (after a policy edit or a kill switch)")
@@ -4813,6 +5067,8 @@ def main(argv):
     if args.roots:
         sys.exit("--roots only means something with --install")
     report(hosts)
+    if args.live:
+        return live_report(hosts) or select_code
     return select_code
 
 

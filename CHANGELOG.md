@@ -4,7 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.29.0] - 2026-10-02
+
+### Added
+
+- **`tezgah-setup --report --live`: proof that the hooks run.** A green report
+  said the wiring was on disk, not that it executed (audit Phase 1.2). Each host
+  now gets one synthetic PostToolUse through its own wiring - the command in its
+  hooks file, the opencode plugin imported by node, the omp extension loaded from
+  omp's own list - and must write a ledger row for a throwaway session that is
+  deleted afterwards. A host that cannot be exercised without a model reads
+  `UNVERIFIED`, never `ok`; any `MISS` exits 1. No model is called.
+- **A disarmed gate is visible (`gate✗`).** When a session's transcript shows at
+  least three gated tool calls since its first turn and the ledger holds no row
+  from the tool hooks, the next prompt carries "tezgah gate inactive on this
+  host" and the status line heads with `gate✗` (audit Phase 1.3). Observed on
+  Claude and Codex; omp and opencode cannot be half-armed.
 
 ### Security
 
@@ -92,6 +107,17 @@ healthy, the mechanical half had paths that disarmed it in silence.
   and `file` are not bookkeeping; an idle turn no longer clears a partial
   failure; `git commit --mess "-x"` is read as git reads it; Ctrl-C during
   `--deps` takes the installer with it; a symlinked cache root is left alone.
+- **A third review closed the last two.** A `<<'X'` inside quotes, a comment or a
+  here-string was read as a heredoc, so every gate reader blanked the lines after
+  it: `echo "<<'X'"` followed by `git commit --no-verify` passed the gate on
+  every host. One heredoc reader now serves every check, Python and opencode. A
+  workspace whose provenance cannot be told no longer switches the user's own
+  plan guard off; only a tracked `.tezgah` does.
+  The heredoc reader follows bash's own nesting: `<<` inside `$((...))` or
+  `((...))` is a shift, not a heredoc, and a heredoc inside `"$(cat <<'EOF'
+  ...)"` - the usual commit-message shape - is recognised, so its body is no
+  longer read as commands. Rows the gate wrote when it denied a call count as
+  proof it ran, and the detector reads the fallback cache's ledger too.
 
 ## [0.28.0] - 2026-10-01
 
@@ -2967,6 +2993,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.29.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.29.0
 [0.28.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.28.0
 [0.27.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.27.1
 [0.27.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.27.0

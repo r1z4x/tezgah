@@ -95,6 +95,14 @@ class Record(unittest.TestCase):
         self.repo = os.path.join(self.base, "repo")
         self.open = os.path.join(self.repo, ".tezgah", "plans", "open")
         os.makedirs(self.open)
+        # the provenance answer is cached under cache_dir(): an in-process test
+        # must never write the machine's own cache
+        import tezgah_paths as tp
+        cache = os.path.join(self.base, "cache")
+        os.makedirs(cache)
+        self._cache = tp.CACHE
+        tp.CACHE = cache
+        self.addCleanup(setattr, tp, "CACHE", self._cache)
 
     def plan(self, name, text):
         path = os.path.join(self.open, name)
@@ -166,6 +174,53 @@ class Record(unittest.TestCase):
         subprocess.run(["git", "-C", self.repo, "add", "-f", ".tezgah"], check=True,
                        env=env)
         self.assertIsNone(tt.active(self.repo, self.base))
+
+    def git_repo(self):
+        env = dict(os.environ, **GIT_ENV)
+        subprocess.run(["git", "init", "-q", self.repo], check=True, env=env)
+        return env
+
+    def test_a_workspace_that_cannot_be_told_keeps_the_users_plan_in_force(self):
+        # Review R2: the injection side reads every can't-tell as
+        # "repository-provided", and the task rule borrowed that reading, so the
+        # user's own guard went off in silence. Only a tracked `.tezgah` does it.
+        self.plan("001-mine.md", plan_text("001", phase="implementation",
+                                           allowed=["hooks/**"]))
+        self.git_repo()
+        with open(os.path.join(self.repo, ".git", "index"), "wb") as fh:
+            fh.write(b"not an index")  # unreadable: can't tell
+        self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
+
+    def test_a_symlinked_workspace_of_the_users_own_keeps_the_plan_in_force(self):
+        real = os.path.join(self.base, "elsewhere")
+        os.rename(os.path.join(self.repo, ".tezgah"), real)
+        os.symlink(real, os.path.join(self.repo, ".tezgah"))
+        self.open = os.path.join(real, "plans", "open")
+        self.plan("001-mine.md", plan_text("001", phase="implementation"))
+        self.git_repo()
+        self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
+
+    def test_an_unchanged_index_is_not_parsed_again(self):
+        import tezgah_paths as tp
+        self.plan("001-mine.md", plan_text("001", phase="implementation"))
+        env = self.git_repo()
+        self.touch_tracked(env, "f")
+        calls = []
+        real = tp._index_tracks_workspace
+        tp._index_tracks_workspace = lambda root: calls.append(root) or real(root)
+        self.addCleanup(setattr, tp, "_index_tracks_workspace", real)
+        for _ in range(3):
+            self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
+        self.assertEqual(len(calls), 1)
+        # a changed index is read again, and the new answer wins
+        subprocess.run(["git", "-C", self.repo, "add", "-f", ".tezgah"], check=True,
+                       env=env)
+        self.assertIsNone(tt.active(self.repo, self.base))
+        self.assertEqual(len(calls), 2)
+
+    def touch_tracked(self, env, name):
+        open(os.path.join(self.repo, name), "w").close()
+        subprocess.run(["git", "-C", self.repo, "add", name], check=True, env=env)
 
     # ----------------------------------------------------------------- match
 
