@@ -165,9 +165,9 @@ In order, each step verified by the one below it:
    (`bin/tezgah-setup:2050-2054`), and `uninstall_<host>()` removing only
    tezgah-managed links and blocks (`bin/tezgah-setup:2543-2694`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
-   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:4210-4214`); the
+   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:4218-4222`); the
    `--report` output is that list (`bin/tezgah-setup:3028-3106`). Give the row a home-qualified
-   label if the host's dir can be relocated (`host_checks_codex`, `bin/tezgah-setup:4008-4039`).
+   label if the host's dir can be relocated (`host_checks_codex`, `bin/tezgah-setup:4016-4047`).
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
@@ -294,7 +294,7 @@ In order, each step verified by the one below it:
   host whose shell the gate cannot see.
 - **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:3682-3700`),
   so a change is not live until `--sync` or a refresh
-  (`refresh_plugin_copy`, `bin/tezgah-setup:4561-4581`).
+  (`refresh_plugin_copy`, `bin/tezgah-setup:4569-4589`).
 - **omp spawns the MCP `command` as one executable** and takes the rest in
   `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1322-1324`),
   and `setStatus` strips ANSI, so only the widget path keeps the per-mark colors

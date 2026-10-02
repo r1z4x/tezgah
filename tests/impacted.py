@@ -53,7 +53,9 @@ OVERRIDES = {
     "tezgah_paths": None,  # None means FULL: every module imports the paths
     "tezgah_context": ("gate", "skills", "agents"),
     # the lessons block and the docs fallback rank through it
-    "tezgah_rank": ("context", "docs_router"),
+    "tezgah_rank": ("context", "docs_router", "embed"),
+    # the opt-in fusion both of those call, and the registry rows that probe it
+    "tezgah_embed": ("context", "docs_router", "apps_registry"),
 }
 # a change only in these maps to only these modules
 DOC_TARGETS = ("docs", "docs_router")

@@ -106,6 +106,15 @@ class Unjudged(JudgeCase):
         self.assertTrue(proc.stdout.startswith("docs/operations.md"), proc.stdout)
         self.assertEqual(Fake.seen, [], "the judge was asked without a credential")
 
+    def test_a_turkish_question_reaches_its_page_through_the_phrasings(self):
+        # No word of it is in the English title or answers (it ranked nothing
+        # before the index carried `title_tr`/`answers_tr`), and the word match
+        # does not read those fields, so the ranking is what places it.
+        proc = self.docs(*"kurulu sürümü nasıl geri alırım".split())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(proc.stdout.startswith("docs/operations.md"), proc.stdout)
+        self.assertEqual(Fake.seen, [])
+
     def test_a_judge_call_that_fails_falls_back_to_the_ranking(self):
         # a credential that is refused, and a reply naming no option, are no
         # judgement - unlike a judged `none`, which still exits 1

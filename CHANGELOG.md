@@ -27,6 +27,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now prints the three pages sharing the most query words (10 of 10 English and
   3 of 10 Turkish measured questions had the right page in that three). The judge
   stays first when it answers, and its `none` still exits 1.
+- **A Turkish question reaches its English docs page.** `docs/index.json` carries
+  a Turkish phrasing of every page title and answer (`title_tr`, `answers_tr`),
+  which the word ranking in `tezgah-docs` reads and the exact word match does
+  not; on the same measured questions 8 of 10 Turkish (from 3) and still 10 of
+  10 English have the right page in the three printed.
+- **Opt-in embedding relevance: `--enable embed-mrl` or `embed-m2v`.** A static
+  embedding model, read by a stdlib reader (`hooks/tezgah_embed.py`), fused by
+  reciprocal rank with the word ranking of the per-turn lessons and the
+  `tezgah-docs` fallback. The enable fetches the pinned source files over HTTPS
+  (repository, commit and sha256 pinned), converts them with the standard
+  library alone, checks the result's own pinned sha256 and writes one owner-only
+  file under `~/.cache/tezgah/embed`; `--disable` removes it. Off by default and
+  never fetched by a plain install; at hook time a missing or altered file, or
+  any error, is the word ranking exactly as before, with no network call.
+  Measured: lessons recall@5 0.647 -> 0.696 (`embed-mrl`) / 0.675 (`embed-m2v`),
+  Turkish docs questions 8 -> 9 / 8 of 10, a cold user-prompt turn 0.16 s ->
+  0.24 s / 0.49 s.
 
 ### Fixed
 

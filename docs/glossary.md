@@ -71,7 +71,7 @@ The prose explaining the status [marks](#mark) and their glyphs, `LEGEND` (`hook
 One item of the armed/used checklist as a host shows it, a segment carrying `key`, `state`, `glyph`, `text` and `group` from `health_segments()` (`hooks/tezgah_context.py:2255-2326`, `hooks/tezgah_context.py:2315-2316`), for example `pony✓` or `consult○`. Not a [kind](#kind), which is a ledger row, and not the [state](#state), which is the value one mark carries.
 
 ### metadata band
-One measured row of always-on context the installer reports in bytes: the core contract, the per-turn reminder, skill metadata, subagent metadata and the conditional rules (`context_budget()`, `bin/tezgah-setup:3375-3401`, rows at `bin/tezgah-setup:3150-3156`), with the MCP tool schemas as the one band it cannot count and measures by handshake instead (`mcp_schema_report()`, `bin/tezgah-setup:3438-3474`). Not the [budget](#budget): a band is a measurement, a budget a bound.
+One measured row of always-on context the installer reports in bytes: the core contract, the per-turn reminder, skill metadata, subagent metadata and the conditional rules (`context_budget()`, `bin/tezgah-setup:3383-3409`, rows at `bin/tezgah-setup:3150-3156`), with the MCP tool schemas as the one band it cannot count and measures by handshake instead (`mcp_schema_report()`, `bin/tezgah-setup:3446-3482`). Not the [budget](#budget): a band is a measurement, a budget a bound.
 
 ### mirror
 `output-styles/tezgah.md`, a by-hand duplicate of `always_on_core()` kept for the host path that is hookless, which a test holds to the generator (`tests/test_context.py:2489-2506`). Not generated: an edit to [CORE](#core) must be carried into it by hand - a lesson the local `.tezgah/lessons.md` ledger holds; that file is untracked by design, so it carries no `path:line` here.
@@ -95,7 +95,7 @@ A piece of work spanning sessions, one markdown file with frontmatter under `<re
 The status table in `.tezgah/plans/README.md` (`.tezgah/plans/README.md:3`), owned by the `plan-status` skill (`skills/plan-status/SKILL.md:1`) and among the first blocks the [budget](#budget) gives up because it lives on disk (`hooks/tezgah_context.py:1244-1246`). Not the injected list of open plans.
 
 ### plugin copy
-Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:4350-4366`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:3957-4016`, `bin/tezgah-setup:3709`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
+Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup:4358-4374`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:3957-4016`, `bin/tezgah-setup:3709`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
 
 ### pointer
 The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py:854-856`). Not a rule.

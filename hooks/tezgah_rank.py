@@ -2,10 +2,12 @@
 
 Two callers rank a short list against free text with no model and no network:
 the per-turn lessons block (`tezgah_context.relevant_lessons`) and the docs
-fallback when the judge is unavailable (`bin/tezgah-docs`). The lists are tens
-of entries, so the whole index is rebuilt per call. Measured on 12 prompts
-against a 42-line lessons ledger (Turkish and English): recall@5 0.647, against
-0.103 for the last five lines the session block injects.
+fallback when the judge is unavailable (`bin/tezgah-docs`), both through
+`tezgah_embed.fuse`, which is exactly this ranking unless the opt-in embedding
+feature is on. The lists are tens of entries, so the whole index is rebuilt per
+call. Measured on 12 prompts against a 42-line lessons ledger (Turkish and
+English): recall@5 0.647, against 0.103 for the last five lines the session
+block injects.
 """
 import math
 import re

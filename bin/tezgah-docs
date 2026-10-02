@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_judge  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
-import tezgah_rank  # noqa: E402
+import tezgah_embed  # noqa: E402
 
 INDEX = os.path.join(HERE, "docs", "index.json")
 
@@ -376,20 +376,25 @@ def judge_pick(query):
 
 
 # How many pages the word ranking prints: the right page was in the top three for
-# 13 of 20 measured questions (10 of 10 English, 3 of 10 Turkish) and first for 11.
+# 18 of 20 measured questions (10 of 10 English, 8 of 10 Turkish, the Turkish
+# phrasings included) and first for 12.
 RANKED = 3
 
 
 def ranked(query):
     """The pages sharing the most query words, best first: the fallback when the
-    judge gave no judgement (unavailable, or a call that failed). A query sharing
-    no word with any page gets [], so `tezgah-docs zzz-nothing-matches` still
-    exits 1."""
+    judge gave no judgement (unavailable, or a call that failed). A page is
+    ranked on its title and answers and on their Turkish phrasings (`title_tr`,
+    `answers_tr`), which the word match above does not read. A query sharing no
+    word with any page gets [], so `tezgah-docs zzz-nothing-matches` still exits
+    1 - unless the opt-in embedding feature is on (`tezgah_embed.fuse`), which
+    places every page."""
     pages = entries()
-    texts = [" ".join([str(p.get("title") or "")]
-                      + [str(a) for a in (p.get("answers") or [])]
-                      + [str(p["path"])]) for p in pages]
-    return [pages[i] for i in tezgah_rank.rank(query, texts, RANKED)]
+    groups = [[str(p.get("title") or "")] + [str(a) for a in (p.get("answers") or [])]
+              + [str(p.get("title_tr") or "")]
+              + [str(a) for a in (p.get("answers_tr") or [])] for p in pages]
+    texts = [" ".join(g + [str(p["path"])]) for g, p in zip(groups, pages)]
+    return [pages[i] for i in tezgah_embed.fuse(query, texts, RANKED, groups)]
 
 
 KNOWN = ("--json", "--read", "--citations", "--help", "-h")

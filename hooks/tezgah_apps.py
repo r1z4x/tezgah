@@ -18,6 +18,7 @@ Nothing here is installed by tezgah: the commands run through `npx`, which is
 present wherever node is (the dsh host and its status line already need it).
 """
 import os
+import sys
 
 HOME = os.path.expanduser("~")
 
@@ -132,6 +133,30 @@ def _probe_ai_research():
     return d if os.path.isfile(os.path.join(d, "SKILL.md")) else None
 
 
+# The fetch-and-convert step of an embedding row, run by the installer as its
+# `cmd`, and the probe that answers whether the pinned file is in place.
+_EMBED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tezgah_embed.py")
+
+
+def _embed():
+    import tezgah_embed
+    return tezgah_embed
+
+
+def _embed_row(ident, name, model):
+    return {"id": ident, "name": name,
+            "why": "lessons and docs ranked by meaning as well as words (%s)" % model,
+            "command": None, "env": None, "default": False,
+            # removed by --disable: the file is tezgah's own, not a tool the
+            # user may want for something else
+            "remove": lambda: _embed().remove(ident),
+            "dep": {"name": ident, "probe": lambda: _embed().valid(ident),
+                    "needs": (sys.executable,),
+                    "cmd": [sys.executable, _EMBED, "fetch", ident],
+                    "why": "the converted model file under ~/.cache/tezgah/embed "
+                           "(missing, or not the pinned sha256)"}}
+
+
 # ----------------------------------------------------------------- registry ---
 # One row per feature id. `command`/`env` are the server spec, so a row without
 # a `command` is a feature with no host file to write (nothing iterates those
@@ -203,6 +228,13 @@ REGISTRY = (
              "cmd": ["sh", "-c",
                      "curl -LsSf https://openresearch.sh/install.sh | sh"],
              "why": "research routing (OpenResearch)"}},
+    # Opt-in, not servers: a static embedding model fused with BM25 for the
+    # per-turn lessons and the docs fallback (hooks/tezgah_embed.py). Enabling
+    # one fetches and converts its pinned file; the first selected one is used.
+    _embed_row("embed-mrl", "embed-mrl",
+               "static-similarity-mrl-multilingual-v1, 128 dims, ~15 MB"),
+    _embed_row("embed-m2v", "embed-m2v",
+               "potion-multilingual-128M, PCA-128, ~42 MB"),
 )
 
 IDS = tuple(r["id"] for r in REGISTRY)

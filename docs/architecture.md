@@ -104,8 +104,10 @@ One session, in order. Each step names the file that handles the event on Claude
    (`classify_prompt`, `hooks/tezgah_context.py:1042-1045`), one line naming what moved
    since the previous turn (`hooks/tezgah_context.py:992-1023`), up to three older
    lessons the prompt shares words with (`relevant_lessons`, ranked by
-   `hooks/tezgah_rank.py`; each once per session, remembered in the turn stamp
-   and forgotten at a compaction),
+   `hooks/tezgah_rank.py`, or, with the opt-in `embed-mrl`/`embed-m2v` feature,
+   fused with a static embedding by `hooks/tezgah_embed.py`, see
+   [operations.md](operations.md#opt-in-embedding-relevance); each once per
+   session, remembered in the turn stamp and forgotten at a compaction),
    and the stale-index notice (`hooks/tezgah_context.py:2099-2135`).
 3. **PreToolUse** — `hooks/projects-pretooluse.py:24` calls `decision` and emits
    the deny envelope (`hooks/projects-pretooluse.py:25-30`). The gate is the same

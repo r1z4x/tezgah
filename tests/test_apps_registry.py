@@ -29,7 +29,9 @@ import tezgah_apps as ta  # noqa: E402  (the module under test)
 # shows up.
 MCP_IDS = ("mcp-playwright", "mcp-mobile-mcp", "mcp-chrome-devtools")
 PLAIN_IDS = ("ai-research", "orx")
-ALL_IDS = MCP_IDS + PLAIN_IDS
+# Opt-in, serverless: the embedding models a --enable fetches and converts.
+EMBED_IDS = ("embed-mrl", "embed-m2v")
+ALL_IDS = MCP_IDS + PLAIN_IDS + EMBED_IDS
 # The wiring every release before this pass wrote, and therefore the answer a
 # config.json without a `features` key has to keep producing.
 WAS_ALWAYS_ON = ["playwright", "mobile-mcp"]
@@ -104,7 +106,8 @@ class DeclaredDefaults(unittest.TestCase):
         self.assertEqual(ta.names(), WAS_ALWAYS_ON)
         self.assertEqual([s["name"] for s in ta.servers()], WAS_ALWAYS_ON)
         self.assertEqual(list(ta.defaults()),
-                         [i for i in ALL_IDS if i != "mcp-chrome-devtools"])
+                         [i for i in ALL_IDS
+                          if i != "mcp-chrome-devtools" and i not in EMBED_IDS])
 
     def test_an_absent_selection_is_the_declared_default_not_everything(self):
         self.assertEqual(ta.selected_ids(None), ta.defaults())

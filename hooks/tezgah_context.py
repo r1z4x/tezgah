@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-import tezgah_rank
+import tezgah_embed
 import tezgah_research
 from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
                               last_check, note, note_compaction, note_turn,
@@ -904,12 +904,12 @@ def relevant_lessons(root, prompt, seen):
     """(block, keys): the older lessons this prompt is about, as a context block,
     and the keys to remember them by; ("", []) when none qualify.
 
-    A candidate shares a word with the prompt (`tezgah_rank`), is not among the
-    last LESSON_LINES the session block already carries, and is not in `seen`
-    (the keys this session was already shown)."""
+    A candidate shares a word with the prompt (`tezgah_rank`; any line with the
+    opt-in embedding on, `tezgah_embed.fuse`), is not among the last LESSON_LINES
+    the session block carries, and is not in `seen` (keys already shown)."""
     lines = _lesson_lines(root)
     older = len(lines) - LESSON_LINES
-    picked = [i for i in tezgah_rank.rank(prompt, lines, len(lines))
+    picked = [i for i in tezgah_embed.fuse(prompt, lines, len(lines))
               if i < older and lesson_key(lines[i]) not in seen][:RELEVANT_LESSONS]
     if not picked:
         return "", []
