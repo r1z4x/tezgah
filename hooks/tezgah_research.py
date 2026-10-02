@@ -596,13 +596,10 @@ def _changed_after(repo, path, rev):
     rel = os.path.relpath(path, top)
     # the blob the run saw may sit under the name the file had then (a line moved
     # from open/ to done/ after the run): compare it, not "absent, so unchanged"
-    at_rev = None
-    for name in _historical_names(top, rel, ("--all",) if top != repo else ()):
-        at_rev, err = _blob(top, rev, name)
-        if err:
-            return None
-        if at_rev is not None:
-            break
+    at_rev, err = _blob_by_name(top, rev, rel,
+                                ("--all",) if top != repo else ())
+    if err:
+        return None
     at_tip, err = _blob(top, "HEAD", rel)
     if err:
         return None
@@ -684,14 +681,43 @@ def _bridged_commit(repo, commit):
     return None
 
 
-def _rel_at(repo, rev, rels):
-    """The first of `rels` that `rev` holds, else the first: the path a file had
-    at that commit, for a reader that compares blobs at fixed revisions."""
-    for rel in rels:
-        sha, err = _blob(repo, rev, rel)
-        if not err and sha:
-            return rel
-    return rels[0]
+def _rel_at(repo, rev, rel):
+    """The name `rel`'s file had at `rev` (`_name_at`), else `rel`: a bridge read
+    under a missing or ambiguous name finds no add and refuses."""
+    name, _sha, _err = _name_at(repo, rev, rel)
+    return name or rel
+
+
+def _name_at(top, rev, rel, extra=()):
+    """(name, blob, error): the name `rel`'s file had at `rev`.
+
+    Today's own layout names are tried first; a historical spelling only when
+    none of them is in that tree (`decisions/D1` before the migration lowercased
+    it). Two historical spellings both present at `rev` is an ambiguity, answered
+    with an error rather than a pick: a decoy `H1/` committed beside `h1/` with
+    the edited text was read as the run's protocol (consult review round 3)."""
+    for name in _own_names(rel):
+        sha, err = _blob(top, rev, name)
+        if err:
+            return None, None, err
+        if sha:
+            return name, sha, None
+    found = []
+    for name in _historical_names(top, rel, extra):
+        sha, err = _blob(top, rev, name)
+        if err:
+            return None, None, err
+        if sha:
+            found.append((name, sha))
+    if len(found) > 1:
+        return None, None, "%d spellings of %s at %s" % (len(found), rel, rev[:8])
+    return (found[0][0], found[0][1], None) if found else (None, None, None)
+
+
+def _blob_by_name(top, rev, rel, extra=()):
+    """(blob, error) of `rel`'s file at `rev` under the name it had then."""
+    _name, sha, err = _name_at(top, rev, rel, extra)
+    return sha, err
 
 
 def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
@@ -732,8 +758,8 @@ def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
         return
     # the name the files had at the rewrite: a line moved to done/ after the
     # re-root is not under its current path in the commits the bridge reads
-    prel = _rel_at(repo, rewrite, _historical_names(repo, os.path.relpath(proto, repo)))
-    rrel = _rel_at(repo, rewrite, _historical_names(repo, os.path.relpath(results, repo)))
+    prel = _rel_at(repo, rewrite, os.path.relpath(proto, repo))
+    rrel = _rel_at(repo, rewrite, os.path.relpath(results, repo))
     p_old, perr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",
                        prel)
     r_old, rerr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",

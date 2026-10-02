@@ -1533,6 +1533,39 @@ class Tracking(Workspace):
         errors = self.errors(repo)
         self.assertTrue(hit("protocol.md changed after the run", errors), errors)
 
+    def test_a_decoy_spelling_at_the_run_does_not_hide_an_edit(self):
+        # consult review round 3: a second spelling of today's directory (`H1`
+        # beside `h1`) committed with the edited text must not be the blob the
+        # run is read under; today's name is tried first. Built in the index,
+        # because a case-insensitive work tree cannot hold both spellings.
+        repo = self.repo()
+        self.line(repo)
+        d = self.protocol(repo, h="h1")
+        self.commit(repo, "protocol", when=BEFORE)
+        ws = os.path.join(repo, ".tezgah")
+        edited = "# Protocol\n\nprediction: whatever the run showed\n"
+        decoy_file = os.path.join(self.home, "decoy-protocol.md")
+        self.write(decoy_file, edited)
+        blob = self.git(ws, "hash-object", "-w", decoy_file).strip()
+        rel = self.rel(ws, os.path.join(d, "protocol.md"))[0]
+        decoy = rel.replace("/h1/", "/H1/")
+        self.git(ws, "update-index", "--add", "--cacheinfo", "100644,%s,%s" % (blob, decoy))
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "decoy spelling")
+        self.results(repo, h="h1")
+        self.git(ws, "add", "-f", self.rel(ws, os.path.join(d, "results.jsonl"))[0])
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "the run")
+        self.write(os.path.join(d, "protocol.md"), edited)
+        self.git(ws, "add", "-f", rel)
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "protocol rewritten after the run")
+        self.git(ws, "rm", "-q", "--cached", decoy)
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "drop the decoy")
+        errors = self.errors(repo)
+        self.assertTrue(hit("protocol.md changed after the run", errors), errors)
+
     def test_a_protocol_edited_after_the_run_is_refused_after_the_move_too(self):
         # following the rename must not lose the edit: the blob the run saw lives
         # under the old path
