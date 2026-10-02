@@ -850,11 +850,20 @@ class ScratchEvidenceReader(unittest.TestCase):
         probe = "api_key" + "=" + "x"
         small = "echo " + "X" * 50000 + " " + probe
         big = "echo " + "X" * 100000 + " " + probe
-        start = time.monotonic()
-        small_out, small_s = ti.redact(small), time.monotonic() - start
-        start = time.monotonic()
-        big_out = ti.redact(big)
-        big_s = time.monotonic() - start
+
+        def timed(text):
+            # the best of three: one sample under the sharded suite's load read
+            # 3.1x for a doubling that measures 2.0x alone (2026-10-02)
+            best = None
+            for _ in range(3):
+                start = time.monotonic()
+                out = ti.redact(text)
+                took = time.monotonic() - start
+                best = took if best is None else min(best, took)
+            return out, best
+
+        small_out, small_s = timed(small)
+        big_out, big_s = timed(big)
         self.assertIn("api_key=[redacted:", small_out or "")
         self.assertIn("api_key=[redacted:", big_out or "")
         # doubling the input must roughly double the time, not square it: the
