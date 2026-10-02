@@ -11,13 +11,17 @@ page instead of guessing and a script can assert the layer is intact.
   tezgah-docs --citations     the citations that no longer show what they name,
                               and the rule ledger's rows that no longer hold
 
+Options come first; the first word that is not one (or everything after `--`)
+starts the query, so `tezgah-docs why was --no-verify blocked` is a query.
+
 Matching is word-based and case-insensitive against an entry's title, its
 questions, its sources and its path; every word must match, so a second word
 narrows. A query that matches nothing is the last resort of one TypeSafe Choice
-question over the pages themselves (`docs-judge-off`, the seam's `judge-off`, or
-no credential, turns that off and leaves this command as it was); it answers
-`none` for a query no page covers. Exit codes: 0 with matches, 1 with none, 2
-usage.
+question over the pages themselves; it answers `none` for a query no page
+covers. With that question unavailable (`docs-judge-off`, the seam's
+`judge-off`, or no credential) the pages are ranked by shared words instead
+(BM25, `hooks/tezgah_rank.py`) and the best few printed. Exit codes: 0 with
+matches, 1 with none, 2 usage.
 """
 import ast
 import glob
@@ -31,6 +35,7 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_judge  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
+import tezgah_rank  # noqa: E402
 
 INDEX = os.path.join(HERE, "docs", "index.json")
 
@@ -365,16 +370,49 @@ def judge_pick(query):
     return next((p for p in pages if p["path"] == chosen), None)
 
 
+# How many pages the word ranking prints: the right page was in the top three for
+# 13 of 20 measured questions (10 of 10 English, 3 of 10 Turkish) and first for 11.
+RANKED = 3
+
+
+def ranked(query):
+    """The pages sharing the most query words, best first: the fallback when the
+    judge cannot be asked. A query sharing no word with any page gets [], so
+    `tezgah-docs zzz-nothing-matches` still exits 1."""
+    pages = entries()
+    texts = [" ".join([str(p.get("title") or "")]
+                      + [str(a) for a in (p.get("answers") or [])]
+                      + [str(p["path"])]) for p in pages]
+    return [pages[i] for i in tezgah_rank.rank(query, texts, RANKED)]
+
+
+KNOWN = ("--json", "--read", "--citations", "--help", "-h")
+
+
+def parse(argv):
+    """(flags, query words, unknown options). Options lead; the first other word
+    or `--` ends them, so a query word may start with `-` (`--no-verify`)."""
+    flags, unknown = set(), []
+    for i, a in enumerate(argv):
+        if a == "--":
+            return flags, argv[i + 1:], unknown
+        if a in KNOWN:
+            flags.add(a)
+        elif a.startswith("--"):
+            unknown.append(a)
+        else:
+            return flags, argv[i:], unknown
+    return flags, [], unknown
+
+
 def main(argv):
-    if "-h" in argv or "--help" in argv:
+    flags, words, unknown = parse(argv)
+    if flags & {"-h", "--help"}:
         print(__doc__.strip())
         return 0
-    flags = {a for a in argv if a.startswith("--")}
-    unknown = sorted(f for f in flags
-                     if f not in ("--json", "--read", "--citations"))
     if unknown:
         sys.stderr.write("tezgah-docs: unknown option(s): %s (try --help)\n"
-                         % ", ".join(unknown))
+                         % ", ".join(sorted(unknown)))
         return 2
     if "--citations" in flags:
         flagged, judged, unjudged = citations(symbols())
@@ -391,11 +429,13 @@ def main(argv):
             print("rule ledger: %d row(s) of the provenance table do not hold"
                   % len(ledger))
         return 1 if flagged or ledger else 0
-    query = " ".join(a for a in argv if not a.startswith("--")).strip()
+    query = " ".join(words).strip()
     found = matches(query) if query else entries()
     if not found:
         pick = judge_pick(query)
         found = [pick] if pick else []
+        if not found and off():
+            found = ranked(query)
     if not found:
         sys.stderr.write("tezgah-docs: nothing matches %r - the bare call lists "
                          "every page\n" % query)

@@ -81,6 +81,7 @@ title, the questions it answers, its audience and its sources.
 tezgah-docs                 # every page, one line each
 tezgah-docs deny shortcut   # the page(s) that answer a query
 tezgah-docs --json status   # the same, for a program
+tezgah-docs -- --no-verify  # `--` ends the options; a word after it is a query word
 tezgah-docs --citations     # the citations that no longer show what they name
 ```
 

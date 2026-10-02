@@ -26,7 +26,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 
 The middle five marks (`consult`, `research`, `graph`, `orch`, `judge`) are tool-use marks:
 any adapter that sees its host's tool calls can light them by calling
-`record()` (`hooks/tezgah_context.py:1564-1587`). CLI-side, `tezgah-status` reads
+`record()` (`hooks/tezgah_context.py:1908-1929`). CLI-side, `tezgah-status` reads
 the same core and takes the session id as an argument or `TEZGAH_SESSION`
 (`bin/tezgah-status:129`).
 
@@ -142,11 +142,11 @@ omp filters in its embedded runner before it asks python
 (`hosts/omp/tezgah-hook.ts.in:40-53`). On codex, cursor and dsh a read is not
 observable at that price, so their surfaces pass the five tool-use measures as
 `observable` and the two skill marks render dim (`info`, no glyph) instead of
-claiming the skill was never opened (`hooks/tezgah_context.py:1839-1844`, and the
-`observable` branch at `hooks/tezgah_context.py:1866-1867`). Callers that pass `TOOL_USE_MEASURES`:
+claiming the skill was never opened (`hooks/tezgah_context.py:2231-2238`, and the
+`observable` branch at `hooks/tezgah_context.py:2295-2296`). Callers that pass `TOOL_USE_MEASURES`:
 `statusline.py:112`, `hosts/codex/hook.py:190,196`,
 `hosts/dsh/statusline/lib/index.js:18`. A kill switch is observable everywhere
-and still renders `off` (`hooks/tezgah_context.py:1864-1865`).
+and still renders `off` (`hooks/tezgah_context.py:2293-2294`).
 
 ## Adding a host
 
@@ -171,7 +171,7 @@ In order, each step verified by the one below it:
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
-   not fork git for a cosmetic glyph (`hooks/tezgah_context.py:1619-1621`).
+   not fork git for a cosmetic glyph (`hooks/tezgah_context.py:2304-2305`).
 6. Tests, in two tiers: a per-host class in `tests/test_setup.py` pinning the
    report rows and the written files (e.g. `OmpHost:960-1030`,
    `CodexHome:657-702`, `CursorMatcher:705-722`, `DshStatusline:872-957`), and an
@@ -199,7 +199,8 @@ In order, each step verified by the one below it:
   project's own git index holds `.tezgah` or any path under it (as a file, a
   symlink or a submodule), when `.tezgah`, `lessons.md`, `plans` or
   `plans/open` is a symlink, or when the index cannot be read, the block is
-  replaced by a one-line "repository-provided data" notice
+  replaced by a one-line "repository-provided data" notice - the per-turn
+  relevant-lessons block too, once per session
   (`workspace_from_repo`, audit L-16). Ceiling: a tree with no `.git` (an
   unpacked archive) carries no record of where `.tezgah` came from, so its
   lessons are injected; do not unpack untrusted archives under a configured root.

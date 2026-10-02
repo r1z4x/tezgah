@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 
+import tezgah_rank
 import tezgah_research
 from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
                               last_check, note, note_compaction, note_turn,
@@ -886,6 +887,39 @@ def lessons(root):
             "against each line before you finish.")
 
 
+# The per-turn half: the session block shows only the last LESSON_LINES, so an
+# older lesson about this very prompt never reached the model (recall@5 0.103 on
+# 12 measured prompts, 0.647 ranked by BM25). At most this many ride a turn, each
+# once per session; together with the 5x200 B session block that keeps the
+# ledger's per-turn cost bounded no matter how long it grows.
+RELEVANT_LESSONS = 3
+
+
+def lesson_key(line):
+    """The short id a lesson is remembered by in the session's turn stamp."""
+    return hashlib.sha1(line.encode("utf-8", "replace")).hexdigest()[:8]
+
+
+def relevant_lessons(root, prompt, seen):
+    """(block, keys): the older lessons this prompt is about, as a context block,
+    and the keys to remember them by; ("", []) when none qualify.
+
+    A candidate shares a word with the prompt (`tezgah_rank`), is not among the
+    last LESSON_LINES the session block already carries, and is not in `seen`
+    (the keys this session was already shown)."""
+    lines = _lesson_lines(root)
+    older = len(lines) - LESSON_LINES
+    picked = [i for i in tezgah_rank.rank(prompt, lines, len(lines))
+              if i < older and lesson_key(lines[i]) not in seen][:RELEVANT_LESSONS]
+    if not picked:
+        return "", []
+    return ("## Lessons relevant to this prompt (.tezgah/lessons.md)\n"
+            + "\n".join("- " + cut(lines[i], LESSON_CHARS) for i in picked)
+            + "\nStanding constraints, like the session's lessons: check the "
+            "change against each line before you finish.",
+            [lesson_key(lines[i]) for i in picked])
+
+
 # --- the per-turn state stamp: what moved since the last turn ---------------
 # The standing constraints ride every turn (PROMPT_REMINDER) and a long one gets
 # a re-statement; what no surface could say is which fact moved. So the state the
@@ -1202,7 +1236,8 @@ DEFAULT_BUDGET = 12000
 # The blocks in the order they are given up when the budget is exceeded, lowest
 # value first: text another surface already carries (the plan table
 # lives in the plan-status skill, the sibling checkouts in `tezgah-research
-# --all`, the lessons file is on disk, the
+# --all`, the lessons file is on disk - the per-turn relevant lessons with it, and
+# a dropped one is not marked seen, so a later turn may still carry it - the
 # generated-subagent note is a one-time fact), then the tooling-availability
 # lines, then the live state lines - the stale-graph glance, then the resume
 # block, which outlives every status and availability line because it is the only
@@ -1215,10 +1250,10 @@ DEFAULT_BUDGET = 12000
 # the per-turn reminder ARE the rules, and a budget that could spend them would
 # turn bloat into rule loss - which is the failure the budget exists to prevent,
 # not one it may cause.
-DROP_ORDER = ("knowledge", "worktrees", "lessons", "plans", "subagents", "steer",
-              "consult", "research", "research_broken", "graph", "offnote",
-              "orchestrate", "index", "resume", "scratch", "task", "delta",
-              "pointer")
+DROP_ORDER = ("knowledge", "worktrees", "lessons", "lessons_turn", "plans",
+              "subagents", "steer", "consult", "research", "research_broken",
+              "graph", "offnote", "orchestrate", "index", "resume", "scratch",
+              "task", "delta", "pointer")
 
 
 def _drop_note(event, limit, dropped, size):
@@ -1588,10 +1623,24 @@ def context_for(event, cwd, payload=None, with_core=True):
         # is behind that move - a comparison that used to end in a status glyph
         # the model never reads.
         stamp = state_stamp(root)
-        delta = state_delta(root, read_stamp(session_id), stamp)
-        write_stamp(session_id, root, stamp)
+        previous = read_stamp(session_id)
+        delta = state_delta(root, previous, stamp)
         if delta:
             parts.append(("delta", delta))
+        # The older lessons this prompt is about, each once per session: the
+        # keys shown so far ride the session's turn stamp, and only a block that
+        # survived the budget adds to them. Repository-provided lessons are data,
+        # so they get the one notice instead, once per session (key "provided").
+        seen = list((previous or {}).get("lessons_seen") or []) \
+            if (previous or {}).get("root") == root else []
+        relevant, keys = "", []
+        if prompt and ".no-lessons" not in repo_marks(cwd)[1]:
+            relevant, keys = relevant_lessons(root, prompt, seen)
+            if relevant and workspace_from_repo(root):
+                relevant, keys = (("", []) if "provided" in seen else
+                                  (repo_provided(".tezgah/lessons.md"), ["provided"]))
+        if relevant:
+            parts.append(("lessons_turn", relevant))
         # The active task's phase, on the turn the work happens in. The gate
         # would refuse a write the phase forbids, but only after the call and at
         # the cost of a turn; this line is the one surface that can stop it.
@@ -1613,7 +1662,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         if disabled:
             parts.append(("offnote", "(off this session: %s)"
                           % ", ".join(disabled)))
-        return budgeted(event, parts)
+        text = budgeted(event, parts)
+        if relevant and relevant in text:
+            seen += keys
+        write_stamp(session_id, root, dict(stamp, lessons_seen=seen))
+        return text
 
     # session_start / post_compact / subagent_start: the compact always-on core
     # plus live index/consult state. The deep orchestration/exec detail moved

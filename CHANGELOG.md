@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The lessons a prompt is about ride that turn.** The session block carries
+  only the last five lines of `.tezgah/lessons.md`, so an older lesson about the
+  very task at hand never reached the model (recall@5 0.103 on 12 measured
+  prompts). Each prompt now ranks the ledger by shared words (BM25, stdlib
+  `hooks/tezgah_rank.py`; recall@5 0.647 on the same prompts) and injects up to
+  three older matches, each cut to 200 characters and each once per session (the
+  shown keys ride the turn stamp under the cache). `.no-lessons` and the
+  repository-provided notice apply as they do to the session block; the block is
+  the first a tight prompt budget gives up after the session's lessons.
+- **`tezgah-docs` ranks the pages when the judge is unavailable.** A query the
+  keyword index cannot place, with no credential or `judge-off`/`docs-judge-off`
+  armed, printed nothing; it now prints the three pages sharing the most query
+  words (10 of 10 English and 3 of 10 Turkish measured questions had the right
+  page in that three). The judge stays first when it is available.
+
+### Fixed
+
+- **A query word may start with `-` in `tezgah-docs`.** `tezgah-docs why was my
+  commit with --no-verify blocked` exited 2 as an unknown option; options now
+  lead, the first other word (or `--`) starts the query.
+
 ## [0.29.2] - 2026-10-03
 
 ### Fixed

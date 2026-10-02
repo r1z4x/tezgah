@@ -118,6 +118,7 @@ hooks/tezgah_lang.py
 hooks/tezgah_models.py
 hooks/tezgah_paths.py
 hooks/tezgah_policy.py
+hooks/tezgah_rank.py
 hooks/tezgah_research.py
 hooks/tezgah_shapes.py
 hooks/tezgah_skill_pick.py
@@ -666,6 +667,7 @@ tests/test_paths.py
 tests/test_paths_worktree.py
 tests/test_platform.py
 tests/test_providers.py
+tests/test_rank.py
 tests/test_research.py
 tests/test_setup.py
 tests/test_shapes.py

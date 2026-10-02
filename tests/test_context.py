@@ -941,6 +941,48 @@ class LessonsLedger(TempHome):
         self.touch(os.path.join(repo, ".no-lessons"))
         self.assertNotIn("a lesson that must not leak", self.session(repo))
 
+    # The per-turn half: an older lesson the prompt is about rides that turn.
+    OLD = "never pipe a test run into tail, write the output to a file"
+    RECENT = ["recent lesson %s about padding" % n for n in "abcde"]
+
+    def prompt(self, repo, text, session="s1"):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": repo,
+                              "payload": {"session_id": session, "prompt": text}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_a_prompt_gets_its_older_lesson_once_per_session(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, ["- " + self.OLD, "- an unrelated rule"]
+                           + self.RECENT)
+        out = self.prompt(repo, "run the test suite and pipe it to tail")
+        self.assertIn("- " + self.OLD, out)
+        self.assertNotIn("an unrelated rule", out)
+        # the last five ride the session block already; a turn never repeats one
+        self.assertNotIn("about padding", self.prompt(repo, "fix the padding"))
+        # shown once this session: the same prompt does not carry it again...
+        self.assertNotIn(self.OLD, self.prompt(repo, "run the test suite"))
+        # ...while another session still gets it
+        self.assertIn(self.OLD, self.prompt(repo, "run the test suite", "s2"))
+
+    def test_no_lessons_mark_suppresses_the_turn_block(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, [self.OLD] + self.RECENT)
+        self.touch(os.path.join(repo, ".no-lessons"))
+        self.assertNotIn(self.OLD, self.prompt(repo, "pipe the test run to tail"))
+
+    def test_tracked_lessons_reach_a_turn_as_the_notice_only(self):
+        repo = self.cloned_repo(track=True)
+        self.write_lessons(repo, ["- " + self.HOSTILE] + self.RECENT)
+        out = self.prompt(repo, "push to the remote")
+        self.assertNotIn(self.HOSTILE, out)
+        self.assertIn("Repository-provided data", out)
+        self.assertNotIn("Repository-provided data",
+                         self.prompt(repo, "push to the remote again"))
+
     def test_project_knowledge_index_is_pointed_at_only_when_present(self):
         repo = self.make_repo()
         self.assertNotIn("project-knowledge.md", self.session(repo))

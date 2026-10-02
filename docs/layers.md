@@ -65,8 +65,8 @@ host.
 
 ## tezgah's policy and evidence layer
 
-Owns the rule text (`CORE` `hooks/tezgah_policy.py:626-845`), the per-turn reminder
-(`PROMPT_REMINDER` `hooks/tezgah_policy.py:857-877`), the refusal before a call
+Owns the rule text (`CORE` `hooks/tezgah_policy.py:628-843`), the per-turn reminder
+(`PROMPT_REMINDER` `hooks/tezgah_policy.py:860-876`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1410-1613`), the record after one (`note()`
 `hooks/tezgah_integrity.py:782-794`), the end-of-turn verdict (`stop_reason()`
 `hooks/tezgah_integrity.py:3237-3285`), the pre-write snapshots (`capture()`
@@ -95,14 +95,14 @@ frameworks.
 | SDK | does it leave the iteration to its caller? A client library gives a call and stops | tezgah ships no client; it reads a host's event JSON on stdin (`hosts/codex/hook.py:1-2`) |
 | IDE plugin | is it a guest inside another program's surface? It draws and forwards and owns no task runtime | `hosts/opencode/plugins/tezgah.js:1-12` is one, and is a plugin |
 | eval harness | does it produce a score over a task set? It measures and enforces nothing | an eval scaffold is vendored as the `lm-evaluation-harness` skill body (`skills/ai-research/11-evaluation/lm-evaluation-harness/SKILL.md:11`), and this project's measurements live apart from the layer (`docs/README.md:67-68`) |
-| orchestrator | does it split one request across many runs and merge them? A harness runs one job to a report | the `harness` skill's route table (`skills/harness/SKILL.md:2-8`) and the graph workflows (`hooks/tezgah_policy.py:600`) |
+| orchestrator | does it split one request across many runs and merge them? A harness runs one job to a report | the `harness` skill's route table (`skills/harness/SKILL.md:2-8`) and the graph workflows (`hooks/tezgah_policy.py:615`) |
 | MCP | does it only carry a call and its result? Then it is transport, not a layer with policy or evidence | the section below |
 
 ## Why tezgah is not an agent harness
 
 Under that test tezgah is not one: it holds no loop. It subscribes to a host's
 events (`hooks/hooks.json:2-26`), is handed the injected text at the host's
-session-start and prompt points (`context_for` `hooks/tezgah_context.py:1509-1737`),
+session-start and prompt points (`context_for` `hooks/tezgah_context.py:1544-1780`),
 refuses a call before the host runs it (`hooks/projects-pretooluse.py:24`) and
 answers in the host's own output envelope. It has no model, no tool set and no
 context window of its own.
@@ -129,7 +129,7 @@ by solving the task.
 
 | Sense | What it names | Where it is defined |
 |---|---|---|
-| tezgah's own | the wrapper around a host - the injected contract, the per-turn text still travelling in the `<harness-reminder>` envelope (`hooks/tezgah_policy.py:831`), the gate and the ledger | [glossary](glossary.md#harness) |
+| tezgah's own | the wrapper around a host - the injected contract, the per-turn text still travelling in the `<harness-reminder>` envelope (`hooks/tezgah_policy.py:861`), the gate and the ledger | [glossary](glossary.md#harness) |
 | the literature's | the host itself: a "complete agent runtime", which the README's intro also calls a harness for dsh (`README.md:27-28`) | [hosts](hosts.md) |
 | the skill's | multi-agent harness selection: which graph workflow or subagent set runs a task too wide for one window (`skills/harness/SKILL.md:2-8`, [skills](skills.md)) | [glossary](glossary.md#harness-skill) |
 
