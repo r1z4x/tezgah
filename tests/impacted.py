@@ -31,6 +31,7 @@ With `--all` nothing is mapped: every module runs, sharded across the pool
 import argparse
 import concurrent.futures
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -83,6 +84,32 @@ def _read(path):
         return ""
 
 
+def _helper_importers(stem, cache):
+    """The test modules that import the tests/ helper `stem`, or None (FULL).
+
+    Only an import statement counts (`import x`, `import x as y`, `import a,
+    x`, `from x import ...`). Any doubt is the fail-safe: a test module that
+    names the helper without such a line, or another tests/ helper that names
+    it (a transitive importer the scan would miss), runs the whole suite
+    (consult review, 2026-10-03)."""
+    word = re.compile(r"\b%s\b" % re.escape(stem))
+    line = re.compile(r"^\s*(?:from\s+%s\s+import\b|import\s+[^\n#]*\b%s\b)"
+                      % (re.escape(stem), re.escape(stem)), re.M)
+    for name in os.listdir(TESTS):
+        if (name.endswith(".py") and not name.startswith("test_")
+                and name != stem + ".py"
+                and word.search(_read(os.path.join(TESTS, name)))):
+            return None
+    hits = []
+    for module in test_modules():
+        src = cache.setdefault(module, _read(os.path.join(TESTS, module)))
+        if line.search(src):
+            hits.append(module)
+        elif word.search(src):
+            return None
+    return hits or None
+
+
 def modules_for(path, cache):
     """The test modules this changed path maps to, or None for the FULL suite."""
     path = os.path.relpath(path, REPO).replace(os.sep, "/")
@@ -91,7 +118,9 @@ def modules_for(path, cache):
     if path == "tests/support.py" or path.startswith("tests/_probe_"):
         return None
     if path.startswith("tests/"):
-        return [name] if ext == ".py" and name.startswith("test_") else None
+        if ext == ".py" and name.startswith("test_"):
+            return [name]
+        return _helper_importers(stem, cache) if ext == ".py" else None
     # docs-only changes exercise the docs modules alone
     if path.startswith("docs/") or path in ("docs/index.json",):
         mods = [m for m in DOC_TARGETS if os.path.exists(

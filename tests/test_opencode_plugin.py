@@ -17,6 +17,7 @@ import tempfile
 import time
 import unittest
 
+import bash_vectors
 import support
 from support import TempHome
 
@@ -309,6 +310,26 @@ class OpenCodePlugin(TempHome):
                         "echo $(cat <<X); echo $(true\ngit commit --no-verify -m x\nX\n)",
                         'echo "$(cat <<X)"; echo "$(true\ngit commit --no-verify -m x\nX\n)"'):
             self.denied(self.before("bash", {"command": command}))
+
+    def test_the_heredoc_reader_agrees_with_bash(self):
+        # the mirror held to the vectors tests/test_bash_agreement measures
+        # against the bash on PATH (3.2 locally, 5.x on CI's ubuntu legs)
+        vectors = bash_vectors.EXPOSED + bash_vectors.HIDDEN
+        exposed = [c for c in vectors if bash_vectors.bash_runs_commit(c)]
+        hidden = [c for c in bash_vectors.HIDDEN if c not in exposed]
+        missed = set(bash_vectors.EXPOSED) - set(exposed)
+        self.assertEqual(missed - bash_vectors.BODY_ON_BASH5, set())
+        calls = [{"hook": "tool.execute.before",
+                  "input": {"tool": "bash", "args": {"command": c},
+                            "sessionID": "s1"}} for c in exposed + hidden]
+        results = self.drive(calls)
+        # zip stops at the shorter list: a lost result would skip a vector
+        self.assertEqual(len(results), len(calls))
+        version = bash_vectors.bash_version()
+        for command, res in zip(exposed, results):
+            self.assertFalse(res["ok"], "bash %s runs the commit in %r" % (version, command))
+        for command, res in zip(hidden, results[len(exposed):]):
+            self.assertTrue(res["ok"], "bash %s keeps %r as body" % (version, command))
 
     def test_plain_commands_pass(self):
         for command in ("pytest -q", "git commit -m 'fix: typo'", "git status",

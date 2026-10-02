@@ -7,6 +7,8 @@ source file the repo ships maps to a non-empty set or to FULL, the hand-known
 edges hold, and the fail-safe answers FULL. It runs no test module.
 """
 import os
+import shutil
+import tempfile
 import unittest
 
 import impacted
@@ -58,6 +60,40 @@ class TheMap(unittest.TestCase):
 
     def test_a_test_module_maps_to_itself(self):
         self.assertEqual(self.modules("tests/test_gate.py"), ["test_gate.py"])
+
+    def test_a_helper_nothing_imports_is_the_full_suite(self):
+        # a helper that changes changes what its importers assert; the import
+        # forms and the doubt cases are pinned on a fixture tree below, since
+        # naming a real helper here would itself be a mention without an import
+        self.assertIsNone(self.modules("tests/no_such_helper.py"))
+
+    def _fixture(self, files):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        for name, body in files.items():
+            with open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+                fh.write(body)
+        old = impacted.TESTS
+        impacted.TESTS = d
+        self.addCleanup(setattr, impacted, "TESTS", old)
+        return impacted._helper_importers("vec", {})
+
+    def test_every_import_form_counts_and_any_doubt_is_the_full_suite(self):
+        # consult review: a substring match missed `from vec import` and
+        # `import a, vec`, so a change ran only one of two importers
+        self.assertEqual(self._fixture({
+            "vec.py": "", "test_a.py": "import vec\n",
+            "test_b.py": "from vec import X\n", "test_c.py": "import os, vec\n",
+            "test_d.py": "import vectors_other\n"}),
+            ["test_a.py", "test_b.py", "test_c.py"])
+        # named without an import line: the scan cannot tell, so FULL
+        self.assertIsNone(self._fixture({
+            "vec.py": "", "test_a.py": "import vec\n",
+            "test_b.py": "spec = __import__('vec')\n"}))
+        # a transitive importer: another helper imports it, so FULL
+        self.assertIsNone(self._fixture({
+            "vec.py": "", "other.py": "import vec\n",
+            "test_a.py": "import other\n"}))
 
     def test_a_docs_change_maps_to_the_docs_modules_only(self):
         self.assertEqual(self.modules("docs/gate.md"), ["docs", "docs_router"])
