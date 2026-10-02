@@ -62,6 +62,14 @@ class TheMap(unittest.TestCase):
     def test_a_docs_change_maps_to_the_docs_modules_only(self):
         self.assertEqual(self.modules("docs/gate.md"), ["docs", "docs_router"])
 
+    def test_a_root_level_page_maps_to_the_docs_modules(self):
+        # measured 2026-10-01: `--run RELEASING.md` fell through to the FULL
+        # suite because only CHANGELOG.md and MANIFEST were handled at the root
+        for page in ("RELEASING.md", "CONTRIBUTING.md", "AGENTS.md", "README.md"):
+            mods = self.modules(page)
+            self.assertIn("docs", mods or [], page)
+            self.assertNotEqual(mods, None, page)
+
     def test_an_unknown_path_is_the_full_suite(self):
         self.assertIsNone(self.modules("some/other/file.txt"))
 

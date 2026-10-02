@@ -100,6 +100,13 @@ def modules_for(path, cache):
     if path == "CHANGELOG.md" or path == "MANIFEST":
         mods = _tests_mentioning("packaging", cache)
         return mods or None
+    if os.sep not in path and path.endswith(".md"):
+        # a root-level page (RELEASING.md, CONTRIBUTING.md, AGENTS.md, README.md):
+        # the docs modules read the pages the index names, and the packaging tests
+        # hold the shipped listing - not the whole suite
+        mods = {m for m in DOC_TARGETS if os.path.exists(os.path.join(TESTS, "test_%s.py" % m))}
+        mods |= set(_tests_mentioning(path, cache))
+        return sorted(mods) or None
     if path.startswith("skills/"):
         stem_skill = path.split("/")[1]
         mods = set(_tests_mentioning(stem_skill, cache)) | set(
