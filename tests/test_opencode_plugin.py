@@ -304,8 +304,9 @@ class OpenCodePlugin(TempHome):
             self.allowed(self.before("bash", {"command":
                 "git commit -m \"$(cat <<'EOF'\nfix: gate\n\n%s\nEOF\n)\"" % body}))
         # a newline inside quotes after the operator is text, not the body's start
-        self.denied(self.before("bash", {"command":
-            'cat <<X "a\nb"; git commit --no-verify -m x\nbody\nX'}))
+        for command in ('cat <<X "a\nb"; git commit --no-verify -m x\nbody\nX',
+                        "cat <<X $(echo a\necho b); git commit --no-verify -m x\nbody\nX"):
+            self.denied(self.before("bash", {"command": command}))
 
     def test_plain_commands_pass(self):
         for command in ("pytest -q", "git commit -m 'fix: typo'", "git status",

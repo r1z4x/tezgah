@@ -1696,11 +1696,17 @@ def _heredocs(cmd):
     stack = [["top", 0]]
     while i < n:
         ch, kind = cmd[i], stack[-1][0]
-        # bash collects a body at a newline token: one inside a quote or an
-        # arithmetic is text, and the line it ends still runs (consult review)
-        if ch == "\n" and pending and kind in ("top", "cmd"):
+        # bash collects a body at a newline token of the command context the
+        # operator was read in: a newline inside a quote or an arithmetic is
+        # text, and one inside a `$( )` opened after the operator belongs to the
+        # substitution - `cat <<X $(a\nb); cmd` runs `cmd` (consult review,
+        # measured with bash 3.2)
+        ready = ([p for p in pending if p[5] == len(stack)]
+                 if ch == "\n" and kind in ("top", "cmd") else [])
+        if ready:
+            pending = [p for p in pending if p[5] != len(stack)]
             pos = i + 1
-            for start, stop, tag, quoted, strip in pending:
+            for start, stop, tag, quoted, strip, _depth in ready:
                 body, term = pos, None
                 while pos < n and tag:
                     end = cmd.find("\n", pos)
@@ -1713,7 +1719,7 @@ def _heredocs(cmd):
                 found.append((start, stop, tag, quoted, body, term))
                 if term is None:
                     return found
-            pending, i = [], pos
+            i = pos
             continue
         if ch == "\\":
             i += 2
@@ -1779,11 +1785,11 @@ def _heredocs(cmd):
             while j < n and cmd[j] in " \t":
                 j += 1
             tag, quoted, j = _heredoc_tag(cmd, j)
-            pending.append((i, j, tag, quoted, strip))
+            pending.append((i, j, tag, quoted, strip, len(stack)))
             i = j
         else:
             i += 1
-    found += [(s, e, t, q, n, None) for s, e, t, q, _ in pending]
+    found += [(s, e, t, q, n, None) for s, e, t, q, _, _ in pending]
     return found
 
 

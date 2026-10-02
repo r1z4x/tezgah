@@ -305,7 +305,9 @@ class ShortcutCommand(unittest.TestCase):
         # token, so a newline inside a quoted argument after the operator is
         # text, and the commit on that line runs (measured with `bash -c`)
         for c in ('cat <<X "a\nb"; git commit --no-verify -m x\nbody\nX',
-                  "cat <<X $((1\n+1)); git commit --no-verify -m x\nbody\nX"):
+                  "cat <<X $((1\n+1)); git commit --no-verify -m x\nbody\nX",
+                  # a newline inside a later `$( )` belongs to it (bash 3.2)
+                  "cat <<X $(echo a\necho b); git commit --no-verify -m x\nbody\nX"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
         self.assertEqual(ti.heredoc_bodies('cat <<X "a\nb"; ls\nbody\nX'),
                          ["body"])
