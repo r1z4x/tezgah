@@ -1553,7 +1553,11 @@ class Tracking(Workspace):
         self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
                  "commit", "-q", "-m", "decoy spelling")
         self.results(repo, h="h1")
-        self.git(ws, "add", "-f", self.rel(ws, os.path.join(d, "results.jsonl"))[0])
+        # by exact path: on a case-insensitive host `git add` would file it under
+        # the `H1/` spelling the index already holds, beside the decoy
+        res_rel = self.rel(ws, os.path.join(d, "results.jsonl"))[0]
+        res_blob = self.git(ws, "hash-object", "-w", os.path.join(d, "results.jsonl")).strip()
+        self.git(ws, "update-index", "--add", "--cacheinfo", "100644,%s,%s" % (res_blob, res_rel))
         self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
                  "commit", "-q", "-m", "the run")
         self.write(os.path.join(d, "protocol.md"), edited)
@@ -1563,6 +1567,30 @@ class Tracking(Workspace):
         self.git(ws, "rm", "-q", "--cached", decoy)
         self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
                  "commit", "-q", "-m", "drop the decoy")
+        errors = self.errors(repo)
+        self.assertTrue(hit("protocol.md changed after the run", errors), errors)
+
+    def test_a_decoy_under_todays_name_before_a_move_does_not_hide_an_edit(self):
+        # consult review round 4: a copy committed at the done/ path before the
+        # run, removed before the move, sat under today's name at the run commit;
+        # the run's protocol is the one beside the results it added
+        repo = self.repo()
+        self.line(repo)
+        d = self.protocol(repo)
+        edited = "# Protocol\n\nprediction: whatever the run showed\n"
+        decoy_dir = d.replace(os.path.join("research", "open"), os.path.join("research", "done"))
+        self.write(os.path.join(decoy_dir, "protocol.md"), edited)
+        self.commit(repo, "protocol, and a copy under the done/ name", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "the run", when=AFTER)
+        ws = os.path.join(repo, ".tezgah")
+        self.git(ws, "rm", "-q", "-r", self.rel(ws, os.path.dirname(os.path.dirname(
+            os.path.dirname(decoy_dir))))[0])
+        self.commit(repo, "drop the copy", when=AFTER)
+        self.assertEqual(tr.move_line(repo, "q", "done")[1], None)
+        self.write(os.path.join(tr.line_dir(repo, "q"), "experiments", "h1", "protocol.md"),
+                   edited)
+        self.commit(repo, "move to done and rewrite the protocol", when=AFTER)
         errors = self.errors(repo)
         self.assertTrue(hit("protocol.md changed after the run", errors), errors)
 

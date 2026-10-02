@@ -581,7 +581,7 @@ def _is_prefix(repo, older, newer):
     return not err and new != old and new.startswith(old)
 
 
-def _changed_after(repo, path, rev):
+def _changed_after(repo, path, rev, beside=None):
     """True/False, or None when git cannot say: whether `path` holds a different
     blob at `rev` than at the tip of the history that carries it.
 
@@ -589,23 +589,54 @@ def _changed_after(repo, path, rev):
     that merely `git rm --cached`'d the path (the 2026-09-24 commit that
     untracked `.tezgah/`) or deleted it leaves the blob the run wrote alone, and
     a touch-based reader called that "the protocol changed after the run". A path
-    absent at either end is not a change."""
+    absent at the tip is not a change.
+
+    With `beside` (the results file `rev` added), the file the run saw is the one
+    in the directory `rev` added `beside` to - not a name guessed from today's
+    path or its spellings, which a decoy copy under today's name or a second
+    spelling answered instead (consult review rounds 3-4). That directory holding
+    no such file at `rev` is a change: the run did not run against this plan."""
     top = _top_for(repo, path, rev)
     if top is None:
         return None
     rel = os.path.relpath(path, top)
-    # the blob the run saw may sit under the name the file had then (a line moved
-    # from open/ to done/ after the run): compare it, not "absent, so unchanged"
-    at_rev, err = _blob_by_name(top, rev, rel,
-                                ("--all",) if top != repo else ())
-    if err:
-        return None
+    extra = ("--all",) if top != repo else ()
+    at_rev = None
+    anchored = False
+    if beside is not None:
+        added = _added_name(top, os.path.relpath(beside, top), rev, extra)
+        if added:
+            anchored = True
+            name = "/".join(added.split("/")[:-1] + [rel.replace(os.sep, "/").split("/")[-1]])
+            at_rev, err = _blob(top, rev, name)
+            if err:
+                return None
+            if at_rev is None:
+                return True
+    if not anchored:
+        at_rev, err = _blob_by_name(top, rev, rel, extra)
+        if err:
+            return None
     at_tip, err = _blob(top, "HEAD", rel)
     if err:
         return None
     if at_rev is None or at_tip is None:
         return False
     return at_rev != at_tip
+
+
+def _added_name(top, rel, rev, extra=()):
+    """The name `rev` added (or renamed) `rel`'s file under, or None."""
+    pairs, err = _named_log(top, rel, tuple(extra) + ("--diff-filter=AR",))
+    if err:
+        return None
+    for sha, names in pairs:
+        if sha == rev:
+            for name in names:
+                found, berr = _blob(top, rev, name)
+                if not berr and found:
+                    return name
+    return None
 
 
 def _ancestor(top, older, newer):
@@ -2167,7 +2198,7 @@ def _check_protocol_order(repo, h, proto, results, errors, warnings, strict, not
                       "results.jsonl - a protocol written after the run is not a "
                       "prediction" % h)
         return
-    changed = _changed_after(repo, proto, r_add)
+    changed = _changed_after(repo, proto, r_add, beside=results)
     if changed is None:
         warnings.append("experiment %s: git could not compare protocol.md with the "
                         "run, so whether it changed after is unverified" % h)
