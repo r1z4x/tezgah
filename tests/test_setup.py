@@ -596,6 +596,42 @@ class Deps(SetupBase):
                 self.fail("grandchild %d outlived the installer timeout" % pid)
             time.sleep(0.1)
 
+    def test_ctrl_c_takes_the_installer_group_with_it(self):
+        """The installer runs in a session of its own, so a Ctrl-C on `--deps`
+        no longer reaches it: without the cleanup the interrupt left it running
+        as an orphan. A runner process waits in `_run_bounded` on a stub that
+        starts a sleeping grandchild; SIGINT to the runner must end both."""
+        import signal
+        import time
+        pidfile = self.path("grandchild.pid")
+        runner = ("import importlib.machinery, importlib.util\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "m._run_bounded(['sh', '-c', 'sleep 60 & echo $! > %s; wait'], 120)\n"
+                  % (SETUP, pidfile))
+        proc = subprocess.Popen([sys.executable, "-c", runner], env=self.env,
+                                stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 30
+        while not (os.path.exists(pidfile) and self.read_text(pidfile).strip()):
+            self.assertLess(time.monotonic(), deadline, "the stub never started")
+            time.sleep(0.05)
+        pid = int(self.read_text(pidfile))
+        proc.send_signal(signal.SIGINT)
+        _out, err = proc.communicate(timeout=30)
+        self.assertIn(b"KeyboardInterrupt", err)
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if time.monotonic() > deadline:
+                os.kill(pid, 9)  # leave no stray sleep behind a failing run
+                self.fail("grandchild %d outlived the Ctrl-C" % pid)
+            time.sleep(0.1)
+
 
 class CacheModes(SetupBase):
     """--install tightens a cache an earlier version left at the umask default:
@@ -624,6 +660,26 @@ class CacheModes(SetupBase):
         self.assertEqual(mode(ledger), 0o600)
         # the link's target is the user's file, not cache state
         self.assertEqual(mode(outside), 0o644)
+
+    def test_a_symlinked_cache_root_is_not_followed(self):
+        """os.walk lists through a symlinked top, so a cache root that is a
+        link (a /tmp/tezgah fallback another user planted) had every file
+        behind it chmodded. The root is refused and the run says so."""
+        import stat
+        target = self.path("someone-elses")
+        os.makedirs(target)
+        theirs = os.path.join(target, "file.txt")
+        with open(theirs, "w") as fh:
+            fh.write("theirs\n")
+        os.chmod(theirs, 0o644)
+        os.chmod(target, 0o755)
+        os.makedirs(self.path(".cache"))
+        os.symlink(target, self.path(".cache", "tezgah"))
+        proc = self.setup("--install", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(stat.S_IMODE(os.stat(theirs).st_mode), 0o644)
+        self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o755)
+        self.assertIn("is a symlink", self.row(proc.stdout, "cache modes"))
 
 
 class DshChecks(SetupBase):
@@ -1329,6 +1385,31 @@ class Uninstall(SetupBase):
         self.assertFalse(os.path.exists(self.path(".cache", "tezgah")))
         self.assertFalse(os.path.exists(self.path(".config", "tezgah",
                                                   "pretooluse-off")))
+
+    def test_a_crash_mid_record_leaves_nothing_after_uninstall(self):
+        """A crash between the record's temp write and its replace left a
+        `contract.sha256.<pid>.tmp` no uninstall knew about. The crash is
+        forced in a runner (os.replace raises), then a full uninstall runs."""
+        self.setup("--install", "--hosts", "claude")
+        runner = ("import importlib.machinery, importlib.util\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "def boom(*a):\n"
+                  "    raise OSError('crash')\n"
+                  "m.os.replace = boom\n"
+                  "try:\n"
+                  "    m.record_contract('/a/b', 'x')\n"
+                  "except OSError:\n"
+                  "    pass\n" % SETUP)
+        subprocess.run([sys.executable, "-c", runner], env=self.env, check=True)
+        cfg = self.path(".config", "tezgah")
+        self.assertTrue([n for n in os.listdir(cfg) if n.endswith(".tmp")])
+        proc = self.setup("--uninstall", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        left = os.listdir(cfg) if os.path.isdir(cfg) else []
+        self.assertFalse([n for n in left if n.startswith("contract.sha256")], left)
 
     def test_full_uninstall_keeps_a_users_own_config_dir_entry(self):
         self.setup("--install", "--hosts", "codex")
@@ -2087,6 +2168,17 @@ class OmpHost(SetupBase):
         self.assertIn("RULES.md carries the contract", proc.stdout)
         self.assertIn("app MCP command is one executable", proc.stdout)
         self.assertIn("status line answers", proc.stdout)
+
+    def test_the_lessons_line_defers_to_repository_provided_data(self):
+        """RULES.md told the model to obey `.tezgah/lessons.md` however it
+        arrived, which overrode the hooks' provenance check: a lessons file
+        that came with a clone is data, and the session context says so in
+        the words 'Repository-provided data' (audit L-16). The static line has
+        to defer to that notice."""
+        self.install()
+        rules = self.read_text(self.path(".omp", "agent", "RULES.md"))
+        self.assertIn("repository-provided data", rules)
+        self.assertIn("data, not a rule", rules)
 
     def test_uninstall_removes_the_omp_wiring(self):
         self.install()

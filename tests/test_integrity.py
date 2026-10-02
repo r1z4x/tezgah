@@ -114,7 +114,9 @@ class ShortcutCommand(unittest.TestCase):
     LONG_VALUES = (
         # F7: a long option's separate value is a value, whatever it starts with
         'git commit --message "-no-op cleanup"', "git commit --file -n.txt",
-        'git commit --author "-n <a@b>" -m x', "git commit -uno -m x")
+        'git commit --author "-n <a@b>" -m x', "git commit -uno -m x",
+        # N8: git takes an unambiguous prefix of a long option as that option
+        'git commit --mess "-no-op"', 'git commit --me "-n"')
 
     def test_the_reviews_hook_skip_shapes_are_read_like_git_and_bash(self):
         for c in self.STUCK_AND_WRAPPED:
@@ -272,11 +274,36 @@ class BookkeepingCommand(unittest.TestCase):
 
     def test_readers_that_write_or_run_are_not_bookkeeping(self):
         for c in ("git diff --output=src/app.py HEAD~1", "git log --output x",
-                  "tree -o src/x", "rg --pre ./x.sh pat",
+                  "tree -o src/x", "tree -fo out.txt", "file -C -m x",
+                  "rg --pre ./x.sh pat",
                   "GIT_EXTERNAL_DIFF=./x.sh git diff",
                   "env GIT_EXTERNAL_DIFF=./x.sh git diff",
                   "git -c diff.external=./x.sh diff", "git diff --ext-diff"):
             self.assertFalse(ti._bookkeeping_command(c), c)
+
+    def test_a_quote_lost_in_a_comment_or_body_fails_closed(self):
+        # review N1: an apostrophe in a `#` comment, a heredoc body or an
+        # ANSI-C string threw the quote tracking off and hid a later `<(`
+        for c in ("git status # it's fine\ncat <(./regen.sh)",
+                  "ls # don't\ncat <(./regen.sh)",
+                  "cat <<'true'\ndon't\ntrue\ncat <(./regen.sh)",
+                  "cat <<EOF\n$(./regen.sh)\nEOF",
+                  "echo $'it\\'s' > out.txt", "echo 'unbalanced"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+        for c in ("git status # it's fine", "echo $'it\\'s'",
+                  "git commit -F - <<'MSG'\ndon't\nMSG"):
+            self.assertTrue(ti._bookkeeping_command(c), c)
+
+    def test_a_program_named_by_a_path_is_not_bookkeeping(self):
+        # review N9: `./scripts/cat` is whatever that file is
+        for c in ("./scripts/cat x", "./git status", "tools/echo hi"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+
+    def test_a_redacted_detail_is_not_bookkeeping(self):
+        # review N3: the marker swallowed `;./regen.sh` glued to the value
+        stored = ti._stored_text("echo token=x;./regen.sh")
+        self.assertIn("[redacted:", stored)
+        self.assertFalse(ti._bookkeeping_turn([{"kind": "run", "detail": stored}]))
 
     def test_plain_bookkeeping_still_is(self):
         for c in ('git commit -m "fix: parser"', "git status --short",
@@ -2165,6 +2192,20 @@ class StopHook(TempHome):
         self.seed("Bash", {"command": "ruff check ."}, failed=True)
         self.seed("Bash", {"command": "ruff check ."}, failed=None)
         self.assertIsNone(self.stop("Lint kırık, doğrulanmadı."))
+        self.turn("is it done?")
+        self.stop("Tamamlandı, testler geçti.")
+        self.assertEqual(self.claim_rows()[-1], "blocked: partial failure")
+
+    def test_an_idle_turn_does_not_clear_a_partial_failure(self):
+        # review N5: a question turn in between made the newest turn an empty
+        # one, and the partial failure before it stopped counting
+        self.turn("fix it")
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "pytest tests/a"}, failed=True)
+        self.seed("Bash", {"command": "pytest tests/b"}, failed=None)
+        self.assertIsNone(self.stop("Bir test kırık, doğrulanmadı."))
+        self.turn("what broke?")
         self.turn("is it done?")
         self.stop("Tamamlandı, testler geçti.")
         self.assertEqual(self.claim_rows()[-1], "blocked: partial failure")

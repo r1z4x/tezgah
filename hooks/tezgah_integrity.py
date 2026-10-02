@@ -1826,6 +1826,28 @@ COMMIT_STUCK_SHORTS = "Su"
 COMMIT_VALUE_LONGS = frozenset((
     "--message", "--file", "--author", "--trailer", "--date", "--reuse-message",
     "--reedit-message", "--fixup", "--squash", "--template", "--cleanup"))
+# Every long option `git commit` has: git accepts any prefix of one that names
+# no other (`--mess` is --message), so a prefix is a value option only when it
+# is unambiguous against this whole list (review N8).
+COMMIT_LONGS = COMMIT_VALUE_LONGS | frozenset((
+    "--quiet", "--verbose", "--reset-author", "--signoff", "--edit", "--status",
+    "--gpg-sign", "--all", "--include", "--interactive", "--patch", "--only",
+    "--no-verify", "--dry-run", "--short", "--branch", "--ahead-behind",
+    "--porcelain", "--long", "--null", "--amend", "--no-post-rewrite",
+    "--untracked-files", "--pathspec-from-file", "--pathspec-file-nul",
+    "--allow-empty", "--allow-empty-message", "--no-edit", "--no-status"))
+
+
+def _commit_value_long(word):
+    """True when `word` is git's spelling of a commit option whose value is the
+    next word: the option itself or an unambiguous prefix of it."""
+    if not word.startswith("--") or "=" in word or len(word) < 3:
+        return False
+    names = [o for o in COMMIT_LONGS if o.startswith(word)]
+    return word in COMMIT_VALUE_LONGS or (
+        len(names) == 1 and names[0] in COMMIT_VALUE_LONGS)
+
+
 # a shell's long options that take the next word as their value
 SHELL_VALUE_LONGS = frozenset(("--rcfile", "--init-file"))
 
@@ -1860,7 +1882,7 @@ def _git_skips_hooks(cmd):
                 break
             if len(word) >= 8 and "--no-verify".startswith(word):
                 return True
-            if sub == "commit" and word in COMMIT_VALUE_LONGS:
+            if sub == "commit" and _commit_value_long(word):
                 value_next = True
                 continue
             if sub == "commit" and word.startswith("-") and \
@@ -3115,15 +3137,18 @@ WORK_KINDS = frozenset(STEP_KINDS) - {"verify_ok"}
 # that writes would excuse an unverified change.
 READ_ONLY_PROGRAMS = frozenset((
     "ls", "cat", "head", "tail", "wc", "pwd", "echo", "printf", "which", "stat",
-    "file", "du", "df", "date", "whoami", "grep", "rg", "tree", "cd", "true"))
+    "du", "df", "date", "whoami", "grep", "rg", "cd", "true"))
 GIT_BOOKKEEPING = frozenset((
     "status", "log", "diff", "show", "add", "commit", "push", "fetch", "branch",
     "tag", "remote", "rev-parse", "describe", "shortlog", "blame", "ls-files"))
 # The options that make an allowlisted program write a file or run one after
-# all (review F6): git's `--output` and external diff/textconv drivers, tree's
-# `-o`, ripgrep's `--pre`. A word that starts with one of these is not a read.
+# all (review F6): git's `--output` and external diff/textconv drivers,
+# ripgrep's `--pre`. A word that starts with one of these is not a read.
+# `tree` and `file` left the list instead of growing one here: tree writes
+# through clustered short options (`-fo out`) and `-R -H`, file through `-C`
+# (review N4).
 WRITING_OPTIONS = {"git": ("--output", "--ext-diff", "--textconv"),
-                   "tree": ("-o",), "rg": ("--pre",)}
+                   "rg": ("--pre",)}
 # git global options that set configuration or the program path, and so can
 # name a program a read subcommand then runs (`git -c diff.external=./x diff`)
 GIT_CONFIG_OPTS = ("-c", "--config-env", "--exec-path")
@@ -3133,18 +3158,33 @@ HARMLESS_REDIRECT = re.compile(r"\d*>&\d+|\d*>>?\s*/dev/null\b")
 
 def _shell_effect(cmd):
     """True when bash would run a command or process substitution, or redirect
-    into a file, anywhere in `cmd`.
+    into a file, anywhere in `cmd` - or when this reader cannot tell.
 
     Read on the RAW command with bash's own quoting: single quotes are literal,
-    double quotes still expand `$(` and backticks, and only unquoted text
-    redirects. The masked text `mask()` gives blanks double-quoted strings and
-    `#`/`//` comments, so `echo "$(./x.sh)"` and `cat a//b > c` read as
-    bookkeeping there (review F2)."""
+    `$'...'` takes backslash escapes, double quotes still expand `$(` and
+    backticks, only unquoted text redirects, and an unquoted `#` at the start of
+    a word comments out the rest of its line. The masked text `mask()` gives
+    blanks double-quoted strings and `#`/`//` comments, so `echo "$(./x.sh)"`
+    and `cat a//b > c` read as bookkeeping there (review F2).
+
+    Fails closed (True): an unquoted heredoc expands `$(` in its body, so it
+    is an effect; a quoted one's body is blanked; and a quote still open at the
+    end means the reading lost sync with bash - an apostrophe in a comment, a
+    body or `$'it\\'s'` hid a later `<(` that way (review N1)."""
+    for m in HEREDOC.finditer(cmd):
+        if not re.search(r"['\"]", m.group(0)):
+            return True
+    cmd = _blank_heredocs(cmd)
     bare, quote, i = [], None, 0
     while i < len(cmd):
         ch = cmd[i]
         if quote == "'":
             quote = None if ch == "'" else quote
+        elif quote == "$'":
+            if ch == "\\":
+                i += 1
+            elif ch == "'":
+                quote = None
         elif ch == "\\":
             i += 2
             bare.append(" ")
@@ -3153,6 +3193,13 @@ def _shell_effect(cmd):
             return True
         elif quote == '"':
             quote = None if ch == '"' else quote
+        elif ch == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()<>"):
+            end = cmd.find("\n", i)
+            i = len(cmd) if end < 0 else end
+            continue
+        elif cmd.startswith("$'", i):
+            quote = "$'"
+            i += 1
         elif ch in "'\"":
             quote = ch
         else:
@@ -3161,6 +3208,8 @@ def _shell_effect(cmd):
             continue
         bare.append(" ")
         i += 1
+    if quote:
+        return True
     text = HARMLESS_REDIRECT.sub(" ", "".join(bare))
     return ">" in text or "<(" in text
 
@@ -3179,14 +3228,20 @@ def _bookkeeping_command(cmd):
     raw = str(cmd or "").replace(FAILED_MARK, "")
     if not raw.strip() or _shell_effect(raw):
         return False
-    segs = _shell_segments(raw)
+    # a quoted heredoc's terminator line is not a command (its body is blanked)
+    tags = [[m.group(1)] for m in HEREDOC.finditer(raw)]
+    segs = [w for w in _shell_segments(raw) if w not in tags]
     for words in segs:
         i = 0
         while i < len(words) and words[i] in GIT_WRAPPER:
             i += 1
         if i >= len(words) or ENV_WORD.match(words[i]):
             return False
-        program, args = os.path.basename(words[i]), words[i + 1:]
+        # a program named by a path is whatever that file is, not the
+        # allowlisted command of the same name (`./scripts/cat`, review N9)
+        if "/" in words[i]:
+            return False
+        program, args = words[i], words[i + 1:]
         if any(a.startswith(WRITING_OPTIONS.get(program, ("\0",))) for a in args):
             return False
         if program in READ_ONLY_PROGRAMS:
@@ -3208,11 +3263,14 @@ def _bookkeeping_turn(rows):
     bookkeeping and was not seen to change a file.
 
     A detail of DETAIL_MAX characters or more is never bookkeeping: the ledger
-    cut it there, and the command after the cut is unread (review F1)."""
+    cut it there, and the command after the cut is unread (review F1). Nor is
+    one that holds a redaction marker: the marker can swallow the rest of a
+    word and what was glued to it (`echo token=x;./regen.sh`, review N3)."""
     steps = [r for r in rows if str(r.get("kind")) in WORK_KINDS]
     return bool(steps) and all(
         r.get("kind") == "run" and not _change_row(r)
         and len(str(r.get("detail") or "")) < DETAIL_MAX
+        and "[redacted:" not in str(r.get("detail") or "")
         and _bookkeeping_command(r.get("detail")) for r in steps)
 
 
@@ -3333,11 +3391,28 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
 
 
 def _before_turn(rows):
-    """The session's rows before the current turn's marker. A ledger with no
-    marker is one turn, and its rows are returned whole: the pass that settles
-    a bookkeeping run sits among them."""
+    """The session's rows before the current turn's marker, with the markers
+    of turns that did no work dropped. A ledger with no marker is one turn, and
+    its rows are returned whole: the pass that settles a bookkeeping run sits
+    among them.
+
+    The turn-scoped classes of the fold (`_partial_state`) read the newest turn
+    of what they are given, and an idle turn in between - a question, a reply
+    with no tool call - made that newest turn an empty one, so a partial
+    failure two turns back stopped counting (review N5). Dropping only the
+    idle markers keeps the newest turn that did work as the one judged."""
     start = _turn_start(rows)
-    return rows[:start - 1] if start else rows
+    prior = rows[:start - 1] if start else rows
+    out, pending = [], None
+    for row in prior:
+        if row.get("kind") == TURN_KIND:
+            pending = row
+            continue
+        if pending is not None and str(row.get("kind")) in WORK_KINDS:
+            out.append(pending)
+            pending = None
+        out.append(row)
+    return out
 
 
 def _evidence_block(rows, worked, external, where="this turn"):

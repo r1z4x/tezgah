@@ -80,6 +80,18 @@ healthy, the mechanical half had paths that disarmed it in silence.
   and SSH keys are snapshotted by hash only, `--install` tightens existing cache
   files to 0600, a timed-out installer takes its grandchildren with it, and
   concurrent sessions no longer lose a line of `contract.sha256`.
+- **A second review of those fixes found two more, both closed.** An apostrophe
+  in a `#` comment, a heredoc body or `$'...'` broke the bookkeeping reader's
+  quote tracking and hid a later `<(...)`; comments and quoted heredoc bodies
+  are now read the way bash reads them, and an unbalanced quote or an unquoted
+  heredoc is never bookkeeping. On a case-insensitive filesystem a clone that
+  tracks `.TEZGAH/lessons.md` was injected; the provenance check now compares
+  case-insensitively, reads the object width from the repository config, and
+  also guards `ensure_workspace`, the active-plan reader and omp's static
+  lessons line. Also: a redacted command, a program named by a path, `tree`
+  and `file` are not bookkeeping; an idle turn no longer clears a partial
+  failure; `git commit --mess "-x"` is read as git reads it; Ctrl-C during
+  `--deps` takes the installer with it; a symlinked cache root is left alone.
 
 ## [0.28.0] - 2026-10-01
 

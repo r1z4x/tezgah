@@ -307,6 +307,7 @@ class OpenCodePlugin(TempHome):
                   "bash -o pipefail -c 'pytest || true'",
                   "bash --norc -c 'pytest || true'", "sh -e -c 'git commit -n -m x'")
         passed = ('git commit --message "-no-op cleanup"', "git commit --file -n.txt",
+                  'git commit --mess "-no-op"',
                   "git commit -uno -m x")
         for command in denied:
             self.assertIsNotNone(ti.shortcut_command(command), command)

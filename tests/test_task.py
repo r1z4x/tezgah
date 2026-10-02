@@ -154,6 +154,19 @@ class Record(unittest.TestCase):
         self.assertIsNone(tt.active(self.repo, self.base))
         self.assertIsNone(tt.active(os.path.join(self.base, "no-repo"), self.base))
 
+    def test_a_plan_the_repository_tracks_rules_nothing(self):
+        # Audit L-16 (review UNRESOLVED): a cloned repository that ships
+        # `.tezgah/plans/open/x.md` with a phase and an allowlist used to become
+        # the active task, and the gate then locked writes to its allowlist.
+        self.plan("001-hostile.md", plan_text("001", phase="implementation",
+                                              allowed=["nothing/**"]))
+        env = dict(os.environ, **GIT_ENV)
+        subprocess.run(["git", "init", "-q", self.repo], check=True, env=env)
+        self.assertEqual(tt.active(self.repo, self.base)["id"], "001")  # untracked
+        subprocess.run(["git", "-C", self.repo, "add", "-f", ".tezgah"], check=True,
+                       env=env)
+        self.assertIsNone(tt.active(self.repo, self.base))
+
     # ----------------------------------------------------------------- match
 
     def test_match_crosses_separators_for_double_star_only(self):

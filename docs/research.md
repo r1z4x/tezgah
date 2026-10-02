@@ -617,17 +617,17 @@ installed `bin/tezgah-research`) and the `orx` manual step.
 
 The note, when orx is absent or a line is broken: a session is told that `orx` is
 not installed and to fall back to a host subagent rather than improvise the
-protocol (`context_for`, `hooks/tezgah_context.py:1467-1689`), and at session start and
+protocol (`context_for`, `hooks/tezgah_context.py:1351-1573`), and at session start and
 after a compaction a line with structural problems is named with its first error
 and the advice to run `check` before reporting a result (the note
-`research_broken` in `context_for`, `hooks/tezgah_context.py:1467-1689`).
+`research_broken` in `context_for`, `hooks/tezgah_context.py:1351-1573`).
 
 The mark: `research` in the status line. It is armed when `research-off` is
 absent and the research tooling is present (`health_segments`,
-`hooks/tezgah_context.py:2136-2204`) and turns used when a shell command really ran
+`hooks/tezgah_context.py:2020-2088`) and turns used when a shell command really ran
 the layer - `orx` or `tezgah-research`
 in a command position, classified by the shared tokenizer
-(`shell_kind`, `hooks/tezgah_context.py:1770-1795`), so a command that merely mentions
+(`shell_kind`, `hooks/tezgah_context.py:1654-1679`), so a command that merely mentions
 either name marks nothing. That is the same reader every host's status segment
 uses ([status line](status-line.md)).
 
@@ -636,7 +636,7 @@ uses ([status line](status-line.md)).
 `research-off` is the kill switch: with it armed the `RESEARCH` paragraph is
 dropped, the session note is not built, and the mark reads `off` rather than
 armed. It removes the rule, not just the mark - the diff is in `core_split`,
-`hooks/tezgah_context.py:1200-1219` ([kill switch](glossary.md#kill-switch)).
+`hooks/tezgah_context.py:1084-1103` ([kill switch](glossary.md#kill-switch)).
 
 ## Source of truth
 

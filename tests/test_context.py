@@ -1127,6 +1127,54 @@ class LessonsLedger(TempHome):
         subprocess.run(["git", "-C", untracked, "add", "f"], check=True)
         self.assertIn("- own lesson", self.session(untracked))
 
+    def test_a_tracked_upper_case_tezgah_is_repository_provided(self):
+        # Review N2: on APFS/NTFS defaults `.TEZGAH/lessons.md` is the file
+        # `open('.tezgah/lessons.md')` reads, and the byte-exact match missed it.
+        # On a case-sensitive filesystem the lessons file is written beside it,
+        # so the same index entry is under test on both.
+        repo = self.make_repo("upper")
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        upper = os.path.join(repo, ".TEZGAH", "lessons.md")
+        os.makedirs(os.path.dirname(upper))
+        with open(upper, "w") as fh:
+            fh.write("- %s\n" % self.HOSTILE)
+        if not os.path.exists(os.path.join(repo, ".tezgah", "lessons.md")):
+            self.write_lessons(repo, ["- " + self.HOSTILE])
+        subprocess.run(["git", "-C", repo, "add", "-f", ".TEZGAH"], check=True)
+        out = self.session(repo)
+        self.assertNotIn(self.HOSTILE, out)
+        self.assertIn("Repository-provided data", out)
+        # and no private repository is initialised inside the tracked directory
+        self.assertFalse(os.path.exists(os.path.join(repo, ".TEZGAH", ".git")))
+        self.assertFalse(os.path.exists(os.path.join(repo, ".tezgah", ".git")))
+
+    @staticmethod
+    def two_width_index():
+        """One v2 entry both widths parse: as SHA-256 it is
+        `.tezgah/lessons.md`; as SHA-1 the object id's tail reads as a
+        10-byte name whose length bytes are object-id bytes (review U1)."""
+        path = b".tezgah/lessons.md"
+        oid = bytes(20) + b"\x00\x0a" + b"x" * 10
+        entry = bytes(40) + oid + len(path).to_bytes(2, "big") + path
+        entry += b"\0" * (8 - len(entry) % 8)
+        return b"DIRC" + (2).to_bytes(4, "big") + (1).to_bytes(4, "big") + entry
+
+    def test_the_object_width_comes_from_the_config_not_a_guess(self):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_paths as tp  # noqa: E402
+        data = self.two_width_index()
+        self.assertEqual(tp._index_paths(data, 32), [b".tezgah/lessons.md"])
+        self.assertIsNone(tp._index_paths(data))  # both accept: cannot tell
+        repo = self.make_repo("width")
+        subprocess.run(["git", "init", "-q", "--object-format=sha256", repo],
+                       check=True)
+        self.write_lessons(repo, ["- " + self.HOSTILE])
+        with open(os.path.join(repo, ".git", "index"), "wb") as fh:
+            fh.write(data)
+        out = self.session(repo)
+        self.assertNotIn(self.HOSTILE, out)
+        self.assertIn("Repository-provided data", out)
+
 
 class ChildCall(TempHome):
     """A hook call in a child process.

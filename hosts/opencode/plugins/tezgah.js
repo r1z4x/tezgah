@@ -498,6 +498,21 @@ const COMMIT_STUCK_SHORTS = "Su"
 const COMMIT_VALUE_LONGS = new Set(["--message", "--file", "--author",
   "--trailer", "--date", "--reuse-message", "--reedit-message", "--fixup",
   "--squash", "--template", "--cleanup"])
+// every `git commit` long option: an unambiguous prefix of a value option
+// (`--mess`) is that option, as git reads it (review N8)
+const COMMIT_LONGS = [...COMMIT_VALUE_LONGS, "--quiet", "--verbose",
+  "--reset-author", "--signoff", "--edit", "--status", "--gpg-sign", "--all",
+  "--include", "--interactive", "--patch", "--only", "--no-verify", "--dry-run",
+  "--short", "--branch", "--ahead-behind", "--porcelain", "--long", "--null",
+  "--amend", "--no-post-rewrite", "--untracked-files", "--pathspec-from-file",
+  "--pathspec-file-nul", "--allow-empty", "--allow-empty-message", "--no-edit",
+  "--no-status"]
+function commitValueLong(word) {
+  if (!word.startsWith("--") || word.includes("=") || word.length < 3) return false
+  if (COMMIT_VALUE_LONGS.has(word)) return true
+  const names = COMMIT_LONGS.filter((o) => o.startsWith(word))
+  return names.length === 1 && COMMIT_VALUE_LONGS.has(names[0])
+}
 function gitSkipsHooks(cmd) {
   for (const words of shellSegments(cmd)) {
     let i = 0
@@ -513,7 +528,7 @@ function gitSkipsHooks(cmd) {
       if (valueNext) { valueNext = false; continue }
       if (word === "--") break
       if (word.length >= 8 && "--no-verify".startsWith(word)) return true
-      if (sub === "commit" && COMMIT_VALUE_LONGS.has(word)) { valueNext = true; continue }
+      if (sub === "commit" && commitValueLong(word)) { valueNext = true; continue }
       if (sub === "commit" && word.startsWith("-") && !word.startsWith("--")) {
         for (let k = 1; k < word.length; k++) {
           if (word[k] === "n") return true

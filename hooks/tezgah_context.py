@@ -23,7 +23,7 @@ from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
 from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
                           consult_options, ensure_workspace, have_judge_key, off,
                           orx_bin, pony_level, root_for, roots, tool,
-                          workspace, worktrees, writable_dir)
+                          workspace, workspace_from_repo, worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
     # once per user prompt for the phase line. The module is newer than some
@@ -855,122 +855,6 @@ def _lesson_shown(lines):
     much it lost (`tezgah_integrity.cut`): a lesson is a rule sentence, and one
     that lost its verb in silence reads as the whole rule."""
     return [cut(ln, LESSON_CHARS) for ln in lines[-LESSON_LINES:]]
-
-
-# The workspace paths whose text is injected as a standing constraint: each is
-# checked for a symlink, because a clone can carry one pointing into its own tree.
-WORKSPACE_INJECTED = (".tezgah", os.path.join(".tezgah", "lessons.md"),
-                      os.path.join(".tezgah", "plans"),
-                      os.path.join(".tezgah", "plans", "open"))
-
-
-def _index_files(gitdir):
-    """The index plus every `sharedindex.*` (a split index, `core.splitIndex`,
-    keeps most entries there) in the checkout's gitdir and the common dir."""
-    dirs = [gitdir]
-    try:
-        with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as fh:
-            dirs.append(os.path.join(gitdir, fh.readline().strip()))
-    except OSError:
-        pass
-    return [os.path.join(gitdir, "index")] + sorted(
-        p for d in dirs for p in glob.glob(os.path.join(d, "sharedindex.*")))
-
-
-def _index_paths(data):
-    """The entry paths of a v2/v3 index, or None when it parses under neither
-    hash width.
-
-    Only the entries are read: the extensions after them carry other names, and
-    the untracked cache (UNTR, `core.untrackedCache`) records an untracked
-    `.tezgah` there - a whole-file byte search read the user's own workspace as
-    tracked. Each entry is 40 bytes of stat fields, the object id (20 bytes for
-    SHA-1, 32 for SHA-256, which the header does not name, so both are tried),
-    2 bytes of flags, 2 more when v3 sets the extended bit, then the path,
-    NUL-padded to a multiple of 8. A width is accepted only when every entry's
-    name length in its flags (below 0xFFF) matches the path read."""
-    version = int.from_bytes(data[4:8], "big")
-    count = int.from_bytes(data[8:12], "big")
-    for width in (20, 32):
-        paths, off = [], 12
-        try:
-            for _ in range(count):
-                flags = int.from_bytes(data[off + 40 + width:off + 42 + width], "big")
-                start = off + 42 + width + (2 if version >= 3 and flags & 0x4000 else 0)
-                end = data.index(b"\0", start)
-                if (flags & 0xFFF) < 0xFFF and flags & 0xFFF != end - start:
-                    raise ValueError
-                paths.append(data[start:end])
-                off += (end - off + 8) & ~7
-            if off > len(data):
-                raise ValueError
-        except ValueError:
-            continue
-        return paths
-    return None
-
-
-def workspace_from_repo(root):
-    """True when `<root>/.tezgah` came with the repository rather than from
-    tezgah, so its lessons and plans are data, never standing constraints.
-
-    `.tezgah/` is the user's private workspace: ignored by the project and kept
-    in its own repository (`ensure_workspace`). A cloned hostile repository must
-    not be able to place rule text into the hook channel framed as a standing
-    constraint (audit L-16, SEC-11). It came with the clone when the project's
-    own index holds `.tezgah` itself (a symlink or a submodule) or any path under
-    it, or when `.tezgah`, `lessons.md`, `plans` or `plans/open` is a symlink -
-    a tracked `.tezgah -> notes` holds no `.tezgah/` path at all (review F3).
-
-    Read from the index files, not from `git ls-files`, because the session-start
-    git forks are pinned (GitSpawnBudget): v2/v3 store every path whole, so the
-    entries are parsed (`_index_paths`); v4 prefix-compresses paths, so only
-    there one `git ls-files` runs. Every answer that cannot be made is True, the
-    side of a notice: an unreadable `.git` pointer or index, a foreign header,
-    an index that parses under neither hash width, and a v4 query that fails or
-    times out (review F9). A missing index is a repository that tracks
-    nothing. ponytail: a tree with no `.git` (an unpacked tarball) carries no
-    record of where `.tezgah` came from, so it answers False and is injected -
-    the ceiling of a provenance check that reads git."""
-    if any(os.path.islink(os.path.join(root, rel)) for rel in WORKSPACE_INJECTED):
-        return True
-    dot = os.path.join(root, ".git")
-    if not os.path.lexists(dot):
-        return False
-    gitdir = dot
-    if not os.path.isdir(dot):
-        try:
-            with open(dot, encoding="utf-8", errors="replace") as fh:
-                line = fh.readline().strip()
-        except OSError:
-            return True
-        if not line.startswith("gitdir:"):
-            return True
-        gitdir = os.path.join(root, line[len("gitdir:"):].strip())
-    files = _index_files(gitdir)
-    if not os.path.exists(files[0]):
-        return False
-    for path in files:
-        try:
-            with open(path, "rb") as fh:
-                data = fh.read()
-        except OSError:
-            return True
-        if data[:4] != b"DIRC":
-            return True
-        if int.from_bytes(data[4:8], "big") >= 4:
-            try:
-                out = subprocess.run(
-                    ("git", "-C", root, "ls-files", "-z", "--", ".tezgah"),
-                    capture_output=True, timeout=5)
-            except Exception:
-                return True
-            return out.returncode != 0 or bool(out.stdout)
-        paths = _index_paths(data)
-        if paths is None or any(p == b".tezgah" or p.startswith(b".tezgah/")
-                                for p in paths):
-            return True
-    return False
 
 
 def repo_provided(rel):

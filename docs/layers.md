@@ -22,8 +22,8 @@ and it writes no ledger [row](glossary.md#row).
 Here tezgah only *configures* servers and classifies a call by its name: the
 app-analysis servers are rendered into each host's own config from one spec
 (`hooks/tezgah_apps.py:1-5`), Codex's rows are appended by `ensure_toml_mcp`
-(`bin/tezgah-setup:973-1030`), and a tool name starting `mcp__` is classified
-`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2107-2111`).
+(`bin/tezgah-setup:984-1041`), and a tool name starting `mcp__` is classified
+`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2129-2133`).
 
 ## Agent framework
 
@@ -69,7 +69,7 @@ Owns the rule text (`CORE` `hooks/tezgah_policy.py:626-845`), the per-turn remin
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:857-877`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1429-1632`), the record after one (`note()`
 `hooks/tezgah_integrity.py:782-794`), the end-of-turn verdict (`stop_reason()`
-`hooks/tezgah_integrity.py:3046-3094`), the pre-write snapshots (`capture()`
+`hooks/tezgah_integrity.py:3068-3116`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:221`), the status marks, and the per-repo plans,
 lessons and research lines.
 
@@ -102,7 +102,7 @@ frameworks.
 
 Under that test tezgah is not one: it holds no loop. It subscribes to a host's
 events (`hooks/hooks.json:2-26`), is handed the injected text at the host's
-session-start and prompt points (`context_for` `hooks/tezgah_context.py:1467-1689`),
+session-start and prompt points (`context_for` `hooks/tezgah_context.py:1351-1573`),
 refuses a call before the host runs it (`hooks/projects-pretooluse.py:24`) and
 answers in the host's own output envelope. It has no model, no tool set and no
 context window of its own.
@@ -155,11 +155,11 @@ to a benchmark instead of to a sentence.
 
 This is the checkable consequence of the transport layer here. A hook is handed
 the call, so that is all the classification can use (`untrusted_source`
-`hooks/tezgah_integrity.py:2171-2194`): an MCP answer enters the ledger as an
+`hooks/tezgah_integrity.py:2193-2216`): an MCP answer enters the ledger as an
 untrusted channel, the channel being `mcp` (`untrusted_source`
-`hooks/tezgah_integrity.py:2171-2194`), and an answer that is no step of work
+`hooks/tezgah_integrity.py:2193-2216`), and an answer that is no step of work
 of its own earns a row of kind `external` (`note_tool`
-`hooks/tezgah_integrity.py:2365-2483`). The compensating control is the taint
+`hooks/tezgah_integrity.py:2387-2505`). The compensating control is the taint
 notice: the first effect in a turn that has read an untrusted channel carries
 it (`hooks/tezgah_untrusted.py:2-22`); nothing refuses that effect since the
 sink rule was removed ([gate](gate.md)).
