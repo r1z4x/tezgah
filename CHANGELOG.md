@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A research line moved to `done/` keeps its order proof.** The order rules ask
+  git which commit first added a file, by its current path. Closing a line moves
+  it from `open/` to `done/`, so the move read as the commit that added protocol,
+  results, criteria and state together, and every moved line failed "plan before
+  run". The readers now follow renames, ask the project's history under the
+  line's earlier names, and compare a protocol against the run under the name it
+  had then, so an edit after the run is still caught. Across this repository's
+  lines the check went from 125 failures to 3, all three real.
+
 ### Added
 
 - **The heredoc reader is measured against the bash that runs the command.**

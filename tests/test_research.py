@@ -1459,6 +1459,58 @@ class Tracking(Workspace):
         self.assertFalse(hit(BOTH_TOGETHER, errors), errors)
         self.assertEqual(errors, [])
 
+    def test_a_line_moved_to_done_keeps_its_order(self):
+        # 2026-10-03: closing a line moves it from open/ to done/, and the move
+        # read as the commit that added protocol, results, criteria and state at
+        # once - every moved line failed "plan before run" though its history
+        # holds the order
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=AFTER)
+        self.assertEqual(tr.move_line(repo, "q", "done")[1], None)
+        self.commit(repo, "move to done", when=AFTER)
+        self.assertIn(os.path.join("research", "done", "q"), tr.line_dir(repo, "q"))
+        self.assertEqual(self.errors(repo), [])
+
+    def test_a_line_the_project_ordered_keeps_its_order_after_the_move_to_done(self):
+        # the order lives in the project's history under the line's old name;
+        # after the private repository imports it and closing moves it to done/,
+        # the project log has to be asked under that old name
+        repo = self.repo()
+        self.unmoved(repo)
+        self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=AFTER)
+        self.git(os.path.join(repo, ".tezgah"), "init", "-q")
+        self.commit(repo, "import", when=AFTER)
+        self.assertEqual(tr.move_line(repo, "q", "done")[1], None)
+        self.commit(repo, "move to done", when=AFTER)
+        errors = self.errors(repo)
+        self.assertFalse(hit(BOTH_TOGETHER, errors), errors)
+        self.assertEqual(errors, [])
+
+    def test_a_protocol_edited_after_the_run_is_refused_after_the_move_too(self):
+        # following the rename must not lose the edit: the blob the run saw lives
+        # under the old path
+        repo = self.repo()
+        self.line(repo)
+        d = self.protocol(repo)
+        self.commit(repo, "protocol", when=BEFORE)
+        self.results(repo)
+        self.commit(repo, "results", when=AFTER)
+        self.write(os.path.join(d, "protocol.md"),
+                   "# Protocol\n\nprediction: whatever the run showed\n")
+        self.commit(repo, "protocol rewritten after the run", when=AFTER)
+        tr.move_line(repo, "q", "done")
+        self.commit(repo, "move to done", when=AFTER)
+        errors = self.errors(repo)
+        self.assertTrue(hit("protocol.md changed after the run", errors), errors)
+        self.assertFalse(hit(BOTH_TOGETHER, errors), errors)
+
     def test_an_untracked_protocol_is_not_a_change_after_the_run(self):
         # `git rm --cached` takes the path out of the index and leaves the blob
         # the run wrote, so it is not a change: the 2026-09-24 commit that

@@ -38,7 +38,7 @@ or `done/` by its own state, idempotently.
 
 ## The ask contract
 
-A line opened under `ASK_RULES` (`hooks/tezgah_research.py:3910`) carries the
+A line opened under `ASK_RULES` (`hooks/tezgah_research.py:3970`) carries the
 user's words and a way to judge the answer:
 
 - `init <slug> --ask "<the user's words>"` - required; `--tier quick` refuses a
@@ -53,7 +53,7 @@ user's words and a way to judge the answer:
 - `close --limit "<what is left>" --ack "<what the user said>"` is the way out
   when a criterion is `not-met`: `check` refuses a conclusion over an unjudged or
   unmet criterion without an acknowledgement, and `status` keeps listing such a
-  line as unanswered (`unanswered` `hooks/tezgah_research.py:3944`).
+  line as unanswered (`unanswered` `hooks/tezgah_research.py:4004`).
 
 The reason: 4 of 11 sampled lines in this workspace concluded with the ask
 unanswered and 0 of 416 claims cited any part of it (measured 2026-10-01), because
@@ -140,7 +140,7 @@ calls (`check_line`, `tezgah_research.py:2001`).
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
 | `tezgah-research check [<slug>] [--json] [--strict] [--orx]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `tezgah_research.py:2261`) | 0 clean, 1 a line failed a rule or names no line |
 | `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `tezgah_research.py:2237`) | 0 |
-| `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py:3387-3408`) | 0, 2 misuse |
+| `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py:3447-3468`) | 0, 2 misuse |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
 | `tezgah-research predict <slug>` | reads one prediction row from stdin and either appends it under the same lock or refuses it with one reason per problem; a row whose `commit` git cannot place is appended with the warning printed, which is the fail-open `check` uses, and a row written now has to name at least one component the manifest defines (`append_prediction`, `tezgah_research.py:2999`) | 0, 1 refused, 2 misuse |
 | `tezgah-research components [--json]` | the per-component report: one bucket per component the manifest defines, in the manifest's own order, then any key a row names that the manifest does not, each holding the prediction rows that name it and each row's state, and last the rows that name no component; it prints the number of components and rows it read (`component_report`, `tezgah_research.py:3160`) | 0, 2 misuse |
@@ -329,7 +329,7 @@ Refused:
   (`prediction_problems`, `tezgah_research.py:2872`); a row whose commit changed
   a **frozen** path is refused unless it carries a human `granted_by`, and the
   frozen set is one module-level tuple, `FROZEN_PATHS`
-  (`hooks/tezgah_research.py:4052-4058`), read only through `_frozen`
+  (`hooks/tezgah_research.py:4112-4118`), read only through `_frozen`
   (`tezgah_research.py:2836`) so the write path and the checker cannot drift
   apart: `hooks/tezgah_gate.py` and `hooks/tezgah_integrity.py` (the verifier and
   the ledger's write path), `hooks/tezgah_research.py` (this module - the
@@ -572,7 +572,7 @@ only record of a verdict; `unmeasured` when `value_after` is empty, which is the
 round that has not run; `held` when it is filled, which is the number that came
 back. A row whose `claim` the line does not hold decides nothing - the filled
 `value_after` is not a verdict - so it stays `unmeasured` and the report prints
-why, beside the row. `PREDICTION_STATES` (`hooks/tezgah_research.py:4291-4293`) is
+why, beside the row. `PREDICTION_STATES` (`hooks/tezgah_research.py:4351-4353`) is
 that vocabulary, and the headers count it.
 
 It is a **report, not a gate**: it exits 0 whatever the rows look like, because
