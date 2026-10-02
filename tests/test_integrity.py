@@ -307,7 +307,10 @@ class ShortcutCommand(unittest.TestCase):
         for c in ('cat <<X "a\nb"; git commit --no-verify -m x\nbody\nX',
                   "cat <<X $((1\n+1)); git commit --no-verify -m x\nbody\nX",
                   # a newline inside a later `$( )` belongs to it (bash 3.2)
-                  "cat <<X $(echo a\necho b); git commit --no-verify -m x\nbody\nX"):
+                  "cat <<X $(echo a\necho b); git commit --no-verify -m x\nbody\nX",
+                  # a closed `$( )`'s heredoc never flushes in a later sibling
+                  "echo $(cat <<X); echo $(true\ngit commit --no-verify -m x\nX\n)",
+                  'echo "$(cat <<X)"; echo "$(true\ngit commit --no-verify -m x\nX\n)"'):
             self.assertIsNotNone(ti.shortcut_command(c), c)
         self.assertEqual(ti.heredoc_bodies('cat <<X "a\nb"; ls\nbody\nX'),
                          ["body"])

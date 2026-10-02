@@ -23,7 +23,7 @@ Here tezgah only *configures* servers and classifies a call by its name: the
 app-analysis servers are rendered into each host's own config from one spec
 (`hooks/tezgah_apps.py:1-5`), Codex's rows are appended by `ensure_toml_mcp`
 (`bin/tezgah-setup:987-1044`), and a tool name starting `mcp__` is classified
-`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2295-2299`).
+`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2298-2302`).
 
 ## Agent framework
 
@@ -69,7 +69,7 @@ Owns the rule text (`CORE` `hooks/tezgah_policy.py:626-845`), the per-turn remin
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:857-877`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1410-1613`), the record after one (`note()`
 `hooks/tezgah_integrity.py:782-794`), the end-of-turn verdict (`stop_reason()`
-`hooks/tezgah_integrity.py:3234-3282`), the pre-write snapshots (`capture()`
+`hooks/tezgah_integrity.py:3237-3285`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:221`), the status marks, and the per-repo plans,
 lessons and research lines.
 
@@ -155,11 +155,11 @@ to a benchmark instead of to a sentence.
 
 This is the checkable consequence of the transport layer here. A hook is handed
 the call, so that is all the classification can use (`untrusted_source`
-`hooks/tezgah_integrity.py:2359-2382`): an MCP answer enters the ledger as an
+`hooks/tezgah_integrity.py:2362-2385`): an MCP answer enters the ledger as an
 untrusted channel, the channel being `mcp` (`untrusted_source`
-`hooks/tezgah_integrity.py:2359-2382`), and an answer that is no step of work
+`hooks/tezgah_integrity.py:2362-2385`), and an answer that is no step of work
 of its own earns a row of kind `external` (`note_tool`
-`hooks/tezgah_integrity.py:2553-2671`). The compensating control is the taint
+`hooks/tezgah_integrity.py:2556-2674`). The compensating control is the taint
 notice: the first effect in a turn that has read an untrusted channel carries
 it (`hooks/tezgah_untrusted.py:2-22`); nothing refuses that effect since the
 sink rule was removed ([gate](gate.md)).

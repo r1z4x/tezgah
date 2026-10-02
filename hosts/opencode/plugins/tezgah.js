@@ -501,9 +501,11 @@ function heredocs(cmd) {
     // a body starts at a newline of the command context its operator was read
     // in: one inside a quote, an arithmetic or a later `$( )` is not it
     const ready = ch === "\n" && (kind === "top" || kind === "cmd")
-      ? pending.filter(p => p[5] === stack.length) : []
+      ? pending.filter(p => p[5] === frame) : []
     if (ready.length) {
-      pending = pending.filter(p => p[5] !== stack.length)
+      // the frame itself, not its depth: a closed `$( )`'s heredoc never
+      // flushes in a later sibling (hooks/tezgah_integrity._heredocs)
+      pending = pending.filter(p => p[5] !== frame)
       let pos = i + 1
       for (const [start, stop, tag, quoted, strip] of ready) {
         const body = pos
@@ -561,7 +563,7 @@ function heredocs(cmd) {
       if (strip) j++
       while (j < n && (cmd[j] === " " || cmd[j] === "\t")) j++
       const [tag, quoted, after] = heredocTag(cmd, j)
-      pending.push([i, after, tag, quoted, strip, stack.length])
+      pending.push([i, after, tag, quoted, strip, frame])
       i = after
     } else i++
   }

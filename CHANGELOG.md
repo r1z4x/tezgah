@@ -14,7 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   --no-verify ...` hid the commit bash runs on that line. Bash collects a body
   only at a newline token of the command context the operator was read in; the
   reader now does too, in Python and opencode, so a newline inside a later
-  `$( )` (`cat <<X $(a` / `b); cmd`) does not start the body either.
+  `$( )` (`cat <<X $(a` / `b); cmd`) does not start the body either. A heredoc left
+  in a closed `$( )` never takes its body from a later sibling substitution.
   Found by an independent review and measured with `bash -c`.
 
 ## [0.29.0] - 2026-10-02

@@ -1700,11 +1700,14 @@ def _heredocs(cmd):
         # operator was read in: a newline inside a quote or an arithmetic is
         # text, and one inside a `$( )` opened after the operator belongs to the
         # substitution - `cat <<X $(a\nb); cmd` runs `cmd` (consult review,
-        # measured with bash 3.2)
-        ready = ([p for p in pending if p[5] == len(stack)]
+        # measured with bash 3.2). The frame itself, not its depth: a heredoc
+        # left in a closed `$( )` never flushes in a later sibling at the same
+        # depth (`echo $(cat <<X); echo $(true\ncmd\nX\n)` runs `cmd`); it
+        # stays unterminated, so its lines stay visible
+        ready = ([p for p in pending if p[5] is stack[-1]]
                  if ch == "\n" and kind in ("top", "cmd") else [])
         if ready:
-            pending = [p for p in pending if p[5] != len(stack)]
+            pending = [p for p in pending if p[5] is not stack[-1]]
             pos = i + 1
             for start, stop, tag, quoted, strip, _depth in ready:
                 body, term = pos, None
@@ -1785,7 +1788,7 @@ def _heredocs(cmd):
             while j < n and cmd[j] in " \t":
                 j += 1
             tag, quoted, j = _heredoc_tag(cmd, j)
-            pending.append((i, j, tag, quoted, strip, len(stack)))
+            pending.append((i, j, tag, quoted, strip, stack[-1]))
             i = j
         else:
             i += 1
