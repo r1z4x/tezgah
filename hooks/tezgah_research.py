@@ -613,6 +613,10 @@ def _changed_after(repo, path, rev, beside=None):
                 return None
             if at_rev is None:
                 return True
+    if beside is not None and not anchored:
+        # the anchor was asked for and not found: say git could not compare
+        # rather than fall back to the name guessing it replaces (referee, round 5)
+        return None
     if not anchored:
         at_rev, err = _blob_by_name(top, rev, rel, extra)
         if err:
