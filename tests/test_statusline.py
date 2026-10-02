@@ -65,6 +65,15 @@ class Statusline(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.strip(), PREFIX + NO_ROOT)
 
+    def test_a_non_utf8_plan_still_draws_the_line(self):
+        path = os.path.join(self.repo, ".tezgah", "plans", "open", "001-bad.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(b"---\nid: 001\n---\n\xff\n")
+        proc = run([support.STATUSLINE], {"cwd": self.repo}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("plans 1", proc.stdout)
+
     def orx_env(self):
         """The plain environment plus an `orx` on the PATH lookup: without it the
         research mark is `off` (no tool installed) and can never light, which is

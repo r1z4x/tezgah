@@ -46,6 +46,24 @@ class RootsPrecedence(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(out, [os.path.realpath(os.path.join(self.home, "Projects"))])
 
+    def config_roots(self, value):
+        self.config({"roots": value})
+        env = self.env()
+        env.pop("TEZGAH_ROOTS", None)
+        out, proc = run_json([support.PROBE_PATHS, "roots"], env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_a_string_is_one_root_not_its_characters(self):
+        # "~/my.projects" iterated per character armed HOME ("~") and the cwd (".")
+        self.assertEqual(self.config_roots("~/my.projects"),
+                         [os.path.realpath(os.path.join(self.home, "my.projects"))])
+
+    def test_a_wrong_type_or_blank_entries_fall_back_to_the_default(self):
+        default = [os.path.realpath(os.path.join(self.home, "Projects"))]
+        for value in (5, {"a": 1}, None, "", [5, None, " "]):
+            self.assertEqual(self.config_roots(value), default, value)
+
 
 class RootForBoundaries(TempHome):
     def test_inside_and_exact_return_root(self):

@@ -61,6 +61,9 @@ GRAPH = ("codegraph",)
 # (`Write` and the other edit spellings) pass through unchanged, as the gate
 # knows them already.
 GATE_TOOLS = {"shell": "Bash", "read": "Read", "grep": "Grep"}
+# The shell tool spellings the `preToolUse` matcher names: their outcome is the
+# exit code, not the event.
+SHELLS = ("shell", "bash", "powershell", "pwsh")
 
 
 def gate_name(name):
@@ -160,6 +163,30 @@ def result_size(result):
     return 1 if result is not None else None
 
 
+def call_failed(payload):
+    """The outcome a `postToolUse` payload reports, as `note_tool`'s `failed`.
+
+    A failure the tool itself raised arrives on `postToolUseFailure`, so this
+    event is a success of the call - the split Claude's adapter reads. A shell
+    call is the exception: a non-zero exit is still a call that ran, and Cursor
+    carries the status inside `tool_output` (documented as the JSON-stringified
+    result, `{"exitCode": 0, "stdout": ...}`), so a shell row is a pass or a
+    failure only by that `exitCode`. A shell result with no integer exitCode is
+    recorded as a check that RAN (`None`), never as a fabricated exit 0."""
+    out = payload.get("tool_output")
+    if isinstance(out, str):
+        try:
+            out = json.loads(out)
+        except ValueError:
+            out = None
+    code = out.get("exitCode") if isinstance(out, dict) else None
+    if isinstance(code, int) and not isinstance(code, bool):
+        return code != 0
+    if str(payload.get("tool_name") or "").lower() in SHELLS:
+        return None
+    return False
+
+
 def first_time(session_id, tag):
     """True the first time a tag is seen for a session; fail-open when unwritable."""
     if not session_id:
@@ -252,13 +279,8 @@ def dispatch(payload):
         source, notice = (marks(source_tool(payload), inp, session_id,
                                 payload.get("tool_output"))
                           if under(cwd) else (None, None))
-        # failed=None: this event carries no failure signal, so the row records a
-        # check that ran - never a fabricated exit 0. The name and the input go
-        # through the same mapping the gate saw, so one call hashes to one id.
-        # Cursor names `tool_output` the "JSON-stringified result payload from
-        # the tool": the row keeps its size, never the result itself.
         note_tool(session_id, gate_name(payload.get("tool_name", "")), inp,
-                  failed=None, source=source, cwd=cwd,
+                  failed=call_failed(payload), source=source, cwd=cwd,
                   out_bytes=(report_bytes(payload.get("tool_output"))
                              if source == SUBAGENT_CHANNEL
                              else result_size(payload.get("tool_output"))))

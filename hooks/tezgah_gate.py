@@ -188,9 +188,13 @@ WRITE_CMD = re.compile(
 # program's text, while `token=$TOKEN` and `api_key=...` are a credential being
 # carried. The value may be an env reference: `OPENROUTER_API_KEY=$KEY` echoed
 # into a log is the taxonomy's own case (`$KEY` is resolved by the shell).
+# The name alternatives already match the keyword wherever it sits, so the
+# unbounded `[A-Za-z0-9_.-]*` prefix only bought a rescan from every start
+# position: 16 KB took 4.03 s and 100 KB 174 s, past Claude's 5 s hook budget, so
+# the deny never arrived and the evidence row was never written (audit H-3).
 SECRET_TOKEN = re.compile(
     r"authorization\s*:\s*bearer\s+\S|"
-    r"[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|"
+    r"(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|"
     r"password|passwd)\s*=\s*[\"']?[^\s\"']", re.I)
 # The sinks that carry a command's own text into a file. `>>?` is read off the
 # masked text, so a quoted `>` is not a redirect and `2>&1` is not a file.

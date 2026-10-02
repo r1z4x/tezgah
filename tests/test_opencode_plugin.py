@@ -1167,6 +1167,28 @@ class OpenCodePlugin(TempHome):
         self.after("bash", {"command": "ls"}, directory=self.home)
         self.assertEqual(self.kinds(), [])
 
+    def test_a_root_reached_through_a_symlink_still_arms_the_plugin(self):
+        # opencode hands the plugin its directory resolved (`/private/tmp/...`
+        # for a `/tmp` root on macOS); an unresolved root never matched it, so
+        # the plugin went inert while the Python hooks, which realpath both
+        # sides (tezgah_paths.roots/root_for), stayed armed on the same root.
+        link = os.path.join(self.home, "linked-projects")
+        os.symlink(self.roots, link)
+        self.envv["TEZGAH_ROOTS"] = link
+        self.after("bash", {"command": "pytest -q"}, exit=0)
+        self.assertEqual(self.kinds(), ["verify_ok"])
+
+    def test_a_string_roots_value_is_one_root(self):
+        # the reading tezgah_paths.roots() does: a string is one root, not a
+        # list of characters and not the default
+        os.makedirs(os.path.join(self.home, "work", "proj"))
+        self.config({"roots": os.path.join(self.home, "work")})
+        self.envv.pop("TEZGAH_ROOTS")
+        self.after("bash", {"command": "pytest -q"}, exit=0,
+                   directory=os.path.join(self.home, "work", "proj"))
+        self.after("bash", {"command": "ls"}, session="s2")
+        self.assertEqual((self.kinds(), self.kinds("s2")), (["verify_ok"], []))
+
     def test_a_credential_in_a_detail_is_stored_redacted(self):
         # A token typed on a command line would otherwise sit in plain text in a
         # cache file. Python's own redact() is the reference, so a pattern that
