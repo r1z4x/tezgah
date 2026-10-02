@@ -300,6 +300,16 @@ class ShortcutCommand(unittest.TestCase):
         # line after it is its body
         self.assertEqual(ti.heredoc_bodies("let x=1<<2\nbody\n2"), ["body"])
 
+    def test_a_newline_inside_quotes_does_not_start_a_heredoc_body(self):
+        # consult review 2026-10-02: bash collects a heredoc body at a newline
+        # token, so a newline inside a quoted argument after the operator is
+        # text, and the commit on that line runs (measured with `bash -c`)
+        for c in ('cat <<X "a\nb"; git commit --no-verify -m x\nbody\nX',
+                  "cat <<X $((1\n+1)); git commit --no-verify -m x\nbody\nX"):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        self.assertEqual(ti.heredoc_bodies('cat <<X "a\nb"; ls\nbody\nX'),
+                         ["body"])
+
 
 class BookkeepingCommand(unittest.TestCase):
     """_bookkeeping_command: which shell calls leave the tree a check judged as

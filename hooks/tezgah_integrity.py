@@ -1696,7 +1696,9 @@ def _heredocs(cmd):
     stack = [["top", 0]]
     while i < n:
         ch, kind = cmd[i], stack[-1][0]
-        if ch == "\n" and pending:
+        # bash collects a body at a newline token: one inside a quote or an
+        # arithmetic is text, and the line it ends still runs (consult review)
+        if ch == "\n" and pending and kind in ("top", "cmd"):
             pos = i + 1
             for start, stop, tag, quoted, strip in pending:
                 body, term = pos, None

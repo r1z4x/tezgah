@@ -498,7 +498,8 @@ function heredocs(cmd) {
   let pending = [], i = 0
   while (i < n) {
     const ch = cmd[i], frame = stack[stack.length - 1], kind = frame[0]
-    if (ch === "\n" && pending.length) {
+    // a newline inside a quote or an arithmetic is text, not the body's start
+    if (ch === "\n" && pending.length && (kind === "top" || kind === "cmd")) {
       let pos = i + 1
       for (const [start, stop, tag, quoted, strip] of pending) {
         const body = pos
