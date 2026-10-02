@@ -261,6 +261,22 @@ class ShortcutCommand(unittest.TestCase):
         self.assertIsNotNone(
             ti.shortcut_command("git commit -F - <<'MSG'\n--no-verify\n"))
 
+    # review R1: a `<<'X'` that bash does not read as a heredoc - quoted, in a
+    # comment, or a here-string - must not blank the commands after it
+    FAKE_HEREDOCS = ("echo \"<<'X'\"\ngit commit --no-verify -m x\nX",
+                     "ls # <<'X'\ngit commit --no-verify -m x\nX",
+                     "echo \"<<'X'\"\npytest || true\nX",
+                     "grep x <<< 'X'\ngit commit --no-verify -m x\nX")
+
+    def test_only_a_heredoc_bash_reads_hides_its_body(self):
+        for c in self.FAKE_HEREDOCS:
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        # a real one still hides its body, and the body reader agrees
+        self.assertIsNone(
+            ti.shortcut_command("git commit -F - <<'MSG'\n--no-verify\nMSG"))
+        self.assertEqual(ti.heredoc_bodies("echo \"<<'X'\"\nbody\nX"), [])
+        self.assertEqual(ti.heredoc_bodies("cat > f <<'E'\na\nb\nE\n"), ["a\nb"])
+
 
 class BookkeepingCommand(unittest.TestCase):
     """_bookkeeping_command: which shell calls leave the tree a check judged as
@@ -292,6 +308,24 @@ class BookkeepingCommand(unittest.TestCase):
             self.assertFalse(ti._bookkeeping_command(c), c)
         for c in ("git status # it's fine", "echo $'it\\'s'",
                   "git commit -F - <<'MSG'\ndon't\nMSG"):
+            self.assertTrue(ti._bookkeeping_command(c), c)
+
+    def test_only_a_real_heredoc_hides_its_lines(self):
+        # review R1: `<<'EOF'` in a quoted string, a comment or a here-string
+        # was read as a heredoc, and every segment equal to its tag was dropped
+        for c in ("rg -n \"<<'EOF'\" docs/\npython3 - <<'EOF'\n"
+                  "open('a.py','w').write('x')\nEOF",
+                  "echo \"<<'X'\"\n./regen.sh\nX",
+                  "cat <<'make'\nx\nmake\nmake",
+                  "cat <<'make'; make\nx\nmake",
+                  "echo \"<<'true'\"\n./regen.sh\ntrue",
+                  "ls # see <<'true'\n./regen.sh\ntrue",
+                  "grep x <<< 'true'\n./regen.sh\ntrue",
+                  "cat <<'A'\nx\n"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+        for c in ("git commit -F - <<'MSG'\nbody\nMSG",
+                  "git commit -F - <<-\"MSG\"\n\tbody\n\tMSG\ngit status",
+                  "grep x <<< 'y'", 'echo "<<\'X\'"'):
             self.assertTrue(ti._bookkeeping_command(c), c)
 
     def test_a_program_named_by_a_path_is_not_bookkeeping(self):

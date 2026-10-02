@@ -52,6 +52,17 @@ class Statusline(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.strip(), PREFIX + CURSOR_SEGMENT)
 
+    def test_a_disarmed_gate_heads_the_line_only_when_marked(self):
+        # Audit Phase 1.3: the prompt hook leaves this mark when the transcript
+        # shows gated tool calls and the ledger no tool-hook row (see
+        # test_context.GateLiveness); the Claude line shows it, and only then.
+        payload = {"cwd": self.repo, "session_id": "s"}
+        before = run([support.STATUSLINE], payload, env=self.envv).stdout
+        self.assertNotIn("gate", before)
+        self.touch(os.path.join(self.home, ".cache", "tezgah", "gate-inactive", "s"))
+        after = run([support.STATUSLINE], payload, env=self.envv).stdout
+        self.assertIn("gate\u2717", after)
+
     def test_no_consult_key_flips_consult(self):
         os.remove(os.path.join(self.home, ".config", "openrouter", "key"))
         proc = run([support.STATUSLINE], {"cwd": self.repo}, env=self.envv)

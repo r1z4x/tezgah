@@ -358,10 +358,12 @@ def active(cwd, base):
         if fields.get("phase") not in TASK_PHASES:
             continue
         # A plan the repository shipped is data, not the user's task: its phase
-        # and allowlist would lock writes in a cloned repo (review UNRESOLVED,
-        # audit L-16). Asked once, and only when a plan would otherwise rule.
-        from tezgah_paths import workspace_from_repo
-        if workspace_from_repo(root):
+        # and allowlist would lock writes in a cloned repo (audit L-16). Only
+        # positive evidence turns the rule off - the index tracks `.tezgah` -
+        # never a can't-tell, which would switch the user's own guard off in
+        # silence (review R2); the answer is cached on the index's stat.
+        from tezgah_paths import workspace_tracked
+        if workspace_tracked(root):
             return None
         return {"id": fields.get("id") or name.split("-")[0],
                 "title": fields.get("title", ""),

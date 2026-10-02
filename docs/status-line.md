@@ -94,6 +94,7 @@ measure the surface cannot see, then armed-and-used or armed-not-used.
 | `graph` | a code-graph tool call (an `mcp__…codegraph…` tool) | `.no-graph` — a missing binary is `idx`'s report, not this mark's |
 | `orch` | a delegate call (`Task`/`Agent`/`spawn_agent`) or a subagent start | `orchestrate-off` |
 | `judge` | a shell command really ran `tezgah-triage` or `tezgah-docs` | `judge-off`, or no credential: no `TYPESAFE_API_KEY` and no non-empty `~/.config/typesafe/key`, and neither the fallback's `OPENROUTER_API_KEY` nor its `~/.config/openrouter/key` |
+| `gate` | never `on`: shown only as `gate✗`, right after the version, when the prompt hook found at least 3 gated tool calls in this session's transcript since its first turn (Bash/Edit/Write/MultiEdit/NotebookEdit/PowerShell/WebFetch/WebSearch/Agent/Task/`mcp__*` on Claude, `exec_command`/`shell` on Codex) and not one row from the tool hooks in the ledger over the same span - the gate is not running on this host. The same prompt carries the line "tezgah gate inactive on this host: ...". Both clear when a tool-hook row appears (`gate_inactive`, mark file `<cache>/gate-inactive/<session>`, audit Phase 1.3) | a tool-hook row appears |
 
 Read `on` for `consult`/`research`/`judge` as "installed and usable", not "you
 must use it": a missing key or binary reads the same red as a kill switch

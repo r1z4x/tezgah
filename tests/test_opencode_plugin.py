@@ -280,6 +280,19 @@ class OpenCodePlugin(TempHome):
                         "cargo test || exit 0"):
             self.denied(self.before("bash", {"command": command}))
 
+    def test_a_quoted_heredoc_marker_hides_nothing_from_the_gate(self):
+        # review R1, mirrored: `<<'X'` inside quotes, a comment or a here-string
+        # is not a heredoc, so the command after it is read and refused; a real
+        # heredoc's body still is not
+        for command in ("echo \"<<'X'\"\ngit commit --no-verify -m x\nX",
+                        "ls # <<'X'\ngit commit --no-verify -m x\nX",
+                        "echo \"<<'X'\"\npytest || true\nX",
+                        "grep x <<< 'X'\ngit commit --no-verify -m x\nX"):
+            self.assertIsNotNone(ti.shortcut_command(command), command)
+            self.denied(self.before("bash", {"command": command}))
+        self.allowed(self.before(
+            "bash", {"command": "git commit -F - <<'MSG'\n--no-verify\nMSG"}))
+
     def test_plain_commands_pass(self):
         for command in ("pytest -q", "git commit -m 'fix: typo'", "git status",
                         "make test", "ls || true"):

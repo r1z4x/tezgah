@@ -98,11 +98,11 @@ One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
 `fixture`/`fake`/`stub`/`sample`/`demo` (`SCRATCH_PATH`,
-`hooks/tezgah_integrity.py:2771-2777`; `scratch_evidence`,
-`hooks/tezgah_integrity.py:2792-2816`) - the turn is told the command and the
+`hooks/tezgah_integrity.py:2864-2870`; `scratch_evidence`,
+`hooks/tezgah_integrity.py:2885-2909`) - the turn is told the command and the
 rule: evidence from a scratch path is evidence about the code path, so a claim
 about the running system needs a check that ran against it (`SCRATCH_REMINDER`,
-`hooks/tezgah_context.py:1292-1298`, appended at `hooks/tezgah_context.py:1327`).
+`hooks/tezgah_context.py:1293-1299`, appended at `hooks/tezgah_context.py:1327`).
 It is a reminder and not a block because whether a scratch script exercises the
 real system is not decidable from the command; one passing check against a real
 path makes the reader answer `None`, so a session that also ran the real thing is
@@ -112,7 +112,7 @@ it with the integrity rule it restates.
 ## Composition order of the always-on core
 
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
-the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:304-323`).
+the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:305-328`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
 `**Turkish, BLUF.**` :616, `**Ponytail (minimal code).**` :625, `**Output shape:
 ADHD-friendly.**` :636, `**Deliver the whole ask; never the shortcut.**` :650,
@@ -126,7 +126,7 @@ analysis: five axes, one evidence class per finding.**` :745 *(conditional)*,
 stay English.**` :788, `**Session scope: the user's repo, not tezgah.**` :794,
 `**Kill switches:**` :803.
 
-`always_on_core()` (`hooks/tezgah_context.py:1113-1123`) drops the five
+`always_on_core()` (`hooks/tezgah_context.py:1114-1124`) drops the five
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:851-856`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, product analysis, the code graph, and the
@@ -142,7 +142,7 @@ its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
 hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
-(`hooks/tezgah_context.py:1104-1112`) is that text with the kill-switch filtering
+(`hooks/tezgah_context.py:1105-1113`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
@@ -161,7 +161,7 @@ applied, and it also returns the names of the switches that fired.
 
 ## Arming the conditional paragraphs, and the per-turn reminder
 
-`PROMPT_HINTS` (`hooks/tezgah_context.py:82-294`) is one compiled pattern per key
+`PROMPT_HINTS` (`hooks/tezgah_context.py:83-295`) is one compiled pattern per key
 — `spec`, `consult`, `research`, `product`, `graph` — and `classify_prompt()` returns the keys
 a prompt matches (`hooks/tezgah_context.py:890-895`). On that turn only, the
 matching paragraphs are appended after the reminder
@@ -224,11 +224,11 @@ they survive every other switch being off.
 1. Write the full text as a constant in `hooks/tezgah_policy.py`.
 2. If not every session should pay it, add the key to `CONDITIONAL_KEYS`
    (`hooks/tezgah_policy.py:846-850`), a pattern to `PROMPT_HINTS`
-   (`hooks/tezgah_context.py:82-294`) and a line to `POINTERS`
+   (`hooks/tezgah_context.py:83-295`) and a line to `POINTERS`
    (`hooks/tezgah_policy.py:851-856`); the two halves are asserted together
    (`tests/test_context.py:1861-1870`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
-   pair to `CORE_RULES` (`hooks/tezgah_context.py:304-323`). The label is the
+   pair to `CORE_RULES` (`hooks/tezgah_context.py:305-328`). The label is the
    contract: `core_split()` matches paragraphs by it and `subagent_core()` builds
    the brief from it, so a label edit fails loudly instead of silently dropping
    a rule.
@@ -261,7 +261,7 @@ bytes with a fresh render. That notices that the text a session gets changed;
 is the drift that actually happens (`tests/test_setup.py:1297-1311`).
 `tezgah-setup --refresh` re-renders every armed host's artifact, not only
 opencode's, and drops the paragraph of any global kill switch that is on
-(`refresh_contract`, `bin/tezgah-setup:1191-1208`).
+(`refresh_contract`, `bin/tezgah-setup:1194-1211`).
 
 ## When the injected text grows too large
 

@@ -1621,34 +1621,127 @@ def verify_command(cmd):
     return (m.groupdict().get("js") or m.group(0)).strip()
 
 
-def _blank_heredocs(text):
-    """`text` with every heredoc body blanked.
-
-    An unterminated heredoc is left visible, so a bypass cannot hide behind a
-    missing terminator. ponytail: a payload handed to a shell through a heredoc
-    reads as data here, so a bypass written that way is not caught - telling
-    those apart needs a real shell parser."""
-    lines = text.split("\n")
-    out, i = [], 0
-    while i < len(lines):
-        m = HEREDOC.search(lines[i])
-        if not m:
-            out.append(lines[i])
-            i += 1
-            continue
-        tag = m.group(1)
-        j = i + 1
-        while j < len(lines) and lines[j].strip() != tag:
+def _heredoc_tag(cmd, j):
+    """The heredoc delimiter word starting at `j`: (tag with quotes removed,
+    whether any of it was quoted, the index after it)."""
+    tag, quoted, quote = [], False, None
+    while j < len(cmd):
+        ch = cmd[j]
+        if quote:
+            if ch == quote:
+                quote = None
+            else:
+                tag.append(ch)
+        elif ch in "'\"":
+            quote, quoted = ch, True
+        elif ch == "\\" and j + 1 < len(cmd):
+            quoted = True
+            tag.append(cmd[j + 1])
             j += 1
-        if j == len(lines):  # unterminated: keep it visible
-            out.append(lines[i])
-            i += 1
+        elif ch in " \t\n;&|()<>":
+            break
+        else:
+            tag.append(ch)
+        j += 1
+    return "".join(tag), quoted, j
+
+
+def _heredocs(cmd):
+    """Every heredoc bash would read in `cmd`, in order, as (operator start,
+    operator end, tag, quoted, body start, terminator span or None).
+
+    The one reader of where a heredoc is, for every rule that blanks or reads
+    one (`_blank_heredocs` - so `mask()`, the shortcut, credential and write
+    readers - `heredoc_bodies` and `_shell_read`). An operator counts only where
+    bash reads one: `<<`/`<<-` unquoted, outside a comment and not part of a
+    `<<<` here-string. A line pattern took `<<'X'` inside a quoted string or a
+    comment for one and blanked the commands after it, so `echo "<<'X'"\\ngit
+    commit --no-verify -m x\\nX` passed the gate (review R1). The body starts on
+    the line after the operator, several on one line are read in order, and the
+    terminator is the line equal to the tag (tabs stripped for `<<-`). The scan
+    stops at an unterminated one: its body runs to the end, and that entry's
+    terminator is None."""
+    n, found, pending, quote, i = len(cmd), [], [], None, 0
+    while i < n:
+        ch = cmd[i]
+        if quote == "'":
+            quote = None if ch == "'" else quote
+        elif quote == "$'":
+            if ch == "\\":
+                i += 1
+            elif ch == "'":
+                quote = None
+        elif ch == "\\":
+            i += 2
             continue
-        out.append(lines[i])
-        out.extend(" " * len(line) for line in lines[i + 1:j])
-        out.append(lines[j])
-        i = j + 1
-    return "\n".join(out)
+        elif quote == '"':
+            quote = None if ch == '"' else quote
+        elif ch == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()<>"):
+            end = cmd.find("\n", i)
+            i = n if end < 0 else end
+            continue
+        elif cmd.startswith("$'", i):
+            quote = "$'"
+            i += 1
+        elif ch in "'\"":
+            quote = ch
+        elif cmd.startswith("<<<", i):
+            i += 3
+            continue
+        elif cmd.startswith("<<", i):
+            j = i + 2
+            strip = j < n and cmd[j] == "-"
+            j += strip
+            while j < n and cmd[j] in " \t":
+                j += 1
+            tag, quoted, j = _heredoc_tag(cmd, j)
+            pending.append((i, j, tag, quoted, strip))
+            i = j
+            continue
+        elif ch == "\n" and pending:
+            pos = i + 1
+            for start, stop, tag, quoted, strip in pending:
+                body, term = pos, None
+                while pos < n and tag:
+                    end = cmd.find("\n", pos)
+                    end = n if end < 0 else end
+                    line = cmd[pos:end]
+                    pos = end + 1
+                    if (line.lstrip("\t") if strip else line) == tag:
+                        term = (end - len(line), end)
+                        break
+                found.append((start, stop, tag, quoted, body, term))
+                if term is None:
+                    return found
+            pending, i = [], pos
+            continue
+        i += 1
+    found += [(s, e, t, q, n, None) for s, e, t, q, _ in pending]
+    return found
+
+
+def heredoc_bodies(text):
+    """Every terminated heredoc's body in `text`, in order (`_heredocs`)."""
+    text = str(text or "")
+    return [text[body:max(body, term[0] - 1)]
+            for _, _, _, _, body, term in _heredocs(text) if term]
+
+
+def _blank_heredocs(text):
+    """`text` with every heredoc body blanked, length and newlines kept.
+
+    Only a heredoc bash would read (`_heredocs`). An unterminated heredoc is
+    left visible, so a bypass cannot hide behind a missing terminator.
+    ponytail: a payload handed to a shell through a heredoc reads as data here,
+    so a bypass written that way is not caught - telling those apart needs a
+    real shell parser."""
+    out = list(text)
+    for _, _, tag, _, body, term in _heredocs(text):
+        if tag and term:
+            for k in range(body, term[0]):
+                if out[k] != "\n":
+                    out[k] = " "
+    return "".join(out)
 
 
 def mask(text):
@@ -3156,27 +3249,39 @@ GIT_CONFIG_OPTS = ("-c", "--config-env", "--exec-path")
 HARMLESS_REDIRECT = re.compile(r"\d*>&\d+|\d*>>?\s*/dev/null\b")
 
 
-def _shell_effect(cmd):
-    """True when bash would run a command or process substitution, or redirect
-    into a file, anywhere in `cmd` - or when this reader cannot tell.
+def _shell_read(cmd):
+    """(effect, text) for `cmd`: whether bash would run a command or process
+    substitution, or redirect into a file, anywhere in it - or this reader
+    cannot tell - and the command with what is not a command blanked for
+    `_shell_segments`: comments, heredoc operators, bodies and terminator lines.
 
     Read on the RAW command with bash's own quoting: single quotes are literal,
     `$'...'` takes backslash escapes, double quotes still expand `$(` and
     backticks, only unquoted text redirects, and an unquoted `#` at the start of
     a word comments out the rest of its line. The masked text `mask()` gives
     blanks double-quoted strings and `#`/`//` comments, so `echo "$(./x.sh)"`
-    and `cat a//b > c` read as bookkeeping there (review F2).
+    and `cat a//b > c` read as bookkeeping there (review F2). The heredocs are
+    `_heredocs`' - the reader every other rule uses - and only the lines one
+    consumed are blanked (review R1).
 
-    Fails closed (True): an unquoted heredoc expands `$(` in its body, so it
-    is an effect; a quoted one's body is blanked; and a quote still open at the
-    end means the reading lost sync with bash - an apostrophe in a comment, a
-    body or `$'it\\'s'` hid a later `<(` that way (review N1)."""
-    for m in HEREDOC.finditer(cmd):
-        if not re.search(r"['\"]", m.group(0)):
-            return True
-    cmd = _blank_heredocs(cmd)
+    Fails closed (effect True): an unquoted heredoc expands `$(` in its body,
+    an unterminated one or an empty delimiter cannot be read, and a quote still
+    open at the end means the reading lost sync with bash (review N1)."""
+    n, out = len(cmd), list(cmd)
+
+    def blank(a, b):
+        for k in range(a, min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    for start, stop, tag, quoted, body, term in _heredocs(cmd):
+        if not tag or not quoted or term is None:
+            return True, ""
+        blank(start, stop)
+        blank(body, term[1])
+    cmd = "".join(out)
     bare, quote, i = [], None, 0
-    while i < len(cmd):
+    while i < n:
         ch = cmd[i]
         if quote == "'":
             quote = None if ch == "'" else quote
@@ -3190,12 +3295,14 @@ def _shell_effect(cmd):
             bare.append(" ")
             continue
         elif ch == "`" or cmd.startswith("$(", i):
-            return True
+            return True, ""
         elif quote == '"':
             quote = None if ch == '"' else quote
         elif ch == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()<>"):
             end = cmd.find("\n", i)
-            i = len(cmd) if end < 0 else end
+            end = n if end < 0 else end
+            blank(i, end)
+            i = end
             continue
         elif cmd.startswith("$'", i):
             quote = "$'"
@@ -3209,9 +3316,11 @@ def _shell_effect(cmd):
         bare.append(" ")
         i += 1
     if quote:
-        return True
+        return True, ""
     text = HARMLESS_REDIRECT.sub(" ", "".join(bare))
-    return ">" in text or "<(" in text
+    # every `<` left is an input redirect or a here-string, both reads; blanking
+    # them keeps `_shell_segments`' own heredoc pass from reading one again
+    return ">" in text or "<(" in text, "".join(out).replace("<", " ")
 
 
 def _bookkeeping_command(cmd):
@@ -3226,11 +3335,10 @@ def _bookkeeping_command(cmd):
     the list because refusing every commit was the measured cost (audit CHAT-04);
     a hook that rewrites the tree is invisible here."""
     raw = str(cmd or "").replace(FAILED_MARK, "")
-    if not raw.strip() or _shell_effect(raw):
+    effect, text = _shell_read(raw) if raw.strip() else (True, "")
+    if effect:
         return False
-    # a quoted heredoc's terminator line is not a command (its body is blanked)
-    tags = [[m.group(1)] for m in HEREDOC.finditer(raw)]
-    segs = [w for w in _shell_segments(raw) if w not in tags]
+    segs = _shell_segments(text)
     for words in segs:
         i = 0
         while i < len(words) and words[i] in GIT_WRAPPER:

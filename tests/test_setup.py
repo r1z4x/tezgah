@@ -1586,6 +1586,81 @@ class CodexHookTrust(SetupBase):
         self.assertTrue(self.trusted_row().startswith("MISS"), self.trusted_row())
 
 
+class LiveReport(SetupBase):
+    """`--report --live` (audit Phase 1.2): a green row must mean the hook
+    EXECUTED. One synthetic PostToolUse goes through the command the host's own
+    config holds, here the real hook scripts wired by --install under a temp
+    HOME, and a ledger row must appear; the synthetic rows are removed after."""
+
+    def live(self, hosts):
+        proc = self.setup("--report", "--live", "--hosts", hosts)
+        return proc, {h: self.row(proc.stdout, "live %s:" % h).strip()
+                      for h in hosts.split(",")}
+
+    def assert_no_synthetic_rows(self):
+        ev = self.path(".cache", "tezgah", "evidence")
+        left = [n for n in os.listdir(ev) if "tezgah-live" in n] \
+            if os.path.isdir(ev) else []
+        self.assertEqual(left, [])
+
+    def trust_codex(self):
+        hooks = self.path(".codex", "hooks.json")
+        lines = ["", "[hooks.state]", ""]
+        for event, groups in self.read_json(hooks)["hooks"].items():
+            for index, group in enumerate(groups):
+                if "tezgah" in json.dumps(group):
+                    lines += ['[hooks.state."%s:%s:%d:0"]'
+                              % (hooks, CodexHookTrust.SNAKE[event], index),
+                              'trusted_hash = "sha256:00"', ""]
+        with open(self.path(".codex", "config.toml"), "a") as fh:
+            fh.write("\n".join(lines))
+
+    def test_a_wired_running_trusted_hook_is_ok(self):
+        self.assertEqual(self.setup("--install", "--hosts", "codex,cursor").returncode, 0)
+        self.trust_codex()
+        proc, rows = self.live("codex,cursor")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for host in ("codex", "cursor"):
+            self.assertTrue(rows[host].startswith("ok"), rows[host])
+            self.assertIn("wrote a ledger row", rows[host])
+        self.assert_no_synthetic_rows()
+
+    def test_a_wired_but_broken_command_is_miss(self):
+        self.assertEqual(self.setup("--install", "--hosts", "cursor").returncode, 0)
+        path = self.path(".cursor", "hooks.json")
+        data = self.read_json(path)
+        for entry in data["hooks"]["postToolUse"]:
+            if "tezgah" in entry["command"]:
+                entry["command"] = '"%s" "%s"' % (
+                    sys.executable, self.path("gone", "tezgah-cursor-hook"))
+        self.write_json(path, data)
+        proc, rows = self.live("cursor")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertTrue(rows["cursor"].startswith("MISS"), rows["cursor"])
+        self.assertIn("wrote no ledger row", rows["cursor"])
+        self.assert_no_synthetic_rows()
+
+    def test_an_untrusted_codex_group_is_miss_with_the_trust_cause(self):
+        """The hook itself runs; codex never would, because nothing trusts the
+        group (audit H-1). The row says so and the run fails."""
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+        proc, rows = self.live("codex")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertTrue(rows["codex"].startswith("MISS"), rows["codex"])
+        self.assertIn("does not trust", rows["codex"])
+        self.assert_no_synthetic_rows()
+
+    def test_the_opencode_plugin_is_imported_the_way_opencode_does(self):
+        if not shutil.which("node"):
+            self.skipTest("node not installed")
+        self.assertEqual(self.setup("--install", "--hosts", "opencode").returncode, 0)
+        proc, rows = self.live("opencode")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(rows["opencode"].startswith("ok"), rows["opencode"])
+        self.assert_no_synthetic_rows()
+
+
+
 class ContractParity(unittest.TestCase):
     """policy.CONTRACT and skills/tezgah-contract/SKILL.md are two hand-kept
     copies of the same rules. The sha record in bin/tezgah-setup notices that a
