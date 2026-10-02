@@ -33,7 +33,12 @@ this tree.
   tezgah-doctor --json             same, machine readable
   tezgah-doctor --coverage         the tracked files the graph index does not hold
   tezgah-doctor --coverage --repo ~/Projects/x
-  tezgah-doctor --clean            vacuum the opencode database
+  tezgah-doctor --clean            vacuum the opencode database, and delete the
+                                   hook state (evidence ledgers, turns/,
+                                   sessions/, classify.log, context-drops.log,
+                                   debug.log) idle > 30 days
+                                   (--retention-days N); $TEZGAH_SESSION's
+                                   own files are always kept
   tezgah-doctor --prune-sessions 30   delete sessions idle > 30 days, then vacuum
 """
 import argparse
@@ -52,7 +57,8 @@ HOME = os.path.expanduser("~")
 # bench directory next to the hooks that own the roots and the binary resolver
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "hooks"))
-from tezgah_paths import CODEGRAPH, codegraph_bin, root_for, roots  # noqa: E402
+from tezgah_paths import (CACHE, CODEGRAPH, codegraph_bin,  # noqa: E402
+                          fallback_cache, root_for, roots)
 
 # the coverage rules, in the bench directory next to the hooks that own the roots
 # and the binary resolver. MANIFEST lists it, so it ships; it is also the one file
@@ -70,6 +76,13 @@ OPENCODE_BIN = shutil.which("opencode")
 # itself, so the doctor cannot name a directory the engine does not write)
 GRAPH_DIR = "." + CODEGRAPH
 GRAPH_DB = CODEGRAPH + ".db"
+# The per-session state the hooks write and nothing else removes: the evidence
+# ledgers, the per-turn stamps, the used-tool marks and the two capped logs.
+# Audit L-11 (GAP-10) measured 2,000 of each, 400 days old, surviving a full
+# cycle and `--clean`. Snapshots are not here: tezgah_snapshot caps them itself.
+STATE_DIRS = ("evidence", "turns", "sessions")
+STATE_LOGS = ("classify.log", "context-drops.log", "debug.log")
+RETENTION_DAYS = 30
 
 
 def du(path):
@@ -262,6 +275,45 @@ def prune_sessions(days):
     return deleted, failed
 
 
+def sweep_state(days, session=None):
+    """Delete the hook state not modified for `days`, in the global cache and
+    the temp fallback; (removed, bytes freed).
+
+    By mtime because every writer appends or rewrites in place, so a file's
+    mtime is its session's last activity. The current session's files
+    (`TEZGAH_SESSION`, the id omp and the judgement CLIs export) are kept
+    whatever their age: a session idle past the window and then resumed must
+    not lose its ledger mid-flight."""
+    from tezgah_context import slug
+    from tezgah_integrity import _slug
+    keep = ({_slug(session) + ".jsonl", slug(session) + ".json",
+             slug(session) + ".jsonl"} if session else set())
+    cutoff = time.time() - days * 86400
+    removed = freed = 0
+    for base in dict.fromkeys((CACHE, fallback_cache())):
+        paths = [os.path.join(base, name) for name in STATE_LOGS]
+        for sub in STATE_DIRS:
+            try:
+                paths += [os.path.join(base, sub, n)
+                          for n in os.listdir(os.path.join(base, sub))]
+            except OSError:
+                continue
+        for path in paths:
+            if os.path.basename(path) in keep:
+                continue
+            try:
+                st = os.lstat(path)
+                if not os.path.isfile(path) or st.st_mtime >= cutoff:
+                    continue
+                os.remove(path)
+            except OSError:
+                continue
+            removed += 1
+            freed += st.st_size
+    return removed, freed
+
+
+
 def load_probe():
     """The bench spike, imported by path so its two coverage rules stay the only
     implementation of them; `None` when this tree has no such file.
@@ -364,10 +416,20 @@ def main():
     ap.add_argument("--dump", metavar="FILE",
                     help="a saved `codegraph files -j` dump to read for --coverage")
     ap.add_argument("--clean", action="store_true",
-                    help="vacuum the opencode database (opt-in)")
+                    help="vacuum the opencode database and delete tezgah hook "
+                         "state (ledgers, turns/, sessions/, classify.log, "
+                         "context-drops.log, debug.log) not "
+                         "modified for --retention-days; the current session "
+                         "($TEZGAH_SESSION) is kept (opt-in)")
+    ap.add_argument("--retention-days", type=int, default=RETENTION_DAYS,
+                    metavar="DAYS",
+                    help="the age --clean deletes hook state past (default: "
+                         "%(default)s days)")
     ap.add_argument("--prune-sessions", type=int, metavar="DAYS",
                     help="delete sessions idle longer than DAYS, then vacuum")
     args = ap.parse_args()
+    if args.retention_days < 1:
+        ap.error("--retention-days wants a positive day count")
 
     if args.coverage:
         repo = os.path.realpath(os.path.expanduser(args.repo[0]) if args.repo
@@ -396,6 +458,11 @@ def main():
                     cleaned["vacuum"] = {"before": before, "after": after}
                 except sqlite3.Error as exc:
                     cleaned["vacuum"] = "failed: %s" % exc
+        if args.clean:
+            removed, freed = sweep_state(args.retention_days,
+                                         os.environ.get("TEZGAH_SESSION"))
+            cleaned["state"] = {"removed": removed, "bytes": freed,
+                                "days": args.retention_days}
         rep = collect(pairs)
 
     if args.json:
@@ -417,6 +484,10 @@ def main():
             print("  vacuum        %s -> %s" % (human(v["before"]), human(v["after"])))
         elif v:
             print("  vacuum        %s" % v)
+        st = cleaned.get("state")
+        if st:
+            print("  hook state    %d file(s) older than %d days removed, %s"
+                  % (st["removed"], st["days"], human(st["bytes"])))
     elif rep["opencode_db_bytes"] > 500 * 1024 * 1024:
         print("\nrun with --clean to vacuum; --prune-sessions DAYS to shrink the db")
     return 0

@@ -172,12 +172,15 @@ def main():
                     payload.get("tool_response"))
                if root_for(cwd) else (None, None))
         source, notice = got or (None, None)
-        # the same name the PreToolUse gate saw: one call has to hash to one id
+        # the same name the PreToolUse gate saw: one call has to hash to one id.
+        # Recorded only inside a root, like Claude's PostToolUse (which returns
+        # early off-root): the row used to land for any cwd (audit L-4, INT-07).
         result = payload.get("tool_response")
-        safe(session_id, note_tool, session_id, tool, inp,
-             failed=verify_outcome(payload), source=source,
-             out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
-                        else result_size(result)))
+        if root_for(cwd):
+            safe(session_id, note_tool, session_id, tool, inp,
+                 failed=verify_outcome(payload), source=source,
+                 out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
+                            else result_size(result)))
         if notice:
             # Codex's PostToolUse output carries `additionalContext` with the
             # result - the field is part of its own hook output schema

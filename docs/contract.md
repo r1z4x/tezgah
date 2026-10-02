@@ -98,11 +98,11 @@ One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
 `fixture`/`fake`/`stub`/`sample`/`demo` (`SCRATCH_PATH`,
-`hooks/tezgah_integrity.py:2530-2536`; `scratch_evidence`,
-`hooks/tezgah_integrity.py:2551-2575`) - the turn is told the command and the
+`hooks/tezgah_integrity.py:2771-2777`; `scratch_evidence`,
+`hooks/tezgah_integrity.py:2792-2816`) - the turn is told the command and the
 rule: evidence from a scratch path is evidence about the code path, so a claim
 about the running system needs a check that ran against it (`SCRATCH_REMINDER`,
-`hooks/tezgah_context.py:1232-1238`, appended at `hooks/tezgah_context.py:1327`).
+`hooks/tezgah_context.py:1292-1298`, appended at `hooks/tezgah_context.py:1327`).
 It is a reminder and not a block because whether a scratch script exercises the
 real system is not decidable from the command; one passing check against a real
 path makes the reader answer `None`, so a session that also ran the real thing is
@@ -126,7 +126,7 @@ analysis: five axes, one evidence class per finding.**` :745 *(conditional)*,
 stay English.**` :788, `**Session scope: the user's repo, not tezgah.**` :794,
 `**Kill switches:**` :803.
 
-`always_on_core()` (`hooks/tezgah_context.py:1053-1063`) drops the five
+`always_on_core()` (`hooks/tezgah_context.py:1113-1123`) drops the five
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:851-856`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, product analysis, the code graph, and the
@@ -142,7 +142,7 @@ its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
 hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
-(`hooks/tezgah_context.py:1044-1052`) is that text with the kill-switch filtering
+(`hooks/tezgah_context.py:1104-1112`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
@@ -238,7 +238,7 @@ they survive every other switch being off.
    `output-styles/tezgah.md` from a fresh Python process when the paragraph is
    always-on — a warm interpreter serves a stale `CORE`.
 6. Last step, the tests that pin it: add the label to `KillSwitchEnforcement`
-   (`tests/test_context.py:664-838`) and, for a conditional rule, to the
+   (`tests/test_context.py:674-900`) and, for a conditional rule, to the
    `ArmingConformance` label map (`tests/test_context.py:1801-1835`); then run the mirror pair —
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py:1989-1999`) and
@@ -252,12 +252,16 @@ they survive every other switch being off.
 | `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:1989` |
 | `policy.CONTRACT` (`hooks/tezgah_policy.py:851`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:799` |
 
-The second pair is also hashed as one source for the generated opencode contract
-(`bin/tezgah-setup:237-243`, `:193-213`), which notices that *one* of them
-changed; `ContractParity` is what notices that only one of them did, which is the
-drift that actually happens (`tests/test_setup.py:1297-1311`). `tezgah-setup
---refresh` re-renders the generated artifacts in a running session when that hash
-is stale (`bin/tezgah-setup:796-811`, `bin/tezgah-setup:4148-4150`).
+Drift between the source and what a host reads is caught on the rendered side:
+`~/.config/tezgah/contract.sha256` holds one `<sha>  <path>` line per rendered
+artifact (the managed blocks of `CLAUDE.md`, `AGENTS.md`, `RULES.md`, and
+opencode's contract and skill routers), and `--report` compares each artifact's
+bytes with a fresh render. That notices that the text a session gets changed;
+`ContractParity` is what notices that only one of the pair above changed, which
+is the drift that actually happens (`tests/test_setup.py:1297-1311`).
+`tezgah-setup --refresh` re-renders every armed host's artifact, not only
+opencode's, and drops the paragraph of any global kill switch that is on
+(`refresh_contract`, `bin/tezgah-setup:1191-1208`).
 
 ## When the injected text grows too large
 

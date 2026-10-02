@@ -285,6 +285,46 @@ class OpenCodePlugin(TempHome):
                         "make test", "ls || true"):
             self.allowed(self.before("bash", {"command": command}))
 
+    def test_the_short_and_abbreviated_hook_skips_match_the_python_gate(self):
+        # audit SEC-03 / L-5, mirrored from hooks/tezgah_integrity: commit's
+        # `-n`, the abbreviated long option and a `bash -c` / `sh -c` script
+        denied = ("git commit -n -m x", "git commit -anm x",
+                  "git commit --no-verif -m x", "git commit --no-ver -m x",
+                  "bash -c 'pytest || true'", 'sh -c "git commit --no-verify -m x"')
+        passed = ("git push -n origin main", 'git commit -m "-n"', "git log -n 3",
+                  "git commit --no-verbose -m x", "bash -c 'pytest -q'")
+        for command in denied:
+            self.assertIsNotNone(ti.shortcut_command(command), command)
+            self.denied(self.before("bash", {"command": command}))
+        for command in passed:
+            self.assertIsNone(ti.shortcut_command(command), command)
+            self.allowed(self.before("bash", {"command": command}))
+
+    def test_the_reviews_hook_skip_shapes_match_the_python_gate(self):
+        # review F4 (`-S`/`-u` take no separate word), F10 (bash options before
+        # `-c`) and F7 (a long option's separate value starting with `-`)
+        denied = ("git commit -S -n -m x", "git commit -u -n -m x",
+                  "bash -o pipefail -c 'pytest || true'",
+                  "bash --norc -c 'pytest || true'", "sh -e -c 'git commit -n -m x'")
+        passed = ('git commit --message "-no-op cleanup"', "git commit --file -n.txt",
+                  'git commit --mess "-no-op"',
+                  "git commit -uno -m x")
+        for command in denied:
+            self.assertIsNotNone(ti.shortcut_command(command), command)
+            self.denied(self.before("bash", {"command": command}))
+        for command in passed:
+            self.assertIsNone(ti.shortcut_command(command), command)
+            self.allowed(self.before("bash", {"command": command}))
+
+    def test_a_large_command_is_read_in_linear_time(self):
+        # the gate's credential pattern opened with an unanchored name prefix:
+        # 21 s for 100 KB in node, past every host's hook budget (audit H-3's
+        # shape, still in this mirror)
+        started = time.monotonic()
+        self.allowed(self.before("bash", {"command": "echo " + "X" * 100000}))
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 5.0, "%.1fs for a 100 KB command" % elapsed)
+
     def test_skip_env_mention_in_a_read_passes(self):
         # SKIP= only turns checks off inside a hook runner; a search that merely
         # mentions it must not be denied
@@ -699,7 +739,8 @@ class OpenCodePlugin(TempHome):
         error = self.denied(self.before("edit", args))
         self.assertEqual(error, SPY_REASON)
         self.assertEqual(self.spy_calls(log), [{
-            "argv": ["check"],
+            # `decide`, the recording verb: `check` is the dry run (CHAT-07)
+            "argv": ["decide"],
             "payload": {"tool": "edit", "input": args, "cwd": self.repo,
                         "session_id": "s1"}}])
 
@@ -746,7 +787,7 @@ class OpenCodePlugin(TempHome):
         args = {"command": "bin/tezgah-task stop"}
         self.assertEqual(self.denied(self.before("bash", args)), SPY_REASON)
         self.assertEqual(self.spy_calls(log), [{
-            "argv": ["check"],
+            "argv": ["decide"],
             "payload": {"tool": "bash", "input": args, "cwd": self.repo,
                         "session_id": "s1"}}])
 
@@ -787,7 +828,7 @@ class OpenCodePlugin(TempHome):
         args = {"command": 'git commit -m "tezgah-task stop in the refusal"'}
         self.allowed(self.before("bash", args))
         self.assertEqual(self.spy_calls(log), [{
-            "argv": ["check"],
+            "argv": ["decide"],
             "payload": {"tool": "bash", "input": args, "cwd": self.repo,
                         "session_id": "s1"}}])
 
@@ -1213,6 +1254,48 @@ class OpenCodePlugin(TempHome):
         long = ("x" * 190) + " token=ghp_16C7e42F292c6912E7710c838347Ae178B4a"
         self.after("bash", {"command": long})
         self.assertEqual(self.ledger()[-1]["detail"], ti.redact(long)[:200])
+
+    def test_the_audits_credential_shapes_redact_as_the_python_writer_does(self):
+        # audit SEC-04 / L-6: the flag, mysql `-p`, Basic auth, `-u user:pass`,
+        # URL userinfo and JSON-key shapes, plus the look-alikes that are not
+        # credentials. Python's redact() is the reference.
+        commands = (
+            "mysql --password hunter2swordfish -e x",
+            "tool --api-key ABCDEF1234 run",
+            "mysql -u root -pS3cretPass db", "mysql -u root -p S3cretPass db",
+            "curl -H 'Authorization: Basic dXNlcjpwYXNz' x",
+            "curl -u admin:S3cretPass https://x",
+            "psql postgres://app:S3cretPass@db/x",
+            'curl -d \'{"api_key":"abc123xyz","password": "pw987"}\' x',
+            "psql -p 5432 db", "git add -u", "tool --token-file x")
+        self.drive([{"hook": "tool.execute.after",
+                     "input": {"tool": "bash", "args": {"command": c},
+                               "sessionID": "s1"},
+                     "output": {"metadata": {}}} for c in commands])
+        self.assertEqual([row["detail"] for row in self.ledger()],
+                         [ti.redact(c)[:200] for c in commands])
+        self.assertNotIn("S3cretPass", json.dumps(self.ledger()))
+
+    def test_a_new_ledger_is_owner_only(self):
+        # audit SEC-05 / L-6: the JS writer creates the ledger 0600 in a 0700 dir,
+        # as the Python writer does
+        self.after("bash", {"command": "ls"})
+        path = self.evidence_path()
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(os.path.dirname(path)).st_mode & 0o777, 0o700)
+
+    def test_an_edit_row_carries_the_absolute_real_target(self):
+        # audit CHAT-03 / M-6: the Python race guard compares `target`, so the
+        # JS writer resolves the host's relative spelling against its directory
+        os.makedirs(os.path.join(self.repo, "src"), exist_ok=True)
+        with open(os.path.join(self.repo, "src", "a.py"), "w") as fh:
+            fh.write("x = 1\n")
+        self.after("edit", {"filePath": "src/a.py"})
+        self.after("write", {"filePath": "new/b.py"})
+        rows = self.ledger()
+        self.assertEqual([r["target"] for r in rows],
+                         [ti._abs_target("src/a.py", self.repo),
+                          ti._abs_target("new/b.py", self.repo)])
 
     def test_a_tool_name_no_rule_knows_records_an_unknown_row(self):
         # A fabricated call (or a tool this host added) used to leave no line at

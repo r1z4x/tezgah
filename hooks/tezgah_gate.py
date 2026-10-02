@@ -310,7 +310,9 @@ def _value(text):
     if text[:1] in ("\"", "'"):
         end = text.find(text[0], 1)
         return text[1:end] if end != -1 else text[1:]
-    return re.split(r"[\s;&|]", text, 1)[0]
+    # keyword `maxsplit`: the positional form warns on 3.13+ and a future
+    # keyword-only signature would raise, failing the gate open (audit QA-3)
+    return re.split(r"[\s;&|]", text, maxsplit=1)[0]
 
 
 def _flag_value(rest, flag):
@@ -610,11 +612,11 @@ RACE_DENY = (
     "are editing it, say so and let one of them own the file rather than "
     "overwriting the other's work.")
 # The file a write call names, per host dialect, plus the apply_patch headers for
-# the dialect whose paths live in the body. Matched verbatim against the ledger
-# row's `detail`, which the PostToolUse hook writes from the same field: the
-# ledger keeps no cwd, so normalizing here would compare `a.py` against
-# `./sub/../a.py` and disagree with the reader on the far side. A second session
-# that spells the path differently therefore escapes this rule.
+# the dialect whose paths live in the body. The race guard resolves each against
+# the call's cwd to an absolute real path and compares it with the `target` the
+# PostToolUse writer stored the same way (tezgah_integrity._abs_target): the raw
+# spelling matched `README.md` in one repository against `README.md` in another
+# (audit CHAT-03 / M-6).
 # The harness's internal channels: a write to one of these is a message or a
 # tool device, never a file on disk. Deliberately a list, not `scheme://`: a
 # file reached through a URI scheme is still a file two sessions can race on.
@@ -659,7 +661,7 @@ def write_paths(inp):
     return [target] if target else []
 
 
-def race_reason(inp, session_id):
+def race_reason(inp, session_id, cwd=None):
     """A deny reason when another session wrote one of this call's files inside
     RACE_WINDOW_MIN, else None.
 
@@ -679,7 +681,7 @@ def race_reason(inp, session_id):
         # real target two sessions both write, and stays guarded.
         if URI_CHANNEL.match(path):
             continue
-        others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN)
+        others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN, cwd=cwd)
         if others:
             return RACE_DENY % (", ".join(str(s) for s in others[:3]),
                                 RACE_WINDOW_MIN, path)
@@ -1175,14 +1177,14 @@ def constraints_line(cwd):
     """The standing constraints as one line, from tezgah_policy's own text.
 
     `subagent_core` is the tested short form of every always-on rule (its bold
-    label plus its opening clause, under the same kill-switch filtering), and
-    POINTERS is the on-demand rules' own one-liner, so the notice can neither
-    name a rule that is off nor miss one that is on: it is a re-statement, never
-    a second copy of the contract. Imported inside the call because only the
-    call that crosses DRIFT_STEPS pays for it."""
+    label plus its opening clause, under the same kill-switch filtering), and its
+    header already carries the on-demand rules' pointer, so the notice can
+    neither name a rule that is off nor miss one that is on: it is a
+    re-statement, never a second copy of the contract. POINTERS is not appended
+    again - it printed the On-demand paragraph twice (audit CHAT-06). Imported
+    inside the call because only the call that crosses DRIFT_STEPS pays for it."""
     from tezgah_context import core_for, subagent_core
-    from tezgah_policy import POINTERS
-    return " ".join((subagent_core(core_for(cwd)[0]) + " " + POINTERS).split())
+    return " ".join(subagent_core(core_for(cwd)[0]).split())
 
 
 def drift_reason(tool, inp, cwd, session_id):
@@ -1424,8 +1426,16 @@ def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None,
     return reason
 
 
-def decision(tool, inp, cwd, session_id=None):
-    """A deny reason for this call, or None to let it pass."""
+def decision(tool, inp, cwd, session_id=None, record=True):
+    """A deny reason for this call, or None to let it pass.
+
+    `record=False` is the dry run `tezgah-gate check` and the MCP
+    `tezgah_gate_check` promise ("without running it"): the same answer, with
+    no deny/drift/nudge row, no nudge mark and no snapshot. A dry run against a
+    live session id wrote refusal rows into that session's counters (audit
+    CHAT-07 / L-14b)."""
+    if not record:
+        return _dry_decision(tool, inp, cwd, session_id)
     if off("pretooluse-off"):
         return None
     base = root_for(cwd)
@@ -1490,7 +1500,7 @@ def decision(tool, inp, cwd, session_id=None):
     # guards, so a colliding write is counted as this rule and not as a repeat of
     # one.
     if t in WRITE_TOOLS and RACE_REFUSE:
-        reason = race_reason(inp, session_id)
+        reason = race_reason(inp, session_id, cwd)
         if reason:
             return _deny(session_id, "race", reason, tool, inp, base)
     # Task scope: the user's own record for this work - its phase and the files
@@ -1618,4 +1628,29 @@ def decision(tool, inp, cwd, session_id=None):
         except Exception:
             pass
     return None
+
+
+def _dry_decision(tool, inp, cwd, session_id):
+    """`decision` with every write it makes swapped out for the call.
+
+    The writers are module names `decision` reaches through (`note` for the
+    deny, drift and nudge rows, `first_nudge` for the once-per-session mark,
+    `capture` for the snapshot), so one swap covers every rule and a new rule
+    that records through them is dry here without being told. Safe because
+    the dry run is its own process (bin/tezgah-gate check): nothing else in it
+    reads these names while they are swapped, and the finally puts them back.
+    The nudge is still answered as the live path would answer it - spent when
+    its mark exists - only the mark is not written."""
+    g = globals()
+    saved = {name: g[name] for name in ("note", "first_nudge", "capture")}
+
+    def unspent(sid):
+        return not os.path.exists(
+            os.path.join(cache_dir(), "nudged", sid or "nosession"))
+
+    g.update(note=lambda *a, **k: None, first_nudge=unspent, capture=None)
+    try:
+        return decision(tool, inp, cwd, session_id)
+    finally:
+        g.update(saved)
 

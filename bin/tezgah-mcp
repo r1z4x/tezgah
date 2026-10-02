@@ -35,9 +35,20 @@ CONSULT_TIMEOUT = 600
 
 
 def tool_status(args):
-    """`tezgah-status`: no argument, an optional directory to report on."""
+    """`tezgah-status`: no argument, an optional directory to report on, after
+    `--` so a caller's string can never be read as a flag (audit L-7)."""
     path = args.get("path")
-    return [tp.tool("tezgah-status")] + ([path] if path else []), None, None
+    return [tp.tool("tezgah-status")] + (["--", path] if path else []), None, None
+
+
+def refuse_status(args):
+    """The refusal for a `path` that is not an existing directory, or one that
+    starts with a dash: `--` already keeps it a positional, and this refuses the
+    value outright so the report never runs on a string that is not a place."""
+    path = args.get("path")
+    if path and (path.startswith("-") or not os.path.isdir(path)):
+        return "property 'path' must be an existing directory"
+    return None
 
 
 def tool_gate_check(args):
@@ -76,6 +87,7 @@ SPECS = (
                     "`tezgah-status` - one segment per line, with its marks.",
      "delegate": "tezgah-status",
      "run": tool_status,
+     "refuse": refuse_status,
      "properties": {
          "path": ("string", "Directory to report on; defaults to the server's "
                             "own working directory.")}},
@@ -251,6 +263,8 @@ def dispatch(msg):
         raw = params.get("arguments")
         raw = raw if isinstance(raw, dict) else {}
         args, refusal = arguments_for(spec, raw)
+        if not refusal and spec.get("refuse"):
+            refusal = spec["refuse"](args)
         if refusal:
             return error(msg_id, -32602, refusal)
         return ok(msg_id, call(spec, args))

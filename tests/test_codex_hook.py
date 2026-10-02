@@ -173,6 +173,23 @@ class CodexEvidence(TempHome):
         self.assertEqual(row["kind"], "verify")
         self.assertNotIn("out_bytes", row)
 
+    def test_a_call_outside_every_root_records_no_row(self):
+        # Audit L-4 (INT-07): the same PostToolUse outside the roots left nothing
+        # on Claude, dsh and omp and a verify_ok row on Codex, so a session's
+        # off-root work fed the Stop rule and the corpus counters. Inert there.
+        outside = os.path.join(self.home, "outside")
+        os.makedirs(outside)
+        proc = run([support.CODEX_HOOK],
+                   {"hook_event_name": "PostToolUse", "cwd": outside,
+                    "session_id": self.session, "tool_name": "exec_command",
+                    "tool_input": {"command": "python3 -m pytest -q"},
+                    "tool_response": {"exit_code": 0}}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.kinds(), [])
+        self.post("exec_command", {"command": "python3 -m pytest -q"},
+                  {"exit_code": 0})
+        self.assertEqual(self.kinds(), ["verify_ok"])
+
 
 class CodexLoopGuardIdentity(TempHome):
     """One call, one id: the gate maps Codex's shell name (`exec_command`) onto

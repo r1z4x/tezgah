@@ -17,6 +17,8 @@ const STATUS_PATH = "/api/tezgah.status";
 // tool-use kinds as every other host - consult/research/graph/orch and judge -
 // and may not claim the two skill-read marks, which only the prompt hook can set.
 const OBSERVABLE = "--observable=consult,research,graph,orch,judge";
+// A session id as hosts write them: no leading dash, no shell or path syntax.
+const SESSION_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/;
 
 function statusBin() {
 	if (process.env.TEZGAH_STATUS_BIN) return process.env.TEZGAH_STATUS_BIN;
@@ -68,14 +70,18 @@ export function apply(ctx) {
 		requestBody: "buffered",
 		fetch: async (request) => {
 			const url = new URL(request.url);
-			const sessionId = url.searchParams.get("sessionId") ?? undefined;
-			const session = sessionId === undefined ? undefined : ctx.sessions.get(sessionId);
+			const asked = url.searchParams.get("sessionId") ?? undefined;
+			const session = asked === undefined ? undefined : ctx.sessions.get(asked);
+			// The id reaches the tezgah-status argv, so only one this dsh knows and
+			// in the charset an id is written in is passed, and only after `--`:
+			// `sessionId=--failure-shapes` used to run the machine-wide report
+			// (audit L-7, SEC-07).
+			const sessionId = session && SESSION_ID.test(asked) ? asked : undefined;
 			const dir = session?.header?.cwd ?? process.cwd();
-			const where = sessionId === undefined ? [dir, OBSERVABLE]
-				: [dir, sessionId, OBSERVABLE];
+			const where = sessionId === undefined ? ["--", dir] : ["--", dir, sessionId];
 			if (url.searchParams.get("format") === "json") {
 				const [raw, legend] = await Promise.all([
-					statusText([...where, "--json"]),
+					statusText([OBSERVABLE, "--json", ...where]),
 					statusText(["--legend"]),
 				]);
 				let segments = [];
@@ -87,7 +93,7 @@ export function apply(ctx) {
 					},
 				});
 			}
-			return new Response(await statusText(where), {
+			return new Response(await statusText([OBSERVABLE, ...where]), {
 				headers: {
 					"content-type": "text/plain; charset=utf-8",
 					"cache-control": "no-store",

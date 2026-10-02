@@ -432,7 +432,9 @@ class OpenResearch(SetupBase):
 
 
 class Deps(SetupBase):
-    """--deps installs missing optional tools; --install does it by default."""
+    """--deps installs missing optional tools; --install does it by default.
+    Third-party host CLIs install only under --host-deps (audit M-9, ENV-02),
+    every installer is bounded, and a tool still missing fails the run."""
 
     def setUp(self):
         super().setUp()
@@ -468,13 +470,18 @@ class Deps(SetupBase):
     def test_installs_missing_tools_with_their_own_commands(self):
         shutil.rmtree(self.path(".dsh"))
         log = self.fakebin("sh", "bash", "npx", "curl", "npm")
-        proc = self.setup("--deps")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc = self.setup("--deps", "--host-deps")
+        # the stubs install nothing, so every tool is still missing afterwards
+        # and the run says so with its exit code (it used to exit 0)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         calls = self.read_text(log)
         self.assertIn("openresearch.sh/install.sh", calls)
         self.assertIn("cursor.com/install", calls)
         self.assertIn("@deepseek-ai/dsh", calls)
         self.assertIn("install -g pnpm", calls)
+        # each curl in a vendor pipeline is bounded, and the pipe fails with it
+        self.assertIn("curl --max-time", calls)
+        self.assertIn("pipefail", calls)
         self.assertIn("orx:", self.read_text(self.path(".config", "tezgah", "install.log")))
 
     def test_reports_already_present(self):
@@ -496,7 +503,7 @@ class Deps(SetupBase):
         self.env["PATH"] = self.path("emptybin")  # no curl/sh/bash/npx
         os.makedirs(self.env["PATH"], exist_ok=True)
         proc = self.setup("--deps")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("is not on PATH", proc.stdout)
 
     def test_install_no_deps_reports_the_skip(self):
@@ -504,13 +511,175 @@ class Deps(SetupBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("deps skipped", proc.stdout)
 
-    def test_install_runs_deps_by_default(self):
+    def test_install_runs_deps_by_default_but_not_host_clis(self):
         log = self.fakebin("sh", "bash", "npx", "curl")
         proc = self.setup("--install", "--hosts", "claude")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         calls = self.read_text(log)
         self.assertIn("openresearch.sh/install.sh", calls)
-        self.assertIn("cursor.com/install", calls)
+        # the README one-liner ran `curl cursor.com/install | bash` on machines
+        # that never asked for the cursor host; now it prints the command
+        self.assertNotIn("cursor.com/install", calls)
+        line = self.row(proc.stdout, "cursor-agent missing")
+        self.assertIn("--host-deps", line)
+        self.assertIn("curl https://cursor.com/install -fsS | bash", line)
+
+    def test_a_failing_installer_names_its_exit_and_fails_the_run(self):
+        """A refused download used to end in "open a new shell (PATH)" and exit
+        0: the `curl | sh` pipe exited with the empty `sh`'s 0. The shells are
+        the machine's own; only curl is a stub that fails the way a refused
+        connection does (curl exit 7)."""
+        d = self.path("fakebin")
+        os.makedirs(d, exist_ok=True)
+        for name in ("sh", "bash"):
+            os.symlink(shutil.which(name), os.path.join(d, name))
+        with open(os.path.join(d, "curl"), "w") as fh:
+            fh.write("#!/bin/sh\necho 'curl: (7) Failed to connect' >&2\nexit 7\n")
+        os.chmod(os.path.join(d, "curl"), 0o755)
+        self.env["PATH"] = d
+        proc = self.setup("--deps")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        line = self.row(proc.stdout, "orx: installer")
+        self.assertIn("exit 7", line)
+        self.assertNotIn("new shell (PATH)", line)
+
+    def test_a_stalled_installer_is_stopped(self):
+        """A stalled network hung `--install` with no end (killed at 240 s in
+        the audit). The bound is shrunk here; the row is a sleeping installer."""
+        import contextlib
+        import io
+        import time
+        mod = setup_module()
+        row = {"name": "slow", "probe": lambda: False, "needs": (),
+               "cmd": ["sh", "-c", "sleep 30"], "why": "a stalled download"}
+        out = io.StringIO()
+        started = time.monotonic()
+        with mock.patch.object(mod, "DEPS", (row,)), \
+                mock.patch.object(mod, "DEP_TIMEOUT", 1), \
+                mock.patch.object(mod, "feature_deps", lambda only=None: ()), \
+                mock.patch.object(mod, "_dep_log", lambda name, cmd: None), \
+                mock.patch.dict(os.environ), contextlib.redirect_stdout(out):
+            still = mod.install_deps()
+        self.assertLess(time.monotonic() - started, 15, out.getvalue())
+        self.assertEqual(still, ["slow"])
+        self.assertIn("still running after 1 s", out.getvalue())
+
+    def test_a_stalled_pipeline_takes_its_grandchildren_with_it(self):
+        """`subprocess.run(timeout=)` killed only the outer shell: in
+        `curl | bash` the piped installer lived on. The stub starts a sleeping
+        grandchild, records its pid and waits; after the timeout that pid must
+        be gone too."""
+        import contextlib
+        import io
+        import time
+        mod = setup_module()
+        pidfile = self.path("grandchild.pid")
+        row = {"name": "slow", "probe": lambda: False, "needs": (),
+               "cmd": ["sh", "-c", "sleep 60 & echo $! > %s; wait" % pidfile],
+               "why": "a stalled download"}
+        with mock.patch.object(mod, "DEPS", (row,)), \
+                mock.patch.object(mod, "DEP_TIMEOUT", 1), \
+                mock.patch.object(mod, "feature_deps", lambda only=None: ()), \
+                mock.patch.object(mod, "_dep_log", lambda name, cmd: None), \
+                mock.patch.dict(os.environ), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(mod.install_deps(), ["slow"])
+        pid = int(self.read_text(pidfile))
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if time.monotonic() > deadline:
+                os.kill(pid, 9)  # leave no stray sleep behind a failing run
+                self.fail("grandchild %d outlived the installer timeout" % pid)
+            time.sleep(0.1)
+
+    def test_ctrl_c_takes_the_installer_group_with_it(self):
+        """The installer runs in a session of its own, so a Ctrl-C on `--deps`
+        no longer reaches it: without the cleanup the interrupt left it running
+        as an orphan. A runner process waits in `_run_bounded` on a stub that
+        starts a sleeping grandchild; SIGINT to the runner must end both."""
+        import signal
+        import time
+        pidfile = self.path("grandchild.pid")
+        runner = ("import importlib.machinery, importlib.util\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "m._run_bounded(['sh', '-c', 'sleep 60 & echo $! > %s; wait'], 120)\n"
+                  % (SETUP, pidfile))
+        proc = subprocess.Popen([sys.executable, "-c", runner], env=self.env,
+                                stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 30
+        while not (os.path.exists(pidfile) and self.read_text(pidfile).strip()):
+            self.assertLess(time.monotonic(), deadline, "the stub never started")
+            time.sleep(0.05)
+        pid = int(self.read_text(pidfile))
+        proc.send_signal(signal.SIGINT)
+        _out, err = proc.communicate(timeout=30)
+        self.assertIn(b"KeyboardInterrupt", err)
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if time.monotonic() > deadline:
+                os.kill(pid, 9)  # leave no stray sleep behind a failing run
+                self.fail("grandchild %d outlived the Ctrl-C" % pid)
+            time.sleep(0.1)
+
+
+class CacheModes(SetupBase):
+    """--install tightens a cache an earlier version left at the umask default:
+    ledgers and snapshots hold commands and file copies, so dirs become 0700
+    and files 0600 (audit SEC-05 / L-6). A symlink is not followed."""
+
+    def test_install_makes_old_cache_entries_owner_only(self):
+        import stat
+        cache = self.path(".cache", "tezgah")
+        ledger_dir = os.path.join(cache, "evidence")
+        os.makedirs(ledger_dir)
+        ledger = os.path.join(ledger_dir, "s.jsonl")
+        with open(ledger, "w") as fh:
+            fh.write("{}\n")
+        outside = self.path("outside.txt")
+        with open(outside, "w") as fh:
+            fh.write("mine\n")
+        os.symlink(outside, os.path.join(cache, "link"))
+        for path, mode in ((cache, 0o755), (ledger_dir, 0o755), (ledger, 0o644),
+                           (outside, 0o644)):
+            os.chmod(path, mode)
+        self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
+        mode = lambda p: stat.S_IMODE(os.lstat(p).st_mode)  # noqa: E731
+        self.assertEqual(mode(cache), 0o700)
+        self.assertEqual(mode(ledger_dir), 0o700)
+        self.assertEqual(mode(ledger), 0o600)
+        # the link's target is the user's file, not cache state
+        self.assertEqual(mode(outside), 0o644)
+
+    def test_a_symlinked_cache_root_is_not_followed(self):
+        """os.walk lists through a symlinked top, so a cache root that is a
+        link (a /tmp/tezgah fallback another user planted) had every file
+        behind it chmodded. The root is refused and the run says so."""
+        import stat
+        target = self.path("someone-elses")
+        os.makedirs(target)
+        theirs = os.path.join(target, "file.txt")
+        with open(theirs, "w") as fh:
+            fh.write("theirs\n")
+        os.chmod(theirs, 0o644)
+        os.chmod(target, 0o755)
+        os.makedirs(self.path(".cache"))
+        os.symlink(target, self.path(".cache", "tezgah"))
+        proc = self.setup("--install", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(stat.S_IMODE(os.stat(theirs).st_mode), 0o644)
+        self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o755)
+        self.assertIn("is a symlink", self.row(proc.stdout, "cache modes"))
 
 
 class DshChecks(SetupBase):
@@ -1217,6 +1386,31 @@ class Uninstall(SetupBase):
         self.assertFalse(os.path.exists(self.path(".config", "tezgah",
                                                   "pretooluse-off")))
 
+    def test_a_crash_mid_record_leaves_nothing_after_uninstall(self):
+        """A crash between the record's temp write and its replace left a
+        `contract.sha256.<pid>.tmp` no uninstall knew about. The crash is
+        forced in a runner (os.replace raises), then a full uninstall runs."""
+        self.setup("--install", "--hosts", "claude")
+        runner = ("import importlib.machinery, importlib.util\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "def boom(*a):\n"
+                  "    raise OSError('crash')\n"
+                  "m.os.replace = boom\n"
+                  "try:\n"
+                  "    m.record_contract('/a/b', 'x')\n"
+                  "except OSError:\n"
+                  "    pass\n" % SETUP)
+        subprocess.run([sys.executable, "-c", runner], env=self.env, check=True)
+        cfg = self.path(".config", "tezgah")
+        self.assertTrue([n for n in os.listdir(cfg) if n.endswith(".tmp")])
+        proc = self.setup("--uninstall", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        left = os.listdir(cfg) if os.path.isdir(cfg) else []
+        self.assertFalse([n for n in left if n.startswith("contract.sha256")], left)
+
     def test_full_uninstall_keeps_a_users_own_config_dir_entry(self):
         self.setup("--install", "--hosts", "codex")
         mine = self.path(".config", "tezgah", "my-notes.txt")
@@ -1285,10 +1479,117 @@ class Uninstall(SetupBase):
         self.assertFalse(os.path.exists(legacy), proc.stdout)
 
 
+class PartialUninstallGate(SetupBase):
+    """`pretooluse-off` is one global switch for every host, so an uninstall
+    that writes it for its own teardown must not leave it behind for the hosts
+    that stay armed (audit H-2, ENV-01): the reproduction was
+    `--install --hosts omp,codex`, `--uninstall --hosts codex`, and a
+    `git commit --no-verify` the gate then let through for omp."""
+
+    def gate_answer(self):
+        repo = self.path("Projects", "demo")
+        os.makedirs(repo, exist_ok=True)
+        subprocess.run(["git", "init", "-q", repo], check=True, env=self.env)
+        payload = {"tool": "Bash",
+                   "input": {"command": "git commit --no-verify -m x"},
+                   "cwd": repo, "session_id": "s"}
+        proc = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-gate"), "check"],
+            input=json.dumps(payload), capture_output=True, text=True,
+            env=self.env, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    def switch(self):
+        return self.path(".config", "tezgah", "pretooluse-off")
+
+    def test_the_hosts_that_stay_armed_keep_their_gate(self):
+        self.assertEqual(self.setup("--install", "--hosts", "omp,codex").returncode, 0)
+        self.assertIn("--no-verify", self.gate_answer())
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("still armed: omp", proc.stdout)
+        self.assertFalse(os.path.exists(self.switch()), proc.stdout)
+        self.assertIn("--no-verify", self.gate_answer())
+
+    def test_a_switch_the_user_set_survives_a_partial_uninstall(self):
+        """The first fix wrote the switch and deleted it again, which took a
+        `pretooluse-off` the user had set on purpose with it."""
+        self.assertEqual(self.setup("--install", "--hosts", "omp,codex").returncode, 0)
+        with open(self.switch(), "w") as fh:
+            fh.write("")
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.exists(self.switch()), proc.stdout)
+
+    def test_a_full_uninstall_still_stands_the_gate_down(self):
+        self.assertEqual(self.setup("--install", "--hosts", "omp,codex").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "omp,codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("gate stood down", proc.stdout)
+
+
+class CodexHookTrust(SetupBase):
+    """Codex runs a hook group only when `[hooks.state]` in its config.toml
+    trusts it; tezgah's group wired but untrusted ran nothing while the report
+    said `ok hooks.json wired` (audit H-1, CHAT-01). The key shape is the one a
+    live config.toml holds: `"<hooks.json path>:<snake_case event>:<group>:0"`."""
+
+    # Codex's own spelling of each event in a trust key, as read from a live
+    # ~/.codex/config.toml (session_start, pre_tool_use, post_tool_use,
+    # user_prompt_submit) and extended to the other events tezgah wires.
+    SNAKE = {"SessionStart": "session_start", "UserPromptSubmit": "user_prompt_submit",
+             "PreToolUse": "pre_tool_use", "PostToolUse": "post_tool_use",
+             "SubagentStart": "subagent_start", "PostCompact": "post_compact",
+             "Stop": "stop"}
+
+    def hooks(self):
+        return self.path(".codex", "hooks.json")
+
+    def trust(self, path, tezgah=True):
+        """Trust entries for every tezgah group (or every foreign group)."""
+        lines = ["", "[hooks.state]", ""]
+        for event, groups in self.read_json(self.hooks())["hooks"].items():
+            for index, group in enumerate(groups):
+                if ("tezgah" in json.dumps(group)) == tezgah:
+                    lines += ['[hooks.state."%s:%s:%d:0"]'
+                              % (path, self.SNAKE[event], index),
+                              'trusted_hash = "sha256:00"', ""]
+        with open(self.path(".codex", "config.toml"), "a") as fh:
+            fh.write("\n".join(lines))
+
+    def trusted_row(self):
+        return self.row(self.setup("--report", "--hosts", "codex").stdout,
+                        "hooks trusted").strip()
+
+    def install_beside_a_foreign_group(self):
+        # another tool's group at index 0 puts tezgah's at index 1, the shape
+        # the audit read on a real machine
+        self.write_json(self.hooks(), {"hooks": {ev: [
+            {"hooks": [{"type": "command", "command": "echo other"}]}]
+            for ev in self.SNAKE}})
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+
+    def test_an_untrusted_group_reads_miss(self):
+        self.install_beside_a_foreign_group()
+        self.trust(self.hooks(), tezgah=False)
+        self.assertTrue(self.trusted_row().startswith("MISS"), self.trusted_row())
+
+    def test_a_trusted_group_reads_ok(self):
+        self.install_beside_a_foreign_group()
+        self.trust(self.hooks())
+        self.assertTrue(self.trusted_row().startswith("ok"), self.trusted_row())
+
+    def test_trust_recorded_for_another_hooks_file_does_not_count(self):
+        self.install_beside_a_foreign_group()
+        self.trust(self.path("Projects", "x", ".codex", "hooks.json"))
+        self.assertTrue(self.trusted_row().startswith("MISS"), self.trusted_row())
+
+
 class ContractParity(unittest.TestCase):
     """policy.CONTRACT and skills/tezgah-contract/SKILL.md are two hand-kept
-    copies of the same rules. The hash in bin/tezgah-setup notices that one of
-    them changed; this notices that only one of them changed, which is the
+    copies of the same rules. The sha record in bin/tezgah-setup notices that a
+    render changed; this notices that only one of them changed, which is the
     drift that actually happens."""
 
     def rules(self, text):
@@ -1344,51 +1645,77 @@ class GraphRuleBand(SetupBase):
 
 
 class Refresh(SetupBase):
-    """--refresh re-renders the generated opencode contract in-session when the
-    policy or the full-contract skill changed, without a reinstall."""
+    """--refresh re-renders every always-on contract artifact of the armed hosts
+    in-session, without a reinstall, and `contract.sha256` holds one sha per
+    artifact. The single shared hash it replaced was reset by opencode's own
+    refresh, so a policy edit left CLAUDE.md, AGENTS.md and RULES.md stale while
+    `--report` went green (audit M-5, INT-02)."""
 
-    def contract_sha(self):
-        # from the installer's own list: a helper that repeats the literals
-        # asserts the implementation against its own assumption, which is how a
-        # source missing from that list stayed invisible
-        h = hashlib.sha256()
-        for rel in setup_module().CONTRACT_SOURCES:
-            with open(os.path.join(REPO, rel), "rb") as fh:
-                h.update(fh.read())
-            h.update(b"\0")
-        return h.hexdigest()
+    HOSTS = "claude,codex,omp,opencode"
 
-    def test_the_hash_covers_every_source_the_contract_is_rendered_from(self):
-        """The rendered opencode contract is `always_on_core()` (policy.CORE
-        filtered by CORE_RULES, in hooks/tezgah_context.py) plus the skill, and
-        docs/operations.md names all three as sources. With the renderer out of
-        the list an edit to it could not move the hash, so --refresh printed
-        "contract is current" and every opencode session kept the previous
-        always-on text - the one host that cannot see the edit any other way."""
+    def blocks(self):
+        """The three static rules files that carry a managed block."""
+        return [self.path(".claude", "CLAUDE.md"), self.path(".codex", "AGENTS.md"),
+                self.path(".omp", "agent", "RULES.md")]
+
+    def contract(self):
+        return self.path(".config", "tezgah", "opencode-contract.md")
+
+    def recorded(self):
+        text = self.read_text(self.path(".config", "tezgah", "contract.sha256"))
+        return {path: sha for sha, path in
+                (line.split("  ", 1) for line in text.splitlines())}
+
+    def test_the_record_holds_one_sha_per_artifact(self):
+        self.assertEqual(self.setup("--install", "--hosts", self.HOSTS).returncode, 0)
+        recorded = self.recorded()
+        for path in self.blocks() + [self.contract()]:
+            self.assertIn(path, recorded)
         self.assertEqual(
-            sorted(setup_module().CONTRACT_SOURCES),
-            ["hooks/tezgah_context.py", "hooks/tezgah_policy.py",
-             "skills/tezgah-contract/SKILL.md"])
+            recorded[self.contract()],
+            hashlib.sha256(self.read_text(self.contract()).encode()).hexdigest())
 
-    def test_stored_hash_covers_policy_and_skill(self):
-        self.setup("--install", "--hosts", "opencode")
-        stored = self.read_text(
-            self.path(".config", "tezgah", "contract.sha256")).strip()
-        self.assertEqual(stored, self.contract_sha())
+    def test_refresh_rerenders_every_static_block(self):
+        """A block rendered from an older policy is simulated by editing a rule
+        label inside it: the marker is still there, which is all the report
+        used to look at, and `--refresh` used to touch opencode's file alone."""
+        self.assertEqual(self.setup("--install", "--hosts", self.HOSTS).returncode, 0)
+        for path in self.blocks():
+            text = self.read_text(path)
+            self.assertIn("**Loop discipline.**", text)
+            with open(path, "w") as fh:
+                fh.write(text.replace("**Loop discipline.**", "**Loop (old).**"))
+        report = self.setup("--report", "--hosts", self.HOSTS).stdout
+        for name in ("CLAUDE.md", "AGENTS.md", "RULES.md"):
+            row = self.row(report, "%s carries the contract" % name).strip()
+            self.assertTrue(row.startswith("MISS"), row)
+        proc = self.setup("--refresh")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for path in self.blocks():
+            text = self.read_text(path)
+            self.assertIn("**Loop discipline.**", text, path)
+            self.assertNotIn("**Loop (old).**", text, path)
+            self.assertIn("refreshed %s" % path, proc.stdout)
+        report = self.setup("--report", "--hosts", self.HOSTS).stdout
+        for name in ("CLAUDE.md", "AGENTS.md", "RULES.md"):
+            row = self.row(report, "%s carries the contract" % name).strip()
+            self.assertTrue(row.startswith("ok"), row)
+        self.assertNotIn("always-on contract stale", report)
 
     def test_refresh_rerenders_a_stale_contract(self):
         self.setup("--install", "--hosts", "opencode")
         sha = self.path(".config", "tezgah", "contract.sha256")
-        contract = self.path(".config", "tezgah", "opencode-contract.md")
+        contract = self.contract()
         with open(sha, "w") as fh:
-            fh.write("stale\n")
+            fh.write("stale  %s\n" % contract)
         os.remove(contract)
         proc = self.setup("--refresh")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("refreshed", proc.stdout)
         self.assertTrue(os.path.exists(contract))
         self.assertIn("generated by tezgah-setup", self.read_text(contract))
-        self.assertEqual(self.read_text(sha).strip(), self.contract_sha())
+        self.assertEqual(self.recorded()[contract],
+                         hashlib.sha256(self.read_text(contract).encode()).hexdigest())
 
     def test_refresh_is_a_noop_when_current(self):
         self.setup("--install", "--hosts", "opencode")
@@ -1398,6 +1725,80 @@ class Refresh(SetupBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("current", proc.stdout)
         self.assertEqual(self.read_text(contract), before)
+
+    def test_concurrent_records_lose_no_line(self):
+        """opencode spawns `--refresh` once per session, so sessions starting
+        together write the record at once. A read-then-rewrite let the slower
+        writer drop the other's lines; every line written must survive."""
+        runner = ("import importlib.machinery, importlib.util, sys\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "for i in range(40):\n"
+                  "    m.record_contract('/a/%%s/%%d' %% (sys.argv[1], i), 'x')\n"
+                  % SETUP)
+        procs = [subprocess.Popen([sys.executable, "-c", runner, str(n)],
+                                  env=self.env, stderr=subprocess.PIPE)
+                 for n in range(8)]
+        for proc in procs:
+            _out, err = proc.communicate(timeout=120)
+            self.assertEqual(proc.returncode, 0, err)
+        self.assertEqual(len(self.recorded()), 8 * 40)
+
+
+class KillSwitchStaticFiles(SetupBase):
+    """A kill switch has to leave the static files too: CLAUDE.md, AGENTS.md,
+    RULES.md and opencode's contract kept the switched-off paragraph, so they
+    promised a rule the hooks no longer enforced (audit L-1, INT-04). The
+    re-render rides `--refresh` and `--install`."""
+
+    HOSTS = "claude,codex,omp,opencode"
+    ADHD = "**Output shape: ADHD-friendly.**"
+
+    def statics(self):
+        return [self.path(".claude", "CLAUDE.md"), self.path(".codex", "AGENTS.md"),
+                self.path(".omp", "agent", "RULES.md"),
+                self.path(".config", "tezgah", "opencode-contract.md")]
+
+    def switch(self, name):
+        return self.path(".config", "tezgah", name)
+
+    def test_a_switch_leaves_every_static_file_on_refresh_and_install(self):
+        self.assertEqual(self.setup("--install", "--hosts", self.HOSTS).returncode, 0)
+        for path in self.statics():
+            self.assertIn(self.ADHD, self.read_text(path), path)
+        with open(self.switch("adhd-off"), "w") as fh:
+            fh.write("")
+        # the report sees the switch before anything is re-rendered
+        report = self.setup("--report", "--hosts", self.HOSTS).stdout
+        for path in self.statics():
+            self.assertIn("always-on contract stale: %s" % path, report)
+        proc = self.setup("--refresh")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for path in self.statics():
+            text = self.read_text(path)
+            self.assertNotIn(self.ADHD, text, path)
+            # only the switched rule goes
+            self.assertIn("**Ponytail (minimal code).**", text, path)
+        self.assertNotIn("always-on contract stale",
+                         self.setup("--report", "--hosts", self.HOSTS).stdout)
+        # switched back on, an install puts the paragraph back
+        os.remove(self.switch("adhd-off"))
+        self.assertEqual(self.setup("--install", "--hosts", self.HOSTS).returncode, 0)
+        for path in self.statics():
+            self.assertIn(self.ADHD, self.read_text(path), path)
+
+    def test_the_hooks_mapping_names_the_paragraph(self):
+        """`verify-off` removes the integrity rule, whose key is not its switch
+        name: the static render reads the hooks' own key -> switch mapping."""
+        os.makedirs(os.path.dirname(self.switch("verify-off")), exist_ok=True)
+        with open(self.switch("verify-off"), "w") as fh:
+            fh.write("")
+        self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
+        text = self.read_text(self.path(".claude", "CLAUDE.md"))
+        self.assertNotIn('**Integrity: evidence, or "doğrulanmadı".**', text)
+        self.assertIn("**Loop discipline.**", text)
 
 
 class Adopt(SetupBase):
@@ -1767,6 +2168,17 @@ class OmpHost(SetupBase):
         self.assertIn("RULES.md carries the contract", proc.stdout)
         self.assertIn("app MCP command is one executable", proc.stdout)
         self.assertIn("status line answers", proc.stdout)
+
+    def test_the_lessons_line_defers_to_repository_provided_data(self):
+        """RULES.md told the model to obey `.tezgah/lessons.md` however it
+        arrived, which overrode the hooks' provenance check: a lessons file
+        that came with a clone is data, and the session context says so in
+        the words 'Repository-provided data' (audit L-16). The static line has
+        to defer to that notice."""
+        self.install()
+        rules = self.read_text(self.path(".omp", "agent", "RULES.md"))
+        self.assertIn("repository-provided data", rules)
+        self.assertIn("data, not a rule", rules)
 
     def test_uninstall_removes_the_omp_wiring(self):
         self.install()

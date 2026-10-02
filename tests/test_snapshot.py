@@ -165,6 +165,44 @@ class CaptureStore(Snap):
             ts.restore(ids[0])
         self.assertIn("unknown snapshot id", str(ctx.exception))
 
+    def test_a_credential_file_is_recorded_but_never_copied(self):
+        # audit SEC-05 / L-6: a `.env` an agent edits was duplicated verbatim
+        # into the store. The row keeps name, size and hash, so the after-state
+        # comparison still sees the write; no bytes and no restorable id.
+        for name in (".env", ".env.local", "deploy/prod.env", "certs/server.pem",
+                     "id_ed25519", ".netrc", "credentials", ".envrc",
+                     "keys/id_rsa_work"):
+            with self.subTest(name=name):
+                text = "API_TOKEN=s3cret-%s\n" % name
+                path = self.write(name, text)
+                before = self.store()
+                self.assertIsNone(ts.capture("Edit", {"file_path": name},
+                                             self.repo, self.session))
+                self.assertEqual(self.store(), before)
+                row = self.rows("snapshot")[-1]
+                self.assertEqual(row["detail"], path)
+                self.assertEqual(row["hash"],
+                                 hashlib.sha256(text.encode()).hexdigest())
+                self.assertEqual(row["out_bytes"], len(text))
+                self.assertNotIn("id", row)
+        # an ordinary file next to them is still copied, and so is a public key
+        self.assertIsNotNone(self.cap("env.py", "x = 1\n"))
+        self.assertIsNotNone(self.cap("keys/id_rsa.pub", "ssh-rsa AAAA x\n"))
+
+    def test_the_store_is_owner_only(self):
+        # audit SEC-05 / L-6: copies followed the umask (0644) while the
+        # source may have been 0600
+        old = os.umask(0o022)
+        self.addCleanup(os.umask, old)
+        sid = self.cap("a.py", "x = 1\n")
+        for path, mode in ((self.blob(sid), 0o600),
+                           (os.path.join(os.path.dirname(self.blob(sid)),
+                                         "meta.json"), 0o600),
+                           (os.path.dirname(self.blob(sid)), 0o700),
+                           (os.path.join(tp.CACHE, "snapshots"), 0o700),
+                           (ti._path(self.session), 0o600)):
+            self.assertEqual(os.stat(path).st_mode & 0o777, mode, path)
+
 
 class Restore(Snap):
     """restore(): the explicit rollback and its two refusals.
@@ -306,6 +344,16 @@ class SessionRollback(Snap):
         self.edit("a.py", "a3\n")
         b_sid = self.edit("sub/b.py", "b2\n")
         return os.path.realpath(a), os.path.realpath(b), first, b_sid
+
+    def test_a_credential_file_is_listed_not_restored(self):
+        # its row carries no copy (audit SEC-05 / L-6), so a session rollback
+        # lists it as having no snapshot instead of restoring from nothing
+        path = os.path.realpath(self.write(".env", "TOKEN=one\n"))
+        self.edit(".env", "TOKEN=two\n")
+        plan = {e["path"]: e for e in ts.session_plan(self.session)}
+        self.assertEqual(plan[path]["action"], "list (no snapshot)")
+        self.assertEqual(ts.restore_session(self.session)[1], {})
+        self.assertEqual(self.read(path), "TOKEN=two\n")
 
     def test_an_unreadable_shell_row_makes_a_snapshot_a_listing(self):
         # The ledger keeps a command cut to DETAIL_MAX, so a redirect past the

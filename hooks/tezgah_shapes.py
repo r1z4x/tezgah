@@ -103,7 +103,10 @@ def failure_shapes():
     commands = defaultdict(Counter)
     versions = Counter()
     for path in files:
-        for row in ti.events_path(path):
+        # every session's ledger, so one damaged file costs its own rows and
+        # not the report (audit GAP-02 / M-7: the same reader shape turned the
+        # cross-session write gate off machine-wide)
+        for row in ti._foreign_rows(path):
             # A string label, not the raw value: a None key beside int keys makes
             # `json.dumps(..., sort_keys=True)` raise, and the report is printed
             # as JSON by the CLI.
@@ -221,7 +224,7 @@ def rule_yield(files=None, shipped=None):
     shipped = rule_ship_times() if shipped is None else shipped
     real = []
     for path in files:
-        rows = ti.events_path(path)
+        rows = ti._foreign_rows(path)
         if ti.fixture_ledger(rows):
             continue
         try:

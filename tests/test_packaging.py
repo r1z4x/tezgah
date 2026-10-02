@@ -12,7 +12,10 @@ throwaway tree rather than by re-implementing the filter here.
 """
 import importlib.machinery
 import importlib.util
+import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,6 +23,7 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP = os.path.join(REPO, "bin", "tezgah-setup")
+HAVE_NODE = shutil.which("node")
 
 
 def setup_module():
@@ -114,6 +118,67 @@ class Manifest(Tree):
             # listing direction is the one a hash over existing paths cannot see
             self.write(copy, "hooks/removed.py")
             self.assertFalse(self.mod.plugin_copy_current(copy))
+
+    def test_a_listed_file_the_tree_does_not_ship_does_not_stale_the_copy(self):
+        """The npm package ships a subset of the MANIFEST (no `bin/*.py` twin
+        symlinks, no `.github/`), so a hash over every listed path was None on
+        every npm install: the row never passed and each `--install` re-copied
+        the plugin (audit M-11b, QA-2). The copy `sync` makes from such a tree
+        holds the shipped files only, and that copy is current."""
+        shipped = ("bin/tezgah-setup", "hooks/tezgah_paths.py")
+        self.manifest(*shipped + ("bin/tezgah-setup.py", ".github/x.yml"))
+        for rel in shipped:
+            self.write(self.root, rel)
+        with tempfile.TemporaryDirectory() as dst:
+            copy = os.path.realpath(dst)
+            for rel in shipped:
+                self.write(copy, rel)
+            self.assertTrue(self.mod.plugin_copy_current(copy))
+            # a shipped file the copy lacks still reads stale
+            os.remove(os.path.join(copy, "hooks/tezgah_paths.py"))
+            self.assertFalse(self.mod.plugin_copy_current(copy))
+
+    def test_the_dev_mcp_config_is_not_shipped(self):
+        """The checkout's `.mcp.json` names the maintainer's clone
+        (`${HOME}/Projects/tezgah/bin/tezgah-mcp`); a copy gets its own render
+        from `sync()`, so neither the npm package nor the release listing
+        carries it (audit L-12, SEC-12)."""
+        with open(os.path.join(REPO, "package.json")) as fh:
+            files = json.load(fh)["files"]
+        self.assertNotIn(".mcp.json", files)
+        self.assertNotIn(".mcp.json", self.read_manifest())
+
+
+@unittest.skipUnless(HAVE_NODE, "node missing")
+class NpmShim(unittest.TestCase):
+    """bin/tezgah.js, npm's entry point, hands the run to Python and must hand
+    the outcome back: a Python killed by a signal reported exit code null, and
+    `process.exit(null)` exits 0 (audit L-10, ENV-06)."""
+
+    def test_a_signal_death_is_a_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, "fakepy")
+            with open(fake, "w") as fh:
+                # passes the shim's `-c ''` probe, then dies by SIGKILL
+                fh.write('#!/bin/sh\n[ "$1" = "-c" ] && exit 0\nkill -9 $$\n')
+            os.chmod(fake, 0o755)
+            proc = subprocess.run(
+                [HAVE_NODE, os.path.join(REPO, "bin", "tezgah.js"), "--version"],
+                env=dict(os.environ, TEZGAH_PYTHON=fake),
+                capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 128 + signal.SIGKILL, proc.stderr)
+
+    def test_a_normal_exit_code_passes_through(self):
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, "fakepy")
+            with open(fake, "w") as fh:
+                fh.write('#!/bin/sh\n[ "$1" = "-c" ] && exit 0\nexit 3\n')
+            os.chmod(fake, 0o755)
+            proc = subprocess.run(
+                [HAVE_NODE, os.path.join(REPO, "bin", "tezgah.js")],
+                env=dict(os.environ, TEZGAH_PYTHON=fake),
+                capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 3, proc.stderr)
 
 
 class VersionSource(Tree):

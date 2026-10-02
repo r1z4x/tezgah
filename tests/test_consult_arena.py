@@ -302,6 +302,66 @@ class StalledBody(ArenaCase):
         self.assertIn("retry: raise --timeout", p.stdout)
 
 
+class Landing(BaseHTTPRequestHandler):
+    """Where a redirect lands: records each request's headers and answers.
+
+    urllib turns a POST answered with 302 into a GET, so this answers GET."""
+
+    seen = []
+
+    def do_GET(self):
+        type(self).seen.append(dict(self.headers))
+        out = json.dumps({"choices": [{"message": {"content": "landed"}}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+    def log_message(self, *args):
+        pass
+
+
+class CrossHostRedirect(ArenaCase):
+    """The audit's L-9: a 302 to another host must not carry the key along."""
+
+    def serve(self, handler):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server.server_address[1]
+
+    def test_the_bearer_token_is_dropped_on_a_redirect_to_another_host(self):
+        Landing.seen = []
+        # `localhost` on another port is another netloc than 127.0.0.1:<port>,
+        # which is the comparison the handler makes.
+        target = "http://localhost:%d/v1/chat/completions" % self.serve(Landing)
+
+        class Bounce(BaseHTTPRequestHandler):
+            seen = []
+
+            def do_POST(self):
+                type(self).seen.append(dict(self.headers))
+                self.rfile.read(int(self.headers["Content-Length"]))
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        self.env["CONSULT_URL"] = ("http://127.0.0.1:%d/v1/chat/completions"
+                                   % self.serve(Bounce))
+        self.env["OPENROUTER_API_KEY"] = "sk-secret"
+        p = self.consult("q?", "--models", "a", "--no-referee")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(Bounce.seen[0].get("Authorization"), "Bearer sk-secret")
+        self.assertEqual(len(Landing.seen), 1, p.stdout)
+        self.assertNotIn("Authorization", Landing.seen[0])
+
+
 class Credit(ArenaCase):
     def test_a_402_is_classed_credit_not_a_key_failure(self):
         # 402 is an empty account: read as http-4xx, the hint sent the caller

@@ -431,11 +431,18 @@ class WindowsDependencyReport(SetupBase):
         swap(self, obj, name, value)
 
     def line(self, text, name):
-        return next((ln for ln in text.splitlines() if " %s missing " % name in ln), "")
+        return next((ln for ln in text.splitlines()
+                     if " %s missing " % name in ln or " %s unavailable " % name in ln), "")
 
     def test_every_missing_tool_is_reported_with_its_channel(self):
+        # host CLIs count only when asked for (--host-deps, audit M-9), and a
+        # tool with no Windows installer never counts; asked for here, so the
+        # answer is every row that has a Windows channel
+        self.swap(setup_module(), "HOST_DEPS", True)
         mod, still, text = self.enter_windows()
-        self.assertEqual(sorted(still), sorted(d["name"] for d in mod.DEPS))
+        self.assertEqual(sorted(still),
+                         sorted(d["name"] for d in mod.DEPS
+                                if mod.WINDOWS_DEPS[d["name"]][0]))
         self.assertIn("no Windows channel", self.line(text, "orx"))
         self.assertIn("no Windows channel", self.line(text, "cursor-agent"))
         self.assertIn("npm", self.line(text, "pnpm"))
@@ -445,10 +452,56 @@ class WindowsDependencyReport(SetupBase):
         self.assertFalse(os.path.exists(
             self.path(".config", "tezgah", "install.log")))
 
+    def test_a_host_cli_not_asked_for_is_reported_but_not_counted(self):
+        mod, still, text = self.enter_windows()
+        hosts = {d["name"] for d in mod.DEPS if d.get("host")}
+        self.assertTrue(hosts)
+        self.assertFalse(hosts & set(still), still)
+        self.assertIn("npm", self.line(text, "pnpm"))
+
     def test_every_optional_tool_has_a_windows_row(self):
         mod = setup_module()
         self.assertEqual(set(mod.WINDOWS_DEPS),
                          set(d["name"] for d in mod.DEPS))
+
+
+class WindowsDependencyExit(SetupBase):
+    """The exit code of a Windows-platform `--deps` run. orx's only installer is
+    a POSIX `curl | sh`, so counting it made every Windows install exit 1 and
+    install.ps1 throw after a good install: a tool with no installer on the
+    platform is reported with its manual step and does not fail the run, while
+    a tool that has a channel and is still missing keeps exit 1."""
+
+    RUNNER = ("import importlib.machinery, importlib.util, os, sys\n"
+              "loader = importlib.machinery.SourceFileLoader('s', %r)\n"
+              "mod = importlib.util.module_from_spec(\n"
+              "    importlib.util.spec_from_loader('s', loader))\n"
+              "loader.exec_module(mod)\n"
+              "os.name = 'nt'  # after the imports: the branch reads os.name\n"
+              "sys.exit(mod.main(['tezgah-setup'] + sys.argv[1:]))\n")
+
+    def run_windows(self, *args):
+        shutil.rmtree(self.path(".dsh"))
+        empty = self.path("emptybin")  # no cursor-agent, pnpm or npm here
+        os.makedirs(empty, exist_ok=True)
+        self.env["PATH"] = empty
+        self.env.pop("TEZGAH_NO_DEPS", None)
+        code = self.RUNNER % os.path.join(REPO, "bin", "tezgah-setup")
+        return subprocess.run([sys.executable, "-c", code, "--deps"] + list(args),
+                              capture_output=True, text=True, env=self.env,
+                              timeout=120)
+
+    def test_a_tool_with_no_windows_installer_does_not_fail_the_run(self):
+        proc = self.run_windows()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        line = next((ln for ln in proc.stdout.splitlines() if " orx " in ln), "")
+        self.assertIn("unavailable on Windows", line)
+        self.assertIn("POSIX `curl | sh`", line)
+
+    def test_a_tool_with_a_channel_still_missing_fails_the_run(self):
+        proc = self.run_windows("--host-deps")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("pnpm missing", proc.stdout)
 
 
 class Interpreter(SetupBase):

@@ -87,6 +87,43 @@ class ShortcutCommand(unittest.TestCase):
                   "git -c core.hooksPath=/dev/null commit --no-verify -m x"):
             self.assertIsNotNone(ti.shortcut_command(c), c)
 
+    def test_the_short_and_abbreviated_hook_skips_are_denied(self):
+        # audit SEC-03 / L-5: commit's `-n`, git's abbreviations of the long
+        # option, and a neutered check or skip inside `bash -c` / `sh -c` passed
+        for c in ("git commit -n -m x", "git commit -anm x",
+                  "git commit --no-verif -m x", "git commit --no-ver -m x",
+                  "git push --no-verif", "bash -c 'pytest || true'",
+                  "bash -lc 'ruff check . ; true'",
+                  'sh -c "git commit --no-verify -m x"',
+                  "sh -c \"bash -c 'git commit -n -m x'\""):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        # `-n` is push's --dry-run, a message or log count is not a flag, and
+        # --no-verbose is a different option
+        for c in ("git push -n origin main", 'git commit -m "-n"',
+                  "git commit -m-n", "git log -n 3",
+                  "git commit --no-verbose -m x", "bash -c 'pytest -q'"):
+            self.assertIsNone(ti.shortcut_command(c), c)
+
+    # The review's cases, shared with the opencode mirror's test.
+    STUCK_AND_WRAPPED = (
+        # F4: `-S`/`-u` take no separate word, so the `-n` after them is a flag
+        "git commit -S -n -m x", "git commit -u -n -m x",
+        # F10: bash options before `-c` no longer hide the script
+        "bash -o pipefail -c 'pytest || true'", "bash --norc -c 'pytest || true'",
+        "sh -e -c 'git commit -n -m x'", "bash --rcfile /x -c 'pytest || true'")
+    LONG_VALUES = (
+        # F7: a long option's separate value is a value, whatever it starts with
+        'git commit --message "-no-op cleanup"', "git commit --file -n.txt",
+        'git commit --author "-n <a@b>" -m x', "git commit -uno -m x",
+        # N8: git takes an unambiguous prefix of a long option as that option
+        'git commit --mess "-no-op"', 'git commit --me "-n"')
+
+    def test_the_reviews_hook_skip_shapes_are_read_like_git_and_bash(self):
+        for c in self.STUCK_AND_WRAPPED:
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        for c in self.LONG_VALUES:
+            self.assertIsNone(ti.shortcut_command(c), c)
+
     def test_neutered_check_denied(self):
         for c in ("pytest || true", "npm test || true", "ruff check . ; true",
                   "cargo test || exit 0", "pytest tests/ || :"):
@@ -223,6 +260,56 @@ class ShortcutCommand(unittest.TestCase):
         # a bypass must not hide behind a missing terminator
         self.assertIsNotNone(
             ti.shortcut_command("git commit -F - <<'MSG'\n--no-verify\n"))
+
+
+class BookkeepingCommand(unittest.TestCase):
+    """_bookkeeping_command: which shell calls leave the tree a check judged as
+    it was. A false True here excuses an unverified change (review F2, F6)."""
+
+    def test_writes_and_runs_hidden_from_the_masked_text_are_not_bookkeeping(self):
+        for c in ('echo "$(./scripts/regen.sh)"', "cat src//tpl.py > src/app.py",
+                  "ls a#b; sed -i s/x/y/ f.py", "cat <(sed -i s/a/b/ f.py)",
+                  "echo `./x.sh`", "git log > /tmp/log.txt"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+
+    def test_readers_that_write_or_run_are_not_bookkeeping(self):
+        for c in ("git diff --output=src/app.py HEAD~1", "git log --output x",
+                  "tree -o src/x", "tree -fo out.txt", "file -C -m x",
+                  "rg --pre ./x.sh pat",
+                  "GIT_EXTERNAL_DIFF=./x.sh git diff",
+                  "env GIT_EXTERNAL_DIFF=./x.sh git diff",
+                  "git -c diff.external=./x.sh diff", "git diff --ext-diff"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+
+    def test_a_quote_lost_in_a_comment_or_body_fails_closed(self):
+        # review N1: an apostrophe in a `#` comment, a heredoc body or an
+        # ANSI-C string threw the quote tracking off and hid a later `<(`
+        for c in ("git status # it's fine\ncat <(./regen.sh)",
+                  "ls # don't\ncat <(./regen.sh)",
+                  "cat <<'true'\ndon't\ntrue\ncat <(./regen.sh)",
+                  "cat <<EOF\n$(./regen.sh)\nEOF",
+                  "echo $'it\\'s' > out.txt", "echo 'unbalanced"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+        for c in ("git status # it's fine", "echo $'it\\'s'",
+                  "git commit -F - <<'MSG'\ndon't\nMSG"):
+            self.assertTrue(ti._bookkeeping_command(c), c)
+
+    def test_a_program_named_by_a_path_is_not_bookkeeping(self):
+        # review N9: `./scripts/cat` is whatever that file is
+        for c in ("./scripts/cat x", "./git status", "tools/echo hi"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+
+    def test_a_redacted_detail_is_not_bookkeeping(self):
+        # review N3: the marker swallowed `;./regen.sh` glued to the value
+        stored = ti._stored_text("echo token=x;./regen.sh")
+        self.assertIn("[redacted:", stored)
+        self.assertFalse(ti._bookkeeping_turn([{"kind": "run", "detail": stored}]))
+
+    def test_plain_bookkeeping_still_is(self):
+        for c in ('git commit -m "fix: parser"', "git status --short",
+                  "git add -A && git commit -m 'a > b'", "git log -n 3 2>&1",
+                  "git diff --stat >/dev/null", "ls -la src", "git -C sub status"):
+            self.assertTrue(ti._bookkeeping_command(c), c)
 
 
 class PipedCheck(unittest.TestCase):
@@ -768,8 +855,11 @@ class WritersElsewhere(unittest.TestCase):
         if age:
             os.utime(path, (time.time() - age, time.time() - age))
 
-    def edit(self, path, age=0, workspace=None):
-        row = {"kind": "edit", "ts": int(time.time()) - age, "detail": path}
+    def edit(self, path, age=0, workspace=None, cwd="/repo"):
+        # the row the PostToolUse writer leaves: the host's own spelling in
+        # `detail`, the file resolved against that session's cwd in `target`
+        row = {"kind": "edit", "ts": int(time.time()) - age, "detail": path,
+               "target": ti._abs_target(path, cwd)}
         if workspace:
             row["workspace"] = workspace
         return row
@@ -798,13 +888,47 @@ class WritersElsewhere(unittest.TestCase):
         self.assertEqual(ti.writers_elsewhere("/repo/y.py", "mine"),
                          [ti._slug("busy")])
 
-    def test_a_relative_write_matches_the_same_relative_query(self):
-        # the caller passes the field its own host handed it, unchanged, so the
-        # two forms of one file only meet when the hosts spell them the same
-        self.write("rel", [self.edit("src/a.py", workspace="/repo")])
-        self.assertEqual(ti.writers_elsewhere("src/a.py", "mine"),
-                         [ti._slug("rel")])
-        self.assertEqual(ti.writers_elsewhere("/repo/src/a.py", "mine"), [])
+    def test_one_relative_spelling_in_two_repositories_is_two_files(self):
+        # audit CHAT-03 / M-6: README.md written in repo A refused a write to
+        # README.md in repo B for ten minutes, because the raw spelling was
+        # compared. Each side is resolved against its own cwd now.
+        self.write("a", [self.edit("README.md", cwd="/work/repo-a")])
+        self.assertEqual(ti.writers_elsewhere("README.md", "mine",
+                                              cwd="/work/repo-b"), [])
+        self.assertEqual(ti.writers_elsewhere("README.md", "mine",
+                                              cwd="/work/repo-a"),
+                         [ti._slug("a")])
+        # and the absolute spelling of the same file is the same file
+        self.assertEqual(ti.writers_elsewhere("/work/repo-a/README.md", "mine"),
+                         [ti._slug("a")])
+
+    def test_a_row_without_a_target_names_no_file(self):
+        # an older writer's row carries only the raw spelling, relative to a cwd
+        # it never recorded: matching it would be the guess M-6 removed
+        self.write("old", [{"kind": "edit", "ts": int(time.time()),
+                            "detail": "/repo/x.py"}])
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
+
+    def test_a_damaged_foreign_ledger_costs_only_its_own_rows(self):
+        # audit GAP-02 / M-7: one `[1,2]` row or one terminated non-JSON line in
+        # any recently written ledger raised out of this reader, and the gate's
+        # guard then let every write of every session through unchecked
+        self.write("ok", [self.edit("/repo/x.py")])
+        for name, junk in (("list", "[1, 2]\n"), ("torn", "{not json\n")):
+            path = os.path.join(self.evidence, ti._slug(name) + ".jsonl")
+            with open(path, "w") as fh:
+                fh.write(json.dumps(self.edit("/repo/x.py")) + "\n" + junk)
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"),
+                         [ti._slug("ok")])
+
+    def test_the_own_ledger_still_refuses_a_non_object_row(self):
+        # `_parse`'s documented reading of a committed line that is not a row
+        # holds for the session's own ledger: it raises, and the guard files
+        # the crash row, rather than shrinking the evidence in silence
+        with self.assertRaises(ValueError):
+            ti._parse(['{"kind": "run"}\n', "[1, 2]\n"])
+        self.assertEqual(ti._parse(['{"kind": "run"}\n', "[1, 2]"]),
+                         [{"kind": "run"}])
 
     def test_another_file_is_not_reported(self):
         self.write("other", [self.edit("/repo/x.py")])
@@ -882,6 +1006,46 @@ class CredentialRedaction(unittest.TestCase):
         self.assertNotIn(key, detail)
         self.assertIn("[redacted:", detail)
         self.assertLessEqual(len(detail), 200)
+
+    def test_the_shapes_the_audit_found_stored_verbatim_are_replaced(self):
+        # audit SEC-04 / L-6: a flag's next-word value, mysql's `-p`, HTTP Basic
+        # (header and `-u`), URL userinfo and JSON keys all reached the row
+        cases = (
+            ("mysql --password hunter2swordfish -e x", "hunter2swordfish", "mysql"),
+            ("tool --api-key ABCDEF1234 run", "ABCDEF1234", "--api-key"),
+            ("mysql -u root -pS3cretPass db", "S3cretPass", "-u root"),
+            ("mysql -u root -p S3cretPass db", "S3cretPass", "-p "),
+            ("curl -H 'Authorization: Basic dXNlcjpwYXNz' x", "dXNlcjpwYXNz",
+             "Authorization: "),
+            ("curl -u admin:S3cretPass https://x", "S3cretPass", "admin:"),
+            ("psql postgres://app:S3cretPass@db/x", "S3cretPass", "postgres://app:"),
+            ('curl -d \'{"api_key":"abc123xyz","password": "pw987"}\' x',
+             "abc123xyz", '"api_key":'),
+            ('curl -d \'{"password": "pw987zz"}\' x', "pw987zz", "password"),
+        )
+        for cmd, secret, keep in cases:
+            with self.subTest(cmd=cmd):
+                out = ti.redact(cmd)
+                self.assertNotIn(secret, out)
+                self.assertIn("[redacted:", out)
+                self.assertIn(keep, out)
+        # what is not a credential stays: psql's `-p` is a port, `-P` mysql's,
+        # `git add -u` has no user:pass, a flag followed by a flag has no value
+        for cmd in ("psql -p 5432 db", "mysql -P 3306 -h h", "git add -u",
+                    "tool --token-file x", "echo --password --other",
+                    "curl https://host:8080/path"):
+            self.assertEqual(ti.redact(cmd), cmd)
+
+    def test_a_new_ledger_is_owner_only(self):
+        # audit SEC-05 / L-6: the default umask left rows of commands and paths
+        # world-readable (`-rw-r--r--`)
+        path = os.path.join(self.dir, "evidence", "fresh.jsonl")
+        ti._path = lambda session: path
+        old = os.umask(0o022)
+        self.addCleanup(os.umask, old)
+        ti.note("s", "run", "ls")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(os.path.dirname(path)).st_mode & 0o777, 0o700)
 
 
 class RowContract(unittest.TestCase):
@@ -1010,6 +1174,19 @@ class WriteRowPath(unittest.TestCase):
             fh.write("after\n")
         ti.note_tool("s", tool, inp, failed=False, cwd=self.dir)
         return ti.events("s")[-1]
+
+    def test_a_relative_write_records_its_absolute_real_target(self):
+        # audit CHAT-03 / M-6: the race guard compares this field, so the row
+        # names the file itself, not the host's spelling relative to a cwd the
+        # row does not keep
+        repo = os.path.join(self.dir, "repo")
+        os.makedirs(repo)
+        ti.note_tool("s", "Write", {"file_path": "README.md"}, failed=False,
+                     cwd=repo)
+        row = ti.events("s")[-1]
+        self.assertEqual(row["detail"], "README.md")
+        self.assertEqual(row["target"],
+                         os.path.join(os.path.realpath(repo), "README.md"))
 
     def test_every_dialect_records_the_path_the_call_wrote(self):
         # One fixture per dialect: the four spellings a host puts a write's
@@ -1899,6 +2076,139 @@ class StopHook(TempHome):
         self.seed("Edit", {"file_path": "x.py"})
         self.seed("Bash", {"command": "pytest -q"})
         self.assertIsNone(self.stop("Done. All tests pass."))
+
+    def test_a_claim_in_a_turn_with_no_work_is_judged_against_the_session(self):
+        # audit INT-01 / M-2: turn 1 did unverified work and ended honestly, turn
+        # 2 did nothing and claimed the tests pass - allowed on all five hosts
+        self.turn("parser hatasını düzelt")
+        self.seed("Bash", {"command": "sed -i '' s/1/2/ a.py"})
+        self.assertIsNone(self.stop("Düzeltmeyi uyguladım, doğrulanmadı."))
+        self.turn("tamam mı, bitti mi?")
+        out = self.stop("Tamamlandı, tüm testler geçti.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("This session did work", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: no verify_ok"])
+
+    def test_a_claim_in_a_turn_with_no_work_after_a_session_pass_passes(self):
+        self.turn("fix it")
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.turn("is it done?")
+        self.assertIsNone(self.stop("Done. All tests pass."))
+
+    def test_a_claim_after_a_session_whose_newest_check_failed_is_refused(self):
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "pytest -q"}, failed=True)
+        self.assertIsNone(self.stop("Bir test kırık, doğrulanmadı."))
+        self.turn("is it done?")
+        out = self.stop("Done. All tests pass.")
+        self.assertEqual(self.claim_rows(), ["blocked: check failed"])
+        self.assertIn("A check failed in this session", out["reason"])
+
+    def test_a_vcs_only_turn_after_a_pass_on_an_unchanged_tree_ends(self):
+        # audit CHAT-04 / M-12: a commit-only turn was refused for having no
+        # check of its own, and the model re-ran a suite that had just passed
+        self.turn("fix it")
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.turn("commit it")
+        self.seed("Bash", {"command": "git status --short"})
+        self.seed("Bash", {"command": 'git add -A && git commit -m "fix: parser"'})
+        self.assertIsNone(self.stop("Değişiklik commitlendi."))
+
+    def test_a_vcs_only_turn_after_an_unchecked_edit_still_owes_a_check(self):
+        # the exemption is for the tree the check judged: an edit after the
+        # pass, even in an earlier turn, still needs a fresh check
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Edit", {"file_path": "x.py"})
+        self.turn("commit it")
+        self.seed("Bash", {"command": "git commit -am x"})
+        out = self.stop("Değişiklik commitlendi.")
+        self.assertEqual(out.get("decision"), "block")
+
+    def test_a_turn_that_is_not_only_bookkeeping_keeps_the_turn_rule(self):
+        # a command this cannot read as read-only is work, pass or no pass
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.turn("clean up")
+        self.seed("Bash", {"command": "rm -rf build"})
+        self.assertEqual(self.stop("Temizledim.").get("decision"), "block")
+
+    def test_a_redirect_turn_is_not_bookkeeping(self):
+        # review F8: on its own, after a pass, so only the redirect guard can
+        # refuse it - an earlier non-bookkeeping row would refuse it anyway
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.turn("write it out")
+        self.seed("Bash", {"command": "git log > /tmp/log.txt"})
+        self.assertEqual(self.stop("Yazdım.").get("decision"), "block")
+
+    def test_a_command_cut_by_the_ledger_is_not_bookkeeping(self):
+        # review F1: the row keeps DETAIL_MAX characters, so a write past the
+        # cut (`python3 scripts/regen.py`) was read as a run of `cat`
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.turn("look around")
+        self.seed("Bash", {"command": "git status --short && cat %s && "
+                           "python3 scripts/regen.py" % ("src/a.py " * 25)})
+        self.assertEqual(self.stop("Baktım.").get("decision"), "block")
+
+    def ui_turn_then(self):
+        """Turn 1 edits a component and runs a unit pass only, then ends
+        honestly; the UI proof it owes is still missing."""
+        path = os.path.join(self.repo, "app", "components", "Button.tsx")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("export const Button = () => null\n")
+        self.turn("restyle the button")
+        self.seed("Edit", {"file_path": path})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.assertIsNone(self.stop("Butonu değiştirdim, doğrulanmadı."))
+
+    def test_a_bookkeeping_turn_keeps_a_pending_ui_check(self):
+        # review F5: the session-level path judged only three of the turn
+        # fold's classes, so a commit turn after an unproven UI change ended
+        self.ui_turn_then()
+        self.turn("commit it")
+        self.seed("Bash", {"command": "git commit -am x"})
+        out = self.stop("Değişiklik commitlendi.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertEqual(self.claim_rows()[-1], "blocked: no ui_ok")
+
+    def test_a_no_work_claim_keeps_a_pending_ui_check(self):
+        self.ui_turn_then()
+        self.turn("is it done?")
+        self.assertEqual(self.stop("Tamamlandı, testler geçti.").get("decision"),
+                         "block")
+        self.assertEqual(self.claim_rows()[-1], "blocked: no ui_ok")
+
+    def test_a_no_work_claim_keeps_an_unresolved_partial_failure(self):
+        # a failure followed by a check whose outcome nobody saw is a partial
+        # failure in the turn fold, and it stays one a turn later
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "ruff check ."}, failed=True)
+        self.seed("Bash", {"command": "ruff check ."}, failed=None)
+        self.assertIsNone(self.stop("Lint kırık, doğrulanmadı."))
+        self.turn("is it done?")
+        self.stop("Tamamlandı, testler geçti.")
+        self.assertEqual(self.claim_rows()[-1], "blocked: partial failure")
+
+    def test_an_idle_turn_does_not_clear_a_partial_failure(self):
+        # review N5: a question turn in between made the newest turn an empty
+        # one, and the partial failure before it stopped counting
+        self.turn("fix it")
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "pytest tests/a"}, failed=True)
+        self.seed("Bash", {"command": "pytest tests/b"}, failed=None)
+        self.assertIsNone(self.stop("Bir test kırık, doğrulanmadı."))
+        self.turn("what broke?")
+        self.turn("is it done?")
+        self.stop("Tamamlandı, testler geçti.")
+        self.assertEqual(self.claim_rows()[-1], "blocked: partial failure")
 
     def test_failed_check_blocks(self):
         self.seed("Edit", {"file_path": "x.py"})

@@ -4,6 +4,95 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+Fixes for the external audit of 2026-10-02 (HEAD c5ebae2): the advisory half was
+healthy, the mechanical half had paths that disarmed it in silence.
+
+- **Codex hook trust is reported (H-1).** Codex runs no hook group the user has
+  not trusted; `--report` now reads Codex's own trust keys (hooks.json path plus
+  the snake_case event) and says when the tezgah group is untrusted.
+- **A partial uninstall keeps the gate (H-2).** `--uninstall --hosts codex` wrote
+  `pretooluse-off` and turned the gate off for every host that stayed; only a
+  full uninstall writes it now, and a switch the user set survives.
+- **Secret patterns run in linear time (H-3).** The unanchored prefix rescanned
+  from every position: a 100 KB command took 174 s, past the 5 s hook budget, so
+  the deny never arrived. The same command now takes 0.026 s.
+- **A check word is not a check (M-1).** `echo pytest`, `cat pytest.ini` and
+  `grep pytest` were recorded as passing checks; the check now has to be at
+  command position, and `; exit 0` / `; :` after it neuters it like `|| true`.
+- **The two-turn Stop bypass is closed (M-2).** A done claim in a turn that did
+  no work is judged against the session's newest pass and newest change.
+- **Hosts agree on a passing check (M-3).** Cursor recorded every call as
+  outcome-unknown, so it blocked a claim Claude, Codex and omp allowed.
+- **opencode works under a symlinked root (M-4)** (`/tmp` vs `/private/tmp`).
+- **Static contract files cannot go stale silently (M-5).** One sha per rendered
+  artifact, `--refresh` re-renders every installed block, and the report compares
+  bytes against a fresh render.
+- **The concurrent-write guard compares absolute real paths (M-6).** `README.md`
+  in one repository no longer blocks `README.md` in another; edit rows carry a
+  new `target` field.
+- **One damaged ledger no longer disarms every session (M-7).** Readers of other
+  sessions' ledgers skip a file that does not parse.
+- **Bad bytes and a string `roots` are survived (M-8).** A non-UTF-8 byte in
+  `lessons.md` or a plan no longer erases the injected context, and
+  `"roots": "~/Projects"` is one root, not one per character.
+- **The installer cannot hang (M-9).** Every installer has a timeout, the real
+  cause is printed, a missing requested dependency fails the run, and third-party
+  host CLIs install only with `--host-deps`.
+- **3.13 and 3.14 are in CI (M-10)**, and the plans icon is narrow under Unicode 16.
+- **Self-checks that could not fail now can (M-11).** `tezgah-docs --citations`
+  skips symlink twins that made every `bin/` symbol ambiguous; an npm install's
+  plugin copy reads current after one install.
+- **Bookkeeping turns after a pass are not stopped (M-12).** A turn of read-only
+  or VCS-only commands after a passing check on an unchanged tree ends without a
+  re-run.
+- **Low findings:** kill switches remove their rule from the reminder and the
+  static files (L-1); the workspace rule is a core rule (L-2); omp re-injects
+  after compaction (L-3; Cursor and dsh have no event for it); Codex and Cursor
+  record only under the roots (L-4); `git commit -n`, `--no-verif` and
+  `bash -c '... || true'` are neutered checks (L-5); redaction covers JSON keys,
+  Basic auth, `--password X` and URL userinfo, credential files are snapshotted
+  by hash only, and tezgah's files are 0600 (L-6); `tezgah-status` arguments
+  cannot be injected (L-7); release actions are SHA-pinned with npm provenance
+  (L-8); `consult` drops the bearer token on a cross-host redirect (L-9); the npm
+  shim reports a signal death and `install.ps1` no longer closes the caller's
+  shell (L-10); `tezgah-doctor --clean` sweeps old ledgers and `TEZGAH_DEBUG=1` logs one
+  line per hook run (L-11); `.mcp.json`
+  is not shipped (L-12); keyword `maxsplit` (L-13); the drift notice prints its
+  pointers once and `tezgah-gate check` is a true dry run (L-14); every env var
+  is documented in `docs/environment.md` (L-15); lessons and plans that the
+  project's own git tracks are injected as repository data, not as standing
+  constraints (L-16).
+- **An independent review of the fixes found ten more holes, all closed.** The
+  bookkeeping exemption read a command cut at 200 characters and a text with
+  quotes and comments masked, so `echo "$(./regen.sh)"` or `ls a#b; sed -i ...`
+  passed as bookkeeping; it now reads the raw command with bash quoting, and a
+  cut command is never bookkeeping. The session-level Stop paths reuse the turn
+  fold, so a pending UI check or a partial failure still blocks. `git commit -S
+  -n` / `-u -n` are refused, `--message "-n..."` is not, and `bash -o pipefail -c`
+  is unwrapped. A `.tezgah` committed as a symlink or a submodule, a split or v4
+  index that cannot be read, all count as repository-provided, and the index is
+  read entry by entry so the untracked cache is not mistaken for tracking. The
+  opencode secret pattern was quadratic too (21 s on 100 KB in node). `.envrc`
+  and SSH keys are snapshotted by hash only, `--install` tightens existing cache
+  files to 0600, a timed-out installer takes its grandchildren with it, and
+  concurrent sessions no longer lose a line of `contract.sha256`.
+- **A second review of those fixes found two more, both closed.** An apostrophe
+  in a `#` comment, a heredoc body or `$'...'` broke the bookkeeping reader's
+  quote tracking and hid a later `<(...)`; comments and quoted heredoc bodies
+  are now read the way bash reads them, and an unbalanced quote or an unquoted
+  heredoc is never bookkeeping. On a case-insensitive filesystem a clone that
+  tracks `.TEZGAH/lessons.md` was injected; the provenance check now compares
+  case-insensitively, reads the object width from the repository config, and
+  also guards `ensure_workspace`, the active-plan reader and omp's static
+  lessons line. Also: a redacted command, a program named by a path, `tree`
+  and `file` are not bookkeeping; an idle turn no longer clears a partial
+  failure; `git commit --mess "-x"` is read as git reads it; Ctrl-C during
+  `--deps` takes the installer with it; a symlinked cache root is left alone.
+
 ## [0.28.0] - 2026-10-01
 
 ### Added

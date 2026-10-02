@@ -414,8 +414,13 @@ PERMANENT_ERROR = re.compile(
 # a host can send any string as the tool name (the fabricated-tool path in
 # `note_tool`'s `unknown` branch stores it verbatim), so it is stored the way
 # `detail` is - through `_stored_text`, redacted and then cut (`FREE_TEXT_FIELDS`).
+# `target` is an `edit` row's write target as an absolute real path
+# (`_abs_target`): `detail` keeps the host's own spelling, which is relative to a
+# cwd the row does not carry, so the cross-session write guard compared `README.md`
+# in one repository with `README.md` in another and refused both for ten minutes
+# (audit CHAT-03 / M-6). The guard reads this field and nothing else.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
-                           "source", "hash", "changed", "tool",
+                           "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
                            "tr_share", "answer_first",
                            "summary_chars", "summary_hash",
@@ -558,10 +563,34 @@ MARKED = "[redacted:%d]"
 # name (`OPENROUTER_API_KEY`, not `API_KEY`) for the redaction text, and an
 # unbounded prefix is the same quadratic scan the gate's own pattern carried -
 # `redact()` runs on every ledger row (audit H-3).
+# An optional closing quote before the separator reads a JSON key
+# (`"api_key": "abc"`), and the scheme words `Basic`/`Token`/`Digest` are
+# consumed like `Bearer`, so `Authorization: Basic <b64>` loses the credential and
+# not just the word `Basic` (audit SEC-04 / L-6).
 SECRET_KEY = re.compile(
     r"(?i)([A-Za-z0-9_\-]{0,64}?(?:password|passwd|pwd|secret|token|api[_-]?key|"
     r"apikey|access[_-]?key|authorization|client[_-]?secret))"
-    r"(\s*[:=]\s*)(?:Bearer\s+)?(\"[^\"]*\"|'[^']*'|\S+)")
+    r"([\"']?\s*[:=]\s*)(?:(?:Bearer|Basic|Token|Digest)\s+)?"
+    r"(\"[^\"]*\"|'[^']*'|\S+)")
+# The same names as a flag whose value is the next word (`--password hunter2`,
+# `--api-key ABC`): no `=` or `:` between them, so SECRET_KEY never saw it. A
+# next word that is itself a flag is not a value.
+SECRET_FLAG = re.compile(
+    r"(?i)((?<![\w-])--?[A-Za-z0-9_\-]{0,64}?(?:password|passwd|secret|token|"
+    r"api[_-]?key|apikey|access[_-]?key|client[_-]?secret)\s+)"
+    r"(\"[^\"]*\"|'[^']*'|[^\s\-'\"]\S*)")
+# URL userinfo (`postgres://app:pw@db/x`): the user stays, the password goes.
+SECRET_USERINFO = re.compile(r"(://[^/\s:@'\"]+:)([^@\s/'\"]+)(?=@)")
+# HTTP Basic credentials on a command line (`curl -u admin:S3cret`, `--user=`).
+SECRET_USERPASS = re.compile(
+    r"((?<![\w-])(?:-u\s*|--user[\s=]+)[\"']?[^\s:\"']+:)([^\s\"']+)")
+# mysql's attached or next-word password (`mysql -pS3cret`, `mysql -p pass`).
+# Case-sensitive: `-P` is the port. Only after a mysql-family program, because
+# `-p` is a port or a path everywhere else; the gap is bounded so a long line of
+# program names cannot make the scan quadratic (audit H-3).
+SECRET_MYSQL = re.compile(
+    r"(\b(?:mysql|mysqldump|mysqladmin|mariadb)[\w-]*\b[^;&|\n]{0,200}?\s-p\s?)"
+    r"([^\s\-]\S*)")
 # The prefixed token families, matched by their own shape wherever they appear:
 # an assignment through a name the list above does not know (`GITHUB_TOKEN=`)
 # still carries the value's shape, which is what identifies it.
@@ -576,6 +605,11 @@ SECRET_TOKEN = re.compile(
     r"|\bnpm_[A-Za-z0-9]{30,}")
 # the two-token form with no name in front of it (`-H 'Bearer ...'`)
 SECRET_BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+/=]{8,}")
+# Applied in this order, each with the count of leading groups it keeps: a named
+# value that carries `Bearer` is consumed as one before the bare-Bearer pattern.
+REDACTIONS = ((SECRET_KEY, 2), (SECRET_FLAG, 1), (SECRET_USERINFO, 1),
+              (SECRET_USERPASS, 1), (SECRET_MYSQL, 1), (SECRET_BEARER, 0),
+              (SECRET_TOKEN, 0))
 
 
 def redact(text):
@@ -584,20 +618,19 @@ def redact(text):
     The marker carries the removed value's length and stays in the row: an
     evidence file that silently rewrites what the call carried is a worse
     artifact than the leak it hides - a reader can still see that a credential
-    was there, and how big it was. Three patterns, applied in this order so a
-    named value that carries `Bearer` is consumed as one.
+    was there, and how big it was. The patterns run in `REDACTIONS` order.
 
-    ponytail: a credential whose shape none of the three matches (a bespoke
-    session cookie, a value short enough to guess) is stored as it is. Deciding
-    what any unprefixed string is would need the secret store, not a regex, and
-    a rule that redacts whatever looks random destroys the evidence instead."""
+    ponytail: a credential whose shape none of them matches (a bespoke session
+    cookie, a value short enough to guess) is stored as it is. Deciding what any
+    unprefixed string is would need the secret store, not a regex, and a rule
+    that redacts whatever looks random destroys the evidence instead."""
     def marked(m, keep=0):
         head = "".join(m.group(i) for i in range(1, keep + 1))
         value = m.group(keep + 1) if keep else m.group(0)
         return head + MARKED % len(value)
 
     out = str(text or "")
-    for pattern, keep in ((SECRET_KEY, 2), (SECRET_BEARER, 0), (SECRET_TOKEN, 0)):
+    for pattern, keep in REDACTIONS:
         out = pattern.sub(lambda m, keep=keep: marked(m, keep), out)
     return out
 
@@ -695,9 +728,13 @@ def _append(path, line):
     removes a fragment and can never cut a record."""
     handle = None
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # owner-only: a row carries commands and paths, and the default umask
+        # left the dir 0755 and the file 0644 (audit SEC-05 / L-6). The modes
+        # apply when the dir and the file are created.
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
         # binary: the boundary below is counted in bytes, not in characters
-        handle = open(path, "a+b")
+        handle = os.fdopen(os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT,
+                                   0o600), "a+b")
         if fcntl is not None:
             deadline = time.time() + LOCK_WAIT
             while True:
@@ -821,18 +858,42 @@ def _parse(lines):
     which files the crash as a `crash` row rather than hiding it, so the layer's
     fail-open direction is unchanged: a rule that cannot read the ledger has
     refused nothing. A blank line is neither damage - it is nothing to parse,
-    not a broken row."""
+    not a broken row. A line that parses to something other than an object
+    (`[1,2]`, a bare number) is the same committed damage as one that does not
+    parse: no reader can take a row from it, and every reader calls `.get` on
+    what this returns, so it raises the same ValueError rather than the
+    AttributeError the first `.get` would raise far from the line (audit
+    GAP-02). A reader of ANOTHER session's ledger catches it (`_foreign_rows`)."""
     out = []
     for line in lines:
         if not line.strip():
             continue
         try:
-            out.append(json.loads(line))
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError("not a JSON object")
         except ValueError as exc:
             if not line.endswith("\n"):
                 continue  # unterminated: a fragment, never a whole record
             raise ValueError("a terminated ledger line does not parse: %s" % exc)
+        out.append(row)
     return out
+
+
+def _foreign_rows(path, tail=None):
+    """Another session's ledger rows, or [] when that ledger cannot be read.
+
+    `_parse` raises on a committed line that is not a row, which is right for
+    the session's own ledger (its crash row names the damage). A reader that
+    walks every session's ledger must not inherit it: one damaged ledger turned
+    the cross-session write gate and the snapshot capture off for every session
+    on the machine for as long as it stayed active (audit GAP-02 / M-7). That
+    ledger is not this session's evidence, so it costs its own rows and nothing
+    else."""
+    try:
+        return events_path(path, tail)
+    except (OSError, ValueError):
+        return []
 
 
 def events_path(path, tail=None):
@@ -979,18 +1040,33 @@ def prior_calls(session_id, digest, tail=200):
 WRITE_TAIL = 200
 
 
-def writers_elsewhere(path, session_id, minutes=10):
+def _abs_target(path, cwd):
+    """`path` as an absolute real path, resolved against `cwd` when relative.
+
+    The form both halves of the cross-session write guard compare: the writer
+    stores it in an `edit` row's `target`, the gate resolves its own call's path
+    the same way. A file that does not exist yet still resolves (realpath leaves
+    the missing tail as it is), so a new file two sessions both create matches."""
+    path = str(path or "").strip()
+    if not path:
+        return None
+    if not os.path.isabs(path):
+        path = os.path.join(cwd or os.getcwd(), path)
+    return os.path.realpath(path)
+
+
+def writers_elsewhere(path, session_id, minutes=10, cwd=None):
     """The other sessions that recorded a write of `path` in the last `minutes`,
     newest first, as ledger ids.
 
-    `path` is matched verbatim against the string the writing session's hook put
-    in the row's `detail` (its `file_path` / `filePath` / `path`), because that is
-    the only form the ledger stores and this reader cannot re-derive the writing
-    session's cwd. So a caller passes the same field from its own tool input,
-    unnormalized. ponytail: a session that recorded an absolute path is not
-    matched to one that asked about the relative form of the same file (or the
-    reverse) - resolving that would need the writer's cwd, which the row carries
-    only sometimes, and a guess there invents an overlap instead of finding one.
+    `path` is resolved against `cwd` (`_abs_target`) and matched against the
+    `target` the writing session's PostToolUse hook stored, which is that
+    session's own path resolved against its own cwd. Matching the raw `detail`
+    instead compared two different files that share a relative spelling: a
+    `README.md` written in one repository refused a write to `README.md` in
+    another for the whole window (audit CHAT-03 / M-6). A row with no `target` -
+    one an older writer left - is not matched: its file cannot be named, and a
+    guess there invents an overlap instead of finding one.
 
     The ids returned are the sessions' ledger ids - `_slug(session_id)`, the
     evidence filename stem - because that is the only identity the ledger
@@ -999,16 +1075,17 @@ def writers_elsewhere(path, session_id, minutes=10):
     back to a reader that takes a session id (`_path` would slug it a second
     time and open another file).
 
-    Neutral value: [] when the cache cannot be listed or a ledger cannot be
-    read. A cross-session rule that cannot see the other ledgers has learned
-    nothing, and must stay silent rather than act on a guess.
+    Neutral value: [] when the cache cannot be listed; a ledger that cannot be
+    read or holds a damaged committed line costs only its own rows
+    (`_foreign_rows`, audit GAP-02 / M-7). A cross-session rule that cannot see
+    the other ledgers has learned nothing, and must stay silent rather than act
+    on a guess.
 
     ponytail: only `edit` rows count, so a sibling that wrote the same file
     through a shell redirect (`sed -i`, `>`) is invisible here - its row records
-    a command, not a path. Every session on the machine shares this cache, so
-    the window is the only thing separating unrelated work."""
-    want = str(path or "")
-    if not want.strip():
+    a command, not a path."""
+    want = _abs_target(path, cwd)
+    if not want:
         return []
     d = os.path.join(cache_dir(), "evidence")
     mine = _slug(session_id) + ".jsonl"
@@ -1027,17 +1104,16 @@ def writers_elsewhere(path, session_id, minutes=10):
             # be inside it, so most of a long-lived cache is skipped unread
             if now - entry.stat().st_mtime > window:
                 continue
-            rows = _parse(_tail_lines(entry.path, WRITE_TAIL))
         except OSError:
             continue
         newest = None
-        for row in rows:
+        for row in _foreign_rows(entry.path, WRITE_TAIL):
             if row.get("kind") != "edit":
                 continue
             ts = row.get("ts")
             if not isinstance(ts, (int, float)) or now - ts > window:
                 continue
-            if str(row.get("detail") or "") != want:
+            if row.get("target") != want:
                 continue
             newest = ts if newest is None else max(newest, ts)
         if newest is not None:
@@ -1374,7 +1450,9 @@ def counters_all(weeks=False, tools=False):
 
     `weeks` and `tools` are the two report folds (`_counts` documents them), off
     by default so the JSON every other caller prints stays what it was."""
-    read = [events_path(path) for path in ledgers()]
+    # every session's ledger: one damaged file costs its own rows, not the
+    # machine-wide report (audit GAP-02 / M-7)
+    read = [_foreign_rows(path) for path in ledgers()]
     real = [rows for rows in read if not fixture_ledger(rows)]
     out = _counts((row for rows in real for row in rows), weeks=weeks,
                   tools=tools)
@@ -1729,11 +1807,140 @@ def shortcut_command(cmd):
     The scan runs on the masked text, so a commit message that names
     `--no-verify` (quoted, or a heredoc body) is not a bypass - the flag has to
     survive in command position, next to a git/hook command."""
+    return _shortcut_command(cmd, depth=0)
+
+
+# How deep `bash -c '...'` is unwrapped. One level is the observed shape (audit
+# SEC-03); the bound keeps a pathological nesting from costing the gate.
+SHELL_DEPTH = 3
+SHELLS = frozenset(("bash", "sh", "zsh", "dash", "ksh"))
+# `git commit`'s short options that take a value: in a cluster (`-am`), the rest
+# of the word is that value, never another flag. Only the first five take the
+# NEXT word when nothing follows them in the cluster: git reads `-S` and `-u`
+# values stuck to the flag only (`-S<keyid>`, `-uno`), so `git commit -S -n`
+# is a signed commit that skips its hooks (review F4).
+COMMIT_VALUE_SHORTS = "mFcCtSu"
+COMMIT_STUCK_SHORTS = "Su"
+# commit's long options whose value may be the next word: that word is a value
+# even when it starts with `-` (`--message "-no-op cleanup"`, review F7)
+COMMIT_VALUE_LONGS = frozenset((
+    "--message", "--file", "--author", "--trailer", "--date", "--reuse-message",
+    "--reedit-message", "--fixup", "--squash", "--template", "--cleanup"))
+# Every long option `git commit` has: git accepts any prefix of one that names
+# no other (`--mess` is --message), so a prefix is a value option only when it
+# is unambiguous against this whole list (review N8).
+COMMIT_LONGS = COMMIT_VALUE_LONGS | frozenset((
+    "--quiet", "--verbose", "--reset-author", "--signoff", "--edit", "--status",
+    "--gpg-sign", "--all", "--include", "--interactive", "--patch", "--only",
+    "--no-verify", "--dry-run", "--short", "--branch", "--ahead-behind",
+    "--porcelain", "--long", "--null", "--amend", "--no-post-rewrite",
+    "--untracked-files", "--pathspec-from-file", "--pathspec-file-nul",
+    "--allow-empty", "--allow-empty-message", "--no-edit", "--no-status"))
+
+
+def _commit_value_long(word):
+    """True when `word` is git's spelling of a commit option whose value is the
+    next word: the option itself or an unambiguous prefix of it."""
+    if not word.startswith("--") or "=" in word or len(word) < 3:
+        return False
+    names = [o for o in COMMIT_LONGS if o.startswith(word)]
+    return word in COMMIT_VALUE_LONGS or (
+        len(names) == 1 and names[0] in COMMIT_VALUE_LONGS)
+
+
+# a shell's long options that take the next word as their value
+SHELL_VALUE_LONGS = frozenset(("--rcfile", "--init-file"))
+
+
+def _git_skips_hooks(cmd):
+    """True when a git segment skips its hooks through a spelling the literal
+    `--no-verify` pattern does not see: commit's short `-n` (alone or in a
+    cluster, `-anm`), or an abbreviation git accepts for a long option
+    (`--no-verif`, `--no-ver`). Both passed the gate (audit SEC-03 / L-5).
+    `-n` is read for `commit` only: on `push` it is --dry-run."""
+    for words in _shell_segments(cmd):
+        i = 0
+        while i < len(words) and (ENV_WORD.match(words[i])
+                                  or words[i] in GIT_WRAPPER):
+            i += 1
+        if i >= len(words) or os.path.basename(words[i]) != "git":
+            continue
+        i += 1
+        while i < len(words) and words[i].startswith("-"):
+            i += 2 if words[i] in GIT_VALUE_OPTS else 1
+        if i >= len(words):
+            continue
+        sub = words[i].lower()
+        if sub not in ("commit", "push", "merge"):
+            continue
+        value_next = False
+        for word in words[i + 1:]:
+            if value_next:
+                value_next = False
+                continue
+            if word == "--":
+                break
+            if len(word) >= 8 and "--no-verify".startswith(word):
+                return True
+            if sub == "commit" and _commit_value_long(word):
+                value_next = True
+                continue
+            if sub == "commit" and word.startswith("-") and \
+                    not word.startswith("--"):
+                for k, ch in enumerate(word[1:], 1):
+                    if ch == "n":
+                        return True
+                    if ch in COMMIT_VALUE_SHORTS:
+                        value_next = (k == len(word) - 1
+                                      and ch not in COMMIT_STUCK_SHORTS)
+                        break
+    return False
+
+
+def _shell_scripts(cmd):
+    """The script text of every `bash -c '...'` / `sh -c` segment: the masked
+    scan below blanks a quoted script, so a check neutered or a hook skipped
+    inside one passed unseen (audit SEC-03 / L-5).
+
+    Read the way bash reads its own options: the script is the first word that
+    is not an option, once `-c` has been seen. Long options are skipped (and
+    `--rcfile`'s value with it), and every `o`/`O` in a `-`/`+` cluster takes
+    the next word, so `bash -o pipefail -c '...'`, `bash --norc -c '...'` and
+    `sh -e -c '...'` are unwrapped too (review F10)."""
+    out = []
+    for words in _shell_segments(cmd):
+        i = 0
+        while i < len(words) and (ENV_WORD.match(words[i])
+                                  or words[i] in GIT_WRAPPER):
+            i += 1
+        if i >= len(words) or os.path.basename(words[i]) not in SHELLS:
+            continue
+        seen, j = False, i + 1
+        while j < len(words):
+            word = words[j]
+            if word in SHELL_VALUE_LONGS:
+                j += 2
+            elif word.startswith("--") and word != "--":
+                j += 1
+            elif len(word) > 1 and word[0] in "-+" and word != "--":
+                seen = seen or (word[0] == "-" and "c" in word[1:])
+                j += 1 + sum(ch in "oO" for ch in word[1:])
+            else:
+                if word == "--":
+                    j += 1
+                if seen and j < len(words):
+                    out.append(words[j])
+                break
+    return out
+
+
+def _shortcut_command(cmd, depth):
     c = mask(cmd)
-    if NO_VERIFY.search(c) and GITISH.search(c):
-        return ("Verification bypass denied: `--no-verify` skips the commit/push "
-                "hooks that run the checks. Run the checks, fix what they report, "
-                "and commit without it. A skipped hook is not a passing check.")
+    if (NO_VERIFY.search(c) and GITISH.search(c)) or _git_skips_hooks(cmd):
+        return ("Verification bypass denied: `--no-verify` (or `git commit -n`, "
+                "or an abbreviation of it) skips the commit/push hooks that run "
+                "the checks. Run the checks, fix what they report, and commit "
+                "without it. A skipped hook is not a passing check.")
     if SKIP_ENV.search(c) and GITISH.search(c):
         return ("Verification bypass denied: an env var that skips the hooks "
                 "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them "
@@ -1747,6 +1954,11 @@ def shortcut_command(cmd):
         return ("Verification neutered: this check is chained with `|| true` / "
                 "`; true`, so it reports success no matter what it found. Run it "
                 "plain and read the real exit status before claiming it passed.")
+    if depth < SHELL_DEPTH:
+        for script in _shell_scripts(cmd):
+            reason = _shortcut_command(script, depth + 1)
+            if reason:
+                return reason
     return None
 
 
@@ -2283,6 +2495,11 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         # the change, or a check redirecting its own output would put the two at
         # one position and refuse the turn that ran it.
         fields.update(_post_write(session_id, inp, cwd))
+    if kind == "edit":
+        # the file as one absolute real path, for the cross-session write guard
+        # (`writers_elsewhere`): `detail` is the host's own spelling, relative to
+        # a cwd the row does not carry (audit CHAT-03 / M-6)
+        fields["target"] = _abs_target((_written_paths(inp) or [""])[0], cwd)
     note(session_id, kind, detail, **fields)
 
 
@@ -2910,6 +3127,164 @@ def _failed_check(rows):
     return "a check"
 
 
+# The row kinds that make a turn one that did work: STEP_KINDS without the pass
+# itself, which is the evidence the work is judged against.
+WORK_KINDS = frozenset(STEP_KINDS) - {"verify_ok"}
+# Programs that read and change nothing, and git subcommands that move history
+# or the index but never a working-tree file. A turn made only of these after a
+# passing check leaves the tree that check judged as it was (`_bookkeeping_turn`).
+# Deliberately short: a program missing here costs one refusal, a program here
+# that writes would excuse an unverified change.
+READ_ONLY_PROGRAMS = frozenset((
+    "ls", "cat", "head", "tail", "wc", "pwd", "echo", "printf", "which", "stat",
+    "du", "df", "date", "whoami", "grep", "rg", "cd", "true"))
+GIT_BOOKKEEPING = frozenset((
+    "status", "log", "diff", "show", "add", "commit", "push", "fetch", "branch",
+    "tag", "remote", "rev-parse", "describe", "shortlog", "blame", "ls-files"))
+# The options that make an allowlisted program write a file or run one after
+# all (review F6): git's `--output` and external diff/textconv drivers,
+# ripgrep's `--pre`. A word that starts with one of these is not a read.
+# `tree` and `file` left the list instead of growing one here: tree writes
+# through clustered short options (`-fo out`) and `-R -H`, file through `-C`
+# (review N4).
+WRITING_OPTIONS = {"git": ("--output", "--ext-diff", "--textconv"),
+                   "rg": ("--pre",)}
+# git global options that set configuration or the program path, and so can
+# name a program a read subcommand then runs (`git -c diff.external=./x diff`)
+GIT_CONFIG_OPTS = ("-c", "--config-env", "--exec-path")
+# an fd duplication or a discard: a redirect that writes no file
+HARMLESS_REDIRECT = re.compile(r"\d*>&\d+|\d*>>?\s*/dev/null\b")
+
+
+def _shell_effect(cmd):
+    """True when bash would run a command or process substitution, or redirect
+    into a file, anywhere in `cmd` - or when this reader cannot tell.
+
+    Read on the RAW command with bash's own quoting: single quotes are literal,
+    `$'...'` takes backslash escapes, double quotes still expand `$(` and
+    backticks, only unquoted text redirects, and an unquoted `#` at the start of
+    a word comments out the rest of its line. The masked text `mask()` gives
+    blanks double-quoted strings and `#`/`//` comments, so `echo "$(./x.sh)"`
+    and `cat a//b > c` read as bookkeeping there (review F2).
+
+    Fails closed (True): an unquoted heredoc expands `$(` in its body, so it
+    is an effect; a quoted one's body is blanked; and a quote still open at the
+    end means the reading lost sync with bash - an apostrophe in a comment, a
+    body or `$'it\\'s'` hid a later `<(` that way (review N1)."""
+    for m in HEREDOC.finditer(cmd):
+        if not re.search(r"['\"]", m.group(0)):
+            return True
+    cmd = _blank_heredocs(cmd)
+    bare, quote, i = [], None, 0
+    while i < len(cmd):
+        ch = cmd[i]
+        if quote == "'":
+            quote = None if ch == "'" else quote
+        elif quote == "$'":
+            if ch == "\\":
+                i += 1
+            elif ch == "'":
+                quote = None
+        elif ch == "\\":
+            i += 2
+            bare.append(" ")
+            continue
+        elif ch == "`" or cmd.startswith("$(", i):
+            return True
+        elif quote == '"':
+            quote = None if ch == '"' else quote
+        elif ch == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()<>"):
+            end = cmd.find("\n", i)
+            i = len(cmd) if end < 0 else end
+            continue
+        elif cmd.startswith("$'", i):
+            quote = "$'"
+            i += 1
+        elif ch in "'\"":
+            quote = ch
+        else:
+            bare.append(ch)
+            i += 1
+            continue
+        bare.append(" ")
+        i += 1
+    if quote:
+        return True
+    text = HARMLESS_REDIRECT.sub(" ", "".join(bare))
+    return ">" in text or "<(" in text
+
+
+def _bookkeeping_command(cmd):
+    """True when every simple command of `cmd` reads, or does VCS bookkeeping
+    that changes no working-tree file. A redirect, a substitution, an env
+    assignment in front of a program, a git config override and an option that
+    makes a reader write (`WRITING_OPTIONS`) are never bookkeeping: each can
+    write or run something this reader does not follow.
+
+    ponytail: `git commit` and `git push` run the repository's hooks, and a
+    pre-commit autofixer can rewrite files the row never names. They stay on
+    the list because refusing every commit was the measured cost (audit CHAT-04);
+    a hook that rewrites the tree is invisible here."""
+    raw = str(cmd or "").replace(FAILED_MARK, "")
+    if not raw.strip() or _shell_effect(raw):
+        return False
+    # a quoted heredoc's terminator line is not a command (its body is blanked)
+    tags = [[m.group(1)] for m in HEREDOC.finditer(raw)]
+    segs = [w for w in _shell_segments(raw) if w not in tags]
+    for words in segs:
+        i = 0
+        while i < len(words) and words[i] in GIT_WRAPPER:
+            i += 1
+        if i >= len(words) or ENV_WORD.match(words[i]):
+            return False
+        # a program named by a path is whatever that file is, not the
+        # allowlisted command of the same name (`./scripts/cat`, review N9)
+        if "/" in words[i]:
+            return False
+        program, args = words[i], words[i + 1:]
+        if any(a.startswith(WRITING_OPTIONS.get(program, ("\0",))) for a in args):
+            return False
+        if program in READ_ONLY_PROGRAMS:
+            continue
+        if program != "git":
+            return False
+        j = 0
+        while j < len(args) and args[j].startswith("-"):
+            if args[j].startswith(GIT_CONFIG_OPTS):
+                return False
+            j += 2 if args[j] in GIT_VALUE_OPTS else 1
+        if j >= len(args) or args[j].lower() not in GIT_BOOKKEEPING:
+            return False
+    return bool(segs)
+
+
+def _bookkeeping_turn(rows):
+    """True when every work row in `rows` is a shell call that read or did VCS
+    bookkeeping and was not seen to change a file.
+
+    A detail of DETAIL_MAX characters or more is never bookkeeping: the ledger
+    cut it there, and the command after the cut is unread (review F1). Nor is
+    one that holds a redaction marker: the marker can swallow the rest of a
+    word and what was glued to it (`echo token=x;./regen.sh`, review N3)."""
+    steps = [r for r in rows if str(r.get("kind")) in WORK_KINDS]
+    return bool(steps) and all(
+        r.get("kind") == "run" and not _change_row(r)
+        and len(str(r.get("detail") or "")) < DETAIL_MAX
+        and "[redacted:" not in str(r.get("detail") or "")
+        and _bookkeeping_command(r.get("detail")) for r in steps)
+
+
+def _settled(rows):
+    """True when a check passed in `rows` and nothing after it is work other
+    than bookkeeping: the tree that check judged is the tree on disk now, as far
+    as the ledger can tell."""
+    last = _last_pass(rows)
+    if last < 0:
+        return False
+    after = [r for r in rows[last + 1:] if str(r.get("kind")) in WORK_KINDS]
+    return not after or _bookkeeping_turn(after)
+
+
 def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     """stop_reason's decision as (reason class, block text), without the ledger
     side effect. The class names the branch that refused the turn; the text is
@@ -2969,7 +3344,7 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     # owes the check it never got - which is the `no verify_ok` floor below and
     # not the partial-failure branch above it, because an interruption is no
     # failure at all (the row carries no `exit`).
-    worked = ev & {"edit", "verify", "verify_fail", "run", "interrupted"}
+    worked = ev & WORK_KINDS
     # The external-state claim is read here and judged below, after every class
     # it overlaps. It is the one class a turn with no work in it can make, so the
     # exit below - "nothing was done and nothing was claimed" - is exactly the
@@ -2977,13 +3352,79 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     external = _external_claim(t)
     if not worked and not (done or verified) and not external:
         return (None, None)
+    # Two shapes the turn's own rows cannot judge, so they are judged against
+    # the session's (the contract says "no successful check recorded in the
+    # session"). Read only for these two, so every other turn still pays for
+    # its own rows alone; a host hint (Cursor's edited files) is turn work the
+    # ledger does not hold, so it keeps the turn fold. Both ask the same fold
+    # this turn is judged by (`_evidence_block`), over the session's rows BEFORE
+    # this turn - every class it has, the UI/design and partial-failure ones
+    # included, so a state the earlier turns left refused stays refused (review
+    # F5). The current turn is left out because it holds no work of its own
+    # here, and `_partial_state` scopes to the newest turn of what it is given.
+    # A turn that ran a passing check of its own is not one of these shapes: its
+    # own pass is the evidence, and the turn fold below judges it.
+    if session_id and not edited_hint and _last_pass(rows) < 0:
+        if worked and _bookkeeping_turn(rows):
+            # A turn that only read or did VCS bookkeeping (`git status`, a
+            # commit) after a check passed on a tree nothing has changed since:
+            # refusing it made the model re-run a suite that had already
+            # passed, against the Loop-discipline rule (audit CHAT-04 / M-12;
+            # 5 live occurrences). Any other step after that pass - an edit, a
+            # failed check, a command this cannot read as bookkeeping - keeps
+            # the turn fold below, which asks for a fresh check.
+            srows = events(session_id)
+            if not external and _settled(srows):
+                return _evidence_block(_before_turn(srows), True, None,
+                                       "this session")
+        elif not worked and (done or verified):
+            # A claim in a turn that did nothing: "Tamamlandı, tüm testler
+            # geçti" after a turn that edited and ended "doğrulanmadı" was
+            # allowed on all five Stop hosts (audit INT-01 / M-2).
+            prior = _before_turn(events(session_id))
+            refused = _evidence_block(
+                prior, {str(r.get("kind")) for r in prior} & WORK_KINDS, None,
+                "this session")
+            if refused[0]:
+                return refused
+    return _evidence_block(rows, worked, external)
+
+
+def _before_turn(rows):
+    """The session's rows before the current turn's marker, with the markers
+    of turns that did no work dropped. A ledger with no marker is one turn, and
+    its rows are returned whole: the pass that settles a bookkeeping run sits
+    among them.
+
+    The turn-scoped classes of the fold (`_partial_state`) read the newest turn
+    of what they are given, and an idle turn in between - a question, a reply
+    with no tool call - made that newest turn an empty one, so a partial
+    failure two turns back stopped counting (review N5). Dropping only the
+    idle markers keeps the newest turn that did work as the one judged."""
+    start = _turn_start(rows)
+    prior = rows[:start - 1] if start else rows
+    out, pending = [], None
+    for row in prior:
+        if row.get("kind") == TURN_KIND:
+            pending = row
+            continue
+        if pending is not None and str(row.get("kind")) in WORK_KINDS:
+            out.append(pending)
+            pending = None
+        out.append(row)
+    return out
+
+
+def _evidence_block(rows, worked, external, where="this turn"):
+    """The evidence half of `_stop_block` over `rows`: (class, text) or (None,
+    None). `where` names the span the rows cover in the refusal text."""
     # the newest check decides: "the tests pass" is false when a later run
     # failed, even though an earlier one succeeded
     if _last_verify(rows) == "fail":
         return ("check failed",
-                "A check failed in this turn and the reply claims success. "
+                "A check failed in %s and the reply claims success. "
                 "Report the failure with its exact error line, or fix it and "
-                "re-run; do not describe a failed check as passing.")
+                "re-run; do not describe a failed check as passing." % where)
     # a failure the turn never resolved: the newest check is not a pass, so an
     # earlier green run over a different command does not license the claim
     state = _partial_state(rows)
@@ -2996,7 +3437,7 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
                 "stopping on the failure, say what is still broken and mark the "
                 "claim \"doğrulanmadı\"."
                 % (_failed_check(rows),
-                   "after this turn's edits" if state["edited"] else "in this turn"))
+                   "after %s's edits" % where if state["edited"] else "in " + where))
     # A passing check licenses the claim only when it is newer than the newest
     # write the gate saw change the tree: a green run over the previous revision
     # is not evidence about this one, and the ledger already carries both sides
@@ -3018,14 +3459,14 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
         shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
                                         if len(names) > 3 else "")
         return ("no ui_ok",
-                "UI evidence: this turn changed a UI source (%s) and the check "
+                "UI evidence: %s changed a UI source (%s) and the check "
                 "that passed was not one that sees the screen - a unit run "
                 "never does. Run the browser/e2e or visual check and report "
                 "its output, or read the rendered screen (`analyze-app`: the "
                 "accessibility/DOM tree, a screenshot at the widths in scope) "
                 "and say what it showed. A green unit suite does not cover "
                 "what a person sees; if you are stopping short, mark the "
-                "claim \"doğrulanmadı\"." % (shown or "a UI file"))
+                "claim \"doğrulanmadı\"." % (where, shown or "a UI file"))
     if ui_write >= 0:
         # The floor, asked of a component turn on top of the screen proof: a
         # screenshot or a rendered check says what the thing looks like and
@@ -3038,7 +3479,7 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
             shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
                                             if len(names) > 3 else "")
             return ("no ui_ok",
-                    "Design contract: this turn changed a component (%s) and no "
+                    "Design contract: %s changed a component (%s) and no "
                     "`tezgah-design check` ran over a measurement, so nothing "
                     "says the component is on the repository's floor - a read of "
                     "the screen says what it looks like, not whether it is on "
@@ -3048,7 +3489,7 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
                     "has none; the measurement is the per-component styles and "
                     "states the analyze-app loop produces) and report every "
                     "violation it prints, or mark the claim \"doğrulanmadı\"."
-                    % (shown or "a component file"))
+                    % (where, shown or "a component file"))
     # A screen proof stands where a unit pass stands for the rest of this fold,
     # so a UI turn whose UI work is proven is not asked for a check it already
     # has - and one whose UI work is not proven was refused above, so an
@@ -3080,12 +3521,13 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
                    "was" if len(names) <= 1 else "were"))
     elif worked:
         return ("no verify_ok",
-                "This turn did work (edits or commands) and no check ran "
+                "%s did work (edits or commands) and no check ran "
                 "successfully in it (nothing recorded as verify_ok with a "
                 "real result and an unmasked command), so nothing here supports "
                 "calling it done, complete or verified. Run the real check and "
                 "report its output, or mark the claim \"doğrulanmadı\". Do not "
-                "describe a check you did not run as if it ran.")
+                "describe a check you did not run as if it ran."
+                % where.capitalize())
     # Last, so none of the classes above loses its turn to it: every shape this
     # one refuses is a shape the fold was about to allow. That is the whole
     # ordering rule of this function - the branch is asked only where the answer
@@ -3093,11 +3535,11 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     if unread:
         return ("no external read",
                 "The reply states the state of a system tezgah does not own (%s) "
-                "and no read of that system ran in this turn. Only the system "
+                "and no read of that system ran in %s. Only the system "
                 "itself knows: a local client's cache, a stale checkout and a "
                 "memory of what used to be published all answer this wrongly. Run "
                 "the read and report its output - %s - or mark the claim "
-                "\"doğrulanmadı\"." % (cut(external.strip(), 80),
+                "\"doğrulanmadı\"." % (cut(external.strip(), 80), where,
                                        _external_command(external)))
     return (None, None)
 

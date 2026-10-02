@@ -40,6 +40,9 @@ DELEGATE = {
     "tezgah_consult": ("consult", None),
     "tezgah_research_check": ("tezgah-research", "check"),
 }
+# The tools whose caller-chosen positional follows `--`, so the string can never
+# be read as a flag (audit L-7).
+SEPARATED = {"tezgah_status"}
 
 # A stub delegate: it reports the call it was given, reads stdin only if there is
 # something to read (with a deadline, so a stolen pipe cannot hang the suite),
@@ -255,6 +258,8 @@ class Calls(McpTest):
             program, argv = DELEGATE[name]
             expected = argv if argv is not None else next(
                 v for v in args.values())
+            if name in SEPARATED:
+                expected = "-- " + expected
             log = "\n".join(self.log(self.call(srv, name, args)))
             self.assertIn("program: %s" % program, log, name)
             self.assertIn("args: %s" % expected, log, name)
@@ -351,6 +356,25 @@ class Calls(McpTest):
         error = srv.error_of(srv.request("tezgah_nothing", {}))
         self.assertEqual(error["code"], -32601)
         self.assertEqual(len(self.tools(srv)), len(PROPERTIES))
+        self.assertEqual(srv.close(), 0)
+
+    def test_a_status_path_that_is_a_flag_or_no_directory_is_refused(self):
+        # Audit L-7 (SEC-07): `path` went into the tezgah-status argv as is, and
+        # tezgah-status reads every `--word` as a flag, so `--failure-shapes` ran
+        # the machine-wide report. Refused before anything runs.
+        srv = self.server()
+        dash = os.path.join(self.home, "-dir")
+        os.makedirs(dash)
+        for path in ("--failure-shapes", "-dir", os.path.join(self.home, "nope"),
+                     os.path.join(self.bin, "tezgah-status")):
+            error = srv.error_of(srv.request(
+                "tools/call", {"name": "tezgah_status",
+                               "arguments": {"path": path}}))
+            self.assertEqual(error["code"], -32602, path)
+            self.assertIn("existing directory", error["message"])
+        log = "\n".join(self.log(self.call(srv, "tezgah_status",
+                                           {"path": self.asked})))
+        self.assertIn("args: -- %s" % self.asked, log)
         self.assertEqual(srv.close(), 0)
 
 

@@ -339,7 +339,8 @@ def active(cwd, base):
     the frontmatter value or None when the plan carries none, path is the file.
     Never raises: an unreadable directory or file means None (readers fail
     open)."""
-    directory = os.path.join(repo_root(cwd, base), ".tezgah", "plans", "open")
+    root = repo_root(cwd, base)
+    directory = os.path.join(root, ".tezgah", "plans", "open")
     try:
         names = sorted(os.listdir(directory))
     except OSError:
@@ -356,6 +357,12 @@ def active(cwd, base):
         fields = frontmatter(text)
         if fields.get("phase") not in TASK_PHASES:
             continue
+        # A plan the repository shipped is data, not the user's task: its phase
+        # and allowlist would lock writes in a cloned repo (review UNRESOLVED,
+        # audit L-16). Asked once, and only when a plan would otherwise rule.
+        from tezgah_paths import workspace_from_repo
+        if workspace_from_repo(root):
+            return None
         return {"id": fields.get("id") or name.split("-")[0],
                 "title": fields.get("title", ""),
                 "phase": fields["phase"],

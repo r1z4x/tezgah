@@ -91,7 +91,11 @@ def writable_dir(path):
     A sandboxed host denies this outside the workspace; callers use it to pick a
     writable state dir instead of failing on the first write."""
     try:
-        os.makedirs(path, exist_ok=True)
+        # The cache holds ledgers and pre-write snapshots of the user's files, so
+        # a dir tezgah creates is owner-only; audit SEC-05 measured 0755 from the
+        # default umask. makedirs applies the mode to the leaf it creates, and an
+        # existing dir keeps the mode the user gave it.
+        os.makedirs(path, mode=0o700, exist_ok=True)
         # The probe name is unique per call (pid + random). A fixed name made two
         # concurrent probes share one file: the sibling's remove deleted it under
         # the first probe, whose remove then failed and read the dir as
@@ -567,6 +571,158 @@ def workspace(repo):
     return os.path.join(repo, WORKSPACE)
 
 
+# The workspace paths whose text is injected as a standing constraint: each is
+# checked for a symlink, because a clone can carry one pointing into its own tree.
+WORKSPACE_INJECTED = (".tezgah", os.path.join(".tezgah", "lessons.md"),
+                      os.path.join(".tezgah", "plans"),
+                      os.path.join(".tezgah", "plans", "open"))
+
+
+def _git_dirs(gitdir):
+    """The checkout's gitdir and, for a linked worktree, the common dir."""
+    dirs = [gitdir]
+    try:
+        with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as fh:
+            dirs.append(os.path.join(gitdir, fh.readline().strip()))
+    except OSError:
+        pass
+    return dirs
+
+
+def _index_files(gitdir):
+    """The index plus every `sharedindex.*` (a split index, `core.splitIndex`,
+    keeps most entries there) in the checkout's gitdir and the common dir."""
+    import glob  # deferred: the gate imports this module per call
+    return [os.path.join(gitdir, "index")] + sorted(
+        p for d in _git_dirs(gitdir)
+        for p in glob.glob(os.path.join(d, "sharedindex.*")))
+
+
+def _object_width(gitdir):
+    """The object id width the repository's config names: 32 under
+    `extensions.objectFormat = sha256`, 20 when a config was read without it,
+    None when no config could be read. The index header does not carry it, and
+    a guessed width can be satisfied by ground object ids (review U1)."""
+    read = False
+    for d in _git_dirs(gitdir):
+        try:
+            with open(os.path.join(d, "config"), encoding="utf-8",
+                      errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        read = True
+        import re  # deferred: the gate imports this module per call
+        if re.search(r"(?im)^\s*objectformat\s*=\s*sha256\s*$", text):
+            return 32
+    return 20 if read else None
+
+
+def _index_paths(data, width=None):
+    """The entry paths of a v2/v3 index, or None when they cannot be told.
+
+    Only the entries are read: the extensions after them carry other names, and
+    the untracked cache (UNTR, `core.untrackedCache`) records an untracked
+    `.tezgah` there - a whole-file byte search read the user's own workspace as
+    tracked. Each entry is 40 bytes of stat fields, the object id (`width`: 20
+    for SHA-1, 32 for SHA-256, from the config), 2 bytes of flags, 2 more when
+    v3 sets the extended bit, then the path, NUL-padded to a multiple of 8. A
+    parse is accepted only when every entry's name length in its flags (below
+    0xFFF) matches the path read. With no width known both are tried, and an
+    index both accept is as unreadable as one neither does."""
+    version = int.from_bytes(data[4:8], "big")
+    count = int.from_bytes(data[8:12], "big")
+    accepted = []
+    for size in ((width,) if width else (20, 32)):
+        paths, off = [], 12
+        try:
+            for _ in range(count):
+                flags = int.from_bytes(data[off + 40 + size:off + 42 + size], "big")
+                start = off + 42 + size + (2 if version >= 3 and flags & 0x4000 else 0)
+                end = data.index(b"\0", start)
+                if (flags & 0xFFF) < 0xFFF and flags & 0xFFF != end - start:
+                    raise ValueError
+                paths.append(data[start:end])
+                off += (end - off + 8) & ~7
+            if off > len(data):
+                raise ValueError
+        except ValueError:
+            continue
+        accepted.append(paths)
+    return accepted[0] if len(accepted) == 1 else None
+
+
+def workspace_from_repo(root):
+    """True when `<root>/.tezgah` came with the repository rather than from
+    tezgah, so its lessons and plans are data, never standing constraints, and
+    no private workspace is initialised inside it.
+
+    `.tezgah/` is the user's private workspace: ignored by the project and kept
+    in its own repository (`ensure_workspace`). A cloned hostile repository must
+    not be able to place rule text into the hook channel framed as a standing
+    constraint (audit L-16, SEC-11). It came with the clone when the project's
+    own index holds `.tezgah` itself (a symlink or a submodule) or any path under
+    it, or when `.tezgah`, `lessons.md`, `plans` or `plans/open` is a symlink -
+    a tracked `.tezgah -> notes` holds no `.tezgah/` path at all (review F3).
+    Entry paths are compared case-insensitively on every platform: on APFS and
+    NTFS defaults a tracked `.TEZGAH/lessons.md` is the file `open` reads as
+    `.tezgah/lessons.md` (review N2); a repository that really tracks a
+    `.TEZGAH` of its own gets the notice, the safe side.
+
+    Read from the index files, not from `git ls-files`, because the session-start
+    git forks are pinned (GitSpawnBudget): v2/v3 store every path whole, so the
+    entries are parsed (`_index_paths`); v4 prefix-compresses paths, so only
+    there one `git ls-files` runs. Every answer that cannot be made is True, the
+    side of a notice: an unreadable `.git` pointer or index, a foreign header,
+    an index whose entries cannot be told, and a v4 query that fails or times
+    out (review F9). A missing index is a repository that tracks nothing.
+    ponytail: a tree with no `.git` (an unpacked tarball) carries no record of
+    where `.tezgah` came from, so it answers False and is injected - the ceiling
+    of a provenance check that reads git."""
+    if any(os.path.islink(os.path.join(root, rel)) for rel in WORKSPACE_INJECTED):
+        return True
+    dot = os.path.join(root, ".git")
+    if not os.path.lexists(dot):
+        return False
+    gitdir = dot
+    if not os.path.isdir(dot):
+        try:
+            with open(dot, encoding="utf-8", errors="replace") as fh:
+                line = fh.readline().strip()
+        except OSError:
+            return True
+        if not line.startswith("gitdir:"):
+            return True
+        gitdir = os.path.join(root, line[len("gitdir:"):].strip())
+    files = _index_files(gitdir)
+    if not os.path.exists(files[0]):
+        return False
+    width = _object_width(gitdir)
+    for path in files:
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            return True
+        if data[:4] != b"DIRC":
+            return True
+        if int.from_bytes(data[4:8], "big") >= 4:
+            import subprocess  # deferred: the gate imports this module per call
+            try:
+                out = subprocess.run(
+                    ("git", "-C", root, "ls-files", "-z", "--", ":(icase).tezgah"),
+                    capture_output=True, timeout=5)
+            except Exception:
+                return True
+            return out.returncode != 0 or bool(out.stdout)
+        paths = _index_paths(data, width)
+        if paths is None or any(p.lower() == b".tezgah"
+                                or p.lower().startswith(b".tezgah/")
+                                for p in paths):
+            return True
+    return False
+
+
 def ensure_workspace(repo):
     """`<repo>/.tezgah`, created, ignored by the project and holding its own git
     repository; None when `repo` is not a git work tree or a step failed.
@@ -579,6 +735,17 @@ def ensure_workspace(repo):
     if not os.path.exists(os.path.join(repo, ".git")):
         return None
     ws = workspace(repo)
+    # A `.tezgah` that is a symlink (or anything but a directory) came with the
+    # repository: following it would `git init` inside the target the clone
+    # chose and write the private workspace there (review F3, audit L-16).
+    if os.path.islink(ws) or (os.path.lexists(ws) and not os.path.isdir(ws)):
+        return None
+    # The same for a `.tezgah` the project tracks (any case: `.TEZGAH` is this
+    # directory on APFS/NTFS, review N2). Asked only before the first `git
+    # init`; once tezgah's own repository is there, the question was answered.
+    if (not os.path.exists(os.path.join(ws, ".git"))
+            and workspace_from_repo(repo)):
+        return None
     try:
         os.makedirs(ws, exist_ok=True)
         path = os.path.join(repo, ".gitignore")

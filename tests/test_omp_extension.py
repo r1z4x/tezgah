@@ -76,10 +76,29 @@ class OmpExtension(TempHome):
         out = self.drive([])
         self.assertEqual(
             sorted(out["handlers"]),
-            ["agent_end", "agent_start", "before_agent_start", "session_shutdown",
-             "session_start", "session_stop", "session_switch", "tool_call",
-             "tool_execution_end", "tool_execution_start", "tool_result",
-             "turn_end"])
+            ["agent_end", "agent_start", "before_agent_start", "session_compact",
+             "session_shutdown", "session_start", "session_stop",
+             "session_switch", "tool_call", "tool_execution_end",
+             "tool_execution_start", "tool_result", "turn_end"])
+
+    def test_a_compaction_re_sends_the_live_state(self):
+        # Audit L-3 (INT-06): omp emits session_compact once the summary has
+        # replaced the history, and nothing was subscribed, so the live state
+        # (plans, lessons, graph line) was gone after the first compaction.
+        hook, log = self.fake_hook({"context": "STATE AFTER COMPACT"})
+        self.ext = self.make_ext(hook, name="compact-hook.ts")
+        out = self.drive([{"event": "session_compact",
+                           "arg": {"type": "session_compact",
+                                   "compactionEntry": {"summary": "the summary"},
+                                   "fromExtension": False}}])
+        self.results(out)
+        asked = self.asked(log)[-1]
+        self.assertEqual((asked["event"], asked["compact_summary"]),
+                         ("post_compact", "the summary"))
+        message = out["sent"][-1]["message"]
+        self.assertEqual(message["content"], "STATE AFTER COMPACT")
+        self.assertIs(message["display"], False)
+        self.assertEqual(out["sent"][-1]["options"]["deliverAs"], "nextTurn")
 
     def test_session_start_draws_the_status_line_and_injects_the_state(self):
         out = self.drive([{"event": "session_start"}])

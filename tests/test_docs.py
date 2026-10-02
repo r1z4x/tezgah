@@ -247,5 +247,39 @@ class RuleLedger(unittest.TestCase):
             "a pin naming a deleted test was not refused: %r" % (failures,))
 
 
+class CitationAudit(unittest.TestCase):
+    """The `--citations` judgement on a tree that has a `bin/` symlink twin.
+
+    Every script under bin/ has a `.py` symlink beside it so tests can import
+    it, and both match the `bin/*` glob. The audit (M-11a) measured what that
+    did: each bin symbol read as defined in two files, was dropped as
+    ambiguous, and `--citations` reported 0 stale citations while 25 were."""
+
+    def test_a_stale_citation_into_a_symlinked_script_is_reported(self):
+        import tempfile
+        module = docs_module()
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "bin"))
+            os.makedirs(os.path.join(root, "docs"))
+            with open(os.path.join(root, "bin", "tool"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("import os\n\n\ndef first():\n    return 1\n\n\n"
+                         "def second():\n    return 2\n")
+            os.symlink("tool", os.path.join(root, "bin", "tool.py"))
+            with open(os.path.join(root, "docs", "page.md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("The helper is `first` (`bin/tool:8-9`).\n")
+            here = module.HERE
+            module.HERE = root
+            try:
+                known = module.symbols()
+                flagged, judged, _ = module.citations(known)
+            finally:
+                module.HERE = here
+        self.assertEqual(known.get("first"), ("bin/tool", [(4, 7)]))
+        self.assertEqual(judged, 1)
+        self.assertEqual([f[1] for f in flagged], ["`bin/tool:8-9`"])
+
+
 if __name__ == "__main__":
     unittest.main()

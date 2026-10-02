@@ -279,11 +279,15 @@ def dispatch(payload):
         source, notice = (marks(source_tool(payload), inp, session_id,
                                 payload.get("tool_output"))
                           if under(cwd) else (None, None))
-        note_tool(session_id, gate_name(payload.get("tool_name", "")), inp,
-                  failed=call_failed(payload), source=source, cwd=cwd,
-                  out_bytes=(report_bytes(payload.get("tool_output"))
-                             if source == SUBAGENT_CHANNEL
-                             else result_size(payload.get("tool_output"))))
+        # A ledger row only inside a root, like Claude's PostToolUse, which
+        # returns early off-root; this row and the failure, shell and edit rows
+        # below used to record for any cwd (audit L-4, INT-07).
+        if under(cwd):
+            note_tool(session_id, gate_name(payload.get("tool_name", "")), inp,
+                      failed=call_failed(payload), source=source, cwd=cwd,
+                      out_bytes=(report_bytes(payload.get("tool_output"))
+                                 if source == SUBAGENT_CHANNEL
+                                 else result_size(payload.get("tool_output"))))
         reinforce = None
         if (kind in ("graph", "consult") and under(cwd) and not quiet
                 and first_time(session_id, "graph")):
@@ -307,18 +311,19 @@ def dispatch(payload):
         # host that sends the string "false" would otherwise turn a real failure
         # into an interruption.
         ftype = str(payload.get("failure_type") or "")
-        note_tool(session_id, gate_name(payload.get("tool_name", "")),
-                  gate_input(payload.get("tool_input") or {}), failed=True,
-                  interrupted=(payload.get("is_interrupt") is True
-                               or ftype == "permission_denied"), cwd=cwd)
+        if under(cwd):
+            note_tool(session_id, gate_name(payload.get("tool_name", "")),
+                      gate_input(payload.get("tool_input") or {}), failed=True,
+                      interrupted=(payload.get("is_interrupt") is True
+                                   or ftype == "permission_denied"), cwd=cwd)
         out = {"additional_context": RECOVERY} if under(cwd) and not quiet else {}
     elif event in ("afterShellExecution", "afterMCPExecution", "afterFileEdit"):
         if kind:
             record(session_id, kind)
-        if event == "afterFileEdit":
+        if event == "afterFileEdit" and under(cwd):
             note(session_id, "edit",
                  payload.get("file_path") or payload.get("path") or "")
-        elif event == "afterShellExecution":
+        elif event == "afterShellExecution" and under(cwd):
             # the command rides the event, not tool_input; the name is mapped so
             # this observer's row lands on the same id as the gated call, and
             # failed=None because the event carries no outcome. Cursor names

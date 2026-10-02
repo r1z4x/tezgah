@@ -12,6 +12,9 @@ the same code every other host runs.
             "status": "pony✓ ...", "idx": glyph}
     {"event": "status", "cwd": ..., "session_id": ...}
         -> {"status": "pony✓ ...", "idx": glyph}  (ANSI-colored; see status_line)
+    {"event": "post_compact", "cwd": ..., "session_id": ...,
+     "compact_summary": ...}
+        -> {"context": <this repo's live state after a compaction>}
     {"event": "user_prompt", "cwd": ..., "prompt": ...}
         -> {"context": <reminder + the rules this prompt arms>}
     {"event": "pre_tool_use", "cwd": ..., "tool": ..., "input": {...}}
@@ -145,6 +148,13 @@ def handle(payload):
             out["context"] = context
         out.update(answered(*status_line(cwd, session_id)))
         return out
+    if event == "post_compact":
+        # the bridge's session_compact (audit L-3): the live state re-sent after
+        # a compaction, without the core RULES.md already holds; context_for
+        # records the compaction from `compact_summary` before it builds this.
+        context = context_for("post_compact", cwd, dict(payload, host="omp"),
+                              with_core=False)
+        return {"context": context} if context else {}
     if event == "user_prompt":
         context = context_for("user_prompt", cwd, payload)
         return {"context": context} if context else {}
