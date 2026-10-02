@@ -66,7 +66,7 @@ not a rule.
 
 ## The research layer
 
-A line carries the user's ask verbatim, a tier (`quick` gets no line at all, `ASK_RULES` `hooks/tezgah_research.py:3970`), and
+A line carries the user's ask verbatim, a tier (`quick` gets no line at all, `ASK_RULES` `hooks/tezgah_research.py:3975`), and
 one success criterion per part of the ask, written before any experiment. It ends
 with a verdict per criterion; a criterion that is `not-met` is a result, but it is
 recorded, and an unanswered line stays visible in `status` instead of disappearing

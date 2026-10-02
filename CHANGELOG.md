@@ -12,10 +12,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   git which commit first added a file, by its current path. Closing a line moves
   it from `open/` to `done/`, so the move read as the commit that added protocol,
   results, criteria and state together, and every moved line failed "plan before
-  run". The readers now follow renames, ask the project's history under the
-  line's earlier names, and compare a protocol against the run under the name it
-  had then, so an edit after the run is still caught. Across this repository's
-  lines the check went from 125 failures to 3, all three real.
+  run". The readers now ask git about the same file under the line's own layouts
+  (flat, `open/`, `done/`, case-insensitive), and compare a protocol against the run
+  under the name it had then, so an edit after the run is still caught. `git log
+  --follow` was tried and dropped: it let another line's older protocol, moved in
+  after this line's results, pass as written first. Across this repository's lines
+  the check went from 125 failures to 3, all three real.
 
 ### Added
 

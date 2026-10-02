@@ -1493,6 +1493,25 @@ class Tracking(Workspace):
         self.assertFalse(hit(BOTH_TOGETHER, errors), errors)
         self.assertEqual(errors, [])
 
+    def test_a_protocol_renamed_in_from_another_line_does_not_inherit_its_age(self):
+        # consult review of plan 032: following every rename let another line's
+        # older protocol, moved into this line after its results, read as added
+        # before them; only the line's own open/done moves are followed
+        repo = self.repo()
+        self.line(repo, slug="p")
+        self.protocol(repo, slug="p")
+        self.commit(repo, "another line's protocol", when=BEFORE)
+        self.line(repo)
+        self.results(repo)
+        self.commit(repo, "results with no protocol", when=AFTER)
+        ws = os.path.join(repo, ".tezgah")
+        self.git(ws, "mv", *self.rel(ws, os.path.join(self.exp_dir(repo, "p"), "protocol.md"),
+                                     os.path.join(self.exp_dir(repo), "protocol.md")))
+        self.commit(repo, "protocol moved in after the run", when=AFTER)
+        errors = self.errors(repo)
+        self.assertTrue(hit("entered the history after results.jsonl", errors)
+                        or hit(BOTH_TOGETHER, errors), errors)
+
     def test_a_protocol_edited_after_the_run_is_refused_after_the_move_too(self):
         # following the rename must not lose the edit: the blob the run saw lives
         # under the old path
