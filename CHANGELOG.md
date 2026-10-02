@@ -14,20 +14,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   prompts). Each prompt now ranks the ledger by shared words (BM25, stdlib
   `hooks/tezgah_rank.py`; recall@5 0.647 on the same prompts) and injects up to
   three older matches, each cut to 200 characters and each once per session (the
-  shown keys ride the turn stamp under the cache). `.no-lessons` and the
-  repository-provided notice apply as they do to the session block; the block is
-  the first a tight prompt budget gives up after the session's lessons.
-- **`tezgah-docs` ranks the pages when the judge is unavailable.** A query the
-  keyword index cannot place, with no credential or `judge-off`/`docs-judge-off`
-  armed, printed nothing; it now prints the three pages sharing the most query
-  words (10 of 10 English and 3 of 10 Turkish measured questions had the right
-  page in that three). The judge stays first when it is available.
+  shown keys ride the turn stamp under the cache; a compaction clears them,
+  because the compacted context no longer holds those lines, and a host that
+  sends no session id gets no dedupe). Capitalised Turkish words meet their
+  lower-case form (`İSTEK`/`istek`, `KIRMIZI`/`kırmızı`: dotted and dotless i
+  fold together). `.no-lessons` and the repository-provided notice apply as they
+  do to the session block; the block is the first a tight prompt budget gives
+  up after the session's lessons, and a dropped block is not marked seen.
+- **`tezgah-docs` ranks the pages when the judge gives no judgement.** A query
+  the keyword index cannot place, with no credential, `judge-off`/`docs-judge-off`
+  armed, or a judge call that failed or came back unreadable, printed nothing; it
+  now prints the three pages sharing the most query words (10 of 10 English and
+  3 of 10 Turkish measured questions had the right page in that three). The judge
+  stays first when it answers, and its `none` still exits 1.
 
 ### Fixed
 
 - **A query word may start with `-` in `tezgah-docs`.** `tezgah-docs why was my
-  commit with --no-verify blocked` exited 2 as an unknown option; options now
-  lead, the first other word (or `--`) starts the query.
+  commit with --no-verify blocked` exited 2 as an unknown option; an unknown
+  `--word` after the first query word is now a query word, while `--json`,
+  `--read`, `--citations`, `--help` and `-h` stay flags anywhere before `--`.
 
 ## [0.29.2] - 2026-10-03
 

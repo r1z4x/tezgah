@@ -12,7 +12,11 @@ import re
 from collections import Counter
 
 # Lowercased words, Turkish letters kept; one- and two-letter words carry no topic.
-WORD = re.compile(r"[a-zçğıöşü0-9_]+")
+# Dotted and dotless i fold together (İ, I, ı -> i) so "İSTEK" meets "istek" and
+# "KIRMIZI" meets "kırmızı" while English capitals stay "index"; plain lower()
+# would turn İ into i + U+0307 and split the word. Circumflexes fold too.
+WORD = re.compile(r"[a-zçğöşü0-9_]+")
+FOLD = str.maketrans("ıâîû", "iaiu")
 MIN_WORD = 3
 K1 = 1.2
 B = 0.75
@@ -20,7 +24,8 @@ B = 0.75
 
 def words(text):
     """The terms of `text`: lowercased runs of letters, digits and `_`, 3+ long."""
-    return [w for w in WORD.findall(str(text).lower()) if len(w) >= MIN_WORD]
+    return [w for w in WORD.findall(str(text).replace("İ", "i").lower()
+                                    .translate(FOLD)) if len(w) >= MIN_WORD]
 
 
 def rank(query, texts, k):

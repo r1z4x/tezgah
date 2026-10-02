@@ -981,6 +981,14 @@ def write_stamp(session_id, root, stamp):
         pass
 
 
+def forget_lessons(session_id):
+    """Drop the lesson keys this session was shown, keeping the rest of the
+    stamp: the next turn's delta still compares against the same state."""
+    stamp = read_stamp(session_id)
+    if stamp and stamp.get("lessons_seen"):
+        write_stamp(session_id, stamp["root"], dict(stamp, lessons_seen=[]))
+
+
 def state_delta(root, previous, stamp=None):
     """One line naming what moved into this turn, or "" when nothing is
     comparable: no previous stamp, a stamp taken in another repo, or no change.
@@ -1561,6 +1569,12 @@ def context_for(event, cwd, payload=None, with_core=True):
     # the row is written whether or not a host delivers the block this builds.
     if event == "post_compact":
         remember_compaction(cwd, root, payload)
+    # The compacted context no longer holds the lessons earlier turns were shown,
+    # so the session forgets having shown them; a host that delivers the
+    # compaction as SessionStart(source=compact) and not PostCompact is covered.
+    if event == "post_compact" or (event == "session_start" and isinstance(
+            payload, dict) and payload.get("source") == "compact"):
+        forget_lessons(session_of(payload))
     core, disabled = core_for(cwd)
     # A disabled rule is also removed from the on-demand skill's reach, because
     # the skill is loaded separately and would otherwise re-enable it.

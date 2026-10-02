@@ -14,6 +14,7 @@
       ],
       "sources": [
         "hooks/tezgah_context.py",
+        "hooks/tezgah_rank.py",
         "hooks/tezgah_policy.py",
         "hooks/tezgah_paths.py",
         "bin/tezgah-setup",
@@ -160,6 +161,7 @@
         "hooks/tezgah_judge.py",
         "bin/tezgah-triage",
         "bin/tezgah-docs",
+        "hooks/tezgah_rank.py",
         "hooks/tezgah_skill_pick.py",
         "hooks/tezgah_policy.py",
         "hooks/tezgah_paths.py",

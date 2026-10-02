@@ -11,17 +11,20 @@ page instead of guessing and a script can assert the layer is intact.
   tezgah-docs --citations     the citations that no longer show what they name,
                               and the rule ledger's rows that no longer hold
 
-Options come first; the first word that is not one (or everything after `--`)
-starts the query, so `tezgah-docs why was --no-verify blocked` is a query.
+The options above are options anywhere before `--`. An unknown `--word` is a
+usage error before the first query word and a query word after it, so
+`tezgah-docs why was --no-verify blocked --json` is a JSON query; after `--`
+every word is part of the query.
 
 Matching is word-based and case-insensitive against an entry's title, its
 questions, its sources and its path; every word must match, so a second word
 narrows. A query that matches nothing is the last resort of one TypeSafe Choice
 question over the pages themselves; it answers `none` for a query no page
-covers. With that question unavailable (`docs-judge-off`, the seam's
-`judge-off`, or no credential) the pages are ranked by shared words instead
-(BM25, `hooks/tezgah_rank.py`) and the best few printed. Exit codes: 0 with
-matches, 1 with none, 2 usage.
+covers. When that question gives no judgement - unavailable (`docs-judge-off`,
+the seam's `judge-off`, no credential) or a call that failed or came back
+unreadable - the pages are ranked by shared words instead (BM25,
+`hooks/tezgah_rank.py`) and the best few printed; a judged `none` is not
+overruled. Exit codes: 0 with matches, 1 with none, 2 usage.
 """
 import ast
 import glob
@@ -337,15 +340,16 @@ def record(result):
 
 
 def judge_pick(query):
-    """The one page a TypeSafe Choice question names, or None.
+    """(judged, page): whether a TypeSafe Choice question came back with one of
+    its options, and the page it named (None for `none`).
 
     The last resort for a query the index could not place: a word the index does
     not carry is usually a word nobody wrote down, and a model reading the pages'
     own questions can still land the reader on the right one. Three things keep
     it from standing in for the match above - it runs only when that match found
     nothing, the question offers `none`, and every failure (no key, `judge-off`,
-    a refused or unreadable reply) returns None so the caller prints what it
-    always printed.
+    a refused or unreadable reply, an option it was not offered) reads as not
+    judged, so the caller falls back to the word ranking instead of trusting it.
 
     Measured over 39 live queries the index could not place (33 paraphrases of
     the pages' own answers plus the queries naming nothing in the layer): 37 pages
@@ -357,7 +361,7 @@ def judge_pick(query):
     layer carries no synonym list to judge them against."""
     pages = entries()
     if not query or not pages or off():
-        return None
+        return False, None
     criteria = {NONE: "no page answers this question"}
     for page in pages:
         criteria[page["path"]] = "%s. Answers: %s" % (
@@ -367,7 +371,8 @@ def judge_pick(query):
     if result is not None:
         record(result)
     chosen = tezgah_judge.choice(result, "page")
-    return next((p for p in pages if p["path"] == chosen), None)
+    page = next((p for p in pages if p["path"] == chosen), None)
+    return bool(page) or chosen == NONE, page
 
 
 # How many pages the word ranking prints: the right page was in the top three for
@@ -377,8 +382,9 @@ RANKED = 3
 
 def ranked(query):
     """The pages sharing the most query words, best first: the fallback when the
-    judge cannot be asked. A query sharing no word with any page gets [], so
-    `tezgah-docs zzz-nothing-matches` still exits 1."""
+    judge gave no judgement (unavailable, or a call that failed). A query sharing
+    no word with any page gets [], so `tezgah-docs zzz-nothing-matches` still
+    exits 1."""
     pages = entries()
     texts = [" ".join([str(p.get("title") or "")]
                       + [str(a) for a in (p.get("answers") or [])]
@@ -390,19 +396,20 @@ KNOWN = ("--json", "--read", "--citations", "--help", "-h")
 
 
 def parse(argv):
-    """(flags, query words, unknown options). Options lead; the first other word
-    or `--` ends them, so a query word may start with `-` (`--no-verify`)."""
-    flags, unknown = set(), []
+    """(flags, query words, unknown options). A known flag is a flag wherever it
+    stands before `--`; an unknown `--word` is an error before the first query
+    word and a query word after it (`--no-verify`); `--` ends the options."""
+    flags, words, unknown = set(), [], []
     for i, a in enumerate(argv):
         if a == "--":
-            return flags, argv[i + 1:], unknown
+            return flags, words + argv[i + 1:], unknown
         if a in KNOWN:
             flags.add(a)
-        elif a.startswith("--"):
+        elif a.startswith("--") and not words:
             unknown.append(a)
         else:
-            return flags, argv[i:], unknown
-    return flags, [], unknown
+            words.append(a)
+    return flags, words, unknown
 
 
 def main(argv):
@@ -432,9 +439,9 @@ def main(argv):
     query = " ".join(words).strip()
     found = matches(query) if query else entries()
     if not found:
-        pick = judge_pick(query)
+        judged, pick = judge_pick(query)
         found = [pick] if pick else []
-        if not found and off():
+        if not judged:
             found = ranked(query)
     if not found:
         sys.stderr.write("tezgah-docs: nothing matches %r - the bare call lists "

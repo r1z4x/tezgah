@@ -86,6 +86,18 @@ class Unjudged(JudgeCase):
         # an unknown option before the query is still a usage error
         self.assertEqual(self.docs("--jsn", "status").returncode, 2)
 
+    def test_a_known_flag_after_the_query_is_still_a_flag(self):
+        question = ["why", "was", "my", "git", "commit", self.FLAG, "blocked"]
+        proc = self.docs(*question, "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("docs/gate.md", [p["path"] for p in json.loads(proc.stdout)])
+        # after `--` it is a query word like any other
+        proc = self.docs("--", *question, "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertRaises(ValueError, json.loads, proc.stdout)
+        self.assertEqual(self.docs("status", "--help").stdout,
+                         self.docs("--help").stdout)
+
     ROLLBACK = "how do I roll back to the previous tezgah version".split()
 
     def test_the_ranked_fallback_names_the_page_without_the_judge(self):
@@ -93,6 +105,20 @@ class Unjudged(JudgeCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(proc.stdout.startswith("docs/operations.md"), proc.stdout)
         self.assertEqual(Fake.seen, [], "the judge was asked without a credential")
+
+    def test_a_judge_call_that_fails_falls_back_to_the_ranking(self):
+        # a credential that is refused, and a reply naming no option, are no
+        # judgement - unlike a judged `none`, which still exits 1
+        unreadable = {"model": MODEL, "answers": {},
+                      "usage": {"input_tokens": 9, "output_tokens": 1}}
+        for status, reply in ((401, Fake.reply), (200, unreadable)):
+            with self.subTest(status=status):
+                Fake.seen, Fake.status, Fake.reply = [], status, reply
+                proc = self.docs(*self.ROLLBACK, TYPESAFE_API_KEY="test")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertTrue(proc.stdout.startswith("docs/operations.md"),
+                                proc.stdout)
+                self.assertEqual(len(Fake.seen), 1)
 
     def test_the_judge_stays_first_when_it_is_available(self):
         Fake.reply = {"model": MODEL,
