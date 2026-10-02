@@ -60,6 +60,9 @@ class DoctorBase(unittest.TestCase):
             "HOME": self.home,
             "LANG": "C.UTF-8",
             "TEZGAH_ROOTS": self.root,
+            # --clean sweeps the temp fallback cache too; the machine's own must
+            # never be the one a test run deletes from
+            "TEZGAH_FALLBACK_CACHE": os.path.join(self.home, "fallback"),
         }
 
     def session(self, sid, age_days):
@@ -127,6 +130,58 @@ class Doctor(DoctorBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         rep = json.loads(proc.stdout)
         self.assertIn("vacuum", rep["cleaned"])
+
+    def test_clean_sweeps_hook_state_past_the_retention_age(self):
+        # Audit L-11 (GAP-10): ledgers, turns/, sessions/ and classify.log had no
+        # retention, and 400-day-old files survived `--clean`.
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        fallback = self.env["TEZGAH_FALLBACK_CACHE"]
+        old = time.time() - 40 * 86400
+
+        def put(path, age=old):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as fh:
+                fh.write("x")
+            os.utime(path, (age, age))
+            return path
+
+        load_module()  # puts hooks/ on sys.path, as the doctor itself does
+        from tezgah_integrity import _slug
+        stale = [put(os.path.join(cache, "evidence", "s-old.jsonl")),
+                 put(os.path.join(cache, "turns", "s-old.json")),
+                 put(os.path.join(cache, "sessions", "s-old.jsonl")),
+                 put(os.path.join(cache, "classify.log")),
+                 put(os.path.join(cache, "debug.log")),
+                 put(os.path.join(fallback, "evidence", "f-old.jsonl"))]
+        fresh = put(os.path.join(cache, "evidence", "s-new.jsonl"), time.time())
+        # the current session is kept however long it sat idle
+        current = put(os.path.join(cache, "evidence",
+                                   _slug("live-session") + ".jsonl"))
+        snapshot = put(os.path.join(cache, "snapshots", "a", "b"))
+        proc = self.doctor("--clean", "--json",
+                           env=dict(self.env, TEZGAH_SESSION="live-session"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        state = json.loads(proc.stdout)["cleaned"]["state"]
+        self.assertEqual((state["removed"], state["days"]), (len(stale), 30))
+        for path in stale:
+            self.assertFalse(os.path.exists(path), path)
+        for path in (fresh, current, snapshot):
+            self.assertTrue(os.path.exists(path), path)
+
+    def test_retention_days_moves_the_cutoff_and_help_states_the_default(self):
+        cache = os.path.join(self.home, ".cache", "tezgah", "turns")
+        os.makedirs(cache)
+        path = os.path.join(cache, "s.json")
+        open(path, "w").close()
+        age = time.time() - 10 * 86400
+        os.utime(path, (age, age))
+        self.assertEqual(self.doctor("--clean").returncode, 0)
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(self.doctor("--clean", "--retention-days", "7").returncode, 0)
+        self.assertFalse(os.path.exists(path))
+        self.assertIn("default: 30 days",
+                      " ".join(self.doctor("--help").stdout.split()))
+        self.assertEqual(self.doctor("--retention-days", "0").returncode, 2)
 
     def test_json_reports_the_index_bytes_per_repo(self):
         indexed = self.make_repo("indexed", index_bytes=500)

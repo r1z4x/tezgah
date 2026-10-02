@@ -485,13 +485,62 @@ function verifyCommand(cmd) {
   return m ? m[0] : null
 }
 
-function shortcutCommand(cmd) {
+// mirrors hooks/tezgah_integrity._git_skips_hooks: commit's short `-n` (alone or
+// in a cluster) and an abbreviation git accepts for `--no-verify` skip the
+// hooks too (audit SEC-03). `-n` on push is --dry-run, so commit only.
+const COMMIT_VALUE_SHORTS = "mFcCtSu"
+function gitSkipsHooks(cmd) {
+  for (const words of shellSegments(cmd)) {
+    let i = 0
+    while (i < words.length && (ENV_WORD.test(words[i]) || GIT_WRAPPER.has(words[i]))) i++
+    if (i >= words.length || words[i].split("/").pop() !== "git") continue
+    i++
+    while (i < words.length && words[i].startsWith("-")) i += GIT_VALUE_OPTS.has(words[i]) ? 2 : 1
+    if (i >= words.length) continue
+    const sub = words[i].toLowerCase()
+    if (!["commit", "push", "merge"].includes(sub)) continue
+    let valueNext = false
+    for (const word of words.slice(i + 1)) {
+      if (valueNext) { valueNext = false; continue }
+      if (word === "--") break
+      if (word.length >= 8 && "--no-verify".startsWith(word)) return true
+      if (sub === "commit" && word.startsWith("-") && !word.startsWith("--")) {
+        for (let k = 1; k < word.length; k++) {
+          if (word[k] === "n") return true
+          if (COMMIT_VALUE_SHORTS.includes(word[k])) { valueNext = k === word.length - 1; break }
+        }
+      }
+    }
+  }
+  return false
+}
+
+// mirrors hooks/tezgah_integrity._shell_scripts: the script of a `bash -c` /
+// `sh -c` segment, which the masked scan blanks as a quoted string
+const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"])
+const SHELL_DEPTH = 3
+function shellScripts(cmd) {
+  const out = []
+  for (const words of shellSegments(cmd)) {
+    let i = 0
+    while (i < words.length && (ENV_WORD.test(words[i]) || GIT_WRAPPER.has(words[i]))) i++
+    if (i >= words.length || !SHELLS.has(words[i].split("/").pop())) continue
+    for (let j = i + 1; j < words.length - 1; j++) {
+      const word = words[j]
+      if (!word.startsWith("-") || word.startsWith("--")) break
+      if (word.slice(1).includes("c")) { out.push(words[j + 1]); break }
+    }
+  }
+  return out
+}
+
+function shortcutCommand(cmd, depth = 0) {
   // the masked text, so a message that names the flag is not the flag
   const c = maskText(cmd)
-  if (NO_VERIFY.test(c) && GITISH.test(c))
-    return "Verification bypass denied: `--no-verify` skips the commit/push " +
-      "hooks that run the checks. Run the checks, fix what they report, and " +
-      "commit without it."
+  if ((NO_VERIFY.test(c) && GITISH.test(c)) || gitSkipsHooks(cmd))
+    return "Verification bypass denied: `--no-verify` (or `git commit -n`, or " +
+      "an abbreviation of it) skips the commit/push hooks that run the checks. " +
+      "Run the checks, fix what they report, and commit without it."
   if (SKIP_ENV.test(c) && GITISH.test(c))
     return "Verification bypass denied: an env var that skips the hooks " +
       "(SKIP=/HUSKY_SKIP_HOOKS/HUSKY=0) turns the checks off. Run them instead."
@@ -504,6 +553,12 @@ function shortcutCommand(cmd) {
     return "Verification neutered: this check is chained with `|| true` / " +
       "`; true`, so it reports success no matter what it found. Run it plain " +
       "and read the real exit status."
+  if (depth < SHELL_DEPTH) {
+    for (const script of shellScripts(cmd)) {
+      const reason = shortcutCommand(script, depth + 1)
+      if (reason) return reason
+    }
+  }
   return null
 }
 
@@ -685,21 +740,34 @@ function actionID(tool, args) {
 // records what a call carried, and a token typed on a command line or written
 // into a file would sit in plain text in a cache file every reader of the
 // evidence reads. The marker keeps the removed value's length, so the row still
-// says a credential was there instead of hiding that it was. The three patterns
-// run in this order so a named value that carries `Bearer` is consumed as one.
+// says a credential was there instead of hiding that it was. The patterns run
+// in the Python REDACTIONS order, each keeping the same leading groups, so a
+// named value that carries `Bearer` is consumed as one; the flag, URL userinfo,
+// `-u user:pass`, mysql `-p` and JSON-key shapes are audit SEC-04's.
 // (SECRET_KEY/SECRET_TOKEN would be the names the Python half uses; the gate's
 // own secret-sink detector above already holds SECRET_TOKEN here.)
 const MARKED = "[redacted:"
 const REDACT_KEY =
-  /([A-Za-z0-9_\-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|authorization|client[_-]?secret))(\s*[:=]\s*)(?:Bearer\s+)?("[^"]*"|'[^']*'|\S+)/gi
+  /([A-Za-z0-9_\-]{0,64}?(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|authorization|client[_-]?secret))(["']?\s*[:=]\s*)(?:(?:Bearer|Basic|Token|Digest)\s+)?("[^"]*"|'[^']*'|\S+)/gi
+const REDACT_FLAG =
+  /((?<![\w-])--?[A-Za-z0-9_\-]{0,64}?(?:password|passwd|secret|token|api[_-]?key|apikey|access[_-]?key|client[_-]?secret)\s+)("[^"]*"|'[^']*'|[^\s\-'"]\S*)/gi
+const REDACT_USERINFO = /(:\/\/[^/\s:@'"]+:)([^@\s/'"]+)(?=@)/g
+const REDACT_USERPASS = /((?<![\w-])(?:-u\s*|--user[\s=]+)["']?[^\s:"']+:)([^\s"']+)/g
+const REDACT_MYSQL =
+  /(\b(?:mysql|mysqldump|mysqladmin|mariadb)[\w-]*\b[^;&|\n]{0,200}?\s-p\s?)([^\s\-]\S*)/g
 const REDACT_BEARER = /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/gi
 const REDACT_TOKEN =
   /\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)?[-_]?[A-Za-z0-9_\-]{16,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{30,}|\bglpat-[A-Za-z0-9_\-]{20,}|\bnpm_[A-Za-z0-9]{30,}/gi
 
 function redact(text) {
   const mark = (value) => MARKED + value.length + "]"
+  const keepOne = (m, head, value) => head + mark(value)
   return String(text == null ? "" : text)
     .replace(REDACT_KEY, (m, name, sep, value) => name + sep + mark(value))
+    .replace(REDACT_FLAG, keepOne)
+    .replace(REDACT_USERINFO, keepOne)
+    .replace(REDACT_USERPASS, keepOne)
+    .replace(REDACT_MYSQL, keepOne)
     .replace(REDACT_BEARER, (m) => mark(m))
     .replace(REDACT_TOKEN, (m) => mark(m))
 }
@@ -794,6 +862,13 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   if (kind === "edit" || (kind === "run" && writtenPath(args))) {
     Object.assign(row, await postWrite(sessionID, args, cwd))
   }
+  // the write's file as one absolute real path, the field the Python race
+  // guard compares (hooks/tezgah_integrity._abs_target): `detail` is the host's
+  // spelling, relative to a cwd the row does not carry (audit CHAT-03 / M-6)
+  if (kind === "edit") {
+    const target = absTarget(writtenPath(args), cwd)
+    if (target) row.target = target
+  }
   await appendRow(sessionID, row)
 }
 
@@ -819,6 +894,25 @@ function writtenPath(args) {
   if (m) return m[1]
   const target = shellTarget(a.command || a.cmd || "")
   return target || null
+}
+
+// `path` resolved against `cwd` and through its symlinks, as Python's
+// os.path.realpath does - including for a file that is not there, where the
+// longest existing parent is resolved and the rest kept as written.
+function absTarget(path, cwd) {
+  if (!path) return null
+  const full = resolve(cwd || process.cwd(), String(path))
+  let head = full, tail = ""
+  for (;;) {
+    try {
+      return join(realpathSync(head), tail)
+    } catch {
+      const parent = dirname(head)
+      if (parent === head) return full
+      tail = tail ? join(basename(head), tail) : basename(head)
+      head = parent
+    }
+  }
 }
 
 // sha256 of a file's bytes, the digest the Python half records
@@ -896,9 +990,12 @@ async function postWrite(sessionID, args, cwd) {
 async function appendRow(sessionID, row) {
   try {
     const dir = join(cacheDir(), "evidence")
-    await mkdir(dir, { recursive: true })
+    // owner-only, as the Python writer creates them: a ledger row carries
+    // commands and paths (audit SEC-05 measured 0644 under the default umask);
+    // the modes apply when the dir and file are created
+    await mkdir(dir, { recursive: true, mode: 0o700 })
     await appendFile(join(dir, ledgerStem(sessionID) + ".jsonl"),
-      JSON.stringify(row) + "\n")
+      JSON.stringify(row) + "\n", { mode: 0o600 })
   } catch {}
 }
 
@@ -1709,15 +1806,18 @@ function builderText(event, directory, payload) {
 // the identifier a command would create (hooks/tezgah_gate.lang_reason) - live
 // in Python, and the CLI is how a host that cannot import them asks for the
 // answer. The payload is the one the CLI's usage names, as a single JSON object
-// on stdin, and its stdout is the refusal verbatim. Same idiom as builderText
-// above, and the same fail-open direction: a missing CLI, a non-zero exit, a
-// broken pipe and a timeout all yield "", and the caller then enforces its own
+// on stdin, and its stdout is the refusal verbatim. `decide`, not `check`: this is
+// the live gate, so its refusals are recorded the way the Python gate records
+// them, while `check` is the dry run that writes nothing (audit CHAT-07). Same
+// idiom as builderText above, and the same fail-open direction: a missing CLI, a
+// non-zero exit, a broken pipe and a timeout all yield "", and the caller then
+// enforces its own
 // rules unchanged - a binary that is not there must never break the tool call it
 // guards. What the silence costs is one row, never a refusal.
 async function gateReason(tool, args, dir, sessionID) {
   const state = {}
   const reason = await collect(
-    [GATE_BIN, "check"], { stdio: ["pipe", "pipe", "ignore"] },
+    [GATE_BIN, "decide"], { stdio: ["pipe", "pipe", "ignore"] },
     JSON.stringify({
       tool, input: args, cwd: dir, session_id: sessionID || null }),
     (code, out, failure) => {

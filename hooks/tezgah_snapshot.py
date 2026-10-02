@@ -144,17 +144,40 @@ def _append(session_id, row):
     if not session_id:
         return
     try:
-        path = ti._path(session_id)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({k: v for k, v in row.items() if v is not None})
-                     + "\n")
+        # through the ledger's own writer: its flock, its torn-tail repair and
+        # its owner-only modes (audit SEC-05 / L-6), not a second open()
+        ti._append(ti._path(session_id),
+                   json.dumps({k: v for k, v in row.items() if v is not None})
+                   + "\n")
     except (OSError, AttributeError):
         pass
 
 
+# The files whose bytes are a credential: dotenv files, key and keystore files,
+# SSH private keys and the per-tool credential stores. Their pre-write bytes are
+# never copied into the store - a plain copy under the cache is the secret
+# outside the file that guards it (audit SEC-05 / L-6). The row still records
+# the file, its size and its sha256, so the after-state comparison (`changed`)
+# and the freshness rule see the write exactly as they see any other.
+SECRET_FILE = re.compile(
+    r"\A(?:\.env(?:\..*)?|.*\.env|.*\.(?:pem|key|p12|pfx|jks|keystore)"
+    r"|id_(?:rsa|dsa|ecdsa|ed25519)|credentials(?:\.json)?|\.netrc|_netrc"
+    r"|\.npmrc|\.pypirc|\.pgpass|\.git-credentials)\Z", re.I)
+
+
+def _private_open(path):
+    """An owner-only (0600) file for the store, opened for binary writing: a
+    snapshot is a copy of the user's file, and the default umask left it
+    readable by every local user (audit SEC-05 / L-6)."""
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                             0o600), "wb")
+
+
 def _capture_one(path, cwd, session_id):
-    """One file: copy its bytes in, write its row, return the snapshot id."""
+    """One file: copy its bytes in, write its row, return the snapshot id.
+
+    A credential file (`SECRET_FILE`) gets the row alone - name, size, sha256
+    and no id, because there is no copy to restore - and returns None."""
     apath = os.path.realpath(
         str(path) if os.path.isabs(str(path))
         else os.path.join(cwd or ".", str(path)))
@@ -165,18 +188,24 @@ def _capture_one(path, cwd, session_id):
             data = fh.read()
     except OSError:  # unreadable, or gone between the size check and the read
         return None
-    sid = uuid.uuid4().hex[:12]
     digest = hashlib.sha256(data).hexdigest()
     ts = int(time.time())
     workspace = root_for(cwd) if cwd else None
+    if SECRET_FILE.match(os.path.basename(apath)):
+        _append(session_id, {"kind": "snapshot", "ts": ts, "detail": apath,
+                             "hash": digest, "out_bytes": len(data),
+                             "workspace": workspace})
+        return None
+    sid = uuid.uuid4().hex[:12]
     try:
-        os.makedirs(_dir(sid), exist_ok=True)
-        with open(_blob(sid), "wb") as fh:
+        os.makedirs(_store(), mode=0o700, exist_ok=True)
+        os.makedirs(_dir(sid), mode=0o700, exist_ok=True)
+        with _private_open(_blob(sid)) as fh:
             fh.write(data)
-        with open(_manifest(sid), "w", encoding="utf-8") as fh:
-            json.dump({"id": sid, "path": apath, "hash": digest,
-                       "session": session_id, "workspace": workspace,
-                       "bytes": len(data), "ts": ts}, fh)
+        with _private_open(_manifest(sid)) as fh:
+            fh.write(json.dumps({"id": sid, "path": apath, "hash": digest,
+                                 "session": session_id, "workspace": workspace,
+                                 "bytes": len(data), "ts": ts}).encode("utf-8"))
     except OSError:
         import shutil  # deferred: see _evict
         shutil.rmtree(_dir(sid), ignore_errors=True)  # no half a snapshot
@@ -340,7 +369,9 @@ def session_plan(session_id):
         kind = row.get("kind")
         if kind == "snapshot":
             path = str(row.get("detail") or "")
-            if path and path not in first:
+            # a credential file's row has no id: no copy was kept, so it is
+            # listed as having no snapshot rather than restored from nothing
+            if path and path not in first and row.get("id"):
                 first[path] = row.get("id")
         elif kind in ("edit", "run"):
             path = _row_path(row, order)

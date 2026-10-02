@@ -516,6 +516,98 @@ class Gate(TempHome):
             {"file_path": "agent://Main"}, "mine"))
         self.assertIsNone(tg.race_reason({"file_path": "xd://gate_check"}, "mine"))
 
+    def wrote(self, session, path, cwd):
+        """One write as the PostToolUse writer records it, from `cwd`."""
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": session, "tool": "Write",
+                  "input": {"file_path": path}, "failed": False, "cwd": cwd},
+                 env=self.envv)
+
+    def ledger_path(self, session):
+        return os.path.join(self.home, ".cache", "tezgah", "evidence",
+                            ti._slug(session) + ".jsonl")
+
+    def test_one_relative_path_in_two_repositories_does_not_race(self):
+        # audit CHAT-03 / M-6: `README.md` written in one repository refused a
+        # write to `README.md` in another for ten minutes
+        other = self.make_repo("other")
+        self.wrote("writer", "README.md", other)
+        self.assertIsNone(self.decide("Write", {"file_path": "README.md"},
+                                      cwd=self.repo, session_id="mine"))
+        reason = self.decide("Write", {"file_path": "README.md"}, cwd=other,
+                             session_id="mine")
+        self.assertIn("Concurrent write refused", reason)
+        # the absolute spelling of that same file is the same file
+        reason = self.decide("Write", {"file_path": os.path.join(other, "README.md")},
+                             session_id="mine")
+        self.assertIn("Concurrent write refused", reason)
+
+    def test_a_damaged_foreign_ledger_does_not_turn_the_write_gate_off(self):
+        # audit GAP-02 / M-7: one `[1,2]` row in any recent ledger raised out of
+        # the race reader, and every write of every session went through
+        self.wrote("writer", "x.py", self.repo)
+        for name, junk in (("bad-list", "[1, 2]\n"), ("bad-json", "{oops\n")):
+            path = self.ledger_path(name)
+            with open(path, "w") as fh:
+                fh.write(junk)
+        reason = self.decide("Write", {"file_path": "x.py"}, session_id="mine")
+        self.assertIn("Concurrent write refused", reason or "")
+
+    def check_cli(self, verb, call):
+        proc = subprocess.run(
+            [sys.executable, os.path.join(support.REPO, "bin", "tezgah-gate"), verb],
+            input=json.dumps(call), capture_output=True, text=True, env=self.envv,
+            timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    def cache_tree(self):
+        root = os.path.join(self.home, ".cache", "tezgah")
+        out = {}
+        for d, _, files in os.walk(root):
+            for name in files:
+                path = os.path.join(d, name)
+                with open(path, "rb") as fh:
+                    out[path] = fh.read()
+        return out
+
+    def test_check_is_a_dry_run_and_decide_records(self):
+        # audit CHAT-07 / L-14b: `tezgah-gate check` is documented as a dry run
+        # and wrote deny rows into the named session's ledger
+        self.make_index()
+        for _ in range(26):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "live", "tool": "Bash",
+                      "input": {"command": "ls"}, "failed": False,
+                      "cwd": self.repo}, env=self.envv)
+        path = os.path.join(self.repo, "a.py")
+        with open(path, "w") as fh:
+            fh.write("x = 1\n")
+        before = self.cache_tree()
+        calls = (
+            {"tool": "Bash", "input": {"command": "git commit -m x --no-verify"}},
+            {"tool": "Grep", "input": {"pattern": "some_identifier"}},
+            {"tool": "Write", "input": {"file_path": path, "content": "y"}})
+        answers = []
+        for call in calls:
+            call.update(cwd=self.repo, session_id="live")
+            answers.append(self.check_cli("check", call))
+        self.assertIn("Verification bypass", answers[0])
+        self.assertTrue(answers[1], "the nudge is still answered")
+        self.assertTrue(answers[2], "the drift notice is still answered")
+        self.assertEqual(self.cache_tree(), before)
+        # the live verb is what a host gates through, and it records
+        self.assertIn("Verification bypass", self.check_cli("decide", calls[0]))
+        self.assertNotEqual(self.cache_tree(), before)
+
+    def test_the_flag_value_reader_passes_maxsplit_by_keyword(self):
+        # audit QA-3 / L-13: positional maxsplit warns on 3.13+, and a future
+        # keyword-only signature would raise and fail the gate open
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            self.assertEqual(tg._value("foo bar"), "foo")
+
     def test_the_session_ceiling_respects_verify_off(self):
         for _ in range(3):
             run_json([support.PROBE_INTEGRITY],

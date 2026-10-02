@@ -285,6 +285,28 @@
       ]
     },
     {
+      "path": "docs/environment.md",
+      "title": "Environment variables: every one tezgah reads",
+      "audience": "user pinning an install or CI job, maintainer adding a variable, test author repointing an endpoint",
+      "answers": [
+        "which environment variables does tezgah read",
+        "what does each variable default to and change",
+        "how do I repoint an endpoint or a binary in a test",
+        "which variable picks the python a hook runs"
+      ],
+      "sources": [
+        "hooks/tezgah_paths.py",
+        "hooks/tezgah_judge.py",
+        "hooks/tezgah_index.py",
+        "bin/tezgah-setup",
+        "bin/consult",
+        "bin/codegen",
+        "packaging/install.sh",
+        "packaging/upgrade.sh",
+        "statusline.py"
+      ]
+    },
+    {
       "path": "docs/glossary.md",
       "title": "Glossary: one term per concept",
       "audience": "everyone",

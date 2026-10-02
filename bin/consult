@@ -61,11 +61,36 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_paths as tp  # noqa: E402
+
+
+class _NoCrossHostAuth(urllib.request.HTTPRedirectHandler):
+    """Drop the bearer token on a redirect that leaves the endpoint's host.
+
+    urllib copies the Authorization header onto the redirected request, so a
+    301/302 from a repointed CONSULT_URL (a gateway, or a compromised provider)
+    would hand the provider key to whatever host the answer named - the audit's
+    L-9, the hop hooks/tezgah_judge.py already refuses. Here the hop is still
+    followed without the key, so a host that needs it answers 401 and the run
+    reports that as a key failure instead of leaking it; a same-host redirect
+    keeps the header."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlsplit(newurl).netloc != \
+                urllib.parse.urlsplit(req.full_url).netloc:
+            new.remove_header("Authorization")
+        return new
+
+
+# The module's one opener: urllib's default handlers with the redirect handler
+# swapped for the subclass above.
+OPENER = urllib.request.build_opener(_NoCrossHostAuth)
 
 # provider -> (chat-completions URL, key env var, key file, default models)
 PROVIDERS = {
@@ -202,7 +227,7 @@ def ask(provider, model, question, key, timeout, system):
             "Authorization": "Bearer " + key,
             "Content-Type": "application/json",
         })
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with OPENER.open(req, timeout=timeout) as resp:
             data = json.load(resp)
         answer = data["choices"][0]["message"]["content"]
     except Exception as exc:  # network, HTTP, schema - all reported, never raised

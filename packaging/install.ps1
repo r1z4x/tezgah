@@ -147,7 +147,13 @@ try {
     }
     if (-not $py) { throw "tezgah: no python on PATH (py, python or python3) to run $setup" }
     if ($py -eq 'py') { & py -3 $setup --install } else { & $py $setup --install }
-    exit $LASTEXITCODE
+    # No `exit` here: under the documented `irm ... | iex` this script runs in
+    # the caller's own session, and `exit` closed the user's PowerShell window
+    # with the install output in it (audit L-10, ENV-05). A failure is thrown
+    # instead, and $LASTEXITCODE keeps the installer's code for the caller.
+    if ($LASTEXITCODE) {
+        throw "tezgah: tezgah-setup --install exited $LASTEXITCODE - read its output above"
+    }
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

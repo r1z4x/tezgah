@@ -15,7 +15,7 @@ reader with one question in mind, and every non-obvious claim in it carries a
 | an agent that has to decide whether something is safe to do | [gate](gate.md), [evidence](evidence.md) |
 | a maintainer adding a rule, a host or a mark | [architecture](architecture.md), then the page of the thing you are adding |
 | someone debugging what a session was actually told | [contract](contract.md), [status-line](status-line.md) |
-| someone releasing or repairing an install | [operations](operations.md) |
+| someone releasing or repairing an install | [operations](operations.md), [environment](environment.md) |
 | new to the repository | [architecture](architecture.md), then [glossary](glossary.md) |
 
 ## The questions this layer answers
@@ -37,6 +37,7 @@ reader with one question in mind, and every non-obvious claim in it carries a
 | How is one feature audited across its layers, and what does a capability change need to carry? | [feature-audit](feature-audit.md) |
 | How do I check a change, and how do I test it? | [testing](testing.md) |
 | How do I install, upgrade or repair this? | [operations](operations.md) |
+| Which environment variables does tezgah read, and what does each change? | [environment](environment.md) |
 | What does this word mean here? | [glossary](glossary.md) |
 | How is a session meant to run, and what does each tier cost? | [vision](vision.md) |
 
@@ -54,12 +55,15 @@ reader with one question in mind, and every non-obvious claim in it carries a
   sentence names* is a judgement, not a regex. The layer was audited page by page
   on 2026-09-19 after the code moved under it. The judgement is mechanical in one
   case, and that case is where the drift lands: a citation that names a symbol
-  (`note_tool` `hooks/tezgah_integrity.py:2151-2264`) must point inside that symbol's body, so
+  (`note_tool` `hooks/tezgah_integrity.py:2335-2453`) must point inside that symbol's body, so
   `bin/tezgah-docs --citations` re-runs that half of the audit in one command and
-  counts the citations it cannot judge - 324 judged and 913 not judgeable on this
-  tree, 2026-09-30 (the counts move with the tree: the same command read 355 and 755
-  on the day it was written). Those 913 are the next audit's work list rather than a claim
-  of cleanliness. It is a report, not a gate - a
+  counts the citations it cannot judge - 415 judged and 902 not judgeable on this
+  tree, 2026-10-02 (the counts move with the tree: the same command read 355 and 755
+  on the day it was written). Until 2026-10-02 it skipped every `bin/` script,
+  because each one's `.py` symlink twin made its symbols read as defined twice;
+  symlinks are now skipped, so those citations are judged too. The 902 are the
+  next audit's work list rather than a claim of cleanliness. CI runs it, and it
+  exits non-zero on a citation outside its symbol - a
   symbol named beside a path is judged in that file, and a citation with no
   symbol beside it is left unjudged rather than guessed at.
 - Two hundred lines is the ceiling. A page that needs more is two pages.

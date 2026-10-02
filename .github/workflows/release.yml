@@ -13,18 +13,30 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: write
+# No job inherits a token it does not need (the audit's L-8): the workflow
+# defaults to none, the npm job only reads the tree and mints the OIDC token
+# `--provenance` signs with, and only the brew job, which uploads the release
+# asset with GITHUB_TOKEN, may write. Actions are pinned to a commit, with the
+# tag they were resolved from beside it, so a moved tag cannot change what runs
+# next to NPM_TOKEN and TAP_TOKEN.
+permissions: {}
 
 jobs:
   # The secrets context is not available in a job-level `if`, so a guard there
   # is a workflow-file parse failure and every event dies at 0s - the guards
   # live on the steps, where secrets read fine.
   npm-publish:
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Nothing in this job pushes, so the checkout leaves no token behind in
+      # .git/config for a later step to read.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
@@ -44,7 +56,7 @@ jobs:
             echo "$NAME@$VERSION is already published"
             exit 0
           fi
-          if OUT=$(npm publish --access public 2>&1); then
+          if OUT=$(npm publish --access public --provenance 2>&1); then
             echo "$OUT" | tail -20
             exit 0
           fi
@@ -71,9 +83,16 @@ jobs:
           exit 1
 
   brew-formula:
+    # `gh release upload` below writes the asset with GITHUB_TOKEN.
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # The push below goes from a separate clone of the tap with TAP_TOKEN,
+      # never from this checkout, so it keeps no GITHUB_TOKEN in .git/config.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Build tarball and update tap formula (skipped without TAP_TOKEN)
         if: ${{ env.TAP_TOKEN != '' }}
         env:

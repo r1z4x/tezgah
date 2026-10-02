@@ -175,6 +175,29 @@ class OmpHook(TempHome):
         self.assertNotIn("**Turkish, BLUF.**", out["context"])
         self.assertIn("\033[33m\u2702 pony\u25cb\033[0m", out["status"])
 
+    def test_post_compact_re_sends_the_state_and_records_the_compaction(self):
+        # Audit L-3 (INT-06): the bridge's session_compact asks for this event;
+        # the answer is the live state without the core, and the summary is
+        # counted the way Claude's PostCompact is (size and digest, no text).
+        repo = self.make_repo()
+        plans = os.path.join(repo, ".tezgah", "plans", "open")
+        os.makedirs(plans)
+        with open(os.path.join(plans, "001-x.md"), "w") as fh:
+            fh.write("---\nid: 001\ntitle: compact plan\n---\n")
+        out, proc = self.event({"event": "post_compact", "cwd": repo,
+                                "session_id": "s-compact",
+                                "compact_summary": "summary text"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("compact plan", out["context"])
+        self.assertIn("Graph", out["context"])
+        self.assertNotIn("**Turkish, BLUF.**", out["context"])
+        rows, _ = run_json([support.PROBE_INTEGRITY],
+                           {"fn": "events", "session": "s-compact"},
+                           env=self.env())
+        row = next(r for r in rows if r["kind"] == "compact")
+        self.assertEqual(row["summary_chars"], len("summary text"))
+        self.assertNotIn("summary text", json.dumps(rows))
+
     def test_a_subagent_gets_the_brief_not_the_parents_payload(self):
         # a fan-out of task subagents each got the main payload: the indexer,
         # the agent regeneration and the "run plan-status first" line

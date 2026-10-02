@@ -107,11 +107,15 @@ def code_symbols(path):
 
 def symbols():
     """{name: (path, [(start, end)])} over every code file, for the names
-    exactly one file defines: an ambiguous name is skipped, not guessed at."""
+    exactly one file defines: an ambiguous name is skipped, not guessed at.
+
+    A symlink is skipped: every bin/ script has a `.py` twin pointing at it so
+    tests can import it, and counting both made every bin symbol "ambiguous" -
+    the audit (M-11a) measured 0 stale citations reported while 25 were."""
     seen = {}
     for pattern in CODE_FILES:
         for path in sorted(glob.glob(os.path.join(HERE, pattern))):
-            if not os.path.isfile(path):
+            if not os.path.isfile(path) or os.path.islink(path):
                 continue
             for name, spans in code_symbols(path).items():
                 seen.setdefault(name, []).append(

@@ -52,6 +52,18 @@ class FailureShapes(TempHome):
         self.assertEqual(found["recurring_sessions"], 5)
         self.assertEqual([s["rule"] for s in found["shapes"]], ["loop"])
 
+    def test_one_damaged_ledger_costs_its_own_rows_not_the_report(self):
+        # audit M-7: a committed line that is not a row raised out of every
+        # cross-session reader, so one bad file killed the whole fold
+        for i in range(5):
+            self.deny("loop-%d" % i, 1, rule="loop")
+        with open(os.path.join(self.evidence, "broken.jsonl"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("{not json\n[1, 2]\n")
+        found = self.report()
+        self.assertEqual(found["recurring_sessions"], 5)
+        self.assertEqual([s["rule"] for s in found["shapes"]], ["loop"])
+
     def test_the_report_names_the_row_contracts_it_read(self):
         # A shape can move because the rule changed or because the row's meaning
         # did. A fold that read pre-version rows beside current ones has to say

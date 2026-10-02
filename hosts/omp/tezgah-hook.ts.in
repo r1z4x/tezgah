@@ -549,6 +549,25 @@ export default function tezgahOmp(pi: any): void {
     }
   });
 
+  // omp emits session_compact once the summary has replaced the history, with
+  // the compaction entry (its `summary` is the text the model is given next).
+  // Unsubscribed, the live state - resume, plans, lessons, graph line - was lost
+  // at the first compaction (audit L-3, INT-06). The answer is the same
+  // `post_compact` block Claude and Codex build, sent on the channel
+  // session_start uses; the summary rides as `compact_summary` so the hook
+  // records the compaction row. A subagent is skipped: the post-compact block
+  // runs the indexer, which only the parent session may start.
+  pi.on("session_compact", async (event: any, ctx: any) => {
+    if (isSubagent(ctx)) return;
+    const summary = event?.compactionEntry?.summary;
+    const res = ask({ event: "post_compact", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
+                      compact_summary: typeof summary === "string" ? summary : undefined });
+    if (hookError || !res.context) return;
+    pi.sendMessage({ customType: "tezgah-session", content: res.context,
+                     display: false, attribution: "agent" },
+                   { deliverAs: "nextTurn" });
+  });
+
   // The notice as the message-capable events hand it back: before_agent_start
   // returns it, session_start sends it.
   const noticeMessage = (ctx: any, session: string | undefined): any => {

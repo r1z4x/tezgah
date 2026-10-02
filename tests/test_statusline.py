@@ -213,6 +213,17 @@ class JudgeMark(TempHome):
         self.assertEqual(
             self.judge("--observable=consult,research,graph,orch")["state"], "off")
 
+    def test_after_a_double_dash_a_flag_shaped_session_id_is_an_id(self):
+        # Audit L-7 (SEC-07): the dsh route and the MCP tool hand caller-chosen
+        # strings to this argv, and `--failure-shapes` there ran the machine-wide
+        # report. After `--` it is the session id and the line is the answer.
+        out, proc = support.run_json(
+            [self.cli, "--json", "--", self.repo, "--failure-shapes"],
+            env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIsInstance(out, list)
+        self.assertIn("judge", [s["key"] for s in out])
+
     def transcript_chip(self, command):
         """The judge chip on Claude's line for one shell call.
 

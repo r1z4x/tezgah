@@ -440,6 +440,24 @@ class CursorEvidence(TempHome):
         self.assertEqual([r["kind"] for r in self.rows()],
                          ["verify_fail", "verify_ok", "verify"])
 
+    def test_no_event_outside_every_root_records_a_row(self):
+        # Audit L-4 (INT-07): a postToolUse with cwd outside the roots wrote a
+        # `verify` row here while Claude, dsh and omp wrote none. Every event
+        # that writes a row is held to the same root check.
+        outside = os.path.join(self.home, "outside")
+        os.makedirs(outside)
+        cmd = {"command": "python3 -m pytest -q"}
+        self.call("Shell", cmd, cwd=outside, tool_output="5 passed")
+        self.call("Shell", cmd, cwd=outside, event="postToolUseFailure",
+                  error_message="timed out")
+        self.call("Shell", cmd, cwd=outside, event="afterShellExecution",
+                  output="ok")
+        self.call("Write", {}, cwd=outside, event="afterFileEdit",
+                  file_path=os.path.join(outside, "f.py"))
+        self.assertEqual(self.rows(), [])
+        self.call("Shell", cmd, tool_output="5 passed")
+        self.assertEqual([r["kind"] for r in self.rows()], ["verify"])
+
 
 class CrossHostStopAgreement(TempHome):
     """One sequence, one verdict on every host that reports a call's outcome:

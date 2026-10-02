@@ -34,7 +34,7 @@ answer is a `None`, never an exception.
 A judgement is an aid, never the claim. It ranks units or names a page; the agent
 still reads the selected refs and owns the finding, and the ledger's step kinds
 are untouched, so a model answer can never license a "done" (`STEP_KINDS`,
-`hooks/tezgah_integrity.py:1097-1102`).
+`hooks/tezgah_integrity.py:1194-1199`).
 
 The state leaves the machine. A judgement sends the state and the questions to
 `api.typesafe.ai` - for the triage that is the screen's own text, so a screen
@@ -45,7 +45,7 @@ the price of a machine that has no Jev credential still having a judge at all:
 the destination changes, not what is sent. Nothing else goes: no session id, no
 workspace path, no environment. The state is not rewritten because sending it is
 the point - with one exception: `bin/tezgah-route` sends its brief through the
-ledger's own redactor (`redact`, `hooks/tezgah_integrity.py:560`), because a
+ledger's own redactor (`redact`, `hooks/tezgah_integrity.py:615`), because a
 delegation brief can quote an error message or a token, and a brief matching the
 router's override pattern (stored data, credentials, security) is never sent at
 all. Three of the callers are explicit - a person runs the tool - and the
@@ -58,7 +58,7 @@ switches below are the off buttons.
 | Caller | What it asks, and what it is for | On failure |
 |---|---|---|
 | `bin/tezgah-triage` | the analyze-app snapshot triage. `--select FILE --task T` asks one question per repeating unit of the screen in one request and prints the line ids under the selected units with their refs (`select_request`, `bin/tezgah-triage:230-248`; the units are the tree's own repeating pieces, `units`, `bin/tezgah-triage:204-229`). `--states` asks one judgement per state over a component's subtree (`states`, `bin/tezgah-triage:308-431`) | exit 1 with one reason (`no_judgement`, `bin/tezgah-triage:107-113`), and the loop reads the tree directly |
-| `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:195-228`; the question wording is `ASK`, `bin/tezgah-docs:162-169`) | returns `None`; the command prints what it always printed and exits 1 |
+| `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:334-367`; the question wording is `ASK`, `bin/tezgah-docs:301-308`) | returns `None`; the command prints what it always printed and exits 1 |
 | `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py:144-176`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py:84-112`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py:46-48`) and an 8 s timeout (`ASK_TIMEOUT`, `hooks/tezgah_skill_pick.py:49-54`) | returns `""`; the turn loses the hint |
 | `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:667-691`; `TIER_QUESTION`, `hooks/tezgah_models.py:645-666`) - see [models](models.md) | the static phase table, else the middle tier |
 
@@ -125,8 +125,8 @@ measured rather than assumed - 0 of 184 live calls returned `None` - so the seco
 attempt costs a healthy call nothing (`_transient`,
 `hooks/tezgah_judge.py:261-273`); `docs/operations.md` records the run. Each
 caller also records one `judge` row of cost on the ledger when a session id is
-known (`note`, `hooks/tezgah_integrity.py:724-736`), counted by the row's kind
-(`counters`, `hooks/tezgah_integrity.py:1308-1339`).
+known (`note`, `hooks/tezgah_integrity.py:782-794`), counted by the row's kind
+(`counters`, `hooks/tezgah_integrity.py:1405-1436`).
 
 ## What the seam never does
 
@@ -151,7 +151,7 @@ known (`note`, `hooks/tezgah_integrity.py:724-736`), counted by the row's kind
    the tools' own docstrings, and the user-facing surface is already the two tool
    names.
 7. **A judgement never counts as a check or a step.** The step kinds stay as they
-   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:1097-1102`); the cost row is a
+   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:1194-1199`); the cost row is a
    counter, not evidence.
 
 ## Source of truth

@@ -4,6 +4,7 @@
 // symlink to the global prefix, so process.argv[1] is the shim, not the target.
 const { spawn } = require("child_process");
 const { existsSync } = require("fs");
+const os = require("os");
 const path = require("path");
 
 const here = __dirname;
@@ -28,4 +29,8 @@ if (!py) {
 }
 
 const child = spawn(py, [setup, ...process.argv.slice(2)], { stdio: "inherit" });
-child.on("exit", code => process.exit(code));
+// A child killed by a signal reports code null, and process.exit(null) is exit
+// 0: an installer killed mid-run read as a success (audit L-10, ENV-06). The
+// shell convention 128 + signal number carries the failure out instead.
+child.on("exit", (code, signal) =>
+  process.exit(signal ? 128 + (os.constants.signals[signal] || 0) : code));

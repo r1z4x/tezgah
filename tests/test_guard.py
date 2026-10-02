@@ -107,3 +107,54 @@ class EntryPoints(TempHome):
         crashes = [r for r in rows if r.get("kind") == "crash"]
         self.assertTrue(crashes, "no crash row was written: %r" % rows)
         self.assertIn("decision", crashes[0].get("detail", ""))
+
+
+class DebugLog(TempHome):
+    """TEZGAH_DEBUG (audit L-11, GAP-10): one line per hook process naming the
+    host, the script, each guarded core call with its outcome and the elapsed
+    time, in an owner-only file - and nothing at all when the variable is unset."""
+
+    def log_path(self):
+        return os.path.join(self.home, ".cache", "tezgah", "debug.log")
+
+    def deny_call(self, env):
+        root = self.make_repo()
+        proc = support.run([support.CODEX_HOOK],
+                           {"hook_event_name": "PreToolUse", "cwd": root,
+                            "tool_name": "Bash", "session_id": "d1",
+                            "tool_input": {"command": "git commit --no-verify -m x"}},
+                           env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("deny", proc.stdout)
+        return root
+
+    def test_off_by_default_writes_nothing(self):
+        self.deny_call(self.env())
+        self.assertFalse(os.path.exists(self.log_path()))
+
+    def test_on_it_writes_one_owner_only_line_per_invocation(self):
+        env = self.env(extra={"TEZGAH_DEBUG": "1"})
+        root = self.deny_call(env)
+        support.run([support.OMP_HOOK], {"event": "pre_tool_use", "cwd": root,
+                                         "tool": "bash", "input": {"command": "ls"},
+                                         "session_id": "d1"}, env=env)
+        with open(self.log_path()) as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        self.assertRegex(lines[0], r"^\d+ host=codex script=hook\.py "
+                                   r"calls=gate_reason:answer ms=\d+$")
+        self.assertRegex(lines[1], r" host=omp script=hook\.py calls=handle:answer ")
+        self.assertEqual(os.stat(self.log_path()).st_mode & 0o777, 0o600)
+
+    def test_a_crash_is_logged_by_its_exception_class(self):
+        env = self.env([self.roots], extra={"TEZGAH_DEBUG": "1"})
+        root = self.make_repo()
+        support.run([support.PROBE_POISONED, support.PRETOOLUSE, "tezgah_gate",
+                     "decision"],
+                    payload={"cwd": root, "tool_name": "Bash",
+                             "tool_input": {"command": "ls"}, "session_id": "d2"},
+                    env=env, cwd=root)
+        with open(self.log_path()) as fh:
+            # the probe replaces the core function with its own raiser, so the
+            # class - not the name - is what this line is about
+            self.assertRegex(fh.read(), r"calls=\w+:RuntimeError ms=\d+")

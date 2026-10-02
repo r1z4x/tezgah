@@ -56,7 +56,10 @@ reaches every host the same way.
 ## Install
 
 One line, on macOS, Linux or WSL (Python 3.10+, `curl`, `tar`). It downloads
-the latest release, checks its sha256, and arms every host it finds:
+the latest release, checks its sha256, arms every host it finds, and installs
+the missing optional tools tezgah itself uses (orx; `TEZGAH_NO_DEPS=1` skips
+them). It never installs a host's own CLI (cursor-agent, pnpm, dsh): it prints
+the command instead, or runs it under `tezgah-setup --install --host-deps`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.sh | sh

@@ -6,7 +6,6 @@
 .github/workflows/neuter.yml
 .github/workflows/release.yml
 .gitignore
-.mcp.json
 AGENTS.md
 CHANGELOG.md
 CODE_OF_CONDUCT.md
@@ -85,6 +84,7 @@ commands/ponytail.md
 docs/README.md
 docs/architecture.md
 docs/contract.md
+docs/environment.md
 docs/evidence.md
 docs/feature-audit.md
 docs/gate.md
@@ -637,6 +637,7 @@ tests/test_docs_router.py
 tests/test_doctor.py
 tests/test_dsh_hooks.py
 tests/test_dsh_launcher.py
+tests/test_dsh_statusline.py
 tests/test_encoding.py
 tests/test_gate.py
 tests/test_guard.py

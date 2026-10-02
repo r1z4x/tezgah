@@ -23,7 +23,6 @@
     "MANIFEST",
     "CHANGELOG.md",
     "LICENSE",
-    ".mcp.json",
     "packaging/"
   ],
   "engines": {

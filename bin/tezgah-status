@@ -63,7 +63,8 @@ their status line; this CLI is how every host (and a human) gets it:
 
 The session id may be passed as the second argument or via TEZGAH_SESSION;
 without it the "used" marks cannot light up, so a host that knows the id should
-pass it.
+pass it. `--` ends the options: `tezgah-status --json -- PATH SESSION_ID` reads
+both as positionals even when one starts with a dash.
 """
 import json
 import os
@@ -156,7 +157,14 @@ def print_fitness(fit):
 
 
 def main():
-    args, weeks = weeks_arg(sys.argv[1:])
+    # `--` ends the options: what follows is PATH and SESSION_ID even when it
+    # starts with a dash. The dsh route and the MCP tool hand caller-chosen
+    # strings to this argv, and without the separator `sessionId=--failure-shapes`
+    # ran the machine-wide report (audit L-7, SEC-07).
+    argv = sys.argv[1:]
+    rest = argv[argv.index("--") + 1:] if "--" in argv else []
+    argv = argv[:argv.index("--")] if "--" in argv else argv
+    args, weeks = weeks_arg(argv)
     # A sanity bound, not a policy: ten years of weeks is longer than any ledger
     # this machine holds, and a number the reader mistyped should say so rather
     # than print a thousand rows of nothing.
@@ -164,7 +172,7 @@ def main():
         sys.stderr.write("tezgah-status: --weeks wants a week count\n")
         return 2
     flags = {a for a in args if a.startswith("--")}
-    pos = [a for a in args if not a.startswith("--")]
+    pos = [a for a in args if not a.startswith("--")] + rest
     known = {"--legend", "--json", "--color", "--no-color", "--counters",
              "--all", "--trend", "--skill-fitness", "--failure-shapes",
              "--rule-yield", "--help"}

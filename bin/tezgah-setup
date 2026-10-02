@@ -17,6 +17,7 @@
   tezgah-setup --agents [PATH]         regenerate this repo's subagent set
   tezgah-setup --deps [--dry-run]      install missing optional tools only
   tezgah-setup --install --no-deps     arm hosts without installing tools
+  tezgah-setup --install --host-deps   also install missing host CLIs (cursor-agent, pnpm, dsh)
   tezgah-setup --prefix DIR            install prefix (default ~/.local/share/tezgah)
   tezgah-setup --upgrade [VERSION]     fetch a release into the prefix, re-arm
   tezgah-setup --upgrade --dry-run     say what an upgrade would do, run nothing
@@ -277,9 +278,6 @@ def plugin_version():
     is that value, so it keeps answering the word it has always answered rather
     than printing an empty string that would read as a broken flag."""
     return tezgah_context.version() or "unknown"
-CONTRACT_SOURCES = ("hooks/tezgah_policy.py",
-                    "hooks/tezgah_context.py",
-                    "skills/tezgah-contract/SKILL.md")
 # The code-graph MCP server: one argv, one environment, both written into every
 # host row from here. `CODEGRAPH_MCP_TOOLS` is what makes the tools the agent
 # briefs name really exist - codegraph exposes `codegraph_explore` alone without
@@ -292,41 +290,63 @@ GRAPH_ENV = {
 }
 
 
-def contract_sha():
-    """sha256 over every source of the generated opencode contract: the shared
-    policy, the renderer that selects and orders its paragraphs, and the
-    hand-maintained full-contract skill. Each is included so an edit to it alone
-    still marks the rendered contract stale - opencode has no session-start hook,
-    so this hash is the only thing that re-renders its always-on text."""
-    h = hashlib.sha256()
-    for rel in CONTRACT_SOURCES:
-        try:
-            with open(os.path.join(HERE, rel), "rb") as fh:
-                h.update(fh.read())
-        except OSError:
-            return ""
-        h.update(b"\0")
-    return h.hexdigest()
+def static_core():
+    """The always-on core as a static rules file carries it: `always_on_core()`
+    minus the paragraph of every rule an armed global kill switch removes.
+
+    A static file is read by every session, so it honours a switch only by being
+    re-rendered without the paragraph; otherwise CLAUDE.md, AGENTS.md, RULES.md
+    and opencode's contract kept promising a rule the user had switched off
+    (audit L-1, INT-04). The key -> switch mapping is the hooks' own
+    `switches()`, asked about the filesystem root: no configured root holds it,
+    so no per-repo mark (.no-ponytail and kin) applies - a global file must not
+    take one repo's opt-out for every repo."""
+    drop, _disabled = tezgah_context.switches(os.sep)
+    labels = tuple(label for key, label in tezgah_context.CORE_RULES
+                   if key in drop)
+    return "\n\n".join(p for p in tezgah_context.always_on_core().split("\n\n")
+                       if not p.startswith(labels))
 
 
-def write_contract_sha():
-    """Persist the current source hash. Returns it, or "" when unreadable."""
-    sha = contract_sha()
-    if sha:
-        mkdirp(tp.CONFIG_DIR)
-        with open(CONTRACT_SHA, "w", encoding="utf-8") as fh:
-            fh.write(sha + "\n")
-    return sha
+def _sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def contract_stale():
-    """True when the stored contract hash is missing or out of date."""
+def recorded_shas():
+    """{artifact path: sha256 of the text tezgah last rendered into it}.
+
+    One sha per artifact, in sha256sum's own `<sha>  <path>` line shape. The
+    single shared hash this replaced was rewritten by opencode's per-session
+    refresh, so a policy edit left CLAUDE.md, AGENTS.md and RULES.md stale while
+    `--report` went green (audit M-5, INT-02)."""
+    out = {}
     try:
         with open(CONTRACT_SHA, encoding="utf-8") as fh:
-            stored = fh.read().strip()
+            for line in fh:
+                sha, _, path = line.rstrip("\n").partition("  ")
+                if path:
+                    out[path] = sha
     except OSError:
-        stored = ""
-    return stored != contract_sha()
+        pass
+    return out
+
+
+def record_contract(path, text):
+    """Record the sha of the text just rendered into one artifact."""
+    shas = recorded_shas()
+    shas[path] = _sha(text)
+    mkdirp(tp.CONFIG_DIR)
+    with open(CONTRACT_SHA, "w", encoding="utf-8") as fh:
+        fh.writelines("%s  %s\n" % (shas[p], p) for p in sorted(shas))
+
+
+def stale_artifacts(hosts):
+    """The artifacts of these hosts whose recorded sha is not the sha of a fresh
+    render: a policy edit, a renderer edit or a kill switch flipped since the
+    last write all land here, whichever host's refresh ran last."""
+    shas = recorded_shas()
+    return sorted(path for path, (text, _write) in contract_artifacts(hosts).items()
+                  if shas.get(path) != _sha(text))
 
 
 def link(src, dst):
@@ -770,8 +790,6 @@ def install_common(new_roots, hosts):
     cfg["prefix"] = INSTALL_PREFIX
     write_json(tp.CONFIG, cfg)
     print("%s %s  roots=%s" % (OK, tp.CONFIG, cfg["roots"]))
-    if write_contract_sha():
-        print("%s %s" % (OK, CONTRACT_SHA))
     for name, src in [
             ("consult", os.path.join(HERE, "bin", "consult")),
             ("codegen", os.path.join(HERE, "bin", "codegen")),
@@ -822,9 +840,7 @@ def install_claude():
     # tracked project file. Claude's hook drops the core when the block is there
     # (`TEZGAH_CORE_IN_FILE`, hooks/projects-auto-init.py), so a session pays for
     # the contract once.
-    set_managed_md(CLAUDE_RULES, tezgah_context.render(
-        tezgah_context.always_on_core(), (tp.roots() or [tp.DEFAULT_ROOT])[0]))
-    print("%s %s (always-on contract)" % (OK, CLAUDE_RULES))
+    print("%s %s (always-on contract)" % (OK, write_rules("claude")))
 
 
 def wire_claude_attribution():
@@ -899,11 +915,7 @@ def install_codex():
     # SessionStart hook's context is one message, where this file is the
     # instructions Codex keeps for the whole session. Global, like omp's
     # RULES.md, because a per-project file would be a tracked project file.
-    rules = codex_rules()
-    root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
-    set_managed_md(rules, tezgah_context.render(
-        tezgah_context.always_on_core(), root))
-    print("%s %s (always-on contract)" % (OK, rules))
+    print("%s %s (always-on contract)" % (OK, write_rules("codex")))
 
 
 def _toml_str(value):
@@ -1042,7 +1054,10 @@ def strip_toml_mcp(path, names):
     return True
 
 
-def opencode_contract():
+OPENCODE_CONTRACT = os.path.join(tp.CONFIG_DIR, "opencode-contract.md")
+
+
+def opencode_contract_text():
     """The standing contract for opencode, rendered from the shared policy.
 
     When the policy exposes a consolidated CORE block it is the contract;
@@ -1051,7 +1066,7 @@ def opencode_contract():
     # Always-on = the invariants plus one-line pointers; the conditional rules
     # (spec/consult/research/graph) are armed per prompt by the hook hosts and
     # stay in the on-demand skill here.
-    core = (tezgah_context.always_on_core()
+    core = (static_core()
             if hasattr(tezgah_context, "always_on_core")
             else getattr(policy, "CORE", None))
     if core:
@@ -1076,32 +1091,60 @@ def opencode_contract():
         "skill - read its `SKILL.md` from the skill router on the first "
         "non-trivial task (opencode disables the native `skill` tool).")
     text = tezgah_context.render("\n\n".join(b.strip() for b in blocks), root)
-    path = os.path.join(tp.CONFIG_DIR, "opencode-contract.md")
-    # a re-render that produces the same bytes writes nothing: every install and
-    # every --refresh lands here, and an unchanged contract must move no mtime
-    # and lay no backup (write_if_changed owns the mkdir as well).
-    write_if_changed(path, "<!-- generated by tezgah-setup from "
-                     "hooks/tezgah_policy.py; edit the source, re-run "
-                     "--install -->\n\n" + text + "\n")
-    return path
+    return ("<!-- generated by tezgah-setup from hooks/tezgah_policy.py; edit "
+            "the source, re-run --install -->\n\n" + text + "\n")
+
+
+def write_artifact(path, text, write):
+    """Write one contract artifact with its own writer and record its sha.
+
+    The writers are idempotent (write_if_changed, set_managed_md): a re-render
+    that produces the same bytes moves no mtime and lays no backup. Returns True
+    when the file changed."""
+    changed = write(path, text)
+    if recorded_shas().get(path) != _sha(text):
+        record_contract(path, text)
+    return changed
+
+
+def opencode_contract():
+    """Write opencode's contract file; returns its path."""
+    write_artifact(OPENCODE_CONTRACT, opencode_contract_text(), write_if_changed)
+    return OPENCODE_CONTRACT
+
+
+def contract_artifacts(hosts):
+    """{path: (fresh render, writer)} for every always-on contract artifact
+    these hosts read: the managed block of each static rules file (Claude,
+    Codex, omp) and opencode's contract and skill routers."""
+    out = {}
+    for h in hosts:
+        if h in STATIC_RULES:
+            out[STATIC_RULES[h]()] = (rules_block(h), set_managed_md)
+    if "opencode" in hosts:
+        out[OPENCODE_CONTRACT] = (opencode_contract_text(), write_if_changed)
+        always, full = skill_router_texts()
+        out[SKILL_ROUTER] = (always, write_if_changed)
+        out[SKILL_ROUTER_FULL] = (full, write_if_changed)
+    return out
 
 
 def refresh_contract():
-    """Re-render the generated opencode contract and skill router when the
-    policy or the full-contract skill changed.
+    """Re-render every always-on contract artifact of the armed hosts.
 
-    opencode has no session-start hook that can run the Python contract, so a
-    policy edit otherwise lands only at the next --install; a running session
-    calls this instead. Idempotent and cheap. Returns the contract path when it
-    refreshed, else None."""
-    if not os.path.isfile(CONTRACT_SHA) or not contract_stale():
-        return None
-    path = opencode_contract()
-    always, full = skill_router_texts()
-    write_if_changed(SKILL_ROUTER, always)
-    write_if_changed(SKILL_ROUTER_FULL, full)
-    write_contract_sha()
-    return path
+    opencode has no session-start hook that can run the Python contract, so it
+    calls this once per session; `--refresh` is also the documented step after a
+    policy edit or a kill switch. It used to re-render opencode's files alone and
+    then reset the one shared hash, which left CLAUDE.md, AGENTS.md and RULES.md
+    stale while `--report` went green (audit M-5, INT-02), and a kill switch never
+    reached a static file at all (L-1). Every artifact is now re-rendered from
+    `static_core()` with its own writer. No-op before the first install (no sha
+    record). Returns the paths whose bytes changed."""
+    if not os.path.isfile(CONTRACT_SHA):
+        return []
+    hosts = tp.config().get("hosts") or []
+    return [path for path, (text, write) in contract_artifacts(hosts).items()
+            if write_artifact(path, text, write)]
 
 
 def skill_description(path):
@@ -1331,8 +1374,8 @@ def install_opencode():
     # write_if_changed: the router text depends on the skills tree, not on the
     # feature selection, so a repeated --disable renders the same bytes and must
     # leave both files (and their mtimes) alone.
-    write_if_changed(SKILL_ROUTER, always)
-    write_if_changed(SKILL_ROUTER_FULL, full)
+    write_artifact(SKILL_ROUTER, always, write_if_changed)
+    write_artifact(SKILL_ROUTER_FULL, full, write_if_changed)
     print("%s %s (always-on, %d chars)" % (OK, SKILL_ROUTER, len(always)))
     print("%s %s (on demand, %d chars)" % (OK, SKILL_ROUTER_FULL, len(full)))
     cfg = read_json(os.path.join(OPENCODE, "opencode.json"),
@@ -1844,15 +1887,49 @@ def codex_rules():
 # the always-on block there the way install_omp writes omp's RULES.md.
 CLAUDE_RULES = os.path.join(CLAUDE, "CLAUDE.md")
 
+# The hosts whose always-on contract is a managed block in a static rules file,
+# and where that file is. A lambda per row, because codex_rules() answers from
+# the disk (AGENTS.override.md wins when it exists).
+STATIC_RULES = {"claude": lambda: CLAUDE_RULES, "codex": codex_rules,
+                "omp": lambda: os.path.join(OMP_AGENT, "RULES.md")}
+
+
+def rules_block(host):
+    """The managed block one static-file host carries, rendered fresh."""
+    text = static_core() + ("\n\n" + OMP_LESSONS if host == "omp" else "")
+    return tezgah_context.render(text, (tp.roots() or [tp.DEFAULT_ROOT])[0])
+
+
+def write_rules(host):
+    """Render the host's block into its rules file and record its sha."""
+    path = STATIC_RULES[host]()
+    write_artifact(path, rules_block(host), set_managed_md)
+    return path
+
+
+def rules_current(host):
+    """True when the managed block in the host's rules file is, byte for byte,
+    a fresh render. A marker test alone stayed green over a block rendered from
+    an older policy, or one still carrying a rule a kill switch has since
+    removed (audit M-5). Only the block is compared: the user's own lines around
+    it are theirs."""
+    try:
+        with open(STATIC_RULES[host](), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return False
+    starts = [i for i, ln in enumerate(lines)
+              if ln.strip().startswith("<!-- tezgah:start -->")]
+    ends = [i for i, ln in enumerate(lines)
+            if ln.strip().startswith("<!-- tezgah:end -->")]
+    return (len(starts) == 1 and len(ends) == 1 and starts[0] < ends[0]
+            and "\n".join(lines[starts[0] + 1:ends[0]]) == rules_block(host).strip())
+
 
 def install_omp():
     print("\nomp:")
     mkdirp(OMP_AGENT)
-    root = (tp.roots() or [tp.DEFAULT_ROOT])[0]
-    rules = os.path.join(OMP_AGENT, "RULES.md")
-    set_managed_md(rules, tezgah_context.render(
-        tezgah_context.always_on_core() + "\n\n" + OMP_LESSONS, root))
-    print("%s %s (always-on contract)" % (OK, rules))
+    print("%s %s (always-on contract)" % (OK, write_rules("omp")))
     for s in SKILLS:
         print(link(os.path.join(HERE, "skills", s),
                    os.path.join(OMP_AGENT, "skills", s)))
@@ -1950,27 +2027,41 @@ def install_openresearch(hosts):
 # Tools an OPTIONAL FEATURE owns are not written here: `feature_deps()` reads
 # them from the registry row, so `--features` (which answers for the same key)
 # and this installer cannot disagree about what installing a feature means. Only
-# the tools no feature owns stay private. `--install` installs any that are
-# missing by default (`--no-deps` skips); each command is the vendor's own
-# documented installer and none needs sudo. dsh has no single installer, so the
-# documented first step - initializing its home profile through npx - stands in;
-# the first `dsh web` boot completes it.
+# the tools no feature owns stay private. `--install` installs the feature tools
+# that are missing by default (`--no-deps` skips); each command is the vendor's
+# own documented installer and none needs sudo. The private rows are third-party
+# HOST CLIs (`"host": True`): they install only under `--host-deps`, because the
+# README one-liner installed cursor-agent through `curl | bash` on machines that
+# never asked for the cursor host, and uninstall left it behind (audit M-9,
+# ENV-02). Without the flag the exact command is printed instead. dsh has no
+# single installer, so the documented first step - initializing its home profile
+# through npx - stands in; the first `dsh web` boot completes it.
 PRIVATE_DEPS = (
-    {"name": "cursor-agent",
+    {"name": "cursor-agent", "host": True,
      "probe": lambda: shutil.which("cursor-agent") or shutil.which("cursor"),
      "needs": ("curl", "bash"),
      "cmd": ["bash", "-c", "curl https://cursor.com/install -fsS | bash"],
      "why": "the cursor host"},
     # Before dsh: its profile plugins are managed with pnpm, so `dsh plugin`
     # cannot initialize a profile without it.
-    {"name": "pnpm", "probe": lambda: bool(shutil.which("pnpm")),
+    {"name": "pnpm", "host": True, "probe": lambda: bool(shutil.which("pnpm")),
      "needs": ("npm",), "cmd": ["npm", "install", "-g", "pnpm"],
      "why": "the dsh host and its web status line"},
-    {"name": "dsh", "probe": lambda: os.path.isdir(DSH), "needs": ("npx",),
+    {"name": "dsh", "host": True, "probe": lambda: os.path.isdir(DSH),
+     "needs": ("npx",),
      "cmd": ["npx", "-y", "@deepseek-ai/dsh", "plugin", "--profile", "web",
              "--version"],
      "why": "the dsh host; the first `dsh web` boot finishes it"},
 )
+# Set from `--host-deps` in main(): the one switch that lets install_deps run a
+# host CLI's installer, read there so the wizard path needs no extra argument.
+HOST_DEPS = False
+# Bounds on one installer. Without them a stalled network hung `--install` with
+# no end (killed at 240 s in the audit, GAP-06). The whole installer gets
+# DEP_TIMEOUT; each curl in a `sh -c` pipeline gets --max-time, so a stall inside
+# the pipe ends on its own instead of being orphaned by the kill.
+DEP_TIMEOUT = 600
+CURL_MAX_TIME = 300
 
 
 def feature_deps(only=None):
@@ -2024,6 +2115,23 @@ def dep_rows(only=None):
 def _dep_pretty(dep):
     cmd = dep["cmd"]
     return " ".join(cmd[2:]) if cmd[0] in ("sh", "bash") else " ".join(cmd)
+
+
+def _dep_argv(dep):
+    """The argv one installer runs with: a `sh -c`/`bash -c` pipeline runs
+    under `pipefail` and with a `--max-time` on each curl. Without pipefail a
+    refused `curl | sh` exits 0 (the empty `sh` succeeds) and the failure read
+    as a PATH problem (audit M-9, GAP-06). Debian's dash has no pipefail, so
+    the pipeline runs under bash whenever bash exists; a bare `sh` tries the
+    option and goes on without it."""
+    cmd = list(dep["cmd"])
+    if len(cmd) == 3 and cmd[0] in ("sh", "bash") and cmd[1] == "-c":
+        script = re.sub(r"\bcurl ", "curl --max-time %d " % CURL_MAX_TIME, cmd[2])
+        if shutil.which("bash"):
+            return ["bash", "-o", "pipefail", "-c", script]
+        return [cmd[0], "-c",
+                "(set -o pipefail) 2>/dev/null && set -o pipefail; " + script]
+    return cmd
 
 
 # The id `--devtools` is sugar for. It is a feature id, not a server name: one
@@ -2100,11 +2208,12 @@ def select_features(enabled, disabled, hosts, dry_run, deps_off=False):
     global FEATURES
     FEATURES = list(tezgah_apps.selected_ids(keep))
     print("features: %s" % (", ".join(FEATURES) or "none"))
+    still = []
     if enabled and not deps_off:
         # The dependency half of the enable side only. `only` keeps this to the
         # enabled ids: enabling one feature must not install every missing tool
         # on the machine.
-        install_deps(dry_run=dry_run, only=set(enabled))
+        still = install_deps(dry_run=dry_run, only=set(enabled))
     elif enabled:
         # --no-deps (and TEZGAH_NO_DEPS) covers this step too, or the escape
         # hatch would not reach the one path that installs on demand. The state
@@ -2122,7 +2231,7 @@ def select_features(enabled, disabled, hosts, dry_run, deps_off=False):
         for h in hosts:
             INSTALLERS[h]()
     features_report()
-    return 0
+    return 1 if still else 0
 
 
 # How each optional tool is installed on Windows, by channel: the package
@@ -2143,9 +2252,10 @@ def _install_deps_windows(only=None):
 
     The POSIX path runs the vendor's own installer; Windows has none of those
     pipelines to run, so this names the channel - npm, or the reason there is
-    none - for every tool that is missing and returns those names, the same
-    contract the POSIX path answers with, so `--install` can report what is
-    still missing instead of returning as if the step had completed."""
+    none - for every tool that is missing. It returns the names that have a
+    channel here (the POSIX contract: what is still missing fails the run); a
+    tool with no installer on this platform is reported with its manual step
+    and does not fail the run, or every Windows install would exit 1."""
     still = []
     rows = dep_rows(only)
     for dep in rows:
@@ -2160,9 +2270,13 @@ def _install_deps_windows(only=None):
             print("%s %s missing (%s); install with %s: %s"
                   % (NO, dep["name"], dep["why"], channel, how))
         else:
-            print("%s %s missing (%s); no Windows channel: %s"
-                  % (NO, dep["name"], dep["why"], how))
-        still.append(dep["name"])
+            print("%s %s unavailable on Windows (%s); no Windows channel: %s - "
+                  "install it by hand if you need it"
+                  % ("  --  ", dep["name"], dep["why"], how))
+        # Counted (non-zero exit) only with a channel on this platform, and a
+        # host CLI only when asked for (`--host-deps`, opt-in everywhere).
+        if channel and (HOST_DEPS or not dep.get("host")):
+            still.append(dep["name"])
     return still
 
 
@@ -2187,10 +2301,13 @@ def _dep_log(name, cmd):
 def install_deps(dry_run=False, only=None):
     """Install the missing optional tools with their own installers.
 
-    Auto (no prompt), no sudo, idempotent. `only` names features whose own rows
-    are added to the install-time table, which is how `--enable <id>` satisfies
-    that feature's runtime without pulling the runtime of every feature nobody
-    enabled. Returns the names still missing."""
+    Auto (no prompt), no sudo, idempotent, each installer bounded by
+    DEP_TIMEOUT. `only` names features whose own rows are added to the
+    install-time table, which is how `--enable <id>` satisfies that feature's
+    runtime without pulling the runtime of every feature nobody enabled. A host
+    CLI row runs only under `--host-deps`; otherwise its command is printed and
+    it is not counted. Returns the names still missing, which the callers turn
+    into a non-zero exit."""
     print("\ndependencies:")
     if os.name == "nt":
         return _install_deps_windows(only)
@@ -2202,6 +2319,11 @@ def install_deps(dry_run=False, only=None):
     still = []
     for dep in missing:
         name, pretty = dep["name"], _dep_pretty(dep)
+        if dep.get("host") and not HOST_DEPS:
+            print("%s %s missing (%s); a third-party host CLI is installed only "
+                  "with --host-deps - or run it yourself: %s"
+                  % ("  --  ", name, dep["why"], pretty))
+            continue
         helper = next((h for h in dep["needs"] if not shutil.which(h)), None)
         if helper:
             print("%s %s missing (%s) but `%s` is not on PATH - install that first"
@@ -2214,7 +2336,13 @@ def install_deps(dry_run=False, only=None):
         print("%s %s missing (%s); running: %s" % ("  --  ", name, dep["why"], pretty))
         _dep_log(name, pretty)
         try:
-            subprocess.run(dep["cmd"])
+            proc = subprocess.run(_dep_argv(dep), timeout=DEP_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            print("%s %s: installer still running after %d s (a stalled network?) "
+                  "- stopped; re-run when the network answers"
+                  % (NO, name, DEP_TIMEOUT))
+            still.append(name)
+            continue
         except OSError as exc:
             print("%s %s: %s" % (NO, name, exc))
             still.append(name)
@@ -2222,9 +2350,14 @@ def install_deps(dry_run=False, only=None):
         _augment_path()
         if dep["probe"]():
             print("%s %s installed" % (OK, name))
+        elif proc.returncode:
+            print("%s %s: installer failed with exit %d; its own error is printed "
+                  "above (a new shell will not fix it)"
+                  % (NO, name, proc.returncode))
+            still.append(name)
         else:
-            print("%s %s: installer ran but `%s` is still not found; open a new "
-                  "shell (PATH) and re-run" % (NO, name, name))
+            print("%s %s: installer exited 0 but `%s` is still not found; open a "
+                  "new shell (PATH) and re-run" % (NO, name, name))
             still.append(name)
     return still
 
@@ -2904,13 +3037,14 @@ UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
 def uninstall(hosts, dry_run=False):
     """Remove everything tezgah installed, then prove the removal.
 
-    The first thing a real run does is stand the tool gate down
+    The first thing a FULL run does is stand the tool gate down
     (`pretooluse-off`): an uninstall is itself a stream of destructive
     commands, and a gate left armed over them would turn the user's own
-    teardown into a series of refusals. A FULL run - one covering
-    every host config.json records as armed - then takes the state with it: the
-    generated config files and kill switches, both cache dirs, the Claude plugin
-    copy with its registry rows, and the versioned install tree. Nothing
+    teardown into a series of refusals. A partial run leaves the switch alone,
+    because the gate still guards the hosts that stay armed. A FULL run - one
+    covering every host config.json records as armed - then takes the state with
+    it: the generated config files and kill switches, both cache dirs, the Claude
+    plugin copy with its registry rows, and the versioned install tree. Nothing
     tezgah wrote outlives the command, and the verify pass at the end re-derives
     that from the disk.
 
@@ -2933,22 +3067,18 @@ def uninstall(hosts, dry_run=False):
         return 0
     mkdirp(tp.CONFIG_DIR)
     stand_down = os.path.join(tp.CONFIG_DIR, "pretooluse-off")
-    with open(stand_down, "w", encoding="utf-8") as fh:
-        fh.write("")
-    print("%s gate stood down (%s); this session will not be asked again"
-          % (OK, stand_down))
-    # H-2 (audit 2026-10-02): the switch tezgah's own uninstall writes must not
-    # outlive it for the hosts that stay armed. A partial run removes it again
-    # once the hosts it did touch are gone; a full run keeps it, because nothing
-    # is left to protect.
-    if not full:
-        try:
-            os.remove(stand_down)
-            print("%s gate stays armed for the hosts this run did not touch "
-                  "(removed %s)" % (OK, stand_down))
-        except OSError as exc:
-            print("%s could not clear %s (%s) - the gate may be off for the "
-                  "hosts that remain" % (NO, stand_down, exc))
+    # H-2 (audit 2026-10-02): `pretooluse-off` is a global switch, so a partial
+    # run that wrote it disarmed the gate for every host that stays armed. Only a
+    # full run stands the gate down; a partial run never touches the file, which
+    # also keeps a switch the user set themselves (the f38423b version wrote the
+    # file and then deleted it, taking the user's own switch with it).
+    if full:
+        with open(stand_down, "w", encoding="utf-8") as fh:
+            fh.write("")
+        print("%s gate stood down (%s); this session will not be asked again"
+              % (OK, stand_down))
+    else:
+        print("%s gate stays armed for the hosts this run does not touch" % OK)
     print("uninstalling for: %s (%s run)\n"
           % (", ".join(hosts) or "none detected", "full" if full else "partial"))
     uninstall_common()
@@ -2973,8 +3103,12 @@ def uninstall(hosts, dry_run=False):
             print("?    %s" % p)
         print("predecessor wiring is still present; `tezgah-setup --adopt` "
               "retires it.")
+    # Only a git checkout has a dev config to explain: an npm or release tree
+    # that happens to carry the file is not the source tree, and the note told
+    # an npm user about a checkout they do not have (audit L-12, ENV-10).
     dev_mcp = os.path.join(HERE, MCP_JSON)
-    if TEZGAH_MCP_NAME in json.dumps(read_json(dev_mcp, {}).get("mcpServers", {})):
+    if os.path.exists(os.path.join(HERE, ".git")) and TEZGAH_MCP_NAME in json.dumps(
+            read_json(dev_mcp, {}).get("mcpServers", {})):
         print("note: this checkout's own %s registers the tezgah MCP server for "
               "sessions run inside the checkout - it is the source tree's dev "
               "config, not an install artifact." % MCP_JSON)
@@ -3285,8 +3419,12 @@ def report(hosts):
     ]
     for label, good in rows:
         print("  %s %s" % (OK if good else NO, label))
-    if contract_stale():
-        print("  %s %s" % (NO, "opencode contract stale - re-run --install"))
+    # One row per artifact whose recorded sha is not a fresh render's: the shared
+    # hash this replaced was reset by opencode's own refresh, so a stale CLAUDE.md,
+    # AGENTS.md or RULES.md never showed here (audit M-5).
+    for path in stale_artifacts(tp.config().get("hosts") or []):
+        print("  %s always-on contract stale: %s - run `tezgah-setup --refresh`"
+              % (NO, path))
     pred = predecessors()
     if pred:
         print("\npredecessor wiring still present (retire with --adopt):")
@@ -3366,8 +3504,8 @@ def host_checks_claude():
         # machine with no tezgah plugin at all is not a check.
         ("plugin copy current (every copied file matches)",
          bool(copies) and all(plugin_copy_current(t) for t in copies)),
-        ("CLAUDE.md carries the contract",
-         not _text_clean(CLAUDE_RULES, "<!-- tezgah:start")[0]),
+        ("CLAUDE.md carries the contract (matches a fresh render)",
+         rules_current("claude")),
     ] + claude_mcp_rows(copies)
 
 
@@ -3498,29 +3636,36 @@ def _hooks_has(path, marker, events=None):
 def _codex_hooks_trusted(hooks_path, toml):
     """True when Codex's own trust table covers tezgah's hook group.
 
-    Codex records one `hooks.state."<path>:<event>:<group>:0"` key per trusted
-    hook command. tezgah cannot compute the hash Codex stores, but it can read
-    which group indices its own `hooks.json` holds and check that a state key
-    exists for each of them: a wired-but-untrusted group is the silent disarm
-    this row exists to surface. Anything unreadable reads as untrusted, never as
-    ok."""
+    Codex records one `[hooks.state."<hooks.json path>:<event>:<group>:<hook>"]`
+    table per trusted hook command, the event in snake case (`pre_tool_use`),
+    as read from a live ~/.codex/config.toml. tezgah cannot compute the hash
+    Codex stores, but it can read which group indices its own `hooks.json` holds
+    and check that a state key exists for each of them: a wired-but-untrusted
+    group is the silent disarm this row exists to surface. The key carries the
+    file path, so a trusted group 1 in another project's hooks.json cannot pass
+    for this one. Anything unreadable, and a file with no tezgah group at all,
+    reads as untrusted, never as ok."""
     try:
         with open(hooks_path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
         return False
     events = data.get("hooks") if isinstance(data, dict) else None
-    if not isinstance(events, dict) or "[hooks.state]" not in toml:
+    if not isinstance(events, dict):
         return False
+    paths = {os.path.abspath(hooks_path), os.path.realpath(hooks_path)}
+    found = False
     for event, groups in events.items():
         if not isinstance(groups, list):
             continue
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", event).lower()
         for index, group in enumerate(groups):
             if "tezgah" not in json.dumps(group):
                 continue
-            if ("%s:%d:0" % (event, index)) not in toml:
+            found = True
+            if not any('"%s:%s:%d:0"' % (p, snake, index) in toml for p in paths):
                 return False
-    return True
+    return found
 
 
 def host_checks_codex():
@@ -3547,8 +3692,8 @@ def host_checks_codex():
         ("skills linked%s" % where,
          skills_linked(os.path.join(CODEX, "skills"))),
         ("MCP in config.toml", "mcp_servers.codegraph" in toml),
-        ("%s carries the contract" % os.path.basename(codex_rules()),
-         not _text_clean(codex_rules(), "<!-- tezgah:start")[0]),
+        ("%s carries the contract (matches a fresh render)"
+         % os.path.basename(codex_rules()), rules_current("codex")),
     ] + mcp_rows(toml_servers(toml_path), "config.toml") + [
         mcp_row(TEZGAH_MCP_NAME, toml_mcp_entry(toml_path, TEZGAH_MCP_NAME),
                 "config.toml", tezgah_mcp_command()),
@@ -3670,12 +3815,6 @@ def omp_hook_answers():
 
 
 def host_checks_omp():
-    rules = os.path.join(OMP_AGENT, "RULES.md")
-    try:
-        with open(rules, encoding="utf-8") as fh:
-            rules_text = fh.read()
-    except OSError:
-        rules_text = ""
     hook_path = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
     try:
         with open(hook_path, encoding="utf-8") as fh:
@@ -3689,10 +3828,11 @@ def host_checks_omp():
                if n.startswith("tezgah-") and n.endswith(".md")]
               if os.path.isdir(agents_dir) else [])
     rows = [
-        ("RULES.md carries the contract",
-         "tezgah:start" in rules_text and "Ponytail" in rules_text),
-        ("skill metadata band present", "Ponytail" in rules_text),
-        ("output-shape rule present", "ADHD-friendly" in rules_text),
+        # the byte comparison covers the two marker rows that stood here
+        # ("Ponytail", "ADHD-friendly"): a kill switch now removes those
+        # paragraphs on purpose, and a present-but-stale block passed them
+        ("RULES.md carries the contract (matches a fresh render)",
+         rules_current("omp")),
         ("skills linked", skills_linked(os.path.join(OMP_AGENT, "skills"))),
         ("subagents generated", len(agents) >= 4),
         ("MCP in mcp.json", "codegraph" in servers),
@@ -3800,10 +3940,16 @@ def managed(rel):
     matched by .gitignore's `/.tezgah/`, which only matches a directory: git
     lists the link as one entry, `tree_sha` cannot read it, and without this
     every copy reported stale. The directory case is excluded here too, so the
-    rule does not depend on which shape the workspace has."""
+    rule does not depend on which shape the workspace has.
+
+    The checkout's own `.mcp.json` is its dev config: its tezgah row names the
+    maintainer's clone (`${HOME}/Projects/tezgah/bin/tezgah-mcp`), and a copy
+    gets its own render from `sync()` anyway. Listed, it rode the MANIFEST into
+    the release tarball and pointed an opened release tree at a path that is
+    not there (audit L-12, SEC-12)."""
     return (bool(rel) and rel != ".tezgah" and not rel.startswith(".tezgah/")
-            and rel != MANIFEST and not rel.endswith(".tezgah-bak")
-            and "__pycache__" not in rel)
+            and rel != MANIFEST and rel != MCP_JSON
+            and not rel.endswith(".tezgah-bak") and "__pycache__" not in rel)
 
 
 def plugin_files():
@@ -3998,8 +4144,15 @@ def plugin_copy_current(target):
     Both directions are compared: a listed file missing from the copy is caught
     by the hash (`tree_sha` returns None for an unreadable source), and a file
     the copy holds and the checkout does not is caught by the listing, which is
-    the direction a hash over existing relpaths can never see."""
-    files = [f for f in plugin_files() or [] if f not in PLUGIN_ROOT_FILES]
+    the direction a hash over existing relpaths can never see.
+
+    The listing is cut to the files this tree really holds, the same files
+    `sync()` copies: the MANIFEST names every tracked path, but the npm package
+    ships a subset (no `bin/*.py` twin symlinks, no `.github/`, ~143 entries),
+    so on an npm install `tree_sha(HERE)` was always None, the row could never
+    pass and every `--install` re-copied the plugin (audit M-11b, QA-2)."""
+    files = [f for f in plugin_files() or []
+             if f not in PLUGIN_ROOT_FILES and os.path.isfile(os.path.join(HERE, f))]
     if not files:
         return False
     want = tree_sha(HERE, files)
@@ -4327,10 +4480,10 @@ def unarmed_new_hosts(armed, before, after):
 def install_all(hosts, new_roots, deps_off, dry_run, redetect):
     """The one install path, shared by `--install` and the wizard: the wizard
     decides the answers, never how they are applied."""
-    late = []
+    late, still = [], []
     if not deps_off:
         before = detected_hosts()
-        install_deps(dry_run=dry_run)
+        still = install_deps(dry_run=dry_run)
         if redetect:
             # a just-installed tool can enable a host we did not detect at start
             hosts = detected_hosts()
@@ -4356,9 +4509,16 @@ def install_all(hosts, new_roots, deps_off, dry_run, redetect):
     refresh_plugin_copy(hosts)
     print()
     if deps_off:
-        print("(deps skipped; run `tezgah-setup --deps` to install orx, "
-              "cursor-agent and dsh)")
-    return report(hosts)
+        print("(deps skipped; run `tezgah-setup --deps` to install orx, and "
+              "`--deps --host-deps` for cursor-agent, pnpm and dsh)")
+    report(hosts)
+    # A requested tool that is still missing is a failed step, not a footnote:
+    # the run used to exit 0 after a refused download (audit M-9, GAP-06).
+    if still:
+        print("\n%s still missing: %s (see `dependencies:` above)"
+              % (NO, ", ".join(still)))
+        return 1
+    return 0
 
 
 def main(argv):
@@ -4369,7 +4529,8 @@ def main(argv):
     ap.add_argument("--report", action="store_true",
                     help="report what is armed, per host (a bare run on a pipe does this)")
     ap.add_argument("--refresh", action="store_true",
-                    help="re-render generated contract artifacts when the policy changed")
+                    help="re-render every always-on contract file of the armed "
+                         "hosts (after a policy edit or a kill switch)")
     ap.add_argument("--uninstall", action="store_true")
     ap.add_argument("--adopt", action="store_true")
     ap.add_argument("--sync", action="store_true")
@@ -4382,6 +4543,10 @@ def main(argv):
     ap.add_argument("--mcp-schemas", action="store_true",
                     help="measure the MCP tool-schema band by asking each server")
     ap.add_argument("--no-deps", action="store_true")
+    ap.add_argument("--host-deps", action="store_true",
+                    help="also install the missing third-party host CLIs "
+                         "(cursor-agent, pnpm, dsh); without it their commands "
+                         "are printed, not run")
     ap.add_argument("--devtools", action="store_true",
                     help="sugar for --enable %s" % DEVTOOLS_FEATURE)
     ap.add_argument("--features", action="store_true",
@@ -4427,7 +4592,9 @@ def main(argv):
             "`tezgah-setup --upgrade VERSION`\n")
         return 2
     args = ap.parse_args(argv[1:])
-    global FEATURES, INSTALL_PREFIX
+    global FEATURES, INSTALL_PREFIX, HOST_DEPS
+    HOST_DEPS = args.host_deps
+    select_code = 0
     # --devtools is --enable <id> and nothing else: one code path, so the flag
     # cannot reach the selection in a way the explicit command does not.
     enable = args.enable or (DEVTOOLS_FEATURE if args.devtools else None)
@@ -4456,8 +4623,11 @@ def main(argv):
         features_report()
         return 0
     if args.refresh:
-        path = refresh_contract()
-        print("%s refreshed %s" % (OK, path) if path else "contract is current")
+        paths = refresh_contract()
+        for path in paths:
+            print("%s refreshed %s" % (OK, path))
+        if not paths:
+            print("contract is current")
         return 0
     if args.write_manifest:
         return write_manifest()
@@ -4473,8 +4643,7 @@ def main(argv):
             print("%s%s" % (NO, label))
         return 0
     if args.deps and not args.install:
-        install_deps(dry_run=args.dry_run)
-        return 0
+        return 1 if install_deps(dry_run=args.dry_run) else 0
     if args.mcp_schemas:
         mcp_schema_report()
         return 0
@@ -4516,11 +4685,13 @@ def main(argv):
         # to cover this path too, since this is the one that installs on demand
         deps_off = args.no_deps or os.environ.get("TEZGAH_NO_DEPS",
                                                   "").strip() not in ("", "0")
-        code = select_features(picked, dropped,
-                               hosts if args.hosts else (recorded or hosts),
-                               args.dry_run, deps_off)
-        if code or not (args.install or args.report):
-            return code
+        select_code = select_features(picked, dropped,
+                                      hosts if args.hosts else (recorded or hosts),
+                                      args.dry_run, deps_off)
+        # a missing dependency of an enabled feature fails the run, but an
+        # `--install` beside it still arms the hosts first
+        if not (args.install or args.report):
+            return select_code
 
     # --adopt retires the predecessor wiring before an install, but under the
     # wizard it waits: the wizard asks about it and adopts only after the yes, so
@@ -4550,11 +4721,13 @@ def main(argv):
             return 1
 
     if args.install:
-        return install_all(hosts, new_roots, deps_off, args.dry_run, redetect=not args.hosts)
+        return (install_all(hosts, new_roots, deps_off, args.dry_run,
+                            redetect=not args.hosts) or select_code)
 
     if args.roots:
         sys.exit("--roots only means something with --install")
-    return report(hosts)
+    report(hosts)
+    return select_code
 
 
 def hosts_row():

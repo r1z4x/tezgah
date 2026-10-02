@@ -91,7 +91,11 @@ def writable_dir(path):
     A sandboxed host denies this outside the workspace; callers use it to pick a
     writable state dir instead of failing on the first write."""
     try:
-        os.makedirs(path, exist_ok=True)
+        # The cache holds ledgers and pre-write snapshots of the user's files, so
+        # a dir tezgah creates is owner-only; audit SEC-05 measured 0755 from the
+        # default umask. makedirs applies the mode to the leaf it creates, and an
+        # existing dir keeps the mode the user gave it.
+        os.makedirs(path, mode=0o700, exist_ok=True)
         # The probe name is unique per call (pid + random). A fixed name made two
         # concurrent probes share one file: the sibling's remove deleted it under
         # the first probe, whose remove then failed and read the dir as
