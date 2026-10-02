@@ -672,6 +672,38 @@ class ScratchEvidenceReader(unittest.TestCase):
             self.seed(self.passed(command))
             self.assertIsNone(self.command(), command)
 
+    def test_a_word_that_names_a_check_is_not_a_check(self):
+        # audit M-1: `echo pytest` was recorded as verify_ok and let a "done, all
+        # tests pass" reply through; the check word has to be the command
+        for command in ("echo pytest", "cat pytest.ini", 'grep -n "pytest" x',
+                        "printf pytest", "man pytest"):
+            self.assertIsNone(ti.verify_command(command), command)
+        # the wrappers a real check arrives behind still count
+        for command in ("sudo pytest -q", "env CI=1 pytest -q",
+                        "cd /tmp && pytest -q", "time pytest -q"):
+            self.assertIsNotNone(ti.verify_command(command), command)
+
+    def test_the_gate_reads_a_large_command_in_linear_time(self):
+        # audit H-3: the secret pattern rescanned from every start position, so
+        # 100 KB took 174 s and the 5 s hook budget expired before the deny. The
+        # gate's own half of the pair is timed in test_gate; this is the one
+        # `redact()` uses on every ledger row.
+        probe = "api_key" + "=" + "x"
+        small = "echo " + "X" * 50000 + " " + probe
+        big = "echo " + "X" * 100000 + " " + probe
+        start = time.monotonic()
+        small_out, small_s = ti.redact(small), time.monotonic() - start
+        start = time.monotonic()
+        big_out = ti.redact(big)
+        big_s = time.monotonic() - start
+        self.assertIn("api_key=[redacted:", small_out or "")
+        self.assertIn("api_key=[redacted:", big_out or "")
+        # doubling the input must roughly double the time, not square it: the
+        # quadratic form took 4.03 s at 16 KB and 174 s at 100 KB (audit H-3)
+        self.assertLess(big_s, max(0.2, small_s * 3),
+                        "50 KB %.3fs -> 100 KB %.3fs is not linear"
+                        % (small_s, big_s))
+
     def test_the_impacted_runner_is_a_check(self):
         for command in ("python3 tests/impacted.py --run hooks/x.py",
                         "python3 tests/impacted.py --all"):

@@ -1453,18 +1453,37 @@ function labelResult(output, notice) {
 }
 
 function expand(p) {
-  return String(p || "").replace(/^~(?=$|\/)/, HOME)
+  return String(p || "").trim().replace(/^~(?=$|\/)/, HOME)
 }
 
-async function roots() {
-  if (process.env.TEZGAH_ROOTS) {
-    return process.env.TEZGAH_ROOTS.split(":").map(expand).filter(Boolean)
-  }
+// The path with its symlinks resolved, as `tezgah_paths.roots()`/`root_for`
+// compare: opencode reports its directory resolved (`/private/tmp/...` for a
+// `/tmp` root on macOS), so an unresolved root never matched and the plugin went
+// inert. A path that does not exist is compared as written.
+function real(p) {
   try {
-    const cfg = JSON.parse(await readFile(join(CONFIG, "config.json"), "utf8"))
-    if (Array.isArray(cfg.roots) && cfg.roots.length) return cfg.roots.map(expand)
-  } catch {}
-  return [join(HOME, "Projects")]
+    return realpathSync(p)
+  } catch {
+    return p
+  }
+}
+
+// `"roots"` is a list; a string is one root and anything else the default -
+// the reading `tezgah_paths.roots()` does.
+async function roots() {
+  let raw = []
+  if (process.env.TEZGAH_ROOTS) {
+    raw = process.env.TEZGAH_ROOTS.split(":")
+  } else {
+    try {
+      const cfg = JSON.parse(await readFile(join(CONFIG, "config.json"), "utf8"))
+      const r = typeof cfg.roots === "string" ? [cfg.roots]
+        : Array.isArray(cfg.roots) ? cfg.roots : []
+      raw = r.filter(p => typeof p === "string" && p.trim())
+    } catch {}
+    if (!raw.length) raw = [join(HOME, "Projects")]
+  }
+  return [...new Set(raw.map(expand).filter(Boolean).map(real))]
 }
 
 function under(dir, root) {
@@ -1472,7 +1491,8 @@ function under(dir, root) {
 }
 
 async function rootFor(dir) {
-  for (const r of await roots()) if (under(dir, r)) return r
+  const d = real(expand(dir))
+  for (const r of await roots()) if (under(d, r)) return r
   return null
 }
 

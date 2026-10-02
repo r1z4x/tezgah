@@ -318,7 +318,63 @@ CORE_RULES = (
                 "finding.**"),
     ("attribution", "**No AI attribution, ever, on any host.**"),
     ("lang", "**Identifiers and messages stay English.**"),
+    ("workspace", "**Workspace: `.tezgah/` only.**"),
 )
+
+# The per-turn reminder's clause for each switchable rule, matched against
+# PROMPT_REMINDER with its whitespace collapsed. A kill switch drops its clause
+# here as it drops its paragraph from CORE; a test pins every clause to the
+# reminder text, so an edit there fails loudly instead of leaving the clause in.
+REMINDER_CLAUSES = (
+    ("exec", "reply Turkish, BLUF, "),
+    ("adhd", "answer first - no recap, no closer, at most five ranked items; "),
+    ("ponytail", "code minimal per ponytail (code first, <=3 note lines); "),
+    ("spec", "underspecified/quality asks -> write a checkable spec with a named "
+             "standard, never guess; "),
+    ("lessons", ".tezgah/lessons.md lines are standing constraints; "),
+    ("graph", '"who calls X"/"what breaks" -> `codegraph callers` / '
+              "`codegraph affected`, not grep alone; "),
+    ("consult", "consult before irreversible calls; "),
+    ("research", "research -> orx/OpenResearch, not ad-hoc; "),
+    ("integrity", re.compile(r'done/tested claims need observed evidence -> .*?'
+                             r'unverified "done"; ')),
+)
+
+
+def dropped_switches(cwd=""):
+    """The rule keys whose kill switch is armed, for the reminder filter.
+
+    The names are the contract's own kill switches (see the policy text's list):
+    most are `<rule>-off`, and the three that are not are named here. The
+    reminder is built per turn, so this is the one surface that can drop a
+    disabled rule's clause without re-rendering a static file (audit L-1)."""
+    names = {"exec": "exec-mode.off", "ponytail": "ponytail-auto.off",
+             "adhd": "adhd-off", "spec": "spec-off", "lessons": ".no-lessons",
+             "graph": ".no-graph", "consult": "consult-off",
+             "research": "research-off", "integrity": "verify-off"}
+    keys = set()
+    for key in names:
+        try:
+            if key == "lessons" or key == "graph":
+                # a repo-level mark, not a config switch: read from the cwd
+                mark = os.path.join(cwd or os.getcwd(), names[key])
+                if os.path.exists(mark):
+                    keys.add(key)
+            elif off(names[key]):
+                keys.add(key)
+        except Exception:
+            continue
+    return keys
+
+
+def prompt_reminder(drop=()):
+    """PROMPT_REMINDER with the clause of every rule in `drop` removed."""
+    text = " ".join(PROMPT_REMINDER.split())
+    for key, clause in REMINDER_CLAUSES:
+        if key in drop:
+            text = (clause.sub("", text, count=1) if hasattr(clause, "sub")
+                    else text.replace(clause, "", 1))
+    return text
 
 
 def render(text, root=""):
@@ -569,7 +625,7 @@ def _plan_row(path):
     cannot be read. One reader for the injected plan line, and for the id a
     compaction record counts as a surviving constraint."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read().splitlines()
     except OSError:
         return None
@@ -688,7 +744,7 @@ def _plan_facts(path):
     so the newest one is the last: the first is the stalest, and reading it named
     a plan whose only open item was its review "Not started"."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             lines = fh.read().splitlines()
     except OSError:
         return "", ""
@@ -790,7 +846,8 @@ LESSON_CHARS = 200
 def _lesson_lines(root):
     """The lesson ledger as entries: one per line, markdown bullets stripped."""
     try:
-        with open(os.path.join(root, ".tezgah", "lessons.md"), encoding="utf-8") as fh:
+        with open(os.path.join(root, ".tezgah", "lessons.md"), encoding="utf-8",
+                  errors="replace") as fh:
             raw = fh.read().splitlines()
     except OSError:
         return []
@@ -984,12 +1041,9 @@ def audit_classification(matched, length):
         pass
 
 
-def core_split(cwd):
-    """(always-on text, {key: paragraph}, disabled) after kill-switch filtering.
-
-    The conditional paragraphs (tezgah_policy.CONDITIONAL_KEYS) come back
-    separately so a host can arm them for the one prompt whose task class
-    matches, instead of paying their text every session."""
+def switches(cwd):
+    """(drop, disabled): the CORE_RULES keys the armed kill switches remove, and
+    the switch names, in the order the off-note lists them."""
     _, marks = repo_marks(cwd)
     drop, disabled = set(), []
     if off("exec-mode.off"):
@@ -1025,9 +1079,22 @@ def core_split(cwd):
     if off("lang-off"):
         drop.add("lang")
         disabled.append("lang-off")
+    if off("workspace-off"):
+        drop.add("workspace")
+        disabled.append("workspace-off")
     if ".no-graph" in marks:
         drop.add("graph")
         disabled.append(".no-graph")
+    return drop, disabled
+
+
+def core_split(cwd):
+    """(always-on text, {key: paragraph}, disabled) after kill-switch filtering.
+
+    The conditional paragraphs (tezgah_policy.CONDITIONAL_KEYS) come back
+    separately so a host can arm them for the one prompt whose task class
+    matches, instead of paying their text every session."""
+    drop, disabled = switches(cwd)
     always, conditional = [], {}
     for paragraph in CORE.split("\n\n"):
         key = next((k for k, label in CORE_RULES if paragraph.startswith(label)),
@@ -1330,7 +1397,7 @@ def context_for(event, cwd, payload=None, with_core=True):
         # only on the turn whose prompt matches their task class.
         if off("reminder-off"):
             return None
-        parts = [("reminder", render(PROMPT_REMINDER.strip()))]
+        parts = [("reminder", render(prompt_reminder(dropped_switches(cwd))))]
         if prompt:
             _always, conditional, _dis = core_split(cwd)
             matched = classify_prompt(prompt)
@@ -1846,7 +1913,7 @@ def plan_mark(cwd, base):
             blocked = 0
             for f in plans:
                 try:
-                    with open(f, encoding="utf-8") as fh:
+                    with open(f, encoding="utf-8", errors="replace") as fh:
                         blocked += "status: blocked" in fh.read(400)
                 except OSError:
                     pass
@@ -1873,12 +1940,15 @@ RESET = "\033[0m"
 # One icon per mark, drawn only where color is: a colored surface is a terminal
 # or a UI that renders the line as it is, so the icon reads the way omp's own
 # footer reads (`◒ model > 📁 dir > ⑂ branch`). Every icon is a text-presentation
-# symbol of East Asian width Neutral - never an emoji - so a terminal counts it
-# as one cell and the line does not overflow its width. The plain line (pipes,
+# symbol of East Asian width Neutral or Ambiguous (▶, ◎) - never Wide, never an
+# emoji - so a terminal counts it as one cell and the line does not overflow its
+# width (a CJK terminal that draws Ambiguous two cells wide is the exception).
+# ☰ was Neutral up to Unicode 15 and is Wide from Unicode 16 (Python 3.14), so
+# plans takes ⋮. The plain line (pipes,
 # Codex's systemMessage, omp's setStatus fallback) keeps its exact old shape.
 ICONS = {"pony": "\u2702", "exec": "\u25b6", "adhd": "\u25ce",
          "consult": "\u2696", "research": "\u2697", "graph": "\u232c",
-         "orch": "\u2387", "judge": "\u2691", "idx": "\u2315", "plans": "\u2630"}
+         "orch": "\u2387", "judge": "\u2691", "idx": "\u2315", "plans": "\u22ee"}
 # The head is the logo itself (assets/logo/tezgah-logo.svg): an amber worktop
 # over one central support, which reads as the letter t. Three upper half blocks
 # draw the worktop in the logo's top-face amber (#FFC55C); the middle one's

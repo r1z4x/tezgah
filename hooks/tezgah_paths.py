@@ -165,9 +165,17 @@ def ai_research_dir():
 
 
 def roots():
-    """Configured roots as absolute real paths, longest (most specific) first."""
+    """Configured roots as absolute real paths, longest (most specific) first.
+
+    `"roots"` is a list; a string is taken as one root and anything else as the
+    default. A string iterated as a list armed `~` (all of HOME) and `.` (cwd)."""
     env = os.environ.get("TEZGAH_ROOTS")
-    raw = env.split(os.pathsep) if env else (config().get("roots") or [DEFAULT_ROOT])
+    if env:
+        raw = env.split(os.pathsep)
+    else:
+        raw = config().get("roots")
+        raw = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else []
+        raw = [p for p in raw if isinstance(p, str) and p.strip()] or [DEFAULT_ROOT]
     out = set()
     for p in raw:
         p = os.path.expanduser((p or "").strip())

@@ -11,6 +11,12 @@ import support
 from support import TempHome, run_json
 
 
+def write_bytes(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(data)
+
+
 class ContextFor(TempHome):
     def call(self, payload, env=None):
         return run_json([support.PROBE_CONTEXT], payload, env=env or self.env())
@@ -220,6 +226,9 @@ class HealthLines(TempHome):
                 self.assertEqual(width, len(bare))
                 self.assertFalse([c for c in bare if unicodedata.east_asian_width(c)
                                   in ("W", "F")], bare)
+        # every icon, not only the ones these segments draw; ☰ turned Wide in UCD 16
+        self.assertFalse({k: c for k, c in tc.ICONS.items()
+                          if unicodedata.east_asian_width(c) in ("W", "F")})
         full, short, compact, narrow = [t[0] for t in tc.render_tiers(segs, color=True)]
         # the logo names the product: a colored head is the logo and the dim
         # version, never the word "tezgah"
@@ -227,7 +236,7 @@ class HealthLines(TempHome):
         self.assertNotIn("tezgah", tc._ANSI.sub("", full))
         self.assertNotIn("v9.9.9", short)
         self.assertIn("pony", short)                      # names outlive the version
-        self.assertIn("\u2630" + "13", compact)          # the plans count stays
+        self.assertIn(tc.ICONS["plans"] + "13", compact)  # the plans count stays
         self.assertNotIn("pony", compact)                 # the icon names it
         self.assertNotIn("tezgah", narrow)                # the logo alone heads it
         # the plain line keeps its exact old shape at full width
@@ -884,6 +893,20 @@ class LessonsLedger(TempHome):
         self.assertNotIn("project-knowledge.md", self.session(repo))
         self.touch(os.path.join(repo, ".tezgah", "analysis", "project-knowledge.md"))
         self.assertIn("project-knowledge.md", self.session(repo))
+
+    def test_a_non_utf8_byte_costs_one_line_not_the_context(self):
+        # One stray byte raised UnicodeDecodeError (a ValueError, not OSError)
+        # out of the reader and the whole injected context came back empty.
+        repo = self.make_repo()
+        write_bytes(os.path.join(repo, ".tezgah", "lessons.md"),
+                    b"- valid lesson\n\xff\xfe bad byte\n")
+        write_bytes(os.path.join(repo, ".tezgah", "plans", "open", "001-bad.md"),
+                    b"---\nid: 001\ntitle: Bad plan \xff\n---\n")
+        out = self.session(repo)
+        self.assertIn("- valid lesson", out)
+        self.assertIn("bad byte", out)
+        self.assertIn("Bad plan", out)
+        self.assertIn("**Ponytail (minimal code).**", out)
 
 
 class ChildCall(TempHome):
@@ -1802,6 +1825,14 @@ class StatusCli(TempHome):
         repo = self.make_repo()
         self.assertIn("\033[", self.status(repo, "--color").stdout)
         self.assertNotIn("\033[", self.status(repo, "--no-color").stdout)
+
+    def test_a_non_utf8_plan_does_not_crash_the_status(self):
+        repo = self.make_repo()
+        write_bytes(os.path.join(repo, ".tezgah", "plans", "open", "001-bad.md"),
+                    b"---\nid: 001\nstatus: blocked\n---\n\xff\n")
+        proc = self.status(repo, "--no-color")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("plans 1 (1 blk)", proc.stdout)
 
 
 class ArmingConformance(TempHome):

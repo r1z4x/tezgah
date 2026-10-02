@@ -215,11 +215,9 @@ class CursorHook(TempHome):
         self.assertTrue(out["reason"])
 
     def test_stop_refuses_a_done_claim_whose_check_reported_no_outcome(self):
-        # Cursor hands this hook no exit code on a successful call - only
-        # `postToolUseFailure` carries a failure - so a shell check is recorded
-        # as one that RAN. The Stop rule is the one every host runs: a "done"
-        # the session cannot evidence does not end the turn, and the honest
-        # spelling passes on the same evidence.
+        # A shell result with no `exitCode` in `tool_output` is a check that
+        # RAN, never one that passed: a "done" the session cannot evidence does
+        # not end the turn, and the honest spelling passes on the same evidence.
         self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
                    "conversation_id": "s", "tool_name": "Shell",
                    "tool_input": {"command": "pytest -q"}})
@@ -228,6 +226,17 @@ class CursorHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertTrue(out["reason"])
         self.response("Doğrulanmadı.")
+        self.assertEqual(self.stop(), {})
+
+    def test_stop_passes_a_done_claim_its_exit_zero_check_backs(self):
+        # The exit code Cursor documents inside `tool_output` is the outcome
+        # the other hosts read from their own payloads, so a passing pytest
+        # licenses the claim here exactly as it does on Claude, Codex and omp.
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "pytest -q"},
+                   "tool_output": '{"exitCode":0,"stdout":"5 passed"}'})
+        self.response("Done. All tests pass.")
         self.assertEqual(self.stop(), {})
 
     def test_stop_passes_a_claim_free_answer(self):
@@ -387,7 +396,7 @@ class CursorEvidence(TempHome):
                   event="afterShellExecution", output="")
         ran, empty = self.rows()
         self.assertEqual((ran["kind"], ran["out_bytes"]),
-                         ("verify", len(result)))
+                         ("verify_ok", len(result)))
         self.assertEqual((empty["kind"], empty["out_bytes"]), ("verify", 0))
         self.assertNotIn("All tests passed", json.dumps(self.rows()))
 
@@ -417,6 +426,101 @@ class CursorEvidence(TempHome):
         self.assertEqual([r["kind"] for r in rows],
                          ["interrupted", "interrupted"])
         self.assertNotIn("exit", rows[0])
+
+    def test_the_exit_code_in_tool_output_is_the_shell_outcome(self):
+        # Cursor carries a shell call's status inside `tool_output`
+        # (`{"exitCode": N, ...}`), and a non-zero exit still arrives on
+        # postToolUse - the call ran. The row is a pass or a failure by that
+        # code alone; a shell result without one stays a check that RAN.
+        self.call("Shell", {"command": "pytest -q"},
+                  tool_output='{"exitCode":1,"stdout":"1 failed"}')
+        self.call("Shell", {"command": "pytest -q"},
+                  tool_output='{"exitCode":0,"stdout":"5 passed"}')
+        self.call("Shell", {"command": "pytest -q"}, tool_output="5 passed")
+        self.assertEqual([r["kind"] for r in self.rows()],
+                         ["verify_fail", "verify_ok", "verify"])
+
+
+class CrossHostStopAgreement(TempHome):
+    """One sequence, one verdict on every host that reports a call's outcome:
+    a pytest run, then a Stop on "Tamamlandı, tüm testler geçti.". Each host
+    is driven through its own adapter in its own payload shape; a passing run
+    must license the claim on all four and a failing one must refuse it on all
+    four. dsh is left out on purpose: its bridge drops the outcome
+    (`TEZGAH_CALL_OUTCOME=none` in hosts/dsh/hooks.json), so every check there
+    is one that ran and the claim is always refused."""
+
+    CLAIM = "Tamamlandı, tüm testler geçti."
+    CHECK = {"command": "python3 -m pytest -q"}
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+
+    def hook(self, script, payload):
+        out, proc = run_json([script], payload, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out or {}
+
+    def claude(self, sid, passed):
+        self.hook(support.POSTTOOLUSE, {
+            "hook_event_name": "PostToolUse" if passed else "PostToolUseFailure",
+            "cwd": self.repo, "session_id": sid, "tool_name": "Bash",
+            "tool_input": self.CHECK,
+            "tool_response": {"stdout": "5 passed" if passed else "1 failed",
+                              "stderr": "", "interrupted": False}})
+        return self.hook(support.STOP_HOOK, {
+            "hook_event_name": "Stop", "cwd": self.repo, "session_id": sid,
+            "last_assistant_message": self.CLAIM})
+
+    def codex(self, sid, passed):
+        self.hook(support.CODEX_HOOK, {
+            "hook_event_name": "PostToolUse", "cwd": self.repo,
+            "session_id": sid, "tool_name": "exec_command",
+            "tool_input": self.CHECK,
+            "tool_response": {"exit_code": 0 if passed else 1,
+                              "output": "5 passed" if passed else "1 failed"}})
+        return self.hook(support.CODEX_HOOK, {
+            "hook_event_name": "Stop", "cwd": self.repo, "session_id": sid,
+            "last_assistant_message": self.CLAIM})
+
+    def omp(self, sid, passed):
+        self.hook(support.OMP_HOOK, {
+            "event": "post_tool_use", "cwd": self.repo, "session_id": sid,
+            "tool": "bash", "input": self.CHECK, "failed": not passed})
+        return self.hook(support.OMP_HOOK, {
+            "event": "stop", "cwd": self.repo, "session_id": sid,
+            "last_assistant_message": self.CLAIM})
+
+    def cursor(self, sid, passed):
+        self.hook(support.CURSOR_HOOK, {
+            "hook_event_name": "postToolUse", "cwd": self.repo,
+            "conversation_id": sid, "tool_name": "Shell",
+            "tool_input": self.CHECK,
+            "tool_output": json.dumps({"exitCode": 0 if passed else 1,
+                                       "stdout": "5 passed" if passed
+                                       else "1 failed"})})
+        self.hook(support.CURSOR_HOOK, {
+            "hook_event_name": "afterAgentResponse", "cwd": self.repo,
+            "conversation_id": sid, "text": self.CLAIM})
+        return self.hook(support.CURSOR_HOOK, {
+            "hook_event_name": "stop", "cwd": self.repo,
+            "conversation_id": sid, "status": "completed"})
+
+    def verdicts(self, passed):
+        hosts = {"claude": self.claude, "codex": self.codex,
+                 "omp": self.omp, "cursor": self.cursor}
+        return {name: drive("%s-%s" % (name, passed), passed).get("decision")
+                for name, drive in hosts.items()}
+
+    def test_a_passing_check_licenses_the_claim_on_every_host(self):
+        self.assertEqual(self.verdicts(True), dict.fromkeys(
+            ("claude", "codex", "omp", "cursor")))
+
+    def test_a_failing_check_refuses_the_claim_on_every_host(self):
+        self.assertEqual(self.verdicts(False), dict.fromkeys(
+            ("claude", "codex", "omp", "cursor"), "block"))
 
 
 class CursorHookThroughTheInstalledLink(TempHome):

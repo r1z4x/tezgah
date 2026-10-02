@@ -70,8 +70,11 @@ motion - a sheen sweeps its worktop left to right and runs down the support -
 with the running tool and its seconds right after it; a line without colors
 keeps the braille spinner. Each other chip leads with its icon
 (`ICONS`): `✂` pony, `▶` exec, `◎` adhd, `⚖` consult, `⚗` research, `⌬` graph, `⎇` orch,
-`⚑` judge, `⌕` idx, `☰` plans. Every icon is a text-presentation symbol one cell
-wide - never an emoji - so a terminal does not overflow the line. The plain line
+`⚑` judge, `⌕` idx, `⋮` plans. Every icon is a text-presentation symbol of East
+Asian width Neutral or Ambiguous (`▶`, `◎`), never Wide and never an emoji, so a
+terminal draws it one cell wide and the line does not overflow (a CJK terminal
+that draws Ambiguous two cells wide is the exception). `☰` was the plans icon
+until Unicode 16 (Python 3.14) made it Wide. The plain line
 (pipes, `--status`, Codex's `systemMessage`, omp's `setStatus` fallback) carries
 no icons and keeps its exact shape.
 

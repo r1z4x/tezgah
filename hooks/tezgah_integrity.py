@@ -38,9 +38,16 @@ except ImportError:  # not POSIX: the append stays unlocked, as it was before
 from tezgah_paths import cache_dir, off, root_for
 
 # A command that actually checks the change, as opposed to one that merely runs.
+# Command position, like UI_CHECK: `echo pytest` and `cat pytest.ini` were
+# recorded as passing checks and let a "done, all tests pass" reply through
+# (audit M-1). The wrapper set keeps `sudo pytest` and `env X=1 pytest` counting;
+# without it they would be refused rather than missed.
 VERIFY = re.compile(
-    r"(?:^|[|;&(]\s*|\s)(?:"
-    r"(?:python3?|uv run)\s+-m\s+(?:pytest|unittest|mypy|ruff|flake8|compileall)|"
+    r"(?:^|[|;&(])\s*"
+    r"(?:(?:sudo|env|time|nohup|command|exec)\s+(?:\w+=\S+\s+)*(?:-\S+\s+)*)?"
+    r"(?:"    r"(?:python3?|uv run)\s+(?:-m\s+)?(?:pytest|unittest|mypy|ruff|flake8|compileall|"
+    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)|"
+    r"(?:[\w./-]*/)?tests[/\\]impacted\.py)|"
     r"pytest|py\.test|"
     r"npm\s+(?:test|t\b)|npm\s+run\s+\S*(?:test|lint|typecheck|check|build|ci)|"
     r"(?:yarn|pnpm|bun)\s+(?:test|run\s+\S*(?:test|lint|build|check))|"
@@ -56,8 +63,15 @@ VERIFY = re.compile(
     r"playwright|cypress|storybook|chromatic|percy|lighthouse|pa11y|backstop|"
     r"axe-core|reg-suit|"
     r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)|"
-    r"(?:[\w./-]*/)?tests[/\\]impacted\.py"
-    r")\b", re.I)
+    r"(?:[\w./-]*/)?tests[/\\]impacted\.py|"
+    # a JS tool behind its runner is still the check, and the name it returns is
+    # the tool's, not the runner's: `npx axe-core` matched as `axe-core` before
+    # the anchor was tightened, so the runner is outside the name group here
+    r"(?:npx|npm(?:\s+run)?|pnpm(?:\s+(?:exec|dlx|run))?|yarn|bunx?|uvx)"
+    r"\s+(?:-\S+\s+)*(?P<js>playwright|cypress|storybook|chromatic|percy|"
+    r"lighthouse|pa11y|axe-core|backstop|reg-suit|vitest|jest|ava|mocha|eslint|"
+    r"prettier|tsc|pyright)"
+    r")\b", re.I | re.M)
 # A source file a person looks at: the rendered formats, so a build log or a
 # document written beside them is not a UI turn. Web first, then the native and
 # template formats a screen is written in - a SwiftUI view or a Rails template is
@@ -132,8 +146,11 @@ DESIGN_COMPONENT = re.compile(
     r"|(?:^|/)(?-i:[A-Z])[A-Za-z0-9_]*\.(?:tsx|jsx|vue|svelte|swift|kt|dart)$"
     r"|\.(?:component|view|widget)\.[a-z]+$", re.I)
 # forms that make a failing check exit 0, the classic "I ran it and it was fine"
+# `; exit 0`, `; :` and a trailing `; echo` after a check do what `|| true`
+# does - the line's status stops being the check's (audit M-1)
 NEUTER = re.compile(
-    r"\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])")
+    r"\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|"
+    r";\s*(?:true|:|exit\s+0)\s*(?:$|[|;&])")
 # a pre-commit / husky escape hatch that skips the hooks entirely. SKIP/HUSKY
 # only mean anything to a hook runner, so the check requires the same git/hook
 # context as --no-verify: a read that merely mentions SKIP= must still pass.
@@ -537,8 +554,12 @@ MARKED = "[redacted:%d]"
 # A named key: the name survives and only the value is replaced, so the row still
 # says a credential was there instead of hiding that it was. `Bearer` is part of
 # the value when it follows the name, so the two-token form is one replacement.
+# The name prefix is bounded at 64 characters: it is there to capture the whole
+# name (`OPENROUTER_API_KEY`, not `API_KEY`) for the redaction text, and an
+# unbounded prefix is the same quadratic scan the gate's own pattern carried -
+# `redact()` runs on every ledger row (audit H-3).
 SECRET_KEY = re.compile(
-    r"(?i)([A-Za-z0-9_\-]*(?:password|passwd|pwd|secret|token|api[_-]?key|"
+    r"(?i)([A-Za-z0-9_\-]{0,64}?(?:password|passwd|pwd|secret|token|api[_-]?key|"
     r"apikey|access[_-]?key|authorization|client[_-]?secret))"
     r"(\s*[:=]\s*)(?:Bearer\s+)?(\"[^\"]*\"|'[^']*'|\S+)")
 # The prefixed token families, matched by their own shape wherever they appear:
@@ -1516,7 +1537,10 @@ def verify_command(cmd):
     reads as a call that ran, never as one that passed, the same way a piped one
     does."""
     m = VERIFY.search(mask(cmd))
-    return m.group(0).strip() if m else None
+    if not m:
+        return None
+    # a JS tool names itself, not its runner (`npx axe-core` is `axe-core`)
+    return (m.groupdict().get("js") or m.group(0)).strip()
 
 
 def _blank_heredocs(text):

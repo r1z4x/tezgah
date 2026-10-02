@@ -883,6 +883,13 @@ def install_codex():
         arr.append(group)
     write_json(path, data)
     print("%s %s" % (OK, path))
+    # the group is written, not trusted: codex runs only trusted groups, and a
+    # machine that never approves it has no gate at all (audit H-1)
+    print("%s codex runs a hook group only once it is trusted: approve tezgah's "
+          "group in codex's first interactive run (or start codex with "
+          "--dangerously-bypass-hook-trust). `tezgah-setup --report` reads "
+          "`[hooks.state]` in %s and says untrusted until then."
+          % ("  --  ", os.path.join(CODEX, "config.toml")))
     for s in SKILLS:
         print(link(os.path.join(HERE, "skills", s), os.path.join(CODEX, "skills", s)))
     mcp = os.path.join(CODEX, "bin", "consult")
@@ -2930,6 +2937,18 @@ def uninstall(hosts, dry_run=False):
         fh.write("")
     print("%s gate stood down (%s); this session will not be asked again"
           % (OK, stand_down))
+    # H-2 (audit 2026-10-02): the switch tezgah's own uninstall writes must not
+    # outlive it for the hosts that stay armed. A partial run removes it again
+    # once the hosts it did touch are gone; a full run keeps it, because nothing
+    # is left to protect.
+    if not full:
+        try:
+            os.remove(stand_down)
+            print("%s gate stays armed for the hosts this run did not touch "
+                  "(removed %s)" % (OK, stand_down))
+        except OSError as exc:
+            print("%s could not clear %s (%s) - the gate may be off for the "
+                  "hosts that remain" % (NO, stand_down, exc))
     print("uninstalling for: %s (%s run)\n"
           % (", ".join(hosts) or "none detected", "full" if full else "partial"))
     uninstall_common()
@@ -3476,6 +3495,34 @@ def _hooks_has(path, marker, events=None):
                for ev in events)
 
 
+def _codex_hooks_trusted(hooks_path, toml):
+    """True when Codex's own trust table covers tezgah's hook group.
+
+    Codex records one `hooks.state."<path>:<event>:<group>:0"` key per trusted
+    hook command. tezgah cannot compute the hash Codex stores, but it can read
+    which group indices its own `hooks.json` holds and check that a state key
+    exists for each of them: a wired-but-untrusted group is the silent disarm
+    this row exists to surface. Anything unreadable reads as untrusted, never as
+    ok."""
+    try:
+        with open(hooks_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    events = data.get("hooks") if isinstance(data, dict) else None
+    if not isinstance(events, dict) or "[hooks.state]" not in toml:
+        return False
+    for event, groups in events.items():
+        if not isinstance(groups, list):
+            continue
+        for index, group in enumerate(groups):
+            if "tezgah" not in json.dumps(group):
+                continue
+            if ("%s:%d:0" % (event, index)) not in toml:
+                return False
+    return True
+
+
 def host_checks_codex():
     cmd = "tezgah-codex-hook"
     # a relocated home is named, so a report can never show ~/.codex while these
@@ -3492,6 +3539,11 @@ def host_checks_codex():
         ("hooks.json wired%s" % where,
          _hooks_has(os.path.join(CODEX, "hooks.json"), cmd,
                     [ev for ev, _matcher in CODEX_HOOK_EVENTS])),
+        # H-1 (audit 2026-10-02): codex runs only hook groups its own
+        # `[hooks.state]` table trusts, so "wired" without a trust entry is a
+        # gate that never runs - the report said ok while nothing executed
+        ("hooks trusted%s" % where,
+         _codex_hooks_trusted(os.path.join(CODEX, "hooks.json"), toml)),
         ("skills linked%s" % where,
          skills_linked(os.path.join(CODEX, "skills"))),
         ("MCP in config.toml", "mcp_servers.codegraph" in toml),
