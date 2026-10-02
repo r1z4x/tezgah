@@ -454,7 +454,11 @@ def _own_names(rel):
     of plan 032), and its similarity guess tied a `decisions/d2` file to `d1`.
     Only the line's own layouts are asked, by name. ponytail: a name is matched by
     path, so a slug deleted and later reused shares its dead predecessor's
-    history - the flat layout read it the same way; a reused slug is the ceiling."""
+    history - the flat layout read it the same way; a reused slug is the ceiling.
+    So is a results file renamed into place inside the line after its protocol
+    (`scratch.jsonl` to `results.jsonl`): the rename is its add here as it was
+    before - a file kept out of the history until after the plan defeats any
+    history-based order check."""
     parts = rel.replace(os.sep, "/").split("/")
     try:
         i = parts.index("research")
@@ -468,6 +472,15 @@ def _own_names(rel):
     names = [rel] + ["/".join(head + layout + rest)
                      for layout in ([], ["open"], ["done"])]
     return list(dict.fromkeys(names))
+
+
+def _historical_names(top, rel, extra=()):
+    """`rel`'s own layout names plus every spelling git committed them under,
+    newest first: an exact-case blob read at an older commit needs the name the
+    tree held then (`decisions/D1` before the migration lowercased it)."""
+    pairs, _err = _named_log(top, rel, extra)
+    names = [name for _sha, found in pairs for name in found]
+    return list(dict.fromkeys(names + _own_names(rel)))
 
 
 def _named_log(top, rel, extra=()):
@@ -584,7 +597,7 @@ def _changed_after(repo, path, rev):
     # the blob the run saw may sit under the name the file had then (a line moved
     # from open/ to done/ after the run): compare it, not "absent, so unchanged"
     at_rev = None
-    for name in _own_names(rel):
+    for name in _historical_names(top, rel, ("--all",) if top != repo else ()):
         at_rev, err = _blob(top, rev, name)
         if err:
             return None
@@ -719,8 +732,8 @@ def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
         return
     # the name the files had at the rewrite: a line moved to done/ after the
     # re-root is not under its current path in the commits the bridge reads
-    prel = _rel_at(repo, rewrite, _own_names(os.path.relpath(proto, repo)))
-    rrel = _rel_at(repo, rewrite, _own_names(os.path.relpath(results, repo)))
+    prel = _rel_at(repo, rewrite, _historical_names(repo, os.path.relpath(proto, repo)))
+    rrel = _rel_at(repo, rewrite, _historical_names(repo, os.path.relpath(results, repo)))
     p_old, perr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",
                        prel)
     r_old, rerr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",
