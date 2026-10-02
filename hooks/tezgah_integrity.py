@@ -1646,6 +1646,25 @@ def _heredoc_tag(cmd, j):
     return "".join(tag), quoted, j
 
 
+# Words after which `((` starts an arithmetic command rather than two subshells.
+ARITH_AFTER = frozenset(("then", "do", "else", "elif", "if", "while", "until",
+                         "!", "{", "time"))
+
+
+def _command_position(cmd, i):
+    """True when `i` begins a command: only blanks back to the start, a newline,
+    `;&|(`, or a reserved word that a command follows."""
+    j = i - 1
+    while j >= 0 and cmd[j] in " \t":
+        j -= 1
+    if j < 0 or cmd[j] in "\n;&|(":
+        return True
+    k = j
+    while k >= 0 and cmd[k] not in " \t\n;&|()":
+        k -= 1
+    return cmd[k + 1:j + 1] in ARITH_AFTER
+
+
 def _heredocs(cmd):
     """Every heredoc bash would read in `cmd`, in order, as (operator start,
     operator end, tag, quoted, body start, terminator span or None).
@@ -1653,52 +1672,31 @@ def _heredocs(cmd):
     The one reader of where a heredoc is, for every rule that blanks or reads
     one (`_blank_heredocs` - so `mask()`, the shortcut, credential and write
     readers - `heredoc_bodies` and `_shell_read`). An operator counts only where
-    bash reads one: `<<`/`<<-` unquoted, outside a comment and not part of a
-    `<<<` here-string. A line pattern took `<<'X'` inside a quoted string or a
-    comment for one and blanked the commands after it, so `echo "<<'X'"\\ngit
-    commit --no-verify -m x\\nX` passed the gate (review R1). The body starts on
-    the line after the operator, several on one line are read in order, and the
-    terminator is the line equal to the tag (tabs stripped for `<<-`). The scan
-    stops at an unterminated one: its body runs to the end, and that entry's
-    terminator is None."""
-    n, found, pending, quote, i = len(cmd), [], [], None, 0
+    bash reads one: `<<`/`<<-` in a command context, outside a comment and not
+    part of a `<<<` here-string. A line pattern took `<<'X'` inside a quoted
+    string or a comment for one and blanked the commands after it, so `echo
+    "<<'X'"\\ngit commit --no-verify -m x\\nX` passed the gate (review R1).
+
+    The contexts are a stack, as bash nests them: a double-quoted string, an
+    arithmetic `$(( ))` / command-position `(( ))` - where `<<` is a shift,
+    never a heredoc, so `echo $((1<<2))` hid the commit on the next line
+    (review S1) - and a `$( )` command substitution, which opens a fresh command
+    context even inside double quotes until its matching `)`: the
+    `git commit -m "$(cat <<'EOF' ... EOF\\n)"` message shape is a real heredoc
+    there, and reading its body as commands refused it (review S2). `let
+    x=1<<2` is a command word, so its `<<` is a heredoc, as bash reads it.
+
+    The body starts on the line after the operator, several on one line are
+    read in order, and the terminator is the line equal to the tag (tabs
+    stripped for `<<-`). The scan stops at an unterminated one: its body runs to
+    the end, and that entry's terminator is None."""
+    n, found, pending, i = len(cmd), [], [], 0
+    # each frame: [kind, open parens]; "cmd" frames other than the bottom one
+    # close at their matching `)`
+    stack = [["top", 0]]
     while i < n:
-        ch = cmd[i]
-        if quote == "'":
-            quote = None if ch == "'" else quote
-        elif quote == "$'":
-            if ch == "\\":
-                i += 1
-            elif ch == "'":
-                quote = None
-        elif ch == "\\":
-            i += 2
-            continue
-        elif quote == '"':
-            quote = None if ch == '"' else quote
-        elif ch == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()<>"):
-            end = cmd.find("\n", i)
-            i = n if end < 0 else end
-            continue
-        elif cmd.startswith("$'", i):
-            quote = "$'"
-            i += 1
-        elif ch in "'\"":
-            quote = ch
-        elif cmd.startswith("<<<", i):
-            i += 3
-            continue
-        elif cmd.startswith("<<", i):
-            j = i + 2
-            strip = j < n and cmd[j] == "-"
-            j += strip
-            while j < n and cmd[j] in " \t":
-                j += 1
-            tag, quoted, j = _heredoc_tag(cmd, j)
-            pending.append((i, j, tag, quoted, strip))
-            i = j
-            continue
-        elif ch == "\n" and pending:
+        ch, kind = cmd[i], stack[-1][0]
+        if ch == "\n" and pending:
             pos = i + 1
             for start, stop, tag, quoted, strip in pending:
                 body, term = pos, None
@@ -1715,7 +1713,74 @@ def _heredocs(cmd):
                     return found
             pending, i = [], pos
             continue
-        i += 1
+        if ch == "\\":
+            i += 2
+            continue
+        if kind == "arith":
+            if ch == "(":
+                stack[-1][1] += 1
+            elif ch == ")":
+                if stack[-1][1]:
+                    stack[-1][1] -= 1
+                elif cmd.startswith("))", i):
+                    stack.pop()
+                    i += 2
+                    continue
+            i += 1
+            continue
+        if cmd.startswith("$((", i):
+            stack.append(["arith", 0])
+            i += 3
+            continue
+        if cmd.startswith("$(", i):
+            stack.append(["cmd", 0])
+            i += 2
+            continue
+        if kind == '"':
+            if ch == '"':
+                stack.pop()
+            i += 1
+            continue
+        # a command context: the top level or inside `$( )`
+        if ch == "'":
+            end = cmd.find("'", i + 1)
+            i = n if end < 0 else end + 1
+        elif cmd.startswith("$'", i):
+            i += 2
+            while i < n and cmd[i] != "'":
+                i += 2 if cmd[i] == "\\" else 1
+            i += 1
+        elif ch == '"':
+            stack.append(['"', 0])
+            i += 1
+        elif ch == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()<>"):
+            end = cmd.find("\n", i)
+            i = n if end < 0 else end
+        elif cmd.startswith("((", i) and _command_position(cmd, i):
+            stack.append(["arith", 0])
+            i += 2
+        elif ch == "(" and kind == "cmd":
+            stack[-1][1] += 1
+            i += 1
+        elif ch == ")" and kind == "cmd":
+            if stack[-1][1]:
+                stack[-1][1] -= 1
+            else:
+                stack.pop()
+            i += 1
+        elif cmd.startswith("<<<", i):
+            i += 3
+        elif cmd.startswith("<<", i):
+            j = i + 2
+            strip = j < n and cmd[j] == "-"
+            j += strip
+            while j < n and cmd[j] in " \t":
+                j += 1
+            tag, quoted, j = _heredoc_tag(cmd, j)
+            pending.append((i, j, tag, quoted, strip))
+            i = j
+        else:
+            i += 1
     found += [(s, e, t, q, n, None) for s, e, t, q, _ in pending]
     return found
 

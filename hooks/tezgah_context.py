@@ -21,10 +21,11 @@ from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
                               scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            open_lines_note, pony_level_line)
-from tezgah_paths import (ai_research_dir, cache_dir, codegraph_bin,
-                          consult_options, ensure_workspace, have_judge_key, off,
-                          orx_bin, pony_level, root_for, roots, tool,
-                          workspace, workspace_from_repo, worktrees, writable_dir)
+from tezgah_paths import (CACHE, ai_research_dir, cache_dir, codegraph_bin,
+                          consult_options, ensure_workspace, fallback_cache,
+                          have_judge_key, off, orx_bin, pony_level, root_for,
+                          roots, tool, workspace, workspace_from_repo,
+                          worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
     # once per user prompt for the phase line. The module is newer than some
@@ -1372,24 +1373,60 @@ def _transcript_calls(path, since):
     return calls
 
 
+# The ledger kinds a hook other than the tool hooks writes: the prompt hook's
+# turn marker and judge row, the Stop hook's claim and shape rows, compaction,
+# the subagent mark (SubagentStart writes it too) and the guard's crash row
+# (any hook). Every other kind - deny, nudge, drift, run, edit, verify*, ... -
+# can only come from PreToolUse or PostToolUse, so one is proof the gate ran.
+# Excluding, not listing: a kind the tool hooks gain later still counts. A row
+# from `deny` carries no `tool` field, and a session whose every gated call the
+# gate refused read as disarmed (review S3).
+NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"shape", b"compact",
+                           b"orch", b"crash"))
+
+
+def _ledger_lines(path):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read().split(b"\n")
+    except OSError:
+        return []
+
+
 def _ledger_since(session_id):
     """(the session's first turn stamp, whether a tool-hook row follows it), or
-    (None, False) with no turn marker. Byte scan: only the marker is parsed."""
-    try:
-        with open(_ledger_path(session_id), "rb") as fh:
-            lines = fh.read().split(b"\n")
-    except OSError:
-        return None, False
-    tool = re.compile(rb'"tool":\s*"')
-    for i, raw in enumerate(lines):
+    (None, False) with no turn marker. Byte scan: only the marker is parsed.
+
+    Each hook is its own process and `cache_dir()` is memoised per process, so
+    a tool hook that found `~/.cache` unwritable (a sandboxed run) writes its
+    rows under the temp fallback while this prompt hook reads `~/.cache`. A row
+    in either candidate ledger, stamped after the marker, therefore counts.
+    ponytail: a tool hook under a different TMPDIR writes to a third directory
+    no reader here can name."""
+    lines = _ledger_lines(_ledger_path(session_id))
+    kind = re.compile(rb'"kind":\s*"([^"]*)"')
+    stamp = re.compile(rb'"ts":\s*(\d+)')
+
+    def tool_row(raw, since):
+        k, t = kind.search(raw), stamp.search(raw)
+        return bool(k and k.group(1) not in NOT_TOOL_HOOK
+                    and t and int(t.group(1)) >= since)
+    for raw in lines:
         if b'"turn"' not in raw:
             continue
         try:
             row = json.loads(raw)
         except ValueError:
             continue
-        if row.get("kind") == "turn" and isinstance(row.get("ts"), (int, float)):
-            return row["ts"], any(tool.search(x) for x in lines[i + 1:])
+        if row.get("kind") != "turn" or not isinstance(row.get("ts"), (int, float)):
+            continue
+        since = int(row["ts"])
+        own = os.path.realpath(_ledger_path(session_id))
+        others = {os.path.realpath(os.path.join(d, "evidence",
+                                                os.path.basename(own)))
+                  for d in (CACHE, fallback_cache())} - {own}
+        return row["ts"], any(tool_row(x, since) for x in lines) or any(
+            tool_row(x, since) for p in sorted(others) for x in _ledger_lines(p))
     return None, False
 
 

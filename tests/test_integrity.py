@@ -277,6 +277,29 @@ class ShortcutCommand(unittest.TestCase):
         self.assertEqual(ti.heredoc_bodies("echo \"<<'X'\"\nbody\nX"), [])
         self.assertEqual(ti.heredoc_bodies("cat > f <<'E'\na\nb\nE\n"), ["a\nb"])
 
+    # review S1: `<<` inside arithmetic is a shift, never a heredoc, so the
+    # command after it is read. Checked against bash: `echo $((1<<2))` prints 4
+    # and the next line runs.
+    ARITH_SHIFTS = ("echo $((1<<2))\ngit commit --no-verify -m x\n2",
+                    "(( a = 1 <<b ))\ngit commit --no-verify -m x\nb",
+                    "x=$(( (1+2) << 3 ))\ngit commit --no-verify -m x\n3")
+    # review S2: a heredoc inside `$( )` inside double quotes is a real one, so
+    # the default commit-message shape's body is message text, not commands
+    QUOTED_SUBSTITUTION_MESSAGES = (
+        "git commit -m \"$(cat <<'EOF'\nfix: gate\n\n"
+        "git commit -n is now refused\nEOF\n)\"",
+        "git commit -m \"$(cat <<'EOF'\nfix: gate\n\n"
+        "pytest || true is refused\nEOF\n)\"")
+
+    def test_heredocs_are_read_in_bash_contexts(self):
+        for c in self.ARITH_SHIFTS:
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        for c in self.QUOTED_SUBSTITUTION_MESSAGES:
+            self.assertIsNone(ti.shortcut_command(c), c)
+        # `let x=1<<2` is a command word: bash reads a heredoc there, and the
+        # line after it is its body
+        self.assertEqual(ti.heredoc_bodies("let x=1<<2\nbody\n2"), ["body"])
+
 
 class BookkeepingCommand(unittest.TestCase):
     """_bookkeeping_command: which shell calls leave the tree a check judged as

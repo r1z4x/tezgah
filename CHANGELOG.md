@@ -113,6 +113,11 @@ healthy, the mechanical half had paths that disarmed it in silence.
   every host. One heredoc reader now serves every check, Python and opencode. A
   workspace whose provenance cannot be told no longer switches the user's own
   plan guard off; only a tracked `.tezgah` does.
+  The heredoc reader follows bash's own nesting: `<<` inside `$((...))` or
+  `((...))` is a shift, not a heredoc, and a heredoc inside `"$(cat <<'EOF'
+  ...)"` - the usual commit-message shape - is recognised, so its body is no
+  longer read as commands. Rows the gate wrote when it denied a call count as
+  proof it ran, and the detector reads the fallback cache's ledger too.
 
 ## [0.28.0] - 2026-10-01
 

@@ -1591,6 +1591,47 @@ class GateLiveness(ChildCall):
         self.assertNotIn("tezgah gate inactive", out)
         self.assertNotIn("gate", [s["key"] for s in self.segments()])
 
+    def test_calls_the_gate_denied_are_proof_the_gate_ran(self):
+        # Review S3: a deny row carries no `tool` field, and a session whose
+        # every gated call the gate refused read as a disarmed gate.
+        self.prompt()
+        self.child("import json, tezgah_integrity as ti\n"
+                   "[ti.note('g1', 'deny', 'shortcut: x') for _ in range(3)]\n"
+                   "print('null')\n")
+        self.claude_tools(3)
+        self.assertNotIn("tezgah gate inactive", self.prompt())
+        self.assertNotIn("gate", [s["key"] for s in self.segments()])
+
+    def test_rows_from_other_hooks_are_not_proof(self):
+        # the prompt hook's judge row and the Stop hook's claim row run whether
+        # or not the tool hooks do, so they cannot clear the line
+        self.prompt()
+        self.child("import json, tezgah_integrity as ti\n"
+                   "ti.note('g1', 'judge', 'x'); ti.note('g1', 'claim', 'x')\n"
+                   "print('null')\n")
+        self.claude_tools(3)
+        self.assertIn("tezgah gate inactive", self.prompt())
+
+    def test_a_tool_row_in_the_fallback_ledger_counts(self):
+        # Each hook resolves cache_dir() in its own process: a tool hook that
+        # could not write ~/.cache leaves its rows under the temp fallback, and
+        # the prompt hook reading ~/.cache alone saw a disarmed gate.
+        fallback = os.path.join(self.home, "fallback")
+        self.prompt()
+        self.child("import json, os, tezgah_integrity as ti\n"
+                   "p = os.path.join(%r, 'evidence', ti._slug('g1') + '.jsonl')\n"
+                   "os.makedirs(os.path.dirname(p))\n"
+                   "ti.note_path(p, 'run', 'ls')\n"
+                   "print('null')\n" % fallback)
+        self.claude_tools(3)
+        out = self.child(
+            "import json, tezgah_context as tc\n"
+            "print(json.dumps(tc.context_for('user_prompt', %r, {'session_id': "
+            "'g1', 'prompt': 'x', 'transcript_path': %r})))\n"
+            % (self.repo, self.transcript),
+            extra={"TEZGAH_FALLBACK_CACHE": fallback})
+        self.assertNotIn("tezgah gate inactive", out)
+
     def test_a_chat_only_session_never_fires(self):
         self.prompt()
         self.transcript_rows([{"type": "assistant", "message": {"content": [

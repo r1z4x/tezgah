@@ -293,6 +293,17 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before(
             "bash", {"command": "git commit -F - <<'MSG'\n--no-verify\nMSG"}))
 
+    def test_heredocs_are_read_in_bash_contexts(self):
+        # review S1/S2, mirrored: an arithmetic shift is not a heredoc (the
+        # commit after it is refused); a heredoc in `$( )` inside double quotes
+        # is one (the commit-message body is text, and the commit passes)
+        for command in ("echo $((1<<2))\ngit commit --no-verify -m x\n2",
+                        "(( a = 1 <<b ))\ngit commit --no-verify -m x\nb"):
+            self.denied(self.before("bash", {"command": command}))
+        for body in ("git commit -n is now refused", "pytest || true is refused"):
+            self.allowed(self.before("bash", {"command":
+                "git commit -m \"$(cat <<'EOF'\nfix: gate\n\n%s\nEOF\n)\"" % body}))
+
     def test_plain_commands_pass(self):
         for command in ("pytest -q", "git commit -m 'fix: typo'", "git status",
                         "make test", "ls || true"):

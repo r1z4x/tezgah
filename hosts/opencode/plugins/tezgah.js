@@ -472,38 +472,33 @@ function heredocTag(cmd, j) {
   return [tag, quoted, j]
 }
 
+// mirrors hooks/tezgah_integrity._command_position / ARITH_AFTER: `((` at a
+// command's start is arithmetic, never two subshells
+const ARITH_AFTER = new Set(["then", "do", "else", "elif", "if", "while",
+  "until", "!", "{", "time"])
+function commandPosition(cmd, i) {
+  let j = i - 1
+  while (j >= 0 && (cmd[j] === " " || cmd[j] === "\t")) j--
+  if (j < 0 || "\n;&|(".includes(cmd[j])) return true
+  let k = j
+  while (k >= 0 && !" \t\n;&|()".includes(cmd[k])) k--
+  return ARITH_AFTER.has(cmd.slice(k + 1, j + 1))
+}
+
 // mirrors hooks/tezgah_integrity._heredocs: every heredoc bash would read, as
 // [opStart, opEnd, tag, quoted, bodyStart, terminator [start, end] or null].
-// An operator counts only unquoted, outside a comment and not as `<<<`: a line
-// pattern took `<<'X'` inside a quoted string or a comment for one and blanked
-// the commands after it, so `echo "<<'X'"\ngit commit --no-verify -m x\nX`
-// passed (review R1). The scan stops at an unterminated one.
+// An operator counts only in a command context, outside a comment and not as
+// `<<<` (review R1). The contexts are a stack: a double-quoted string, an
+// arithmetic `$(( ))` / command-position `(( ))` where `<<` is a shift (review
+// S1), and a `$( )` that opens a command context even inside double quotes,
+// so `git commit -m "$(cat <<'EOF' ... EOF\n)"` is a real heredoc (review S2).
+// The scan stops at an unterminated one.
 function heredocs(cmd) {
-  const n = cmd.length, found = []
-  let pending = [], quote = null, i = 0
+  const n = cmd.length, found = [], stack = [["top", 0]]
+  let pending = [], i = 0
   while (i < n) {
-    const ch = cmd[i]
-    if (quote === "'") { if (ch === "'") quote = null }
-    else if (quote === "$'") { if (ch === "\\") i++; else if (ch === "'") quote = null }
-    else if (ch === "\\") { i += 2; continue }
-    else if (quote === '"') { if (ch === '"') quote = null }
-    else if (ch === "#" && (i === 0 || " \t\n;&|()<>".includes(cmd[i - 1]))) {
-      const end = cmd.indexOf("\n", i)
-      i = end < 0 ? n : end
-      continue
-    } else if (cmd.startsWith("$'", i)) { quote = "$'"; i++ }
-    else if (ch === "'" || ch === '"') quote = ch
-    else if (cmd.startsWith("<<<", i)) { i += 3; continue }
-    else if (cmd.startsWith("<<", i)) {
-      let j = i + 2
-      const strip = j < n && cmd[j] === "-"
-      if (strip) j++
-      while (j < n && (cmd[j] === " " || cmd[j] === "\t")) j++
-      const [tag, quoted, after] = heredocTag(cmd, j)
-      pending.push([i, after, tag, quoted, strip])
-      i = after
-      continue
-    } else if (ch === "\n" && pending.length) {
+    const ch = cmd[i], frame = stack[stack.length - 1], kind = frame[0]
+    if (ch === "\n" && pending.length) {
       let pos = i + 1
       for (const [start, stop, tag, quoted, strip] of pending) {
         const body = pos
@@ -525,7 +520,46 @@ function heredocs(cmd) {
       i = pos
       continue
     }
-    i++
+    if (ch === "\\") { i += 2; continue }
+    if (kind === "arith") {
+      if (ch === "(") frame[1]++
+      else if (ch === ")") {
+        if (frame[1]) frame[1]--
+        else if (cmd.startsWith("))", i)) { stack.pop(); i += 2; continue }
+      }
+      i++
+      continue
+    }
+    if (cmd.startsWith("$((", i)) { stack.push(["arith", 0]); i += 3; continue }
+    if (cmd.startsWith("$(", i)) { stack.push(["cmd", 0]); i += 2; continue }
+    if (kind === '"') { if (ch === '"') stack.pop(); i++; continue }
+    if (ch === "'") {
+      const end = cmd.indexOf("'", i + 1)
+      i = end < 0 ? n : end + 1
+    } else if (cmd.startsWith("$'", i)) {
+      i += 2
+      while (i < n && cmd[i] !== "'") i += cmd[i] === "\\" ? 2 : 1
+      i++
+    } else if (ch === '"') { stack.push(['"', 0]); i++ }
+    else if (ch === "#" && (i === 0 || " \t\n;&|()<>".includes(cmd[i - 1]))) {
+      const end = cmd.indexOf("\n", i)
+      i = end < 0 ? n : end
+    } else if (cmd.startsWith("((", i) && commandPosition(cmd, i)) {
+      stack.push(["arith", 0]); i += 2
+    } else if (ch === "(" && kind === "cmd") { frame[1]++; i++ }
+    else if (ch === ")" && kind === "cmd") {
+      if (frame[1]) frame[1]--; else stack.pop()
+      i++
+    } else if (cmd.startsWith("<<<", i)) i += 3
+    else if (cmd.startsWith("<<", i)) {
+      let j = i + 2
+      const strip = j < n && cmd[j] === "-"
+      if (strip) j++
+      while (j < n && (cmd[j] === " " || cmd[j] === "\t")) j++
+      const [tag, quoted, after] = heredocTag(cmd, j)
+      pending.push([i, after, tag, quoted, strip])
+      i = after
+    } else i++
   }
   for (const [s, e, t, q] of pending) found.push([s, e, t, q, n, null])
   return found
