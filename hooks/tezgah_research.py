@@ -439,9 +439,30 @@ def _ws_log(repo, path, *args):
     rel = _ws_rel(repo, path)
     if rel is None:
         return [], None
-    out, err = _run(["git", "-C", tp.workspace(repo), "log", "--all"] + list(args)
-                    + ["--format=%H", "--", rel])
+    out, err = _run(["git", "-C", tp.workspace(repo), "log", "--all", "--follow"]
+                    + list(args) + ["--format=%H", "--", rel])
     return out.split(), err
+
+
+def _named_log(top, rel, extra=()):
+    """[(sha, path)] newest first: every commit that touched `rel`, following
+    renames, with the path the file had in that commit, or [] when git cannot say.
+
+    Closing a line moves it from open/ to done/ (`move_line`), and without
+    `--follow` the move read as the commit that added protocol, results, criteria
+    and state together - every moved line failed the order rules though its
+    history holds the order (measured 2026-10-03). A reader that needs the file's
+    content at an older commit needs its old name as well, which this returns."""
+    out, err = _git_out(top, "log", *extra, "--follow", "--name-only",
+                        "--format=%x00%H", "--", rel)
+    if err:
+        return []
+    pairs = []
+    for chunk in out.split("\x00")[1:]:
+        lines = [ln for ln in chunk.splitlines() if ln.strip()]
+        if lines:
+            pairs.append((lines[0].strip(), lines[-1].strip() if len(lines) > 1 else rel))
+    return pairs
 
 
 def _ignored(repo, path):
@@ -466,6 +487,20 @@ def _ignored(repo, path):
     return rel
 
 
+def _project_rels(repo, path):
+    """`path` relative to the project, then every earlier name the private
+    repository's rename chain gives it, under the project's `.tezgah/`: a line the
+    project committed before the move proves its order there under its old flat
+    name, which a lookup by the current done/ path never finds."""
+    rels = [os.path.relpath(path, repo)]
+    ws_rel = _ws_rel(repo, path)
+    if ws_rel is not None:
+        prefix = os.path.relpath(tp.workspace(repo), repo)
+        for _sha, name in _named_log(tp.workspace(repo), ws_rel, ("--all",)):
+            rels.append(os.path.join(prefix, name))
+    return list(dict.fromkeys(rels))
+
+
 def added_commits(repo, path):
     """((shas, newest first), error): the commits that added (or renamed into)
     `path` - the private repository's, then the project's. The last one is the
@@ -475,8 +510,11 @@ def added_commits(repo, path):
     ws, err = _ws_log(repo, path, "--diff-filter=AR")
     if err:
         return [], err
-    out, err = _git(repo, "log", "--diff-filter=AR", "--format=%H", "--",
-                    os.path.relpath(path, repo))
+    out, err = [], None
+    for rel in _project_rels(repo, path):
+        shas, err = _git(repo, "log", "--follow", "--diff-filter=AR", "--format=%H",
+                         "--", rel)
+        out += [s for s in shas if s not in out]
     return ws + out, (None if ws else err)
 
 
@@ -538,9 +576,17 @@ def _changed_after(repo, path, rev):
     if top is None:
         return None
     rel = os.path.relpath(path, top)
-    at_rev, err = _blob(top, rev, rel)
-    if err:
-        return None
+    # the blob the run saw may sit under the name the file had then (a line moved
+    # from open/ to done/ after the run): compare it, not "absent, so unchanged"
+    names = [rel] + [name for _sha, name in _named_log(
+        top, rel, ("--all",) if top != repo else ())]
+    at_rev = None
+    for name in dict.fromkeys(names):
+        at_rev, err = _blob(top, rev, name)
+        if err:
+            return None
+        if at_rev is not None:
+            break
     at_tip, err = _blob(top, "HEAD", rel)
     if err:
         return None
@@ -622,6 +668,16 @@ def _bridged_commit(repo, commit):
     return None
 
 
+def _rel_at(repo, rev, rels):
+    """The first of `rels` that `rev` holds, else the first: the path a file had
+    at that commit, for a reader that compares blobs at fixed revisions."""
+    for rel in rels:
+        sha, err = _blob(repo, rev, rel)
+        if not err and sha:
+            return rel
+    return rels[0]
+
+
 def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
                    strict, notes):
     """Record the declared bridge's answer for one experiment.
@@ -658,8 +714,10 @@ def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
                       "be shown to precede the run"
                       % (h, tag, resolved[0], anchor))
         return
-    prel = os.path.relpath(proto, repo)
-    rrel = os.path.relpath(results, repo)
+    # the name the files had at the rewrite: a line moved to done/ after the
+    # re-root is not under its current path in the commits the bridge reads
+    prel = _rel_at(repo, rewrite, _project_rels(repo, proto))
+    rrel = _rel_at(repo, rewrite, _project_rels(repo, results))
     p_old, perr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",
                        prel)
     r_old, rerr = _git(repo, "log", "--diff-filter=AR", "--format=%H", anchor, "--",
@@ -2369,15 +2427,17 @@ def file_versions(repo, path):
     in the project before the move has its older versions there."""
     versions = []
     ws_rel = _ws_rel(repo, path)
-    for top, rel, extra in ((repo, os.path.relpath(path, repo), ()),
-                            (tp.workspace(repo), ws_rel, ("--all",))):
+    pairs = [(repo, rel, ()) for rel in _project_rels(repo, path)]
+    pairs.append((tp.workspace(repo), ws_rel, ("--all",)))
+    seen = set()
+    for top, rel, extra in pairs:
         if rel is None:
             continue
-        out, err = _git_out(top, "log", *extra, "--format=%H", "--", rel)
-        if err:
-            continue
-        for sha in reversed(out.split()):
-            text, err = _git_out(top, "show", "%s:%s" % (sha, rel))
+        for sha, name in reversed(_named_log(top, rel, extra)):
+            if sha in seen:
+                continue
+            seen.add(sha)
+            text, err = _git_out(top, "show", "%s:%s" % (sha, name))
             if not err:
                 versions.append((sha, text))
     return versions
