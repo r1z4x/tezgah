@@ -20,34 +20,32 @@ import tezgah_integrity as ti  # noqa: E402
 
 class BashAgreement(unittest.TestCase):
     def test_every_commit_bash_runs_is_refused(self):
-        ran = 0
-        for command in bv.EXPOSED:
-            if bv.bash_runs_commit(command):
-                ran += 1
-                self.assertIsNotNone(
-                    ti.shortcut_command(command),
-                    "bash %s runs the commit in %r, the gate let it through"
-                    % (bv.bash_version(), command))
+        missed = []
+        # a HIDDEN vector bash does run is held to the same rule: skipping it
+        # would let a hidden commit through on that bash (consult review)
+        for command in bv.EXPOSED + bv.HIDDEN:
+            if not bv.bash_runs_commit(command):
+                if command in bv.EXPOSED:
+                    missed.append(command)
+                continue
+            self.assertIsNotNone(
+                ti.shortcut_command(command),
+                "bash %s runs the commit in %r, the gate let it through"
+                % (bv.bash_version(), command))
         # the vectors are only evidence while bash really runs them: a shim
-        # that never fired would make every assertion above vacuous. Three may
-        # not run: bash 5.2.37 reads a heredoc opened in a closed `$( )` from
-        # the outer lines, so the commit after it is body there (measured
-        # 2026-10-03; bash 3.2 runs all 19). The gate refusing those is the
-        # safe direction.
-        self.assertGreaterEqual(ran, len(bv.EXPOSED) - 3, bv.bash_version())
+        # that never fired would make every assertion above vacuous. Only the
+        # measured bash 5 bodies may not run, and they are named, not counted.
+        self.assertEqual(set(missed) - bv.BODY_ON_BASH5, set(),
+                         "bash %s no longer runs these" % bv.bash_version())
 
     def test_a_heredoc_body_bash_does_not_run_is_not_read_as_a_command(self):
-        kept = 0
-        for command in bv.HIDDEN:
-            if bv.bash_runs_commit(command):
-                continue
-            kept += 1
+        kept = [c for c in bv.HIDDEN if not bv.bash_runs_commit(c)]
+        self.assertEqual(len(kept), len(bv.HIDDEN), bv.bash_version())
+        for command in kept:
             self.assertIsNone(
                 ti.shortcut_command(command),
                 "bash %s keeps %r as heredoc body, the gate refused it"
                 % (bv.bash_version(), command))
-        self.assertGreaterEqual(kept, len(bv.HIDDEN) - 1, bv.bash_version())
-
 
 if __name__ == "__main__":
     unittest.main()

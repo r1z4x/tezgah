@@ -46,6 +46,17 @@ EXPOSED = (
     "cat <<X # don't\nbody\nX\n%s" % COMMIT,
 )
 
+# The EXPOSED vectors bash 5.2.37 keeps as body: a heredoc opened in a closed
+# `$( )` takes its body from the outer lines there, so the commit after it does
+# not run (measured 2026-10-03 in python:3.12-slim; bash 3.2 runs all of them).
+# A vector outside this set that stops running is lost evidence, not a version
+# difference, and fails the test.
+BODY_ON_BASH5 = frozenset((
+    "echo $(cat <<X); echo $(true\n%s\nX\n)" % COMMIT,
+    "echo \"$(cat <<X)\"; echo \"$(true\n%s\nX\n)\"" % COMMIT,
+    "echo $(cat <<X)\n%s\nX" % COMMIT,
+))
+
 # Real heredoc bodies that mention the commit: bash runs none of them, and the
 # gate must not read a body as a command (review S2: the usual commit-message
 # shape was refused).
