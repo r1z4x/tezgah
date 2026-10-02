@@ -1,6 +1,6 @@
 {
   "name": "@r1z4x/tezgah",
-  "version": "0.29.0",
+  "version": "0.29.1",
   "description": "One shared working contract for every AI coding assistant you run: Claude Code, Codex, Cursor, opencode, dsh and oh-my-pi (omp).",
   "license": "MIT",
   "repository": {

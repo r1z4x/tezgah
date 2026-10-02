@@ -303,6 +303,12 @@ class OpenCodePlugin(TempHome):
         for body in ("git commit -n is now refused", "pytest || true is refused"):
             self.allowed(self.before("bash", {"command":
                 "git commit -m \"$(cat <<'EOF'\nfix: gate\n\n%s\nEOF\n)\"" % body}))
+        # a newline inside quotes after the operator is text, not the body's start
+        for command in ('cat <<X "a\nb"; git commit --no-verify -m x\nbody\nX',
+                        "cat <<X $(echo a\necho b); git commit --no-verify -m x\nbody\nX",
+                        "echo $(cat <<X); echo $(true\ngit commit --no-verify -m x\nX\n)",
+                        'echo "$(cat <<X)"; echo "$(true\ngit commit --no-verify -m x\nX\n)"'):
+            self.denied(self.before("bash", {"command": command}))
 
     def test_plain_commands_pass(self):
         for command in ("pytest -q", "git commit -m 'fix: typo'", "git status",

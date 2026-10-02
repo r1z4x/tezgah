@@ -300,6 +300,21 @@ class ShortcutCommand(unittest.TestCase):
         # line after it is its body
         self.assertEqual(ti.heredoc_bodies("let x=1<<2\nbody\n2"), ["body"])
 
+    def test_a_newline_inside_quotes_does_not_start_a_heredoc_body(self):
+        # consult review 2026-10-02: bash collects a heredoc body at a newline
+        # token, so a newline inside a quoted argument after the operator is
+        # text, and the commit on that line runs (measured with `bash -c`)
+        for c in ('cat <<X "a\nb"; git commit --no-verify -m x\nbody\nX',
+                  "cat <<X $((1\n+1)); git commit --no-verify -m x\nbody\nX",
+                  # a newline inside a later `$( )` belongs to it (bash 3.2)
+                  "cat <<X $(echo a\necho b); git commit --no-verify -m x\nbody\nX",
+                  # a closed `$( )`'s heredoc never flushes in a later sibling
+                  "echo $(cat <<X); echo $(true\ngit commit --no-verify -m x\nX\n)",
+                  'echo "$(cat <<X)"; echo "$(true\ngit commit --no-verify -m x\nX\n)"'):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        self.assertEqual(ti.heredoc_bodies('cat <<X "a\nb"; ls\nbody\nX'),
+                         ["body"])
+
 
 class BookkeepingCommand(unittest.TestCase):
     """_bookkeeping_command: which shell calls leave the tree a check judged as
@@ -835,11 +850,20 @@ class ScratchEvidenceReader(unittest.TestCase):
         probe = "api_key" + "=" + "x"
         small = "echo " + "X" * 50000 + " " + probe
         big = "echo " + "X" * 100000 + " " + probe
-        start = time.monotonic()
-        small_out, small_s = ti.redact(small), time.monotonic() - start
-        start = time.monotonic()
-        big_out = ti.redact(big)
-        big_s = time.monotonic() - start
+
+        def timed(text):
+            # the best of three: one sample under the sharded suite's load read
+            # 3.1x for a doubling that measures 2.0x alone (2026-10-02)
+            best = None
+            for _ in range(3):
+                start = time.monotonic()
+                out = ti.redact(text)
+                took = time.monotonic() - start
+                best = took if best is None else min(best, took)
+            return out, best
+
+        small_out, small_s = timed(small)
+        big_out, big_s = timed(big)
         self.assertIn("api_key=[redacted:", small_out or "")
         self.assertIn("api_key=[redacted:", big_out or "")
         # doubling the input must roughly double the time, not square it: the

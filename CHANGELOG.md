@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.1] - 2026-10-02
+
+### Security
+
+- **A newline inside quotes no longer starts a heredoc body.** The bash-context
+  heredoc reader of 0.29.0 flushed a pending heredoc at any newline, including
+  one inside a quoted argument or an arithmetic, so `cat <<X "a` / `b"; git commit
+  --no-verify ...` hid the commit bash runs on that line. Bash collects a body
+  only at a newline token of the command context the operator was read in; the
+  reader now does too, in Python and opencode, so a newline inside a later
+  `$( )` (`cat <<X $(a` / `b); cmd`) does not start the body either. A heredoc left
+  in a closed `$( )` never takes its body from a later sibling substitution.
+  Found by an independent review and measured with `bash -c`.
+
 ## [0.29.0] - 2026-10-02
 
 ### Added
@@ -2993,6 +3007,7 @@ Cursor, opencode, dsh and omp.
   points at `opencode-skills.full.md` for the rest: about 20.5 KB → 7 KB of
   instructions per session.
 
+[0.29.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.29.1
 [0.29.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.29.0
 [0.28.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.28.0
 [0.27.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.27.1
