@@ -29,7 +29,11 @@ class BashAgreement(unittest.TestCase):
                     "bash %s runs the commit in %r, the gate let it through"
                     % (bv.bash_version(), command))
         # the vectors are only evidence while bash really runs them: a shim
-        # that never fired would make every assertion above vacuous
+        # that never fired would make every assertion above vacuous. Three may
+        # not run: bash 5.2.37 reads a heredoc opened in a closed `$( )` from
+        # the outer lines, so the commit after it is body there (measured
+        # 2026-10-03; bash 3.2 runs all 19). The gate refusing those is the
+        # safe direction.
         self.assertGreaterEqual(ran, len(bv.EXPOSED) - 3, bv.bash_version())
 
     def test_a_heredoc_body_bash_does_not_run_is_not_read_as_a_command(self):
