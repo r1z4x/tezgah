@@ -47,7 +47,15 @@ itself (`.claude-plugin/plugin.json`, mirrored in
    `release: published` - a pushed tag alone triggers nothing - and publishes
    `package.json`'s version to npm and rewrites the tap formula to this tarball.
    Check both afterwards: `npm view @r1z4x/tezgah version` and the formula's
-   `url` in `r1z4x/homebrew-tezgah`.
+   `url` in `r1z4x/homebrew-tezgah`. **A client's own cache answers this
+   wrongly:** `brew info r1z4x/tezgah/tezgah` read `stable 0.23.0` a minute after
+   the v0.28.0 release because the machine's tap clone was stale - the write had
+   landed, the read had not, and the run a second time after `brew update` showed
+   `stable 0.28.0`. So read the tap clone's own file
+   (`brew --repository r1z4x/tezgah` plus `/Formula/tezgah.rb`) or run
+   `brew update` first, and treat an old `npm view` the same way: the registry's
+   version document (`/pkg/<version>`) is the authoritative read, while
+   `dist-tags` can lag the publish by minutes.
 7. Nothing else to edit: the `release`, `license` and `ci` badges in the READMEs
    read `github/v/release`, `github/license` and the workflow status live, and
    `bin/tezgah-setup --version` reports the new version for anyone who pulls.
