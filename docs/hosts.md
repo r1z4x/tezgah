@@ -37,7 +37,7 @@ except claude, whose skills arrive with the plugin. `install_common` writes the
 shared config, contract hash and the CLI symlinks every host shell can call
 (`bin/tezgah-setup:438-487`).
 
-- **claude** - `install_claude` (`bin/tezgah-setup:824-845`): `~/.claude/statusline.py`,
+- **claude** - `install_claude` (`bin/tezgah-setup:872-893`): `~/.claude/statusline.py`,
   `~/.claude/workflows/{graph-map,graph-review,graph-impact}.js`, the
   `~/.claude/bin/{consult,codegen,tezgah-render-table}` links, two keys in
   `~/.claude/settings.json` - `statusLine` (`bin/tezgah-setup:527-548`) and the attribution
@@ -47,39 +47,39 @@ shared config, contract hash and the CLI symlinks every host shell can call
   `hooks/hooks.json`; no `hooks.json` is written into `~/.claude`. Claude runs a
   **copy** of the checkout under `~/.claude/plugins/cache`, refreshed by
   `--sync` (`bin/tezgah-setup:3701-3759`).
-- **codex** - `install_codex` (`bin/tezgah-setup:884-920`): `$CODEX_HOME/hooks.json`
+- **codex** - `install_codex` (`bin/tezgah-setup:932-968`): `$CODEX_HOME/hooks.json`
   (one group per event, PreToolUse carrying `CODEX_PRETOOL_MATCHER` at `:129-131`),
   `skills/*` symlinks, `~/.codex/bin/consult`, and `mcp_servers.*` tables in
-  `config.toml` (`ensure_toml_mcp`, `bin/tezgah-setup:925-982`).
-- **cursor** - `install_cursor` (`bin/tezgah-setup:1456-1509`): `~/.cursor/hooks.json`
+  `config.toml` (`ensure_toml_mcp`, `bin/tezgah-setup:973-1030`).
+- **cursor** - `install_cursor` (`bin/tezgah-setup:1504-1557`): `~/.cursor/hooks.json`
   (tezgah entries replaced, a user's Orca entries merged), `skills/*` symlinks,
   `mcp.json` servers, and `cli-config.json` `statusLine`.
-- **opencode** - `install_opencode` (`bin/tezgah-setup:1364-1455`): the plugin under
+- **opencode** - `install_opencode` (`bin/tezgah-setup:1412-1503`): the plugin under
   both `plugins/` and `plugin/` (version drift), `skills/*` symlinks, the
   generated `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:759-795`) and
   `opencode-skills.md` + `.full.md` (`bin/tezgah-setup:1171-1238`), then `opencode.json`
   (`instructions`, `mcp`, `permission.skill=deny`, `compaction.prune`,
   `watcher.ignore`, the two `external_directory` grants) and `tui.json` +
   `tui-plugins/tezgah-tui.tsx`.
-- **dsh** - `install_dsh` (`bin/tezgah-setup:1723-1734`): `~/.dsh/skills/*` symlinks,
-  a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:1556-1612`) that
+- **dsh** - `install_dsh` (`bin/tezgah-setup:1771-1782`): `~/.dsh/skills/*` symlinks,
+  a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup:1604-1660`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
   rows and the three `llm-pi-ai` routes, plus `~/.local/bin/dsh` ->
-  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:1625-1647`) links the statusline
+  `bin/tezgah-dsh`. `install_dsh_statusline` (`bin/tezgah-setup:1673-1695`) links the statusline
   package into the **web profile** and adds its row to
   `~/.dsh/profiles/web/cordis.patch.yml`.
-- **omp** - `install_omp` (`bin/tezgah-setup:1929-1987`): `~/.omp/agent/RULES.md`
+- **omp** - `install_omp` (`bin/tezgah-setup:1977-2035`): `~/.omp/agent/RULES.md`
   (managed block), `skills/*` symlinks, `agents/tezgah-*.md`, `mcp.json`
   (`$schema`, `mcpServers`), and `hooks/pre/tezgah-hook.ts` rendered from
   `hosts/omp/tezgah-hook.ts.in` with the python path substituted for `@HOOK@`.
   That path is then named in omp's `extensions:` setting through `omp config`
-  (`register_omp_hook`, `bin/tezgah-setup:1822-1838`): omp 18.2.11 loaded
+  (`register_omp_hook`, `bin/tezgah-setup:1870-1886`): omp 18.2.11 loaded
   nothing from `hooks/pre/` by discovery, the same file named there drew the
   status line, and omp dedupes a path that is both discovered and configured
-  (`OMP_EXTENSIONS`, `bin/tezgah-setup:1789-1791`). omp has no orx target of
+  (`OMP_EXTENSIONS`, `bin/tezgah-setup:1837-1839`). omp has no orx target of
   its own: orx's `codex` target writes the shim to `~/.agents/skills/orx`,
   omp's native `agents` skill root, so `install_openresearch` maps omp onto it
-  (`ORX_AGENTS`, `bin/tezgah-setup:157-158`).
+  (`ORX_AGENTS`, `bin/tezgah-setup:164-165`).
 
 An adapter is responsible for its host's **envelope** and its **surface**: it
 translates the host's event and tool names into the shared vocabulary (one call
@@ -162,12 +162,12 @@ In order, each step verified by the one below it:
    TS/JS host, the bridge file with a substituted python path
    (`hosts/omp/tezgah-hook.ts.in` rendered at `bin/tezgah-setup:1340-1341`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
-   (`bin/tezgah-setup:1988-1992`), and `uninstall_<host>()` removing only
+   (`bin/tezgah-setup:2036-2040`), and `uninstall_<host>()` removing only
    tezgah-managed links and blocks (`bin/tezgah-setup:2543-2694`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
-   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:3873-3877`); the
+   written, registered in `HOST_CHECKS` (`bin/tezgah-setup:3943-3947`); the
    `--report` output is that list (`bin/tezgah-setup:3028-3106`). Give the row a home-qualified
-   label if the host's dir can be relocated (`host_checks_codex`, `bin/tezgah-setup:3671-3702`).
+   label if the host's dir can be relocated (`host_checks_codex`, `bin/tezgah-setup:3741-3772`).
 5. Decide the surface: a `statusLine` command, a TUI/widget plugin, or the
    `systemMessage` fallback (`hosts/codex/hook.py:10-12`). Pass `observable` if
    the host cannot see a skill read, and `idx_override` on any redraw that must
@@ -181,6 +181,15 @@ In order, each step verified by the one below it:
 
 ## Host-specific limits worth knowing
 
+- **Lessons and open plans are injected only when `.tezgah` came from tezgah.**
+  `.tezgah/` is the user's private workspace, ignored by the project. When the
+  project's own git index holds `.tezgah` or any path under it (as a file, a
+  symlink or a submodule), when `.tezgah`, `lessons.md`, `plans` or
+  `plans/open` is a symlink, or when the index cannot be read, the block is
+  replaced by a one-line "repository-provided data" notice
+  (`workspace_from_repo`, audit L-16). Ceiling: a tree with no `.git` (an
+  unpacked archive) carries no record of where `.tezgah` came from, so its
+  lessons are injected; do not unpack untrusted archives under a configured root.
 - **After a compaction, the live state comes back on four hosts, not six.**
   The block after a compaction is the same `post_compact` build everywhere:
   resume, plans, lessons and the graph line, without a core the static file
@@ -271,7 +280,7 @@ In order, each step verified by the one below it:
   host whose shell the gate cannot see.
 - **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:3682-3700`),
   so a change is not live until `--sync` or a refresh
-  (`refresh_plugin_copy`, `bin/tezgah-setup:4224-4244`).
+  (`refresh_plugin_copy`, `bin/tezgah-setup:4294-4314`).
 - **omp spawns the MCP `command` as one executable** and takes the rest in
   `args`; the whole argv in `command` fails with ENOENT (`bin/tezgah-setup:1322-1324`),
   and `setStatus` strips ANSI, so only the widget path keeps the per-mark colors
@@ -281,7 +290,7 @@ In order, each step verified by the one below it:
   connects there (omp 18.2.11 `/mcp` listed codegraph, mobile-mcp and tezgah
   only). `install_omp` therefore writes no Playwright row and sweeps one an older
   release wrote, and the report calls that absence green
-  (`OMP_SUPERSEDED_MCP`, `bin/tezgah-setup:117-120`); `skills/analyze-app`
+  (`OMP_SUPERSEDED_MCP`, `bin/tezgah-setup:124-127`); `skills/analyze-app`
   sends omp to the native `browser` instead.
 
 ## Source of truth

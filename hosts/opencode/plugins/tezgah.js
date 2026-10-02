@@ -206,9 +206,12 @@ const ATTRIB_DENY =
 // Only the two shapes the contract names: a bearer header, or a `name=value`
 // assignment. `:` is NOT a separator here - `{"api_key": "x"}` is a JSON field in
 // a program's text, while `token=$TOKEN` and `api_key=...` are a credential being
-// carried, and the value may be an env reference the shell resolves.
+// carried, and the value may be an env reference the shell resolves. No name
+// prefix in front of the keyword: `test` needs none, and the unanchored
+// `[A-Za-z0-9_.-]*` rescanned from every start - 21 s for 100 KB in node,
+// the quadratic shape audit H-3 removed from the Python gate.
 const SECRET_TOKEN =
-  /authorization\s*:\s*bearer\s+\S|[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd)\s*=\s*["']?[^\s"']/i
+  /authorization\s*:\s*bearer\s+\S|(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd)\s*=\s*["']?[^\s"']/i
 // The sinks that carry a command's own text into a file. `>>?` is read off the
 // masked text, so a quoted `>` is not a redirect and `2>&1` is not a file.
 // curl's -o/--output writes the response BODY, not the request header, so it is
@@ -487,8 +490,14 @@ function verifyCommand(cmd) {
 
 // mirrors hooks/tezgah_integrity._git_skips_hooks: commit's short `-n` (alone or
 // in a cluster) and an abbreviation git accepts for `--no-verify` skip the
-// hooks too (audit SEC-03). `-n` on push is --dry-run, so commit only.
+// hooks too (audit SEC-03). `-n` on push is --dry-run, so commit only. `-S` and
+// `-u` take their value stuck only (review F4); the long options take the next
+// word even when it starts with `-` (review F7).
 const COMMIT_VALUE_SHORTS = "mFcCtSu"
+const COMMIT_STUCK_SHORTS = "Su"
+const COMMIT_VALUE_LONGS = new Set(["--message", "--file", "--author",
+  "--trailer", "--date", "--reuse-message", "--reedit-message", "--fixup",
+  "--squash", "--template", "--cleanup"])
 function gitSkipsHooks(cmd) {
   for (const words of shellSegments(cmd)) {
     let i = 0
@@ -504,10 +513,14 @@ function gitSkipsHooks(cmd) {
       if (valueNext) { valueNext = false; continue }
       if (word === "--") break
       if (word.length >= 8 && "--no-verify".startsWith(word)) return true
+      if (sub === "commit" && COMMIT_VALUE_LONGS.has(word)) { valueNext = true; continue }
       if (sub === "commit" && word.startsWith("-") && !word.startsWith("--")) {
         for (let k = 1; k < word.length; k++) {
           if (word[k] === "n") return true
-          if (COMMIT_VALUE_SHORTS.includes(word[k])) { valueNext = k === word.length - 1; break }
+          if (COMMIT_VALUE_SHORTS.includes(word[k])) {
+            valueNext = k === word.length - 1 && !COMMIT_STUCK_SHORTS.includes(word[k])
+            break
+          }
         }
       }
     }
@@ -516,8 +529,12 @@ function gitSkipsHooks(cmd) {
 }
 
 // mirrors hooks/tezgah_integrity._shell_scripts: the script of a `bash -c` /
-// `sh -c` segment, which the masked scan blanks as a quoted string
+// `sh -c` segment, which the masked scan blanks as a quoted string. Read as bash
+// reads its options: the first non-option word once `-c` was seen; long options
+// skipped (`--rcfile` with its value), each `o`/`O` in a cluster takes a word
+// (review F10: `bash -o pipefail -c`, `bash --norc -c`, `sh -e -c`)
 const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"])
+const SHELL_VALUE_LONGS = new Set(["--rcfile", "--init-file"])
 const SHELL_DEPTH = 3
 function shellScripts(cmd) {
   const out = []
@@ -525,10 +542,19 @@ function shellScripts(cmd) {
     let i = 0
     while (i < words.length && (ENV_WORD.test(words[i]) || GIT_WRAPPER.has(words[i]))) i++
     if (i >= words.length || !SHELLS.has(words[i].split("/").pop())) continue
-    for (let j = i + 1; j < words.length - 1; j++) {
+    let seen = false, j = i + 1
+    while (j < words.length) {
       const word = words[j]
-      if (!word.startsWith("-") || word.startsWith("--")) break
-      if (word.slice(1).includes("c")) { out.push(words[j + 1]); break }
+      if (SHELL_VALUE_LONGS.has(word)) j += 2
+      else if (word.startsWith("--") && word !== "--") j += 1
+      else if (word.length > 1 && "-+".includes(word[0]) && word !== "--") {
+        seen = seen || (word[0] === "-" && word.slice(1).includes("c"))
+        j += 1 + [...word.slice(1)].filter((ch) => ch === "o" || ch === "O").length
+      } else {
+        if (word === "--") j += 1
+        if (seen && j < words.length) out.push(words[j])
+        break
+      }
     }
   }
   return out

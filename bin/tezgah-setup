@@ -35,8 +35,15 @@ import json
 import os
 import re
 import shutil
+import signal
+import stat
 import subprocess
 import sys
+
+try:
+    import fcntl
+except ImportError:  # not POSIX: record_contract relies on os.replace alone
+    fcntl = None
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
@@ -177,7 +184,8 @@ OFF_SWITCH_NAMES = ("adhd-off", "agents-off", "consult-off", "exec-mode.off",
 # tezgah's to delete, and `adopted/` holds the predecessor originals --adopt
 # moved aside - the only copy of them on disk.
 GENERATED_STATE = frozenset((
-    "bin", "config.json", "contract.sha256", "install.log", "materialised",
+    "bin", "config.json", "contract.sha256", "contract.sha256.lock",
+    "install.log", "materialised",
     "opencode-contract.md", "opencode-skills.md", "opencode-skills.full.md",
     "ponytail.level", "state"))
 # The predecessor harness's marker in an AGENTS.md under a root: the block tells
@@ -332,12 +340,26 @@ def recorded_shas():
 
 
 def record_contract(path, text):
-    """Record the sha of the text just rendered into one artifact."""
-    shas = recorded_shas()
-    shas[path] = _sha(text)
+    """Record the sha of the text just rendered into one artifact.
+
+    opencode spawns `--refresh` once per session, so two sessions starting
+    together run this at once. A bare read-then-rewrite let the slower writer
+    drop the other's line, and a reader could see the file half-truncated
+    (review of audit M-5). The update is a merge done under an exclusive lock
+    on a side file - the record is re-read inside the lock, so only this one
+    line changes - and lands through a temp file and `os.replace`, so a reader
+    never sees a partial file. Without fcntl (Windows) the lock is skipped and
+    the replace alone still keeps every read whole."""
     mkdirp(tp.CONFIG_DIR)
-    with open(CONTRACT_SHA, "w", encoding="utf-8") as fh:
-        fh.writelines("%s  %s\n" % (shas[p], p) for p in sorted(shas))
+    with open(CONTRACT_SHA + ".lock", "a", encoding="utf-8") as lock:
+        if fcntl is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        shas = recorded_shas()
+        shas[path] = _sha(text)
+        tmp = "%s.%d.tmp" % (CONTRACT_SHA, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.writelines("%s  %s\n" % (shas[p], p) for p in sorted(shas))
+        os.replace(tmp, CONTRACT_SHA)
 
 
 def stale_artifacts(hosts):
@@ -814,6 +836,32 @@ def install_common(new_roots, hosts):
         print(link(src, os.path.join(tp.BIN_DIR, name)))
     mkdirp(tezgah_apps.ARTIFACTS)
     print("%s app artifacts -> %s" % (OK, tezgah_apps.ARTIFACTS))
+    tighten_cache()
+
+
+def tighten_cache():
+    """Owner-only modes on the evidence cache: dirs 0700, regular files 0600.
+
+    Audit SEC-05 / L-6: ledgers and snapshots are created owner-only since
+    round 2, and this tightens the ones an earlier version left at the umask
+    default (0644/0755). Here rather than in the writer, which would pay an
+    fchmod per append. Symlinks are skipped, never followed, and a failing entry
+    is left as it is."""
+    root = tp.cache_dir()
+    if not os.path.isdir(root):
+        return
+    for dirpath, dirnames, filenames in os.walk(root):
+        for path, mode in ([(dirpath, 0o700)]
+                           + [(os.path.join(dirpath, n), 0o600) for n in filenames]):
+            try:
+                st = os.lstat(path)
+                if stat.S_ISLNK(st.st_mode):
+                    continue
+                if (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)) \
+                        and stat.S_IMODE(st.st_mode) != mode:
+                    os.chmod(path, mode)
+            except OSError:
+                continue
 
 
 def statusline_wired():
@@ -2336,7 +2384,7 @@ def install_deps(dry_run=False, only=None):
         print("%s %s missing (%s); running: %s" % ("  --  ", name, dep["why"], pretty))
         _dep_log(name, pretty)
         try:
-            proc = subprocess.run(_dep_argv(dep), timeout=DEP_TIMEOUT)
+            code = _run_bounded(_dep_argv(dep), DEP_TIMEOUT)
         except subprocess.TimeoutExpired:
             print("%s %s: installer still running after %d s (a stalled network?) "
                   "- stopped; re-run when the network answers"
@@ -2350,16 +2398,38 @@ def install_deps(dry_run=False, only=None):
         _augment_path()
         if dep["probe"]():
             print("%s %s installed" % (OK, name))
-        elif proc.returncode:
+        elif code:
             print("%s %s: installer failed with exit %d; its own error is printed "
                   "above (a new shell will not fix it)"
-                  % (NO, name, proc.returncode))
+                  % (NO, name, code))
             still.append(name)
         else:
             print("%s %s: installer exited 0 but `%s` is still not found; open a "
                   "new shell (PATH) and re-run" % (NO, name, name))
             still.append(name)
     return still
+
+
+def _run_bounded(argv, timeout):
+    """Run one installer and return its exit code; TimeoutExpired past
+    `timeout`.
+
+    `subprocess.run(timeout=)` kills only the direct child: in `curl | bash` that
+    is the outer bash, and the piped installer kept running with nobody waiting
+    for it (review of audit M-9). The installer starts in a session of its own,
+    so its whole process group - every pipe member and what they spawned - is
+    killed together. Only the POSIX path calls this (Windows reports channels)."""
+    proc = subprocess.Popen(argv, start_new_session=True)
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        proc.wait()
+        raise
+
 
 
 # ---------------------------------------------------------------- uninstall ----

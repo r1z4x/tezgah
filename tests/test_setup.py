@@ -564,6 +564,67 @@ class Deps(SetupBase):
         self.assertEqual(still, ["slow"])
         self.assertIn("still running after 1 s", out.getvalue())
 
+    def test_a_stalled_pipeline_takes_its_grandchildren_with_it(self):
+        """`subprocess.run(timeout=)` killed only the outer shell: in
+        `curl | bash` the piped installer lived on. The stub starts a sleeping
+        grandchild, records its pid and waits; after the timeout that pid must
+        be gone too."""
+        import contextlib
+        import io
+        import time
+        mod = setup_module()
+        pidfile = self.path("grandchild.pid")
+        row = {"name": "slow", "probe": lambda: False, "needs": (),
+               "cmd": ["sh", "-c", "sleep 60 & echo $! > %s; wait" % pidfile],
+               "why": "a stalled download"}
+        with mock.patch.object(mod, "DEPS", (row,)), \
+                mock.patch.object(mod, "DEP_TIMEOUT", 1), \
+                mock.patch.object(mod, "feature_deps", lambda only=None: ()), \
+                mock.patch.object(mod, "_dep_log", lambda name, cmd: None), \
+                mock.patch.dict(os.environ), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(mod.install_deps(), ["slow"])
+        pid = int(self.read_text(pidfile))
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if time.monotonic() > deadline:
+                os.kill(pid, 9)  # leave no stray sleep behind a failing run
+                self.fail("grandchild %d outlived the installer timeout" % pid)
+            time.sleep(0.1)
+
+
+class CacheModes(SetupBase):
+    """--install tightens a cache an earlier version left at the umask default:
+    ledgers and snapshots hold commands and file copies, so dirs become 0700
+    and files 0600 (audit SEC-05 / L-6). A symlink is not followed."""
+
+    def test_install_makes_old_cache_entries_owner_only(self):
+        import stat
+        cache = self.path(".cache", "tezgah")
+        ledger_dir = os.path.join(cache, "evidence")
+        os.makedirs(ledger_dir)
+        ledger = os.path.join(ledger_dir, "s.jsonl")
+        with open(ledger, "w") as fh:
+            fh.write("{}\n")
+        outside = self.path("outside.txt")
+        with open(outside, "w") as fh:
+            fh.write("mine\n")
+        os.symlink(outside, os.path.join(cache, "link"))
+        for path, mode in ((cache, 0o755), (ledger_dir, 0o755), (ledger, 0o644),
+                           (outside, 0o644)):
+            os.chmod(path, mode)
+        self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
+        mode = lambda p: stat.S_IMODE(os.lstat(p).st_mode)  # noqa: E731
+        self.assertEqual(mode(cache), 0o700)
+        self.assertEqual(mode(ledger_dir), 0o700)
+        self.assertEqual(mode(ledger), 0o600)
+        # the link's target is the user's file, not cache state
+        self.assertEqual(mode(outside), 0o644)
+
 
 class DshChecks(SetupBase):
     """The three dsh LLM routes are reported separately and read the provider key
@@ -1583,6 +1644,26 @@ class Refresh(SetupBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("current", proc.stdout)
         self.assertEqual(self.read_text(contract), before)
+
+    def test_concurrent_records_lose_no_line(self):
+        """opencode spawns `--refresh` once per session, so sessions starting
+        together write the record at once. A read-then-rewrite let the slower
+        writer drop the other's lines; every line written must survive."""
+        runner = ("import importlib.machinery, importlib.util, sys\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "for i in range(40):\n"
+                  "    m.record_contract('/a/%%s/%%d' %% (sys.argv[1], i), 'x')\n"
+                  % SETUP)
+        procs = [subprocess.Popen([sys.executable, "-c", runner, str(n)],
+                                  env=self.env, stderr=subprocess.PIPE)
+                 for n in range(8)]
+        for proc in procs:
+            _out, err = proc.communicate(timeout=120)
+            self.assertEqual(proc.returncode, 0, err)
+        self.assertEqual(len(self.recorded()), 8 * 40)
 
 
 class KillSwitchStaticFiles(SetupBase):

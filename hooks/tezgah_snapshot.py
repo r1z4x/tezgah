@@ -160,8 +160,8 @@ def _append(session_id, row):
 # the file, its size and its sha256, so the after-state comparison (`changed`)
 # and the freshness rule see the write exactly as they see any other.
 SECRET_FILE = re.compile(
-    r"\A(?:\.env(?:\..*)?|.*\.env|.*\.(?:pem|key|p12|pfx|jks|keystore)"
-    r"|id_(?:rsa|dsa|ecdsa|ed25519)|credentials(?:\.json)?|\.netrc|_netrc"
+    r"\A(?:\.env(?:rc|\..*)?|.*\.env|.*\.(?:pem|key|p12|pfx|jks|keystore)"
+    r"|id_(?:rsa|dsa|ecdsa|ed25519)[\w-]*|credentials(?:\.json)?|\.netrc|_netrc"
     r"|\.npmrc|\.pypirc|\.pgpass|\.git-credentials)\Z", re.I)
 
 

@@ -104,6 +104,24 @@ class ShortcutCommand(unittest.TestCase):
                   "git commit --no-verbose -m x", "bash -c 'pytest -q'"):
             self.assertIsNone(ti.shortcut_command(c), c)
 
+    # The review's cases, shared with the opencode mirror's test.
+    STUCK_AND_WRAPPED = (
+        # F4: `-S`/`-u` take no separate word, so the `-n` after them is a flag
+        "git commit -S -n -m x", "git commit -u -n -m x",
+        # F10: bash options before `-c` no longer hide the script
+        "bash -o pipefail -c 'pytest || true'", "bash --norc -c 'pytest || true'",
+        "sh -e -c 'git commit -n -m x'", "bash --rcfile /x -c 'pytest || true'")
+    LONG_VALUES = (
+        # F7: a long option's separate value is a value, whatever it starts with
+        'git commit --message "-no-op cleanup"', "git commit --file -n.txt",
+        'git commit --author "-n <a@b>" -m x', "git commit -uno -m x")
+
+    def test_the_reviews_hook_skip_shapes_are_read_like_git_and_bash(self):
+        for c in self.STUCK_AND_WRAPPED:
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        for c in self.LONG_VALUES:
+            self.assertIsNone(ti.shortcut_command(c), c)
+
     def test_neutered_check_denied(self):
         for c in ("pytest || true", "npm test || true", "ruff check . ; true",
                   "cargo test || exit 0", "pytest tests/ || :"):
@@ -240,6 +258,31 @@ class ShortcutCommand(unittest.TestCase):
         # a bypass must not hide behind a missing terminator
         self.assertIsNotNone(
             ti.shortcut_command("git commit -F - <<'MSG'\n--no-verify\n"))
+
+
+class BookkeepingCommand(unittest.TestCase):
+    """_bookkeeping_command: which shell calls leave the tree a check judged as
+    it was. A false True here excuses an unverified change (review F2, F6)."""
+
+    def test_writes_and_runs_hidden_from_the_masked_text_are_not_bookkeeping(self):
+        for c in ('echo "$(./scripts/regen.sh)"', "cat src//tpl.py > src/app.py",
+                  "ls a#b; sed -i s/x/y/ f.py", "cat <(sed -i s/a/b/ f.py)",
+                  "echo `./x.sh`", "git log > /tmp/log.txt"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+
+    def test_readers_that_write_or_run_are_not_bookkeeping(self):
+        for c in ("git diff --output=src/app.py HEAD~1", "git log --output x",
+                  "tree -o src/x", "rg --pre ./x.sh pat",
+                  "GIT_EXTERNAL_DIFF=./x.sh git diff",
+                  "env GIT_EXTERNAL_DIFF=./x.sh git diff",
+                  "git -c diff.external=./x.sh diff", "git diff --ext-diff"):
+            self.assertFalse(ti._bookkeeping_command(c), c)
+
+    def test_plain_bookkeeping_still_is(self):
+        for c in ('git commit -m "fix: parser"', "git status --short",
+                  "git add -A && git commit -m 'a > b'", "git log -n 3 2>&1",
+                  "git diff --stat >/dev/null", "ls -la src", "git -C sub status"):
+            self.assertTrue(ti._bookkeeping_command(c), c)
 
 
 class PipedCheck(unittest.TestCase):
@@ -2034,7 +2077,7 @@ class StopHook(TempHome):
         self.turn("is it done?")
         out = self.stop("Done. All tests pass.")
         self.assertEqual(self.claim_rows(), ["blocked: check failed"])
-        self.assertIn("newest check in this session failed", out["reason"])
+        self.assertIn("A check failed in this session", out["reason"])
 
     def test_a_vcs_only_turn_after_a_pass_on_an_unchanged_tree_ends(self):
         # audit CHAT-04 / M-12: a commit-only turn was refused for having no
@@ -2065,9 +2108,66 @@ class StopHook(TempHome):
         self.turn("clean up")
         self.seed("Bash", {"command": "rm -rf build"})
         self.assertEqual(self.stop("Temizledim.").get("decision"), "block")
+
+    def test_a_redirect_turn_is_not_bookkeeping(self):
+        # review F8: on its own, after a pass, so only the redirect guard can
+        # refuse it - an earlier non-bookkeeping row would refuse it anyway
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
         self.turn("write it out")
         self.seed("Bash", {"command": "git log > /tmp/log.txt"})
         self.assertEqual(self.stop("Yazdım.").get("decision"), "block")
+
+    def test_a_command_cut_by_the_ledger_is_not_bookkeeping(self):
+        # review F1: the row keeps DETAIL_MAX characters, so a write past the
+        # cut (`python3 scripts/regen.py`) was read as a run of `cat`
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.turn("look around")
+        self.seed("Bash", {"command": "git status --short && cat %s && "
+                           "python3 scripts/regen.py" % ("src/a.py " * 25)})
+        self.assertEqual(self.stop("Baktım.").get("decision"), "block")
+
+    def ui_turn_then(self):
+        """Turn 1 edits a component and runs a unit pass only, then ends
+        honestly; the UI proof it owes is still missing."""
+        path = os.path.join(self.repo, "app", "components", "Button.tsx")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("export const Button = () => null\n")
+        self.turn("restyle the button")
+        self.seed("Edit", {"file_path": path})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.assertIsNone(self.stop("Butonu değiştirdim, doğrulanmadı."))
+
+    def test_a_bookkeeping_turn_keeps_a_pending_ui_check(self):
+        # review F5: the session-level path judged only three of the turn
+        # fold's classes, so a commit turn after an unproven UI change ended
+        self.ui_turn_then()
+        self.turn("commit it")
+        self.seed("Bash", {"command": "git commit -am x"})
+        out = self.stop("Değişiklik commitlendi.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertEqual(self.claim_rows()[-1], "blocked: no ui_ok")
+
+    def test_a_no_work_claim_keeps_a_pending_ui_check(self):
+        self.ui_turn_then()
+        self.turn("is it done?")
+        self.assertEqual(self.stop("Tamamlandı, testler geçti.").get("decision"),
+                         "block")
+        self.assertEqual(self.claim_rows()[-1], "blocked: no ui_ok")
+
+    def test_a_no_work_claim_keeps_an_unresolved_partial_failure(self):
+        # a failure followed by a check whose outcome nobody saw is a partial
+        # failure in the turn fold, and it stays one a turn later
+        self.turn("fix it")
+        self.seed("Bash", {"command": "pytest -q"})
+        self.seed("Bash", {"command": "ruff check ."}, failed=True)
+        self.seed("Bash", {"command": "ruff check ."}, failed=None)
+        self.assertIsNone(self.stop("Lint kırık, doğrulanmadı."))
+        self.turn("is it done?")
+        self.stop("Tamamlandı, testler geçti.")
+        self.assertEqual(self.claim_rows()[-1], "blocked: partial failure")
 
     def test_failed_check_blocks(self):
         self.seed("Edit", {"file_path": "x.py"})

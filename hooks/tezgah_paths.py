@@ -583,6 +583,11 @@ def ensure_workspace(repo):
     if not os.path.exists(os.path.join(repo, ".git")):
         return None
     ws = workspace(repo)
+    # A `.tezgah` that is a symlink (or anything but a directory) came with the
+    # repository: following it would `git init` inside the target the clone
+    # chose and write the private workspace there (review F3, audit L-16).
+    if os.path.islink(ws) or (os.path.lexists(ws) and not os.path.isdir(ws)):
+        return None
     try:
         os.makedirs(ws, exist_ok=True)
         path = os.path.join(repo, ".gitignore")

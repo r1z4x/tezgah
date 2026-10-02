@@ -311,8 +311,8 @@ if __name__ == "__main__":
 class ContractSkillMatchesTheRule(unittest.TestCase):
     """The contract skill is hand-kept, so it can drift from the rule it ships.
 
-    `skills/tezgah-contract/SKILL.md` is a CONTRACT *source*
-    (`bin/tezgah-setup`'s `CONTRACT_SOURCES`), not a generated file: the policy
+    `skills/tezgah-contract/SKILL.md` is a CONTRACT *source* (hand-kept and
+    read by the installer), not a generated file: the policy
     constant and the skill are two readings of one rule, which is the shape the
     repository's lessons ledger records as drifting in both directions. This case
     pins the facts a session acts on - where the index is, which verb refreshes

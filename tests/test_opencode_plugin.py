@@ -300,6 +300,30 @@ class OpenCodePlugin(TempHome):
             self.assertIsNone(ti.shortcut_command(command), command)
             self.allowed(self.before("bash", {"command": command}))
 
+    def test_the_reviews_hook_skip_shapes_match_the_python_gate(self):
+        # review F4 (`-S`/`-u` take no separate word), F10 (bash options before
+        # `-c`) and F7 (a long option's separate value starting with `-`)
+        denied = ("git commit -S -n -m x", "git commit -u -n -m x",
+                  "bash -o pipefail -c 'pytest || true'",
+                  "bash --norc -c 'pytest || true'", "sh -e -c 'git commit -n -m x'")
+        passed = ('git commit --message "-no-op cleanup"', "git commit --file -n.txt",
+                  "git commit -uno -m x")
+        for command in denied:
+            self.assertIsNotNone(ti.shortcut_command(command), command)
+            self.denied(self.before("bash", {"command": command}))
+        for command in passed:
+            self.assertIsNone(ti.shortcut_command(command), command)
+            self.allowed(self.before("bash", {"command": command}))
+
+    def test_a_large_command_is_read_in_linear_time(self):
+        # the gate's credential pattern opened with an unanchored name prefix:
+        # 21 s for 100 KB in node, past every host's hook budget (audit H-3's
+        # shape, still in this mirror)
+        started = time.monotonic()
+        self.allowed(self.before("bash", {"command": "echo " + "X" * 100000}))
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 5.0, "%.1fs for a 100 KB command" % elapsed)
+
     def test_skip_env_mention_in_a_read_passes(self):
         # SKIP= only turns checks off inside a hook runner; a search that merely
         # mentions it must not be denied

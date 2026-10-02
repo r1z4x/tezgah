@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 
 import support
@@ -1005,6 +1006,126 @@ class LessonsLedger(TempHome):
         self.assertIn("- " + self.HOSTILE, out)
         self.assertIn("Hostile plan title", out)
         self.assertNotIn("Repository-provided data", out)
+
+    # Review F3: a repository can carry `.tezgah` without a single `.tezgah/`
+    # path in its index - as a symlink, a submodule, or a symlinked `plans/open`.
+    def symlinked_repo(self, link):
+        """A clone that tracks `link` as a symlink into its own `notes/`, which
+        holds the hostile lessons and plan."""
+        repo = self.make_repo("linked")
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        notes = os.path.join(repo, "notes")
+        os.makedirs(os.path.join(notes, "plans", "open"))
+        with open(os.path.join(notes, "lessons.md"), "w") as fh:
+            fh.write("- %s\n" % self.HOSTILE)
+        with open(os.path.join(notes, "plans", "open", "001-steer.md"), "w") as fh:
+            fh.write("---\nid: 001\ntitle: Hostile plan title\n---\n")
+        if link == ".tezgah":
+            os.symlink("notes", os.path.join(repo, ".tezgah"))
+        else:
+            os.makedirs(os.path.join(repo, ".tezgah", "plans"))
+            os.symlink(os.path.join("..", "..", "notes", "plans", "open"),
+                       os.path.join(repo, ".tezgah", "plans", "open"))
+        subprocess.run(["git", "-C", repo, "add", "-f", "notes", link], check=True)
+        subprocess.run(["git", "-C", repo, "-c", "user.email=a@b", "-c",
+                        "user.name=t", "commit", "-qm", "x"], check=True)
+        return repo
+
+    def test_a_tracked_tezgah_symlink_is_repository_provided(self):
+        repo = self.symlinked_repo(".tezgah")
+        out = self.session(repo)
+        self.assertNotIn(self.HOSTILE, out)
+        self.assertNotIn("Hostile plan title", out)
+        self.assertIn("Repository-provided data", out)
+        # the private workspace is never initialised through the link
+        self.assertFalse(os.path.exists(os.path.join(repo, "notes", ".git")))
+
+    def test_a_symlinked_plans_open_is_repository_provided(self):
+        out = self.session(self.symlinked_repo(os.path.join(".tezgah", "plans",
+                                                            "open")))
+        self.assertNotIn("Hostile plan title", out)
+        self.assertIn("`.tezgah/plans/open/`", out)
+
+    def test_a_tezgah_submodule_is_repository_provided(self):
+        # `--recurse-submodules` checks out a gitlink `.tezgah` with its files;
+        # the index holds the entry `.tezgah` and nothing under it
+        repo = self.make_repo("sub")
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        self.write_lessons(repo, ["- " + self.HOSTILE])
+        subprocess.run(["git", "-C", repo, "update-index", "--add", "--cacheinfo",
+                        "160000,%s,.tezgah" % ("1" * 40)], check=True)
+        out = self.session(repo)
+        self.assertNotIn(self.HOSTILE, out)
+        self.assertIn("Repository-provided data", out)
+
+    # Review F9: every answer that cannot be made falls on the notice side.
+    def test_a_split_index_is_read_through_its_shared_index(self):
+        repo = self.cloned_repo(track=True)
+        subprocess.run(["git", "-C", repo, "config", "core.splitIndex", "true"],
+                       check=True)
+        subprocess.run(["git", "-C", repo, "update-index", "--split-index"],
+                       check=True)
+        with open(os.path.join(repo, ".git", "index"), "rb") as fh:
+            self.assertNotIn(b".tezgah/", fh.read())  # the case under test
+        out = self.session(repo)
+        self.assertNotIn(self.HOSTILE, out)
+        self.assertIn("Repository-provided data", out)
+
+    def test_a_v4_query_that_fails_is_a_notice(self):
+        repo = self.cloned_repo(track=False, index_version=4)
+        shim = os.path.join(self.home, "shim")
+        os.makedirs(shim)
+        with open(os.path.join(shim, "git"), "w") as fh:
+            fh.write('#!/bin/sh\n[ "$3" = ls-files ] && exit 128\nexec %s "$@"\n'
+                     % shutil.which("git"))
+        os.chmod(os.path.join(shim, "git"), 0o755)
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "session_start",
+                              "cwd": repo},
+                             env=self.env(extra={"PATH": shim + os.pathsep
+                                                 + os.environ["PATH"]}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn(self.HOSTILE, out)
+        self.assertIn("Repository-provided data", out)
+
+    def test_an_untracked_cache_naming_tezgah_is_not_tracking(self):
+        # The untracked cache (UNTR extension) records an untracked `.tezgah` by
+        # name, and the whole-file byte search read it as tracked: the user's
+        # own lessons became a notice. Only the index entries decide.
+        repo = self.cloned_repo(track=False)
+        subprocess.run(["git", "-C", repo, "config", "core.untrackedCache", "true"],
+                       check=True)
+        # git leaves a directory out of the cache while its mtime is as new as
+        # the index (racy timestamps), so the tree is dated back a minute
+        old = time.time() - 60
+        for base, dirs, _files in os.walk(repo):
+            if ".git" not in base.split(os.sep):
+                os.utime(base, (old, old))
+        for _ in range(2):
+            subprocess.run(["git", "-C", repo, "status"], check=True,
+                           capture_output=True)
+        with open(os.path.join(repo, ".git", "index"), "rb") as fh:
+            self.assertIn(b".tezgah", fh.read())  # the case under test
+        out = self.session(repo)
+        self.assertIn("- " + self.HOSTILE, out)
+        self.assertNotIn("Repository-provided data", out)
+
+    def test_a_sha256_index_is_parsed_at_its_own_width(self):
+        # the header does not name the hash width; a 32-byte object id must not
+        # read as "cannot parse" (a notice) or as some other path
+        repo = self.make_repo("sha256")
+        subprocess.run(["git", "init", "-q", "--object-format=sha256", repo],
+                       check=True)
+        self.write_lessons(repo, ["- " + self.HOSTILE])
+        subprocess.run(["git", "-C", repo, "add", "-f", ".tezgah"], check=True)
+        self.assertNotIn(self.HOSTILE, self.session(repo))
+        untracked = self.make_repo("sha256-own")
+        subprocess.run(["git", "init", "-q", "--object-format=sha256", untracked],
+                       check=True)
+        self.write_lessons(untracked, ["- own lesson"])
+        self.touch(os.path.join(untracked, "f"))
+        subprocess.run(["git", "-C", untracked, "add", "f"], check=True)
+        self.assertIn("- own lesson", self.session(untracked))
 
 
 class ChildCall(TempHome):

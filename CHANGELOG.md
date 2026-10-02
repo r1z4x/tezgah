@@ -66,6 +66,20 @@ healthy, the mechanical half had paths that disarmed it in silence.
   is documented in `docs/environment.md` (L-15); lessons and plans that the
   project's own git tracks are injected as repository data, not as standing
   constraints (L-16).
+- **An independent review of the fixes found ten more holes, all closed.** The
+  bookkeeping exemption read a command cut at 200 characters and a text with
+  quotes and comments masked, so `echo "$(./regen.sh)"` or `ls a#b; sed -i ...`
+  passed as bookkeeping; it now reads the raw command with bash quoting, and a
+  cut command is never bookkeeping. The session-level Stop paths reuse the turn
+  fold, so a pending UI check or a partial failure still blocks. `git commit -S
+  -n` / `-u -n` are refused, `--message "-n..."` is not, and `bash -o pipefail -c`
+  is unwrapped. A `.tezgah` committed as a symlink or a submodule, a split or v4
+  index that cannot be read, all count as repository-provided, and the index is
+  read entry by entry so the untracked cache is not mistaken for tracking. The
+  opencode secret pattern was quadratic too (21 s on 100 KB in node). `.envrc`
+  and SSH keys are snapshotted by hash only, `--install` tightens existing cache
+  files to 0600, a timed-out installer takes its grandchildren with it, and
+  concurrent sessions no longer lose a line of `contract.sha256`.
 
 ## [0.28.0] - 2026-10-01
 

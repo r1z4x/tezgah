@@ -170,7 +170,8 @@ class CaptureStore(Snap):
         # into the store. The row keeps name, size and hash, so the after-state
         # comparison still sees the write; no bytes and no restorable id.
         for name in (".env", ".env.local", "deploy/prod.env", "certs/server.pem",
-                     "id_ed25519", ".netrc", "credentials"):
+                     "id_ed25519", ".netrc", "credentials", ".envrc",
+                     "keys/id_rsa_work"):
             with self.subTest(name=name):
                 text = "API_TOKEN=s3cret-%s\n" % name
                 path = self.write(name, text)
@@ -184,8 +185,9 @@ class CaptureStore(Snap):
                                  hashlib.sha256(text.encode()).hexdigest())
                 self.assertEqual(row["out_bytes"], len(text))
                 self.assertNotIn("id", row)
-        # an ordinary file next to them is still copied
+        # an ordinary file next to them is still copied, and so is a public key
         self.assertIsNotNone(self.cap("env.py", "x = 1\n"))
+        self.assertIsNotNone(self.cap("keys/id_rsa.pub", "ssh-rsa AAAA x\n"))
 
     def test_the_store_is_owner_only(self):
         # audit SEC-05 / L-6: copies followed the umask (0644) while the
