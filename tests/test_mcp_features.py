@@ -528,7 +528,7 @@ class Deps(FeaturesBase):
         self.assertTrue(row, proc.stdout)
 
     def test_an_embedding_model_is_fetched_by_its_enable_and_never_by_install(self):
-        # ~15-42 MB of model and a conversion: opt-in only, like a server's runtime
+        # a ~436-531 MB download and a conversion: opt-in only, like a server's runtime
         module = setup_module()
         names = [d["name"] for d in module.DEPS]
         for fid in ("embed-mrl", "embed-m2v"):

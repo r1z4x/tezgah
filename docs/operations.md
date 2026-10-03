@@ -361,7 +361,7 @@ The per-turn lessons block and the `tezgah-docs` fallback rank by shared words
 every title and answer (`title_tr`, `answers_tr`), so a Turkish question meets an
 English page. Two opt-in feature ids add a static embedding model - one vector
 per token, mean-pooled, read by a stdlib reader - fused with that ranking by
-reciprocal rank (`fuse`, `hooks/tezgah_embed.py:333-357`). Both are off by
+reciprocal rank (`fuse`, `hooks/tezgah_embed.py:334-358`). Both are off by
 default and a plain `--install` never fetches one (`feature_deps`,
 `bin/tezgah-setup:2129-2156`).
 
@@ -371,27 +371,33 @@ bin/tezgah-setup --features            # embed-mrl ... dep met
 bin/tezgah-setup --disable embed-mrl   # deselected, and the model file removed
 ```
 
-| id | model (license) | file | enable, measured | turn, measured |
+| id | model (license) | download, then file | enable, measured | turn, measured |
 |---|---|---|---|---|
-| `embed-mrl` | `sentence-transformers/static-similarity-mrl-multilingual-v1`, first 128 of 1024 dims, int8 (Apache-2.0) | 15.1 MB | 24 s (436 MB download + 1 s conversion) | 0.24 s |
-| `embed-m2v` | `minishlab/potion-multilingual-128M`, base vocabulary, PCA to 128 dims, int8 (MIT) | 41.8 MB | 106 s (531 MB download + 75 s conversion) | 0.49 s |
+| `embed-mrl` | `sentence-transformers/static-similarity-mrl-multilingual-v1`, first 128 of 1024 dims, int8 (Apache-2.0) | ~436 MB, then 15.1 MB | 24 s (download + 1 s conversion) | 0.24 s |
+| `embed-m2v` | `minishlab/potion-multilingual-128M`, base vocabulary, PCA to 128 dims, int8 (MIT) | ~531 MB, then 41.8 MB | 106 s (download + 75 s conversion) | 0.49 s |
 
 Measured 2026-10-03 on one Apple-silicon Mac, Python 3.10: the turn is a cold
 `bin/tezgah-context user_prompt` process over a 42-line ledger, median of five
-(0.155-0.19 s with the feature off), far inside the hooks' 8 s budget.
+(0.155-0.19 s with the feature off), far inside the hooks' 8 s budget. The
+research line's own figure for `embed-mrl`, 0.13 s, is its median turn on its
+fixture, not this process.
 
 An enable downloads the pinned source files over HTTPS - repository, commit and
-sha256 of each are in `MODELS` (`hooks/tezgah_embed.py:51-74`) - converts them
-with the standard library alone (`convert`, `hooks/tezgah_embed.py:579-609`),
+sha256 of each are in `MODELS` (`hooks/tezgah_embed.py:52-75`) - converts them
+with the standard library alone (`convert`, `hooks/tezgah_embed.py:580-610`),
 checks the result against its own pinned sha256 and only then writes
 `~/.cache/tezgah/embed/<id>.bin`, mode 0600 in a 0700 directory; a mismatch at
-either end writes nothing (`fetch`, `hooks/tezgah_embed.py:612-641`). The
-conversion is bit-reproducible: the same bytes under Python 3.10 and 3.12 for
+either end writes nothing (`fetch`, `hooks/tezgah_embed.py:628-660`). A fetch
+killed outright (the installer's timeout, Ctrl-C) skips that cleanup and leaves
+its partial download in a `.fetch-*` directory; the next `--enable` or
+`--disable` of either id deletes those directories (`_sweep`,
+`hooks/tezgah_embed.py:613-625`).
+The conversion is bit-reproducible: the same bytes under Python 3.10 and 3.12 for
 both ids (and 3.9 for `embed-mrl`), and for `embed-mrl` byte-identical vectors to
 the research's numpy export.
 
 At hook time the model is read only when its id is selected and the file is the
-pinned one (`reader`, `hooks/tezgah_embed.py:317-330`); a missing, altered or
+pinned one (`reader`, `hooks/tezgah_embed.py:318-331`); a missing, altered or
 unreadable file, or any error, is BM25 exactly as before, and nothing at hook time
 touches the network. With it on, the ranking places every line, so a prompt gets
 up to three older lessons even when it shares no word with them, and the docs

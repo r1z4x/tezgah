@@ -394,6 +394,8 @@ def ranked(query):
               + [str(p.get("title_tr") or "")]
               + [str(a) for a in (p.get("answers_tr") or [])] for p in pages]
     texts = [" ".join(g + [str(p["path"])]) for g, p in zip(groups, pages)]
+    # an empty string embeds as the zero vector: a free cosine of 0.0
+    groups = [[s for s in g if s] for g in groups]
     return [pages[i] for i in tezgah_embed.fuse(query, texts, RANKED, groups)]
 
 

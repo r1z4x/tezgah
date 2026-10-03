@@ -232,9 +232,10 @@ REGISTRY = (
     # per-turn lessons and the docs fallback (hooks/tezgah_embed.py). Enabling
     # one fetches and converts its pinned file; the first selected one is used.
     _embed_row("embed-mrl", "embed-mrl",
-               "static-similarity-mrl-multilingual-v1, 128 dims, ~15 MB"),
+               "static-similarity-mrl-multilingual-v1, 128 dims, "
+               "~436 MB download, 15 MB file"),
     _embed_row("embed-m2v", "embed-m2v",
-               "potion-multilingual-128M, PCA-128, ~42 MB"),
+               "potion-multilingual-128M, PCA-128, ~531 MB download, 42 MB file"),
 )
 
 IDS = tuple(r["id"] for r in REGISTRY)

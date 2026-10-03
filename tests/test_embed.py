@@ -6,6 +6,8 @@ so a golden ranking read back through the reader pins the recipe (the head cut,
 the base-vocabulary cut, the PCA) as well as the reader.
 """
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import math
 import os
@@ -259,6 +261,53 @@ class Fetch(Case):
         self.assertTrue(te.remove("embed-mrl"))
         self.assertFalse(te.remove("embed-mrl"))
         self.assertIsNone(te.valid("embed-mrl"))
+
+    def test_a_killed_fetchs_work_dir_is_swept(self):
+        # SIGKILL skips fetch()'s `finally`, leaving ~0.5 GB in a .fetch-* dir
+        home = os.path.dirname(te.model_path("embed-mrl"))
+        outside = os.path.join(self.dir, "outside")
+        os.makedirs(outside)
+        os.makedirs(home)
+        for name in ("keep", ".fetch-file"):
+            open(os.path.join(home, name), "w").close()
+        open(os.path.join(outside, "model"), "w").close()
+        os.symlink(outside, os.path.join(home, ".fetch-link"))
+
+        def leftover():
+            os.makedirs(os.path.join(home, ".fetch-x"))
+            open(os.path.join(home, ".fetch-x", "model"), "w").close()
+
+        def assert_swept():
+            self.assertFalse(os.path.exists(os.path.join(home, ".fetch-x")))
+            for name in ("keep", ".fetch-file", ".fetch-link"):
+                self.assertTrue(os.path.lexists(os.path.join(home, name)), name)
+            self.assertTrue(os.path.exists(os.path.join(outside, "model")))
+
+        leftover()
+        te.remove("embed-mrl")
+        assert_swept()
+        leftover()
+        payloads = self.sources()
+        produced = te._sha256(self.build(_wordpiece_sources, self.spec(payloads, "")))
+        with self.pinned(payloads, produced):
+            te.fetch("embed-mrl", get=self.stub(payloads))
+        assert_swept()
+
+
+class DocsRanked(Case):
+    def test_an_empty_phrasing_gives_a_page_no_cosine_floor(self):
+        cli = os.path.join(support.REPO, "bin", "tezgah-docs")
+        loader = importlib.machinery.SourceFileLoader("tezgah_docs_embed", cli)
+        docs = importlib.util.module_from_spec(
+            importlib.util.spec_from_loader("tezgah_docs_embed", loader))
+        loader.exec_module(docs)
+        # "blue" is the farthest from "red"; its page's empty title_tr would
+        # embed as the zero vector and lift it to a cosine of 0.0 over "sky"
+        pages = [{"path": "a.md", "title": "blue", "title_tr": "", "answers": []},
+                 {"path": "b.md", "title": "sky", "title_tr": "sky", "answers": []}]
+        self.install(_wordpiece_sources, _spec("head", "all"))
+        with mock.patch.object(docs, "entries", return_value=pages):
+            self.assertEqual([p["path"] for p in docs.ranked("red")], ["b.md", "a.md"])
 
 
 if __name__ == "__main__":

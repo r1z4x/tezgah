@@ -15,9 +15,10 @@ is the pinned one; any other state, or any error, is BM25 exactly as
 
 Measured (research line model2vec-memory, decision d1): over 12 lessons
 prompts and 20 docs questions, BM25 + the Turkish phrasings scored recall@5
-0.647 and docs any-3 10 EN / 8 TR; fused with embed-mrl 0.696 and 10 / 9, a
-fresh-process turn 0.13 s median. Not separable from BM25 on that set, which
-is why it is opt-in.
+0.647 and docs any-3 10 EN / 8 TR; fused with embed-mrl 0.696 and 10 / 9, the
+research's median turn 0.13 s (a cold `tezgah-context` process measured 0.24 s,
+docs/operations.md). Not separable from BM25 on that set, which is why it is
+opt-in.
 
 The file: MAGIC, a little-endian u64 header length, the header (JSON: the
 tokenizer and the source pins), then `rows` records of a float32 scale followed
@@ -609,6 +610,21 @@ def convert(spec, model_file, tokenizer_file, out):
             fh.write(part)
 
 
+def _sweep(directory):
+    """Delete the `.fetch-*` work dirs in `directory`: a fetch killed by SIGKILL
+    (the installer's timeout, Ctrl-C) skips its `finally` and leaves a partial
+    download of ~0.5 GB. Only real directories with that prefix; a symlink is
+    never followed."""
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(directory, name)
+        if name.startswith(".fetch-") and os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path, ignore_errors=True)
+
+
 def fetch(ident, get=None):
     """Download, verify, convert and install the model for `ident`; returns its
     path. Raises on any mismatch, leaving no model file and no temp file."""
@@ -617,6 +633,9 @@ def fetch(ident, get=None):
     get = get or _download
     final = model_path(ident)
     os.makedirs(os.path.dirname(final), mode=0o700, exist_ok=True)
+    # ponytail: assumes one fetch at a time; a second concurrent fetch would
+    # sweep the first one's work dir and fail it
+    _sweep(os.path.dirname(final))
     work = tempfile.mkdtemp(prefix=".fetch-", dir=os.path.dirname(final))
     try:
         files = {}
@@ -642,7 +661,9 @@ def fetch(ident, get=None):
 
 
 def remove(ident):
-    """Delete the model file for `ident`; True when there was one."""
+    """Delete the model file for `ident` and any leftover fetch work dir; True
+    when there was a model file."""
+    _sweep(os.path.dirname(model_path(ident)))
     try:
         os.remove(model_path(ident))
         return True

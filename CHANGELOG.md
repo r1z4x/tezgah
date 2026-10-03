@@ -40,10 +40,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   library alone, checks the result's own pinned sha256 and writes one owner-only
   file under `~/.cache/tezgah/embed`; `--disable` removes it. Off by default and
   never fetched by a plain install; at hook time a missing or altered file, or
-  any error, is the word ranking exactly as before, with no network call.
+  any error, is the word ranking exactly as before, with no network call. An
+  enable downloads ~436 MB (`embed-mrl`) / ~531 MB (`embed-m2v`) for a 15 MB /
+  42 MB file; a fetch killed mid-way leaves its partial download in a
+  `.fetch-*` directory, which the next enable or disable deletes.
   Measured: lessons recall@5 0.647 -> 0.696 (`embed-mrl`) / 0.675 (`embed-m2v`),
-  Turkish docs questions 8 -> 9 / 8 of 10, a cold user-prompt turn 0.16 s ->
-  0.24 s / 0.49 s.
+  Turkish docs questions 8 -> 9 / 8 of 10, a cold `tezgah-context` user-prompt
+  process 0.16 s -> 0.24 s / 0.49 s (the research line's median turn for
+  `embed-mrl` was 0.13 s on its own fixture).
 
 ### Fixed
 
