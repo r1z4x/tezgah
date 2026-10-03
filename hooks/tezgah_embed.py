@@ -365,14 +365,49 @@ def fuse(query, texts, k, groups=None):
 # arithmetic (Gram matrix, projection) around a cyclic Jacobi eigensolver that
 # uses only + - * / and sqrt.
 
+class _Progress:
+    """One status line for a long setup step: rewritten in place on a terminal,
+    one line per 10% otherwise (a log keeps a readable trail, not 400 updates)."""
+
+    def __init__(self, label, total, unit="", scale=1):
+        self.label, self.total, self.unit, self.scale = label, total, unit, scale
+        self.done, self.step = 0, -1
+        self.tty = sys.stdout.isatty()
+
+    def __call__(self, n=1):
+        self.done += n
+        shown = "%d" % (self.done // self.scale)
+        if self.total:
+            pct = min(100, self.done * 100 // self.total)
+            shown += "/%d%s  %d%%" % (self.total // self.scale, self.unit, pct)
+            if not self.tty and pct // 10 == self.step:
+                return
+            self.step = pct // 10
+        else:
+            shown += self.unit
+            if not self.tty:
+                return
+        sys.stdout.write(("\r    %s  %s" if self.tty else "    %s  %s\n") % (self.label, shown))
+        sys.stdout.flush()
+
+    def close(self):
+        if self.tty:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+
+
 def _download(url, dest):
     """Stream `url` into `dest`; returns the sha256 of what was written."""
     import urllib.request
     h = hashlib.sha256()
     with urllib.request.urlopen(url, timeout=60) as resp, open(dest, "wb") as out:
+        total = int(resp.headers.get("Content-Length") or 0)
+        tick = _Progress("downloaded", total, " MB", 1 << 20)
         for block in iter(lambda: resp.read(1 << 20), b""):
             h.update(block)
             out.write(block)
+            tick(len(block))
+        tick.close()
     return h.hexdigest()
 
 
@@ -478,14 +513,26 @@ def _pca_part(job):
     return b"".join(out)
 
 
-def _map(fn, jobs):
+def _map(fn, jobs, label=""):
     """fn over jobs in order, on every core when there is more than one job;
-    the integer partial sums make the result independent of the split."""
+    the integer partial sums make the result independent of the split. A
+    `label` prints a chunk counter while it runs."""
+    tick = _Progress(label, len(jobs), " chunks") if label else (lambda n=1: None)
     if len(jobs) < 2:
-        return [fn(j) for j in jobs]
-    import concurrent.futures
-    with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
-        return list(pool.map(fn, jobs))
+        out = []
+        for j in jobs:
+            out.append(fn(j))
+            tick()
+    else:
+        import concurrent.futures
+        with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
+            out = []
+            for part in pool.map(fn, jobs):
+                out.append(part)
+                tick()
+    if label:
+        tick.close()
+    return out
 
 
 def _jacobi(a):
@@ -587,17 +634,19 @@ def convert(spec, model_file, tokenizer_file, out):
              for s in range(0, rows, CHUNK)]
     dims = spec["dims"]
     if spec["dims_mode"] == "head":
-        body = _map(_head_part, [j + (dims,) for j in spans])
+        body = _map(_head_part, [j + (dims,) for j in spans], "quantised")
     else:
-        top = max(_map(_absmax_part, spans), default=0.0)
+        top = max(_map(_absmax_part, spans, "scanned 1/3"), default=0.0)
         shift = 20 - math.frexp(top)[1] if top else 0
         if rows >= 1 << 23:  # 2**40 per product: the 64-bit field must hold the sum
             raise ValueError("too many rows for the fixed-point Gram matrix")
-        gram = [sum(col) for col in zip(*_map(_gram_part, [j + (shift,) for j in spans]))]
+        gram = [sum(col) for col in zip(*_map(_gram_part, [j + (shift,) for j in spans],
+                                              "gram 2/3"))]
+        print("    solving %dx%d eigenproblem" % (cols, cols), flush=True)
         values, vt = _jacobi([[float(v) for v in _unpack(g, cols)] for g in gram])
         order = sorted(range(cols), key=lambda i: (-values[i], i))[:dims]
         axes = [_pack([round(math.ldexp(vt[k][d], 30)) for k in order]) for d in range(cols)]
-        body = _map(_pca_part, [j + (axes, dims) for j in spans])
+        body = _map(_pca_part, [j + (axes, dims) for j in spans], "projected 3/3")
     meta.update({"repo": spec["repo"], "revision": spec["revision"],
                  "sources": {r: f[1] for r, f in sorted(spec["files"].items())},
                  "dims_mode": spec["dims_mode"], "dim": dims, "rows": rows,

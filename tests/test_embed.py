@@ -8,6 +8,7 @@ the base-vocabulary cut, the PCA) as well as the reader.
 import hashlib
 import importlib.machinery
 import importlib.util
+import io
 import json
 import math
 import os
@@ -196,6 +197,32 @@ class Fuse(Case):
         te.MODELS["embed-mrl"]["sha256"] = hashlib.sha256(b"not a model").hexdigest()
         self.assertEqual(te.valid("embed-mrl"), te.model_path("embed-mrl"))
         self.assert_bm25()
+
+
+class Progress(unittest.TestCase):
+    def test_a_log_gets_one_line_per_ten_percent_and_ends_at_100(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            tick = te._Progress("downloaded", 436 << 20, " MB", 1 << 20)
+            for _ in range(436):
+                tick(1 << 20)
+            tick.close()
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), 11)
+        self.assertTrue(lines[-1].endswith("436/436 MB  100%"), lines[-1])
+
+    def test_a_terminal_line_is_rewritten_in_place(self):
+        out = io.StringIO()
+        out.isatty = lambda: True
+        with mock.patch.object(sys, "stdout", out):
+            tick = te._Progress("quantised", 3, " chunks")
+            for _ in range(3):
+                tick()
+            tick.close()
+        text = out.getvalue()
+        self.assertEqual(text.count("\r"), 3)
+        self.assertEqual(text.count("\n"), 1)
+        self.assertTrue(text.rstrip("\n").endswith("3/3 chunks  100%"), text)
 
 
 class Fetch(Case):
