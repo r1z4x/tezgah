@@ -43,7 +43,7 @@ the workspace's own records; every number below names where it came from.
 | pre-merge, once | `tests/impacted.py --all` + the two e2e scripts | 103.5 s (8 shards; 566.9 s serial) |
 | CI | the same, on 3.10 and 3.12 | unchanged |
 
-A path the map does not know runs everything (`tests/impacted.py:145`): `tests/support.py`,
+A path the map does not know runs everything (`tests/impacted.py:176`): `tests/support.py`,
 `hooks/tezgah_paths.py` and anything new. `tests/test_impacted.py` refuses a
 change that would silently run nothing.
 
