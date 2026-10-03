@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`--enable embed-*` shows its progress.** The ~436-531 MB download and the
+  conversion printed one line per step and then nothing for up to minutes; each
+  download and conversion pass now prints `downloaded 212/436 MB 48%` /
+  `quantised 7/13 chunks 53%`, rewritten in place on a terminal and once per 10%
+  into a log.
 - **The lessons a prompt is about ride that turn.** The session block carries
   only the last five lines of `.tezgah/lessons.md`, so an older lesson about the
   very task at hand never reached the model (recall@5 0.103 on 12 measured

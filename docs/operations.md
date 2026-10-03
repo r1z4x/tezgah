@@ -384,14 +384,18 @@ fixture, not this process.
 
 An enable downloads the pinned source files over HTTPS - repository, commit and
 sha256 of each are in `MODELS` (`hooks/tezgah_embed.py:52-75`) - converts them
-with the standard library alone (`convert`, `hooks/tezgah_embed.py:580-610`),
+with the standard library alone (`convert`, `hooks/tezgah_embed.py:627-659`),
 checks the result against its own pinned sha256 and only then writes
 `~/.cache/tezgah/embed/<id>.bin`, mode 0600 in a 0700 directory; a mismatch at
-either end writes nothing (`fetch`, `hooks/tezgah_embed.py:628-660`). A fetch
+either end writes nothing (`fetch`, `hooks/tezgah_embed.py:677-709`). A fetch
 killed outright (the installer's timeout, Ctrl-C) skips that cleanup and leaves
 its partial download in a `.fetch-*` directory; the next `--enable` or
 `--disable` of either id deletes those directories (`_sweep`,
-`hooks/tezgah_embed.py:613-625`).
+`hooks/tezgah_embed.py:662-674`).
+While it runs, each download and each conversion pass prints a progress line -
+`downloaded 212/436 MB 48%`, `quantised 7/13 chunks 53%` - rewritten in place
+on a terminal and printed once per 10% into a log (`_Progress`,
+`hooks/tezgah_embed.py:368-396`).
 The conversion is bit-reproducible: the same bytes under Python 3.10 and 3.12 for
 both ids (and 3.9 for `embed-mrl`), and for `embed-mrl` byte-identical vectors to
 the research's numpy export.
