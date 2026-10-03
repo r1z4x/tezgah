@@ -527,6 +527,28 @@ class Deps(FeaturesBase):
         row = self.row_with(proc.stdout, "orx", "unmet")
         self.assertTrue(row, proc.stdout)
 
+    def test_an_embedding_model_is_fetched_by_its_enable_and_never_by_install(self):
+        # a ~436-531 MB download and a conversion: opt-in only, like a server's runtime
+        module = setup_module()
+        names = [d["name"] for d in module.DEPS]
+        for fid in ("embed-mrl", "embed-m2v"):
+            self.assertNotIn(fid, names, "a plain --install would fetch %s" % fid)
+        self.assertIn("embed-mrl",
+                      [d["name"] for d in module.dep_rows(only={"embed-mrl"})])
+
+    def test_disabling_an_embedding_feature_removes_its_model_file(self):
+        self.install()
+        mine = self.path(".cache", "tezgah", "embed", "embed-mrl.bin")
+        other = self.path(".cache", "tezgah", "embed", "embed-m2v.bin")
+        for p in (mine, other):
+            self.write_text(p, "model")
+        proc = self.setup("--disable", "embed-mrl")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.exists(mine))
+        self.assertTrue(os.path.exists(other), "a disable took another row's file")
+        self.assertIn("embed-mrl: removed its file", proc.stdout)
+        self.assertNotIn("running:", proc.stdout)
+
 
 class McpJson(FeaturesBase):
     def test_the_committed_mcp_json_is_the_rendered_default_selection(self):

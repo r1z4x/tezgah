@@ -88,8 +88,9 @@ same revision after a merge or a scratch file outside the repo. Small asks of
 one kind (a color, an icon, a label) are batched into one change and one release.
 
 **Lessons ledger: stop repeating mistakes.** A repo may keep
-`.tezgah/lessons.md` (one lesson per line; the most recent are injected each
-session). Read them before starting and treat each as a standing constraint.
+`.tezgah/lessons.md` (one per line; injected - recent per session, relevant
+per turn). Read them before starting and treat each as a standing
+constraint.
 When the user flags a mistake or a repetition, append one concrete line - the
 mistake and the rule that prevents it - and delete a line current evidence
 contradicts. Off: `.no-lessons`.

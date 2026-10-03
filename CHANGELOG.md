@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The lessons a prompt is about ride that turn.** The session block carries
+  only the last five lines of `.tezgah/lessons.md`, so an older lesson about the
+  very task at hand never reached the model (recall@5 0.103 on 12 measured
+  prompts). Each prompt now ranks the ledger by shared words (BM25, stdlib
+  `hooks/tezgah_rank.py`; recall@5 0.647 on the same prompts) and injects up to
+  three older matches, each cut to 200 characters and each once per session (the
+  shown keys ride the turn stamp under the cache; a compaction clears them,
+  because the compacted context no longer holds those lines, and a host that
+  sends no session id gets no dedupe). Capitalised Turkish words meet their
+  lower-case form (`İSTEK`/`istek`, `KIRMIZI`/`kırmızı`: dotted and dotless i
+  fold together). `.no-lessons` and the repository-provided notice apply as they
+  do to the session block; the block is the first a tight prompt budget gives
+  up after the session's lessons, and a dropped block is not marked seen.
+- **`tezgah-docs` ranks the pages when the judge gives no judgement.** A query
+  the keyword index cannot place, with no credential, `judge-off`/`docs-judge-off`
+  armed, or a judge call that failed or came back unreadable, printed nothing; it
+  now prints the three pages sharing the most query words (10 of 10 English and
+  3 of 10 Turkish measured questions had the right page in that three). The judge
+  stays first when it answers, and its `none` still exits 1.
+- **A Turkish question reaches its English docs page.** `docs/index.json` carries
+  a Turkish phrasing of every page title and answer (`title_tr`, `answers_tr`),
+  which the word ranking in `tezgah-docs` reads and the exact word match does
+  not; on the same measured questions 8 of 10 Turkish (from 3) and still 10 of
+  10 English have the right page in the three printed.
+- **Opt-in embedding relevance: `--enable embed-mrl` or `embed-m2v`.** A static
+  embedding model, read by a stdlib reader (`hooks/tezgah_embed.py`), fused by
+  reciprocal rank with the word ranking of the per-turn lessons and the
+  `tezgah-docs` fallback. The enable fetches the pinned source files over HTTPS
+  (repository, commit and sha256 pinned), converts them with the standard
+  library alone, checks the result's own pinned sha256 and writes one owner-only
+  file under `~/.cache/tezgah/embed`; `--disable` removes it. Off by default and
+  never fetched by a plain install; at hook time a missing or altered file, or
+  any error, is the word ranking exactly as before, with no network call. An
+  enable downloads ~436 MB (`embed-mrl`) / ~531 MB (`embed-m2v`) for a 15 MB /
+  42 MB file; a fetch killed mid-way leaves its partial download in a
+  `.fetch-*` directory, which the next enable or disable deletes.
+  Measured: lessons recall@5 0.647 -> 0.696 (`embed-mrl`) / 0.675 (`embed-m2v`),
+  Turkish docs questions 8 -> 9 / 8 of 10, a cold `tezgah-context` user-prompt
+  process 0.16 s -> 0.24 s / 0.49 s (the research line's median turn for
+  `embed-mrl` was 0.13 s on its own fixture).
+
+### Fixed
+
+- **A query word may start with `-` in `tezgah-docs`.** `tezgah-docs why was my
+  commit with --no-verify blocked` exited 2 as an unknown option; an unknown
+  `--word` after the first query word is now a query word, while `--json`,
+  `--read`, `--citations`, `--help` and `-h` stay flags anywhere before `--`.
+
 ## [0.29.2] - 2026-10-03
 
 ### Fixed

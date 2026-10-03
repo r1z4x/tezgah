@@ -2133,15 +2133,17 @@ def feature_deps(only=None):
     server is left out, because its runtime is heavy - the browser build
     Playwright launches on its first tool call, the platform tools a simulator
     needs - and a plain `--install` must not download a browser nobody asked for.
-    `only` is how `--enable <id>` asks for exactly the named features' rows
-    instead, heavy ones included. Rows are de-duplicated on the install command,
-    so three features sharing one interpreter ask for one installer."""
+    An opt-in feature (`default` False: the embedding models) is left out for the
+    same reason. `only` is how `--enable <id>` asks for exactly the named
+    features' rows instead, heavy ones included. Rows are de-duplicated on the
+    install command, so three features sharing one interpreter ask for one
+    installer."""
     rows, seen = [], set()
     for row in tezgah_apps.REGISTRY:
         if only is not None:
             if row["id"] not in only:
                 continue
-        elif row.get("command"):
+        elif row.get("command") or not row["default"]:
             continue
         dep = row.get("dep") or {}
         cmd = dep.get("cmd")
@@ -2262,8 +2264,9 @@ def select_features(enabled, disabled, hosts, dry_run, deps_off=False):
     Only MCP rows move: each writer converges on the selection and leaves every
     other key alone. An enable satisfies its feature's dependency in the same
     run; a disable runs no dependency command at all, because uninstalling a tool
-    the user may still want is not what turning a server off means. Returns the
-    exit code."""
+    the user may still want is not what turning a server off means - only a file
+    tezgah itself made for the row (`remove`, an embedding model) goes with it.
+    Returns the exit code."""
     base = tezgah_apps.selected_ids(selection())
     keep = set(base) | set(enabled or ())
     keep -= set(disabled or ())
@@ -2292,6 +2295,11 @@ def select_features(enabled, disabled, hosts, dry_run, deps_off=False):
         print("%s %s" % (OK if save_features(FEATURES) else "  --  ", tp.CONFIG))
         for h in hosts:
             INSTALLERS[h]()
+        # A row that owns a file tezgah made (an embedding model) takes it with
+        # it; a row whose dependency is a tool the user installed keeps it.
+        for row in tezgah_apps.REGISTRY:
+            if row["id"] in (disabled or ()) and row.get("remove") and row["remove"]():
+                print("%s %s: removed its file" % (OK, row["id"]))
     features_report()
     return 1 if still else 0
 
@@ -4761,7 +4769,7 @@ def upgrade(version, dry_run):
     so its farm links would point back into it. The hosts and roots come from
     config.json, so an upgrade does not re-ask the install questions. Nothing
     else calls this: a flag never upgrades tezgah as a side effect of another
-    (hooks/tezgah_policy.py:797). Prints every step before running it, and
+    (hooks/tezgah_policy.py:819). Prints every step before running it, and
     `--dry-run` stops after the printing."""
     cfg = tp.config()
     hosts = cfg.get("hosts") or detected_hosts()

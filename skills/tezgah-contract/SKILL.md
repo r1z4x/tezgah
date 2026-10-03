@@ -355,9 +355,11 @@ rule with "spec sorma" / "just build it". Off: `spec-off`.
 
 A repo may keep `.tezgah/lessons.md`: one durable lesson per line, most recent
 last, each written as the mistake and the rule that prevents it. The most recent
-lines are injected into the session context automatically. Read them before
-starting and treat every line as a standing constraint on the spec and the
-change - they exist precisely because that mistake already happened.
+lines are injected into the session context automatically, and an older line
+that shares words with a prompt rides that turn (at most three; each once per
+session when the host sends a session id, again after a compaction). Read them
+before starting and treat every line as a standing constraint on the spec and
+the change - they exist precisely because that mistake already happened.
 
 When the user flags a mistake or a repetition ("this is wrong", "yine aynı
 hatayı yaptın"), append ONE concrete line to `.tezgah/lessons.md` - no essay,

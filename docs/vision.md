@@ -18,7 +18,7 @@ the workspace's own records; every number below names where it came from.
    turn ended in a merge and a push, and the user had to say the question went
    unanswered.)
 2. **Cost is paid once per revision, not once per commit.** Checks have tiers,
-   and the biggest one runs once on the final tree (`hooks/tezgah_policy.py:697`). (Measured: 11 serial suite
+   and the biggest one runs once on the final tree (`hooks/tezgah_policy.py:699-700`). (Measured: 11 serial suite
    runs, 106 minutes, 10 of them green confirmations, in one session - the rule
    "run the full suite once, on the final tree" was already written down and
    `AGENTS.md` said "before every commit".)
@@ -43,7 +43,7 @@ the workspace's own records; every number below names where it came from.
 | pre-merge, once | `tests/impacted.py --all` + the two e2e scripts | 103.5 s (8 shards; 566.9 s serial) |
 | CI | the same, on 3.10 and 3.12 | unchanged |
 
-A path the map does not know runs everything (`tests/impacted.py:113`): `tests/support.py`,
+A path the map does not know runs everything (`tests/impacted.py:176`): `tests/support.py`,
 `hooks/tezgah_paths.py` and anything new. `tests/test_impacted.py` refuses a
 change that would silently run nothing.
 

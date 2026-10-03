@@ -115,9 +115,11 @@ LESSONS = """
 
 A repo may keep `.tezgah/lessons.md`: one durable lesson per line, most recent
 last, each written as the mistake and the rule that prevents it. The most recent
-lines are injected into the session context automatically. Read them before
-starting and treat every line as a standing constraint on the spec and the
-change - they exist precisely because that mistake already happened.
+lines are injected into the session context automatically, and an older line
+that shares words with a prompt rides that turn (at most three; each once per
+session when the host sends a session id, again after a compaction). Read them
+before starting and treat every line as a standing constraint on the spec and
+the change - they exist precisely because that mistake already happened.
 
 When the user flags a mistake or a repetition ("this is wrong", "yine aynı
 hatayı yaptın"), append ONE concrete line to `.tezgah/lessons.md` - no essay,
@@ -714,8 +716,9 @@ Verify design/behavior/quality claims against an external source
 sorma" / "just build it". Off: `spec-off`.
 
 **Lessons ledger: stop repeating mistakes.** A repo may keep
-`.tezgah/lessons.md` (one lesson per line; the most recent are injected each
-session). Read them before starting and treat each as a standing constraint.
+`.tezgah/lessons.md` (one per line; injected - recent per session, relevant
+per turn). Read them before starting and treat each as a standing
+constraint.
 When the user flags a mistake or a repetition, append one concrete line - the
 mistake and the rule that prevents it - and delete a line current evidence
 contradicts. Off: `.no-lessons`.

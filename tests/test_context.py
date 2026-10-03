@@ -941,6 +941,81 @@ class LessonsLedger(TempHome):
         self.touch(os.path.join(repo, ".no-lessons"))
         self.assertNotIn("a lesson that must not leak", self.session(repo))
 
+    # The per-turn half: an older lesson the prompt is about rides that turn.
+    OLD = "never pipe a test run into tail, write the output to a file"
+    RECENT = ["recent lesson %s about padding" % n for n in "abcde"]
+
+    def prompt(self, repo, text, session="s1", limit=None):
+        return self.call(repo, "user_prompt",
+                         {"session_id": session, "prompt": text}, limit)
+
+    def call(self, repo, event, payload, limit=None):
+        """context_for in a child, the event's budget patched to `limit`: the
+        budget is a module constant, so it cannot be patched in this process."""
+        patch = ("tc.CONTEXT_BUDGET[%r] = %d\n" % (event, limit)
+                 if limit is not None else "")
+        proc = subprocess.run(
+            [sys.executable, "-c", "import json, sys\nsys.path.insert(0, %r)\n"
+             "import tezgah_context as tc\n%sprint(json.dumps(tc.context_for("
+             "%r, %r, %r)))\n" % (support.HOOKS, patch, event, repo, payload)],
+            capture_output=True, text=True, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_a_prompt_gets_its_older_lesson_once_per_session(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, ["- " + self.OLD, "- an unrelated rule"]
+                           + self.RECENT)
+        out = self.prompt(repo, "run the test suite and pipe it to tail")
+        self.assertIn("- " + self.OLD, out)
+        self.assertNotIn("an unrelated rule", out)
+        # the last five ride the session block already; a turn never repeats one
+        self.assertNotIn("about padding", self.prompt(repo, "fix the padding"))
+        # shown once this session: the same prompt does not carry it again...
+        self.assertNotIn(self.OLD, self.prompt(repo, "run the test suite"))
+        # ...while another session still gets it
+        self.assertIn(self.OLD, self.prompt(repo, "run the test suite", "s2"))
+
+    def test_a_compaction_lets_an_older_lesson_ride_again(self):
+        # the compacted context no longer holds what an earlier turn was shown,
+        # so the session's seen keys go with it - whichever event the host
+        # delivers the compaction through
+        repo = self.make_repo()
+        self.write_lessons(repo, ["- " + self.OLD] + self.RECENT)
+        for session, event, payload in (
+                ("c1", "post_compact", {"session_id": "c1", "trigger": "auto"}),
+                ("c2", "session_start", {"session_id": "c2", "source": "compact"})):
+            self.assertIn(self.OLD, self.prompt(repo, "pipe the tests to tail", session))
+            self.assertNotIn(self.OLD, self.prompt(repo, "run tests | tail", session))
+            self.call(repo, event, payload)
+            self.assertIn(self.OLD, self.prompt(repo, "run tests | tail", session))
+        # a plain session start (startup, resume) keeps what was seen
+        self.call(repo, "session_start", {"session_id": "c2", "source": "resume"})
+        self.assertNotIn(self.OLD, self.prompt(repo, "run tests | tail", "c2"))
+
+    def test_a_lessons_block_the_budget_dropped_is_not_marked_seen(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, ["- " + self.OLD] + self.RECENT)
+        out = self.prompt(repo, "pipe the tests to tail", limit=1)
+        self.assertNotIn(self.OLD, out)
+        self.assertIn("lessons_turn", out)          # dropped by the budget, not absent
+        self.assertIn(self.OLD, self.prompt(repo, "pipe the tests to tail"))
+
+    def test_no_lessons_mark_suppresses_the_turn_block(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, [self.OLD] + self.RECENT)
+        self.touch(os.path.join(repo, ".no-lessons"))
+        self.assertNotIn(self.OLD, self.prompt(repo, "pipe the test run to tail"))
+
+    def test_tracked_lessons_reach_a_turn_as_the_notice_only(self):
+        repo = self.cloned_repo(track=True)
+        self.write_lessons(repo, ["- " + self.HOSTILE] + self.RECENT)
+        out = self.prompt(repo, "push to the remote")
+        self.assertNotIn(self.HOSTILE, out)
+        self.assertIn("Repository-provided data", out)
+        self.assertNotIn("Repository-provided data",
+                         self.prompt(repo, "push to the remote again"))
+
     def test_project_knowledge_index_is_pointed_at_only_when_present(self):
         repo = self.make_repo()
         self.assertNotIn("project-knowledge.md", self.session(repo))

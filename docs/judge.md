@@ -7,7 +7,7 @@ callers, when you need to say what leaves the machine, or when you have to tell 
 user how to switch it off. It is an on-demand capability, not a rule: no paragraph
 of it is injected into a session, and a session that never asks pays one clause in
 the kill-switch paragraph and nothing else (`CORE`,
-`hooks/tezgah_policy.py:803-812`).
+`hooks/tezgah_policy.py:832-842`).
 
 ## What it is
 
@@ -58,7 +58,7 @@ switches below are the off buttons.
 | Caller | What it asks, and what it is for | On failure |
 |---|---|---|
 | `bin/tezgah-triage` | the analyze-app snapshot triage. `--select FILE --task T` asks one question per repeating unit of the screen in one request and prints the line ids under the selected units with their refs (`select_request`, `bin/tezgah-triage:230-248`; the units are the tree's own repeating pieces, `units`, `bin/tezgah-triage:204-229`). `--states` asks one judgement per state over a component's subtree (`states`, `bin/tezgah-triage:308-431`) | exit 1 with one reason (`no_judgement`, `bin/tezgah-triage:107-113`), and the loop reads the tree directly |
-| `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:334-367`; the question wording is `ASK`, `bin/tezgah-docs:301-308`) | returns `None`; the command prints what it always printed and exits 1 |
+| `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:342-375`; the question wording is `ASK`, `bin/tezgah-docs:309-314`) | reads as no judgement; with none (no credential, `judge-off`, `docs-judge-off`, or a call that failed or came back without one of its options) the pages are ranked by shared words instead (`ranked`, BM25 in `hooks/tezgah_rank.py` over each page's title and answers and their Turkish phrasings) and the top three printed; a query sharing no word with any page, or a judged `none`, exits 1. With the opt-in embedding feature on, the ranking is fused with a static embedding (`hooks/tezgah_embed.py`), which places every page, so only a judged `none` exits 1 |
 | `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py:144-176`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py:84-112`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py:46-48`) and an 8 s timeout (`ASK_TIMEOUT`, `hooks/tezgah_skill_pick.py:49-54`) | returns `""`; the turn loses the hint |
 | `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:667-691`; `TIER_QUESTION`, `hooks/tezgah_models.py:645-666`) - see [models](models.md) | the static phase table, else the middle tier |
 
@@ -101,13 +101,13 @@ rides back on the result, which is what the callers' cost rows print.
 
 `judge-off` is the master: with it armed `available()` is false and no caller
 makes a request at all, so the triage loop reads the tree and the docs fallback
-prints what it always printed. Each caller also names its own switch, so one
+ranks the pages by shared words instead. Each caller also names its own switch, so one
 capability can be disarmed without the others - `triage-off` for
 `bin/tezgah-triage` and `docs-judge-off` for `bin/tezgah-docs`. The third caller's
 channel is an opt-in marker rather than a kill switch: it is off until
 `skill-suggest-on` is armed (`ARM`, `hooks/tezgah_skill_pick.py:41-45`). Every
 switch is listed in the `**Kill switches:**` paragraph every session receives
-(`CORE`, `hooks/tezgah_policy.py:803-812`), mirrored into `tezgah-contract`, and
+(`CORE`, `hooks/tezgah_policy.py:832-842`), mirrored into `tezgah-contract`, and
 pinned by `tests/test_skills.py`.
 
 ## What a judgement costs
@@ -132,7 +132,7 @@ known (`note`, `hooks/tezgah_integrity.py:782-794`), counted by the row's kind
 
 1. **No always-on rule paragraph.** It is on-demand, and the conditional keys
    exist exactly so a session that never asks does not carry the text
-   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:846-850`). Naming it buys discovery
+   (`CONDITIONAL_KEYS`, `hooks/tezgah_policy.py:849`). Naming it buys discovery
    for one clause; a paragraph would cost the always-on block.
 2. **Nothing in the gate, the Stop rule, the shortcut parser or
    the PreToolUse hot path.** Refusal reproducibility is an invariant with tests
@@ -162,7 +162,9 @@ known (`note`, `hooks/tezgah_integrity.py:782-794`), counted by the row's kind
 - `bin/tezgah-triage` — the snapshot triage and the per-state matrix; prints the
   unit it selected, the characters it saved and the cost it paid.
 - `bin/tezgah-docs` — the page router; its index match, then its one fallback
-  Choice.
+  Choice, then the word ranking (`hooks/tezgah_rank.py`, fused with
+  `hooks/tezgah_embed.py` when that opt-in feature is on) when the judge gives
+  no judgement.
 - `hooks/tezgah_skill_pick.py` — the prompt-path skill hint, its threshold, its
   per-prompt cache and its `skill-suggest-on` marker.
 - `hooks/tezgah_policy.py` — the `**Kill switches:**` paragraph the session
