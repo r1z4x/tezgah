@@ -63,6 +63,7 @@ class DoctorBase(unittest.TestCase):
             # --clean sweeps the temp fallback cache too; the machine's own must
             # never be the one a test run deletes from
             "TEZGAH_FALLBACK_CACHE": os.path.join(self.home, "fallback"),
+            "TEZGAH_UPDATE_CHECK": "0",  # no detached release check in this HOME
         }
 
     def session(self, sid, age_days):

@@ -158,7 +158,8 @@ def install(sh, py, tmp):
     # points at the temp dir, so no host wiring and no config touch this machine.
     home = os.path.join(tmp, "home")
     os.makedirs(home)
-    env.update(HOME=home, USERPROFILE=home, TEZGAH_NO_DEPS="1")
+    env.update(HOME=home, USERPROFILE=home, TEZGAH_NO_DEPS="1",
+               TEZGAH_UPDATE_CHECK="0")
     setup = os.path.join(tree, "bin", "tezgah-setup")
     done = run(setup_argv(py, setup, "--install", "--hosts", "omp"), tree, env)
     if done.returncode != 0:

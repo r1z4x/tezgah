@@ -94,6 +94,7 @@ class WiringBase(unittest.TestCase):
             "TEZGAH_CODEGRAPH_BIN": self.path("no-such-codegraph"),
             "TEZGAH_ORX_BIN": self.path("no-such-orx"),
             "TEZGAH_NO_DEPS": "1",
+            "TEZGAH_UPDATE_CHECK": "0",  # no detached release check in this HOME
         }
         self.copy = self.path(*COPY_PARTS)
 

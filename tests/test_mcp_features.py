@@ -75,6 +75,7 @@ class FeaturesBase(unittest.TestCase):
             # never let a test hit the network: --install installs missing deps
             # by default
             "TEZGAH_NO_DEPS": "1",
+            "TEZGAH_UPDATE_CHECK": "0",  # no detached release check in this HOME
         }
 
     def path(self, *parts):

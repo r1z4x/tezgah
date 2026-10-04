@@ -72,6 +72,7 @@ class Project:
             "TEZGAH_CODEGRAPH_BIN": os.path.join(home, "no-codegraph"),
             "TEZGAH_ORX_BIN": os.path.join(home, "no-orx"),
             "TEZGAH_CONSULT_CLIS": "",
+            "TEZGAH_UPDATE_CHECK": "0",  # no detached release check in this HOME
         }
         self.root = os.path.join(roots, "project")
 

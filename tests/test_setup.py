@@ -62,6 +62,9 @@ class SetupBase(unittest.TestCase):
             # never let a test hit the network: --install installs missing deps
             # by default, so the suite opts out and the Deps tests exercise it
             "TEZGAH_NO_DEPS": "1",
+            # no release check either: the report draws a status line, and a
+            # detached check writing into this HOME races the temp dir cleanup
+            "TEZGAH_UPDATE_CHECK": "0",
         }
 
     def path(self, *parts):

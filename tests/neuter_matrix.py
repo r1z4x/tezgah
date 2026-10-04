@@ -69,7 +69,7 @@ def run(name, edit, work):
     home, tmp = os.path.join(work, name + "-home"), os.path.join(work, name + "-tmp")
     os.makedirs(home)
     os.makedirs(tmp)
-    env = dict(os.environ, HOME=home, TMPDIR=tmp)
+    env = dict(os.environ, HOME=home, TMPDIR=tmp, TEZGAH_UPDATE_CHECK="0")
     status, last = 0, ""
     for module in MODULES:
         proc = subprocess.run(

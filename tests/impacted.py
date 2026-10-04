@@ -209,7 +209,7 @@ def _run_module(module, log_path):
     env = dict(os.environ, HOME=home, TMPDIR=tmp,
                TEZGAH_CODEGRAPH_BIN=os.path.join(home, "no-such-codegraph"),
                TEZGAH_ORX_BIN=os.path.join(home, "no-such-orx"),
-               TEZGAH_CONSULT_CLIS="")
+               TEZGAH_CONSULT_CLIS="", TEZGAH_UPDATE_CHECK="0")
     start = time.time()
     proc = subprocess.run(
         [sys.executable, "-m", "unittest", "discover", "-s", "tests",
