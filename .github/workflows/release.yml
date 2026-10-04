@@ -115,6 +115,9 @@ jobs:
           # Clone the tap, update the formula, push
           git clone https://"$TAP_TOKEN"@github.com/r1z4x/homebrew-tezgah.git /tmp/tap
           cd /tmp/tap
+          # The whole tree goes to libexec and bin gets a symlink into it:
+          # tezgah-setup finds hooks/ through realpath(__file__), so a copy in
+          # bin/ (the old bin.install) died on `import tezgah_apps`.
           cat > Formula/tezgah.rb <<RUBY
           class Tezgah < Formula
             desc "One shared working contract for every AI coding assistant you run"
@@ -125,8 +128,8 @@ jobs:
             depends_on "python@3.10"
 
             def install
-              bin.install "bin/tezgah-setup"
               libexec.install Dir["*"]
+              bin.install_symlink libexec/"bin/tezgah-setup"
             end
 
             test do
