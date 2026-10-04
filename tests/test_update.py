@@ -10,6 +10,7 @@ git call.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -149,6 +150,33 @@ class Notice(support.TempHome):
         time.sleep(1)
         self.assertEqual(self.read_cache(), before)
 
+    def test_the_check_reads_the_tag_from_a_redirect(self):
+        # the production answer: HEAD /releases/latest -> 302 to .../tag/vX.Y.Z,
+        # served from a loopback server so the redirect branch itself runs
+        import http.server
+        import threading
+        newer = bump(CURRENT, 7)
+
+        class Releases(http.server.BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                self.send_response(302)
+                self.send_header("Location", "https://github.com/r1z4x/tezgah"
+                                 "/releases/tag/v" + newer)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Releases)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)  # cleanups run last-in, first-out
+        self.addCleanup(server.shutdown)
+        url = "http://127.0.0.1:%d/r1z4x/tezgah/releases/latest" % server.server_port
+        proc = subprocess.run([sys.executable, UPDATE, "check"], capture_output=True,
+                              text=True, timeout=30, env=self.envv(TEZGAH_UPDATE_URL=url))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.read_cache()["latest"], newer)
+
     def test_the_check_writes_the_release_it_read(self):
         proc = subprocess.run([sys.executable, UPDATE, "check"], capture_output=True,
                               text=True, timeout=30, env=self.envv())
@@ -185,7 +213,6 @@ class Tag(unittest.TestCase):
         self.assertIsNone(tu.tag_from("https://github.com/login", b"<html>"))
 
 
-
 class Channels(unittest.TestCase):
     def setUp(self):
         import tempfile
@@ -218,10 +245,15 @@ class Channels(unittest.TestCase):
         self.assertEqual(tu.fetch_command("brew", keg),
                          ["brew", "upgrade", "r1z4x/tezgah/tezgah"])
 
-    def run_update(self, here, codes=(0, 0), prefix="", dry_run=False):
+    def run_update(self, here, codes=(0, 0), prefix="", dry_run=False,
+                   npm_root="", which=lambda name: "/bin/" + name, fail=False):
         calls, upgrades = [], []
 
-        def run(argv):
+        def run(argv, **kwargs):
+            if argv[1:] == ["root", "-g"]:
+                return subprocess.CompletedProcess(argv, 0, stdout=npm_root + "\n")
+            if fail:
+                raise FileNotFoundError(argv[0])
             calls.append(argv)
             return subprocess.CompletedProcess(argv, codes[len(calls) - 1])
 
@@ -235,24 +267,40 @@ class Channels(unittest.TestCase):
                 mock.patch.object(tu.tp, "config", lambda: {"hosts": ["codex"]}):
             old, sys.stdout = sys.stdout, quiet
             try:
-                code = tu.update(here, prefix, upgrade, dry_run, run=run)
+                code = tu.update(here, prefix, upgrade, dry_run, run=run, which=which)
             finally:
                 sys.stdout = old
         return code, calls, upgrades
 
-    def test_npm_fetches_then_re_arms_from_the_same_tree(self):
+    def test_npm_fetches_then_re_arms_the_global_tree(self):
+        root = os.path.join(self.root, "lib", "node_modules")
         pkg = self.tree("lib", "node_modules", "@r1z4x", "tezgah")
-        code, calls, _ = self.run_update(pkg)
+        code, calls, _ = self.run_update(pkg, npm_root=root)
         self.assertEqual(code, 0)
-        self.assertEqual(calls[0], ["npm", "install", "-g", "@r1z4x/tezgah@latest"])
+        self.assertEqual(calls[0], ["/bin/npm", "install", "-g", "@r1z4x/tezgah@latest"])
         self.assertEqual(calls[1][1:4], [os.path.join(pkg, "bin", "tezgah-setup"),
                                          "--install", "--no-deps"])
+
+    def test_npm_running_outside_the_global_root_re_arms_the_global_tree(self):
+        # npx or a project-local install: `npm install -g` moves the global
+        # package, so that is the tree the hosts are re-armed from
+        root = os.path.join(self.root, "global", "node_modules")
+        npx = self.tree("npx", "abc", "node_modules", "@r1z4x", "tezgah")
+        _, calls, _ = self.run_update(npx, npm_root=root)
+        self.assertEqual(calls[1][1], os.path.join(root, "@r1z4x", "tezgah", "bin",
+                                                   "tezgah-setup"))
 
     def test_a_failed_fetch_re_arms_nothing(self):
         clone = self.tree("src", "tezgah", git=True)
         code, calls, _ = self.run_update(clone, codes=(1,))
         self.assertEqual(code, 1)
-        self.assertEqual(calls, [["git", "-C", clone, "pull", "--ff-only"]])
+        self.assertEqual(calls, [["/bin/git", "-C", clone, "pull", "--ff-only"]])
+
+    def test_a_tool_missing_from_path_is_a_message_not_a_traceback(self):
+        pkg = self.tree("lib", "node_modules", "@r1z4x", "tezgah")
+        self.assertEqual(self.run_update(pkg, which=lambda name: None)[:2], (127, []))
+        clone = self.tree("src", "tezgah", git=True)
+        self.assertEqual(self.run_update(clone, fail=True)[:2], (127, []))
 
     def test_a_dry_run_runs_nothing(self):
         clone = self.tree("src", "tezgah", git=True)
@@ -275,8 +323,8 @@ class Command(support.TempHome):
                               capture_output=True, text=True, timeout=60,
                               env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertIn("update (git): git -C %s pull --ff-only" % support.REPO,
-                      proc.stdout)
+        self.assertRegex(proc.stdout, r"update \(git\): \S*git -C %s pull --ff-only"
+                         % re.escape(support.REPO))
         self.assertIn("--dry-run: nothing fetched", proc.stdout)
 
 

@@ -216,14 +216,29 @@ def fetch_command(kind, here):
             "git": ["git", "-C", here, "pull", "--ff-only"]}.get(kind)
 
 
-def launcher(kind, here):
+def npm_global_root(npm, run):
+    """`npm root -g`, or "" when npm cannot answer. The tree `npm install -g`
+    replaces lives there, which need not be the tree that is running (npx, a
+    project-local install, another prefix or node version on PATH)."""
+    try:
+        out = run([npm, "root", "-g"], capture_output=True, text=True)
+    except OSError:
+        return ""
+    return out.stdout.strip() if out.returncode == 0 and out.stdout else ""
+
+
+def launcher(kind, here, npm_root=""):
     """The installer of the tree the fetch leaves behind. Homebrew installs a
     new keg beside the old one, so its stable `opt/tezgah` link is followed;
-    npm and git replace the tree in place."""
+    npm updates the package under its global root; git replaces the tree in
+    place."""
     if kind == "brew":
         real = os.path.realpath(here)
         brew_root = real[:real.index(os.sep + "Cellar" + os.sep)]
         return os.path.join(brew_root, "opt", "tezgah", "libexec", "bin",
+                            "tezgah-setup")
+    if kind == "npm" and npm_root:
+        return os.path.join(npm_root, "@" + REPO.split("/")[0], "tezgah", "bin",
                             "tezgah-setup")
     return os.path.join(here, "bin", "tezgah-setup")
 
@@ -239,13 +254,17 @@ def rearm_command(setup, cfg):
     return argv
 
 
-def update(here, prefix, upgrade, dry_run=False, run=subprocess.run):
+def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None):
     """Move this install to the newest release and re-arm it; the exit code.
 
     `upgrade` is bin/tezgah-setup's own release-prefix path (fetch, verify,
     flip `current`, re-arm), so that channel keeps the one implementation it
     already has. Every other channel prints its two commands before running
-    them, and `dry_run` stops after the printing."""
+    them, and `dry_run` stops after the printing. The channel's tool is
+    resolved through PATH first (`shutil.which` honours PATHEXT, so Windows'
+    `npm.cmd` is found), so a missing one is a message and not a traceback."""
+    import shutil
+    which = which or shutil.which
     kind = channel(here, prefix)
     if kind == "prefix":
         return upgrade("", dry_run)
@@ -254,19 +273,38 @@ def update(here, prefix, upgrade, dry_run=False, run=subprocess.run):
         print("tezgah update: cannot tell how %s was installed (not a release "
               "prefix, a Homebrew keg, an npm package or a git checkout)" % here)
         return 1
-    rearm = rearm_command(launcher(kind, here), tp.config())
+    tool = which(fetch[0])
+    if not tool:
+        print("tezgah update: `%s` is not on PATH, so this %s install cannot "
+              "update itself" % (fetch[0], kind))
+        return 127
+    fetch = [tool] + fetch[1:]
+    npm_root = npm_global_root(tool, run) if kind == "npm" else ""
+    rearm = rearm_command(launcher(kind, here, npm_root), tp.config())
     print("update (%s): %s" % (kind, " ".join(fetch)))
+    if npm_root and not (os.path.realpath(here) + os.sep).startswith(
+            os.path.realpath(npm_root) + os.sep):
+        print("  note: this tree is not under `npm root -g` (%s); the global "
+              "install there is what moves and what is re-armed" % npm_root)
     print("  re-arm: %s" % " ".join(rearm))
     if dry_run:
         print("  --dry-run: nothing fetched, nothing re-armed")
         return 0
-    code = run(fetch).returncode
-    if code != 0:
-        print("tezgah update: `%s` exited %d; tezgah was not re-armed"
-              % (" ".join(fetch), code))
-        return code
-    print()
-    return run(rearm).returncode
+    for step, argv in (("fetch", fetch), ("re-arm", rearm)):
+        try:
+            code = run(argv).returncode
+        except OSError as exc:
+            print("tezgah update: %s `%s` could not start (%s)"
+                  % (step, " ".join(argv), exc))
+            return 127
+        if code != 0:
+            print("tezgah update: %s `%s` exited %d%s"
+                  % (step, " ".join(argv), code,
+                     "; tezgah was not re-armed" if step == "fetch" else ""))
+            return code
+        if step == "fetch":
+            print()
+    return 0
 
 
 if __name__ == "__main__":
