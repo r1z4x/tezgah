@@ -15,6 +15,8 @@ import unittest
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = os.path.join(REPO, "hooks")
 TESTS = os.path.dirname(os.path.abspath(__file__))
+# the same for the tests that call the status functions in this very process
+os.environ.setdefault("TEZGAH_UPDATE_CHECK", "0")
 
 PROBE_PATHS = os.path.join(TESTS, "_probe_paths.py")
 PROBE_GATE = os.path.join(TESTS, "_probe_gate.py")
@@ -56,6 +58,9 @@ def base_env(home, roots=None, extra=None):
         # likewise the agent CLIs consult can ask: none counts unless a test
         # lists it, so a developer's own omp/claude/codex is not a consult option
         "TEZGAH_CONSULT_CLIS": "",
+        # no release check from a test: a stale cache would start a detached
+        # network fetch; tests/test_update.py turns it on where it is the subject
+        "TEZGAH_UPDATE_CHECK": "0",
     }
     if roots:
         env["TEZGAH_ROOTS"] = os.pathsep.join(roots)

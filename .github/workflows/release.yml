@@ -130,6 +130,7 @@ jobs:
             def install
               libexec.install Dir["*"]
               bin.install_symlink libexec/"bin/tezgah-setup"
+              bin.install_symlink libexec/"bin/tezgah-setup" => "tezgah"
             end
 
             test do

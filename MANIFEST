@@ -128,6 +128,7 @@ hooks/tezgah_skill_pick.py
 hooks/tezgah_snapshot.py
 hooks/tezgah_task.py
 hooks/tezgah_untrusted.py
+hooks/tezgah_update.py
 hosts/codex/hook.py
 hosts/codex/hooks.json
 hosts/cursor/hook.py
@@ -697,6 +698,7 @@ tests/test_task.py
 tests/test_tezgah_mcp_wiring.py
 tests/test_triage.py
 tests/test_untrusted.py
+tests/test_update.py
 workflows/graph-impact.js
 workflows/graph-map.js
 workflows/graph-review.js

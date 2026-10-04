@@ -1,0 +1,284 @@
+"""The update notice beside the logo, the daily check behind it, and
+`tezgah update`.
+
+The notice and the check run through the real CLIs (`bin/tezgah-status`,
+`hooks/tezgah_update.py check`) in a throwaway HOME, with the releases endpoint
+pointed at a `file://` fixture, so no test reaches the network. The channel
+dispatch is driven in process with the command runner swapped for a recorder:
+what is asserted is the argv each channel would run, never a real brew, npm or
+git call.
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+import unittest
+
+import support
+
+sys.path.insert(0, support.HOOKS)
+import tezgah_context  # noqa: E402
+import tezgah_update as tu  # noqa: E402
+
+STATUS = os.path.join(support.REPO, "bin", "tezgah-status")
+UPDATE = os.path.join(support.HOOKS, "tezgah_update.py")
+SETUP = os.path.join(support.REPO, "bin", "tezgah-setup")
+CURRENT = tezgah_context.version()
+
+
+def bump(version, by=1):
+    major, minor, patch = (int(p) for p in version.split("."))
+    return "%d.%d.%d" % (major, minor, patch + by)
+
+
+class Notice(support.TempHome):
+    def setUp(self):
+        super().setUp()
+        self.cache = os.path.join(self.home, ".cache", "tezgah", "update.json")
+        os.makedirs(os.path.dirname(self.cache))
+        self.release = os.path.join(self.home, "release.json")
+        self.serve(bump(CURRENT, 5))
+
+    def serve(self, version):
+        with open(self.release, "w", encoding="utf-8") as fh:
+            json.dump({"tag_name": "v" + version}, fh)
+
+    def envv(self, **extra):
+        env = self.env(extra=dict({"TEZGAH_UPDATE_CHECK": "1",
+                                   "TEZGAH_UPDATE_URL": "file://" + self.release},
+                                  **extra))
+        return env
+
+    def write_cache(self, latest, checked=None):
+        with open(self.cache, "w", encoding="utf-8") as fh:
+            json.dump({"checked": int(time.time()) if checked is None else checked,
+                       "latest": latest}, fh)
+
+    def read_cache(self):
+        with open(self.cache, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def status(self, *args, env=None):
+        proc = subprocess.run([sys.executable, STATUS, self.home] + list(args),
+                              capture_output=True, text=True, timeout=30,
+                              env=env or self.envv())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout
+
+    def update_segment(self, env=None):
+        segs = json.loads(self.status("--json", env=env))
+        return [s for s in segs if s["key"] == "update"]
+
+    def wait_for_latest(self, want):
+        for _ in range(100):
+            if os.path.exists(self.cache) and self.read_cache().get("latest") == want:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def test_a_newer_cached_release_sits_beside_the_version(self):
+        newer = bump(CURRENT)
+        self.write_cache(newer)
+        line = self.status().splitlines()[0]
+        self.assertTrue(line.startswith("tezgah v%s \u2191%s" % (CURRENT, newer)), line)
+        seg = self.update_segment()
+        self.assertEqual(seg, [{"key": "update", "state": "ready", "glyph": "",
+                                "text": "\u2191" + newer, "version": newer,
+                                "group": -1}])
+
+    def test_the_notice_survives_every_width_tier_beside_the_logo(self):
+        # omp draws the widest tier that fits; the narrow ones drop the version
+        # number, never the notice, because it is the logo's own group
+        newer = bump(CURRENT)
+        self.write_cache(newer)
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import json, sys, tezgah_context as c\n"
+             "print(json.dumps([l for l, _ in c.render_tiers("
+             "c.health_segments(sys.argv[1]))]))", self.home],
+            capture_output=True, text=True, timeout=30, env=self.envv())
+        self.assertEqual(out.returncode, 0, out.stderr)
+        for line in json.loads(out.stdout):
+            self.assertIn("tezgah", line.split("\u2191")[0])
+            self.assertIn("\u2191" + newer, line)
+
+    def test_an_equal_or_older_release_says_nothing(self):
+        for latest in (CURRENT, "0.0.1"):
+            self.write_cache(latest)
+            self.assertEqual(self.update_segment(), [], latest)
+            self.assertNotIn("\u2191", self.status())
+
+    def test_an_unreadable_cache_still_draws_the_line(self):
+        # garbage is a stale cache: the line draws, then the check replaces it
+        with open(self.cache, "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        self.assertTrue(self.status().startswith("tezgah v%s" % CURRENT))
+        self.assertTrue(self.wait_for_latest(bump(CURRENT, 5)))
+
+    def test_a_machine_with_no_cache_dir_yet_still_checks(self):
+        # a first run has no ~/.cache/tezgah: the stamp and the answer create it,
+        # or the check never starts and the chip never appears
+        os.rmdir(os.path.dirname(self.cache))
+        self.status()
+        self.assertTrue(self.wait_for_latest(bump(CURRENT, 5)))
+
+    def test_a_stale_cache_starts_one_detached_check(self):
+        self.write_cache(CURRENT, checked=0)
+        line = self.status()
+        # the redraw itself answers from what it had: no notice yet
+        self.assertNotIn("\u2191", line)
+        # the stamp is written before the check runs, so the next redraws start
+        # nothing for a day
+        self.assertGreater(self.read_cache()["checked"], time.time() - 60)
+        self.assertTrue(self.wait_for_latest(bump(CURRENT, 5)))
+        self.assertIn("\u2191" + bump(CURRENT, 5), self.status())
+
+    def test_a_fresh_cache_starts_no_check(self):
+        self.write_cache(CURRENT)
+        before = self.read_cache()
+        self.status()
+        time.sleep(1)
+        self.assertEqual(self.read_cache(), before)
+
+    def test_the_switch_reads_nothing_and_starts_nothing(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "update-check-off"))
+        self.write_cache(bump(CURRENT), checked=0)
+        before = self.read_cache()
+        self.assertNotIn("\u2191", self.status())
+        time.sleep(1)
+        self.assertEqual(self.read_cache(), before)
+
+    def test_the_check_writes_the_release_it_read(self):
+        proc = subprocess.run([sys.executable, UPDATE, "check"], capture_output=True,
+                              text=True, timeout=30, env=self.envv())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.read_cache()["latest"], bump(CURRENT, 5))
+        self.assertEqual(os.stat(self.cache).st_mode & 0o777, 0o600)
+
+    def test_an_offline_check_exits_0_and_writes_nothing(self):
+        env = self.envv(TEZGAH_UPDATE_URL="file://" + os.path.join(self.home, "nope"))
+        proc = subprocess.run([sys.executable, UPDATE, "check"], capture_output=True,
+                              text=True, timeout=30, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.exists(self.cache))
+
+    def test_a_tag_that_is_not_a_version_is_not_written(self):
+        with open(self.release, "w", encoding="utf-8") as fh:
+            json.dump({"tag_name": "nightly"}, fh)
+        subprocess.run([sys.executable, UPDATE, "check"], timeout=30, env=self.envv())
+        self.assertFalse(os.path.exists(self.cache))
+
+
+class Tag(unittest.TestCase):
+    """The real endpoint answers with a redirect, which no file:// fixture can
+    serve, so its one parsing rule is pinned on the strings github.com sends."""
+
+    def test_the_redirect_tail_is_the_tag(self):
+        self.assertEqual(tu.tag_from(
+            "https://github.com/r1z4x/tezgah/releases/tag/v0.1.2"), "v0.1.2")
+        self.assertEqual(tu.tag_from("/r1z4x/tezgah/releases/tag/0.2.0/"), "0.2.0")
+
+    def test_a_redirect_elsewhere_names_no_tag(self):
+        # a repository with no release redirects to the releases list
+        self.assertIsNone(tu.tag_from("https://github.com/r1z4x/tezgah/releases"))
+        self.assertIsNone(tu.tag_from("https://github.com/login", b"<html>"))
+
+
+
+class Channels(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = os.path.realpath(self._tmp.name)
+
+    def tree(self, *parts, git=False):
+        path = os.path.join(self.root, *parts)
+        os.makedirs(os.path.join(path, ".git") if git else path)
+        return path
+
+    def test_each_tree_shape_names_its_channel(self):
+        keg = self.tree("homebrew", "Cellar", "tezgah", "0.1.1", "libexec")
+        pkg = self.tree("lib", "node_modules", "@r1z4x", "tezgah")
+        clone = self.tree("src", "tezgah", git=True)
+        self.assertEqual(tu.channel(keg), "brew")
+        self.assertEqual(tu.channel(pkg), "npm")
+        self.assertEqual(tu.channel(clone), "git")
+        self.assertEqual(tu.channel(clone, prefix="/p"), "prefix")
+        self.assertEqual(tu.channel(self.tree("loose")), "")
+        # a keg of another formula is not tezgah's
+        self.assertEqual(tu.channel(self.tree("hb", "Cellar", "other", "1", "libexec")), "")
+
+    def test_brew_re_arms_from_the_stable_opt_link(self):
+        keg = self.tree("homebrew", "Cellar", "tezgah", "0.1.1", "libexec")
+        self.assertEqual(tu.launcher("brew", keg),
+                         os.path.join(self.root, "homebrew", "opt", "tezgah",
+                                      "libexec", "bin", "tezgah-setup"))
+        self.assertEqual(tu.fetch_command("brew", keg),
+                         ["brew", "upgrade", "r1z4x/tezgah/tezgah"])
+
+    def run_update(self, here, codes=(0, 0), prefix="", dry_run=False):
+        calls, upgrades = [], []
+
+        def run(argv):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, codes[len(calls) - 1])
+
+        def upgrade(version, dry):
+            upgrades.append((version, dry))
+            return 0
+
+        from unittest import mock
+        # the recorded install, not this machine's: hosts come from config.json
+        with open(os.devnull, "w") as quiet, \
+                mock.patch.object(tu.tp, "config", lambda: {"hosts": ["codex"]}):
+            old, sys.stdout = sys.stdout, quiet
+            try:
+                code = tu.update(here, prefix, upgrade, dry_run, run=run)
+            finally:
+                sys.stdout = old
+        return code, calls, upgrades
+
+    def test_npm_fetches_then_re_arms_from_the_same_tree(self):
+        pkg = self.tree("lib", "node_modules", "@r1z4x", "tezgah")
+        code, calls, _ = self.run_update(pkg)
+        self.assertEqual(code, 0)
+        self.assertEqual(calls[0], ["npm", "install", "-g", "@r1z4x/tezgah@latest"])
+        self.assertEqual(calls[1][1:4], [os.path.join(pkg, "bin", "tezgah-setup"),
+                                         "--install", "--no-deps"])
+
+    def test_a_failed_fetch_re_arms_nothing(self):
+        clone = self.tree("src", "tezgah", git=True)
+        code, calls, _ = self.run_update(clone, codes=(1,))
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, [["git", "-C", clone, "pull", "--ff-only"]])
+
+    def test_a_dry_run_runs_nothing(self):
+        clone = self.tree("src", "tezgah", git=True)
+        self.assertEqual(self.run_update(clone, dry_run=True)[:2], (0, []))
+
+    def test_a_release_prefix_goes_through_the_installers_own_upgrade(self):
+        clone = self.tree("p", "0.1.1")
+        code, calls, upgrades = self.run_update(clone, prefix="/p", dry_run=True)
+        self.assertEqual((code, calls, upgrades), (0, [], [("", True)]))
+
+    def test_an_unknown_tree_refuses(self):
+        self.assertEqual(self.run_update(self.tree("loose"))[:2], (1, []))
+
+
+class Command(support.TempHome):
+    def test_tezgah_update_dry_run_from_this_checkout(self):
+        # the subcommand is reachable through the real installer, and a checkout
+        # answers with its git channel without fetching anything
+        proc = subprocess.run([sys.executable, SETUP, "update", "--dry-run"],
+                              capture_output=True, text=True, timeout=60,
+                              env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("update (git): git -C %s pull --ff-only" % support.REPO,
+                      proc.stdout)
+        self.assertIn("--dry-run: nothing fetched", proc.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

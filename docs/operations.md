@@ -37,6 +37,7 @@ before an install is considered.
 | `--dry-run` | Print what the optional-tool install would run, and run none of it (`bin/tezgah-setup:4088-4091`). |
 | `--prefix DIR` | Set the install prefix for this run: where a released artifact unpacks, and the second root a farm link may resolve into along with the checkout. It wins over `TEZGAH_PREFIX`, which wins over `$XDG_DATA_HOME/tezgah`, which wins over `~/.local/share/tezgah` (`bin/tezgah-setup:4093-4095`, `bin/tezgah-setup:4126-4137`, `bin/tezgah-setup:59-65`). |
 | `--upgrade [VERSION]` | Move the install tree to VERSION (default: the newest release): `packaging/upgrade.sh` fetches it, checksum-verifies it, unpacks `<prefix>/<VERSION>` and flips `current`, then the installer re-runs **from the new tree**; `--dry-run` prints every step and runs none (`bin/tezgah-setup:4394-4395`, `bin/tezgah-setup:4232-4234`, `bin/tezgah-setup:4763-4812`). |
+| `update` | `tezgah update [--dry-run]` moves this install to the newest release through the channel it came from, then re-arms the hosts from the new tree. A release prefix goes through `--upgrade`. A Homebrew keg runs `brew upgrade r1z4x/tezgah/tezgah`, an npm tree runs `npm install -g @r1z4x/tezgah@latest`, and a git checkout runs `git pull --ff-only` (`update()`, `hooks/tezgah_update.py`). |
 | `--version` | Print the plugin version and exit (`bin/tezgah-setup:4104-4109`, `:163-178`). |
 | `--roots R` | Set the roots for this install, `os.pathsep`-separated. Without `--install` it exits 1: `--roots only means something with --install` (`bin/tezgah-setup:4106-4107`, `bin/tezgah-setup:4238`). |
 | `--hosts H` | Comma-separated subset of `claude,codex,opencode,cursor,dsh,omp`; an unknown name exits 1 before anything is written, and naming hosts switches off the re-detection that follows a tool install (`bin/tezgah-setup:4108`, `bin/tezgah-setup:3817-3827`, `bin/tezgah-setup:4235`). |
@@ -68,7 +69,7 @@ install root, which is what keeps an upgrade from orphaning the wiring
 | first install, POSIX | `curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/v<version>/packaging/install.sh \| sh -s -- --version <version>` |
 | from a tarball you hold | unpack it, then `sh packaging/install.sh --version <version>` — it finds `upgrade.sh` beside itself (`packaging/install.sh:29-30`) |
 | first install, Windows | `$env:TEZGAH_VERSION = '<version>'; irm https://raw.githubusercontent.com/r1z4x/tezgah/v<version>/packaging/install.ps1 \| iex` |
-| upgrade | `bin/tezgah-setup --upgrade [VERSION]` from the installed tree, or `sh packaging/upgrade.sh --version X.Y.Z` |
+| upgrade | `tezgah update` (any channel), `bin/tezgah-setup --upgrade [VERSION]` from the installed tree, or `sh packaging/upgrade.sh --version X.Y.Z` |
 
 `packaging/install.sh` is a bootstrap, never a second implementation: it runs
 `packaging/upgrade.sh` — the one place a version is fetched, checksum-verified,
@@ -182,6 +183,17 @@ stays installed, so a rollback is a `current` flip (`upgrade()`,
 upgrades tezgah as a side effect of another. `--upgrade --dry-run` prints the
 fetch, the flip and the re-arm and runs none of the three
 (`bin/tezgah-setup:4232-4234`).
+
+The status line says when a newer release is out. A `↑X.Y.Z` chip sits beside
+the logo, in the version's own group, on every surface (`notice_segments()`,
+`hooks/tezgah_update.py`). A redraw only reads `~/.cache/tezgah/update.json`.
+When that file is a day old, the redraw stamps it and starts one detached
+check against the GitHub releases endpoint. An offline check writes nothing,
+and the next day asks again. `tezgah update` is the command the chip points
+at, and it is the only thing that moves the install. The
+`~/.config/tezgah/update-check-off` switch stops both the check and the chip.
+`tezgah` is also a farm link and a Homebrew name, so the command reads the same
+on npm, Homebrew and a checkout.
 
 After a change to the contract text (`hooks/tezgah_policy.py`,
 `hooks/tezgah_context.py`, `skills/tezgah-contract/SKILL.md`):

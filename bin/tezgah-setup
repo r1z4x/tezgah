@@ -840,7 +840,7 @@ def install_common(new_roots, hosts):
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
-            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")), ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")), ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp")), ("tezgah-design", os.path.join(HERE, "bin", "tezgah-design")), ("tezgah-decisions", os.path.join(HERE, "bin", "tezgah-decisions")), ("tezgah-route", os.path.join(HERE, "bin", "tezgah-route"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations. Not here on purpose: tezgah-dsh (wired as ~/.local/bin/dsh, see dsh_launcher) and tezgah-import-ai-research (dev-time only, its docstring)
+            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")), ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")), ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp")), ("tezgah-design", os.path.join(HERE, "bin", "tezgah-design")), ("tezgah-decisions", os.path.join(HERE, "bin", "tezgah-decisions")), ("tezgah-route", os.path.join(HERE, "bin", "tezgah-route")), ("tezgah", os.path.join(HERE, "bin", "tezgah-setup"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations. `tezgah` is this installer under the name `tezgah update` is typed with (npm ships the same name). Not here on purpose: tezgah-dsh (wired as ~/.local/bin/dsh, see dsh_launcher) and tezgah-import-ai-research (dev-time only, its docstring)
         print(link(src, os.path.join(tp.BIN_DIR, name)))
     mkdirp(tezgah_apps.ARTIFACTS)
     print("%s app artifacts -> %s" % (OK, tezgah_apps.ARTIFACTS))
@@ -4867,7 +4867,9 @@ def install_all(hosts, new_roots, deps_off, dry_run, redetect):
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description="arm tezgah in every installed host")
+    ap = argparse.ArgumentParser(description="arm tezgah in every installed host; "
+                                 "`tezgah update [--dry-run]` moves this install "
+                                 "to the newest release and re-arms it")
     ap.add_argument("--install", action="store_true")
     ap.add_argument("--wizard", action="store_true",
                     help="ask the install questions (a bare run on a terminal does this)")
@@ -4939,7 +4941,10 @@ def main(argv):
             "cannot name the version to upgrade to; write "
             "`tezgah-setup --upgrade VERSION`\n")
         return 2
-    args = ap.parse_args(argv[1:])
+    # `tezgah update` is the one subcommand: argparse has no positional for it,
+    # so it is taken off before the flags are parsed (`--dry-run` still reads)
+    command = argv[1:2] == ["update"]
+    args = ap.parse_args(argv[2:] if command else argv[1:])
     global FEATURES, INSTALL_PREFIX, HOST_DEPS
     HOST_DEPS = args.host_deps
     select_code = 0
@@ -4962,6 +4967,9 @@ def main(argv):
     # and --dry-run must reach it without fetching anything
     if args.upgrade is not None:
         return upgrade(args.upgrade, args.dry_run)
+    if command:
+        import tezgah_update
+        return tezgah_update.update(HERE, running_prefix(), upgrade, args.dry_run)
 
     if args.sync:
         return sync()

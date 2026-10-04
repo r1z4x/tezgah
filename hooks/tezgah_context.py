@@ -2319,7 +2319,7 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
         ("orch", not off("orchestrate-off"), "orch"),
         ("judge", not off("judge-off") and have_judge_key(), "judge"),
     ]
-    segs = [version_segment()]
+    segs = with_update_notice(version_segment())
     # Shown only when the prompt hook found the gate disarmed (gate_inactive):
     # first, because it says every other mark is not being enforced.
     if session_id and os.path.exists(_gate_mark(session_id)):
@@ -2507,3 +2507,17 @@ def version_segment():
             "text": "tezgah v%s" % got if got else "tezgah",
             "version": got, "group": -1}
 
+
+
+def with_update_notice(head):
+    """`[head]`, plus the `↑X.Y.Z` segment when a newer release is out.
+
+    The notice is tezgah_update's (a cached answer, refreshed by a detached
+    check at most once a day), imported here rather than at the top so a tree
+    without the module still draws its line. It shares the head's group, so it
+    sits beside the logo on every surface."""
+    try:
+        import tezgah_update
+    except ImportError:  # pragma: no cover - only where the module has not landed
+        return [head]
+    return [head] + tezgah_update.notice_segments(head.get("version"))
