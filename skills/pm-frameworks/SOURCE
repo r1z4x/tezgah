@@ -1,0 +1,39 @@
+# Source
+
+Vendored from https://github.com/phuryn/pm-skills at
+`8607e3b077817f89bf4a9b623246219734ac3be0` (2026-09-19), MIT licence. Both bodies
+are byte-for-byte upstream, frontmatter included. Checkout for a re-vendor:
+`git clone https://github.com/phuryn/pm-skills && git -C <clone> checkout 8607e3b077817f89bf4a9b623246219734ac3be0`.
+
+## What is vendored
+
+Two skills, one `SKILL.md` each, at the upstream path so a vendored file is
+findable again. The manifest is this table, and `tests/test_skills.py` holds it
+to the bytes.
+
+| file | upstream path | sha256 | lines |
+|---|---|---|---|
+| `intended-vs-implemented/SKILL.md` | `pm-ai-shipping/skills/intended-vs-implemented/SKILL.md` | `6d917f0e59f78ea6b5d847f57b1c816baa2948cac56529939589cd73d2e4c9eb` | 42 |
+| `opportunity-solution-tree/SKILL.md` | `pm-product-discovery/skills/opportunity-solution-tree/SKILL.md` | `6b23e44a5ace86aa20d64cc130322265ace6a53a29831cc403b974098a379bcc` | 64 |
+
+## What is not, and why
+
+The other 67 skills, the nine plugin directories, `.claude-plugin/marketplace.json`,
+the `/slash` commands and the README: a packaging surface this repository does not
+use, and 67 bodies no tezgah task routes to. The two vendored here are exactly the
+ones `skills/product-analysis/SKILL.md` defers to for the PE and PM axes; anything
+else is one URL away and stays that way.
+
+## The only modification
+
+None. Both files keep their upstream bytes, frontmatter and description included.
+`skills/pm-frameworks/SKILL.md` is tezgah's own entry point and is not part of the
+manifest, the same way `skills/ai-research/SKILL.md` is not.
+
+## Re-vendoring
+
+Re-run the two `curl` fetches against the new revision, replace the table's sha256
+and line counts, and update the revision in the first paragraph - all in one
+commit. `tests/test_skills.py` fails on a body that no longer matches its hash, on
+a listed file that is missing, and on an unlisted file beside them, so a re-vendor
+that updates only the files is caught.

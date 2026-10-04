@@ -1,0 +1,28 @@
+{
+  "name": "tezgah-dsh-statusline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "tezgah status line for the DeepSeek Harness Web UI",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,467 @@
+{
+  "version": 1,
+  "about": "The machine-readable index of docs/. bin/tezgah-docs reads this; tests/test_docs.py keeps it in step with the directory. Every path is repo-relative.",
+  "pages": [
+    {
+      "path": "docs/architecture.md",
+      "title": "Architecture: the layers and what runs when",
+      "title_tr": "Mimari: katmanlar ve ne zaman ne çalışır",
+      "audience": "maintainer, agent new to the repo",
+      "answers": [
+        "what are the layers and what does each own",
+        "what runs when from session start to Stop",
+        "what does a session pay for and what is on demand",
+        "where is state kept and who writes each store"
+      ],
+      "answers_tr": [
+        "katmanlar nelerdir ve her biri neyin sahibidir",
+        "oturum başlangıcından Stop'a kadar ne zaman ne çalışır",
+        "bir oturum neyin bedelini öder ve ne isteğe bağlıdır",
+        "durum nerede tutulur ve her depoya kim yazar"
+      ],
+      "sources": [
+        "hooks/tezgah_context.py",
+        "hooks/tezgah_rank.py",
+        "hooks/tezgah_policy.py",
+        "hooks/tezgah_paths.py",
+        "bin/tezgah-setup",
+        "hosts/codex/hook.py",
+        "hosts/omp/hook.py",
+        "statusline.py",
+        "hooks/tezgah_embed.py"
+      ]
+    },
+    {
+      "path": "docs/layers.md",
+      "title": "Layers: the four layers, and which one tezgah is",
+      "title_tr": "Katmanlar: dört katman ve tezgah hangisi",
+      "audience": "agent, maintainer, anyone writing a claim that says harness",
+      "answers": [
+        "which layer is tezgah and which one is the harness",
+        "is tezgah an agent harness",
+        "what is the boundary against host, framework, SDK, IDE plugin, eval harness, orchestrator and MCP",
+        "which of the three senses of harness a sentence is using",
+        "what does the gate see of an MCP call"
+      ],
+      "answers_tr": [
+        "tezgah hangi katman ve harness hangisi",
+        "tezgah bir ajan harness'i mi",
+        "host, framework, SDK, IDE eklentisi, değerlendirme harness'i, orkestratör ve MCP ile sınır nerede",
+        "bir cümle harness kelimesinin üç anlamından hangisini kullanıyor",
+        "gate bir MCP çağrısından ne görür"
+      ],
+      "sources": [
+        "docs/glossary.md",
+        "docs/hosts.md",
+        "hooks/tezgah_policy.py",
+        "hooks/tezgah_gate.py",
+        "hooks/tezgah_integrity.py",
+        "hooks/tezgah_apps.py",
+        "hooks/tezgah_paths.py",
+        "bin/tezgah-setup",
+        "skills/harness/SKILL.md"
+      ]
+    },
+    {
+      "path": "docs/hosts.md",
+      "title": "Hosts: what each one gets and what each one can see",
+      "title_tr": "Hostlar: her biri ne alır ve ne görebilir",
+      "audience": "maintainer, agent adding a host or a mark",
+      "answers": [
+        "what does each host get and where is it written",
+        "which host can observe what",
+        "what is a host adapter responsible for",
+        "what does it take to add a host"
+      ],
+      "answers_tr": [
+        "her host ne alır ve nereye yazılır",
+        "hangi host neyi gözlemleyebilir",
+        "bir host adaptörü neden sorumludur",
+        "yeni bir host eklemek için ne gerekir"
+      ],
+      "sources": [
+        "hooks/tezgah_paths.py",
+        "bin/tezgah-setup",
+        "hosts/codex/hook.py",
+        "hosts/cursor/hook.py",
+        "hosts/omp/hook.py",
+        "hosts/omp/tezgah-hook.ts.in",
+        "hosts/opencode/plugins/tezgah.js",
+        "hosts/dsh/hooks.json",
+        "hosts/dsh/statusline/lib/index.js",
+        "statusline.py"
+      ]
+    },
+    {
+      "path": "docs/contract.md",
+      "title": "Contract: what a session is told, and how a rule is disarmed",
+      "title_tr": "Sözleşme: oturuma ne söylenir ve bir kural nasıl devre dışı bırakılır",
+      "audience": "agent, maintainer adding a rule",
+      "answers": [
+        "what exactly is a session told and from which file",
+        "how is a rule disarmed",
+        "how is a rule added and what keeps the copies in step",
+        "what happens when the injected text grows too large"
+      ],
+      "answers_tr": [
+        "oturuma tam olarak ne söylenir ve hangi dosyadan",
+        "bir kural nasıl kapatılır, devre dışı bırakılır",
+        "bir kural nasıl eklenir ve kopyaları eşit tutan nedir",
+        "enjekte edilen metin çok büyüdüğünde ne olur"
+      ],
+      "sources": [
+        "hooks/tezgah_policy.py",
+        "hooks/tezgah_context.py",
+        "bin/tezgah-setup",
+        "skills/tezgah-contract/SKILL.md",
+        "output-styles/tezgah.md",
+        "tests/test_context.py"
+      ]
+    },
+    {
+      "path": "docs/gate.md",
+      "title": "Gate: every way a tool call can be refused",
+      "title_tr": "Gate: bir araç çağrısının reddedilebileceği her yol",
+      "audience": "agent, reviewer, maintainer",
+      "answers": [
+        "why was my command denied",
+        "why was my write refused by the active task",
+        "which commands run without an ask and why the consent rule was removed",
+        "what does the gate not catch on purpose",
+        "how do I add a gate rule"
+      ],
+      "answers_tr": [
+        "komutum neden reddedildi, engellendi",
+        "yazmam aktif görev tarafından neden reddedildi",
+        "hangi komutlar onay sormadan çalışır ve onay kuralı neden kaldırıldı",
+        "gate bilerek neyi yakalamaz",
+        "gate kuralı nasıl eklerim"
+      ],
+      "sources": [
+        "hooks/tezgah_gate.py",
+        "hooks/projects-pretooluse.py",
+        "hosts/opencode/plugins/tezgah.js",
+        "tests/test_gate.py"
+      ]
+    },
+    {
+      "path": "docs/evidence.md",
+      "title": "Evidence: the ledger, the Stop rule, snapshots",
+      "title_tr": "Kanıt: defter, Stop kuralı, anlık görüntüler",
+      "audience": "agent, maintainer",
+      "answers": [
+        "what stops an unverified done",
+        "what does the ledger hold and what never reaches it",
+        "how does a check get recorded as passed versus merely run",
+        "how do I undo a bad write"
+      ],
+      "answers_tr": [
+        "doğrulanmamış bir bitti iddiasını ne durdurur",
+        "defter neyi tutar ve oraya asla ne ulaşmaz",
+        "bir kontrol yalnızca çalıştı yerine geçti olarak nasıl kaydedilir",
+        "kötü bir yazmayı nasıl geri alırım"
+      ],
+      "sources": [
+        "hooks/tezgah_integrity.py",
+        "hooks/projects-posttooluse.py",
+        "hooks/projects-stop.py",
+        "hooks/tezgah_snapshot.py",
+        "hooks/tezgah_untrusted.py",
+        "bin/tezgah-rollback",
+        "bin/tezgah-capture"
+      ]
+    },
+    {
+      "path": "docs/status-line.md",
+      "title": "Status line: what each mark means and how it is drawn",
+      "title_tr": "Durum satırı: her işaret ne anlama gelir ve nasıl çizilir",
+      "audience": "agent, maintainer adding a mark",
+      "answers": [
+        "what does each status mark mean and why is it in that state",
+        "how does a surface draw the line",
+        "how do I see or debug the line for a session"
+      ],
+      "answers_tr": [
+        "her durum işareti ne anlama gelir ve neden o durumda",
+        "bir yüzey satırı nasıl çizer",
+        "bir oturumun durum satırını nasıl görürüm veya hata ayıklarım"
+      ],
+      "sources": [
+        "hooks/tezgah_context.py",
+        "bin/tezgah-status",
+        "statusline.py",
+        "hooks/projects-posttooluse.py",
+        "hosts/omp/tezgah-hook.ts.in",
+        "hosts/opencode/tui/tezgah-tui.tsx",
+        "hosts/dsh/statusline/lib/index.js"
+      ]
+    },
+    {
+      "path": "docs/judge.md",
+      "title": "Judge: the judgement seam, its four callers and its switches",
+      "title_tr": "Yargıç: yargı noktası, dört çağıranı ve anahtarları",
+      "audience": "agent, maintainer adding a caller",
+      "answers": [
+        "what is the judgement seam and is it a rule",
+        "which callers ask for a judgement and what is each for",
+        "where does the credential come from and what leaves the machine",
+        "how do I switch the judgement off",
+        "what does a judgement cost and how was that measured",
+        "what will the seam never be used for"
+      ],
+      "answers_tr": [
+        "yargı noktası nedir ve bir kural mı",
+        "hangi çağıranlar yargı ister ve her biri ne için",
+        "kimlik bilgisi nereden gelir ve makineden ne çıkar",
+        "yargıyı nasıl kapatırım",
+        "bir yargının maliyeti nedir ve nasıl ölçüldü",
+        "yargı noktası asla ne için kullanılmayacak"
+      ],
+      "sources": [
+        "hooks/tezgah_judge.py",
+        "bin/tezgah-triage",
+        "bin/tezgah-docs",
+        "hooks/tezgah_rank.py",
+        "hooks/tezgah_skill_pick.py",
+        "hooks/tezgah_policy.py",
+        "hooks/tezgah_paths.py",
+        "tests/test_judge.py",
+        "tests/test_triage.py",
+        "tests/test_docs_router.py",
+        "hooks/tezgah_embed.py"
+      ]
+    },
+    {
+      "path": "docs/models.md",
+      "title": "Models: which model runs which delegated task, and how the table stays current",
+      "title_tr": "Modeller: hangi model hangi devredilen görevi çalıştırır ve tablo nasıl güncel kalır",
+      "audience": "agents and maintainers",
+      "answers": [
+        "which model does each subagent run on each host",
+        "how does tezgah-route pick a tier worker",
+        "why Opus effort levels and not Sonnet inside the Anthropic family",
+        "how is the model table kept current"
+      ],
+      "answers_tr": [
+        "her alt ajan her hostta hangi modelde çalışır",
+        "tezgah-route bir kademe işçisini nasıl seçer",
+        "Anthropic ailesinde neden Sonnet değil de Opus efor seviyeleri",
+        "model tablosu nasıl güncel tutulur"
+      ],
+      "sources": [
+        "hooks/tezgah_models.py",
+        "bin/tezgah-route",
+        "hooks/tezgah_agents.py",
+        "hooks/tezgah_policy.py",
+        "bin/tezgah-setup"
+      ]
+    },
+    {
+      "path": "docs/research.md",
+      "title": "Research: the line in the repository, the CLI that checks it, the mark it lights",
+      "title_tr": "Araştırma: depodaki hat, onu denetleyen CLI, yaktığı işaret",
+      "audience": "agent, maintainer adding or checking a research line",
+      "answers": [
+        "where does a research line live and what does it hold",
+        "what does tezgah-research check refuse and what does it only warn about",
+        "what do init, claim, migrate and source write",
+        "how does a session learn that a research line is broken",
+        "what lights the research mark and how is the layer switched off",
+        "why may a new research line not be opened while another is unfinished"
+      ],
+      "answers_tr": [
+        "bir araştırma hattı nerede yaşar ve ne tutar",
+        "tezgah-research check neyi reddeder ve neyi yalnızca uyarır",
+        "init, claim, migrate ve source ne yazar",
+        "bir oturum bir araştırma hattının bozuk olduğunu nasıl öğrenir",
+        "araştırma işaretini ne yakar ve katman nasıl kapatılır",
+        "başka biri bitmemişken neden yeni bir araştırma hattı açılamaz"
+      ],
+      "sources": [
+        "hooks/tezgah_research.py",
+        "bin/tezgah-research",
+        "hooks/tezgah_policy.py",
+        "hooks/tezgah_context.py",
+        "skills/research/SKILL.md",
+        "tests/test_research.py"
+      ]
+    },
+    {
+      "path": "docs/skills.md",
+      "title": "Skills: what ships, and how one reaches a host",
+      "title_tr": "Beceriler: ne gönderilir ve bir beceri hosta nasıl ulaşır",
+      "audience": "maintainer, agent adding a skill",
+      "answers": [
+        "what is a skill here and how does it reach a host",
+        "which skills ship and what does each do",
+        "how do I add a skill without breaking the router or the install report"
+      ],
+      "answers_tr": [
+        "burada beceri nedir ve bir hosta nasıl ulaşır",
+        "hangi beceriler gelir ve her biri ne yapar",
+        "yönlendiriciyi veya kurulum raporunu bozmadan nasıl beceri eklerim"
+      ],
+      "sources": [
+        "bin/tezgah-setup",
+        "skills/",
+        "skills/design-library/SOURCE",
+        "tests/routing-fixtures.md",
+        "commands/",
+        "NOTICE",
+        "tests/test_setup.py",
+        "tests/test_skills.py"
+      ]
+    },
+    {
+      "path": "docs/feature-audit.md",
+      "title": "Feature audit: one feature, every layer",
+      "title_tr": "Özellik denetimi: tek özellik, her katman",
+      "audience": "agent auditing an existing feature; maintainer of the product rule",
+      "answers": [
+        "what does a feature-level audit cover that a screen review misses",
+        "what are the five matrices and the capability-change proposal",
+        "how is the feature-audit skill reached and what evidence backs it"
+      ],
+      "answers_tr": [
+        "özellik düzeyinde bir denetim, ekran incelemesinin kaçırdığı neyi kapsar",
+        "beş matris ve yetenek değişikliği önerisi nedir",
+        "özellik denetimi becerisine nasıl ulaşılır ve onu hangi kanıt destekler"
+      ],
+      "sources": [
+        "skills/feature-audit/SKILL.md",
+        "hooks/tezgah_policy.py",
+        "hooks/tezgah_context.py"
+      ]
+    },
+    {
+      "path": "docs/testing.md",
+      "title": "Testing: the checks, the probes, the e2e scripts",
+      "title_tr": "Test: kontroller, sondalar, e2e betikleri",
+      "audience": "maintainer",
+      "answers": [
+        "how do I check this repo and what does each check catch",
+        "how do I write a test here that will not be deleted later",
+        "what do the probes and the e2e scripts need to run"
+      ],
+      "answers_tr": [
+        "bu depoyu nasıl kontrol ederim ve her kontrol neyi yakalar",
+        "burada sonradan silinmeyecek bir testi nasıl yazarım",
+        "sondalar ve e2e betikleri çalışmak için neye ihtiyaç duyar"
+      ],
+      "sources": [
+        "AGENTS.md",
+        ".github/workflows/ci.yml",
+        "tests/support.py",
+        "tests/e2e_analyze_wiring.py",
+        "tests/e2e_omp_statusline.py",
+        "tests/e2e_dsh_statusline.py"
+      ]
+    },
+    {
+      "path": "docs/operations.md",
+      "title": "Operations: install, upgrade, repair",
+      "title_tr": "İşletim: kurulum, yükseltme, onarım",
+      "audience": "operator, maintainer",
+      "answers": [
+        "how do I install verify and upgrade this on a machine",
+        "what does each installer flag do",
+        "how do I install or upgrade a released version without a git checkout",
+        "where does an installed version unpack and how do I roll back",
+        "something is broken what do I check first"
+      ],
+      "answers_tr": [
+        "bunu bir makineye nasıl kurar, doğrular ve yükseltirim",
+        "her kurulum bayrağı ne yapar",
+        "git deposu olmadan yayımlanmış bir sürümü nasıl kurar veya yükseltirim",
+        "kurulu bir sürüm nereye açılır ve nasıl geri alırım",
+        "bir şey bozuk, önce neyi kontrol etmeliyim"
+      ],
+      "sources": [
+        "bin/tezgah-setup",
+        "bin/tezgah-doctor",
+        "bin/tezgah-rollback",
+        "packaging/build.sh",
+        "packaging/install.sh",
+        "packaging/upgrade.sh",
+        "packaging/install.ps1",
+        "RELEASING.md",
+        "README.md",
+        "hooks/tezgah_embed.py"
+      ]
+    },
+    {
+      "path": "docs/environment.md",
+      "title": "Environment variables: every one tezgah reads",
+      "title_tr": "Ortam değişkenleri: tezgah'ın okuduğu her biri",
+      "audience": "user pinning an install or CI job, maintainer adding a variable, test author repointing an endpoint",
+      "answers": [
+        "which environment variables does tezgah read",
+        "what does each variable default to and change",
+        "how do I repoint an endpoint or a binary in a test",
+        "which variable picks the python a hook runs"
+      ],
+      "answers_tr": [
+        "tezgah hangi ortam değişkenlerini okur",
+        "her değişkenin varsayılanı nedir ve neyi değiştirir",
+        "bir testte bir uç noktayı veya ikili dosyayı nasıl başka yere yönlendiririm",
+        "hangi değişken bir hook'un çalıştırdığı python'u seçer"
+      ],
+      "sources": [
+        "hooks/tezgah_paths.py",
+        "hooks/tezgah_judge.py",
+        "hooks/tezgah_index.py",
+        "bin/tezgah-setup",
+        "bin/consult",
+        "bin/codegen",
+        "packaging/install.sh",
+        "packaging/upgrade.sh",
+        "statusline.py"
+      ]
+    },
+    {
+      "path": "docs/glossary.md",
+      "title": "Glossary: one term per concept",
+      "title_tr": "Sözlük: her kavram için tek terim",
+      "audience": "everyone",
+      "answers": [
+        "what does this word mean in this repository"
+      ],
+      "answers_tr": [
+        "bu kelime bu depoda ne anlama geliyor"
+      ],
+      "sources": [
+        "hooks/tezgah_context.py",
+        "hooks/tezgah_gate.py",
+        "hooks/tezgah_integrity.py",
+        "hooks/tezgah_paths.py",
+        "hooks/tezgah_policy.py"
+      ]
+    },
+    {
+      "path": "docs/vision.md",
+      "title": "Vision: how a tezgah session is meant to run",
+      "title_tr": "Vizyon: bir tezgah oturumunun nasıl çalışması amaçlanır",
+      "audience": "maintainer, agent changing the check cadence, the review loop, routing or the research layer",
+      "answers": [
+        "what the operating model is behind the rules",
+        "what each check tier costs and when it runs",
+        "why every agent gets a cross-family fallback chain",
+        "what the research layer requires of a line"
+      ],
+      "answers_tr": [
+        "kuralların arkasındaki işletim modeli nedir",
+        "her kontrol kademesinin maliyeti nedir ve ne zaman çalışır",
+        "neden her ajana aileler arası bir yedek zincir verilir",
+        "araştırma katmanı bir hattan ne ister"
+      ],
+      "sources": [
+        "hooks/tezgah_policy.py",
+        "hooks/tezgah_models.py",
+        "hooks/tezgah_research.py",
+        "tests/impacted.py",
+        "docs/testing.md",
+        "AGENTS.md"
+      ]
+    }
+  ]
+}

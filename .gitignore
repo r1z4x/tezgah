@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# local research notes: kept out of the public repo, never published
+/docs/research/
+
+# tezgah: generated agents (managed; removed by tezgah-setup --uninstall)
+/.claude/agents/
+/.codex/agents/
+/.opencode/agents/
+# tezgah: end generated agents
+
+# local state: the lessons ledger, the research lines, and the local plugin
+# manifest are the maintainer's, not repository content.
+/.tezgah/
+/.claude-plugin/
+
+# codegraph index (an internal spike; the directory carries its own .gitignore that
+# un-ignores its marker file, so the directory itself stays visible without this)
+/.codegraph/
+
+# release build output: packaging/build.sh writes the tarball and its checksum
+# here, and a rebuild is byte-identical, so the artifact is never repository
+# content - the release upload is the channel that carries it
+/dist/

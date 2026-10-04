@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""tezgah-context EVENT [DIR] - the shared context text, for a non-Python host.
+
+Prints what hooks/tezgah_context.context_for() builds for one normalized event,
+so a host whose plugin is written in another language (opencode's tezgah.js)
+gets the same text every Python adapter gets instead of a hand-kept paraphrase
+that drifts from it. The host's own hook payload may be piped in on stdin as
+JSON - `user_prompt` reads the submitted prompt from it.
+
+  tezgah-context session_start [DIR]    the session brief
+  tezgah-context user_prompt [DIR]      the per-turn reminder plus whichever
+                                        conditional rule this prompt arms
+                                        (stdin: {"prompt": "<submitted text>"})
+  tezgah-context subagent_start [DIR]   the short brief for a delegated agent
+  tezgah-context post_compact [DIR]     what a host re-injects after compaction
+  tezgah-context kind 'CMD'             which tool a shell command really ran
+                                        (consult / research / judge / nothing):
+                                        a host whose plugin is not Python asks
+                                        here instead of guessing from a
+                                        substring
+
+DIR defaults to the current directory. Prints nothing outside a tezgah root, so
+the host injects whatever it gets and a stale path costs nothing.
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_context import context_for, shell_kind  # noqa: E402
+
+EVENTS = ("session_start", "user_prompt", "subagent_start", "post_compact")
+
+
+def stdin_payload():
+    """The host payload on stdin, or {} when there is none or it is malformed."""
+    if sys.stdin is None or sys.stdin.isatty():
+        return {}
+    try:
+        data = json.load(sys.stdin)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def main():
+    args = sys.argv[1:]
+    if args and args[0] in ("-h", "--help"):
+        sys.stdout.write(__doc__.strip() + "\n")
+        return 0
+    if not args:
+        sys.stderr.write("tezgah-context: event required (%s, kind)\n"
+                         % ", ".join(EVENTS))
+        return 2
+    event = args[0]
+    if event == "kind":
+        # The used-tool kind of one shell command. A host whose plugin is in
+        # another language asks here rather than guessing: nothing printed means
+        # the command did not run the tool.
+        if len(args) < 2:
+            sys.stderr.write("tezgah-context: kind needs a command\n")
+            return 2
+        kind = shell_kind(args[1])
+        if kind:
+            sys.stdout.write(kind + "\n")
+        return 0
+    if event not in EVENTS:
+        sys.stderr.write("tezgah-context: unknown event %s (%s)\n"
+                         % (event, ", ".join(EVENTS)))
+        return 2
+    cwd = os.path.realpath(args[1]) if len(args) > 1 else os.getcwd()
+    text = context_for(event, cwd, stdin_payload())
+    if text:
+        sys.stdout.write(text + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

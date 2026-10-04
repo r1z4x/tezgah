@@ -1,0 +1,37 @@
+#!/bin/sh
+# tezgah-dsh - launch the DeepSeek Harness (dsh) CLI installed under $DSH_HOME.
+#
+# dsh ships as node modules under <harness home>/profiles/node_modules, so there
+# is no PATH command unless one is created. tezgah-setup symlinks ~/.local/bin/dsh
+# to this wrapper; the wrapper resolves the CLI so the symlink survives a version
+# change. Arguments are passed through untouched (e.g. --profile web|headless).
+#
+# dsh boots its hooks under a workspace-write sandbox that confines hook
+# subprocesses to the workspace plus the platform temp dir. The graph index
+# worker writes `.codegraph/` inside the repository and the CLI it calls wants a
+# writable cache of its own, which that sandbox denies for a repo dsh has never
+# seen; without the warm-up below such a repo would never get indexed from the
+# hook. The launcher runs in the user's shell, unconfined, so it starts the same
+# worker the hooks use - HEAD-stamped, so it is a no-op when the graph is current.
+set -eu
+DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
+BIN="$DSH_HOME/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js"
+INDEX="${TEZGAH_INDEX_BIN:-$HOME/.config/tezgah/bin/tezgah-index}"
+warm_index() {
+    if [ -x "$INDEX" ]; then
+        "$INDEX" "$PWD" >/dev/null 2>&1 || true
+    fi
+}
+if [ -f "$BIN" ]; then
+    warm_index
+    exec node "$BIN" "$@"
+fi
+# A fresh machine has no profile tree yet; npx runs dsh and materializes
+# $DSH_HOME, so the host works before the first explicit `dsh web` boot.
+if command -v npx >/dev/null 2>&1; then
+    warm_index
+    exec npx -y @deepseek-ai/dsh "$@"
+fi
+echo "tezgah-dsh: dsh CLI not found at $BIN" >&2
+echo "tezgah-dsh: install the DeepSeek Harness (npx -y @deepseek-ai/dsh) or set DSH_HOME" >&2
+exit 127

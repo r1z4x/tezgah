@@ -1,0 +1,672 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
+import { basename, delimiter, dirname, join } from "node:path";
+
+// tezgah-setup substitutes the absolute path of hosts/omp/hook.py, the python
+// half that owns the contract, the gate and the evidence ledger. This file is
+// only the bridge: omp's extension events in, the host's own envelopes back.
+const HOOK = "@HOOK@";
+
+// The interpreter the hook runs under, resolved the way tezgah's own
+// `hooks/tezgah_paths.python_cmd()` resolves it: the tezgah override first, then
+// the names the platforms ship. A bridge that names one interpreter is dead on a
+// host that ships another - which is what the whole Windows half of the plan is
+// about - so the resolution is done once, here. Memoised after the first ask: the
+// probe reads PATH, and a session that never reaches the hook must not pay for it.
+let pythonMemo: string | undefined;
+
+function pythonBin(): string {
+  if (pythonMemo) return pythonMemo;
+  // The order is the order they answer in: `py` is the Windows launcher, and
+  // TEZGAH_PYTHON (the name the manifests and every other adapter resolve
+  // through) overrides the list entirely.
+  const names = ["python3", "python", "py"];
+  if (process.env.TEZGAH_PYTHON) {
+    return (pythonMemo = process.env.TEZGAH_PYTHON);
+  }
+  // A bare name is resolved by the OS at spawn time only through its own rules,
+  // and node does not read a shell's hash, so the lookup is done here: PATH with
+  // the platform's separator, and `.exe` beside each name on Windows.
+  const dirs = String(process.env.PATH || "").split(delimiter);
+  const win = process.platform === "win32";
+  const found = names.find((name) => dirs.some((dir) => {
+    try {
+      return existsSync(join(dir, name))
+        || (win && existsSync(join(dir, name + ".exe")));
+    } catch { return false; }
+  }));
+  // Nothing resolved: the first documented name, so the failure the catch below
+  // reports names an interpreter instead of an empty command.
+  return (pythonMemo = found || names[0]);
+}
+
+// The status line refreshes on the events omp already emits - session start,
+// session switch, turn end, and the tool results that move a used mark - so the
+// hook polls nothing. The one timer is the motion below: it runs only while the
+// agent works, redraws the line it already holds (no python per frame), goes
+// through omp's own isolated `ctx.setInterval`, and stops at the agent's
+// terminal end, a session switch and shutdown.
+
+// Motion: while the agent runs, the widget leads with a spinner, the tool that
+// is running and the seconds it has run - the way omp's own footer shows work.
+// The frames are braille, one cell each, and the prefix is dropped the moment
+// the agent stops, so an idle line never looks busy.
+const FRAMES = ["\u280b", "\u2819", "\u2839", "\u2838", "\u283c", "\u2834",
+  "\u2826", "\u2827", "\u2807", "\u280f"];
+const FRAME_MS = 100;
+
+// NO_COLOR / TEZGAH_STATUS_COLOR=0 are the same opt-outs the python renderer
+// reads; TEZGAH_STATUS_ANIMATE=0 keeps the colors and drops the motion.
+function colorOn(): boolean {
+  return process.env.NO_COLOR === undefined && process.env.TEZGAH_STATUS_COLOR !== "0";
+}
+
+function motionOn(): boolean {
+  return process.env.TEZGAH_STATUS_ANIMATE !== "0";
+}
+
+// The busy prefix for one frame: spinner, then the running tool (or "thinking"
+// between tools) and the whole run's seconds, then a dim bar before the marks.
+// `bare` keeps the spinner alone, for a width that has no room for the rest.
+// Only a line without the logo (NO_COLOR) takes the spinner: a colored line's
+// motion is the logo itself (logoFrame), and its activity text is `activity`.
+export function busyPrefix(frame: number, tool: string, secs: number,
+                           color: boolean, bare = false): string {
+  const spin = FRAMES[((frame % FRAMES.length) + FRAMES.length) % FRAMES.length];
+  if (bare) return color ? "\u001b[1;35m" + spin + "\u001b[0m " : spin + " ";
+  const what = (tool || "thinking") + " " + Math.max(0, Math.floor(secs)) + "s";
+  if (!color) return spin + " " + what + " | ";
+  return "\u001b[1;35m" + spin + "\u001b[0m \u001b[35m" + what +
+    "\u001b[0m \u001b[2m\u2502\u001b[0m ";
+}
+
+// The running tool and the run's seconds, set beside the animated logo.
+export function activity(tool: string, secs: number): string {
+  return "\u001b[35m" + (tool || "thinking") + " " + Math.max(0, Math.floor(secs)) +
+    "s\u001b[0m \u001b[2m\u2502\u001b[0m ";
+}
+
+// The logo the python renderer puts at the head of a colored line: three upper
+// half blocks, the middle one's background being the support (hooks/
+// tezgah_context.logo_head). Matched by shape, whatever palette drew it.
+const HEAD_LOGO = /^\u001b\[38;2;\d+;\d+;\d+m\u2580\u001b\[48;2;\d+;\d+;\d+m\u2580\u001b\[49m\u2580\u001b\[0m/;
+// The logo's own colors (assets/logo/tezgah-logo.svg) for each background: the
+// worktop's top face and the teal support on a dark terminal, their darker faces
+// on a light one, where the bright pair would wash out; `shine` is the sheen.
+const LOGO_COLORS = {
+  dark: { top: "255;197;92", leg: "23;161;140", shine: "255;238;196", legShine: "96;226;204" },
+  light: { top: "184;118;28", leg: "14;124;107", shine: "242;167;59", legShine: "23;161;140" },
+};
+const VERSION_DARK = "\u001b[2m\u001b[38;2;255;197;92m";
+const VERSION_LIGHT = "\u001b[38;2;184;118;28m";
+
+// One frame of the T. `frame` null is the still logo; a number sweeps a sheen
+// across the worktop left to right, then down the support, two frames a step.
+export function logoFrame(frame: number | null, light: boolean): string {
+  const c = light ? LOGO_COLORS.light : LOGO_COLORS.dark;
+  const at = frame === null ? -1 : Math.floor(frame / 2) % 6;
+  const tops = [0, 1, 2].map((i) => (at === i ? c.shine : c.top));
+  const fg = (i: number) => (i && tops[i] === tops[i - 1] ? "" : "\u001b[38;2;" + tops[i] + "m");
+  const leg = "\u001b[48;2;" + (at === 3 ? c.legShine : c.leg) + "m";
+  // a color is written only where it changes, so the still frame is exactly
+  // the logo the python renderer drew (logo_head)
+  return fg(0) + "\u2580" + fg(1) + leg + "\u2580\u001b[49m" + fg(2) + "\u2580\u001b[0m";
+}
+
+// The line with its head redrawn for this frame and this background: the logo
+// replaced by `logoFrame`, the version recolored on a light terminal. A line
+// without the logo (plain, or an old hook) is returned as it came.
+export function restyle(line: string, frame: number | null, light: boolean): string {
+  const m = HEAD_LOGO.exec(line);
+  if (!m) return line;
+  let rest = line.slice(m[0].length);
+  if (light) rest = rest.split(VERSION_DARK).join(VERSION_LIGHT);
+  return logoFrame(frame, light) + rest;
+}
+
+// Cells a rendered line takes: the python renderer draws only one-cell glyphs,
+// so stripping the escapes is the whole measure (hooks/tezgah_context.cells).
+const ANSI = /\u001b\[[0-9;?]*[A-Za-z]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+
+export function cellsOf(text: string): number {
+  return Array.from(text.replace(ANSI, "")).length;
+}
+
+// Cut a colored line to `max` cells, escapes kept whole, with an ellipsis and a
+// reset at the cut - the last resort when not even the narrowest tier fits.
+export function cut(text: string, max: number): string {
+  if (max <= 0) return "";
+  if (cellsOf(text) <= max) return text;
+  let out = "";
+  let used = 0;
+  let i = 0;
+  while (i < text.length && used < max - 1) {
+    ANSI.lastIndex = i;
+    const m = ANSI.exec(text);
+    if (m && m.index === i) {
+      out += m[0];
+      i += m[0].length;
+      continue;
+    }
+    const ch = String.fromCodePoint(text.codePointAt(i) as number);
+    out += ch;
+    i += ch.length;
+    used += 1;
+  }
+  return out + "\u2026\u001b[0m";
+}
+
+// The widest tier ([line, cells], widest first) that fits `room`, else the
+// narrowest cut to it: a narrow terminal gets a shorter line, never a wrapped
+// one - the wrap was the second row the line used to spill onto.
+export function fit(tiers: Array<[string, number]>, room: number): string {
+  for (const [line, width] of tiers) {
+    if (width <= room) return line;
+  }
+  const last = tiers[tiers.length - 1];
+  return last ? cut(last[0], room) : "";
+}
+
+// omp sanitizes what `setStatus` stores (ANSI/VT sequences stripped), so the
+// per-mark colors the hook returns survive only through the widget path, which
+// renders the string as it is. The status key stays as the fallback for a build
+// without setWidget: the text is then uncolored, never wrong. `sized` is the
+// width-aware body: the widget is a component whose render(width) asks it for
+// the one line that fits, so the host's own width decides and nothing wraps.
+// The factory also receives omp's theme, whose `isLight` says which background
+// the logo has to stand out against.
+function draw(ctx: any, line: string,
+              sized?: (width: number, light: boolean) => string): void {
+  // The widget is drawn by the host, not by the hook, so it is the one surface
+  // a broken hook cannot take away - and talking to a host UI is where a build
+  // can refuse. Nothing here may throw: the line is cosmetic, and the caller's
+  // message (the session brief, the failure notice) still has to go out.
+  try {
+    if (!line || !ctx?.ui) return;
+    if (typeof ctx.ui.setWidget !== "function") {
+      ctx.ui.setStatus("tezgah", line);
+      return;
+    }
+    if (sized) {
+      try {
+        // one column of padding, the way omp pads its string widgets
+        ctx.ui.setWidget("tezgah", (_ui: any, theme: any) => ({
+          render: (width: number) => [" " + sized(Math.max(0, width - 1),
+                                                   theme?.isLight === true)],
+          invalidate: () => {},
+        }), { placement: "belowEditor" });
+        return;
+      } catch { /* a build without component widgets takes the string below */ }
+    }
+    ctx.ui.setWidget("tezgah", [line], { placement: "belowEditor" });
+  } catch { /* a host that refuses the widget keeps the message instead */ }
+}
+
+// Tools whose result can move the status line's used marks, carry the evidence
+// the Stop rule reads, or arrive from outside the user and the workspace.
+// read/grep/glob are absent on purpose: a read-heavy turn would otherwise spawn
+// python per call for nothing. The three web tools are here because their result
+// is exactly the one the untrusted-content label exists for.
+const WATCHED = ["bash", "shell", "command", "edit", "write", "multiedit",
+  "notebookedit", "apply_patch", "edit_file", "write_file", "search_replace",
+  "task", "agent", "spawn_agent", "web_search", "web_fetch", "browser"];
+
+// A read of a tezgah skill file is the one read whose result moves a status
+// mark, and matching it here keeps the rule that made reads unwatched: ordinary
+// reads never reach python. Mirror of hooks/tezgah_context.skill_read_kind,
+// which names the kind python records - the mark `SKILL_MARKS` draws for the two
+// skills the always-on core tells a session to read, and `skill:<name>` for any
+// other shipped skill, the kind the fitness report folds
+// (`tezgah-status --skill-fitness`) and no status mark is spelled with.
+const SKILL_MARKS: Record<string, string> =
+  { ponytail: "pony", "i-have-adhd": "adhd" };
+const READ_TOOLS = ["read", "read_file", "readfile", "view_file"];
+
+// The skills this checkout ships, the catalogue hooks/tezgah_context
+// .shipped_skills() reads: a directory under the checkout's `skills/` with a
+// SKILL.md in it. The template's @HOOK@ is <checkout>/hosts/omp/hook.py, so the
+// checkout is two directories above the hook. Read once and only for a
+// skill-shaped read; a checkout this cannot read leaves an empty catalogue, and
+// the two marks above are still matched by name whatever it holds.
+let skillsMemo: string[] | undefined;
+function shippedSkills(): string[] {
+  if (skillsMemo) return skillsMemo;
+  const dir = join(dirname(dirname(dirname(HOOK))), "skills");
+  try {
+    skillsMemo = readdirSync(dir).filter(
+      (name) => existsSync(join(dir, name, "SKILL.md")));
+  } catch {
+    skillsMemo = [];
+  }
+  return skillsMemo;
+}
+
+// The skill name a read path names, or "": `<...>/skills/<name>/SKILL.md`, and
+// the internal URL omp's read tool also takes, `skill://<name>`, which is the
+// same SKILL.md with or without its tail
+// (hooks/tezgah_context._skill_read_name).
+function skillName(path: string): string {
+  const m = /(?:^|\/)skills\/([^/]+)\/SKILL\.md$/.exec(path);
+  if (m) return m[1];
+  const url = /^skill:\/\/([^/]+)/.exec(path);
+  return url ? url[1] : "";
+}
+
+function skillRead(tool: string, args: any): boolean {
+  if (!READ_TOOLS.includes(tool.toLowerCase())) return false;
+  const raw = args?.filePath ?? args?.file_path ?? args?.path ?? "";
+  const name = skillName(String(raw).replace(/\\/g, "/"));
+  if (!name) return false;
+  return Object.prototype.hasOwnProperty.call(SKILL_MARKS, name)
+    || shippedSkills().includes(name);
+}
+
+// The gate is only consulted for the tools the shared rule knows: the refusal
+// of the grep-only explorer (task/agent), the anti-shortcut and attribution
+// checks (bash), and the test-skip check (the edit/write names).
+const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
+  "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
+  "search_replace", "powershell", "pwsh"];
+
+// The provenance label omp puts in front of a result that came from outside the
+// user and the workspace. The handler's return value replaces the tool result
+// (extensionRunner.emitToolResult reads `content`/`details`/`isError` off it and
+// the tool call hands that back as the result), so the line is read with the
+// content it applies to, in the same turn - not as a side message. An unknown
+// content shape is left alone rather than replaced by a label alone, which would
+// throw the result away.
+function labelled(content: any, label: string): any {
+  const part = { type: "text", text: label };
+  if (Array.isArray(content)) return [part, ...content];
+  if (typeof content === "string") {
+    return [part, { type: "text", text: content }];
+  }
+  return undefined;
+}
+
+// The hook's failure is the one state the bridge can see and the hook cannot
+// report: no interpreter to start it with, the checkout moved, the hook crashed
+// or ran past the timeout. It is remembered here so the next event can say so.
+let hookError = "";
+// the session already told about the failure in flight, so a broken hook costs
+// one message per episode rather than one per event
+let toldSession: string | undefined;
+
+const FAIL = "\u001b[31mhook\u2717\u001b[0m tezgah hook failed";
+
+// The reason names the hook's own last stderr line (a traceback ends on the
+// exception, e.g. the ImportError), and falls back to node's message for a
+// failure with no stderr: no interpreter, a timeout.
+function why(err: any): string {
+  const lines = String(err?.stderr ?? "").split("\n")
+    .map((line) => line.trim()).filter(Boolean);
+  const text = lines.length ? lines[lines.length - 1]
+    : String(err?.message ?? err ?? "").split("\n")[0];
+  return text.slice(0, 160) || "no answer";
+}
+
+function ask(payload: Record<string, unknown>): any {
+  try {
+    // stderr is piped, not inherited: an inherited stream writes the hook's
+    // traceback straight into omp's TUI, over the screen, on every redraw. It
+    // is read back by why() instead.
+    const out = execFileSync(pythonBin(), [HOOK], {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      timeout: 10000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    hookError = "";
+    toldSession = undefined;
+    return out.trim() ? JSON.parse(out) : {};
+  } catch (err) {
+    // A missing python or a crash in the hook leaves the host exactly as it
+    // was: tezgah never turns its own failure into a blocked tool call. The
+    // failure is kept instead of thrown, and surfaces on the widget below.
+    hookError = why(err);
+    return {};
+  }
+}
+
+// The failure mark: draw() already cannot throw, so a broken hook costs the
+// marks and nothing else.
+function markBroken(ctx: any): void {
+  draw(ctx, FAIL);
+}
+
+// The one line that says what happened and how to check it, delivered once per
+// failing session on the events that can carry a message.
+function failureNotice(ctx: any, session: string | undefined): string | undefined {
+  if (!hookError) return undefined;
+  markBroken(ctx);
+  if (toldSession === String(session)) return undefined;
+  toldSession = String(session);
+  return "tezgah: its omp hook failed, so the gate, the evidence ledger and the " +
+    "status line are off this session. Reason: " + hookError + ". Tell the user " +
+    "in one line and carry on with their task; do not debug, reinstall or " +
+    "reconfigure tezgah mid-session (the user can check it with `" +
+    pythonBin() + " " + HOOK + "` or `tezgah-setup --report`).";
+}
+
+function cwdOf(ctx: any): string {
+  return String(ctx?.cwd ?? process.cwd());
+}
+
+function sessionOf(ctx: any): string | undefined {
+  try {
+    return ctx?.sessionManager?.getSessionId?.() ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// A task subagent runs in its own session with the same extensions, so it gets
+// session_start too. It must get the subagent brief, not the parent's payload:
+// the parent's runs the indexer, regenerates the agents and tells the model to
+// run plan-status, which a fan-out of subagents would each do again. omp writes
+// the child's transcript inside the parent's session directory
+// (`<parent>.jsonl` -> `<parent>/<AgentId>.jsonl`) with `parentSession` naming
+// the parent in its header. A fork also carries `parentSession`, but its file
+// sits beside the parent, not inside it, so it stays a main session.
+function isSubagent(ctx: any): boolean {
+  try {
+    const sm = ctx?.sessionManager;
+    const file = String(sm?.getSessionFile?.() ?? "").replace(/\\/g, "/");
+    const parent = String(sm?.getHeader?.()?.parentSession ?? "")
+      .replace(/\\/g, "/");
+    if (!file || !parent) return false;
+    const root = parent.endsWith(".jsonl") ? parent.slice(0, -6) : parent;
+    return file.startsWith(root + "/");
+  } catch {
+    return false;
+  }
+}
+
+export default function tezgahOmp(pi: any): void {
+  // The idx glyph the last probed answer carried. omp redraws the line after
+  // every watched tool and the stamp probe behind that mark is the line's only
+  // subprocess, so the per-tool redraw sends the glyph back rather than forking
+  // git for a mark that cannot have moved within one turn. turn_end and the
+  // session switch still ask for the probe, so the mark is fresh at every turn
+  // boundary - where it is read.
+  let idxGlyph: string | undefined;
+  // The motion's state: the last line the hook drew, whether the agent is
+  // running, the tool in flight and when the run began. A frame repaints from
+  // these alone, so it forks nothing.
+  let line = "";
+  let tiers: Array<[string, number]> = [];
+  let busy = false;
+  let tool = "";
+  let since = 0;
+  let frame = 0;
+  let timer: any;
+  let timerCtx: any;
+  // One frame at the width the host hands the widget. A colored line leads with
+  // the logo, so the motion is the logo itself (restyle): the T's sheen sweeps
+  // while the agent runs, and the tool and its seconds sit right after it -
+  // dropped when they would leave the marks under 24 cells. A plain line keeps
+  // the braille spinner in front. The widest tier that fits takes the rest.
+  const sized = (width: number, light = false): string => {
+    const moving = busy && timer !== undefined;
+    const secs = (Date.now() - since) / 1000;
+    const logo = HEAD_LOGO.test(line);
+    let pre = !moving ? "" : logo ? activity(tool, secs)
+      : busyPrefix(frame, tool, secs, colorOn());
+    if (moving && width - cellsOf(pre) < 24) {
+      pre = logo ? "" : busyPrefix(frame, tool, 0, colorOn(), true);
+    }
+    const room = width - cellsOf(pre);
+    const draw = (cells: number): string => restyle(
+      tiers.length ? fit(tiers, cells) : cut(line, cells), moving ? frame : null, light);
+    const body = draw(room);
+    if (!logo) return pre + body;
+    // the logo, then the activity, then the rest of the tier
+    const head = logoFrame(moving ? frame : null, light);
+    if (!pre || !body.startsWith(head)) return body;
+    const join = (text: string): string =>
+      head + " " + pre + text.slice(head.length).replace(/^ /, "");
+    const out = join(body);
+    if (cellsOf(out) <= width) return out;
+    // The glue adds one cell when the tier does not already carry the separating
+    // space (the version-dropped tier starts with a dim " \u00b7 " chip instead),
+    // which showed up as a line one cell over its budget and omp truncating it.
+    // Redrawing one cell narrower keeps the promise `fit` makes and costs a second
+    // fit only in the case that used to overflow.
+    return join(draw(room - 1));
+  };
+  const paint = (ctx: any): void => {
+    if (hookError) return markBroken(ctx);
+    if (!line) return;
+    draw(ctx, line, sized);
+  };
+  const stopMotion = (): void => {
+    if (timer !== undefined) {
+      try {
+        if (typeof timerCtx?.clearTimer === "function") timerCtx.clearTimer(timer);
+        else clearInterval(timer);
+      } catch { /* a timer the host already cleared is gone either way */ }
+    }
+    timer = undefined;
+    timerCtx = undefined;
+  };
+  // Only the widget renders a frame as it is; the setStatus fallback strips
+  // ANSI and would redraw the host's own status bar ten times a second, so a
+  // build without the widget keeps the still line.
+  const startMotion = (ctx: any): void => {
+    if (timer !== undefined || !motionOn()) return;
+    if (typeof ctx?.ui?.setWidget !== "function") return;
+    const tick = (): void => {
+      try {
+        frame += 1;
+        paint(ctx);
+      } catch { /* a frame is cosmetic; the next one tries again */ }
+    };
+    try {
+      timerCtx = ctx;
+      timer = typeof ctx.setInterval === "function"
+        ? ctx.setInterval(tick, FRAME_MS)
+        : setInterval(tick, FRAME_MS);
+      timer?.unref?.();
+    } catch {
+      timer = undefined;
+      timerCtx = undefined;
+    }
+  };
+  const show = (ctx: any, res: any): void => {
+    if (res.idx) idxGlyph = res.idx;
+    if (res.status) {
+      line = res.status;
+      tiers = Array.isArray(res.tiers) ? res.tiers : [];
+      paint(ctx);
+    }
+  };
+  // A failed hook answers nothing, so the last good line would keep claiming a
+  // gate that is not running: the widget is repainted with the failure instead.
+  const refresh = (ctx: any): void => {
+    const res = ask({ event: "status", cwd: cwdOf(ctx), session_id: sessionOf(ctx) });
+    if (hookError) return markBroken(ctx);
+    show(ctx, res);
+  };
+
+  pi.on("agent_start", async (_event: any, ctx: any) => {
+    busy = true;
+    tool = "";
+    since = Date.now();
+    startMotion(ctx);
+    paint(ctx);
+  });
+  pi.on("tool_execution_start", async (event: any, ctx: any) => {
+    tool = String(event?.toolName ?? event?.name ?? "");
+    if (busy) paint(ctx);
+  });
+  pi.on("tool_execution_end", async (_event: any, ctx: any) => {
+    tool = "";
+    if (busy) paint(ctx);
+  });
+  // `isTerminal: false` means omp will resume the run (retry, compaction, a
+  // queued delivery), so the spinner keeps going; an absent field is terminal.
+  pi.on("agent_end", async (event: any, ctx: any) => {
+    if (event?.isTerminal === false) return;
+    busy = false;
+    tool = "";
+    stopMotion();
+    paint(ctx);
+  });
+  pi.on("session_shutdown", async () => {
+    busy = false;
+    stopMotion();
+  });
+
+  pi.on("session_start", async (_event: any, ctx: any) => {
+    const session = sessionOf(ctx);
+    const subagent = isSubagent(ctx);
+    // The judgement seam's own CLIs (tezgah-triage, tezgah-docs) record their
+    // row under TEZGAH_SESSION, and omp's shells inherit this process's env - so
+    // the main session exports its id once. A subagent shares the process and
+    // must not repoint its parent's shells at itself.
+    if (session && !subagent) process.env.TEZGAH_SESSION = String(session);
+    // A subagent's parent is the id the main session exported - the session a
+    // `tezgah-route` row was written under - and its agent is the file name omp
+    // gave the child (`<parent>/<AgentId>.jsonl`). The route report joins on them.
+    const link = subagent && process.env.TEZGAH_SESSION
+      ? { parent: process.env.TEZGAH_SESSION,
+          agent: basename(String(ctx?.sessionManager?.getSessionFile?.() ?? ""), ".jsonl") }
+      : {};
+    const res = ask({ event: "session_start", cwd: cwdOf(ctx),
+                      session_id: session, subagent, ...link });
+    if (hookError) {
+      const notice = failureNotice(ctx, session);
+      if (notice) {
+        try {
+          pi.sendMessage({ customType: "tezgah-hook-error", content: notice,
+                           display: true, attribution: "agent" },
+                         { deliverAs: "nextTurn" });
+        } catch { /* the notice is best effort, the mark is already drawn */ }
+      }
+      return;
+    }
+    if (res.status) show(ctx, res);
+    if (res.context) {
+      // omp's always-on RULES.md carries the contract itself; what rides here
+      // is this repo's state, so the model knows the index, the open plans and
+      // the lessons without the contract being paid twice.
+      pi.sendMessage({ customType: "tezgah-session", content: res.context,
+                       display: false, attribution: "agent" },
+                     { deliverAs: "nextTurn" });
+    }
+  });
+
+  // omp emits session_compact once the summary has replaced the history, with
+  // the compaction entry (its `summary` is the text the model is given next).
+  // Unsubscribed, the live state - resume, plans, lessons, graph line - was lost
+  // at the first compaction (audit L-3, INT-06). The answer is the same
+  // `post_compact` block Claude and Codex build, sent on the channel
+  // session_start uses; the summary rides as `compact_summary` so the hook
+  // records the compaction row. A subagent is skipped: the post-compact block
+  // runs the indexer, which only the parent session may start.
+  pi.on("session_compact", async (event: any, ctx: any) => {
+    if (isSubagent(ctx)) return;
+    const summary = event?.compactionEntry?.summary;
+    const res = ask({ event: "post_compact", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
+                      compact_summary: typeof summary === "string" ? summary : undefined });
+    if (hookError || !res.context) return;
+    pi.sendMessage({ customType: "tezgah-session", content: res.context,
+                     display: false, attribution: "agent" },
+                   { deliverAs: "nextTurn" });
+  });
+
+  // The notice as the message-capable events hand it back: before_agent_start
+  // returns it, session_start sends it.
+  const noticeMessage = (ctx: any, session: string | undefined): any => {
+    const notice = failureNotice(ctx, session);
+    return notice ? { message: { customType: "tezgah-hook-error", content: notice,
+                                 display: true, attribution: "agent" } } : undefined;
+  };
+
+  pi.on("session_switch", async (_event: any, ctx: any) => {
+    busy = false;
+    stopMotion();
+    refresh(ctx);
+  });
+  pi.on("turn_end", async (_event: any, ctx: any) => refresh(ctx));
+
+  pi.on("before_agent_start", async (event: any, ctx: any) => {
+    const session = sessionOf(ctx);
+    if (hookError) return noticeMessage(ctx, session);
+    // omp also fires this for a queued batch that carries no user text (the
+    // continuation it starts after the Stop rule blocks a turn, for one). The
+    // reminder is armed by a prompt, so a text-less batch must not pay for it
+    // again.
+    const prompt = String(event?.prompt ?? "").trim();
+    if (!prompt) return undefined;
+    const res = ask({ event: "user_prompt", cwd: cwdOf(ctx), prompt,
+                      session_id: session });
+    if (hookError) return noticeMessage(ctx, session);
+    if (!res.context) return undefined;
+    // A hidden message, not a system-prompt rewrite: omp keeps per-request
+    // bytes out of the system prompt so an open-weight provider keeps its
+    // prefix cache, and the turn's reminder is exactly such a byte.
+    return { message: { customType: "tezgah-reminder", content: res.context,
+                        display: false, attribution: "agent" } };
+  });
+
+  pi.on("tool_call", async (event: any, ctx: any) => {
+    const tool = String(event?.toolName ?? event?.name ?? "");
+    if (!GATED.includes(tool.toLowerCase())) return undefined;
+    const res = ask({ event: "pre_tool_use", cwd: cwdOf(ctx), tool,
+                      input: event?.input ?? event?.args ?? {},
+                      session_id: sessionOf(ctx) });
+    if (hookError) {
+      markBroken(ctx);
+      return undefined;  // a hook that cannot answer cannot refuse either
+    }
+    if (res.deny) return { block: true, reason: res.deny };
+    return undefined;
+  });
+
+  pi.on("tool_result", async (event: any, ctx: any) => {
+    const tool = String(event?.toolName ?? "");
+    const args = event?.input ?? {};
+    if (!WATCHED.includes(tool.toLowerCase()) && !tool.startsWith("mcp__")
+        && !skillRead(tool, args)) {
+      return;
+    }
+    // Tri-state: an unread outcome must never be written as a passed check,
+    // because the Stop rule below reads this ledger as evidence.
+    const failed = typeof event?.isError === "boolean" ? event.isError : null;
+    // The evidence row asks one question about the result - is it non-zero - so
+    // the bridge sends a size and never the body: `ask()` serializes its payload
+    // onto the hook's stdin, which is exactly the copy the writer's rule bans. A
+    // string is its own length, a part list is its count, and anything else is
+    // left unstated rather than guessed - an absent field is not a field of 0.
+    const content = event?.content;
+    const resultLen = typeof content === "string" ? content.length
+      : Array.isArray(content) ? content.length : undefined;
+    const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
+                      input: event?.input ?? {}, failed, idx: idxGlyph,
+                      session_id: sessionOf(ctx), result_len: resultLen });
+    if (hookError) return markBroken(ctx);
+    show(ctx, res);
+    // A result that came from outside the user and the workspace is labelled in
+    // place; every other result is left exactly as the host produced it.
+    if (res.label) {
+      const content = labelled(event?.content, res.label);
+      if (content) return { content };
+    }
+    return undefined;
+  });
+
+  pi.on("session_stop", async (event: any, ctx: any) => {
+    const res = ask({ event: "stop", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
+                      last_assistant_message: event?.last_assistant_message,
+                      stop_hook_active: event?.stop_hook_active === true });
+    if (hookError) {
+      markBroken(ctx);
+      return undefined;  // an unanswerable Stop rule must not block the turn
+    }
+    if (res.decision === "block" && res.reason) {
+      return { decision: "block", reason: res.reason };
+    }
+    return undefined;
+  });
+}

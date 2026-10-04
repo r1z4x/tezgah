@@ -1,0 +1,3 @@
+# Dev-only lint tool, pinned so a clean machine and CI agree. tezgah itself has
+# no runtime dependencies (stdlib only); this file exists just for `ruff check .`.
+ruff==0.16.7

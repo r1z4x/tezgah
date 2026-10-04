@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""tezgah-capture '<json>' - take a pre-write snapshot from outside Python.
+
+The one argument is the payload the gate hands tezgah_snapshot.capture, as a
+single JSON object:
+
+  tezgah-capture '{"tool": "Edit", "input": {"file_path": "a.py"},
+                   "cwd": "/repo/sub", "session_id": "abc"}'
+
+It prints the snapshot id, or nothing when there was nothing to capture (a new
+file, a tool that is not a write tool, a path that is not a readable regular
+file). Exit codes: 0 captured or nothing to capture, 2 misuse - no argument,
+unparseable or non-object JSON, or no session_id, which is required because a
+capture with no session writes no ledger row and the id could not be found
+again.
+
+This exists for opencode, whose plugin is JavaScript and can only reach the
+gate's Python through a process; every other host calls capture() in-process.
+It is not called by any hook, and it never restores anything: rollback is
+`bin/tezgah-rollback`, run by the user.
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_snapshot import capture  # noqa: E402
+
+USAGE = ('usage: tezgah-capture \'{"tool": "Edit", "input": {"file_path": "a.py"},'
+         ' "cwd": "/repo", "session_id": "abc"}\'')
+
+
+def main(argv):
+    if len(argv) != 1 or not argv[0].strip():
+        print(USAGE, file=sys.stderr)
+        return 2
+    try:
+        payload = json.loads(argv[0])
+    except ValueError as exc:
+        print("tezgah-capture: the argument is not JSON (%s)\n%s" % (exc, USAGE),
+              file=sys.stderr)
+        return 2
+    if not isinstance(payload, dict):
+        print("tezgah-capture: the argument is not a JSON object\n%s" % USAGE,
+              file=sys.stderr)
+        return 2
+    session = str(payload.get("session_id") or "")
+    if not session:
+        print("tezgah-capture: no session_id; without one the snapshot would be "
+              "written to no ledger and its id could not be looked up\n%s" % USAGE,
+              file=sys.stderr)
+        return 2
+    sid = capture(str(payload.get("tool") or ""), payload.get("input") or {},
+                  str(payload.get("cwd") or os.getcwd()), session)
+    if sid:
+        print(sid)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""tezgah-route - which tier worker a delegated task goes to, and the model table.
+
+  tezgah-route "<brief>" [--phase P] [--json]   the agent to spawn, and why
+  tezgah-route --check                          the table's age and refresh flags
+  tezgah-route --refresh                        re-read prices/ids (OpenRouter),
+                                                resolve opencode selectors
+  tezgah-route --mode auto|anthropic|any        omp's family, then re-apply omp
+  tezgah-route --report                         each route's first check, by tier
+
+A brief naming stored data, a migration, credentials, the gate or security goes to
+tezgah-frontier by rule; otherwise Jev picks the tier (one Choice, ~650 input
+tokens, ~0.4 s); with no key or `judge-off`, `--phase`
+(explore|code|mechanical|plan|review|research) picks it from the static table, and
+with neither the middle tier is used. The brief is sent to api.typesafe.ai (or the
+OpenRouter fallback) - write it in English, the language the judge reads best.
+
+Every routed call writes one `route` row to the session's ledger (TEZGAH_SESSION):
+tier, agent, what set the tier (`via`: rule|jev|phase|default), the static
+table's tier when --phase was given, the worker's model, and `override` (user: an
+omp entry the user owns; mode: no entry, so the session model). `--report` joins
+each route to the first check of the worker it sent - the child session whose
+`spawned` row names this session as its parent, matched by agent type, or by
+order only where no spawn could be swapped - and counts a route it cannot prove
+as `unjoined`. That outcome is what the V2-as-default
+decision waits for (docs/models.md).
+
+A worker that answers `ESCALATE:` is restarted on tezgah-frontier with the same
+brief; its trajectory is not continued. Exit codes: 0 routed / current, 1 the
+table is stale or flagged (`--check`) or the refresh failed, 2 misuse.
+"""
+import argparse
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
+import tezgah_judge  # noqa: E402
+import tezgah_models as tm  # noqa: E402
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="tezgah-route",
+        description="Name the tier worker a delegated task goes to, and keep the model table.",
+        epilog="A worker that answers `ESCALATE:` is restarted on tezgah-frontier with "
+               "the same brief; its trajectory is not continued.")
+    parser.add_argument("brief", nargs="*", help="the delegation brief, in English")
+    parser.add_argument("--phase", choices=sorted(tm.PHASE_TIER),
+                        help="the static table's row when no judgement is available")
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    parser.add_argument("--check", action="store_true",
+                        help="the table's age and the flags the last refresh left")
+    parser.add_argument("--refresh", action="store_true",
+                        help="re-read prices and ids, resolve opencode selectors")
+    parser.add_argument("--mode", choices=tm.MODES, help="omp's family, then re-apply")
+    parser.add_argument("--report", action="store_true",
+                        help="every ledger's routes joined to the first check after each")
+    args = parser.parse_args(argv[1:])
+    brief = " ".join(args.brief).strip()
+    if args.check:
+        lines, stale = tm.check()
+        print("\n".join(lines))
+        return 1 if stale else 0
+    if args.refresh:
+        lines, ok = tm.refresh()
+        print("\n".join(lines))
+        status = tm.apply_omp()
+        if status:
+            print(status)
+        return 0 if ok else 1
+    if args.report:
+        groups, below = tm.route_report(
+            {os.path.basename(p)[:-len(".jsonl")]: ti.events_path(p) for p in ti.ledgers()})
+
+        def line(name, c):
+            return "%s routes=%d pass=%d fail=%d ran=%d none=%d unjoined=%d" % (
+                name, c["routes"], c["pass"], c["fail"], c["ran"], c["none"],
+                c["unjoined"])
+        for (via, tier), counts in sorted(groups.items()):
+            print(line("%s %s" % (via, tier), counts))
+        print(line("jev-below-static", below))
+        return 0
+    if args.mode:
+        data = tm.overlay()
+        data.pop("mode", None)
+        if args.mode != "auto":
+            data["mode"] = args.mode
+        if not tm.save_overlay(data):
+            print("could not write %s" % tm.OVERLAY, file=sys.stderr)
+            return 1
+        print("omp mode: %s" % args.mode)
+        print(tm.apply_omp() or "omp not answering; the mode applies at the next setup")
+        return 0
+    if not brief:
+        print("usage: tezgah-route \"<brief>\" [--phase P] [--json] | --check | --refresh "
+              "| --mode M | --report", file=sys.stderr)
+        return 2
+    ask = tezgah_judge.ask if tezgah_judge.available() else None
+    out = tm.route(brief, args.phase, ask)
+    judged = out.pop("judged")
+    if judged:
+        usage = judged.get("usage")
+        usage = usage if isinstance(usage, dict) else {}
+        detail = "tezgah-route {} tier={} in={} out={} ms={}".format(
+            judged.get("model", tezgah_judge.MODEL), out["tier"],
+            usage.get("input_tokens"), usage.get("output_tokens"),
+            judged.get("latency_ms"))
+        ti.note(os.environ.get("TEZGAH_SESSION"), "judge", detail)
+    session = os.environ.get("TEZGAH_SESSION")
+    if session:  # the omp read in worker_model costs a process; skip it with no ledger
+        ti.note(session, "route", tm.route_detail(out, args.phase,
+                                                  *tm.worker_model(out["agent"])))
+    if args.as_json:
+        print(json.dumps(out))
+    else:
+        print("agent: %s\ntier: %s\nwhy: %s" % (out["agent"], out["tier"], out["why"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

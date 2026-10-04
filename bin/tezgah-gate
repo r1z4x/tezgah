@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""tezgah-gate - the gate's decision, for a host that is not Python.
+
+  tezgah-gate check    one call on stdin, its deny reason on stdout (if any);
+                       a dry run: nothing is written anywhere
+  tezgah-gate decide   the same answer, recorded the way the live gate records
+                       it (deny/drift/nudge rows, the pre-write snapshot)
+
+Reads the host's own call as {"tool":..., "input":{...}, "cwd":...,
+"session_id":...} and prints what hooks/tezgah_gate.decision() returns for it,
+or nothing when the call passes. A host whose plugin is written in another
+language (opencode's tezgah.js) asks `decide` instead of mirroring a rule: that
+mirror is documented as incomplete and divergent, so a new rule reaches such a
+host through the core rather than through a second implementation of it that
+drifts. `check` is what a person or the MCP `tezgah_gate_check` tool asks: a
+dry run against a live session id used to write refusal rows into that
+session's counters (audit CHAT-07 / L-14b).
+
+Exit codes: 0 whether the call passes or is refused - the reason is the output,
+not the status - and 2 for misuse.
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_gate import decision  # noqa: E402
+
+
+def misuse(message):
+    print("tezgah-gate: %s" % message, file=sys.stderr)
+    return 2
+
+
+def main(argv):
+    if len(argv) < 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    if argv[1] not in ("check", "decide"):
+        return misuse("unknown command %r (check, decide)" % argv[1])
+    if len(argv) > 2:
+        return misuse("check reads its call on stdin, not as arguments")
+    try:
+        payload = json.load(sys.stdin)
+    except ValueError:
+        return misuse("stdin is not one JSON object")
+    if not isinstance(payload, dict):
+        return misuse("stdin must be one JSON object")
+    inp = payload.get("input")
+    reason = decision(payload.get("tool"), inp if isinstance(inp, dict) else {},
+                      payload.get("cwd") or os.getcwd(),
+                      payload.get("session_id"), record=argv[1] == "decide")
+    if reason:
+        sys.stdout.write(reason if reason.endswith("\n") else reason + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,778 @@
+#!/usr/bin/env python3
+"""consult - second opinion from external models.
+
+Usage:
+  consult "question"                     independent answers, then one referee
+  consult -                              read the question from redirected stdin
+  consult --use M1[,M2] [--judge M]      record which members answer (no question: record only)
+  consult "question" --no-referee        panel only, no cross-examination
+  consult "question" --judge MEMBER      referee (default: the recorded judge, else a member
+                                         that is not on this session's own model)
+  consult "question" --provider deepseek one HTTP provider for this run, not the record
+  consult "question" --models m1,m2      that provider's models for this run
+  consult "question" --online            enable live web search (:online, OpenRouter)
+  consult "question" --timeout 120       per-member timeout seconds
+
+Members (what --use records into ~/.config/tezgah/config.json "consult"):
+  cli:<name>[:<model>]   a locally installed agent CLI, asked non-interactively:
+                         omp, claude, codex, opencode, cursor-agent
+  <provider>[:<model>]   an HTTP provider; bare, it is that provider's default panel
+    openrouter  OPENROUTER_API_KEY  ~/.config/openrouter/key
+    deepseek    DEEPSEEK_API_KEY    ~/.config/deepseek/key
+    inception   INCEPTION_API_KEY   ~/.config/inception/key
+Key lookup order: the provider's env var, then its key file. CONSULT_URL
+overrides the endpoint (a gateway, or a test server), CONSULT_MODELS the
+OpenRouter panel for one run, CONSULT_JUDGE the referee.
+
+CONSULT_SESSION_MODEL names the model this session itself runs on when a host
+hook knows it; otherwise consult reads omp's own `modelRoles.default`. A
+recorded member whose model is that one, or another model of the same family
+(DeepSeek, Claude, GPT, ...), is skipped - a second opinion from the model
+already answering, or its sibling, is the weakest one on offer - and the
+referee is never it. `--use` naming that member in the same run overrides the
+skip. `cli:claude` and `cli:codex` belong to their vendor's family; a CLI member
+whose configured model consult cannot read (bare `cli:omp`) counts as unknown,
+not as the session's, and is named as such.
+
+With no --provider/--models/--online the recorded members answer. When every
+recorded member fails, OpenRouter's default panel is the last fallback if its
+key is present and it was not among them. An agent CLI runs in an empty temp
+dir with TEZGAH_NESTED=1 (its tezgah hooks skip the reply-shape rules, since
+consult reads the answer), so the only context it sees is the question.
+
+Output: one "## <member>" section per independent answer, then "## referee
+(<member>)" judging them, then a footer naming what answered, what failed and
+how, and the one variable to change on a retry. A reply that does not answer
+under the five headings the referee was asked for is reported as a failed
+cross-examination, not printed as a judgement.
+
+Exit codes: 0 at least one member answered; 1 misuse (bad or unknown arguments,
+an unavailable --use member, or --online on a provider that has no :online
+suffix); 2 no key for the chosen provider, or no member available at all; 3 the
+--provider/--models run got no answer; 4 no recorded choice - one "offer:" line
+per available member, nothing was asked; 5 every recorded member (and the
+fallback) failed - one "reoffer:" line per member still available that did not
+fail. On 4 or 5, ask the user which to use and record it with --use.
+"""
+import concurrent.futures
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_paths as tp  # noqa: E402
+
+
+class _NoCrossHostAuth(urllib.request.HTTPRedirectHandler):
+    """Drop the bearer token on a redirect that leaves the endpoint's host.
+
+    urllib copies the Authorization header onto the redirected request, so a
+    301/302 from a repointed CONSULT_URL (a gateway, or a compromised provider)
+    would hand the provider key to whatever host the answer named - the audit's
+    L-9, the hop hooks/tezgah_judge.py already refuses. Here the hop is still
+    followed without the key, so a host that needs it answers 401 and the run
+    reports that as a key failure instead of leaking it; a same-host redirect
+    keeps the header."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlsplit(newurl).netloc != \
+                urllib.parse.urlsplit(req.full_url).netloc:
+            new.remove_header("Authorization")
+        return new
+
+
+# The module's one opener: urllib's default handlers with the redirect handler
+# swapped for the subclass above.
+OPENER = urllib.request.build_opener(_NoCrossHostAuth)
+
+# provider -> (chat-completions URL, key env var, key file, default models)
+PROVIDERS = {
+    "openrouter": (
+        "https://openrouter.ai/api/v1/chat/completions",
+        "OPENROUTER_API_KEY",
+        "~/.config/openrouter/key",
+        "openai/gpt-6.1-sol,google/gemini-3.8-flash",
+    ),
+    "deepseek": (
+        "https://api.deepseek.com/v1/chat/completions",
+        "DEEPSEEK_API_KEY",
+        "~/.config/deepseek/key",
+        "deepseek-chat,deepseek-reasoner",
+    ),
+    # Inception Labs serves an OpenAI-compatible chat-completions route; the
+    # model ids carry no vendor prefix here (`mercury-2.5`, not
+    # `inception/mercury-2.5`, which is the OpenRouter spelling).
+    "inception": (
+        "https://api.inceptionlabs.ai/v1/chat/completions",
+        "INCEPTION_API_KEY",
+        "~/.config/inception/key",
+        "mercury-2.5,mercury-2",
+    ),
+}
+SYSTEM = (
+    "You are one of several independent models consulted for a second opinion "
+    "on an engineering decision. Be direct and specific. State your "
+    "recommendation first, then the key reasons, then what could make it "
+    "wrong. If you lack context to judge, say exactly what is missing. End "
+    "with 'What would change my mind:' and name the observation or test."
+)
+# The second stage. Its whole job is the part one-shot parallel querying cannot
+# do: make the disagreement explicit instead of leaving the caller to diff two
+# answers. The headings are fixed so the caller can read back named fields
+# rather than a free-form verdict that quietly drops the minority view.
+REFEREE = (
+    "You are the referee for a panel of independent models that answered the "
+    "same question without seeing each other's answers. Judge their answers "
+    "against the question's own constraints. Do not average them into a bland "
+    "compromise and do not invent a consensus that is not there.\n"
+    "Answer under exactly these headings, in this order:\n"
+    "1. Recommendation - the single answer you would act on, and why.\n"
+    "2. Key disagreements - where the panel actually conflicts, naming which "
+    "model holds which position.\n"
+    "3. Unchecked assumptions - what every answer assumed and none verified.\n"
+    "4. What would change my mind - the observation, test or evidence that "
+    "flips the recommendation.\n"
+    "5. Requested evidence - what you would need to read, run or fetch to "
+    "settle the disagreement.\n"
+    "If one answer is simply better, say so plainly. If the panel agrees, say "
+    "what they agreed on and what that agreement does not prove."
+)
+# The five field names REFEREE above asks for, as substrings a reply has to
+# carry. The headings are why stage two exists - the caller reads back named
+# fields instead of a paraphrase that quietly drops the minority view - so a
+# reply without them is not a cross-examination and is never printed as one.
+# Presence only: whether the verdict is *right* is the caller's to judge, and a
+# second judge here would be exactly the free-form opinion this stage replaces.
+REFEREE_FIELDS = ("recommendation", "key disagreements", "unchecked assumptions",
+                  "what would change my mind", "requested evidence")
+
+
+# What an offer line tells the user each HTTP member answers with; a CLI's
+# family is in tp.CONSULT_CLIS.
+FAMILY = {"openrouter": "OpenAI GPT + Google Gemini through OpenRouter (the default panel)",
+          "deepseek": "DeepSeek", "inception": "Inception Mercury"}
+
+
+def defaults(provider):
+    if provider == "openrouter" and os.environ.get("CONSULT_MODELS"):
+        return os.environ["CONSULT_MODELS"].split(",")
+    return PROVIDERS[provider][3].split(",")
+
+
+def endpoint(provider):
+    return os.environ.get("CONSULT_URL", "").strip() or PROVIDERS[provider][0]
+
+
+def key_for(provider):
+    """The provider's key from its env var, then its key file, else None."""
+    _url, env, path, _models = PROVIDERS[provider]
+    k = os.environ.get(env, "").strip()
+    if not k:
+        try:
+            with open(os.path.expanduser(path), encoding="utf-8") as fh:
+                k = fh.read().strip()
+        except OSError:
+            pass
+    return k or None
+
+
+def no_key(provider):
+    _url, env, path, _models = PROVIDERS[provider]
+    return "no API key for %s. Set %s or write the key to %s (chmod 600)." % (
+        provider, env, path)
+
+
+def classify(exc):
+    """A failure class, named so the footer can point at ONE variable."""
+    if isinstance(exc, urllib.error.HTTPError):
+        # 402 is an empty account, not a refused key: naming it http-4xx sent
+        # the caller to rotate a key that was fine while the credit stayed out.
+        return "credit" if exc.code == 402 else "http-%d" % exc.code
+    if isinstance(exc, TimeoutError):
+        # A stalled response, as distinct from the wall-clock deadline below:
+        # urllib wraps OSError around the request only, not around getresponse
+        # or the body read, so a slow stream surfaces here rather than there.
+        return "timeout"
+    if isinstance(exc, urllib.error.URLError):
+        return "network"
+    if isinstance(exc, (ValueError, KeyError, IndexError, TypeError)):
+        # json.JSONDecodeError is a ValueError; a reply missing choices[0] is a
+        # schema mismatch, not a model verdict.
+        return "malformed-reply"
+    return "error"
+
+
+def ask(provider, model, question, key, timeout, system):
+    """One stateless chat completion. Returns (model, answer, err, class)."""
+    body = json.dumps({
+        "model": model.strip(),
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": question},
+        ],
+    }).encode()
+    try:
+        # The construction is inside the try on purpose: Request() parses the
+        # URL and raises ValueError for a scheme-less one (e.g. a CONSULT_URL
+        # of "localhost"), which would otherwise escape this worker as an
+        # uncaught exception and kill the run with a traceback.
+        req = urllib.request.Request(endpoint(provider), data=body, headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+        })
+        with OPENER.open(req, timeout=timeout) as resp:
+            data = json.load(resp)
+        answer = data["choices"][0]["message"]["content"]
+    except Exception as exc:  # network, HTTP, schema - all reported, never raised
+        detail = ""
+        if hasattr(exc, "read"):
+            try:
+                detail = " " + exc.read().decode()[:300]
+            except Exception:
+                pass
+        return model, None, "%s%s" % (exc, detail), classify(exc)
+    if not (answer or "").strip():
+        # A model can return 200 with null/empty content (refusal, filtered
+        # response). That is a failure to answer, not an answer -- and
+        # crashing here used to swallow every model after it in the list.
+        return model, None, "empty response (refused or filtered)", "empty"
+    return model, answer.strip(), None, None
+
+
+def ask_cli(name, model, prompt, timeout):
+    """One non-interactive run of an agent CLI. Returns (answer, err, class).
+
+    The child starts in an empty temp dir with stdin closed: it cannot read the
+    repository the question is about, so the answer rests on the packet alone,
+    and a CLI that wants a login fails instead of waiting for input. It runs in
+    its own process group so a timeout kills the tools it spawned too."""
+    exe = tp.which_user(name)
+    if not exe:
+        return None, "%s is not installed" % name, "missing"
+    base, flag, _family = tp.CONSULT_CLIS[name]
+    argv = [exe] + base[1:] + ([flag, model] if model else []) + [prompt]
+    cwd = tempfile.mkdtemp(prefix="consult-")
+    try:
+        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, start_new_session=True,
+                                env=dict(os.environ, TEZGAH_NESTED="1"))
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (AttributeError, OSError):  # no process groups (Windows)
+                proc.kill()
+            return None, "no answer within %ss" % timeout, "timeout"
+    except OSError as exc:
+        return None, str(exc), "missing"
+    finally:
+        shutil.rmtree(cwd, ignore_errors=True)
+    if proc.returncode:
+        # the tail: a CLI prints its banner first and the reason it failed last
+        return (None, "exit %d: %s" % (proc.returncode, (err or out).strip()[-300:]),
+                "cli-exit-%d" % proc.returncode)
+    if not out.strip():
+        return None, "empty output", "empty"
+    return out.strip(), None, None
+
+
+def parse(member):
+    """`cli:<name>[:<model>]` or `<provider>[:<model>]` as (kind, name, model),
+    or None for a name consult does not know."""
+    if member.startswith("cli:"):
+        name, _, model = member[4:].partition(":")
+        return ("cli", name, model or None) if name in tp.CONSULT_CLIS else None
+    name, _, model = member.partition(":")
+    return ("http", name, model or None) if name in PROVIDERS else None
+
+
+def option(parsed):
+    """The offer a parsed member belongs to: `cli:<name>` or the provider."""
+    kind, name, _model = parsed
+    return "cli:" + name if kind == "cli" else name
+
+
+def calls(member):
+    """The panel calls one member stands for: (label, option, kind, name, model).
+    A bare HTTP provider is its whole default panel; a label is what the output
+    names - the model id for HTTP, the member itself for a CLI."""
+    kind, name, model = parsed = parse(member)
+    if kind == "cli":
+        return [("cli:%s%s" % (name, ":" + model if model else ""), option(parsed),
+                 kind, name, model)]
+    return [(m.strip(), name, kind, name, m.strip())
+            for m in ([model] if model else defaults(name))]
+
+
+def ask_call(call, question, timeout, system):
+    """One panel or referee call, HTTP or CLI: (label, answer, err, class)."""
+    label, _option, kind, name, model = call
+    if kind == "cli":
+        return (label,) + ask_cli(name, model, system + "\n\n" + question, timeout)
+    key = key_for(name)
+    if not key:
+        return label, None, no_key(name), "key"
+    return (label,) + ask(name, model, question, key, timeout, system)[1:]
+
+
+def own_cli():
+    """The calling host's own CLI member, when its env names it (omp also sets
+    CLAUDECODE, so OMPCODE is read first), else None."""
+    if os.environ.get("OMPCODE"):
+        return "cli:omp"
+    return "cli:claude" if os.environ.get("CLAUDECODE") else None
+
+
+def session_model():
+    """The model this session itself runs on, or None when it cannot be read.
+
+    CONSULT_SESSION_MODEL first: a host hook can set it, and a pinned value
+    outranks the machine's own omp record. Otherwise omp's own answer -
+    `modelRoles.default`, read the way `hooks/tezgah_models.py` reads it (same
+    binary lookup, HOME as cwd so a project layer cannot answer for it) - so a
+    session that never set the knob is still recognized as running on it. A
+    missing binary, a non-zero exit or any malformed output is None: consult
+    never raises here, it just applies no exclusion."""
+    pin = os.environ.get("CONSULT_SESSION_MODEL", "").strip()
+    if pin:
+        return pin
+    exe = tp.omp_bin()
+    if not exe:
+        return None
+    env = dict(os.environ, PI_CODING_AGENT_DIR=os.path.join(tp.HOME, ".omp", "agent"))
+    try:
+        proc = subprocess.run([exe, "config", "get", "modelRoles", "--json"],
+                              capture_output=True, text=True, timeout=30,
+                              env=env, cwd=tp.HOME)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        value = json.loads(proc.stdout).get("value") if proc.returncode == 0 else None
+        default = (value or {}).get("default")
+    except (ValueError, AttributeError):
+        return None
+    return str(default).strip() if default else None
+
+
+def same_model(a, b):
+    """Whether two model ids name the same model, as the session record and a
+    consult member spell it: case-insensitive, with an effort suffix (`:high`)
+    or OpenRouter's `:online` dropped, and a provider prefix (`openai/`) on
+    either side ignored when the ids otherwise agree."""
+
+    def key(model):
+        return (model or "").split(":")[0].strip().lower()
+    a, b = key(a), key(b)
+    return bool(a) and (a == b or a.endswith("/" + b) or b.endswith("/" + a))
+
+
+# A model's family by a stem in its own name, whichever provider serves it:
+# `deepseek/deepseek-flash` and the deepseek provider's `deepseek-chat` are one
+# family, and so are `anthropic/claude-opus-5-5`, `claude-sonnet-5` behind
+# OpenRouter and Bedrock's `us.anthropic.claude-sonnet-4`. A stem counts at the
+# start of the last path segment or after a `.` or `-` in it, never inside a
+# word. OpenAI's stems are narrow on purpose: `gpt-j` and `gpt-neox` are
+# EleutherAI's, and the o-series counts only as the whole name's start (`o3`,
+# `openai/o4-mini`), since `Marco-o1` and `Skywork-o1` are other vendors'.
+# A name no stem knows falls back to a vendor path segment
+# (`openai/dall-e`); a router segment (`openrouter/`) names no family.
+FAMILY_STEMS = ((r"claude", "anthropic"),
+                (r"(?:chat)?gpt-?\d|gpt-oss|codex", "openai"),
+                (r"gemini|gemma", "google"), (r"deepseek", "deepseek"),
+                (r"glm", "zai"), (r"grok", "xai"), (r"mercury", "inception"),
+                (r"qwen", "qwen"), (r"llama", "meta"), (r"mistral", "mistral"),
+                (r"kimi", "moonshot"))
+FAMILY_AT = [(re.compile(r"(?:^|[.-])(?:%s)" % stem), family)
+             for stem, family in FAMILY_STEMS] + [(re.compile(r"^o\d"), "openai")]
+VENDOR_ALIAS = {"z-ai": "zai", "x-ai": "xai", "meta-llama": "meta",
+                "moonshotai": "moonshot", "mistralai": "mistral"}
+# The CLIs that only ever answer with one vendor's models, configured or not.
+CLI_FAMILY = {"claude": "anthropic", "codex": "openai"}
+
+
+def model_family(model):
+    """The family a model id belongs to, or None when the id names none."""
+    parts = (model or "").split(":")[0].strip().lower().split("/")
+    for pattern, family in FAMILY_AT:
+        if pattern.search(parts[-1]):
+            return family
+    known = {family for _stem, family in FAMILY_STEMS}
+    return next((VENDOR_ALIAS.get(p, p) for p in parts[:-1]
+                 if VENDOR_ALIAS.get(p, p) in known), None)
+
+
+def skip_reason(call, session):
+    """Why this panel call is not independent of the session, or None.
+
+    "model" when it runs on the session's own model, else the family both share:
+    a sibling model of the one under test shares its training lineage, so it is
+    a weak second opinion too (routing-gaps, "What this does not show"). A call
+    whose model and family are both unknown (a bare `cli:omp`) is NOT the
+    session's: unknown and equal are different answers."""
+    if not session:
+        return None
+    if call[4] and same_model(call[4], session):
+        return "model"
+    family = model_family(call[4]) or (CLI_FAMILY.get(call[3]) if call[2] == "cli" else None)
+    return family if family and family == model_family(session) else None
+
+
+def on_session(call, session):
+    """True when this panel call is not independent of the session's model."""
+    return bool(skip_reason(call, session))
+
+
+def options():
+    """What this machine can run now, the calling host's own CLI last: a second
+    opinion from the model already answering is the weakest one on offer."""
+    own, found = own_cli(), tp.consult_options()
+    return [o for o in found if o != own] + [o for o in found if o == own]
+
+
+def offer_line(word, opt):
+    if opt.startswith("cli:"):
+        family = tp.CONSULT_CLIS[opt[4:]][2]
+        if opt == own_cli():
+            family += " (this session's own host)"
+    else:
+        family = FAMILY[opt]
+    return "%s: %s - %s" % (word, opt, family)
+
+
+def usable(member):
+    """True when `member` names something this machine can run now."""
+    parsed = parse(member)
+    return bool(parsed) and option(parsed) in tp.consult_options()
+
+
+def record(members, judge):
+    """Write config.json["consult"]; an unchanged record writes nothing."""
+    cfg = tp.config()
+    rec = {"members": members}
+    if judge:
+        rec["judge"] = judge
+    if cfg.get("consult") == rec:
+        return
+    cfg["consult"] = rec
+    os.makedirs(os.path.dirname(tp.CONFIG), exist_ok=True)
+    tmp = tp.CONFIG + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(cfg, indent=2) + "\n")
+    os.replace(tmp, tp.CONFIG)
+
+
+def referee_packet(question, answers):
+    parts = ["QUESTION:\n" + question,
+             "The models below answered it independently and did not see each "
+             "other's answers.\n"]
+    for model, answer in answers:
+        parts.append("\n=== ANSWER (%s) ===\n%s\n" % (model, answer))
+    return "\n".join(parts)
+
+
+def retry_hint(classes):
+    """The one variable to change, from the failures that actually happened."""
+    if not classes:
+        return None
+    c = classes[0]
+    if c == "timeout":
+        return "raise --timeout, or drop --online (a slow model is not a broken one)"
+    if c == "network":
+        return "retry once; if it repeats, check the network or switch --provider"
+    if c == "empty":
+        return "drop the member that answered empty (refused or filtered)"
+    if c == "malformed-reply":
+        return "the endpoint is not speaking the chat-completions schema; check CONSULT_URL and --provider"
+    if c == "unstructured":
+        return "the referee answered outside its five headings; re-run, or judge the panel yourself"
+    if c == "credit":
+        return ("the provider account has no credit (HTTP 402) - the key is fine; "
+                "top it up, or ask the user for another member and record it with --use")
+    if c == "key":
+        return "set the provider's key, or ask the user for another member and record it with --use"
+    if c == "missing":
+        return "the agent CLI is not installed; ask the user for another member and record it with --use"
+    if c.startswith("cli-exit"):
+        return ("the agent CLI failed (not logged in, or a model name it does not "
+                "know); run it once by hand, or record another member with --use")
+    if c.startswith("http-4"):
+        return "the provider rejected the request; a 401/403 means the key, not the question"
+    if c.startswith("http-5"):
+        return "the provider errored; retry once, then switch --provider"
+    return "retry once; if it repeats, switch --provider"
+
+
+VALUE_FLAGS = ("--provider", "--models", "--timeout", "--judge", "--use")
+
+
+def panel(pool, todo, question, timeout, deadline):
+    """Ask every call in parallel and print one section each, in order.
+    Returns (answered calls with their answers, failed calls with classes)."""
+    futures = [(c, pool.submit(ask_call, c, question, timeout, SYSTEM)) for c in todo]
+    answers, failures = [], []
+    for call, fut in futures:
+        try:
+            label, answer, err, cls = fut.result(timeout=deadline)
+        except concurrent.futures.TimeoutError:
+            label, answer, err, cls = call[0], None, \
+                "timed out after %ss (raise --timeout, or drop --online)" % deadline, "timeout"
+        print("## %s" % label)
+        if err:
+            print("ERROR: %s" % err)
+            failures.append((call, cls))
+        else:
+            print(answer)
+            answers.append((call, answer))
+        print()
+    return answers, failures
+
+
+def main():
+    args = sys.argv[1:]
+    # Before the loop: an unrecognized flag falls through to the `question is
+    # None` arm below and the flag text becomes the prompt, so `--help` used to
+    # spend a paid panel call and print no usage.
+    if "-h" in args or "--help" in args:
+        print(__doc__.strip())
+        return 0
+    provider, models, timeout, question, judge = None, None, 120, None, None
+    online, referee, use = False, True, None
+    i = 0
+    while i < len(args):
+        if args[i] in VALUE_FLAGS and i + 1 >= len(args):
+            # Without this, a trailing flag fails to match its arm, falls to the
+            # `question is None` branch below, and the flag text becomes the
+            # prompt - a paid request for a typo, answered with exit 3 instead
+            # of the documented misuse exit 1.
+            sys.exit("consult: %s needs a value" % args[i])
+        if args[i] == "--provider" and i + 1 < len(args):
+            provider = args[i + 1]
+            i += 2
+        elif args[i] == "--models" and i + 1 < len(args):
+            models = args[i + 1].split(",")
+            i += 2
+        elif args[i] == "--judge" and i + 1 < len(args):
+            judge = args[i + 1]
+            i += 2
+        elif args[i] == "--use" and i + 1 < len(args):
+            use = [m.strip() for m in args[i + 1].split(",") if m.strip()]
+            i += 2
+        elif args[i] == "--online":
+            online = True
+            i += 1
+        elif args[i] == "--no-referee":
+            referee = False
+            i += 1
+        elif args[i] == "--timeout" and i + 1 < len(args):
+            timeout = int(args[i + 1])
+            i += 2
+        elif question is None:
+            question = args[i]
+            i += 1
+        else:
+            sys.exit("consult: unexpected argument %r" % args[i])
+    if provider is not None and provider not in PROVIDERS:
+        sys.exit("consult: unknown provider %r (use %s)"
+                 % (provider, " or ".join(sorted(PROVIDERS))))
+    if online and provider not in (None, "openrouter"):
+        # ":online" is an OpenRouter suffix; appending it elsewhere yields an
+        # unknown model id, so refuse rather than fail every model.
+        sys.exit("consult: --online is OpenRouter-only; drop it or use "
+                 "--provider openrouter")
+    if use is not None:
+        # Recording asks no model. A member that cannot run here is refused so
+        # a typo never becomes the choice every later run fails on.
+        bad = [m for m in use + ([judge] if judge else []) if not usable(m)]
+        if not use or bad:
+            sys.exit("consult: cannot record %s: not available here (available: %s)"
+                     % (", ".join(bad) or "an empty list",
+                        ", ".join(options()) or "none"))
+        record(use, judge)
+        print("consult: recorded members %s%s" % (
+            ",".join(use), "; referee %s" % judge if judge else ""))
+        if question is None:
+            return 0
+    # A flag that names a provider or its models is a one-run HTTP panel, the
+    # contract every existing caller and script was written against.
+    explicit = bool(provider or models or online or os.environ.get("CONSULT_MODELS"))
+    provider = provider or "openrouter"
+    if question == "-":
+        # A packet is often several KB, and argv has a length limit (and some
+        # endpoints stall before the request starts on a long argument), so a
+        # redirected packet is read from stdin instead. Deliberately explicit:
+        # reading stdin for a missing argument would turn a stray open pipe
+        # into a paid prompt where the caller expected the usage error.
+        question = "" if sys.stdin.isatty() else sys.stdin.read().strip()
+    if not question:
+        sys.exit(__doc__.strip())
+
+    recorded = (tp.config().get("consult") or {}) if not explicit else {}
+    if explicit:
+        if online:
+            models = [m if m.strip().endswith(":online") else m.strip() + ":online"
+                      for m in (models or defaults(provider))]
+        if not key_for(provider):
+            print("consult: " + no_key(provider), file=sys.stderr)
+            sys.exit(2)
+        members = ["%s:%s" % (provider, m.strip()) for m in (models or defaults(provider))]
+    else:
+        members = [m for m in recorded.get("members") or [] if parse(m)]
+        if not members:
+            found = options()
+            if not found:
+                print("consult: no member available - install an agent CLI (%s) "
+                      "or set a provider key (%s)" % (
+                          ", ".join(tp.CONSULT_CLIS), ", ".join(PROVIDERS)),
+                      file=sys.stderr)
+                sys.exit(2)
+            print("consult: no recorded choice, so nothing was asked.")
+            for opt in found:
+                print(offer_line("offer", opt))
+            print("next: ask the user which of these to use (two or more make a "
+                  "panel), then run: consult --use <member>[,<member>] and ask again")
+            sys.stdout.flush()
+            os._exit(4)
+
+    session = session_model()
+    # A member THIS run names with --use is the user overriding the skip for it;
+    # the record alone is not, which is the whole point of the skip. An explicit
+    # --provider/--models run names its own models too, so it is never skipped.
+    named = {option(p) for p in (parse(m) for m in (use or [])) if p}
+    todo, skipped, kept, unknown = [], [], [], []
+    skip_opts = set()
+    for call in (c for m in members for c in calls(m)):
+        reason = None if explicit else skip_reason(call, session)
+        why = ("runs on this session's own model" if reason == "model" else
+               "same model family as this session's: %s" % reason)
+        if reason:
+            if call[1] in named:
+                kept.append((call[0], why))
+            else:
+                skipped.append((call[0], why))
+                skip_opts.add(call[1])
+                continue
+        elif session and call[2] == "cli" and not call[4]:
+            # A bare `cli:omp` answers with whatever it is configured for, and
+            # that is not readable here - unknown, never read as the session's.
+            unknown.append(call[0])
+        todo.append(call)
+    if session:
+        print("consult: this session's model is %s" % session)
+        for label, why in skipped:
+            print("skipped: %s (%s)" % (label, why))
+        for label in unknown:
+            print("unknown: %s (a CLI whose model cannot be read, so it is not "
+                  "excluded)" % label)
+        for label, why in kept:
+            print("asked anyway: %s (%s, kept because --use named it)" % (label, why))
+    else:
+        print("consult: no session model could be read (CONSULT_SESSION_MODEL, or "
+              "omp's modelRoles.default), so no member was skipped")
+    deadline = timeout + 15  # wall-clock cap per call: urllib's socket timeout resets on slow :online streams
+    pool = concurrent.futures.ThreadPoolExecutor(max(len(todo), 2))
+    answers, failures = panel(pool, todo, question, timeout, deadline)
+    fallback = None
+    spare = [c for c in calls("openrouter") if not on_session(c, session)]
+    if not answers and not explicit and "openrouter" not in {c[1] for c in todo} \
+            and key_for("openrouter") and spare:
+        # The owner's order: the recorded members first, OpenRouter only when
+        # every one of them failed, and never a second time once it has.
+        fallback = "openrouter"
+        print("## fallback: every recorded member failed, asking OpenRouter's default panel\n")
+        more, lost = panel(pool, spare, question, timeout, deadline)
+        answers += more
+        failures += lost
+
+    # Stage two, and it is deliberately ONE sequential call: the panel above is
+    # already independent and parallel, so what is left to buy is the
+    # cross-examination, not more of the same opinion. A full multi-round debate
+    # (revise, re-critique, blind judge) was measured as ceremony here: the
+    # client is stateless, the cost triples and the caller wants one answer.
+    classes = [cls for _c, cls in failures]
+    failed = ["%s (%s)" % (c[0], cls) for c, cls in failures]
+    judged = verdict = jcls = None
+    if referee and answers:
+        name = judge or os.environ.get("CONSULT_JUDGE", "").strip() or recorded.get("judge")
+        if not name:
+            # Never the session's own model when another member answered: a
+            # referee that is the panel's weakest opinion judges its own kind.
+            jcall = next((c for c, _a in answers if not on_session(c, session)),
+                         answers[0][0])
+        elif parse(name):
+            jcall = calls(name)[0]
+        else:  # a bare model id: the run's own HTTP provider answers it
+            jcall = (name, provider, "http", provider, name)
+        fut = pool.submit(ask_call, jcall, referee_packet(
+            question, [(c[0], a) for c, a in answers]), timeout, REFEREE)
+        try:
+            judged, verdict, jerr, jcls = fut.result(timeout=deadline)
+        except concurrent.futures.TimeoutError:
+            judged, verdict, jerr, jcls = jcall[0], None, "timed out after %ss" % deadline, "timeout"
+        print("## referee (%s)" % judged)
+        if not jerr:
+            missing = [f for f in REFEREE_FIELDS if f not in verdict.lower()]
+            if missing:
+                # A reply that skipped a heading is not a judgement under the
+                # fields the caller reads back, so it takes the same road as a
+                # referee that never answered: the panel stands unjudged. The
+                # text is not printed - an unheadlined paragraph in the referee
+                # section reads as a verdict whatever the footer says.
+                jerr = "the reply did not answer: %s" % ", ".join(missing)
+                jcls, verdict = "unstructured", None
+        if jerr:
+            print("ERROR: %s" % jerr)
+            classes.append(jcls)
+            failed.append("referee (%s)" % jcls)
+        else:
+            print(verdict)
+        print()
+
+    print("consulted: %s | failed: %s" % (
+        ", ".join(c[0] for c, _a in answers) or "none", ", ".join(failed) or "none"))
+    if fallback:
+        print("fallback: %s" % fallback)
+    if judged:
+        # A dead referee is a degraded arena, not a silent one: the panel
+        # answers are unjudged and the caller has to be told.
+        if verdict is None:
+            print("referee: FAILED (%s) -- no cross-examination, the panel "
+                  "answers stand unjudged" % jcls)
+        else:
+            print("referee: %s" % judged)
+    hint = retry_hint(classes)
+    if hint:
+        print("retry: %s" % hint)
+    code = 0 if answers else 3
+    if not answers and not explicit:
+        # The recorded choice is the user's, so consult never swaps it on its
+        # own: it names what is left and the agent asks again.
+        lost = {c[1] for c, _cls in failures} | skip_opts
+        left = [o for o in options() if o not in lost]
+        for opt in left:
+            print(offer_line("reoffer", opt))
+        print("next: ask the user which of these to use instead, then run: "
+              "consult --use <member>[,<member>] and ask again" if left else
+              "next: nothing else can answer here; tell the user the second "
+              "opinion was skipped (install an agent CLI or add a provider key)")
+        code = 5
+    pool.shutdown(wait=False)
+    sys.stdout.flush()
+    # ponytail: hard exit so a still-hung request thread cannot wedge the process (18-min hang seen);
+    # flush above preserves output. Upgrade to per-thread cancellation only if a leaked socket ever matters.
+    os._exit(code)
+
+
+if __name__ == "__main__":
+    main()

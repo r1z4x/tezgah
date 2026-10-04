@@ -1,0 +1,110 @@
+Third-party material vendored into or adapted by this repository. The MIT LICENSE
+at the root covers tezgah's own files; the copies below keep their original terms.
+
+skills/no-ai-slop  - MIT, Peter Yang, https://github.com/petergyang/no-ai-slop
+skills/ponytail    - MIT. Origin not recorded at vendoring time; if you are the
+                     author, open an issue and the attribution will be corrected.
+skills/i-have-adhd - MIT, ayghri, https://github.com/ayghri/i-have-adhd.
+                     Adapted for tezgah: the ten rules are kept and two are
+                     rewritten (the state restatement points at the todo list
+                     instead of duplicating it, and a time estimate is marked
+                     as an estimate), the user-invocation frontmatter is
+                     dropped so the skill is model-invocable from the router,
+                     and the trigger phrases are tezgah's.
+skills/research    - MIT, Orchestra Research. Adapts the orchestration layer of
+                     its AI-research-SKILLs library (the autoresearch,
+                     ara-rigor-reviewer and ara-research-manager skills):
+                     https://github.com/orchestra-research/AI-research-SKILLs
+                     Nothing is copied verbatim.
+skills/product-analysis - MIT. Adapts the intended-vs-implemented method (a gap
+                     is a finding only when the documented intent and the code
+                     that enforces it are both cited) and the opportunity-score
+                     framing from https://github.com/phuryn/pm-skills, whose
+                     pm-ai-shipping and pm-product-discovery skills attribute
+                     those in turn to Teresa Torres, Dan Olsen and Alberto
+                     Savoia. Nothing is copied verbatim: the evidence classes,
+                     the two-axis rule, the artifact shape and the scorecard are
+                     tezgah's, and the skill points at the marketplace by URL
+                     instead of reproducing its text.
+
+skills/pm-frameworks - MIT, Pawel Huryn, https://github.com/phuryn/pm-skills.
+                     VENDORED at revision
+                     8607e3b077817f89bf4a9b623246219734ac3be0 (2026-09-19): two
+                     skills, byte-for-byte upstream -
+                     `intended-vs-implemented/SKILL.md` and
+                     `opportunity-solution-tree/SKILL.md`. The entry point
+                     `skills/pm-frameworks/SKILL.md` is tezgah's own and is not
+                     part of the manifest; the other 67 skills and the plugin
+                     manifest are not copied. `skills/pm-frameworks/SOURCE`
+                     records the upstream paths and the per-file sha256, and
+                     `tests/test_skills.py` holds the tree to it.
+
+skills/ai-research - MIT, Orchestra Research. VENDORED from the same library at
+                     revision 773a52944ba4747a18bd4ae9ade53fff041adcbc
+                     (2026-06-15): 98 skills in 23 categories, each with its
+                     markdown references, in the upstream layout. The bodies are
+                     byte-for-byte upstream, frontmatter included - 96 keep
+                     Orchestra Research's `author` line, two
+                     (`ml-training-recipes`, `a-evolve`) keep the contributing
+                     author's - and a markdown file with no frontmatter carries
+                     one attribution comment.
+                     Three machine-scraped reference dumps and the LaTeX template
+                     trees are not copied, and every drop is named in
+                     skills/ai-research/SOURCE. `bin/tezgah-import-ai-research
+                     --check` verifies the tree against its manifest.
+
+skills/design-library (inclusive-design-skills) - MIT, MC Dean,
+                     https://github.com/Owl-Listener/inclusive-design-skills.
+                     VENDORED at revision
+                     6e0740f04b2130af60bc57abe3401b91e460e70d (2026-06-09): three
+                     of its plugins - cognitive-accessibility,
+                     adaptive-interfaces, inclusive-interaction - every skill in
+                     them, 30 `SKILL.md`, at the upstream path. ADAPTED, one
+                     body - cognitive-accessibility/skills/adaptive-personalisation/SKILL.md
+                     carries `name: contextual-help-design` upstream, which is
+                     the sibling `contextual-help-design` skill's name and not
+                     its own directory; this copy's `name` matches its
+                     directory, because a host that loads a skill from its
+                     directory skips one whose name disagrees with it.
+
+skills/design-library (designer-skills) - MIT, MC Dean,
+                     https://github.com/Owl-Listener/designer-skills. VENDORED at
+                     revision 9a6930cf84a822eb458624bd11c61aac5bbdf224
+                     (2026-09-05): the whole visual-critique plugin (7
+                     `SKILL.md`) and two skills of design-research
+                     (`behavioural-analytics`, `qual-quant-triangulation`),
+                     byte-for-byte upstream. Nothing in this half is adapted;
+                     the 12 other design-research skills and the plugin
+                     packaging surface are not copied.
+
+                     ADAPTED across the library, one statement: the
+                     inclusive-design-skills copy of
+                     inclusive-interaction/skills/touch-target-design/SKILL.md
+                     states the touch minimum as `44x44 CSS pixels (WCAG 2.2
+                     Level AA)`. WCAG 2.2 SC 2.5.8 Target Size (Minimum) is
+                     Level AA at 24x24 CSS px and SC 2.5.5 Target Size
+                     (Enhanced) is Level AAA at 44x44, and tezgah's own checker
+                     enforces 24 (bin/tezgah-design, `TAP_TARGET`); the adopted
+                     copy states 24x24 as the AA floor with its success
+                     criterion and keeps 44x44 as the AAA floor and the common
+                     platform guideline. Every other adopted byte is upstream's,
+                     and `skills/design-library/SOURCE` records the per-file
+                     sha256 and names both departures.
+                     `skills/design-library/SKILL.md`, `INDEX.md` and `EVALS.md`
+                     are tezgah's own files and are not part of the manifest.
+
+skills/rl-env      - Apache-2.0, Adithya S Kolavi and the FineEnvs authors,
+                     https://github.com/adithya-s-k/FineEnvs. VENDORED at
+                     revision 26ab9c60915005b6f536968ac0928482bb18c0f8
+                     (2026-10-01): the five environment-authoring skills and
+                     every reference file they ship, 14 files under
+                     `skills/rl-env/<skill>/`, byte-for-byte upstream including
+                     frontmatter, at their upstream path under `.claude/skills/`.
+                     Nothing is adapted and nothing is dropped. The entry point
+                     `skills/rl-env/SKILL.md` is tezgah's own and is not part of
+                     the manifest, and upstream's own install route
+                     (`npx skills add adithya-s-k/FineEnvs`) is deliberately not
+                     used: it writes into a host's skill directory, which is
+                     outside tezgah's router, its install report and this record.
+                     `skills/rl-env/SOURCE` carries the upstream paths and the
+                     per-file sha256.

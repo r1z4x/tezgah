@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a problem with tezgah
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security issues here. See [SECURITY.md](../blob/main/SECURITY.md).
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: Which host, and its version (Claude Code, Codex, Cursor, opencode, dsh, omp)
+      placeholder: opencode 1.18.31
+    validations:
+      required: true
+  - type: input
+    id: tezgah
+    attributes:
+      label: tezgah version
+      description: Output of `bin/tezgah-setup --version`
+      placeholder: "0.9.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest sequence of commands or edits that shows the problem
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant hook output or `tezgah-setup` report
+      render: shell
+    validations:
+      required: false

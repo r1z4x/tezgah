@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""tezgah-pony [lite|full|ultra] - set the ponytail intensity level.
+
+`skills/ponytail` advertises a level switch and nothing stored one, so the level
+was a phrase in a document. This is the switch: it writes
+`~/.config/tezgah/ponytail.level`, and the armed level rides the per-turn
+reminder only when it is not `full`, so the default costs no characters.
+
+The bare call is the query. Exit codes: 0 set or shown, 2 usage.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_paths import PONY_LEVEL, PONY_LEVELS, pony_level  # noqa: E402
+
+USAGE = "usage: tezgah-pony [lite|full|ultra]"
+
+
+def main(argv):
+    if "-h" in argv or "--help" in argv:
+        print(__doc__.strip())
+        return 0
+    args = [a for a in argv if not a.startswith("-")]
+    if not args:
+        print(pony_level())
+        return 0
+    if len(args) != 1 or args[0].lower() not in PONY_LEVELS:
+        print("%s\nlevels: %s" % (USAGE, ", ".join(PONY_LEVELS)), file=sys.stderr)
+        return 2
+    level = args[0].lower()
+    if level == "full":
+        # The default IS the absence of the file, so going back to `full`
+        # removes it: one less state to explain, and one less file to find in a
+        # bug report about a level the user cannot remember setting.
+        try:
+            os.remove(PONY_LEVEL)
+        except OSError:
+            pass
+    else:
+        os.makedirs(os.path.dirname(PONY_LEVEL), exist_ok=True)
+        with open(PONY_LEVEL, "w", encoding="utf-8") as fh:
+            fh.write(level + "\n")
+    print("ponytail level: %s" % level)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

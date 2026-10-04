@@ -1,0 +1,41 @@
+# Source
+
+Vendored from https://github.com/adithya-s-k/FineEnvs at
+`26ab9c60915005b6f536968ac0928482bb18c0f8` (2026-10-01), Apache-2.0 licence (the
+repository's root `LICENSE`). Every body below is byte-for-byte upstream,
+frontmatter included, at its upstream path under `.claude/skills/`. Checkout for
+a re-vendor: `git clone https://github.com/adithya-s-k/FineEnvs && git -C <clone>
+checkout 26ab9c60915005b6f536968ac0928482bb18c0f8`.
+
+## What is vendored
+
+The five environment-authoring skills and every reference file they ship: 14
+files - four framework ports and the orchestrator that drives them from a
+description. The entry point `skills/rl-env/SKILL.md` is tezgah's own and is not
+part of the manifest; neither is this file. Upstream's own install route
+(`npx skills add adithya-s-k/FineEnvs`) is not used: it writes into a host's
+skill directory, which is outside tezgah's router, its install report and this
+manifest.
+
+## Manifest
+
+One row per vendored file: its path under `skills/rl-env/`, the path it came from
+upstream, and the sha256 of the bytes as vendored - so a body that drifts from
+what was vetted is visible.
+
+| file | upstream path | sha256 |
+|---|---|---|
+| `generate-nemo-gym-env/SKILL.md` | `.claude/skills/generate-nemo-gym-env/SKILL.md` | `b051de706519973d23e1acb9211f7dee18a681b2b94f0fdc132c6cab0c035f3e` |
+| `generate-nemo-gym-env/references/architecture.md` | `.claude/skills/generate-nemo-gym-env/references/architecture.md` | `2329797c0881697c56d8dfee62396fb858bcfac3c313840155b23acf6720a77c` |
+| `generate-openenv-env/SKILL.md` | `.claude/skills/generate-openenv-env/SKILL.md` | `f8d7d65ec85ee228bf8ffe15df72492c5043541c853f287c5159d7b3eea383c9` |
+| `generate-openenv-env/references/architecture.md` | `.claude/skills/generate-openenv-env/references/architecture.md` | `6ba32c5a1498c6660f79db3feeb0f49226344054bae7cdc1d84d8440147d5509` |
+| `generate-ors-env/SKILL.md` | `.claude/skills/generate-ors-env/SKILL.md` | `68385ef145bdcff61d2878be6db1d6b9652581ba7a5a05369ce6a61a6332ace5` |
+| `generate-ors-env/references/architecture.md` | `.claude/skills/generate-ors-env/references/architecture.md` | `ee87650a409a8ae375935a99daa9a5141d1fae514a1d05abcd87293759e708e4` |
+| `generate-verifiers-env/SKILL.md` | `.claude/skills/generate-verifiers-env/SKILL.md` | `afd9c6d0521735acfed0f308a133e33a6b3d24534e79aabb659f8f20ccfc7a64` |
+| `generate-verifiers-env/references/architecture.md` | `.claude/skills/generate-verifiers-env/references/architecture.md` | `babda38780715a82f9b481ef4469221c8752befb5f9bf1dc7d9093f2b05d634e` |
+| `rl-env-from-description/SKILL.md` | `.claude/skills/rl-env-from-description/SKILL.md` | `fb2b92b92988655b4c4ddae5cfe07e58f18d4105fef4e21058925e48a680438b` |
+| `rl-env-from-description/references/interview.md` | `.claude/skills/rl-env-from-description/references/interview.md` | `8284ef8b809d6bcbbd76c9bee63baf1e23aae80a4f089d7daed02ec6cc285e9a` |
+| `rl-env-from-description/references/nemo_gym.md` | `.claude/skills/rl-env-from-description/references/nemo_gym.md` | `48e2b011ad13454e38245dcb791a98a6496c1ea53cc909895e2350d50a303e74` |
+| `rl-env-from-description/references/openenv.md` | `.claude/skills/rl-env-from-description/references/openenv.md` | `4550337161bac2e08fbf5ca6a5b58ca55c422cc06169669a784a9eb974e35bd6` |
+| `rl-env-from-description/references/ors.md` | `.claude/skills/rl-env-from-description/references/ors.md` | `f409b75446e510b3837d770cebb592ff7dca0130def913f40ca427854aae1710` |
+| `rl-env-from-description/references/verifiers.md` | `.claude/skills/rl-env-from-description/references/verifiers.md` | `761d8ff1f776cc16e485141e00fd5c6da5b9264d601dfa1787bd97f3657dfb46` |

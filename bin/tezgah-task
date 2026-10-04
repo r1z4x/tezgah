@@ -1,0 +1,607 @@
+#!/usr/bin/env python3
+"""tezgah-task - the active task: one plan's phase and its path allowlist.
+
+  tezgah-task start <NNN|path> --phase P [--allow GLOB ... | --any-path]   activate a plan
+  tezgah-task phase P [--any-path]                            change the active task's phase
+  tezgah-task allow GLOB ... | --any-path                     replace the allowlist
+  tezgah-task stop                                            deactivate (clear phase)
+  tezgah-task status [--json]                                 the active task, or "no active task"
+  tezgah-task review <NNN|path> <reviewer> approve|changes    record a fresh review's verdict
+  tezgah-task close <NNN|path> done|discarded                 move a plan to .tezgah/plans/done
+
+The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
+the scope a write has to stay inside, and at most one open plan carries a phase
+because `start` clears the others. That makes the gate's refusal a rule the user
+set in advance, so this CLI is the only writer and the agent never runs its
+first four commands - `stop` and a hand edit are equally valid ways to take the
+requirement away. `phase implementation` (or `verification`) is what lets a write
+through, so the phase changes when the work reaches that point and not before.
+
+The allowlist is the plan's own: plan-add writes `allowed_paths:` when it
+creates the plan, and `start` without `--allow` keeps it. A writing phase with
+no allowlist is refused unless `--any-path` says so explicitly, and the record
+keeps where its scope came from (`allowed_from:`), which `status` prints.
+
+`review` and `close` are the session's: the verification phase asks for a
+fresh reviewer's read of the diff, `review` records its verdict as
+`review: <reviewer> <verdict> <date>` together with `reviewed_sha:` (the
+project's HEAD it read) and `review_round:`, so the next round reads only
+`git diff <reviewed_sha>..HEAD` and the two-round budget is countable; `close
+NNN done` refuses a plan whose review is missing or not `approve`. `close`
+refuses the active task - that one is the user's to stop first.
+
+Two things the plan owes are asked here, at the only moment they can still be
+fixed - the phase move - because the record is the user's and the refusal is
+this CLI's: a writing phase needs at least one Acceptance item that names the
+command proving it (or says `unverifiable` and why), since the report CI runs
+afterwards reads the same items and refuses the same plan too late; and
+`implementation` needs the plan's spike answered, so the build starts on
+evidence rather than on the guess the spike exists to retire.
+
+Entering `implementation` also records where the risky work returns to: a
+`checkpoint:` field holding the pre-work commit's sha, or `pending <sha>` while
+the tree still holds changes no commit names - `<sha>` being the `HEAD` of that
+moment. The gate refuses a write in the phase only while the recorded sha is
+still HEAD and the tree is still dirty, so committing is the whole way out of it
+and the commit clears the refusal by itself; the per-file snapshots
+(bin/tezgah-rollback) are not one state to return to.
+
+Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
+with nothing written - 2 misuse.
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_task as tt  # noqa: E402
+
+
+def repo_root(path):
+    """The repository this run is about: git's own answer, else the directory the
+    CLI was called in - a plan under a tree git does not know is still a plan."""
+    try:
+        out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except OSError:
+        pass
+    return os.path.realpath(path)
+
+
+def misuse(message):
+    """Misuse exits 2, so a caller can tell it from a record that refuses."""
+    print("tezgah-task: %s" % message, file=sys.stderr)
+    return 2
+
+
+def today():
+    return time.strftime("%Y-%m-%d")
+
+
+def read(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def open_dir(root):
+    return os.path.join(root, ".tezgah", "plans", "open")
+
+
+def plans(root):
+    return sorted(glob.glob(os.path.join(open_dir(root), "*.md")))
+
+
+def plan_path(root, ref):
+    """The plan file `ref` names: a three-digit id picks the single `NNN-*.md`
+    under .tezgah/plans/open, anything else is a path. Returns (path, problem) with one
+    of the two set."""
+    if os.path.isfile(ref):
+        return os.path.realpath(ref), None
+    if re.fullmatch(r"\d{3}", ref):
+        found = [p for p in plans(root) if os.path.basename(p).startswith(ref + "-")]
+        if not found:
+            return None, "no plan %s under %s" % (ref, open_dir(root))
+        if len(found) > 1:
+            return None, "%s matches %d plans: %s" % (ref, len(found), ", ".join(found))
+        return found[0], None
+    return None, "no such plan %r (a three-digit id, or a path)" % ref
+
+
+def active_here(root):
+    """The active task as every reader sees it - resolved by the module, so the
+    CLI and the gate cannot disagree about which plan is active."""
+    return tt.active(root, root)
+
+
+def problems(items):
+    for problem in items:
+        print("FAIL %s" % problem)
+    return 1
+
+
+def write_fields(path, **fields):
+    """Write the record, turning an I/O failure into the problem channel: a plan
+    that cannot be written is a problem with the plan, not with how the command
+    was called, and it must exit 1 with nothing half-applied."""
+    try:
+        tt.set_fields(path, **fields)
+    except OSError as exc:
+        return ["cannot write %s: %s" % (path, exc)]
+    return []
+
+
+ANY_PATH = "--any-path"
+VERDICTS = ("approve", "changes")
+
+
+def allow_source(text):
+    """The allowlist and where it came from, as the phrase `status` prints: the
+    plan's own `allowed_paths:` (written when the plan was created), the CLI's
+    `--allow`/`allow` (`allowed_from:` names which), or an explicit
+    `--any-path`. No list and no `--any-path` is what a writing phase refuses."""
+    allow = tt.allowed_paths(text)
+    source = tt.frontmatter(text).get("allowed_from") or ""
+    if allow:
+        return allow, ("from tezgah-task %s" % source) if source else "from the plan"
+    if source == ANY_PATH:
+        return allow, "any path in the repo (--any-path)"
+    return allow, "any path in the repo (no allowlist)"
+
+
+def checkpoint_state(value, path):
+    """The checkpoint line `show` prints for a plan in `implementation`: the sha
+    the work returns to, or the commit the phase waits for - named with the sha it
+    has to move off and with the one command that does it, because that command's
+    completion is what clears the gate's refusal.
+
+    The gate's refusal is `HEAD == the recorded sha AND the tree is dirty`, so
+    the line reads the checkout rather than the record alone: after the commit
+    the refusal names - or after the user discards that uncommitted work - the
+    record still carries `pending <sha>` until the next phase move rewrites it,
+    and a status that kept printing "writes are refused" would report a boundary
+    the gate has already lifted. The predicate is spelled the same way as
+    `tezgah_gate.checkpoint_reason`'s, so the two cannot disagree about which
+    state the phase is in."""
+    sha = tt.checkpoint_sha(value)
+    if sha:
+        root = repo_root(os.path.dirname(path) or ".")
+        head = git_out(root, "rev-parse", "HEAD")
+        listed = git_out(root, "status", "--porcelain")
+        if not head or head != sha or not listed:
+            print("  checkpoint: satisfied - %s, so this phase's writes are "
+                  "allowed" % ("HEAD moved off %s" % sha if head != sha
+                               else "the tree is clean again"))
+        else:
+            print("  checkpoint: pending on %s - the tree held uncommitted changes "
+                  "when the phase began, so this phase's writes are refused until "
+                  "the commit that moves HEAD off it: %s"
+                  % (sha, tt.checkpoint_command(path)))
+    elif value:
+        print("  checkpoint: %s" % value)
+    else:
+        print("  checkpoint: none (one is recorded when the phase moves to "
+              "implementation)")
+
+
+def show(path):
+    """Print the record as it stands on disk, read back through the parser the
+    gate uses: the CLI reports what was written, not what it meant to write."""
+    text = read(path)
+    fields = tt.frontmatter(text)
+    allow, source = allow_source(text)
+    phase = fields.get("phase") or ""
+    print("task %s: phase %s" % (fields.get("id") or os.path.basename(path).split("-")[0],
+                                 phase or "(none)"))
+    print("  allowed: %s" % ("%s (%s)" % (", ".join(allow), source) if allow else source))
+    print("  path: %s" % path)
+    if phase == "implementation":
+        checkpoint_state(fields.get("checkpoint"), path)
+    if phase == "verification":
+        verification_steps(text, path)
+    return 0
+
+
+def diff_base(root):
+    """The commit the plan's work branched from: the merge-base with the first
+    of main/master/origin/main that exists, else a placeholder."""
+    for ref in ("main", "master", "origin/main"):
+        out = subprocess.run(["git", "-C", root, "merge-base", "HEAD", ref],
+                             capture_output=True, text=True)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()[:12]
+    return "<base>"
+
+
+def git_out(root, *args):
+    """One git command's stdout in `root`, or None when git cannot answer: not a
+    repository, no such revision, git missing. Every caller below reads None as
+    "this question has no answer here" and refuses nothing on the strength of it,
+    so a tree git cannot describe is never held to a rule about its state."""
+    try:
+        out = subprocess.run(["git", "-C", root] + list(args),
+                             capture_output=True, text=True)
+    except OSError:
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def tree_dirty(root):
+    """Does the project's working tree hold changes no commit names? `git status
+    --porcelain` is the whole answer, and a tree git cannot describe reads as
+    clean - a refusal has to rest on a state the user can see, and a checkout
+    without git is not the tree this rule is about."""
+    listed = git_out(root, "status", "--porcelain")
+    return bool(listed)
+
+
+def checkpoint_fields(root, phase):
+    """The `checkpoint:` the record gets from a move to `phase`: the pre-work
+    commit's sha, or `pending <sha>` while the tree holds uncommitted work -
+    `<sha>` being the `HEAD` of that moment, which the commit the gate's refusal
+    names moves off. That comparison is what lets the commit clear the refusal by
+    itself, instead of the refusal outliving it and locking the phase for an agent
+    that may not rerun this CLI.
+
+    `{}` for every phase but `implementation` - the boundary is the writing
+    phase's own, and `discovery` writes nothing to return from. A tree with
+    nothing committed at all (a fresh `git init`) has no sha to name, so it takes
+    a bare `pending`: nothing to compare against, and the gate then holds nothing
+    to it."""
+    if phase != "implementation":
+        return {}
+    sha = git_out(root, "rev-parse", "HEAD")
+    if tree_dirty(root):
+        return {"checkpoint": ("%s %s" % (tt.CHECKPOINT_PENDING, sha)) if sha
+                else tt.CHECKPOINT_PENDING}
+    return {"checkpoint": sha or tt.CHECKPOINT_PENDING}
+
+
+def phase_problems(phase, text, path):
+    """Every reason this plan cannot enter `phase`, as problem-channel lines: an
+    Acceptance section in which nothing can check the work, and - for
+    `implementation` - a spike that has not answered yet.
+
+    Both are read from the plan this CLI is about to move, through the same
+    readers the CI report uses, so the phase the gate then holds a write to is a
+    phase the plan can actually be checked in. They live here, at the phase move,
+    and not in the gate: the phase has one writer, this command, and the record
+    is the user's to write - a gate rule would have to re-read the same body on
+    every write to ask a question whose answer changes only here."""
+    out = []
+    if phase in tt.WRITE_PHASES:
+        items = tt.acceptance_gap(text)
+        if items:
+            out.append(
+                "%s cannot enter %s: all %d of its Acceptance items name no "
+                "command and none declares `unverifiable` (read by "
+                "hooks/tezgah_task.py:acceptance_items), so the work has no check "
+                "to be held to. Give at least one item the command that proves "
+                "it, or `unverifiable` and why; "
+                "`tezgah-render-table --acceptance` reports the same items"
+                % (path, phase, len(items)))
+    if phase == "implementation" and tt.spike_unanswered(text):
+        out.append(
+            "%s cannot enter implementation: its spike is unanswered - `spike:` "
+            "names the question and `spike_recorded:` names no answer, so the "
+            "build would start on the guess the spike exists to retire. Record "
+            "where the answer landed (`spike_recorded:`) first" % path)
+    return out
+
+
+def verification_steps(text, path):
+    """What the verification phase requires before the plan is done: the plan's
+    own acceptance commands run once on the final tree, unpiped, and a fresh
+    reviewer's read of the diff, recorded with `review` - `close NNN done` refuses
+    without it. A round after the first reads only the delta since the sha the
+    last `review` recorded, and the review budget is two rounds."""
+    fields = tt.frontmatter(text)
+    ident = fields.get("id") or os.path.basename(path).split("-")[0]
+    # every item, not only the ones the command reader recognises: `pnpm test`
+    # carries no option or path and would otherwise vanish from the list
+    items = ["%s%s" % (i["text"], "" if i["state"] == "checkable" else
+                       "  [%s]" % ("unverifiable" if i["state"] == "unverifiable"
+                                   else "names no command"))
+             for i in tt.acceptance_items(text)]
+    # the project, not the private repository `.tezgah` may hold
+    root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
+    reviewed = fields.get("reviewed_sha") or ""
+    prior = fields.get("review_round") or ""
+    rounds = int(prior) if prior.isdigit() else 0
+    print("verification - required before this plan is done:")
+    print("  1. prove the acceptance items ONCE, on the final tree - not again per "
+          "review round - every command run unpiped "
+          "(`cmd > /tmp/check.log 2>&1`, then read the file):")
+    for item in items or ["(the plan has no Acceptance items)"]:
+        print("     - %s" % item)
+    if os.path.isfile(os.path.join(root, "tests", "impacted.py")):
+        print("     the one full run here is `python3 tests/impacted.py --all`")
+    if reviewed:
+        print("  2. review round %d: a fresh tezgah-reviewer reads only the delta "
+              "`git diff %s..HEAD` and the test output above; it does not re-run "
+              "the suite" % (rounds + 1, reviewed))
+        if rounds >= 2:
+            print("     the 2-round budget is spent: triage what is left as block "
+                  "(back to the user) or fix-later (recorded), never a third loop")
+    else:
+        print("  2. a fresh reviewer - the host's tezgah-reviewer subagent - "
+              "reads `git diff %s..HEAD` and the test output above" % diff_base(root))
+    print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`"
+          " (records the reviewed sha);"
+          " `tezgah-task close %s done` refuses without an approve" % (ident, ident))
+
+
+def bad_phase(phase):
+    return "phase %r is not one of %s" % (phase, ", ".join(tt.TASK_PHASES))
+
+
+def scope_problem(phase, allow, any_path):
+    """A writing phase with nothing to hold its writes to is refused unless the
+    user said `--any-path`: an empty allowlist reads as "anywhere", and a plan
+    that forgot its scope must not grant that by omission."""
+    if phase in tt.WRITE_PHASES and not allow and not any_path:
+        return ["phase %s needs an allowlist: the plan has no `allowed_paths:` and "
+                "no --allow was given. Pass --allow GLOB ..., or --any-path to let "
+                "the task write anywhere in the repo" % phase]
+    return []
+
+
+def cmd_start(args):
+    if not args:
+        return misuse("start needs a plan id or path")
+    root = repo_root(os.getcwd())
+    path, problem = plan_path(root, args[0])
+    phase = None
+    allow = []
+    any_path = False
+    rest = args[1:]
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--phase":
+            if i + 1 >= len(rest):
+                return misuse("--phase needs one of %s" % ", ".join(tt.TASK_PHASES))
+            phase = rest[i + 1]
+            i += 2
+            continue
+        if rest[i] == ANY_PATH:
+            any_path = True
+            i += 1
+            continue
+        if rest[i] == "--allow":
+            i += 1
+            first = i
+            while i < len(rest) and not rest[i].startswith("--"):
+                i += 1
+            if i == first:
+                return misuse("--allow needs at least one glob (--any-path for any path)")
+            allow += rest[first:i]
+            continue
+        return misuse("unknown argument %r" % rest[i])
+    if phase is None:
+        return misuse("start needs --phase %s" % "|".join(tt.TASK_PHASES))
+    if allow and any_path:
+        return misuse("--allow and --any-path contradict each other")
+    if phase not in tt.TASK_PHASES:
+        return problems([bad_phase(phase)])
+    if problem:
+        return problems([problem])
+    text = read(path)
+    fields = {"phase": phase, "updated": today()}
+    if allow:
+        fields.update(allowed_paths=allow, allowed_from="--allow")
+    elif any_path:
+        fields.update(allowed_paths=[], allowed_from=ANY_PATH)
+    else:
+        # the plan's own scope, as plan-add wrote it (or an earlier --allow)
+        allow = tt.allowed_paths(text)
+        any_path = tt.frontmatter(text).get("allowed_from") == ANY_PATH
+    bad = (scope_problem(phase, allow, any_path)
+           or phase_problems(phase, text, path))
+    if bad:
+        return problems(bad)
+    fields.update(checkpoint_fields(root, phase))
+    for other in plans(root):
+        if other == path:
+            continue
+        if tt.frontmatter(read(other)).get("phase"):
+            # one active task at a time: the plan that had the phase loses it
+            # here rather than both being active and the gate reading whichever
+            # sorts first
+            bad = write_fields(other, phase="", updated=today())
+            if bad:
+                return problems(bad)
+    bad = write_fields(path, **fields)
+    if bad:
+        return problems(bad)
+    return show(path)
+
+
+def cmd_phase(args):
+    any_path = ANY_PATH in args
+    args = [a for a in args if a != ANY_PATH]
+    if len(args) != 1:
+        return misuse("phase takes one of %s [--any-path]" % ", ".join(tt.TASK_PHASES))
+    phase = args[0]
+    if phase not in tt.TASK_PHASES:
+        return problems([bad_phase(phase)])
+    root = repo_root(os.getcwd())
+    task = active_here(root)
+    if not task:
+        return problems(["no active task: start one with "
+                         "`tezgah-task start <id> --phase %s`" % phase])
+    text = read(task["path"])
+    fields = {"phase": phase, "updated": today()}
+    if any_path:
+        fields.update(allowed_paths=[], allowed_from=ANY_PATH)
+    granted = (any_path or tt.frontmatter(text).get("allowed_from")
+               == ANY_PATH)
+    bad = (scope_problem(phase, task["allowed_paths"], granted)
+           or phase_problems(phase, text, task["path"]))
+    if bad:
+        return problems(bad)
+    fields.update(checkpoint_fields(root, phase))
+    bad = write_fields(task["path"], **fields)
+    if bad:
+        return problems(bad)
+    return show(task["path"])
+
+
+def cmd_allow(args):
+    any_path = ANY_PATH in args
+    args = [a for a in args if a != ANY_PATH]
+    for arg in args:
+        if arg.startswith("--"):
+            return misuse("allow takes globs, not %r" % arg)
+    if bool(args) == any_path:
+        return misuse("allow takes globs, or --any-path alone to lift the scope")
+    task = active_here(repo_root(os.getcwd()))
+    if not task:
+        return problems(["no active task to widen: start one with "
+                         "`tezgah-task start <id> --phase P --allow GLOB`"])
+    # --any-path replaces the list with an empty one, which reads as "any path in
+    # the repo" - and the gate skips the scope check entirely then, so this is
+    # the way back out of a scope that turned out to be too narrow. A flag and
+    # not an empty call, so lifting the scope is always said out loud.
+    bad = write_fields(task["path"], allowed_paths=args, updated=today(),
+                       allowed_from=ANY_PATH if any_path else "allow")
+    if bad:
+        return problems(bad)
+    return show(task["path"])
+
+
+def cmd_stop(args):
+    if args:
+        return misuse("stop takes no arguments")
+    task = active_here(repo_root(os.getcwd()))
+    if not task:
+        return problems(["no active task to stop"])
+    bad = write_fields(task["path"], phase="", updated=today())
+    if bad:
+        return problems(bad)
+    print("task %s stopped" % task["id"])
+    return show(task["path"])
+
+
+def review_verdict(text):
+    """The verdict of the plan's `review: <reviewer> <verdict> <date>` line, or
+    None when it has none or names a verdict this CLI does not write."""
+    parts = (tt.frontmatter(text).get("review") or "").split()
+    return parts[1] if len(parts) >= 2 and parts[1] in VERDICTS else None
+
+
+def cmd_review(args):
+    if len(args) != 3 or args[2] not in VERDICTS:
+        return misuse("review takes <NNN|path> <reviewer> %s" % "|".join(VERDICTS))
+    path, problem = plan_path(repo_root(os.getcwd()), args[0])
+    if problem:
+        return problems([problem])
+    fields = tt.frontmatter(read(path))
+    prior = fields.get("review_round") or ""
+    # the project's HEAD, never the private `.tezgah` repository's: the next
+    # round's delta is `git diff <this>..HEAD` over the project
+    root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
+    sha = (git_out(root, "rev-parse", "HEAD") or "")[:12]
+    record = {"review": "%s %s %s" % (args[1], args[2], today()),
+              "review_round": str(int(prior) + 1 if prior.isdigit() else 1),
+              "updated": today()}
+    if sha:
+        record["reviewed_sha"] = sha
+    bad = write_fields(path, **record)
+    if bad:
+        return problems(bad)
+    print("review recorded: %s %s round %s at %s (%s)" % (
+        args[1], args[2], record["review_round"], sha or "(no commit)", path))
+    return 0
+
+
+def cmd_close(args):
+    if len(args) != 2 or args[1] not in ("done", "discarded"):
+        return misuse("close takes <NNN|path> done|discarded")
+    root = repo_root(os.getcwd())
+    path, problem = plan_path(root, args[0])
+    if problem:
+        return problems([problem])
+    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(open_dir(root)):
+        return problems(["%s is not under %s" % (path, open_dir(root))])
+    text = read(path)
+    ident = os.path.basename(path).split("-")[0]
+    if tt.frontmatter(text).get("phase"):
+        return problems(["%s is the active task: the user stops it first "
+                         "(`tezgah-task stop`)" % path])
+    if args[1] == "done" and review_verdict(text) != "approve":
+        return problems(["%s records no approving review: a fresh reviewer reads "
+                         "the diff, then `tezgah-task review %s <reviewer> approve`"
+                         % (path, ident)])
+    target = os.path.join(root, ".tezgah", "plans", "done", os.path.basename(path))
+    bad = write_fields(path, status=args[1], updated=today())
+    if bad:
+        return problems(bad)
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        os.replace(path, target)
+    except OSError as exc:
+        return problems(["cannot move %s: %s" % (path, exc)])
+    print("moved %s -> %s" % (path, target))
+    return 0
+
+
+def cmd_status(args):
+    as_json = "--json" in args
+    rest = [a for a in args if a != "--json"]
+    if rest:
+        return misuse("status takes --json and nothing else (%r)" % rest[0])
+    root = repo_root(os.getcwd())
+    task = active_here(root)
+    bad = []
+    for path in plans(root):
+        fields = tt.frontmatter(read(path))
+        phase = fields.get("phase") or ""
+        if phase and phase not in tt.TASK_PHASES:
+            bad.append({"id": fields.get("id") or os.path.basename(path).split("-")[0],
+                        "phase": phase, "path": path})
+    if task:
+        task["allowed_from"] = allow_source(read(task["path"]))[1]
+    if as_json:
+        print(json.dumps({"active": task, "malformed": bad}, indent=2))
+    else:
+        if task:
+            show(task["path"])
+        else:
+            print("no active task")
+        for row in bad:
+            print("FAIL %s: phase %r is not one of %s, so the plan is ignored (%s)"
+                  % (row["id"], row["phase"], ", ".join(tt.TASK_PHASES), row["path"]))
+    return 1 if bad else 0
+
+
+def main(argv):
+    if len(argv) < 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    cmd, rest = argv[1], argv[2:]
+    if cmd == "start":
+        return cmd_start(rest)
+    if cmd == "phase":
+        return cmd_phase(rest)
+    if cmd == "allow":
+        return cmd_allow(rest)
+    if cmd == "stop":
+        return cmd_stop(rest)
+    if cmd == "status":
+        return cmd_status(rest)
+    if cmd == "review":
+        return cmd_review(rest)
+    if cmd == "close":
+        return cmd_close(rest)
+    return misuse("unknown command %r (start, phase, allow, stop, status, review, "
+                  "close)" % cmd)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

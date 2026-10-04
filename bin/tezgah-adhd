@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""tezgah-adhd [on|off] - arm or disarm the act-on-it output shape.
+
+The rule is armed by default. `off` writes the kill switch
+(~/.config/tezgah/adhd-off), which removes its paragraph from the injected text
+and turns its status mark red on every host; `on` removes the file again. A repo
+can opt out on its own with a `.no-adhd` mark, which this CLI does not touch:
+that decision belongs to the repo, not to a one-off command.
+
+The bare call is the query. Exit codes: 0 set or shown, 2 usage.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_paths import CONFIG_DIR, OFF_DIRS, off  # noqa: E402
+
+SWITCH = "adhd-off"
+USAGE = "usage: tezgah-adhd [on|off]"
+
+
+def main(argv):
+    if "-h" in argv or "--help" in argv:
+        print(__doc__.strip())
+        return 0
+    args = [a for a in argv if not a.startswith("-")]
+    if not args:
+        print("off" if off(SWITCH) else "on")
+        return 0
+    if len(args) != 1 or args[0].lower() not in ("on", "off"):
+        print("%s\narguments: on, off" % USAGE, file=sys.stderr)
+        return 2
+    if args[0].lower() == "off":
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        open(os.path.join(CONFIG_DIR, SWITCH), "w", encoding="utf-8").close()
+    else:
+        # every switch channel, so `on` really answers off() rather than leaving
+        # a legacy copy in ~/.claude that keeps the rule disarmed
+        for directory in OFF_DIRS:
+            try:
+                os.remove(os.path.join(directory, SWITCH))
+            except OSError:
+                pass
+    print("adhd rule: %s" % ("off" if off(SWITCH) else "on"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

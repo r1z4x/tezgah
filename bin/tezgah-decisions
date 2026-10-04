@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""tezgah-decisions [check] [PATH] [--json] - the ADR record under `.tezgah/decisions/`.
+
+A capability change owes an ADR: `skills/feature-audit/SKILL.md` asks a proposal
+for "the ADR (context, decision, status, consequences) and what it supersedes",
+hands the consult rule the word `adrs?|architecture decision record|design doc`,
+and names "an ADR without a status" as the thing that must fail. Until this CLI
+the repository asked for that record and gave it nowhere to live, no status
+vocabulary and nothing that read it back.
+
+A record is `.tezgah/decisions/NNN-slug.md` in the private `.tezgah` repository
+(beside `plans/` and `research/`), written and committed the way plan-add writes
+a plan: one significant decision per file - hard to reverse, spanning
+components, or explained for a second time:
+
+    ---
+    id: 001
+    title: Decisions are recorded as numbered ADRs
+    status: accepted        # proposed | accepted | deprecated | superseded
+    date: 2026-09-30
+    supersedes:             # the id (a file's NNN) this record replaces, else empty
+    ---
+    ## Context
+    <two to four sentences naming the constraints>
+    ## Decision
+    <the decision, active voice>
+    ## Consequences
+    <what gets easier, what gets harder, what new constraint appears>
+
+  tezgah-decisions            check every record, listing what it read
+  tezgah-decisions check PATH the same for the repository at PATH (default: cwd)
+  tezgah-decisions --json     the records and the problems as JSON
+  tezgah-decisions --help     this text
+
+A record's id is its file name's `NNN`: one record, one address, so a
+`supersedes:` target and the file it names cannot disagree.
+
+The checker refuses three things and only these: a record with no `status:`, a
+status outside the four above, and a `supersedes:` naming no record in the
+directory. A file that is not `NNN-slug.md` is not a record and is not read -
+the count it prints is how a misplaced one shows up.
+
+Exit codes: 0 every record is whole (or there are none), 1 a record was refused
+(one `FAIL <path>: <what>` line each), 2 misuse.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_task as tt  # noqa: E402
+
+# Nygard's four states and the whole vocabulary: a status outside them is refused
+# rather than printed, because "an ADR without a status" is the falsifier the
+# feature-audit skill names and an undefined fifth state is that hole reworded.
+STATUSES = ("proposed", "accepted", "deprecated", "superseded")
+
+# The prose half of a record, in the order it is written.
+SECTIONS = ("Context", "Decision", "Consequences")
+
+# A record's file name: the three-digit id a `supersedes:` points at, then its
+# slug. Anything else in the directory is not a record.
+RECORD = re.compile(r"^(\d{3})-[^/]+\.md$")
+
+
+def repo_root(path):
+    """The repository this run is about: git's own answer, else the directory the
+    CLI was called in - a decision recorded under a tree git does not know is
+    still a decision. Resolved here the way bin/tezgah-task resolves its root,
+    because the two CLIs have to agree on which repository they are talking
+    about."""
+    try:
+        out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except OSError:
+        pass
+    return os.path.realpath(path)
+
+
+def decision_record(text):
+    """One record as a dict: its `key: value` frontmatter (id, title, status,
+    date, supersedes, "" for a key the file does not carry) plus its three prose
+    sections, each flattened to one line the way acceptance_items() flattens an
+    item.
+
+    Read through hooks/tezgah_task.py's frontmatter and section_lines, so a plan
+    and a record cannot disagree about what a `key: value` line or a `## Section`
+    is - the reader a plan is refused by is the reader a record is refused by."""
+    fields = tt.frontmatter(text)
+    record = dict((key, fields.get(key, "")) for key in
+                  ("id", "title", "status", "date", "supersedes"))
+    for name in SECTIONS:
+        record[name.lower()] = " ".join(
+            line.strip() for _, line in tt.section_lines(text, name) if line.strip())
+    return record
+
+
+def problems(record, ids, where):
+    """The problems this one record has, [] when it is whole. `ids` is every id
+    the directory carries, so a `supersedes:` that names nothing is a broken
+    chain and not a typo no reader can see; `where` is its path relative to the
+    repository, so a `FAIL` line can be acted on."""
+    bad = []
+    status = record["status"]
+    if not status:
+        bad.append("%s: no `status:` - an ADR carries one of %s"
+                   % (where, ", ".join(STATUSES)))
+    elif status not in STATUSES:
+        bad.append("%s: status %r is not one of %s"
+                   % (where, status, ", ".join(STATUSES)))
+    # ponytail: supersedes is read as one or more whitespace-separated ids; a
+    # comma-separated list would read `001,` as an id no record carries, and that
+    # failure says which name is wrong, so it is left to the filer.
+    for target in record["supersedes"].split():
+        if target not in ids:
+            bad.append("%s: `supersedes: %s` names no record under .tezgah/decisions/"
+                       % (where, target))
+    # ponytail: the three refusals are the contract the gap row set. A record
+    # whose prose sections are empty is read and printed, not refused - a fourth
+    # rule is one the feature-audit skill never asked for.
+    return bad
+
+
+def records_report(root):
+    """Every record under `<root>/.tezgah/decisions/`:
+    {"records": how many files were read, "entries": [record ...], "problems":
+    ["<path>: <what>" ...]}, each entry carrying decision_record()'s keys plus
+    "id" (its file name's NNN, overriding a frontmatter `id:` that disagrees) and
+    "path".
+
+    Two passes and not one: a `supersedes:` is answered against every id the
+    directory carries, and one the record replaced is usually read before the
+    record that replaces it. Never raises - an absent directory or an unreadable
+    file is skipped, not refused: this feeds a report, not a gate."""
+    directory = os.path.join(root, ".tezgah", "decisions")
+    try:
+        names = sorted(n for n in os.listdir(directory) if RECORD.match(n))
+    except OSError:
+        names = []
+    entries = []
+    for name in names:
+        path = os.path.join(directory, name)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        record = decision_record(text)
+        record["id"] = RECORD.match(name).group(1)
+        record["path"] = os.path.relpath(path, root).replace(os.sep, "/")
+        entries.append(record)
+    ids = set(entry["id"] for entry in entries)
+    found = []
+    for record in entries:
+        found += problems(record, ids, record["path"])
+    return {"records": len(entries), "entries": entries, "problems": found}
+
+
+def misuse(message):
+    """Misuse exits 2, so a caller can tell it from a record that refuses."""
+    print("tezgah-decisions: %s" % message, file=sys.stderr)
+    return 2
+
+
+def show(report, root, as_json):
+    if as_json:
+        print(json.dumps({"root": root, "records": report["records"],
+                          "entries": report["entries"],
+                          "problems": report["problems"]},
+                         indent=2, sort_keys=True))
+        return 1 if report["problems"] else 0
+    # the count is half the answer: a run that read nothing must not read as
+    # "every record is whole"
+    print("decisions under %s: %d record(s)"
+          % (os.path.join(root, ".tezgah", "decisions"), report["records"]))
+    for entry in report["entries"]:
+        print("  %s  %-11s %s" % (entry["id"], entry["status"] or "(no status)",
+                                  entry["title"]))
+    for problem in report["problems"]:
+        print("FAIL %s" % problem)
+    return 1 if report["problems"] else 0
+
+
+def main(argv):
+    args = argv[1:]
+    flags = set(a for a in args if a.startswith("--"))
+    pos = [a for a in args if not a.startswith("--")]
+    unknown = sorted(f for f in flags if f not in ("--json", "--help"))
+    if unknown:
+        return misuse("unknown option(s): %s (try --help)" % ", ".join(unknown))
+    if "--help" in flags:
+        sys.stdout.write(__doc__.strip() + "\n")
+        return 0
+    cmd = pos[0] if pos else "check"
+    if cmd != "check":
+        return misuse("unknown command %r (check)" % cmd)
+    if len(pos) > 2:
+        return misuse("check takes one path, not %s" % ", ".join(pos[1:]))
+    root = repo_root(pos[1] if len(pos) > 1 else os.getcwd())
+    if not os.path.isdir(root):
+        return show({"records": 0, "entries": [],
+                     "problems": ["%s: no such directory" % root]},
+                    root, "--json" in flags)
+    return show(records_report(root), root, "--json" in flags)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

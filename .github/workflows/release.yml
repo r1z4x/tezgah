@@ -1,0 +1,164 @@
+name: release
+
+# Runs when a release is published on GitHub.
+# Publishes to npm and updates the brew formula sha256 in the tap repo.
+#
+# One-time setup (repo Settings → Secrets and variables → Actions):
+#   NPM_TOKEN  : npm automation token from npmjs.com → Access Tokens
+#   TAP_TOKEN  : GitHub Personal Access Token with repo scope on r1z4x/homebrew-tezgah
+#
+# Without these secrets the jobs skip cleanly.
+
+on:
+  release:
+    types: [published]
+
+# No job inherits a token it does not need (the audit's L-8): the workflow
+# defaults to none, the npm job only reads the tree and mints the OIDC token
+# `--provenance` signs with, and only the brew job, which uploads the release
+# asset with GITHUB_TOKEN and signs the tarball's build provenance with an OIDC
+# token, may write. Actions are pinned to a commit, with the
+# tag they were resolved from beside it, so a moved tag cannot change what runs
+# next to NPM_TOKEN and TAP_TOKEN.
+permissions: {}
+
+jobs:
+  # The secrets context is not available in a job-level `if`, so a guard there
+  # is a workflow-file parse failure and every event dies at 0s - the guards
+  # live on the steps, where secrets read fine.
+  npm-publish:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      # Nothing in this job pushes, so the checkout leaves no token behind in
+      # .git/config for a later step to read.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+      - name: Publish (skipped without NPM_TOKEN)
+        # the secrets context is unreadable in `if` at any level; the gate
+        # reads the env mapping, which is the one place secrets surface.
+        # Re-firing a release must not turn red on the version it already
+        # published, so an exact-match live version counts as done.
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already published"
+            exit 0
+          fi
+          # `--tag latest` is explicit: newer npm refuses to move `latest` to a
+          # version lower than one the registry already holds unless told to
+          if OUT=$(npm publish --access public --provenance --tag latest 2>&1); then
+            echo "$OUT" | tail -20
+            exit 0
+          fi
+          echo "$OUT" | tail -20
+          # npm accepts the tarball and then validates it, and a version still in
+          # that pipeline refuses a second publish (E409 "previously staged
+          # version"); it reaches the registry only when validation ends, so a
+          # release fired again in that window used to leave this job red for a
+          # version that was already on its way. Wait for the registry instead -
+          # and stay red if it never arrives. Any other refusal (auth, network,
+          # a rejected tarball) exits right here.
+          case "$OUT" in
+            *"previously staged version"*|*"previously published versions"*) ;;
+            *) exit 1 ;;
+          esac
+          for i in $(seq 1 20); do
+            sleep 30
+            if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+              echo "$NAME@$VERSION went live while npm validated it"
+              exit 0
+            fi
+          done
+          echo "::error::$NAME@$VERSION is not live 10 minutes after npm accepted it - check https://www.npmjs.com/package/$NAME?activeTab=versions"
+          exit 1
+
+  brew-formula:
+    # `gh release upload` below writes the asset with GITHUB_TOKEN; id-token and
+    # attestations sign and store the tarball's build provenance.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    runs-on: ubuntu-latest
+    steps:
+      # The push below goes from a separate clone of the tap with TAP_TOKEN,
+      # never from this checkout, so it keeps no GITHUB_TOKEN in .git/config.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build tarball and update tap formula (skipped without TAP_TOKEN)
+        id: build
+        if: ${{ env.TAP_TOKEN != '' }}
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          bash packaging/build.sh --version "$VERSION" --out /tmp/tz-rel
+          SHA=$(shasum -a 256 /tmp/tz-rel/tezgah-"$VERSION".tar.gz | cut -d' ' -f1)
+          # the runner has no git identity; the tap commit needs one
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          # Clone the tap, update the formula, push
+          git clone https://"$TAP_TOKEN"@github.com/r1z4x/homebrew-tezgah.git /tmp/tap
+          cd /tmp/tap
+          cat > Formula/tezgah.rb <<RUBY
+          class Tezgah < Formula
+            desc "One shared working contract for every AI coding assistant you run"
+            homepage "https://github.com/r1z4x/tezgah"
+            url "https://github.com/r1z4x/tezgah/releases/download/v${VERSION}/tezgah-${VERSION}.tar.gz"
+            sha256 "${SHA}"
+            license "MIT"
+            depends_on "python@3.10"
+
+            def install
+              bin.install "bin/tezgah-setup"
+              libexec.install Dir["*"]
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/tezgah-setup --version")
+            end
+          end
+          RUBY
+          git add -A && git commit -m "tezgah ${VERSION}" && git push origin main
+
+          # The asset the formula above points at. Without this the tap ships a
+          # formula whose sha256 is right and whose URL 404s - which is what a
+          # release republished by hand looked like. The upload races the release
+          # itself becoming readable, so it retries, and the last line fails the
+          # job when the asset is still missing rather than reporting success.
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "v${VERSION}" \
+                 "/tmp/tz-rel/tezgah-${VERSION}.tar.gz" \
+                 "/tmp/tz-rel/tezgah-${VERSION}.tar.gz.sha256" \
+                 --repo "$GITHUB_REPOSITORY" --clobber; then
+              break
+            fi
+            sleep 5
+          done
+          gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | grep -qx "tezgah-${VERSION}.tar.gz"
+      # The brew twin of npm's --provenance: a signed SLSA statement binding the
+      # tarball's digest to this repository, tag, workflow run and runner, so
+      # "the digest matches the release page" extends to "the release page
+      # matches the source". Check it with
+      # `gh attestation verify tezgah-<version>.tar.gz --repo r1z4x/tezgah`.
+      - name: Attest the tarball's build provenance
+        if: ${{ steps.build.outcome == 'success' }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: /tmp/tz-rel/tezgah-*.tar.gz

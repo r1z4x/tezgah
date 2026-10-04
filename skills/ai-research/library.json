@@ -1,0 +1,3456 @@
+{
+ "counts": {
+  "bytes": 4202519,
+  "categories": 23,
+  "files": 365,
+  "skills": 98
+ },
+ "drop": {
+  "dirs": [
+   "20-ml-paper-writing/ml-paper-writing/templates",
+   "20-ml-paper-writing/systems-paper-writing/templates"
+  ],
+  "files": [
+   "03-fine-tuning/unsloth/references/llms-full.md",
+   "03-fine-tuning/unsloth/references/llms-txt.md",
+   "08-distributed-training/deepspeed/references/tutorials.md"
+  ]
+ },
+ "generated": [
+  "index/1-frame.md",
+  "index/2-data.md",
+  "index/3-train.md",
+  "index/4-measure.md",
+  "index/5-run.md",
+  "index/6-write.md"
+ ],
+ "index": [
+  {
+   "bytes": 1973,
+   "path": "index/1-frame.md",
+   "sha256": "6333ac91adf9f4695ce371ab1ab44b1d27db6bfc3ff8b2d5ae48ed88444cba80"
+  },
+  {
+   "bytes": 1701,
+   "path": "index/2-data.md",
+   "sha256": "d484e3cc50487b88a00743b128a694f3c386c52dbe1a1c9abafbe9c7f430c496"
+  },
+  {
+   "bytes": 6570,
+   "path": "index/3-train.md",
+   "sha256": "fa2a201a24ff79b603a411b18b799b699794f33e4781692dc41b9c1e57814d7c"
+  },
+  {
+   "bytes": 2925,
+   "path": "index/4-measure.md",
+   "sha256": "e5c93bd898a5497815715dacdcfefbd60ab001192148adb58a82924f5ad697ee"
+  },
+  {
+   "bytes": 2398,
+   "path": "index/5-run.md",
+   "sha256": "abfeca7c793f815c5ab838cc36ae12dc6c20fd567858e27d761553e52fe71d88"
+  },
+  {
+   "bytes": 4528,
+   "path": "index/6-write.md",
+   "sha256": "446b5c854de6cf9997aefde1ca2d402ba5cb196bccf18612bf62d5203a3e9a1e"
+  }
+ ],
+ "skills": [
+  {
+   "bytes": 52048,
+   "category": "0-autoresearch-skill",
+   "dangling_links": [],
+   "dir": "0-autoresearch-skill",
+   "files": [
+    {
+     "bytes": 24945,
+     "path": "0-autoresearch-skill/SKILL.md",
+     "sha256": "b7ca0d7a6e905da85a8b494d3fe398ac78eaa278854f67b50a34f2b37a9a2b78"
+    },
+    {
+     "bytes": 4872,
+     "path": "0-autoresearch-skill/references/agent-continuity.md",
+     "sha256": "e10b51ad4f84e48376a38f227d26ceb0a4e68745b52df6c6b04189e5418dd0a2"
+    },
+    {
+     "bytes": 6651,
+     "path": "0-autoresearch-skill/references/progress-reporting.md",
+     "sha256": "af68918e07a1b24dcebd434ebb067e4d23c7de0eeac708ddbece807ca00176d2"
+    },
+    {
+     "bytes": 8725,
+     "path": "0-autoresearch-skill/references/skill-routing.md",
+     "sha256": "8cb14bc027484f380a157855ffc87a17cb8acba4815ab2bffbac5d4c017cf863"
+    },
+    {
+     "bytes": 1667,
+     "path": "0-autoresearch-skill/templates/findings.md",
+     "sha256": "6ef5a3688b036241961cd8d108822eb2e9dcafb42b219c5aac9764154b0a9116"
+    },
+    {
+     "bytes": 5188,
+     "path": "0-autoresearch-skill/templates/research-log.md",
+     "sha256": "453cb5e7b7266edb2a411a162ec2da57bae7cb1faa6cde4d45fce587016c79f2"
+    }
+   ],
+   "generated": false,
+   "name": "autoresearch",
+   "orphan_refs": [],
+   "purpose": "Orchestrates end-to-end autonomous AI research projects using a two-loop architecture.",
+   "stale_api": "",
+   "upstream_path": "0-autoresearch-skill"
+  },
+  {
+   "bytes": 57438,
+   "category": "01-model-architecture",
+   "dangling_links": [],
+   "dir": "litgpt",
+   "files": [
+    {
+     "bytes": 11010,
+     "path": "01-model-architecture/litgpt/SKILL.md",
+     "sha256": "523f0b786c915af20a7980857e174b838e4440afe851bd16917ef69f8042adb2"
+    },
+    {
+     "bytes": 15842,
+     "path": "01-model-architecture/litgpt/references/custom-models.md",
+     "sha256": "acfb7854825372204a34b7560215bcb74c61ad1432733f7dfe478b4e76196708"
+    },
+    {
+     "bytes": 11293,
+     "path": "01-model-architecture/litgpt/references/distributed-training.md",
+     "sha256": "e76e1bbc12eae4c7498dec1f449c76e227e68a0219ff904d5dc0fc2599bb64b9"
+    },
+    {
+     "bytes": 8125,
+     "path": "01-model-architecture/litgpt/references/supported-models.md",
+     "sha256": "d174c5751fda580aa9a9453ac4d5b3647a27b56e7c4a6c1f83846517a0138580"
+    },
+    {
+     "bytes": 11168,
+     "path": "01-model-architecture/litgpt/references/training-recipes.md",
+     "sha256": "fa264c42e9bfe3b8923d4b492fc961fd17330f89c30b6d1ac14a22ce273fce8f"
+    }
+   ],
+   "generated": false,
+   "name": "implementing-llms-litgpt",
+   "orphan_refs": [],
+   "purpose": "Implements and trains LLMs using Lightning AI's LitGPT with 20+ pretrained architectures (Llama, Gemma, Phi, Qwen, Mistral).",
+   "stale_api": "",
+   "upstream_path": "01-model-architecture/litgpt"
+  },
+  {
+   "bytes": 30519,
+   "category": "01-model-architecture",
+   "dangling_links": [
+    "references/mamba2-details.md",
+    "references/selective-ssm.md"
+   ],
+   "dir": "mamba",
+   "files": [
+    {
+     "bytes": 7368,
+     "path": "01-model-architecture/mamba/SKILL.md",
+     "sha256": "51ddf99c12a472a78c258bddf7e66e72cf45d9e04969f3300cc8d68aaaef9b0e"
+    },
+    {
+     "bytes": 5649,
+     "path": "01-model-architecture/mamba/references/architecture-details.md",
+     "sha256": "19adf80b3b683929e0cff84dabb63716788b8f32eebc363eb98a77285675b289"
+    },
+    {
+     "bytes": 8303,
+     "path": "01-model-architecture/mamba/references/benchmarks.md",
+     "sha256": "f4edd6436cf6979ee1527131e2f8fcfe301bbc8c993216ac79ec33925169c212"
+    },
+    {
+     "bytes": 9199,
+     "path": "01-model-architecture/mamba/references/training-guide.md",
+     "sha256": "9936ca12fc9954b05779c0af89064521c167c46d877a727c7c6377c4246ed30c"
+    }
+   ],
+   "generated": false,
+   "name": "mamba-architecture",
+   "orphan_refs": [
+    "01-model-architecture/mamba/references/architecture-details.md",
+    "01-model-architecture/mamba/references/benchmarks.md",
+    "01-model-architecture/mamba/references/training-guide.md"
+   ],
+   "purpose": "State-space model with O(n) complexity vs Transformers' O(n\u00b2).",
+   "stale_api": "",
+   "upstream_path": "01-model-architecture/mamba"
+  },
+  {
+   "bytes": 43780,
+   "category": "01-model-architecture",
+   "dangling_links": [],
+   "dir": "nanogpt",
+   "files": [
+    {
+     "bytes": 6752,
+     "path": "01-model-architecture/nanogpt/SKILL.md",
+     "sha256": "8893d8dd5b7ba4ae3219497e26d33fc9565e6bbf0d6aa4d6c1c3ee05003468c3"
+    },
+    {
+     "bytes": 11903,
+     "path": "01-model-architecture/nanogpt/references/architecture.md",
+     "sha256": "f6bd663785a5b8902c40ef7d33a17811fae53dce0fd7778dfdce97624c06c9bb"
+    },
+    {
+     "bytes": 11391,
+     "path": "01-model-architecture/nanogpt/references/data.md",
+     "sha256": "0ba66169d027c7c2bd77a26f5ab666046b0e140d9dd8a812fde3e3f254ac841f"
+    },
+    {
+     "bytes": 13734,
+     "path": "01-model-architecture/nanogpt/references/training.md",
+     "sha256": "47a4480031bd9a321a5ce78e0650948773002982c26332ec34a6b1cf78d709a1"
+    }
+   ],
+   "generated": false,
+   "name": "nanogpt",
+   "orphan_refs": [],
+   "purpose": "Educational GPT implementation in ~300 lines.",
+   "stale_api": "",
+   "upstream_path": "01-model-architecture/nanogpt"
+  },
+  {
+   "bytes": 36885,
+   "category": "01-model-architecture",
+   "dangling_links": [],
+   "dir": "rwkv",
+   "files": [
+    {
+     "bytes": 7099,
+     "path": "01-model-architecture/rwkv/SKILL.md",
+     "sha256": "17fc974b3f3b67b1648c5cb93b3bdc557fbd64df8463d8fbc8f71bdf88575a7c"
+    },
+    {
+     "bytes": 9496,
+     "path": "01-model-architecture/rwkv/references/architecture-details.md",
+     "sha256": "d94631dbfb10002de568e2678057b9726de219be0f6c212e6157de530bb3b837"
+    },
+    {
+     "bytes": 10605,
+     "path": "01-model-architecture/rwkv/references/rwkv7.md",
+     "sha256": "a780222b12ccf2b8eadd7182eed7619a0f6db59b487f2ef084d7d82d48a644c7"
+    },
+    {
+     "bytes": 9685,
+     "path": "01-model-architecture/rwkv/references/state-management.md",
+     "sha256": "28e0b45b99948840e41c3e89077c5c9d7f945f5dd0e0dde5ef657204aa2d9bc1"
+    }
+   ],
+   "generated": false,
+   "name": "rwkv-architecture",
+   "orphan_refs": [],
+   "purpose": "RNN+Transformer hybrid with O(n) inference.",
+   "stale_api": "pins pytorch-lightning==1.9.5",
+   "upstream_path": "01-model-architecture/rwkv"
+  },
+  {
+   "bytes": 29214,
+   "category": "01-model-architecture",
+   "dangling_links": [],
+   "dir": "torchtitan",
+   "files": [
+    {
+     "bytes": 8927,
+     "path": "01-model-architecture/torchtitan/SKILL.md",
+     "sha256": "530b85ddadfc69e2cfd3bbdd7cdb03c89f7ddd00ba0e84fed8ac43e98a25a4d8"
+    },
+    {
+     "bytes": 4404,
+     "path": "01-model-architecture/torchtitan/references/checkpoint.md",
+     "sha256": "b731d20482934acc719b808a4357ff764eeef597ec315fa03dd3a519a928357f"
+    },
+    {
+     "bytes": 7574,
+     "path": "01-model-architecture/torchtitan/references/custom-models.md",
+     "sha256": "5e8b49190dc4a5d8ec5223b0046571ef57101fd5ad5f3c3bd6e1c85f59718c38"
+    },
+    {
+     "bytes": 4239,
+     "path": "01-model-architecture/torchtitan/references/float8.md",
+     "sha256": "535fe9c912917997f255ee4f082e68ef69e9dddfc0184ad11ad77212d853d7ce"
+    },
+    {
+     "bytes": 4070,
+     "path": "01-model-architecture/torchtitan/references/fsdp.md",
+     "sha256": "c714574cc27b5d6b8cd2108f3ca562e20ece30dfc03b9b29e83c5af626cbb642"
+    }
+   ],
+   "generated": false,
+   "name": "distributed-llm-pretraining-torchtitan",
+   "orphan_refs": [],
+   "purpose": "Provides PyTorch-native distributed LLM pretraining using torchtitan with 4D parallelism (FSDP2, TP, PP, CP).",
+   "stale_api": "",
+   "upstream_path": "01-model-architecture/torchtitan"
+  },
+  {
+   "bytes": 76323,
+   "category": "02-tokenization",
+   "dangling_links": [],
+   "dir": "huggingface-tokenizers",
+   "files": [
+    {
+     "bytes": 13674,
+     "path": "02-tokenization/huggingface-tokenizers/SKILL.md",
+     "sha256": "d2ff3f9eed2cb8e15cb98e8e2398ca359325a32fd5d16ebfe0d115d7624583af"
+    },
+    {
+     "bytes": 15376,
+     "path": "02-tokenization/huggingface-tokenizers/references/algorithms.md",
+     "sha256": "9d88efa593c57596846ae60f80b06f742c75f64f971679f8f8d459ad0f2b3558"
+    },
+    {
+     "bytes": 15584,
+     "path": "02-tokenization/huggingface-tokenizers/references/integration.md",
+     "sha256": "e4de65e5e31d4ba286aeeb7732a9c61b1228f338d5bc07f332d9b30263a96ef4"
+    },
+    {
+     "bytes": 16938,
+     "path": "02-tokenization/huggingface-tokenizers/references/pipeline.md",
+     "sha256": "fc82b7f0fb0407fda9860058cc1c28f4e7b9f9758b15e1f1705230b153e5211e"
+    },
+    {
+     "bytes": 14751,
+     "path": "02-tokenization/huggingface-tokenizers/references/training.md",
+     "sha256": "a343bc4dbd256b1be22e5e35e6d4d3747493e24b0dc0988ecc0b0ffba8cdc9d5"
+    }
+   ],
+   "generated": false,
+   "name": "huggingface-tokenizers",
+   "orphan_refs": [],
+   "purpose": "Fast tokenizers optimized for research and production.",
+   "stale_api": "",
+   "upstream_path": "02-tokenization/huggingface-tokenizers"
+  },
+  {
+   "bytes": 16452,
+   "category": "02-tokenization",
+   "dangling_links": [],
+   "dir": "sentencepiece",
+   "files": [
+    {
+     "bytes": 5632,
+     "path": "02-tokenization/sentencepiece/SKILL.md",
+     "sha256": "47b1d10f419a51a400010bcd80d99a8bdb5c4510fc3e57fe9bc9be7efa6a48f8"
+    },
+    {
+     "bytes": 4397,
+     "path": "02-tokenization/sentencepiece/references/algorithms.md",
+     "sha256": "5e9d2fc8bce6cf1bbe821f2ef86922feb2422a97a053ac130e9bc22b39be1fd4"
+    },
+    {
+     "bytes": 6423,
+     "path": "02-tokenization/sentencepiece/references/training.md",
+     "sha256": "6064300e4168e5aae3ed2153333ab5fa7a39eb028be1bc98861d73ed14c846f8"
+    }
+   ],
+   "generated": false,
+   "name": "sentencepiece",
+   "orphan_refs": [],
+   "purpose": "Language-independent tokenizer treating text as raw Unicode.",
+   "stale_api": "",
+   "upstream_path": "02-tokenization/sentencepiece"
+  },
+  {
+   "bytes": 313288,
+   "category": "03-fine-tuning",
+   "dangling_links": [],
+   "dir": "axolotl",
+   "files": [
+    {
+     "bytes": 4797,
+     "path": "03-fine-tuning/axolotl/SKILL.md",
+     "sha256": "9273d534cd6a06612b18418f2cd98f63d1ac9bb780eda511a91800dee48f1dda"
+    },
+    {
+     "bytes": 121313,
+     "path": "03-fine-tuning/axolotl/references/api.md",
+     "sha256": "76262d3cfb5c63f7a89361704e60cd775decbc86d7e7d8613734a9a66a479bcb"
+    },
+    {
+     "bytes": 46226,
+     "path": "03-fine-tuning/axolotl/references/dataset-formats.md",
+     "sha256": "3e9e791aabf4fd010a610ba743e38248050e740d8679cee62c31c94a5bcbc402"
+    },
+    {
+     "bytes": 372,
+     "path": "03-fine-tuning/axolotl/references/index.md",
+     "sha256": "9a7b1ae6eb57f6b5a5edc8b4285f5cfc24716c7ce011a528de6c56fe93b0e43f"
+    },
+    {
+     "bytes": 140580,
+     "path": "03-fine-tuning/axolotl/references/other.md",
+     "sha256": "f07710eda209b7d629ee1abdf69e4bd53ff7199e808590f66960b57c05e29204"
+    }
+   ],
+   "generated": true,
+   "name": "axolotl",
+   "orphan_refs": [
+    "03-fine-tuning/axolotl/references/index.md"
+   ],
+   "purpose": "Expert guidance for fine-tuning LLMs with Axolotl - YAML configs, 100+ models, LoRA/QLoRA, DPO/KTO/ORPO/GRPO, multimodal support",
+   "stale_api": "",
+   "upstream_path": "03-fine-tuning/axolotl"
+  },
+  {
+   "bytes": 69128,
+   "category": "03-fine-tuning",
+   "dangling_links": [],
+   "dir": "llama-factory",
+   "files": [
+    {
+     "bytes": 2472,
+     "path": "03-fine-tuning/llama-factory/SKILL.md",
+     "sha256": "6adfd1babfbfe2f85e0fcbde518f24a804ebe06afeb8682ce1df395284d6f5cb"
+    },
+    {
+     "bytes": 488,
+     "path": "03-fine-tuning/llama-factory/references/_images.md",
+     "sha256": "08f1d35e8c9c5e28847449e6d508075286e80fc58c95a01a5038533cdced4962"
+    },
+    {
+     "bytes": 48005,
+     "path": "03-fine-tuning/llama-factory/references/advanced.md",
+     "sha256": "6f55e53d908a729da4f5298a0bd7fad3edad4db3a37eae97992746dde5c2f25f"
+    },
+    {
+     "bytes": 16377,
+     "path": "03-fine-tuning/llama-factory/references/getting_started.md",
+     "sha256": "b2cb8f5e02047d9ca3fffa2df09b6ae09ca289a35892743b010fb761d0d5e626"
+    },
+    {
+     "bytes": 441,
+     "path": "03-fine-tuning/llama-factory/references/index.md",
+     "sha256": "17d5203aea5c4f8f1789b839aa1106f691c41ab18a35e2db362209400b9b5fec"
+    },
+    {
+     "bytes": 1345,
+     "path": "03-fine-tuning/llama-factory/references/other.md",
+     "sha256": "e407dfd8697a94ff4ce81f2354e184de8ca380ee098b5a8fe109e27b0b516be3"
+    }
+   ],
+   "generated": true,
+   "name": "llama-factory",
+   "orphan_refs": [
+    "03-fine-tuning/llama-factory/references/index.md"
+   ],
+   "purpose": "Expert guidance for fine-tuning LLMs with LLaMA-Factory - WebUI no-code, 100+ models, 2/3/4/5/6/8-bit QLoRA, multimodal support",
+   "stale_api": "",
+   "upstream_path": "03-fine-tuning/llama-factory"
+  },
+  {
+   "bytes": 35454,
+   "category": "03-fine-tuning",
+   "dangling_links": [],
+   "dir": "peft",
+   "files": [
+    {
+     "bytes": 12210,
+     "path": "03-fine-tuning/peft/SKILL.md",
+     "sha256": "acdb318f94624517c8cdb3c925c7a2e8b34c65e8ca02b301777c51eea9f0f73c"
+    },
+    {
+     "bytes": 12720,
+     "path": "03-fine-tuning/peft/references/advanced-usage.md",
+     "sha256": "09d75a2011b2fddc2f9d3548bfd3289493ad8c2a88a0a697f62da78bae5e2d73"
+    },
+    {
+     "bytes": 10524,
+     "path": "03-fine-tuning/peft/references/troubleshooting.md",
+     "sha256": "904bb9865b5f36fb75ac37f54e480eff813840488e24ea9a4443e636b57f315a"
+    }
+   ],
+   "generated": false,
+   "name": "peft-fine-tuning",
+   "orphan_refs": [],
+   "purpose": "Parameter-efficient fine-tuning for LLMs using LoRA, QLoRA, and 25+ methods.",
+   "stale_api": "",
+   "upstream_path": "03-fine-tuning/peft"
+  },
+  {
+   "bytes": 15257,
+   "category": "03-fine-tuning",
+   "dangling_links": [],
+   "dir": "unsloth",
+   "files": [
+    {
+     "bytes": 2307,
+     "path": "03-fine-tuning/unsloth/SKILL.md",
+     "sha256": "ac7f1d1f87d08d7f8713f07c1f6522268b814acea850f97bc986e00f8b461bc3"
+    },
+    {
+     "bytes": 271,
+     "path": "03-fine-tuning/unsloth/references/index.md",
+     "sha256": "85e14d38c4671557ff6f4f6b826c8bd847be9d8cac80649804aa4b338dd7d237"
+    },
+    {
+     "bytes": 12679,
+     "path": "03-fine-tuning/unsloth/references/llms.md",
+     "sha256": "81490aff23b4ad88cfe84b8034acc81eb3688c3508a3b468a733110b6c41f0a5"
+    }
+   ],
+   "generated": true,
+   "name": "unsloth",
+   "orphan_refs": [
+    "03-fine-tuning/unsloth/references/index.md",
+    "03-fine-tuning/unsloth/references/llms.md"
+   ],
+   "purpose": "Expert guidance for fast fine-tuning with Unsloth - 2-5x faster training, 50-80% less memory, LoRA/QLoRA optimization",
+   "stale_api": "",
+   "upstream_path": "03-fine-tuning/unsloth"
+  },
+  {
+   "bytes": 30682,
+   "category": "04-mechanistic-interpretability",
+   "dangling_links": [],
+   "dir": "nnsight",
+   "files": [
+    {
+     "bytes": 13066,
+     "path": "04-mechanistic-interpretability/nnsight/SKILL.md",
+     "sha256": "f79dc9daf99c4ffbcb82072b4f162c296e4365dbb2fe6985e77be215ba0c814c"
+    },
+    {
+     "bytes": 2104,
+     "path": "04-mechanistic-interpretability/nnsight/references/README.md",
+     "sha256": "352083a1ada3951bdea66695ec3be217473d76beed97dedc945534c8755d69bc"
+    },
+    {
+     "bytes": 7348,
+     "path": "04-mechanistic-interpretability/nnsight/references/api.md",
+     "sha256": "0e9d3b227f69344148e09a7f6dadc228755326dd79dd7103477322c3a65a6ddb"
+    },
+    {
+     "bytes": 8164,
+     "path": "04-mechanistic-interpretability/nnsight/references/tutorials.md",
+     "sha256": "e1836658293959ad390e8a1a7f80b47c2b42fb7393e4ee91f47fe1c89eb506fc"
+    }
+   ],
+   "generated": false,
+   "name": "nnsight-remote-interpretability",
+   "orphan_refs": [],
+   "purpose": "Provides guidance for interpreting and manipulating neural network internals using nnsight with optional NDIF remote execution.",
+   "stale_api": "",
+   "upstream_path": "04-mechanistic-interpretability/nnsight"
+  },
+  {
+   "bytes": 34801,
+   "category": "04-mechanistic-interpretability",
+   "dangling_links": [],
+   "dir": "pyvene",
+   "files": [
+    {
+     "bytes": 14144,
+     "path": "04-mechanistic-interpretability/pyvene/SKILL.md",
+     "sha256": "cc26be84bdf23355f63cf103847a13618122157d17448be6ea16f94f3338f4d1"
+    },
+    {
+     "bytes": 2295,
+     "path": "04-mechanistic-interpretability/pyvene/references/README.md",
+     "sha256": "26085f4307705a6cac9210f856941c2138eb6852800135e25571f069c44ac7ef"
+    },
+    {
+     "bytes": 8058,
+     "path": "04-mechanistic-interpretability/pyvene/references/api.md",
+     "sha256": "d63785059b5e6ec7f4faafa9b5b37490c29d9f088a7f617d07f6a58ce5bd2a75"
+    },
+    {
+     "bytes": 10304,
+     "path": "04-mechanistic-interpretability/pyvene/references/tutorials.md",
+     "sha256": "935f1eb99d9e35abe1ff37d71d78e46b04b560b42c84bef73e0608c18c15f238"
+    }
+   ],
+   "generated": false,
+   "name": "pyvene-interventions",
+   "orphan_refs": [],
+   "purpose": "Provides guidance for performing causal interventions on PyTorch models using pyvene's declarative intervention framework.",
+   "stale_api": "",
+   "upstream_path": "04-mechanistic-interpretability/pyvene"
+  },
+  {
+   "bytes": 31833,
+   "category": "04-mechanistic-interpretability",
+   "dangling_links": [],
+   "dir": "saelens",
+   "files": [
+    {
+     "bytes": 12754,
+     "path": "04-mechanistic-interpretability/saelens/SKILL.md",
+     "sha256": "3af1fa0e513a96c953f4fbd28b1a6cd764fa9c27e512c6f0cfd2b80c2a1706ae"
+    },
+    {
+     "bytes": 2346,
+     "path": "04-mechanistic-interpretability/saelens/references/README.md",
+     "sha256": "0fec49e9a4af6e298cda2c8988c537f9cab0ba11ab8fa4c9fe698e429343fdd4"
+    },
+    {
+     "bytes": 7156,
+     "path": "04-mechanistic-interpretability/saelens/references/api.md",
+     "sha256": "02e1d737703851a5d0ddbe9e6d87d4dcafa8bd79e87551e0428ca54cd40160ca"
+    },
+    {
+     "bytes": 9577,
+     "path": "04-mechanistic-interpretability/saelens/references/tutorials.md",
+     "sha256": "600a2ac0f5b2cfe18b24052a8675312426c1cbf58c78c404971c70b01e3a6011"
+    }
+   ],
+   "generated": false,
+   "name": "sparse-autoencoder-training",
+   "orphan_refs": [],
+   "purpose": "Provides guidance for training and analyzing Sparse Autoencoders (SAEs) using SAELens to decompose neural network activations into interpretable features.",
+   "stale_api": "",
+   "upstream_path": "04-mechanistic-interpretability/saelens"
+  },
+  {
+   "bytes": 32770,
+   "category": "04-mechanistic-interpretability",
+   "dangling_links": [],
+   "dir": "transformer-lens",
+   "files": [
+    {
+     "bytes": 12036,
+     "path": "04-mechanistic-interpretability/transformer-lens/SKILL.md",
+     "sha256": "9ac5a790a59f46e430a9015a1e8c52338666f3426e36085c4ef38665b10b4e24"
+    },
+    {
+     "bytes": 1843,
+     "path": "04-mechanistic-interpretability/transformer-lens/references/README.md",
+     "sha256": "575415e634dfff00d159f281052f6e6faf358f02ce1aac08df4436341c1b0406"
+    },
+    {
+     "bytes": 8546,
+     "path": "04-mechanistic-interpretability/transformer-lens/references/api.md",
+     "sha256": "6b2c4bec2fe679900bf4855613a4d66816acb58e01b7600418eed6b5b3aac4a5"
+    },
+    {
+     "bytes": 10345,
+     "path": "04-mechanistic-interpretability/transformer-lens/references/tutorials.md",
+     "sha256": "5d819225b23408f4b0ef5770d0d98136fc6eb4dab64e54431fc1094c059aff36"
+    }
+   ],
+   "generated": false,
+   "name": "transformer-lens-interpretability",
+   "orphan_refs": [],
+   "purpose": "Provides guidance for mechanistic interpretability research using TransformerLens to inspect and manipulate transformer internals via HookPoints and activation caching.",
+   "stale_api": "",
+   "upstream_path": "04-mechanistic-interpretability/transformer-lens"
+  },
+  {
+   "bytes": 14207,
+   "category": "05-data-processing",
+   "dangling_links": [],
+   "dir": "nemo-curator",
+   "files": [
+    {
+     "bytes": 9338,
+     "path": "05-data-processing/nemo-curator/SKILL.md",
+     "sha256": "d8586e21ecd4df1a32371f8d86746f8fbd88358f5dc8957e5dd91a473d2ab484"
+    },
+    {
+     "bytes": 2332,
+     "path": "05-data-processing/nemo-curator/references/deduplication.md",
+     "sha256": "a0f3be33b04b205d70353fc6896351a8a8ab2761370ee807da2f4ca8c40dca6a"
+    },
+    {
+     "bytes": 2537,
+     "path": "05-data-processing/nemo-curator/references/filtering.md",
+     "sha256": "7cbb0cce5f6f3f63e708cb1d05744cf16b3eec07a8359d587cdb617350b3b411"
+    }
+   ],
+   "generated": false,
+   "name": "nemo-curator",
+   "orphan_refs": [],
+   "purpose": "GPU-accelerated data curation for LLM training.",
+   "stale_api": "",
+   "upstream_path": "05-data-processing/nemo-curator"
+  },
+  {
+   "bytes": 11215,
+   "category": "05-data-processing",
+   "dangling_links": [],
+   "dir": "ray-data",
+   "files": [
+    {
+     "bytes": 7328,
+     "path": "05-data-processing/ray-data/SKILL.md",
+     "sha256": "bcc73b3341dca18c59cad092cb6dedb7ac0bf0bde80467a039921ac0c02256c3"
+    },
+    {
+     "bytes": 2035,
+     "path": "05-data-processing/ray-data/references/integration.md",
+     "sha256": "5b90952fd4a73c92b8374bb61c59b42ef6eeda019be1dec4700623d84bbb8f2e"
+    },
+    {
+     "bytes": 1852,
+     "path": "05-data-processing/ray-data/references/transformations.md",
+     "sha256": "2d7224ae563f7f1a64ac8cdf2b1dcb21cee0d1cd7801ea34a5abc9392538e44a"
+    }
+   ],
+   "generated": false,
+   "name": "ray-data",
+   "orphan_refs": [],
+   "purpose": "Scalable data processing for ML workloads.",
+   "stale_api": "",
+   "upstream_path": "05-data-processing/ray-data"
+  },
+  {
+   "bytes": 20888,
+   "category": "06-post-training",
+   "dangling_links": [],
+   "dir": "grpo-rl-training",
+   "files": [
+    {
+     "bytes": 3688,
+     "path": "06-post-training/grpo-rl-training/README.md",
+     "sha256": "0d221980acec1b05f93beda7b1e6dad024acf1b2ee8836593be7c951798e4035"
+    },
+    {
+     "bytes": 17200,
+     "path": "06-post-training/grpo-rl-training/SKILL.md",
+     "sha256": "c9b771c280840f12d0e98749250c35df4a83a21f95465c41e8ae13f0229ecb40"
+    }
+   ],
+   "generated": false,
+   "name": "grpo-rl-training",
+   "orphan_refs": [],
+   "purpose": "Expert guidance for GRPO/RL fine-tuning with TRL for reasoning and task-specific model training",
+   "stale_api": "",
+   "upstream_path": "06-post-training/grpo-rl-training"
+  },
+  {
+   "bytes": 19215,
+   "category": "06-post-training",
+   "dangling_links": [],
+   "dir": "miles",
+   "files": [
+    {
+     "bytes": 8900,
+     "path": "06-post-training/miles/SKILL.md",
+     "sha256": "cbf610faa37bfb97fc06a7d6a4c748867c29e4b4c79f1ae109662af5245a106e"
+    },
+    {
+     "bytes": 4318,
+     "path": "06-post-training/miles/references/api-reference.md",
+     "sha256": "13d20d2203003fd3f57e6164a9f5bfd8df778614dac35b431ac9edf74998a22e"
+    },
+    {
+     "bytes": 5997,
+     "path": "06-post-training/miles/references/troubleshooting.md",
+     "sha256": "eb6395f43e934a8ea286cc9bafbf2dc1379c48f905f3617a299c282a02eeacfd"
+    }
+   ],
+   "generated": false,
+   "name": "miles-rl-training",
+   "orphan_refs": [
+    "06-post-training/miles/references/troubleshooting.md"
+   ],
+   "purpose": "Provides guidance for enterprise-grade RL training using miles, a production-ready fork of slime.",
+   "stale_api": "",
+   "upstream_path": "06-post-training/miles"
+  },
+  {
+   "bytes": 53142,
+   "category": "06-post-training",
+   "dangling_links": [],
+   "dir": "openrlhf",
+   "files": [
+    {
+     "bytes": 8379,
+     "path": "06-post-training/openrlhf/SKILL.md",
+     "sha256": "eb9da6a1a81c492fb143cde0714f355ab042fcfe967b31bdb1fc78a5cb0e761f"
+    },
+    {
+     "bytes": 9974,
+     "path": "06-post-training/openrlhf/references/algorithm-comparison.md",
+     "sha256": "d841ebbd6a24b55aaa85769a5b7625883cbf5317c248cd3e19912e145bc6d31f"
+    },
+    {
+     "bytes": 16050,
+     "path": "06-post-training/openrlhf/references/custom-rewards.md",
+     "sha256": "d1913cf92f4156c08250d4bb223d686a8381ba6414533b9390873d219557bad4"
+    },
+    {
+     "bytes": 7450,
+     "path": "06-post-training/openrlhf/references/hybrid-engine.md",
+     "sha256": "0efa918e112ca4fc515bb38f2c0d165ca7793f53fce0f7630d88b747002c8ec9"
+    },
+    {
+     "bytes": 11289,
+     "path": "06-post-training/openrlhf/references/multi-node-training.md",
+     "sha256": "62e5176c8620a2975feaf85a7d8bc376c2df4cfc6d292247349514d5ce483038"
+    }
+   ],
+   "generated": false,
+   "name": "openrlhf-training",
+   "orphan_refs": [],
+   "purpose": "High-performance RLHF framework with Ray+vLLM acceleration.",
+   "stale_api": "",
+   "upstream_path": "06-post-training/openrlhf"
+  },
+  {
+   "bytes": 32915,
+   "category": "06-post-training",
+   "dangling_links": [],
+   "dir": "simpo",
+   "files": [
+    {
+     "bytes": 5916,
+     "path": "06-post-training/simpo/SKILL.md",
+     "sha256": "2a74bd2378857c520066fbe84fc0c6c556d0fa0b8c4afde1eab1c0abfb51ed8a"
+    },
+    {
+     "bytes": 11065,
+     "path": "06-post-training/simpo/references/datasets.md",
+     "sha256": "bfee6cb82b25807118861196df5d7be34971e34f95eb58511e901f5e72b11449"
+    },
+    {
+     "bytes": 8685,
+     "path": "06-post-training/simpo/references/hyperparameters.md",
+     "sha256": "c0b272ab3d780e220f7a4a0cd42e32e3209fe913e876543f46c267be96065ebc"
+    },
+    {
+     "bytes": 7249,
+     "path": "06-post-training/simpo/references/loss-functions.md",
+     "sha256": "1bf444b576fa1a16c543b23feeba6635ad8cbafd4482e55f1e0bb68b98797085"
+    }
+   ],
+   "generated": false,
+   "name": "simpo-training",
+   "orphan_refs": [],
+   "purpose": "Simple Preference Optimization for LLM alignment.",
+   "stale_api": "",
+   "upstream_path": "06-post-training/simpo"
+  },
+  {
+   "bytes": 31092,
+   "category": "06-post-training",
+   "dangling_links": [],
+   "dir": "slime",
+   "files": [
+    {
+     "bytes": 11600,
+     "path": "06-post-training/slime/SKILL.md",
+     "sha256": "117c8fd2d57d878e45c698f9f0485326ed4630aeaec761aa1222d7a36458cc07"
+    },
+    {
+     "bytes": 12088,
+     "path": "06-post-training/slime/references/api-reference.md",
+     "sha256": "f3b2b9b11dc006611f3262993470d8956db590c2811bf3dc10735c528987e7c1"
+    },
+    {
+     "bytes": 7404,
+     "path": "06-post-training/slime/references/troubleshooting.md",
+     "sha256": "8b9d409050216c99746f73ddecc1cb26178ba1145f453c1f464c94075780571b"
+    }
+   ],
+   "generated": false,
+   "name": "slime-rl-training",
+   "orphan_refs": [
+    "06-post-training/slime/references/api-reference.md",
+    "06-post-training/slime/references/troubleshooting.md"
+   ],
+   "purpose": "Provides guidance for LLM post-training with RL using slime, a Megatron+SGLang framework.",
+   "stale_api": "",
+   "upstream_path": "06-post-training/slime"
+  },
+  {
+   "bytes": 26502,
+   "category": "06-post-training",
+   "dangling_links": [],
+   "dir": "torchforge",
+   "files": [
+    {
+     "bytes": 10734,
+     "path": "06-post-training/torchforge/SKILL.md",
+     "sha256": "809da22c47d5caadbcca9d3db7e82e227c174dbaa98f4a01cf2a678ffaffcbf0"
+    },
+    {
+     "bytes": 8871,
+     "path": "06-post-training/torchforge/references/api-reference.md",
+     "sha256": "08c882bec0c6218cc4ff8b4a42a901b8a4bc94899d3204f7252907aa5c08d783"
+    },
+    {
+     "bytes": 6897,
+     "path": "06-post-training/torchforge/references/troubleshooting.md",
+     "sha256": "d169dc8cccb3d04d0eb03b2d1ad6661ea7e05e89800d5193034a7c2ea41ff5be"
+    }
+   ],
+   "generated": false,
+   "name": "torchforge-rl-training",
+   "orphan_refs": [
+    "06-post-training/torchforge/references/api-reference.md",
+    "06-post-training/torchforge/references/troubleshooting.md"
+   ],
+   "purpose": "Provides guidance for PyTorch-native agentic RL using torchforge, Meta's library separating infra from algorithms.",
+   "stale_api": "",
+   "upstream_path": "06-post-training/torchforge"
+  },
+  {
+   "bytes": 24313,
+   "category": "06-post-training",
+   "dangling_links": [],
+   "dir": "trl-fine-tuning",
+   "files": [
+    {
+     "bytes": 11451,
+     "path": "06-post-training/trl-fine-tuning/SKILL.md",
+     "sha256": "d68f78ad741627ce7dcdf2ce78c73c8cf31d23db7d89555e0bdd0cd35c413811"
+    },
+    {
+     "bytes": 4487,
+     "path": "06-post-training/trl-fine-tuning/references/dpo-variants.md",
+     "sha256": "0c867a75b5b977e8a24745d0bd15c873fcce8fce0d49fe9e80d1e3145af4400a"
+    },
+    {
+     "bytes": 2158,
+     "path": "06-post-training/trl-fine-tuning/references/online-rl.md",
+     "sha256": "653f9c8762cea5e44e7eef71ecd17ca1c27ac28609da6413397650b05334f16e"
+    },
+    {
+     "bytes": 2790,
+     "path": "06-post-training/trl-fine-tuning/references/reward-modeling.md",
+     "sha256": "7ece2815247b74d450fc85b658b8e5f2be04f6b37f4863ce5c3879ca96eb6e77"
+    },
+    {
+     "bytes": 3427,
+     "path": "06-post-training/trl-fine-tuning/references/sft-training.md",
+     "sha256": "7733d783e22ac554bd799b9a399ae534da044c584e693bf95794abea979e89d9"
+    }
+   ],
+   "generated": false,
+   "name": "fine-tuning-with-trl",
+   "orphan_refs": [],
+   "purpose": "Fine-tune LLMs using reinforcement learning with TRL - SFT for instruction tuning, DPO for preference alignment, PPO/GRPO for reward optimization, and reward model training.",
+   "stale_api": "",
+   "upstream_path": "06-post-training/trl-fine-tuning"
+  },
+  {
+   "bytes": 24418,
+   "category": "06-post-training",
+   "dangling_links": [
+    "references/multi-turn.md"
+   ],
+   "dir": "verl",
+   "files": [
+    {
+     "bytes": 10323,
+     "path": "06-post-training/verl/SKILL.md",
+     "sha256": "1167e2b2994c9b0780edc44d5bc3a3eef69dc816af08af8f28ef9c19163d1285"
+    },
+    {
+     "bytes": 7121,
+     "path": "06-post-training/verl/references/api-reference.md",
+     "sha256": "3e913f15ccd3c81761769c8f00ced1f1c8e28694efbe1cd66a0a738845da388c"
+    },
+    {
+     "bytes": 6974,
+     "path": "06-post-training/verl/references/troubleshooting.md",
+     "sha256": "f32469375383a26f54623dad5f9306a0a8cad021a93027874f5e862f111d1bb6"
+    }
+   ],
+   "generated": false,
+   "name": "verl-rl-training",
+   "orphan_refs": [
+    "06-post-training/verl/references/api-reference.md",
+    "06-post-training/verl/references/troubleshooting.md"
+   ],
+   "purpose": "Provides guidance for training LLMs with reinforcement learning using verl (Volcano Engine RL).",
+   "stale_api": "",
+   "upstream_path": "06-post-training/verl"
+  },
+  {
+   "bytes": 8177,
+   "category": "07-safety-alignment",
+   "dangling_links": [
+    "references/constitution-design.md",
+    "references/cot-critique.md",
+    "references/rlaif-comparison.md"
+   ],
+   "dir": "constitutional-ai",
+   "files": [
+    {
+     "bytes": 8177,
+     "path": "07-safety-alignment/constitutional-ai/SKILL.md",
+     "sha256": "186267074ebdae7d3f9a5c8fb1505536c31bbe7ffba5fd18a052f8258d2005c0"
+    }
+   ],
+   "generated": false,
+   "name": "constitutional-ai",
+   "orphan_refs": [],
+   "purpose": "Anthropic's method for training harmless AI through self-improvement.",
+   "stale_api": "",
+   "upstream_path": "07-safety-alignment/constitutional-ai"
+  },
+  {
+   "bytes": 9204,
+   "category": "07-safety-alignment",
+   "dangling_links": [
+    "references/custom-categories.md"
+   ],
+   "dir": "llamaguard",
+   "files": [
+    {
+     "bytes": 9204,
+     "path": "07-safety-alignment/llamaguard/SKILL.md",
+     "sha256": "80c5afb39cb153d82e08dca44fbd3ea75a5e950b8bef65c2c1af8bbbe9ef3992"
+    }
+   ],
+   "generated": false,
+   "name": "llamaguard",
+   "orphan_refs": [],
+   "purpose": "Meta's 7-8B specialized moderation model for LLM input/output filtering.",
+   "stale_api": "",
+   "upstream_path": "07-safety-alignment/llamaguard"
+  },
+  {
+   "bytes": 7642,
+   "category": "07-safety-alignment",
+   "dangling_links": [
+    "references/colang-guide.md"
+   ],
+   "dir": "nemo-guardrails",
+   "files": [
+    {
+     "bytes": 7642,
+     "path": "07-safety-alignment/nemo-guardrails/SKILL.md",
+     "sha256": "d0d91892eaba80cf829ef6bb1b37f3b5fa8cc31ba1fa89d162ab380b90ca2762"
+    }
+   ],
+   "generated": false,
+   "name": "nemo-guardrails",
+   "orphan_refs": [],
+   "purpose": "NVIDIA's runtime safety framework for LLM applications.",
+   "stale_api": "",
+   "upstream_path": "07-safety-alignment/nemo-guardrails"
+  },
+  {
+   "bytes": 9455,
+   "category": "07-safety-alignment",
+   "dangling_links": [],
+   "dir": "prompt-guard",
+   "files": [
+    {
+     "bytes": 9455,
+     "path": "07-safety-alignment/prompt-guard/SKILL.md",
+     "sha256": "0291e30b5549f0398f4bbe72f8918f16eced4c75d45dfd7c87648f72dc97ecce"
+    }
+   ],
+   "generated": false,
+   "name": "prompt-guard",
+   "orphan_refs": [],
+   "purpose": "Meta's 86M prompt injection and jailbreak detector.",
+   "stale_api": "",
+   "upstream_path": "07-safety-alignment/prompt-guard"
+  },
+  {
+   "bytes": 44527,
+   "category": "08-distributed-training",
+   "dangling_links": [],
+   "dir": "accelerate",
+   "files": [
+    {
+     "bytes": 8340,
+     "path": "08-distributed-training/accelerate/SKILL.md",
+     "sha256": "e94cea7a174f395df02d935065fe05db8ecb637c52e443b6380c703963758d7a"
+    },
+    {
+     "bytes": 11975,
+     "path": "08-distributed-training/accelerate/references/custom-plugins.md",
+     "sha256": "60f02e84ed6d46c9df10195e1ab4f8ddb5a3078c407e440ca66d6189310d65a2"
+    },
+    {
+     "bytes": 11452,
+     "path": "08-distributed-training/accelerate/references/megatron-integration.md",
+     "sha256": "36228aff792da52132ff4a4c0c1df42b6c38d43e8a530acfa0ece776938cd68b"
+    },
+    {
+     "bytes": 12760,
+     "path": "08-distributed-training/accelerate/references/performance.md",
+     "sha256": "a7e5d027fdc11b94ea2bd8a726142d9020a48ab72b5e4c3821c6fc464f3546a2"
+    }
+   ],
+   "generated": false,
+   "name": "huggingface-accelerate",
+   "orphan_refs": [],
+   "purpose": "Simplest distributed training API.",
+   "stale_api": "",
+   "upstream_path": "08-distributed-training/accelerate"
+  },
+  {
+   "bytes": 335477,
+   "category": "08-distributed-training",
+   "dangling_links": [],
+   "dir": "deepspeed",
+   "files": [
+    {
+     "bytes": 144988,
+     "path": "08-distributed-training/deepspeed/SKILL.md",
+     "sha256": "8c2221b797e650a933800cfa45282a70caca20aaa85cbcece6e16acf1020dc39"
+    },
+    {
+     "bytes": 485,
+     "path": "08-distributed-training/deepspeed/references/08.md",
+     "sha256": "28e3bcc020f94d3a12ea6b867f78e4d9a101473839909d195ed22fb9fad59042"
+    },
+    {
+     "bytes": 27704,
+     "path": "08-distributed-training/deepspeed/references/09.md",
+     "sha256": "dfc01750ac343a7a2cf7d27b90b20431565c0b263db50de68576a5d2fa51c13e"
+    },
+    {
+     "bytes": 35999,
+     "path": "08-distributed-training/deepspeed/references/2020.md",
+     "sha256": "07e3ff91608aa5ae06eaad533dfe26afe0e33c51bf89cc73e72f391d9659f2e2"
+    },
+    {
+     "bytes": 11970,
+     "path": "08-distributed-training/deepspeed/references/2023.md",
+     "sha256": "9ec9b5d06bcffdbc89ad0bbdfef79fbf973c6213d920ac6f8d826460aeed41a1"
+    },
+    {
+     "bytes": 2676,
+     "path": "08-distributed-training/deepspeed/references/assets.md",
+     "sha256": "2e81c5b25a1509d66f8a35af0891b625ce801df2fe477888a0bd3d17c96b0080"
+    },
+    {
+     "bytes": 586,
+     "path": "08-distributed-training/deepspeed/references/index.md",
+     "sha256": "cad69f49711b5187c8f93dda29b8cdee842a30667dcdaf29a08324bf51bd1283"
+    },
+    {
+     "bytes": 11218,
+     "path": "08-distributed-training/deepspeed/references/mii.md",
+     "sha256": "84f0a2a245b3fcfb962074c431e7a5e55269c212b5f2041038feb591eb30fa1b"
+    },
+    {
+     "bytes": 99851,
+     "path": "08-distributed-training/deepspeed/references/other.md",
+     "sha256": "1abd79acdaf97d652b276ee2fa1960e847c866213f7e31f0fb9e0b04dbdc4b67"
+    }
+   ],
+   "generated": true,
+   "name": "deepspeed",
+   "orphan_refs": [
+    "08-distributed-training/deepspeed/references/index.md"
+   ],
+   "purpose": "Expert guidance for distributed training with DeepSpeed - ZeRO optimization stages, pipeline parallelism, FP16/BF16/FP8, 1-bit Adam, sparse attention",
+   "stale_api": "",
+   "upstream_path": "08-distributed-training/deepspeed"
+  },
+  {
+   "bytes": 49945,
+   "category": "08-distributed-training",
+   "dangling_links": [],
+   "dir": "megatron-core",
+   "files": [
+    {
+     "bytes": 9706,
+     "path": "08-distributed-training/megatron-core/SKILL.md",
+     "sha256": "6e69257341b9ee01b22a46905e93f6fe2339b9f8147c7f77da46be7b366b6556"
+    },
+    {
+     "bytes": 7556,
+     "path": "08-distributed-training/megatron-core/references/benchmarks.md",
+     "sha256": "6b35384a3e178d3b1b2aa24d96d8b214e10e0196c7aa76ed7d4eb6d4b6e2b4de"
+    },
+    {
+     "bytes": 9791,
+     "path": "08-distributed-training/megatron-core/references/parallelism-guide.md",
+     "sha256": "f269433584d4a1f8cd64212f5522e8ad4492b37f3b28afaca8709150ab1ea9b1"
+    },
+    {
+     "bytes": 11105,
+     "path": "08-distributed-training/megatron-core/references/production-examples.md",
+     "sha256": "bb04a45a8fdfb06d344d24dfab5c5973598f8ae06dc08e8a5b1336c2e6f233f7"
+    },
+    {
+     "bytes": 11787,
+     "path": "08-distributed-training/megatron-core/references/training-recipes.md",
+     "sha256": "fb20f9591fa13a6a56ccebae759e5a4c48452750f251a77c718bf9295a7e83ab"
+    }
+   ],
+   "generated": false,
+   "name": "training-llms-megatron",
+   "orphan_refs": [],
+   "purpose": "Trains large language models (2B-462B parameters) using NVIDIA Megatron-Core with advanced parallelism strategies.",
+   "stale_api": "",
+   "upstream_path": "08-distributed-training/megatron-core"
+  },
+  {
+   "bytes": 26767,
+   "category": "08-distributed-training",
+   "dangling_links": [],
+   "dir": "pytorch-fsdp2",
+   "files": [
+    {
+     "bytes": 10992,
+     "path": "08-distributed-training/pytorch-fsdp2/SKILL.md",
+     "sha256": "b540043bd17d741840843df2f76d556d41be29c82a2acd85565ce2b1ce088a50"
+    },
+    {
+     "bytes": 1015,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_dcp_async_recipe.md",
+     "sha256": "89486d844294e8539206d7fdbebf6d1df284137592a378ef5ae52786d04361fb"
+    },
+    {
+     "bytes": 1225,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_dcp_overview.md",
+     "sha256": "b3dc9abca926495908a9dd71dc20632f8ab6e8f19f23d7f1951acd1836aa980e"
+    },
+    {
+     "bytes": 1244,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_dcp_recipe.md",
+     "sha256": "9a22b0acc454351aa45ca8f80a40f2bf021109dd5123bbac3ec6e1927d1e9a08"
+    },
+    {
+     "bytes": 661,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_ddp_notes.md",
+     "sha256": "f4e1ed7da2a00cd0ae38a03c25a4496745470687c18c60a96ec1cb80a89258f0"
+    },
+    {
+     "bytes": 1433,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_device_mesh_tutorial.md",
+     "sha256": "b5972fad1d3abd530fad3f3602c30e4c629b95bb24857762e07b38fae473c2ef"
+    },
+    {
+     "bytes": 947,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_examples_fsdp2.md",
+     "sha256": "d34f4425bc94a2889565005d6e3ca3fd3762e77590b98f67fd8e5da8bcbcc9f8"
+    },
+    {
+     "bytes": 596,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_fsdp1_api.md",
+     "sha256": "cc78b10db942d5e1f54801510d6c91ca4c3334f102a221aeba007235809c2cca"
+    },
+    {
+     "bytes": 2700,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_fsdp2_tutorial.md",
+     "sha256": "b0b37796f27eba939bc2784ca0a727e90dc4a2af40e20c9dfbb0b2d1f75c6bfd"
+    },
+    {
+     "bytes": 3090,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_fully_shard_api.md",
+     "sha256": "7f4af555ff7177537c48e338bb1ec1f5c05fa874edfdcc90967fbe6515c00bb5"
+    },
+    {
+     "bytes": 1196,
+     "path": "08-distributed-training/pytorch-fsdp2/references/pytorch_tp_tutorial.md",
+     "sha256": "648b53e128b01e1607a58204ee1e12a51dbb71549399206db3c202b1df6dc7f6"
+    },
+    {
+     "bytes": 798,
+     "path": "08-distributed-training/pytorch-fsdp2/references/ray_train_fsdp2_example.md",
+     "sha256": "040c639086b16f0c0c046b84c1151caac0a1e790a4da815bc23d13b2eb3c5d9c"
+    },
+    {
+     "bytes": 870,
+     "path": "08-distributed-training/pytorch-fsdp2/references/torchtitan_fsdp_notes.md",
+     "sha256": "066aa62139d38842257c468b65e5a03f17198a82d8c96c53e9f39f3968757a4a"
+    }
+   ],
+   "generated": false,
+   "name": "pytorch-fsdp2",
+   "orphan_refs": [],
+   "purpose": "Adds PyTorch FSDP2 (fully_shard) to training scripts with correct init, sharding, mixed precision/offload config, and distributed checkpointing.",
+   "stale_api": "",
+   "upstream_path": "08-distributed-training/pytorch-fsdp2"
+  },
+  {
+   "bytes": 45089,
+   "category": "08-distributed-training",
+   "dangling_links": [],
+   "dir": "pytorch-lightning",
+   "files": [
+    {
+     "bytes": 9121,
+     "path": "08-distributed-training/pytorch-lightning/SKILL.md",
+     "sha256": "7788f93b6324f8d62d0d579a572164d303704b59fc7fefe12497afb75856c453"
+    },
+    {
+     "bytes": 12227,
+     "path": "08-distributed-training/pytorch-lightning/references/callbacks.md",
+     "sha256": "3bf19c1d205156adf6f12cab722bb4d3485117d515ceec01cb68a2ad916a1503"
+    },
+    {
+     "bytes": 11016,
+     "path": "08-distributed-training/pytorch-lightning/references/distributed.md",
+     "sha256": "447d388a0b657b2995f771842703862cfa85b4382ca7159a38f5063073f8b207"
+    },
+    {
+     "bytes": 12725,
+     "path": "08-distributed-training/pytorch-lightning/references/hyperparameter-tuning.md",
+     "sha256": "8d9c5bc65de3c81968abd07079c1c9b67993509906bd781313a8bcbbc72ac72a"
+    }
+   ],
+   "generated": false,
+   "name": "pytorch-lightning",
+   "orphan_refs": [],
+   "purpose": "High-level PyTorch framework with Trainer class, automatic distributed training (DDP/FSDP/DeepSpeed), callbacks system, and minimal boilerplate.",
+   "stale_api": "",
+   "upstream_path": "08-distributed-training/pytorch-lightning"
+  },
+  {
+   "bytes": 24411,
+   "category": "08-distributed-training",
+   "dangling_links": [
+    "references/custom-loops.md"
+   ],
+   "dir": "ray-train",
+   "files": [
+    {
+     "bytes": 10696,
+     "path": "08-distributed-training/ray-train/SKILL.md",
+     "sha256": "7f88c141557e3f0cc5b456571d1ae99bef4161a9c1765bc725847cfbd0fb1170"
+    },
+    {
+     "bytes": 13715,
+     "path": "08-distributed-training/ray-train/references/multi-node.md",
+     "sha256": "241c95bb0db0ddf3655ea3dd7499a063a6ec799e6d8d723ccf92515126fc6345"
+    }
+   ],
+   "generated": false,
+   "name": "ray-train",
+   "orphan_refs": [],
+   "purpose": "Distributed training orchestration across clusters.",
+   "stale_api": "",
+   "upstream_path": "08-distributed-training/ray-train"
+  },
+  {
+   "bytes": 39315,
+   "category": "09-infrastructure",
+   "dangling_links": [],
+   "dir": "lambda-labs",
+   "files": [
+    {
+     "bytes": 12153,
+     "path": "09-infrastructure/lambda-labs/SKILL.md",
+     "sha256": "9d1dc3fcb83bf0de14717e58c13f49989b2bc307b12febcf040ef9d28fedc0a7"
+    },
+    {
+     "bytes": 15289,
+     "path": "09-infrastructure/lambda-labs/references/advanced-usage.md",
+     "sha256": "4011225d22e856e4a927b3a39116cad79fd828186ea97905fabee0f1b179597b"
+    },
+    {
+     "bytes": 11873,
+     "path": "09-infrastructure/lambda-labs/references/troubleshooting.md",
+     "sha256": "b10d69b0ab160f7a3da3efa0f3643d7998b34bf8234874ee11e1aaf193993a6f"
+    }
+   ],
+   "generated": false,
+   "name": "lambda-labs-gpu-cloud",
+   "orphan_refs": [],
+   "purpose": "Reserved and on-demand GPU cloud instances for ML training and inference.",
+   "stale_api": "",
+   "upstream_path": "09-infrastructure/lambda-labs"
+  },
+  {
+   "bytes": 30341,
+   "category": "09-infrastructure",
+   "dangling_links": [],
+   "dir": "modal",
+   "files": [
+    {
+     "bytes": 8555,
+     "path": "09-infrastructure/modal/SKILL.md",
+     "sha256": "219757503f84684534b3efe5616822ad17e6dc5c6cad127e6b46033a429d38ba"
+    },
+    {
+     "bytes": 11086,
+     "path": "09-infrastructure/modal/references/advanced-usage.md",
+     "sha256": "aff82ddaedfcbb9aa524996c85edec54f9c10505b60cde25065123cdd5de52c1"
+    },
+    {
+     "bytes": 10700,
+     "path": "09-infrastructure/modal/references/troubleshooting.md",
+     "sha256": "b13f89719b8770502b8796b0917cfd679e20c86c1c9396d6e074233b99580604"
+    }
+   ],
+   "generated": false,
+   "name": "modal-serverless-gpu",
+   "orphan_refs": [],
+   "purpose": "Serverless GPU cloud platform for running ML workloads.",
+   "stale_api": "",
+   "upstream_path": "09-infrastructure/modal"
+  },
+  {
+   "bytes": 27976,
+   "category": "09-infrastructure",
+   "dangling_links": [],
+   "dir": "skypilot",
+   "files": [
+    {
+     "bytes": 9641,
+     "path": "09-infrastructure/skypilot/SKILL.md",
+     "sha256": "de1be4556d8a8f7929003ca4b672e5fbb755588b1e95068973896b63d3034965"
+    },
+    {
+     "bytes": 7655,
+     "path": "09-infrastructure/skypilot/references/advanced-usage.md",
+     "sha256": "1413cc8d42a876cf9c8866c183f5411025762a70b8071fd8897dff61615bbb47"
+    },
+    {
+     "bytes": 10680,
+     "path": "09-infrastructure/skypilot/references/troubleshooting.md",
+     "sha256": "740ea90af8c0e9401c1e76380e527e55e622782a14f3db5159d92f6ee0954006"
+    }
+   ],
+   "generated": false,
+   "name": "skypilot-multi-cloud-orchestration",
+   "orphan_refs": [],
+   "purpose": "Multi-cloud orchestration for ML workloads with automatic cost optimization.",
+   "stale_api": "",
+   "upstream_path": "09-infrastructure/skypilot"
+  },
+  {
+   "bytes": 24458,
+   "category": "10-optimization",
+   "dangling_links": [],
+   "dir": "awq",
+   "files": [
+    {
+     "bytes": 8383,
+     "path": "10-optimization/awq/SKILL.md",
+     "sha256": "9a875e53113c11b00ab417fc393eb504f8be97d50c2e6901c762b991388bf717"
+    },
+    {
+     "bytes": 8162,
+     "path": "10-optimization/awq/references/advanced-usage.md",
+     "sha256": "904a724eb83162d7135fa8ce0feeddf8a9f8184899e82358804bbeb5b3dd8f96"
+    },
+    {
+     "bytes": 7913,
+     "path": "10-optimization/awq/references/troubleshooting.md",
+     "sha256": "2f5e49f5a102796f1bb86f1a050b270d37172faf979e82dc1db59f21ec0ac359"
+    }
+   ],
+   "generated": false,
+   "name": "awq-quantization",
+   "orphan_refs": [
+    "10-optimization/awq/references/advanced-usage.md",
+    "10-optimization/awq/references/troubleshooting.md"
+   ],
+   "purpose": "Activation-aware weight quantization for 4-bit LLM compression with 3x speedup and minimal accuracy loss.",
+   "stale_api": "upstream says AutoAWQ is deprecated",
+   "upstream_path": "10-optimization/awq"
+  },
+  {
+   "bytes": 45616,
+   "category": "10-optimization",
+   "dangling_links": [],
+   "dir": "bitsandbytes",
+   "files": [
+    {
+     "bytes": 10126,
+     "path": "10-optimization/bitsandbytes/SKILL.md",
+     "sha256": "0a68e96c760b0ba561437328211a8405b4db422e9bad92415219abf91f87f849"
+    },
+    {
+     "bytes": 12835,
+     "path": "10-optimization/bitsandbytes/references/memory-optimization.md",
+     "sha256": "2faefc754c3adfb73fef26853ec3afed725a190167f412134c2703ced28b718e"
+    },
+    {
+     "bytes": 12203,
+     "path": "10-optimization/bitsandbytes/references/qlora-training.md",
+     "sha256": "3af128fdadaadd192ca9bf7c32efd53fc251092adaf18d91168cff37df0c8d7a"
+    },
+    {
+     "bytes": 10452,
+     "path": "10-optimization/bitsandbytes/references/quantization-formats.md",
+     "sha256": "f95256a1c01ce56a9f1d477b8d4b9d21ca30fddfee54a4c8574a9a51218c5630"
+    }
+   ],
+   "generated": false,
+   "name": "quantizing-models-bitsandbytes",
+   "orphan_refs": [],
+   "purpose": "Quantizes LLMs to 8-bit or 4-bit for 50-75% memory reduction with minimal accuracy loss.",
+   "stale_api": "",
+   "upstream_path": "10-optimization/bitsandbytes"
+  },
+  {
+   "bytes": 25145,
+   "category": "10-optimization",
+   "dangling_links": [
+    "references/advanced-features.md",
+    "references/algorithm.md"
+   ],
+   "dir": "flash-attention",
+   "files": [
+    {
+     "bytes": 10201,
+     "path": "10-optimization/flash-attention/SKILL.md",
+     "sha256": "e0c1da83766332e0f3db4bcca954c3a70be399632758dcec2680aa82e236438d"
+    },
+    {
+     "bytes": 7316,
+     "path": "10-optimization/flash-attention/references/benchmarks.md",
+     "sha256": "3f945d2564a6fb220bfa9ddadb55b2841ee60dd6cd72e6583c0309d92e53d5a8"
+    },
+    {
+     "bytes": 7628,
+     "path": "10-optimization/flash-attention/references/transformers-integration.md",
+     "sha256": "4c7b3c639d3c22f96aa79e38c206af4b5c422bf5abc9fcf3240f6f86251ef583"
+    }
+   ],
+   "generated": false,
+   "name": "optimizing-attention-flash",
+   "orphan_refs": [],
+   "purpose": "Optimizes transformer attention with Flash Attention for 2-4x speedup and 10-20x memory reduction.",
+   "stale_api": "",
+   "upstream_path": "10-optimization/flash-attention"
+  },
+  {
+   "bytes": 30472,
+   "category": "10-optimization",
+   "dangling_links": [],
+   "dir": "gguf",
+   "files": [
+    {
+     "bytes": 10320,
+     "path": "10-optimization/gguf/SKILL.md",
+     "sha256": "11016e03b2b53c9a981f1ef7df96b078daf9bc929126ccf36377b86bb7025224"
+    },
+    {
+     "bytes": 11067,
+     "path": "10-optimization/gguf/references/advanced-usage.md",
+     "sha256": "baae637dec3170eceb5ff1f66810ed935971f5beaab76a049f95b9bde541fddf"
+    },
+    {
+     "bytes": 9085,
+     "path": "10-optimization/gguf/references/troubleshooting.md",
+     "sha256": "fa1631f6f6ca1c91772e339eb890ddd61d385002b1b553c4257ca14ce4b3dd10"
+    }
+   ],
+   "generated": false,
+   "name": "gguf-quantization",
+   "orphan_refs": [],
+   "purpose": "GGUF format and llama.cpp quantization for efficient CPU/GPU inference.",
+   "stale_api": "",
+   "upstream_path": "10-optimization/gguf"
+  },
+  {
+   "bytes": 24988,
+   "category": "10-optimization",
+   "dangling_links": [],
+   "dir": "gptq",
+   "files": [
+    {
+     "bytes": 11593,
+     "path": "10-optimization/gptq/SKILL.md",
+     "sha256": "ce19de416afa03a0e6a764c9cb8b8ba9a0b94812b9de1ad5a0c2cb2932009f28"
+    },
+    {
+     "bytes": 8341,
+     "path": "10-optimization/gptq/references/calibration.md",
+     "sha256": "310d4b0ea56db299a81c344a6cb510f59b955d7646df6755204368ca9c5adcb5"
+    },
+    {
+     "bytes": 2974,
+     "path": "10-optimization/gptq/references/integration.md",
+     "sha256": "3e6306d9bc965593c2f31d48c7bb64f3026ca319a3fd7c917a8d5136096f0216"
+    },
+    {
+     "bytes": 2080,
+     "path": "10-optimization/gptq/references/troubleshooting.md",
+     "sha256": "336050078cd59182fa8b4302cad546dcb2db3cc0dc7eb5b399c346b55df44c47"
+    }
+   ],
+   "generated": false,
+   "name": "gptq",
+   "orphan_refs": [],
+   "purpose": "Post-training 4-bit quantization for LLMs with minimal accuracy loss.",
+   "stale_api": "",
+   "upstream_path": "10-optimization/gptq"
+  },
+  {
+   "bytes": 36988,
+   "category": "10-optimization",
+   "dangling_links": [],
+   "dir": "hqq",
+   "files": [
+    {
+     "bytes": 11466,
+     "path": "10-optimization/hqq/SKILL.md",
+     "sha256": "4feba64227f6db505044663cd5432bf9c0599c5c8984d94d3b2d1598711a1f80"
+    },
+    {
+     "bytes": 14256,
+     "path": "10-optimization/hqq/references/advanced-usage.md",
+     "sha256": "1453edd81dc32f4569bf7383c9cc9b36acb786f5cb881755c2b9ec4e11de37cc"
+    },
+    {
+     "bytes": 11266,
+     "path": "10-optimization/hqq/references/troubleshooting.md",
+     "sha256": "983da4afacbccff51cfe3c50843109048b4760597d5708c07a619426c8104775"
+    }
+   ],
+   "generated": false,
+   "name": "hqq-quantization",
+   "orphan_refs": [],
+   "purpose": "Half-Quadratic Quantization for LLMs without calibration data.",
+   "stale_api": "",
+   "upstream_path": "10-optimization/hqq"
+  },
+  {
+   "bytes": 94175,
+   "category": "10-optimization",
+   "dangling_links": [],
+   "dir": "ml-training-recipes",
+   "files": [
+    {
+     "bytes": 11164,
+     "path": "10-optimization/ml-training-recipes/SKILL.md",
+     "sha256": "d7be143e8dbbb526c9ef344ef28bf8eab4f317096285cf02560ff3008627692b"
+    },
+    {
+     "bytes": 10397,
+     "path": "10-optimization/ml-training-recipes/references/architecture.md",
+     "sha256": "086a7f2428755f49cd5dce1e34207b86787da1010ceaba899ed350e99596ffa5"
+    },
+    {
+     "bytes": 20969,
+     "path": "10-optimization/ml-training-recipes/references/biomedical.md",
+     "sha256": "5de7748d81269ed3153116de270edebe5edc25d908c390751f4bf7b445ce865f"
+    },
+    {
+     "bytes": 19214,
+     "path": "10-optimization/ml-training-recipes/references/domain-specific.md",
+     "sha256": "588024fc118a8ebbc9988a818c3cc19fd90b12c4778a7fb8e7579d10b4bb807a"
+    },
+    {
+     "bytes": 4642,
+     "path": "10-optimization/ml-training-recipes/references/experiment-loop.md",
+     "sha256": "b70536fcb26f6cb292c6093cca09b43d9a44d87cb906122a7eec67e88ad32004"
+    },
+    {
+     "bytes": 10755,
+     "path": "10-optimization/ml-training-recipes/references/optimizers.md",
+     "sha256": "c5c6a635547d62f88791a839037c8b663ae1e70276846de0fdf5544b58d706a6"
+    },
+    {
+     "bytes": 17034,
+     "path": "10-optimization/ml-training-recipes/references/scaling-and-selection.md",
+     "sha256": "662ae1655800ecf0dde0cb96045781a1930eda102ff3c2d6a53a2e7aa1461a44"
+    }
+   ],
+   "generated": false,
+   "name": "ml-training-recipes",
+   "orphan_refs": [],
+   "purpose": "Battle-tested PyTorch training recipes for all domains \u2014 LLMs, vision, diffusion, medical imaging, protein/drug discovery, spatial omics, genomics.",
+   "stale_api": "",
+   "upstream_path": "10-optimization/ml-training-recipes"
+  },
+  {
+   "bytes": 39913,
+   "category": "11-evaluation",
+   "dangling_links": [],
+   "dir": "bigcode-evaluation-harness",
+   "files": [
+    {
+     "bytes": 11696,
+     "path": "11-evaluation/bigcode-evaluation-harness/SKILL.md",
+     "sha256": "7c46e8eb3ca8d4f51769162d16d87a7dff5ec0c4609131fd3c62fcb463522874"
+    },
+    {
+     "bytes": 9364,
+     "path": "11-evaluation/bigcode-evaluation-harness/references/benchmarks.md",
+     "sha256": "16f5637dc1a5e37ed2c0f3755b6c2af858194b5b85e51a61463b765e30480a0d"
+    },
+    {
+     "bytes": 10576,
+     "path": "11-evaluation/bigcode-evaluation-harness/references/custom-tasks.md",
+     "sha256": "9fb97069a8a78e1701eb569f859587684e62f678180b90d22bb9cebb3f847724"
+    },
+    {
+     "bytes": 8277,
+     "path": "11-evaluation/bigcode-evaluation-harness/references/issues.md",
+     "sha256": "3a2143613a3fd31c4ac8446f5fac1d732d1b233e1613f1e490827ce89aed5fc9"
+    }
+   ],
+   "generated": false,
+   "name": "evaluating-code-models",
+   "orphan_refs": [
+    "11-evaluation/bigcode-evaluation-harness/references/benchmarks.md",
+    "11-evaluation/bigcode-evaluation-harness/references/custom-tasks.md",
+    "11-evaluation/bigcode-evaluation-harness/references/issues.md"
+   ],
+   "purpose": "Evaluates code generation models across HumanEval, MBPP, MultiPL-E, and 15+ benchmarks with pass@k metrics.",
+   "stale_api": "",
+   "upstream_path": "11-evaluation/bigcode-evaluation-harness"
+  },
+  {
+   "bytes": 59110,
+   "category": "11-evaluation",
+   "dangling_links": [],
+   "dir": "lm-evaluation-harness",
+   "files": [
+    {
+     "bytes": 11895,
+     "path": "11-evaluation/lm-evaluation-harness/SKILL.md",
+     "sha256": "891b77bc09118393f9bd1235404ee3f0cf412f56e57dc4b454e2fbd8fd507bc3"
+    },
+    {
+     "bytes": 11309,
+     "path": "11-evaluation/lm-evaluation-harness/references/api-evaluation.md",
+     "sha256": "dcf4c2a7ba72f4e33c1fcb314181dcfd41e0afead0fad1207af0378edeb1c7f1"
+    },
+    {
+     "bytes": 10965,
+     "path": "11-evaluation/lm-evaluation-harness/references/benchmark-guide.md",
+     "sha256": "dc8a5a37d1299341d6ae60dfd4deccfdf8eb5314efc86ed274472a5fac28e6c8"
+    },
+    {
+     "bytes": 13318,
+     "path": "11-evaluation/lm-evaluation-harness/references/custom-tasks.md",
+     "sha256": "a1c4d1a17d9d60d59e4954140622402d86117f6fba7a1beaa1e31a4f24c320ce"
+    },
+    {
+     "bytes": 11623,
+     "path": "11-evaluation/lm-evaluation-harness/references/distributed-eval.md",
+     "sha256": "a9a8fe60995ad980ebc36d1055e953dd29a8c83856419e251cdb8074b4e7040b"
+    }
+   ],
+   "generated": false,
+   "name": "evaluating-llms-harness",
+   "orphan_refs": [],
+   "purpose": "Evaluates LLMs across 60+ academic benchmarks (MMLU, HumanEval, GSM8K, TruthfulQA, HellaSwag).",
+   "stale_api": "",
+   "upstream_path": "11-evaluation/lm-evaluation-harness"
+  },
+  {
+   "bytes": 48470,
+   "category": "11-evaluation",
+   "dangling_links": [],
+   "dir": "nemo-evaluator",
+   "files": [
+    {
+     "bytes": 12225,
+     "path": "11-evaluation/nemo-evaluator/SKILL.md",
+     "sha256": "97bc3483974c2b930acf3f46e21c865e1b27e92359e19bdb465515d9e86ff10f"
+    },
+    {
+     "bytes": 9656,
+     "path": "11-evaluation/nemo-evaluator/references/adapter-system.md",
+     "sha256": "3cd2de6425da436bafdea3d5520f3d39d770a421ce5e91d95ba9cde74b42628d"
+    },
+    {
+     "bytes": 9754,
+     "path": "11-evaluation/nemo-evaluator/references/configuration.md",
+     "sha256": "68988ab598adcacf237319251b9c206f4f71ee3bdfeef62bded6bd08a7604538"
+    },
+    {
+     "bytes": 7292,
+     "path": "11-evaluation/nemo-evaluator/references/custom-benchmarks.md",
+     "sha256": "a48c1d4ce72d83f7e822d83c8c88652a09eae0c854ee22938a371b4ea5619db2"
+    },
+    {
+     "bytes": 9543,
+     "path": "11-evaluation/nemo-evaluator/references/execution-backends.md",
+     "sha256": "7bac469682b346741560132b099139205cb1f66c944d9339ac1c1e7e9cb8819b"
+    }
+   ],
+   "generated": false,
+   "name": "nemo-evaluator-sdk",
+   "orphan_refs": [],
+   "purpose": "Evaluates LLMs across 100+ benchmarks from 18+ harnesses (MMLU, HumanEval, GSM8K, safety, VLM) with multi-backend execution.",
+   "stale_api": "",
+   "upstream_path": "11-evaluation/nemo-evaluator"
+  },
+  {
+   "bytes": 15344,
+   "category": "12-inference-serving",
+   "dangling_links": [],
+   "dir": "llama-cpp",
+   "files": [
+    {
+     "bytes": 5912,
+     "path": "12-inference-serving/llama-cpp/SKILL.md",
+     "sha256": "d74caa45483f5b3c6bd6267e39b444627989ff90fdb84b6c2e7c3da4ddf143ef"
+    },
+    {
+     "bytes": 1847,
+     "path": "12-inference-serving/llama-cpp/references/optimization.md",
+     "sha256": "e5526c28bda022f577b341b2f8f0b31271c9acdec2d9b2289b4c8cc02216b780"
+    },
+    {
+     "bytes": 5144,
+     "path": "12-inference-serving/llama-cpp/references/quantization.md",
+     "sha256": "81f4facbf330174801a5831f9cffb9e50620620951e4d37c0b884a07240c1944"
+    },
+    {
+     "bytes": 2441,
+     "path": "12-inference-serving/llama-cpp/references/server.md",
+     "sha256": "f0a9629c58ba9ac60fa1b8321e3a62ade2ecf6e0913783b98394d888fa3bc425"
+    }
+   ],
+   "generated": false,
+   "name": "llama-cpp",
+   "orphan_refs": [],
+   "purpose": "Runs LLM inference on CPU, Apple Silicon, and consumer GPUs without NVIDIA hardware.",
+   "stale_api": "",
+   "upstream_path": "12-inference-serving/llama-cpp"
+  },
+  {
+   "bytes": 46489,
+   "category": "12-inference-serving",
+   "dangling_links": [],
+   "dir": "sglang",
+   "files": [
+    {
+     "bytes": 11431,
+     "path": "12-inference-serving/sglang/SKILL.md",
+     "sha256": "05e664a43bb82df2363ef22ceba81a41394a2b819c3367b2413f661485085c8f"
+    },
+    {
+     "bytes": 10203,
+     "path": "12-inference-serving/sglang/references/deployment.md",
+     "sha256": "ccf92d4a4f43e432403c8bcf0cba5fa757189cc4d1eb6120ef0a909c5c902cdd"
+    },
+    {
+     "bytes": 11193,
+     "path": "12-inference-serving/sglang/references/radix-attention.md",
+     "sha256": "7ad0965520a81af0dcd0f84aaa990d5acb3610a0b9e236e5a7af347277f93630"
+    },
+    {
+     "bytes": 13662,
+     "path": "12-inference-serving/sglang/references/structured-generation.md",
+     "sha256": "2b28efcb6d982dfdacad518b41525bdef99d6c2bb43037c8283d6fca6a301568"
+    }
+   ],
+   "generated": false,
+   "name": "sglang",
+   "orphan_refs": [],
+   "purpose": "Fast structured generation and serving for LLMs with RadixAttention prefix caching.",
+   "stale_api": "",
+   "upstream_path": "12-inference-serving/sglang"
+  },
+  {
+   "bytes": 27714,
+   "category": "12-inference-serving",
+   "dangling_links": [],
+   "dir": "tensorrt-llm",
+   "files": [
+    {
+     "bytes": 5039,
+     "path": "12-inference-serving/tensorrt-llm/SKILL.md",
+     "sha256": "13f8e09b3e05b2167919011dfa8a44e067c7e0563a1e7dc01c26752cf85da11f"
+    },
+    {
+     "bytes": 6887,
+     "path": "12-inference-serving/tensorrt-llm/references/multi-gpu.md",
+     "sha256": "92e4c765f989f54907f6402aa63c71142dea6422fcc297a9ae219cf0d1766284"
+    },
+    {
+     "bytes": 5804,
+     "path": "12-inference-serving/tensorrt-llm/references/optimization.md",
+     "sha256": "e70eda30d29557a412f357f71e987e5080abe207d59859ffe686025dda85f4c5"
+    },
+    {
+     "bytes": 9984,
+     "path": "12-inference-serving/tensorrt-llm/references/serving.md",
+     "sha256": "1247ce4d0971e842716fdc9306bce22daa0f757df47dc28639cf6978374e5f58"
+    }
+   ],
+   "generated": false,
+   "name": "tensorrt-llm",
+   "orphan_refs": [],
+   "purpose": "Optimizes LLM inference with NVIDIA TensorRT for maximum throughput and lowest latency.",
+   "stale_api": "",
+   "upstream_path": "12-inference-serving/tensorrt-llm"
+  },
+  {
+   "bytes": 36570,
+   "category": "12-inference-serving",
+   "dangling_links": [],
+   "dir": "vllm",
+   "files": [
+    {
+     "bytes": 9026,
+     "path": "12-inference-serving/vllm/SKILL.md",
+     "sha256": "57eaf97e982fe758b6fd0ef2281b6961940e4a1c8258f303b0ce02d55d0636c6"
+    },
+    {
+     "bytes": 5952,
+     "path": "12-inference-serving/vllm/references/optimization.md",
+     "sha256": "4773621f7bf1100c65bfe2ccb294bcb060307c15cdbb3bed9b255d513a8a79bf"
+    },
+    {
+     "bytes": 6929,
+     "path": "12-inference-serving/vllm/references/quantization.md",
+     "sha256": "437a796db073b271eed1744862f021ed4c37424b87117cdc78013ea05139efc6"
+    },
+    {
+     "bytes": 5440,
+     "path": "12-inference-serving/vllm/references/server-deployment.md",
+     "sha256": "b8516128cb7cb2d06f207cb391b50a50afec1dbb45cfa124cec239e032488132"
+    },
+    {
+     "bytes": 9223,
+     "path": "12-inference-serving/vllm/references/troubleshooting.md",
+     "sha256": "70ec73c6bf044501f90710bd6a735b55a5dfe78431e46f5c12899081f760387e"
+    }
+   ],
+   "generated": false,
+   "name": "serving-llms-vllm",
+   "orphan_refs": [],
+   "purpose": "Serves LLMs with high throughput using vLLM's PagedAttention and continuous batching.",
+   "stale_api": "",
+   "upstream_path": "12-inference-serving/vllm"
+  },
+  {
+   "bytes": 65254,
+   "category": "13-mlops",
+   "dangling_links": [],
+   "dir": "mlflow",
+   "files": [
+    {
+     "bytes": 15599,
+     "path": "13-mlops/mlflow/SKILL.md",
+     "sha256": "36d2581f7d8beb8b27f66bbef5c94df7e9604b917c3aa15e4183a48a2b1f3f96"
+    },
+    {
+     "bytes": 16866,
+     "path": "13-mlops/mlflow/references/deployment.md",
+     "sha256": "eb854f4bdda173724b05bc9c9478954d5e5b0ab1d6520f5980c0ed7b36f4c03d"
+    },
+    {
+     "bytes": 17650,
+     "path": "13-mlops/mlflow/references/model-registry.md",
+     "sha256": "72e7f1a1d2e56d9d14c398a34c9db553922a419f8438385b504c3e63c553fc6c"
+    },
+    {
+     "bytes": 15139,
+     "path": "13-mlops/mlflow/references/tracking.md",
+     "sha256": "7797ad0775b565086827363474e643a30bbfe74d6fbfb004ff5e677f7a0b3e4b"
+    }
+   ],
+   "generated": false,
+   "name": "mlflow",
+   "orphan_refs": [],
+   "purpose": "Track ML experiments, manage model registry with versioning, deploy models to production, and reproduce experiments with MLflow - framework-agnostic ML lifecycle platform",
+   "stale_api": "",
+   "upstream_path": "13-mlops/mlflow"
+  },
+  {
+   "bytes": 23921,
+   "category": "13-mlops",
+   "dangling_links": [],
+   "dir": "swanlab",
+   "files": [
+    {
+     "bytes": 9759,
+     "path": "13-mlops/swanlab/SKILL.md",
+     "sha256": "14b0f74e6383e4e43cc78785706b43f0343801ba96c14b56284142203be48eff"
+    },
+    {
+     "bytes": 8191,
+     "path": "13-mlops/swanlab/references/integrations.md",
+     "sha256": "198b58bc49f353ca08044547153227a081f0f201b313d0faa460b20ce5e9530e"
+    },
+    {
+     "bytes": 5971,
+     "path": "13-mlops/swanlab/references/visualization.md",
+     "sha256": "313c77624c218a5cb18c38e7a9d5f21bf44cf0f17bd0ddbe0edb926ab712cd85"
+    }
+   ],
+   "generated": false,
+   "name": "experiment-tracking-swanlab",
+   "orphan_refs": [],
+   "purpose": "Provides guidance for experiment tracking with SwanLab.",
+   "stale_api": "",
+   "upstream_path": "13-mlops/swanlab"
+  },
+  {
+   "bytes": 60247,
+   "category": "13-mlops",
+   "dangling_links": [],
+   "dir": "tensorboard",
+   "files": [
+    {
+     "bytes": 15276,
+     "path": "13-mlops/tensorboard/SKILL.md",
+     "sha256": "717c4b05f88bbc888d54cc51fa390ae225d687b3b86fb616e36cc7fc26108020"
+    },
+    {
+     "bytes": 16383,
+     "path": "13-mlops/tensorboard/references/integrations.md",
+     "sha256": "fc59a421a49736b089e5d5624821715636bc35e6ccad28cb9a767aa8a3145796"
+    },
+    {
+     "bytes": 13512,
+     "path": "13-mlops/tensorboard/references/profiling.md",
+     "sha256": "8ef32799ef1a0863c950f7d8fb60715835026786fd6e6bbb9d2b108cb3100526"
+    },
+    {
+     "bytes": 15076,
+     "path": "13-mlops/tensorboard/references/visualization.md",
+     "sha256": "075c4d6d00b0583d292299ffbdc708f6272652977fb34272205beb4b2a27f119"
+    }
+   ],
+   "generated": false,
+   "name": "tensorboard",
+   "orphan_refs": [],
+   "purpose": "Visualize training metrics, debug models with histograms, compare experiments, visualize model graphs, and profile performance with TensorBoard - Google's ML visualization toolkit",
+   "stale_api": "",
+   "upstream_path": "13-mlops/tensorboard"
+  },
+  {
+   "bytes": 60319,
+   "category": "13-mlops",
+   "dangling_links": [],
+   "dir": "weights-and-biases",
+   "files": [
+    {
+     "bytes": 12454,
+     "path": "13-mlops/weights-and-biases/SKILL.md",
+     "sha256": "3cd5daa7cad70d97c96b2d6fdf8d0fc1ed8a97b1750c4e013e2405389baed3b6"
+    },
+    {
+     "bytes": 13607,
+     "path": "13-mlops/weights-and-biases/references/artifacts.md",
+     "sha256": "3a46bc38c505880cf99329f432496e4fad703c1a9e445409739b14389d9d819f"
+    },
+    {
+     "bytes": 16404,
+     "path": "13-mlops/weights-and-biases/references/integrations.md",
+     "sha256": "fca985a9c8ac97cb95484992ed6b181a60721527c029e7589383f4576a520ff5"
+    },
+    {
+     "bytes": 17854,
+     "path": "13-mlops/weights-and-biases/references/sweeps.md",
+     "sha256": "c2f12bbd255700cba36d6b15deccf1a04d066d9564927016c31d242b9989e200"
+    }
+   ],
+   "generated": false,
+   "name": "weights-and-biases",
+   "orphan_refs": [],
+   "purpose": "Track ML experiments with automatic logging, visualize training in real-time, optimize hyperparameters with sweeps, and manage model registry with W&B - collaborative MLOps ...",
+   "stale_api": "",
+   "upstream_path": "13-mlops/weights-and-biases"
+  },
+  {
+   "bytes": 143735,
+   "category": "14-agents",
+   "dangling_links": [],
+   "dir": "a-evolve",
+   "files": [
+    {
+     "bytes": 14603,
+     "path": "14-agents/a-evolve/SKILL.md",
+     "sha256": "6477f6efbbf3541ce3dfccf6665f5cdf6f241e47dcc3b32787e3e49b90223dbc"
+    },
+    {
+     "bytes": 27268,
+     "path": "14-agents/a-evolve/references/README.md",
+     "sha256": "66e7057bae2ca256321fa7ca8e87793dc41f7c30366dca337748b67abc63644a"
+    },
+    {
+     "bytes": 15977,
+     "path": "14-agents/a-evolve/references/api.md",
+     "sha256": "ef200044a4cb5d577ca5df577a104121129352c9bc28bf1edf33aeab938010d2"
+    },
+    {
+     "bytes": 15681,
+     "path": "14-agents/a-evolve/references/architecture.md",
+     "sha256": "2e7bb65bf405482fbdcc5f1faf7912dd4bc250b18fd8b015bdf06fa759fc575e"
+    },
+    {
+     "bytes": 15371,
+     "path": "14-agents/a-evolve/references/design-patterns.md",
+     "sha256": "2eee522e5bfef7b009fed1de2607869aaa4b44a7f7dc166baa87af598c7455e3"
+    },
+    {
+     "bytes": 10187,
+     "path": "14-agents/a-evolve/references/examples.md",
+     "sha256": "7d375a1b34446251718fd7f1c623d1bae7fd8b73e8b5c1810184642cc17cf65a"
+    },
+    {
+     "bytes": 16581,
+     "path": "14-agents/a-evolve/references/issues.md",
+     "sha256": "0be2de690e4fa04a4f562a8466b263de5f4696fc1e0e246279abbb5b206607c4"
+    },
+    {
+     "bytes": 4733,
+     "path": "14-agents/a-evolve/references/releases.md",
+     "sha256": "bffc68f63265eb25e1ac626a89289e683efc447c0dc21551ca59362b03664833"
+    },
+    {
+     "bytes": 23334,
+     "path": "14-agents/a-evolve/references/tutorials.md",
+     "sha256": "2949f322ad454055f645cd7094c99107cf203a5fe0a94053c31e3ccdb7bb260f"
+    }
+   ],
+   "generated": false,
+   "name": "evolving-ai-agents",
+   "orphan_refs": [
+    "14-agents/a-evolve/references/README.md"
+   ],
+   "purpose": "Provides guidance for automatically evolving and optimizing AI agents across any domain using LLM-driven evolution algorithms.",
+   "stale_api": "",
+   "upstream_path": "14-agents/a-evolve"
+  },
+  {
+   "bytes": 30557,
+   "category": "14-agents",
+   "dangling_links": [],
+   "dir": "autogpt",
+   "files": [
+    {
+     "bytes": 9304,
+     "path": "14-agents/autogpt/SKILL.md",
+     "sha256": "4b16c070da9966e3e71a8f5324d7b1b2d4ddd68a3df8b27305b1a19b841f62b3"
+    },
+    {
+     "bytes": 13386,
+     "path": "14-agents/autogpt/references/advanced-usage.md",
+     "sha256": "e86338f0aec924366438d709efa5b587ba1e0a3f79a296aec5ccdc86e5409c17"
+    },
+    {
+     "bytes": 7867,
+     "path": "14-agents/autogpt/references/troubleshooting.md",
+     "sha256": "5b036c343d5fcddb18b94df1a5e6d7007a007e6b9aca96014fa9256f78d07646"
+    }
+   ],
+   "generated": false,
+   "name": "autogpt-agents",
+   "orphan_refs": [],
+   "purpose": "Autonomous AI agent platform for building and deploying continuous agents.",
+   "stale_api": "",
+   "upstream_path": "14-agents/autogpt"
+  },
+  {
+   "bytes": 43042,
+   "category": "14-agents",
+   "dangling_links": [],
+   "dir": "crewai",
+   "files": [
+    {
+     "bytes": 13469,
+     "path": "14-agents/crewai/SKILL.md",
+     "sha256": "8760f968af1118e3dde5bc8443613be5ef7046a5639d26079d596fcf6d2483ff"
+    },
+    {
+     "bytes": 10013,
+     "path": "14-agents/crewai/references/flows.md",
+     "sha256": "b3d92a67f778995fab4a56f2675ba2b0e39b77f51cb566a0a0484feeb3dc77c3"
+    },
+    {
+     "bytes": 10450,
+     "path": "14-agents/crewai/references/tools.md",
+     "sha256": "da2972b43a7fd5ccad3f2d5d7010733f10e1ec5cadd8df71d19c0c2101b050e9"
+    },
+    {
+     "bytes": 9110,
+     "path": "14-agents/crewai/references/troubleshooting.md",
+     "sha256": "7ba1e683bf1b29aacca07369532a410f66798a33fc70615d5c7de3d3dbb17221"
+    }
+   ],
+   "generated": false,
+   "name": "crewai-multi-agent",
+   "orphan_refs": [],
+   "purpose": "Multi-agent orchestration framework for autonomous AI collaboration.",
+   "stale_api": "",
+   "upstream_path": "14-agents/crewai"
+  },
+  {
+   "bytes": 52337,
+   "category": "14-agents",
+   "dangling_links": [],
+   "dir": "langchain",
+   "files": [
+    {
+     "bytes": 12839,
+     "path": "14-agents/langchain/SKILL.md",
+     "sha256": "d47635059ac1a1a369ee6169f68f1d02e95ca201f2394a902fe66a30b1e35e65"
+    },
+    {
+     "bytes": 12832,
+     "path": "14-agents/langchain/references/agents.md",
+     "sha256": "e13af4311b9c7f29b5afbb5ec7e08a735e4b26b58a45ce70cac3f2811a4d7eeb"
+    },
+    {
+     "bytes": 12008,
+     "path": "14-agents/langchain/references/integration.md",
+     "sha256": "59cc7c806e24e2ca314b2fcc4d6d325c2c0e50cbf6109fe14ca108f12dc85bff"
+    },
+    {
+     "bytes": 14658,
+     "path": "14-agents/langchain/references/rag.md",
+     "sha256": "23adcefef57c48c282546b3a10325eec8ec9d0604313c109f66fdea8d51c0ea1"
+    }
+   ],
+   "generated": false,
+   "name": "langchain",
+   "orphan_refs": [],
+   "purpose": "Framework for building LLM-powered applications with agents, chains, and RAG.",
+   "stale_api": "uses removed chain/memory APIs",
+   "upstream_path": "14-agents/langchain"
+  },
+  {
+   "bytes": 29428,
+   "category": "14-agents",
+   "dangling_links": [],
+   "dir": "llamaindex",
+   "files": [
+    {
+     "bytes": 14726,
+     "path": "14-agents/llamaindex/SKILL.md",
+     "sha256": "a603d319831beb1e46efd9299532b2462ee0d0cf01d7aa8928bd21763a3d9760"
+    },
+    {
+     "bytes": 2130,
+     "path": "14-agents/llamaindex/references/agents.md",
+     "sha256": "e450f88d6afd84003d673841ca611ba22fc0da96d19015fb8d1fd060846c9d69"
+    },
+    {
+     "bytes": 2488,
+     "path": "14-agents/llamaindex/references/data_connectors.md",
+     "sha256": "df1e82be711152b05d4bed6d8a1b0d5dd24533e7508f36d5af987a9c0986648d"
+    },
+    {
+     "bytes": 10084,
+     "path": "14-agents/llamaindex/references/query_engines.md",
+     "sha256": "573f1feb3d46f7141d6d024200e8febf569bf4490b25276dbf908e4d37f3c159"
+    }
+   ],
+   "generated": false,
+   "name": "llamaindex",
+   "orphan_refs": [],
+   "purpose": "Data framework for building LLM applications with RAG.",
+   "stale_api": "",
+   "upstream_path": "14-agents/llamaindex"
+  },
+  {
+   "bytes": 10106,
+   "category": "15-rag",
+   "dangling_links": [],
+   "dir": "chroma",
+   "files": [
+    {
+     "bytes": 9165,
+     "path": "15-rag/chroma/SKILL.md",
+     "sha256": "834733e201d4f7d6c20089c93d13c945d7a62b6581d55631546a5ad74b9ec164"
+    },
+    {
+     "bytes": 941,
+     "path": "15-rag/chroma/references/integration.md",
+     "sha256": "0676e7e381244f45bdf60da6517cc0b4c285ffdaee5baf164773e02c8f1e0a4b"
+    }
+   ],
+   "generated": false,
+   "name": "chroma",
+   "orphan_refs": [
+    "15-rag/chroma/references/integration.md"
+   ],
+   "purpose": "Open-source embedding database for AI applications.",
+   "stale_api": "",
+   "upstream_path": "15-rag/chroma"
+  },
+  {
+   "bytes": 11398,
+   "category": "15-rag",
+   "dangling_links": [],
+   "dir": "faiss",
+   "files": [
+    {
+     "bytes": 5048,
+     "path": "15-rag/faiss/SKILL.md",
+     "sha256": "79a494b9212c73810d53527800c69f80acd6aa1907fca8c614c69583cac76e89"
+    },
+    {
+     "bytes": 6350,
+     "path": "15-rag/faiss/references/index_types.md",
+     "sha256": "6980094ef52171cbe568a5062c16dc320de67d784f74b3a3414b75ce306e2e0d"
+    }
+   ],
+   "generated": false,
+   "name": "faiss",
+   "orphan_refs": [
+    "15-rag/faiss/references/index_types.md"
+   ],
+   "purpose": "Facebook's library for efficient similarity search and clustering of dense vectors.",
+   "stale_api": "",
+   "upstream_path": "15-rag/faiss"
+  },
+  {
+   "bytes": 11555,
+   "category": "15-rag",
+   "dangling_links": [],
+   "dir": "pinecone",
+   "files": [
+    {
+     "bytes": 7827,
+     "path": "15-rag/pinecone/SKILL.md",
+     "sha256": "69b0566e8d749acdad2a805ed6980947e5458c96b41bd405e520f2006ff0e7fb"
+    },
+    {
+     "bytes": 3728,
+     "path": "15-rag/pinecone/references/deployment.md",
+     "sha256": "977666159fc071bd431baee3655a927cc4ac9c1fd815d9ab1fdbce5c67dd3a4b"
+    }
+   ],
+   "generated": false,
+   "name": "pinecone",
+   "orphan_refs": [
+    "15-rag/pinecone/references/deployment.md"
+   ],
+   "purpose": "Managed vector database for production AI applications.",
+   "stale_api": "",
+   "upstream_path": "15-rag/pinecone"
+  },
+  {
+   "bytes": 41449,
+   "category": "15-rag",
+   "dangling_links": [],
+   "dir": "qdrant",
+   "files": [
+    {
+     "bytes": 13451,
+     "path": "15-rag/qdrant/SKILL.md",
+     "sha256": "3a45489baf49c375883694ec78d6a9b283533a352e8d47cf630332faff83a231"
+    },
+    {
+     "bytes": 15142,
+     "path": "15-rag/qdrant/references/advanced-usage.md",
+     "sha256": "a62c36e3d5b1347fa2b209671d25a5d1c8d3b124d5ba369713c6a38781428f38"
+    },
+    {
+     "bytes": 12856,
+     "path": "15-rag/qdrant/references/troubleshooting.md",
+     "sha256": "c8221b8a8b3dae1eac7e422c3365d4050a6d0e7e3a3d6ac2cc616b93bed752a7"
+    }
+   ],
+   "generated": false,
+   "name": "qdrant-vector-search",
+   "orphan_refs": [],
+   "purpose": "High-performance vector similarity search engine for RAG and semantic search.",
+   "stale_api": "",
+   "upstream_path": "15-rag/qdrant"
+  },
+  {
+   "bytes": 9432,
+   "category": "15-rag",
+   "dangling_links": [],
+   "dir": "sentence-transformers",
+   "files": [
+    {
+     "bytes": 6327,
+     "path": "15-rag/sentence-transformers/SKILL.md",
+     "sha256": "fca19457be4e78f0e3689284d4fbde649ddf9af0d3bba52d2ac1fb470a4c1bd8"
+    },
+    {
+     "bytes": 3105,
+     "path": "15-rag/sentence-transformers/references/models.md",
+     "sha256": "e7f09644e653c02923ded5e01155052b2e3dfb65fd6bd18ff50061e1446fa750"
+    }
+   ],
+   "generated": false,
+   "name": "sentence-transformers",
+   "orphan_refs": [
+    "15-rag/sentence-transformers/references/models.md"
+   ],
+   "purpose": "Framework for state-of-the-art sentence, text, and image embeddings.",
+   "stale_api": "",
+   "upstream_path": "15-rag/sentence-transformers"
+  },
+  {
+   "bytes": 62111,
+   "category": "16-prompt-engineering",
+   "dangling_links": [],
+   "dir": "dspy",
+   "files": [
+    {
+     "bytes": 15291,
+     "path": "16-prompt-engineering/dspy/SKILL.md",
+     "sha256": "cd01cee93a2228c199c23e77047e4444b0a6eeddd12dcf14104ca2a5de3fa8e2"
+    },
+    {
+     "bytes": 19163,
+     "path": "16-prompt-engineering/dspy/references/examples.md",
+     "sha256": "4d53d885e8de3d067687a24ff0441bbf1047598b1887d4f4b487633ed7453a99"
+    },
+    {
+     "bytes": 12542,
+     "path": "16-prompt-engineering/dspy/references/modules.md",
+     "sha256": "7516dbc28e73503de5991533406a4fe67c08ef0367ec66454789479aa20519d8"
+    },
+    {
+     "bytes": 15115,
+     "path": "16-prompt-engineering/dspy/references/optimizers.md",
+     "sha256": "3506e90d2d2cc0793409e26212515bc60ab3777b153478092f4fdc703dd9c497"
+    }
+   ],
+   "generated": false,
+   "name": "dspy",
+   "orphan_refs": [],
+   "purpose": "Build complex AI systems with declarative programming, optimize prompts automatically, create modular RAG systems and agents with DSPy - Stanford NLP's framework for systematic LM ...",
+   "stale_api": "pre-2.5 module names",
+   "upstream_path": "16-prompt-engineering/dspy"
+  },
+  {
+   "bytes": 63045,
+   "category": "16-prompt-engineering",
+   "dangling_links": [],
+   "dir": "guidance",
+   "files": [
+    {
+     "bytes": 14515,
+     "path": "16-prompt-engineering/guidance/SKILL.md",
+     "sha256": "2c7028001bf36a8a6bc1020d646a1fbad29c93f92f7706c437bde858e9616c71"
+    },
+    {
+     "bytes": 12194,
+     "path": "16-prompt-engineering/guidance/references/backends.md",
+     "sha256": "b281d0b5db4d76599079317f643a7785fcb4f48b156c233aac5d6c22380ad04e"
+    },
+    {
+     "bytes": 16073,
+     "path": "16-prompt-engineering/guidance/references/constraints.md",
+     "sha256": "83c1c6c383aabd0405ef0a4cd19177d1c9dec45a6f501647a4c8aa926b59b63b"
+    },
+    {
+     "bytes": 20263,
+     "path": "16-prompt-engineering/guidance/references/examples.md",
+     "sha256": "13a349093991a3700da8949529d5d307690a20c67ed587a8674ee02917e15f38"
+    }
+   ],
+   "generated": false,
+   "name": "guidance",
+   "orphan_refs": [],
+   "purpose": "Control LLM output with regex and grammars, guarantee valid JSON/XML/code generation, enforce structured formats, and build multi-step workflows with Guidance - Microsoft ...",
+   "stale_api": "models.Anthropic shape",
+   "upstream_path": "16-prompt-engineering/guidance"
+  },
+  {
+   "bytes": 36343,
+   "category": "16-prompt-engineering",
+   "dangling_links": [],
+   "dir": "instructor",
+   "files": [
+    {
+     "bytes": 16827,
+     "path": "16-prompt-engineering/instructor/SKILL.md",
+     "sha256": "7be950beb848b05aa4f41e61cfe27b162cad4a4d029d0abe13401aa743bab794"
+    },
+    {
+     "bytes": 2506,
+     "path": "16-prompt-engineering/instructor/references/examples.md",
+     "sha256": "d94b99dc5b7c0458867a2f08442ac9db3e1bbe516156e7376b82f33318038051"
+    },
+    {
+     "bytes": 1516,
+     "path": "16-prompt-engineering/instructor/references/providers.md",
+     "sha256": "07797896d2f45d1e9f16953238b66d8704bee429616283745b070dde4d30ed63"
+    },
+    {
+     "bytes": 15494,
+     "path": "16-prompt-engineering/instructor/references/validation.md",
+     "sha256": "efa5854038993e55ce250e10a1a010c60f17f3be83b88c130c068830435258e8"
+    }
+   ],
+   "generated": false,
+   "name": "instructor",
+   "orphan_refs": [],
+   "purpose": "Extract structured data from LLM responses with Pydantic validation, retry failed extractions automatically, parse complex JSON with type safety, and stream partial results with ...",
+   "stale_api": "",
+   "upstream_path": "16-prompt-engineering/instructor"
+  },
+  {
+   "bytes": 67075,
+   "category": "16-prompt-engineering",
+   "dangling_links": [],
+   "dir": "outlines",
+   "files": [
+    {
+     "bytes": 15951,
+     "path": "16-prompt-engineering/outlines/SKILL.md",
+     "sha256": "1a797a1bb4d7fae753e4fbf1895beb36f63b8e75c7fba50e940cd1ef1a372574"
+    },
+    {
+     "bytes": 14591,
+     "path": "16-prompt-engineering/outlines/references/backends.md",
+     "sha256": "81fdcf876832b4e9dc87b0576bde8fd2f9e85a57d51e6220d507e72980614a27"
+    },
+    {
+     "bytes": 21415,
+     "path": "16-prompt-engineering/outlines/references/examples.md",
+     "sha256": "b561e177bc28f6748ac2ccaea1005ef3b36670072e8fd33553a1a321dfd05cb8"
+    },
+    {
+     "bytes": 15118,
+     "path": "16-prompt-engineering/outlines/references/json_generation.md",
+     "sha256": "191557db5c29cccc696ae7e225c7d6780625995f3a297b07f3924b1a75067379"
+    }
+   ],
+   "generated": false,
+   "name": "outlines",
+   "orphan_refs": [],
+   "purpose": "Guarantee valid JSON/XML/code structure during generation, use Pydantic models for type-safe outputs, support local models (Transformers, vLLM), and maximize inference speed with ...",
+   "stale_api": "outlines.models.* moved in 1.0",
+   "upstream_path": "16-prompt-engineering/outlines"
+  },
+  {
+   "bytes": 33055,
+   "category": "17-observability",
+   "dangling_links": [],
+   "dir": "langsmith",
+   "files": [
+    {
+     "bytes": 9693,
+     "path": "17-observability/langsmith/SKILL.md",
+     "sha256": "3611688a297b95bd8695cdaa9e9f12db4c7cda6c94a4ae82e55f99fa6cbf7f53"
+    },
+    {
+     "bytes": 12192,
+     "path": "17-observability/langsmith/references/advanced-usage.md",
+     "sha256": "1f7cc773019226fa0aabbc85e1c6c7412a296265b6e1df55f09e48a50fa4cb8f"
+    },
+    {
+     "bytes": 11170,
+     "path": "17-observability/langsmith/references/troubleshooting.md",
+     "sha256": "dd55b0a9bf0c12b3e3ad3f41031b957c18b893cf7c889a3ffb94fff67f1b4f9a"
+    }
+   ],
+   "generated": false,
+   "name": "langsmith-observability",
+   "orphan_refs": [],
+   "purpose": "LLM observability platform for tracing, evaluation, and monitoring.",
+   "stale_api": "",
+   "upstream_path": "17-observability/langsmith"
+  },
+  {
+   "bytes": 38056,
+   "category": "17-observability",
+   "dangling_links": [],
+   "dir": "phoenix",
+   "files": [
+    {
+     "bytes": 11466,
+     "path": "17-observability/phoenix/SKILL.md",
+     "sha256": "111bd54f145ca57360f7e6f08f95202e937ac134e3dbf486a51cbaa008546e2b"
+    },
+    {
+     "bytes": 15461,
+     "path": "17-observability/phoenix/references/advanced-usage.md",
+     "sha256": "085fb822f2d17d5891130f06c6f96d74e2f5c8081c9a92ca6dc1ba5f9ecbbda8"
+    },
+    {
+     "bytes": 11129,
+     "path": "17-observability/phoenix/references/troubleshooting.md",
+     "sha256": "8c8474556b80a6aafc68a876c1e49c5fd0bae3b1beaadabc677bdaa9bf880b2d"
+    }
+   ],
+   "generated": false,
+   "name": "phoenix-observability",
+   "orphan_refs": [],
+   "purpose": "Open-source AI observability platform for LLM tracing, evaluation, and monitoring.",
+   "stale_api": "",
+   "upstream_path": "17-observability/phoenix"
+  },
+  {
+   "bytes": 45042,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "audiocraft",
+   "files": [
+    {
+     "bytes": 16308,
+     "path": "18-multimodal/audiocraft/SKILL.md",
+     "sha256": "3f9efaebd7331bea86022a101329074c6eab8af2d33591e691c565fcba641a5f"
+    },
+    {
+     "bytes": 17137,
+     "path": "18-multimodal/audiocraft/references/advanced-usage.md",
+     "sha256": "c4de2390ee469f939044fd7d289479fa2e1072904b39c160db4bc6c7fbb4fc25"
+    },
+    {
+     "bytes": 11597,
+     "path": "18-multimodal/audiocraft/references/troubleshooting.md",
+     "sha256": "0d7e18eb6ef4b3809375198b4c067bd903bf51f682b3cf3ccd9bf10ce4a307fc"
+    }
+   ],
+   "generated": false,
+   "name": "audiocraft-audio-generation",
+   "orphan_refs": [],
+   "purpose": "PyTorch library for audio generation including text-to-music (MusicGen) and text-to-sound (AudioGen).",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/audiocraft"
+  },
+  {
+   "bytes": 49847,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "blip-2",
+   "files": [
+    {
+     "bytes": 18616,
+     "path": "18-multimodal/blip-2/SKILL.md",
+     "sha256": "38227abdcb742add1284ba117881e899c020b7ebb5c39b5202a97d60c3ad8d3e"
+    },
+    {
+     "bytes": 19069,
+     "path": "18-multimodal/blip-2/references/advanced-usage.md",
+     "sha256": "0cddba702b5e39adaeebbcfbfa3efe10faa84bbdac9ddbfac6b4786cf8440ed0"
+    },
+    {
+     "bytes": 12162,
+     "path": "18-multimodal/blip-2/references/troubleshooting.md",
+     "sha256": "5112cf82fc8bd2efacd3fec62d5edc68842c38e45b0377de3b9dc9df3b7c8ed0"
+    }
+   ],
+   "generated": false,
+   "name": "blip-2-vision-language",
+   "orphan_refs": [],
+   "purpose": "Vision-language pre-training framework bridging frozen image encoders and LLMs.",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/blip-2"
+  },
+  {
+   "bytes": 12420,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "clip",
+   "files": [
+    {
+     "bytes": 6884,
+     "path": "18-multimodal/clip/SKILL.md",
+     "sha256": "9fcacf1c041d71ef1e61c7cac2bb7a2c42c3d19d6c2a0fc2e5f5a3c9641b7a3e"
+    },
+    {
+     "bytes": 5536,
+     "path": "18-multimodal/clip/references/applications.md",
+     "sha256": "88be8e0a8a6c571c6959b31a6721fee0f6df2b16a5702a15cc8876b51e99f1cf"
+    }
+   ],
+   "generated": false,
+   "name": "clip",
+   "orphan_refs": [
+    "18-multimodal/clip/references/applications.md"
+   ],
+   "purpose": "OpenAI's model connecting vision and language.",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/clip"
+  },
+  {
+   "bytes": 27741,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "cosmos-policy",
+   "files": [
+    {
+     "bytes": 14606,
+     "path": "18-multimodal/cosmos-policy/SKILL.md",
+     "sha256": "31d6b4701fae46b0b9e9b281378eefbe0f4c37b5973dae56ee25a3b67f63d0b6"
+    },
+    {
+     "bytes": 7051,
+     "path": "18-multimodal/cosmos-policy/references/libero-commands.md",
+     "sha256": "ba3dcf9b01b333e50e91fbc6d64835437e7c796ac0cf43dcf4b78002feef0c1b"
+    },
+    {
+     "bytes": 6084,
+     "path": "18-multimodal/cosmos-policy/references/robocasa-commands.md",
+     "sha256": "93ab2584933c107076827f491e64b022e21cea337144dbb760e9cc883e0cc4eb"
+    }
+   ],
+   "generated": false,
+   "name": "evaluating-cosmos-policy",
+   "orphan_refs": [],
+   "purpose": "Evaluates NVIDIA Cosmos Policy on LIBERO and RoboCasa simulation environments.",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/cosmos-policy"
+  },
+  {
+   "bytes": 12744,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "llava",
+   "files": [
+    {
+     "bytes": 7833,
+     "path": "18-multimodal/llava/SKILL.md",
+     "sha256": "e2c915ece2f3e50ea110320b7a364dd36361d3010e102e800416dfa3b4299745"
+    },
+    {
+     "bytes": 4911,
+     "path": "18-multimodal/llava/references/training.md",
+     "sha256": "483339480ed9fc93ec6645b2c9519972d3e2fa7aeb4a24461ecc209089fb3424"
+    }
+   ],
+   "generated": false,
+   "name": "llava",
+   "orphan_refs": [
+    "18-multimodal/llava/references/training.md"
+   ],
+   "purpose": "Large Language and Vision Assistant.",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/llava"
+  },
+  {
+   "bytes": 23374,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "openpi",
+   "files": [
+    {
+     "bytes": 14242,
+     "path": "18-multimodal/openpi/SKILL.md",
+     "sha256": "60af709a253bd745330e43067b22667b932a393e65a3cde6660a25d0ffbe4742"
+    },
+    {
+     "bytes": 2760,
+     "path": "18-multimodal/openpi/references/checkpoints-and-env-map.md",
+     "sha256": "1396dd400baf6dfc1b8304d3022c159d2b6c0eda8688cd33b36577c060ff6f41"
+    },
+    {
+     "bytes": 1962,
+     "path": "18-multimodal/openpi/references/config-recipes.md",
+     "sha256": "cdda3e9cb2b4f24547a86ff5cbacbda7d715c59fdd274e3eb4078bc09ae1d35e"
+    },
+    {
+     "bytes": 1627,
+     "path": "18-multimodal/openpi/references/pytorch-gotchas.md",
+     "sha256": "fc706e4c2ad9f60b2c32ea6f57e442003cf29c56cfa2825a852f4aa492675a6c"
+    },
+    {
+     "bytes": 1392,
+     "path": "18-multimodal/openpi/references/remote-client-pattern.md",
+     "sha256": "f25be18a19864bb645f3457ecdb414efadc86e3496cf12e7f6b2f64d354319ba"
+    },
+    {
+     "bytes": 1391,
+     "path": "18-multimodal/openpi/references/training-debugging.md",
+     "sha256": "6165c09d074a4c75939f6644bf651100e3753bc6cc06231dcd1ffefc83428020"
+    }
+   ],
+   "generated": false,
+   "name": "fine-tuning-serving-openpi",
+   "orphan_refs": [],
+   "purpose": "Fine-tune and serve Physical Intelligence OpenPI models (pi0, pi0-fast, pi0.5) using JAX or PyTorch backends for robot policy inference across ALOHA, DROID, and LIBERO ...",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/openpi"
+  },
+  {
+   "bytes": 29140,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "openvla-oft",
+   "files": [
+    {
+     "bytes": 14858,
+     "path": "18-multimodal/openvla-oft/SKILL.md",
+     "sha256": "07492556c7479f18d353c80a4f92450fbe301811e664fc45d0070fcdd9587c9e"
+    },
+    {
+     "bytes": 4031,
+     "path": "18-multimodal/openvla-oft/references/aloha-workflow.md",
+     "sha256": "ba8048180900d9e33ee78f037bd0f9637571fdc9932b6bd0daceaf1903fd7367"
+    },
+    {
+     "bytes": 4203,
+     "path": "18-multimodal/openvla-oft/references/config-troubleshooting.md",
+     "sha256": "3bedddd9fb919a579e0222d78f6a196752939ddb89945acfd822346430ac2aa0"
+    },
+    {
+     "bytes": 3256,
+     "path": "18-multimodal/openvla-oft/references/libero-workflow.md",
+     "sha256": "7c386c758d781241f6f363c1a698581f8a44058390cfe2b2d06cb94c521590cf"
+    },
+    {
+     "bytes": 2792,
+     "path": "18-multimodal/openvla-oft/references/paper-and-checkpoints.md",
+     "sha256": "87064e6d10bc775491a904f0533a0b5c9facad5f832386331fc6277eb6816cad"
+    }
+   ],
+   "generated": false,
+   "name": "fine-tuning-openvla-oft",
+   "orphan_refs": [],
+   "purpose": "Fine-tunes and evaluates OpenVLA-OFT and OpenVLA-OFT+ policies for robot action generation with continuous action heads, LoRA adaptation, and FiLM conditioning on LIBERO ...",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/openvla-oft"
+  },
+  {
+   "bytes": 41501,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "segment-anything",
+   "files": [
+    {
+     "bytes": 13403,
+     "path": "18-multimodal/segment-anything/SKILL.md",
+     "sha256": "6ac5c2f96cf7d0ae5f787164678701266930129aa06cc21818f20f77dacb6a71"
+    },
+    {
+     "bytes": 15993,
+     "path": "18-multimodal/segment-anything/references/advanced-usage.md",
+     "sha256": "fdda9082f07348fb27307a0369f0f8884543c24a19a8a8f62e299329a8a20a8f"
+    },
+    {
+     "bytes": 12105,
+     "path": "18-multimodal/segment-anything/references/troubleshooting.md",
+     "sha256": "dba733c3d5cffc0c086738183fc1a49572d220e53940e34302af357f36f7cbe5"
+    }
+   ],
+   "generated": false,
+   "name": "segment-anything-model",
+   "orphan_refs": [],
+   "purpose": "Foundation model for image segmentation with zero-shot transfer.",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/segment-anything"
+  },
+  {
+   "bytes": 43461,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "stable-diffusion",
+   "files": [
+    {
+     "bytes": 12989,
+     "path": "18-multimodal/stable-diffusion/SKILL.md",
+     "sha256": "816dce0d04b2e2ddc1510a5aaf3e545778f4c59f7329af689dc9941bbbebca37"
+    },
+    {
+     "bytes": 17880,
+     "path": "18-multimodal/stable-diffusion/references/advanced-usage.md",
+     "sha256": "282c9d2fd5d04502c683454aee281f68803dd3530a05db49227f80d7d3ed875c"
+    },
+    {
+     "bytes": 12592,
+     "path": "18-multimodal/stable-diffusion/references/troubleshooting.md",
+     "sha256": "cddb1aa7f4002293f27c6aed9ffdc58ee661a1c2f0656f3b423bc0af211d0e26"
+    }
+   ],
+   "generated": false,
+   "name": "stable-diffusion-image-generation",
+   "orphan_refs": [],
+   "purpose": "State-of-the-art text-to-image generation with Stable Diffusion models via HuggingFace Diffusers.",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/stable-diffusion"
+  },
+  {
+   "bytes": 12428,
+   "category": "18-multimodal",
+   "dangling_links": [],
+   "dir": "whisper",
+   "files": [
+    {
+     "bytes": 7466,
+     "path": "18-multimodal/whisper/SKILL.md",
+     "sha256": "acce14621ec8060db480fade27896a1fba0c99ba037c07684b876cc31027276c"
+    },
+    {
+     "bytes": 4962,
+     "path": "18-multimodal/whisper/references/languages.md",
+     "sha256": "a9fa53fef0c535f5b9e07838f9611f24a289e8ed9a08baed5cd7b190303e3165"
+    }
+   ],
+   "generated": false,
+   "name": "whisper",
+   "orphan_refs": [
+    "18-multimodal/whisper/references/languages.md"
+   ],
+   "purpose": "OpenAI's general-purpose speech recognition model.",
+   "stale_api": "",
+   "upstream_path": "18-multimodal/whisper"
+  },
+  {
+   "bytes": 22915,
+   "category": "19-emerging-techniques",
+   "dangling_links": [],
+   "dir": "knowledge-distillation",
+   "files": [
+    {
+     "bytes": 13600,
+     "path": "19-emerging-techniques/knowledge-distillation/SKILL.md",
+     "sha256": "bc27086dc02840cebef4db34db4b8406b37ff349d6e2a52848646c8daf24ff3e"
+    },
+    {
+     "bytes": 9315,
+     "path": "19-emerging-techniques/knowledge-distillation/references/minillm.md",
+     "sha256": "61500dc4fb920e7a760d245d9d68937845b68949bb6033bc3289d4b501ef47ec"
+    }
+   ],
+   "generated": false,
+   "name": "knowledge-distillation",
+   "orphan_refs": [
+    "19-emerging-techniques/knowledge-distillation/references/minillm.md"
+   ],
+   "purpose": "Compress large language models using knowledge distillation from teacher to student models.",
+   "stale_api": "",
+   "upstream_path": "19-emerging-techniques/knowledge-distillation"
+  },
+  {
+   "bytes": 59241,
+   "category": "19-emerging-techniques",
+   "dangling_links": [],
+   "dir": "long-context",
+   "files": [
+    {
+     "bytes": 15577,
+     "path": "19-emerging-techniques/long-context/SKILL.md",
+     "sha256": "6426eb21a38b8a314078292b8172d889b7f2b1a226901fcda78ac4d28a98a5e7"
+    },
+    {
+     "bytes": 14735,
+     "path": "19-emerging-techniques/long-context/references/extension_methods.md",
+     "sha256": "c570d93c48f9eb7b91e67411138d03237b0d18c82312943b376a56d37fcfc387"
+    },
+    {
+     "bytes": 16623,
+     "path": "19-emerging-techniques/long-context/references/fine_tuning.md",
+     "sha256": "9b2432cf380065814e45dc07f2207211c519f421667dcd2cec1c86e61d0a585c"
+    },
+    {
+     "bytes": 12306,
+     "path": "19-emerging-techniques/long-context/references/rope.md",
+     "sha256": "26df823376f4a1d54318f9fe52f41a3bba92efc62d623e5d097572effe4b7774"
+    }
+   ],
+   "generated": false,
+   "name": "long-context",
+   "orphan_refs": [],
+   "purpose": "Extend context windows of transformer models using RoPE, YaRN, ALiBi, and position interpolation techniques.",
+   "stale_api": "",
+   "upstream_path": "19-emerging-techniques/long-context"
+  },
+  {
+   "bytes": 58291,
+   "category": "19-emerging-techniques",
+   "dangling_links": [],
+   "dir": "model-merging",
+   "files": [
+    {
+     "bytes": 12818,
+     "path": "19-emerging-techniques/model-merging/SKILL.md",
+     "sha256": "dfbcc6d6dfef57489ac69cb6f3a858783f16dff2ecfc72eb2fac168fd2ecc87d"
+    },
+    {
+     "bytes": 14822,
+     "path": "19-emerging-techniques/model-merging/references/coefficient-tuning.md",
+     "sha256": "8666758680dc1c71389bb6a448ee0d4c7b81014564c22e32264507cbe6c1c02a"
+    },
+    {
+     "bytes": 11897,
+     "path": "19-emerging-techniques/model-merging/references/evaluation.md",
+     "sha256": "e702b4c413ee8391800c89376ba52b4c73918d16ff9aba35746e577547fcb0f7"
+    },
+    {
+     "bytes": 9003,
+     "path": "19-emerging-techniques/model-merging/references/examples.md",
+     "sha256": "a766253e16597a2aec585351189abbcb5fcc631b9ef784505c79f8833d44735f"
+    },
+    {
+     "bytes": 9751,
+     "path": "19-emerging-techniques/model-merging/references/methods.md",
+     "sha256": "3c9fff2534533958fe48a0b1aad4a8d35c9f7e35eb6b9250fe0f2d14f904f023"
+    }
+   ],
+   "generated": false,
+   "name": "model-merging",
+   "orphan_refs": [],
+   "purpose": "Merge multiple fine-tuned models using mergekit to combine capabilities without retraining.",
+   "stale_api": "",
+   "upstream_path": "19-emerging-techniques/model-merging"
+  },
+  {
+   "bytes": 23423,
+   "category": "19-emerging-techniques",
+   "dangling_links": [],
+   "dir": "model-pruning",
+   "files": [
+    {
+     "bytes": 13744,
+     "path": "19-emerging-techniques/model-pruning/SKILL.md",
+     "sha256": "aca913d834bc1e3d39bbfb75d0658d5a1b9acabf6511744719c5bab91bf306a8"
+    },
+    {
+     "bytes": 9679,
+     "path": "19-emerging-techniques/model-pruning/references/wanda.md",
+     "sha256": "5bf3e1e2b3a7c752bd6e064cee3ddb97aca293806fbc2325690f9e2e3e076802"
+    }
+   ],
+   "generated": false,
+   "name": "model-pruning",
+   "orphan_refs": [
+    "19-emerging-techniques/model-pruning/references/wanda.md"
+   ],
+   "purpose": "Reduce LLM size and accelerate inference using pruning techniques like Wanda and SparseGPT.",
+   "stale_api": "",
+   "upstream_path": "19-emerging-techniques/model-pruning"
+  },
+  {
+   "bytes": 47531,
+   "category": "19-emerging-techniques",
+   "dangling_links": [],
+   "dir": "moe-training",
+   "files": [
+    {
+     "bytes": 14968,
+     "path": "19-emerging-techniques/moe-training/SKILL.md",
+     "sha256": "f13f184fe031c84700d72c15dd90161a96f3b48ab6b50b250e6b86cfc4c87354"
+    },
+    {
+     "bytes": 14238,
+     "path": "19-emerging-techniques/moe-training/references/architectures.md",
+     "sha256": "04cad7bfca1618f65a227078df8d88ed9e4bcc558c38de95b3f1ae96c749603f"
+    },
+    {
+     "bytes": 8429,
+     "path": "19-emerging-techniques/moe-training/references/inference.md",
+     "sha256": "1d923aa78bb320e2ac0ab95d864761f92484d9ac332740e3d33eca6037a05002"
+    },
+    {
+     "bytes": 9896,
+     "path": "19-emerging-techniques/moe-training/references/training.md",
+     "sha256": "9a8d0fcfd2de1d54a85b65e645ad06ec637a3ddbbbff361b8051f2bf7a24403f"
+    }
+   ],
+   "generated": false,
+   "name": "moe-training",
+   "orphan_refs": [],
+   "purpose": "Train Mixture of Experts (MoE) models using DeepSpeed or HuggingFace.",
+   "stale_api": "",
+   "upstream_path": "19-emerging-techniques/moe-training"
+  },
+  {
+   "bytes": 33206,
+   "category": "19-emerging-techniques",
+   "dangling_links": [
+    "references/draft_model.md"
+   ],
+   "dir": "speculative-decoding",
+   "files": [
+    {
+     "bytes": 14072,
+     "path": "19-emerging-techniques/speculative-decoding/SKILL.md",
+     "sha256": "d818b841ffe3e338569ab7caa0d54516f51c649e52fd1af2d5de5d0435b39f99"
+    },
+    {
+     "bytes": 9088,
+     "path": "19-emerging-techniques/speculative-decoding/references/lookahead.md",
+     "sha256": "d93bf37b867a42e5d0d2d9ad79f7f104cd11415a64c502067aec19852f7db9bb"
+    },
+    {
+     "bytes": 10046,
+     "path": "19-emerging-techniques/speculative-decoding/references/medusa.md",
+     "sha256": "60cda15463b57a69039c3c03090c3b70cac542f32e995575e9c447ec7ed61103"
+    }
+   ],
+   "generated": false,
+   "name": "speculative-decoding",
+   "orphan_refs": [],
+   "purpose": "Accelerate LLM inference using speculative decoding, Medusa multiple heads, and lookahead decoding techniques.",
+   "stale_api": "",
+   "upstream_path": "19-emerging-techniques/speculative-decoding"
+  },
+  {
+   "bytes": 61216,
+   "category": "20-ml-paper-writing",
+   "dangling_links": [],
+   "dir": "academic-plotting",
+   "files": [
+    {
+     "bytes": 21149,
+     "path": "20-ml-paper-writing/academic-plotting/SKILL.md",
+     "sha256": "6613653d8109dcae36596b37d7414d5ae394a18f81543365222286d04485fd83"
+    },
+    {
+     "bytes": 15594,
+     "path": "20-ml-paper-writing/academic-plotting/references/data-visualization.md",
+     "sha256": "fe8999a4f5b9b19561decf65279b6bc816d9a21fd025783411e45ac494afffbc"
+    },
+    {
+     "bytes": 15627,
+     "path": "20-ml-paper-writing/academic-plotting/references/diagram-generation.md",
+     "sha256": "1531f284a2c9baa757e7a7baaaba626df3da3c02b1e50cef5d2506f9467841b5"
+    },
+    {
+     "bytes": 8846,
+     "path": "20-ml-paper-writing/academic-plotting/references/style-guide.md",
+     "sha256": "88a779bc4441d54053ddf6d249844d328000460188599b90f3f572b9319115e8"
+    }
+   ],
+   "generated": false,
+   "name": "academic-plotting",
+   "orphan_refs": [],
+   "purpose": "Generates publication-quality figures for ML papers from research context.",
+   "stale_api": "",
+   "upstream_path": "20-ml-paper-writing/academic-plotting"
+  },
+  {
+   "bytes": 99326,
+   "category": "20-ml-paper-writing",
+   "dangling_links": [],
+   "dir": "ml-paper-writing",
+   "files": [
+    {
+     "bytes": 37635,
+     "path": "20-ml-paper-writing/ml-paper-writing/SKILL.md",
+     "sha256": "96733e6d758642d792ed15b7c08eb90548d4775099368cd72a8312127f2fe911"
+    },
+    {
+     "bytes": 11176,
+     "path": "20-ml-paper-writing/ml-paper-writing/references/checklists.md",
+     "sha256": "0006ca26afeb4512f34f74767c6d694d9bbc44f8f94e2ee7edbf7c49657f369d"
+    },
+    {
+     "bytes": 15366,
+     "path": "20-ml-paper-writing/ml-paper-writing/references/citation-workflow.md",
+     "sha256": "5a93af18f70dc5c568a2cf327814e12ba978552898ccf0f021d42b06b2d91184"
+    },
+    {
+     "bytes": 10801,
+     "path": "20-ml-paper-writing/ml-paper-writing/references/reviewer-guidelines.md",
+     "sha256": "dd248998b5d64d0b876ed1e2b54fa8556ca71340a03281ee97f69c288da57525"
+    },
+    {
+     "bytes": 7856,
+     "path": "20-ml-paper-writing/ml-paper-writing/references/sources.md",
+     "sha256": "4054139a95a547a3975a96f12d6d09b02d00934b66baa8adb55cef013e35da83"
+    },
+    {
+     "bytes": 16492,
+     "path": "20-ml-paper-writing/ml-paper-writing/references/writing-guide.md",
+     "sha256": "10e7eb2fbacae3f75f90f287a918df08fdeafcbb1eecaf666639715a3e23aa47"
+    }
+   ],
+   "generated": false,
+   "name": "ml-paper-writing",
+   "orphan_refs": [],
+   "purpose": "Write publication-ready ML/AI papers for NeurIPS, ICML, ICLR, ACL, AAAI, COLM.",
+   "stale_api": "",
+   "upstream_path": "20-ml-paper-writing/ml-paper-writing"
+  },
+  {
+   "bytes": 25740,
+   "category": "20-ml-paper-writing",
+   "dangling_links": [],
+   "dir": "presenting-conference-talks",
+   "files": [
+    {
+     "bytes": 10253,
+     "path": "20-ml-paper-writing/presenting-conference-talks/SKILL.md",
+     "sha256": "5fb6b8f9e5b7690dcb0d783ff1e07c6d3f6b950b8f1238e0672e1f3c53bad57f"
+    },
+    {
+     "bytes": 15487,
+     "path": "20-ml-paper-writing/presenting-conference-talks/references/slide-templates.md",
+     "sha256": "9534368d357bd6b0004c77a963d3a1c1eb2bab5f69b318727adb12502e633e5b"
+    }
+   ],
+   "generated": false,
+   "name": "presenting-conference-talks",
+   "orphan_refs": [],
+   "purpose": "Generates conference presentation slides (Beamer LaTeX PDF and editable PPTX) from a compiled paper with speaker notes and talk script.",
+   "stale_api": "",
+   "upstream_path": "20-ml-paper-writing/presenting-conference-talks"
+  },
+  {
+   "bytes": 68034,
+   "category": "20-ml-paper-writing",
+   "dangling_links": [],
+   "dir": "systems-paper-writing",
+   "files": [
+    {
+     "bytes": 14355,
+     "path": "20-ml-paper-writing/systems-paper-writing/SKILL.md",
+     "sha256": "ee31b50b25192efcfcbe3252d7e15d88ec27bbd94817640b0357090f94c0e297"
+    },
+    {
+     "bytes": 12092,
+     "path": "20-ml-paper-writing/systems-paper-writing/references/checklist.md",
+     "sha256": "d4b887be234f893ee690805f04768d6d592275c8990210d39449047844441b22"
+    },
+    {
+     "bytes": 4791,
+     "path": "20-ml-paper-writing/systems-paper-writing/references/reviewer-guidelines.md",
+     "sha256": "a40cbebabd1939dc6a342f3c12618ba2f42bd1f88cb286cd55fcbe9b3f9fa0b5"
+    },
+    {
+     "bytes": 16684,
+     "path": "20-ml-paper-writing/systems-paper-writing/references/section-blueprints.md",
+     "sha256": "7313cf1446f13d30c981684faf2e7e9946d4ebea305c8042643f14dee310a832"
+    },
+    {
+     "bytes": 10462,
+     "path": "20-ml-paper-writing/systems-paper-writing/references/systems-conferences.md",
+     "sha256": "7274bf07076c82ed5cb137eebbb693ca4fe7e540c467eb0cd128742fa29cc710"
+    },
+    {
+     "bytes": 9650,
+     "path": "20-ml-paper-writing/systems-paper-writing/references/writing-patterns.md",
+     "sha256": "9cb752d56392213dae82eb17437485dfb12c402c9e46224bbf4e1c24b5c4020c"
+    }
+   ],
+   "generated": false,
+   "name": "systems-paper-writing",
+   "orphan_refs": [],
+   "purpose": "Comprehensive guide for writing systems papers targeting OSDI, SOSP, ASPLOS, NSDI, and EuroSys.",
+   "stale_api": "",
+   "upstream_path": "20-ml-paper-writing/systems-paper-writing"
+  },
+  {
+   "bytes": 19150,
+   "category": "21-research-ideation",
+   "dangling_links": [],
+   "dir": "brainstorming-research-ideas",
+   "files": [
+    {
+     "bytes": 19150,
+     "path": "21-research-ideation/brainstorming-research-ideas/SKILL.md",
+     "sha256": "8422a1a6dc0a88d05f02b9fbe0f8c2ae06a77024856d18125efa13d19d855d46"
+    }
+   ],
+   "generated": false,
+   "name": "brainstorming-research-ideas",
+   "orphan_refs": [],
+   "purpose": "Guides researchers through structured ideation frameworks to discover high-impact research directions.",
+   "stale_api": "",
+   "upstream_path": "21-research-ideation/brainstorming-research-ideas"
+  },
+  {
+   "bytes": 21962,
+   "category": "21-research-ideation",
+   "dangling_links": [],
+   "dir": "creative-thinking-for-research",
+   "files": [
+    {
+     "bytes": 21962,
+     "path": "21-research-ideation/creative-thinking-for-research/SKILL.md",
+     "sha256": "ec111f9236d7f9d72c895cebbf0f534ac93f4249172607559ad4bf92aefc5310"
+    }
+   ],
+   "generated": false,
+   "name": "creative-thinking-for-research",
+   "orphan_refs": [],
+   "purpose": "Applies cognitive science frameworks for creative thinking to CS and AI research ideation.",
+   "stale_api": "",
+   "upstream_path": "21-research-ideation/creative-thinking-for-research"
+  },
+  {
+   "bytes": 38054,
+   "category": "22-agent-native-research-artifact",
+   "dangling_links": [],
+   "dir": "compiler",
+   "files": [
+    {
+     "bytes": 14931,
+     "path": "22-agent-native-research-artifact/compiler/SKILL.md",
+     "sha256": "747c2f17125ce136e8f75baf8803eb3b21ccc01246498a7f0bc4c01ec6d01d9a"
+    },
+    {
+     "bytes": 13124,
+     "path": "22-agent-native-research-artifact/compiler/references/ara-schema.md",
+     "sha256": "e1a41474af6f4788ce403bc341788c82619afc2f2837eff36fa5a3008e54a0f1"
+    },
+    {
+     "bytes": 4786,
+     "path": "22-agent-native-research-artifact/compiler/references/exploration-tree-spec.md",
+     "sha256": "5892ea72f7b114d760febc8e89b57a9f73b2273af9355275e3d47f8e982e6a4d"
+    },
+    {
+     "bytes": 5213,
+     "path": "22-agent-native-research-artifact/compiler/references/validation-checklist.md",
+     "sha256": "16836ad8f0936c273b195245f433a22204b022917c0ad150c92cd4e690ec03f3"
+    }
+   ],
+   "generated": false,
+   "name": "ara-compiler",
+   "orphan_refs": [],
+   "purpose": "Compiles any research input \u2014 PDF papers, GitHub repositories, experiment logs, code directories, or raw notes \u2014 into a complete Agent-Native Research Artifact (ARA) with ...",
+   "stale_api": "",
+   "upstream_path": "22-agent-native-research-artifact/compiler"
+  },
+  {
+   "bytes": 30342,
+   "category": "22-agent-native-research-artifact",
+   "dangling_links": [],
+   "dir": "research-manager",
+   "files": [
+    {
+     "bytes": 12625,
+     "path": "22-agent-native-research-artifact/research-manager/SKILL.md",
+     "sha256": "f78da7627ac09a4be398ea4363fc7b8753b2dcb22bc961c5059395e33ef3ef2c"
+    },
+    {
+     "bytes": 5255,
+     "path": "22-agent-native-research-artifact/research-manager/references/event-taxonomy.md",
+     "sha256": "f5439ac4f030e9249df1c62327f2658d97473cf5ead8a2f72e7d35082a853241"
+    },
+    {
+     "bytes": 6353,
+     "path": "22-agent-native-research-artifact/research-manager/references/provenance-tags.md",
+     "sha256": "b485d714ce9302fc01659455c00ea367b89d96b52a1466f314645efa42887897"
+    },
+    {
+     "bytes": 6109,
+     "path": "22-agent-native-research-artifact/research-manager/references/session-protocol.md",
+     "sha256": "dd0a5edbea2bbcb09970bbacf566f6a92f95d07550647ca996d4c8ee106166d5"
+    }
+   ],
+   "generated": false,
+   "name": "ara-research-manager",
+   "orphan_refs": [],
+   "purpose": "Records research provenance as a post-task epilogue, scanning conversation history at the end of a coding or research session to extract decisions, experiments, dead ends, claims ...",
+   "stale_api": "",
+   "upstream_path": "22-agent-native-research-artifact/research-manager"
+  },
+  {
+   "bytes": 26368,
+   "category": "22-agent-native-research-artifact",
+   "dangling_links": [],
+   "dir": "rigor-reviewer",
+   "files": [
+    {
+     "bytes": 17848,
+     "path": "22-agent-native-research-artifact/rigor-reviewer/SKILL.md",
+     "sha256": "5a8169a5d069caf36a30e0106e523503ffba685215c3cd0067a72aa64a7e2dbb"
+    },
+    {
+     "bytes": 8520,
+     "path": "22-agent-native-research-artifact/rigor-reviewer/references/review-dimensions.md",
+     "sha256": "1f41d96ff243a05048b6dfb9d88362dd32070e2bf0999b90c1bd506d3cfbdb04"
+    }
+   ],
+   "generated": false,
+   "name": "ara-rigor-reviewer",
+   "orphan_refs": [],
+   "purpose": "Performs ARA Seal Level 2 semantic epistemic review on Agent-Native Research Artifacts, scoring six dimensions (evidence relevance, falsifiability, scope calibration, argument ...",
+   "stale_api": "",
+   "upstream_path": "22-agent-native-research-artifact/rigor-reviewer"
+  }
+ ],
+ "stages": {
+  "1-frame": [
+   "0-autoresearch-skill",
+   "21-research-ideation/brainstorming-research-ideas",
+   "21-research-ideation/creative-thinking-for-research",
+   "22-agent-native-research-artifact/compiler",
+   "22-agent-native-research-artifact/research-manager",
+   "22-agent-native-research-artifact/rigor-reviewer"
+  ],
+  "2-data": [
+   "02-tokenization/huggingface-tokenizers",
+   "02-tokenization/sentencepiece",
+   "05-data-processing/nemo-curator",
+   "05-data-processing/ray-data",
+   "15-rag/chroma",
+   "15-rag/faiss",
+   "15-rag/pinecone",
+   "15-rag/qdrant",
+   "15-rag/sentence-transformers"
+  ],
+  "3-train": [
+   "01-model-architecture/litgpt",
+   "01-model-architecture/mamba",
+   "01-model-architecture/nanogpt",
+   "01-model-architecture/rwkv",
+   "01-model-architecture/torchtitan",
+   "03-fine-tuning/axolotl",
+   "03-fine-tuning/llama-factory",
+   "03-fine-tuning/peft",
+   "03-fine-tuning/unsloth",
+   "06-post-training/grpo-rl-training",
+   "06-post-training/miles",
+   "06-post-training/openrlhf",
+   "06-post-training/simpo",
+   "06-post-training/slime",
+   "06-post-training/torchforge",
+   "06-post-training/trl-fine-tuning",
+   "06-post-training/verl",
+   "08-distributed-training/accelerate",
+   "08-distributed-training/deepspeed",
+   "08-distributed-training/megatron-core",
+   "08-distributed-training/pytorch-fsdp2",
+   "08-distributed-training/pytorch-lightning",
+   "08-distributed-training/ray-train",
+   "10-optimization/awq",
+   "10-optimization/bitsandbytes",
+   "10-optimization/flash-attention",
+   "10-optimization/gguf",
+   "10-optimization/gptq",
+   "10-optimization/hqq",
+   "10-optimization/ml-training-recipes",
+   "19-emerging-techniques/knowledge-distillation",
+   "19-emerging-techniques/long-context",
+   "19-emerging-techniques/model-merging",
+   "19-emerging-techniques/model-pruning",
+   "19-emerging-techniques/moe-training",
+   "19-emerging-techniques/speculative-decoding"
+  ],
+  "4-measure": [
+   "04-mechanistic-interpretability/nnsight",
+   "04-mechanistic-interpretability/pyvene",
+   "04-mechanistic-interpretability/saelens",
+   "04-mechanistic-interpretability/transformer-lens",
+   "07-safety-alignment/constitutional-ai",
+   "07-safety-alignment/llamaguard",
+   "07-safety-alignment/nemo-guardrails",
+   "07-safety-alignment/prompt-guard",
+   "11-evaluation/bigcode-evaluation-harness",
+   "11-evaluation/lm-evaluation-harness",
+   "11-evaluation/nemo-evaluator",
+   "17-observability/langsmith",
+   "17-observability/phoenix"
+  ],
+  "5-run": [
+   "09-infrastructure/lambda-labs",
+   "09-infrastructure/modal",
+   "09-infrastructure/skypilot",
+   "12-inference-serving/llama-cpp",
+   "12-inference-serving/sglang",
+   "12-inference-serving/tensorrt-llm",
+   "12-inference-serving/vllm",
+   "13-mlops/mlflow",
+   "13-mlops/swanlab",
+   "13-mlops/tensorboard",
+   "13-mlops/weights-and-biases"
+  ],
+  "6-write": [
+   "14-agents/a-evolve",
+   "14-agents/autogpt",
+   "14-agents/crewai",
+   "14-agents/langchain",
+   "14-agents/llamaindex",
+   "16-prompt-engineering/dspy",
+   "16-prompt-engineering/guidance",
+   "16-prompt-engineering/instructor",
+   "16-prompt-engineering/outlines",
+   "18-multimodal/audiocraft",
+   "18-multimodal/blip-2",
+   "18-multimodal/clip",
+   "18-multimodal/cosmos-policy",
+   "18-multimodal/llava",
+   "18-multimodal/openpi",
+   "18-multimodal/openvla-oft",
+   "18-multimodal/segment-anything",
+   "18-multimodal/stable-diffusion",
+   "18-multimodal/whisper",
+   "20-ml-paper-writing/academic-plotting",
+   "20-ml-paper-writing/ml-paper-writing",
+   "20-ml-paper-writing/presenting-conference-talks",
+   "20-ml-paper-writing/systems-paper-writing"
+  ]
+ },
+ "stale_api": {
+  "01-model-architecture/rwkv": "pins pytorch-lightning==1.9.5",
+  "10-optimization/awq": "upstream says AutoAWQ is deprecated",
+  "14-agents/langchain": "uses removed chain/memory APIs",
+  "16-prompt-engineering/dspy": "pre-2.5 module names",
+  "16-prompt-engineering/guidance": "models.Anthropic shape",
+  "16-prompt-engineering/outlines": "outlines.models.* moved in 1.0"
+ },
+ "upstream": {
+  "date": "2026-06-15",
+  "license": "MIT",
+  "name": "AI-research-SKILLs",
+  "rev": "773a52944ba4747a18bd4ae9ade53fff041adcbc",
+  "url": "https://github.com/orchestra-research/AI-research-SKILLs"
+ }
+}
