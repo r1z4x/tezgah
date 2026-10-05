@@ -131,44 +131,48 @@ SYMCITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+)::"
 
 
 def qualnames(path):
-    """{dotted name: (start, end)} for every def and class of a Python file,
-    nested ones as `Class.method` / `outer.inner`, and its module-level
-    assignments; None for a file that does not parse as Python."""
+    """{dotted name: (start, end, method)} for every def and class of a Python
+    file, nested ones as `Class.method` / `outer.inner`, and its module-level
+    assignments; `method` is True for a def whose direct parent is a class.
+    None for a file that does not parse as Python."""
     try:
         tree = ast.parse(source(path))
     except (SyntaxError, ValueError, UnicodeDecodeError):
         return None
     out = {}
 
-    def walk(body, prefix):
+    def walk(body, prefix, in_class=False):
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 name = prefix + node.name
                 start = min([node.lineno] + [d.lineno for d in node.decorator_list])
-                out.setdefault(name, (start, node.end_lineno))
-                walk(node.body, name + ".")
+                out.setdefault(name, (start, node.end_lineno,
+                                      in_class and not isinstance(node, ast.ClassDef)))
+                walk(node.body, name + ".", isinstance(node, ast.ClassDef))
                 continue
             if not prefix and isinstance(node, (ast.Assign, ast.AnnAssign)):
                 for target in getattr(node, "targets", None) or [node.target]:
                     if isinstance(target, ast.Name):
-                        out.setdefault(target.id, (node.lineno, node.end_lineno))
+                        out.setdefault(target.id, (node.lineno, node.end_lineno, False))
             for field in ("body", "orelse", "finalbody"):
-                walk(getattr(node, field, None) or [], prefix)
+                walk(getattr(node, field, None) or [], prefix, in_class)
             for handler in getattr(node, "handlers", None) or []:
-                walk(handler.body, prefix)
+                walk(handler.body, prefix, in_class)
 
     walk(tree.body, "")
     return out
 
 
 def anchor_span(names, qual):
-    """The (start, end) `qual` names in a qualnames() table, or None. A name
-    without a dot may also be the one def of that name at any depth, the way a
-    test pin names `test_x` inside its TestCase class."""
+    """The (start, end, method) `qual` names in a qualnames() table, or None. A
+    name without a dot may also be the one method of that name, the way a test
+    pin names `test_x` inside its TestCase class; a def local to a function
+    never stands in, or a deleted top-level symbol would pass on a helper."""
     if qual in names:
         return names[qual]
     if "." not in qual:
-        hits = [span for name, span in names.items() if name.rsplit(".", 1)[-1] == qual]
+        hits = [span for name, span in names.items()
+                if span[2] and name.rsplit(".", 1)[-1] == qual]
         if len(hits) == 1:
             return hits[0]
     return None

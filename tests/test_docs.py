@@ -458,6 +458,17 @@ class CitationAudit(unittest.TestCase):
                           ("docs/page.md:2", "`hooks/k.py::K.n`"),
                           ("docs/page.md:2", "`hooks/nope.py::K`")])
 
+    def test_a_function_local_def_does_not_stand_in_for_a_gone_symbol(self):
+        # The dotless fallback is for a test pin naming a method of its
+        # TestCase; a def local to a function is not a name a page can cite, so
+        # a deleted top-level `_frozen` must not pass on a same-named helper.
+        _, flagged, judged, _, _ = self.audit({
+            "hooks/m.py": ("def migrate():\n    def _frozen():\n        pass\n\n\n"
+                           "class T:\n    def test_x(self):\n        pass\n"),
+            "docs/page.md": "`hooks/m.py::_frozen` and `hooks/m.py::test_x`.\n"})
+        self.assertEqual(judged, 2)
+        self.assertEqual([f[1] for f in flagged], ["`hooks/m.py::_frozen`"])
+
     def test_a_symbol_anchor_in_a_comment_is_judged(self):
         _, flagged, judged, _, _ = self.audit({"hooks/y.py": (
             "# see `bin/tool::second` and `bin/tool::gone`\n"

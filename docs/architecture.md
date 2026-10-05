@@ -50,7 +50,7 @@ its hook maps `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PostCompact` to
 the core's events (`hosts/codex/hook.py:35-40`), imports the builder, gate,
 integrity and untrusted modules from `hooks/` (`hosts/codex/hook.py:21-33`), and
 passes Codex's tool names through a translation table before calling the gate
-(`hosts/codex/hook.py::GATE_TOOLS`, `hosts/codex/hook.py::gate_name`, `decision` at `:104`). omp is
+(`hosts/codex/hook.py::GATE_TOOLS`, `hosts/codex/hook.py::gate_name`, `decision` at `hosts/codex/hook.py::gate_reason`). omp is
 the same split in another language: the TypeScript extension is "only the
 bridge" and substitutes the absolute path of
 the Python half (`hosts/omp/tezgah-hook.ts.in:3-6`), whose `handle()` dispatches
@@ -153,7 +153,7 @@ lowest-value blocks are dropped in a fixed order rather than the rules
 |---|---|---|---|
 | Evidence ledger | `~/.cache/tezgah/evidence/<session>.jsonl` (`hooks/tezgah_integrity.py::_path`) | `note_tool` from each host's PostToolUse (`hooks/tezgah_integrity.py::note_tool`) | what a session actually ran, and therefore the Stop verdict |
 | Session store (used marks) | the chosen cache dir, `sessions/<session>.jsonl` (`hooks/tezgah_context.py::record`) | `record` (`hooks/tezgah_context.py::record`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript; an `orch` mark is also written to the evidence ledger (`hooks/tezgah_context.py::record`) so `fanout` can count it |
-| Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py::_store`) | `capture` on the write path (`hooks/tezgah_snapshot.py:206`) | the pre-write bytes; the rollback source |
+| Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py::_store`) | `capture` on the write path (`hooks/tezgah_snapshot.py::capture`) | the pre-write bytes; the rollback source |
 | Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py::_stamp_path`) | `write_stamp` (`hooks/tezgah_context.py::write_stamp`) | the comparison behind the one-line delta, nothing else |
 | Installed config dir | `~/.config/tezgah` (`hooks/tezgah_paths.py:19-23`) | the installer and the user | which roots are armed, which kill switches are on |
 | Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:4063`) | `tezgah-setup --sync` (`bin/tezgah-setup:4061-4120`) | what Claude Code actually executes — a copy, never this checkout |
@@ -175,7 +175,7 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
 - **One definition per concept.** The contract text lives only in
   `hooks/tezgah_policy.py`; adapters carry envelopes (`hooks/projects-auto-init.py:2-7`).
   Host-specific copies exist only where a host cannot load Python, and those are
-  generated from the policy, not hand-kept (`bin/tezgah-setup:1142-1147`).
+  generated from the policy, not hand-kept (`bin/tezgah-setup::opencode_contract_text`).
 - **A hook never takes a session down.** Every call an entry point makes into
   the core goes through `tezgah_guard.safe`, which returns `None` and files a
   `crash` row rather than letting the exception out: a fault costs one envelope,

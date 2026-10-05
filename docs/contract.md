@@ -190,7 +190,7 @@ missing the code graph or every consult option (`hooks/tezgah_policy.py:511-531`
 
 A kill switch removes the rule's text, not just a status mark
 (`hooks/tezgah_context.py:1179-1243`). `off()` checks `~/.config/tezgah` and the
-legacy `~/.claude` (`hooks/tezgah_paths.py::OFF_DIRS`, `:463-465`); the drop itself
+legacy `~/.claude` (`hooks/tezgah_paths.py::OFF_DIRS`, `hooks/tezgah_paths.py::off`); the drop itself
 happens in `core_split()`.
 
 | Switch file | Rule it removes | Where the drop is implemented |

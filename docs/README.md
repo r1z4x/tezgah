@@ -61,8 +61,9 @@ citation you can open: `path::symbol` into Python code, `path:line` elsewhere.
   and the comments and docstrings of the Python code. A string literal, such as a
   fixture or a captured output, is data and is not read. A symbol citation is
   resolved against the AST of the file it names. It fails when that file defines
-  no such name. A name without a dot may also be the one def of that name at any
-  depth, the way a test pin names its test. A `path:line` with a symbol named
+  no such name. A name without a dot may also name the one method of that name
+  in a class. That is how a test pin names its test. A def local to a function
+  never stands in for it. A `path:line` with a symbol named
   before it, or right after it in parentheses, must point inside that symbol's
   body. A bare file name means the one code file of that name. The suite also
   checks that a cited file exists and that a cited line is inside it
@@ -70,7 +71,7 @@ citation you can open: `path::symbol` into Python code, `path:line` elsewhere.
   is a judgement, not a regex. So a `path:line` with no symbol beside it is left
   unjudged rather than guessed at. So is a `path:N` the pattern cannot read
   (unquoted, or a comma list), but it is counted.
-  On this tree, 2026-10-05: 956 judged (955 of them symbol citations), 622 not
+  On this tree, 2026-10-06: 996 judged (995 of them symbol citations), 577 not
   judgeable, 85 of those unreadable.
   The unjudged count is a ratchet. `docs/citations-baseline.json` holds each file's
   count, and a file above or below it fails. Only `--citations --update` rewrites

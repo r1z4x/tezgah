@@ -74,7 +74,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `claim` | `hooks/tezgah_integrity.py::stop_reason` | `hooks/tezgah_integrity.py::counters` |
 | `after_block` | `stop_reason(..., record_only=True)` `hooks/tezgah_integrity.py::stop_reason`, on the reply after this rule's own block (`stop_hook_active` in a turn holding a `blocked:` claim row) on Claude, Codex and omp; `detail` is `would block: <class>`, `ok` or `no claim` | nothing yet: a record for the after-block observation window, not a claim and not a second `shape` row, so `counters` counts it neither as a claim nor as a reply; `NOT_TOOL_HOOK` lists it |
 | `deny`, `nudge` | the [gate](gate.md)'s `hooks/tezgah_gate.py::_deny`, first-nudge `hooks/tezgah_gate.py::decision` | `hooks/tezgah_integrity.py::counters` |
-| `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:198-200`, `:277-280` | `hooks/tezgah_integrity.py::_snapshot_hash`; no counter |
+| `snapshot`, `rollback` | `hooks/tezgah_snapshot.py::_capture_one`, `:277-280` | `hooks/tezgah_integrity.py::_snapshot_hash`; no counter |
 | `compact` | `hooks/tezgah_integrity.py::note_compaction`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py::remember_compaction`) | `hooks/tezgah_integrity.py::_counts` (what `counters` folds with) |
 | `lesson` | `hooks/tezgah_context.py::note_lesson`, one row per lesson the budget left in a session block or a per-turn block, with its 8-hex `key` and `block` (`session` or `turn`), inside the host's `safe()` like the rest of the prompt path | no counter; `hooks/tezgah_context.py::NOT_TOOL_HOOK` keeps it out of `hooks/tezgah_context.py::_ledger_since`, so a session of lesson rows still reads as a gate that never ran |
 
@@ -136,7 +136,7 @@ pipe's status is then its first failing stage's, so the host's verdict is the ch
 (`hooks/tezgah_integrity.py::passing_check`) is stricter: a `verify_ok` counts only with `exit == 0`, a non-zero `out_bytes` (exit
 0 with an empty result is the classic silent failure) and no pipe owning the status. The gate refuses the
 trimmed form before it runs ([gate.md](gate.md), the `piped` rule). The `out_bytes` half
-bites only where the host reported a result size — Codex (`hosts/codex/hook.py:158`), Cursor
+bites only where the host reported a result size — Codex (`hosts/codex/hook.py::main`), Cursor
 (`hosts/cursor/hook.py:239,268`) and omp, whose bridge measures it and sends `result_len`
 (`hosts/omp/tezgah-hook.ts.in:613-617`), now do — and 6 of 1423 `verify_ok` rows across 1454 local ledgers carry the field
 (measured 2026-09-19), so an absent field still passes: the guard narrows a check whose
