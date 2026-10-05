@@ -402,10 +402,10 @@ bin/tezgah-taste rate --in mined.jsonl        # preference corrections per writi
 
 `mine` reads the host transcripts already on disk, so it needs no capture. It
 reads omp's top-level session files and Claude's top-level transcripts whose cwd
-is under `--root` (`cmd_mine`, `bin/tezgah-taste:190-218`). `measure` and `rate`
+is under `--root` (`cmd_mine`, `bin/tezgah-taste:247-277`). `measure` and `rate`
 send the sample text to the judge seam's provider ([judge](judge.md)), redacted
-first (`classify`, `bin/tezgah-taste:228-250`). They use a fixed labelling rule
-(`RULE`, `bin/tezgah-taste:48-52`). Without a credential they send nothing.
+first (`classify`, `bin/tezgah-taste:285-307`). They use a fixed labelling rule
+(`RULE`, `bin/tezgah-taste:49-53`). Without a credential they send nothing.
 
 ## Tidying the lessons ledger
 

@@ -5,6 +5,9 @@
                        a dry run: nothing is written anywhere
   tezgah-gate decide   the same answer, recorded the way the live gate records
                        it (deny/drift/nudge rows, the pre-write snapshot)
+  tezgah-gate replay   the real ledgers replayed through this gate in a sandbox
+                       HOME, with per-stratum fidelity; `--report` reads labels,
+                       `--sheet` draws the blind label sample (hooks/tezgah_replay.py)
 
 Reads the host's own call as {"tool":..., "input":{...}, "cwd":...,
 "session_id":...} and prints what hooks/tezgah_gate.decision() returns for it,
@@ -37,8 +40,11 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
+    if argv[1] == "replay":
+        import tezgah_replay
+        return tezgah_replay.main(argv[2:])
     if argv[1] not in ("check", "decide"):
-        return misuse("unknown command %r (check, decide)" % argv[1])
+        return misuse("unknown command %r (check, decide, replay)" % argv[1])
     if len(argv) > 2:
         return misuse("check reads its call on stdin, not as arguments")
     try:

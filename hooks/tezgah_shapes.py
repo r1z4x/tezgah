@@ -248,3 +248,57 @@ def rule_yield(files=None, shipped=None):
     return {"ledgers": len(files), "fixtures": len(files) - len(real),
             "real": len(real), "retire_fires": RETIRE_FIRES,
             "min_exposure": MIN_EXPOSURE, "rules": rules}
+
+
+# Claude Code auto mode's escalation thresholds: a person is asked after 3
+# consecutive or 20 total denials. They are example values for the denial-budget
+# fold (plan 055 part 8a), not a tezgah measurement.
+RUN_MIN = 3
+SESSION_DENIES = 20
+
+# The rows the gate writes beside a refusal (`drift_reason`'s mark, the nudge
+# mark): a refused call leaves them in front of its deny row, so they continue a
+# run instead of ending it. Every other row - a call that ran, a turn marker, a
+# reply - ends the run.
+GATE_SIDE_KINDS = frozenset(("deny", "drift", "nudge"))
+
+
+def deny_runs(ledgers, run_min=RUN_MIN, session_min=SESSION_DENIES):
+    """The denial-budget fold over `ledgers`, an iterable of row lists, one per
+    session: per rule, the runs of at least `run_min` consecutive denies of that
+    rule inside one turn, the longest run, and how many sessions hold at least
+    `session_min` denies. A report only: nothing reads it on the hot path and no
+    gate rule changes on it (ADR 010).
+
+    A run is consecutive deny rows under one `_deny_rule` label; a deny of
+    another rule starts a new run, and any row outside `GATE_SIDE_KINDS` (a
+    `began` row, a step, a `turn` marker) ends it."""
+    runs, longest, sessions, read = Counter(), Counter(), 0, 0
+    for rows in ledgers:
+        read += 1
+        rule, length, denies = None, 0, 0
+
+        def close():
+            if rule is not None and length >= run_min:
+                runs[rule] += 1
+            if rule is not None:
+                longest[rule] = max(longest[rule], length)
+
+        for row in rows:
+            kind = row.get("kind")
+            if kind == "deny":
+                denies += 1
+                label = ti._deny_rule(str(row.get("detail") or ""))
+                if label == rule:
+                    length += 1
+                else:
+                    close()
+                    rule, length = label, 1
+            elif kind not in GATE_SIDE_KINDS:
+                close()
+                rule, length = None, 0
+        close()
+        sessions += denies >= session_min
+    return {"ledgers": read, "run_min": run_min, "session_min": session_min,
+            "runs": dict(runs), "longest": dict(longest),
+            "sessions_over": sessions}

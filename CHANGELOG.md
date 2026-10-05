@@ -8,6 +8,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`tezgah-gate replay` measures the gate against its own history.** It
+  replays this machine's real ledgers through the unmodified dry-run gate and
+  the Stop rule. It runs in a sandbox HOME, with the clock frozen at each call.
+  It prints the corpus size, the join rate and every exclusion with its count.
+  Per stratum, it prints how often the replayed verdict equals the recorded
+  one. Every figure names its cutoff. `replay --sheet` draws a blind label
+  sample that shows no verdict. `replay --report --labels <file>` turns two
+  raters' labels into per-rule false-block rates and Stop error rates. Each
+  rate carries a Wilson 95% interval, and the report adds Cohen's kappa. It
+  also folds the denial budget: runs of 3 consecutive denies per rule in one
+  turn, and sessions with 20 or more. Nothing leaves `~/.cache/tezgah/replay`,
+  and no gate behaviour changes. `tezgah-taste`'s transcript walkers can now
+  read subagent files and tool inputs. `mine` reads what it read before.
+
 - **Opt-in taste capture, and a miner for the corrections already on disk.**
   Arm it with `~/.config/tezgah/taste-on`. A repository with a `.tezgah/`
   directory then gets `.tezgah/taste/signals.jsonl`. It holds each prompt,
