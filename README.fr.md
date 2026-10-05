@@ -46,7 +46,7 @@ modifiée à un endroit atteint chaque hôte de la même façon.
 - **La recherche arrive avec sa bibliothèque.** Les tâches de recherche
   passent par OpenResearch avec une bibliothèque intégrée de 98 compétences
   upstream, chargée une entrée à la fois pour que le contexte reste petit.
-- **Chaque règle a un interrupteur.** Quatorze interrupteurs — plus des
+- **Chaque règle a un interrupteur.** Seize interrupteurs — plus des
   marques par dépôt — retirent le texte de la règle de la session ; la règle
   s'arrête vraiment au lieu de simplement figurer comme désactivée.
 - **Des réponses sur lesquelles agir.** Les réponses sont en turc et

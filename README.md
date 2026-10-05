@@ -44,7 +44,7 @@ reaches every host the same way.
 - **Research ships with its library.** Research tasks route through
   OpenResearch with a vendored library of 98 upstream skills, loaded one entry
   at a time so the context stays small.
-- **Every rule has an off switch.** Fourteen kill switches — plus per-repo
+- **Every rule has an off switch.** Sixteen kill switches — plus per-repo
   marks — remove a rule's text from the session, so the rule actually stops
   rather than merely showing as off.
 - **Answers you can act on.** Replies are Turkish and lead with the outcome; a

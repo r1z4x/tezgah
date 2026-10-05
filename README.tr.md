@@ -46,7 +46,7 @@ değiştirdiğinizde her barındırıcıya aynı şekilde ulaşır.
 - **Araştırma kütüphanesiyle birlikte gelir.** Araştırma görevleri,
   bağlamın küçük kalması için tek tek yüklenen 98 becerilik gömülü
   bir kütüphaneyle OpenResearch üzerinden yürütülür.
-- **Her kuralın bir kapatma anahtarı vardır.** On dört kapatma anahtarı — ve
+- **Her kuralın bir kapatma anahtarı vardır.** On altı kapatma anahtarı — ve
   depo başına işaretler — kuralın metnini oturumdan kaldırır; böylece kural
   yalnızca kapalı görünmez, gerçekten durur.
 - **Harekete geçirebileceğiniz yanıtlar.** Yanıtlar Türkçedir ve sonuçla

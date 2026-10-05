@@ -174,15 +174,15 @@ SKILL_ROUTER = os.path.join(tp.CONFIG_DIR, "opencode-skills.md")
 # Where `link()` records the entries it had to materialise instead of
 # symlinking; see materialised_paths() for why the fact has to be written down.
 MATERIALISED = os.path.join(tp.CONFIG_DIR, "materialised")
-# Every kill switch the core reads (`off("...")` under hooks/). The canonical
+# Every kill switch the code reads (`off("...")` under hooks/ and bin/;
+# `bin/tezgah-docs --citations` checks the two agree). The canonical
 # copies die with ~/.config/tezgah; the pre-multi-host setup wrote them to
 # ~/.claude, which OFF_DIRS still honors, so a full uninstall sweeps those by
-# name too - a switch left behind is a rule that stays silent after a reinstall
-# with no file anywhere saying why.
-OFF_SWITCH_NAMES = ("adhd-off", "agents-off", "consult-off", "exec-mode.off",
-                    "judge-off", "lang-off", "orchestrate-off",
-                    "ponytail-auto.off", "pretooluse-off", "reminder-off",
-                    "research-off", "spec-off", "task-off", "verify-off")
+# name too - a switch left behind is a rule that stays silent with no file saying why.
+OFF_SWITCH_NAMES = ("adhd-off", "agents-off", "consult-off", "docs-judge-off", "exec-mode.off",
+                    "judge-off", "lang-off", "orchestrate-off", "ponytail-auto.off",
+                    "pretooluse-off", "reminder-off", "research-off", "spec-off", "task-off",
+                    "triage-off", "update-check-off", "verify-off", "workspace-off")
 # The ~/.config/tezgah entries this installer generates. A full uninstall
 # removes exactly these (plus any `*.off` switch and the `.tezgah-bak` of one of
 # these names) and keeps anything else: a file the user put there is not

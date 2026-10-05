@@ -85,6 +85,7 @@ commands/adhd.md
 commands/ponytail.md
 docs/README.md
 docs/architecture.md
+docs/citations-baseline.json
 docs/clarity-baseline.json
 docs/contract.md
 docs/environment.md
@@ -680,6 +681,7 @@ tests/test_mcp_features.py
 tests/test_mcp_server.py
 tests/test_migrate.py
 tests/test_models.py
+tests/test_neuter_matrix.py
 tests/test_omp_extension.py
 tests/test_omp_hook.py
 tests/test_opencode_plugin.py

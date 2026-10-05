@@ -79,8 +79,11 @@ conclude from either.
 question the suite cannot ask of itself - would a test fail if a guard went?
 `tests/neuter_matrix.py` clones HEAD once per anti-shortcut guard, reverts that
 guard, and runs the gate's test modules; a mutant that still passes is a guard no
-test notices, and an unmutated control that fails voids the run. The guard list is
-hand-written (`MUTANTS`), so a new deny rule is covered once a row names it.
+test notices, and an unmutated control that fails voids the run. The script
+generates the gate half: one `gate-<rule>` mutant per rule `decision` refuses with.
+It reads HEAD with the AST reader of the `--citations` rule check. Each mutant turns
+every `return _deny(...)` of its rule into `pass` at its line span.
+The integrity half is still hand-written (`MUTANTS`), so a new guard there needs a row.
 
 The dsh and omp status-line scripts are not in CI.
 
@@ -100,8 +103,8 @@ pure logic or for concurrency, which a subprocess cannot express.
 
 **Subprocess tests with a temp HOME.** The default. `TempHome` gives the test a
 fresh `home` and a `roots` dir, `env()`, `make_repo()`, `config()` and `touch()`
-(`support.py:87-113`); the hook or CLI is then run with `run`/`run_json`
-(`support.py:73-84`). `tests/test_codex_hook.py:9-16` is the smallest example.
+(`TempHome`, `support.py:110-141`); the hook or CLI is then run with `run`
+(`support.py:83-88`) or `run_json` (`support.py:91-94`). `tests/test_codex_hook.py:9-16` is the smallest example.
 
 **Probes.** `tests/_probe_*.py` are tiny scripts that call one function of a
 shared module and print its result as JSON, so the call happens in a process

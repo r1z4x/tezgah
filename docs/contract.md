@@ -206,7 +206,7 @@ happens in `core_split()`.
 | `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:1619-1620` returns `None` |
 | `judge-off` | the judgement seam: the snapshot triage, the docs page fallback and the skill hint | `hooks/tezgah_judge.py:165` — `available()` is asked before any call, so an armed switch makes no request at all |
 | `triage-off` | the snapshot triage alone (`bin/tezgah-triage`), leaving the docs fallback and the skill hint armed | `bin/tezgah-triage:120` — `off_reason()` answers this switch before the seam's, so the analyze-app loop reads the tree instead of paying for a judgement |
-| `docs-judge-off` | the docs page fallback alone (`bin/tezgah-docs`), leaving the triage and the skill hint armed | `bin/tezgah-docs:328` — `off()` answers this switch first, so a query the index cannot place is ranked by shared words instead (`ranked`), and exits 1 only when no page shares one |
+| `docs-judge-off` | the docs page fallback alone (`bin/tezgah-docs`), leaving the triage and the skill hint armed | `bin/tezgah-docs:659` — `off()` answers this switch first, so a query the index cannot place is ranked by shared words instead (`ranked`), and exits 1 only when no page shares one |
 | `lang-off` | `**Identifiers and messages stay English.**` | `hooks/tezgah_context.py:1126-1128` drops the paragraph; the gate's own check reads the same switch (`hooks/tezgah_gate.py:1493`) |
 | `pretooluse-off` | the gate's denials, not a rule | [gate.md](gate.md) |
 | `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:1099-1102` |

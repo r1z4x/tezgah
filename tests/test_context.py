@@ -2726,6 +2726,12 @@ class SubagentBriefHeader(unittest.TestCase):
         self.assertTrue(names, "the kill-switch paragraph names no switch")
         for name in names:
             self.assertIn(name, self.brief)
+        # The always-on text names the 16 CORE switches and none of the four the
+        # owner has not classified (`UNCLASSIFIED_SWITCHES`, bin/tezgah-docs).
+        switches = [n for n in names if n.endswith(("-off", ".off"))]
+        self.assertEqual(len(switches), 16, switches)
+        for name in ("agents-off", "update-check-off", "taste-on", "skill-suggest-on"):
+            self.assertNotIn("`%s`" % name, paragraphs[0])
 
 
 class LessonsDigestIsTheShownText(ChildCall):

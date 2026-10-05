@@ -1,0 +1,77 @@
+{
+  "bin/tezgah-docs": {
+    "unjudged": 2
+  },
+  "bin/tezgah-setup": {
+    "unjudged": 1
+  },
+  "docs/architecture.md": {
+    "unjudged": 83
+  },
+  "docs/contract.md": {
+    "unjudged": 72
+  },
+  "docs/environment.md": {
+    "unjudged": 52
+  },
+  "docs/evidence.md": {
+    "unjudged": 106
+  },
+  "docs/feature-audit.md": {
+    "unjudged": 4
+  },
+  "docs/gate.md": {
+    "unjudged": 94
+  },
+  "docs/glossary.md": {
+    "unjudged": 89
+  },
+  "docs/hosts.md": {
+    "unjudged": 121
+  },
+  "docs/judge.md": {
+    "unjudged": 7
+  },
+  "docs/layers.md": {
+    "unjudged": 20
+  },
+  "docs/models.md": {
+    "unjudged": 4
+  },
+  "docs/operations.md": {
+    "unjudged": 143
+  },
+  "docs/research.md": {
+    "unjudged": 12
+  },
+  "docs/skills.md": {
+    "unjudged": 50
+  },
+  "docs/status-line.md": {
+    "unjudged": 67
+  },
+  "docs/testing.md": {
+    "unjudged": 73
+  },
+  "docs/vision.md": {
+    "unjudged": 5
+  },
+  "hooks/tezgah_components.py": {
+    "unjudged": 1
+  },
+  "hooks/tezgah_gate.py": {
+    "unjudged": 1
+  },
+  "tests/e2e_packaged_install.py": {
+    "unjudged": 1
+  },
+  "tests/test_docs.py": {
+    "unjudged": 4
+  },
+  "tests/test_encoding.py": {
+    "unjudged": 5
+  },
+  "tests/test_setup.py": {
+    "unjudged": 1
+  }
+}

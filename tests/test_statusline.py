@@ -272,7 +272,7 @@ def changelog_version():
     with open(os.path.join(support.REPO, "CHANGELOG.md"), encoding="utf-8") as fh:
         for line in fh:
             # A version-shaped heading only, the way the product's own reader
-            # matches (`RELEASE`, hooks/tezgah_context.py:2461): an `Unreleased`
+            # matches (`RELEASE`, `hooks/tezgah_context.py:2472`): an `Unreleased`
             # section is a heading this file keeps at the top, and taking it for
             # the version pins the expected prefix to a string no status line
             # ever prints.

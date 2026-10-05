@@ -40,6 +40,8 @@ change; the two halves of that rule are `hooks/tezgah_integrity.py`'s and are de
 
 Bare `:NNN` references on this page are `hooks/tezgah_gate.py` unless another file is named. Each rule ends with its reach: *once*, a mark lifts the next
 identical call; *standing*, only changing the call does.
+`bin/tezgah-docs --citations` checks the headings below against `decision`, read by AST (`rule_sites`). They keep the order
+of each rule's first deny site. A rule's section names every `off(...)` switch that guards it.
 
 ### Explorer — the grep-only subagent
 
@@ -87,6 +89,8 @@ Trigger, shell: a command that would create an identifier - `git checkout -b`/`g
 
 The rule is a **heuristic** and its own text says so: a word list is not a language detector, so it cannot tell a proper noun or a product name in another language from a word that ought to be English, and a listed word may be the user's own term. A command that only names the words - `echo`, `grep`, `git log --grep` - creates nothing and passes. An identifier outlives the session that typed it, which is the reason the rule exists at all: `plan/004-admin-durum-onarimi` is in a public history from the moment it exists. On **opencode** the rule is not ported: the plugin asks the core for it through `bin/tezgah-gate check`, one spawn for a command its pre-test reads as identifier-creating (`IDENT_CMD` `hosts/opencode/plugins/tezgah.js:448`, the call site `:2140…
 
+Off: `lang-off`, the rule's own switch (`decision` `hooks/tezgah_gate.py:1493`), and `pretooluse-off` drops it with the whole gate.
+
 ### Race — another session wrote this file minutes ago
 
 Trigger: a write tool whose path, or `apply_patch` header, another session recorded a write of inside `RACE_WINDOW_MIN = 10` minutes (`hooks/tezgah_gate.py:603`, `race_reason`
@@ -112,6 +116,10 @@ the refusal names moves HEAD off that sha, so the refusal clears itself, where k
 `bin/tezgah-task` rewrites. Off, with the rest of the rule: `task-off`. It fails open wherever the question cannot be answered: no record, no `checkpoint:` key, a
 checkpoint that is a plain sha (the boundary is already real), a `pending` with no sha, a sha this checkout's HEAD does not name, and a repo whose HEAD cannot be read.
 
+### Workspace — tezgah state outside `.tezgah/`
+
+Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write. A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
+
 ### Secret — a credential on its way into a file
 
 Trigger: one simple command (split on `&&`, `||`, `;`, newline — `SEGMENT` `hooks/tezgah_gate.py:212-213`) carrying both a token (`SECRET_TOKEN` `hooks/tezgah_gate.py:195-202` — an
@@ -119,10 +127,6 @@ Trigger: one simple command (split on `&&`, `||`, `;`, newline — `SEGMENT` `ho
 `| tee`, a curl `--trace`, or `git add`); `secret_command` `hooks/tezgah_gate.py:568-602`. Told: record the name, length or a fingerprint instead, and pass the value through the
 tool's environment (`SECRET_DENY` `hooks/tezgah_gate.py:214-220`). Standing, no escape hatch. The shell's own write route is the third twin: a credential inside a heredoc body
 is refused from the body (`hooks/tezgah_gate.py:1555-1556`), because `mask()` blanks that body and the text-level scan above cannot see it.
-
-### Workspace — tezgah state outside `.tezgah/`
-
-Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write. A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
 
 ### Plan — a turn's third product file on `main`
 
@@ -245,7 +249,7 @@ A rule is a refusal with a cause: something happened, the check was written, and
 only as a sentence inside each rule's own paragraph above. It is a table here instead, so it is one place and a machine reads it: `bin/tezgah-docs --citations`
 opens `docs/gate.md`, reads this table, and refuses a rule name the source can still produce with no row, and a row whose `pin` names a test that does not exist.
 The names are read off the source, not restated: the gate's rules are the `_deny(session_id, "<rule>", ...)` calls in `hooks/tezgah_gate.py`, and the Stop
-rule's triggers are the classes `_stop_block` returns, the four `_shape_block` hands back included.
+rule's triggers are the classes `_stop_block` returns, the four `_shape_block` and the six `_evidence_block` hand back included.
 
 - `incident` — what produced the rule; `designed` where none is recorded. The ratio of incident-derived to designed rules is the maturity signal the research
   entry names, which is why the distinction is written down rather than smoothed over.
@@ -283,7 +287,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` h
 ## Adding a rule
 
 1. Write the check inside `decision` (`hooks/tezgah_gate.py:1428-1647`). A rule is a function returning a `str` reason or `None`; keep an argument-shaped rule
-   above the repeat guards (`hooks/tezgah_gate.py:1304-1310`) — the drift refusal stays last, below every other rule — and put its constants beside its own section.
+   above the repeat guards (`hooks/tezgah_gate.py:1575-1588`) — the drift refusal stays last, below every other rule — and put its constants beside its own section.
    Moving this file shifts every line-number citation on this page, so re-run `bin/tezgah-docs --citations` in the same pass as the suite and re-anchor what it flags.
 2. Return through `_deny(session_id, "<rule>", reason, tool, inp, base)` so the ledger counts the refusal (`hooks/tezgah_gate.py:1412-1427`); gate it on the kill switch it belongs
    to (`off(...)`), the way the shortcut and repeat rules use `verify-off` (`hooks/tezgah_gate.py:1465`, `hooks/tezgah_gate.py:1582`). The rule name is now a record too: add its row to
