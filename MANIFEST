@@ -59,6 +59,8 @@ bin/tezgah-import-ai-research
 bin/tezgah-import-ai-research.py
 bin/tezgah-index
 bin/tezgah-index.py
+bin/tezgah-lessons
+bin/tezgah-lessons.py
 bin/tezgah-mcp
 bin/tezgah-mcp.py
 bin/tezgah-migrate
@@ -679,6 +681,7 @@ tests/test_integrity.py
 tests/test_interpreter.py
 tests/test_judge.py
 tests/test_lang.py
+tests/test_lessons.py
 tests/test_mcp_features.py
 tests/test_mcp_server.py
 tests/test_migrate.py

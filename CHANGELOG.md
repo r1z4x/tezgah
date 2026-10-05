@@ -25,6 +25,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   claim. It never blocks a second time and never counts as a claim or as a
   reply. A block from another Stop hook leaves no row. Cursor stays unwired:
   nobody has checked its stop payload yet.
+- **Lessons keep their rule when injected.** A lesson line is now written rule
+  first: `<rule> - <incident>`. The rule sits in the first 120 characters, so
+  the 200-character cut keeps it. The session block says how many of its lines
+  do not open with their rule. A line ending `|| enforced_by: <rule|test>` leaves
+  the injected blocks while that gate rule or test is on. A test counts only
+  while the repository still defines it. A switched-off rule brings the line
+  back. `tezgah-lessons` proposes rule-first rewrites, merges of duplicate lines
+  and those retirements. It never writes the ledger. On this repository's
+  47-line ledger the session block grows from 1266 to 1352 bytes. omp's
+  `RULES.md` lessons line grows from 230 to 270 bytes. The always-on core
+  shrinks by 23 bytes.
+- **The per-turn lessons block shrinks before the budget drops it.** Over budget
+  it keeps its first lesson. The session remembers only the lessons it shows. The
+  drop log records this as `kind=truncated`. Each injected lesson leaves a
+  `lesson` ledger row with its key and block, and that row is not gate evidence.
+
+### Changed
+
+- **The lessons ranking ignores words that name no lesson.** English and
+  Turkish function words no longer rank a line. On a ledger of ten or more
+  lines, neither does a word found in more than half of them. "update the
+  changelog" used to inject three unrelated lessons and now injects none. The
+  docs fallback ranks as before.
 
 ### Fixed
 

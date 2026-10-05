@@ -114,7 +114,7 @@ LESSONS = """
 ## Lessons ledger: stop repeating mistakes (auto-armed, tezgah roots only)
 
 A repo may keep `.tezgah/lessons.md`: one durable lesson per line, most recent
-last, each written as the mistake and the rule that prevents it. The most recent
+last, each written rule first, `<rule> - <incident>`. The most recent
 lines are injected into the session context automatically, and an older line
 that shares words with a prompt rides that turn (at most three; each once per
 session when the host sends a session id, again after a compaction). Read them
@@ -122,10 +122,10 @@ before starting and treat every line as a standing constraint on the spec and
 the change - they exist precisely because that mistake already happened.
 
 When the user flags a mistake or a repetition ("this is wrong", "yine aynı
-hatayı yaptın"), append ONE concrete line to `.tezgah/lessons.md` - no essay,
+hatayı yaptın"), append ONE line in that shape to `.tezgah/lessons.md` - no essay,
 no restating the code or an open plan. When a line is stale or current evidence
-contradicts it, fix or delete it in the same edit rather than letting the file
-drift. Keep it short enough that the injected slice stays useful. Off:
+contradicts it, fix or delete it in the same edit; a line a gate rule or a test
+enforces ends `|| enforced_by: <rule|test>` and is not injected. Off:
 `.no-lessons` in the repo.
 """
 
@@ -686,8 +686,8 @@ sorma" / "just build it". Off: `spec-off`.
 `.tezgah/lessons.md` (one per line; injected - recent per session, relevant
 per turn). Read them before starting and treat each as a standing
 constraint.
-When the user flags a mistake or a repetition, append one concrete line - the
-mistake and the rule that prevents it - and delete a line current evidence
+When the user flags a mistake or a repetition, append one line, rule
+first: `<rule> - <incident>`; delete a line current evidence
 contradicts. Off: `.no-lessons`.
 
 **Code discovery: graph first.** For "where is X", "who calls Y", "what breaks

@@ -426,7 +426,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "tr_share", "answer_first", "child",
                            "summary_chars", "summary_hash",
                            "constraint_found", "constraint_expected", "parent", "agent",
-                           "check"))
+                           "check", "key", "block"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
