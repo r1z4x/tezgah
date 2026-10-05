@@ -22,7 +22,7 @@ and it writes no ledger [row](glossary.md#row).
 Here tezgah only *configures* servers and classifies a call by its name: the
 app-analysis servers are rendered into each host's own config from one spec
 (`hooks/tezgah_apps.py:1-5`), Codex's rows are appended by `ensure_toml_mcp`
-(`bin/tezgah-setup:1043-1100`), and a tool name starting `mcp__` is classified
+(`bin/tezgah-setup:1046-1103`), and a tool name starting `mcp__` is classified
 `mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2346-2350`).
 
 ## Agent framework

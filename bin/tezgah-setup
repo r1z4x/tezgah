@@ -27,7 +27,7 @@ so they are wired here: Codex hooks.json + skills, Cursor hooks.json + skills,
 opencode plugins + instructions + skills, dsh's managed patch block, and the
 shared MCP registration.
 Re-running is idempotent; every write that changes a file first copies it to
-<file>.<timestamp>.tezgah-bak (the first and the newest four are kept), and a
+<file>.<timestamp>.tezgah-bak (the oldest and the newest four are kept), and a
 host config that does not parse as a JSON object is refused, never rewritten.
 """
 import argparse
@@ -592,8 +592,11 @@ def write_json(path, data):
     return True
 
 
-# Timestamped backups kept per file: the oldest (the user's own, pre-tezgah
-# copy) and the newest BACKUP_CAP - 1 changes. ponytail: a fixed cap, no setting.
+# Timestamped backups kept per file: the oldest and the newest BACKUP_CAP - 1.
+# The oldest is the file as it stood before tezgah's first timestamped write -
+# the user's content, or tezgah's own for a file tezgah created; a bare
+# `<file>.tezgah-bak` an older release left is not counted or pruned.
+# ponytail: a fixed cap, no setting.
 BACKUP_CAP = 5
 BACKUP_RE = re.compile(r"(.+)\.\d{8}T\d{12}(?:-\d+)?\.tezgah-bak")
 
@@ -602,7 +605,7 @@ def backup(path):
     """Copy `path` to `<path>.<timestamp>.tezgah-bak` before a write changes it.
 
     The suffix stays `.tezgah-bak`, so managed() and the uninstall cleanup still
-    know it; past BACKUP_CAP the middle copies go, never the first."""
+    know it; past BACKUP_CAP the middle copies go, never the oldest."""
     if not os.path.exists(path):
         return
     stamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S%f")
@@ -4810,7 +4813,7 @@ def wizard_plan(hosts, roots, deps_off, features, adopt_now):
     if adopt_now:
         print("  %s retire the predecessor wiring (moved aside, not deleted)" % OK)
     print("  files tezgah rewrites are backed up as <file>.<timestamp>.tezgah-bak "
-          "(first and newest four kept); an unparseable host config is refused")
+          "(oldest and newest four kept); an unparseable host config is refused")
 
 
 def wizard(default_hosts, default_roots, deps_off_default, default_features,

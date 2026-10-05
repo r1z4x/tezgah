@@ -29,7 +29,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   error, leaves its bytes alone and exits 1.
 - **Every changing write keeps its own backup.** A write that changes a file
   copies it to `<file>.<timestamp>.tezgah-bak` first. Before, only the first
-  write left a backup. The first copy is always kept, beside the newest four.
+  write left a backup. The oldest timestamped copy is always kept, beside the
+  newest four. A bare `<file>.tezgah-bak` from an older release stays as is.
   A full uninstall removes the timestamped backups of tezgah's own state too.
 - **`--install` fails when a planned host is not armed.** The run printed MISS
   under a host and still exited 0. Now it exits 1 and names the host and row

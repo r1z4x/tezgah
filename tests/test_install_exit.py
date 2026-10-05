@@ -1,4 +1,4 @@
-"""`--install` exits non-zero when a planned host is not armed.
+"""`bin/tezgah-setup --install` exits non-zero when a planned host is not armed.
 
 Written from plan 047's Phase A acceptance list (REPORT.md R03 part 2): the
 install printed a MISS under a host it was asked to arm and still exited 0, so
@@ -50,9 +50,9 @@ class InstallExit(Home):
         proc = self.setup("--install", "--hosts", "omp")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
-    def test_a_removed_hook_wiring_is_reported_by_name(self):
-        """The verdict reads the report rows: a host whose hook row is MISS is
-        named, so a reader knows which host to fix."""
+    def test_only_the_unarmed_host_is_named(self):
+        """The verdict reads the report rows: of two planned hosts, only the one
+        with an arming MISS is named, so a reader knows which host to fix."""
         self.fake_omp(answers=False)
         out = self.setup("--install", "--hosts", "omp,cursor").stdout
         tail = out.split("not armed")[-1]
