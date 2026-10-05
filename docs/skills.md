@@ -14,18 +14,18 @@ read tool opens it, nothing executes it. `plan-add` and `ponytail` also declare
 `argument-hint` in that frontmatter (`skills/plan-add/SKILL.md:11`,
 `skills/ponytail/SKILL.md:16`), and Claude exposes each skill as
 `/tezgah:<name>` - a bare `/plan-add` is a command that does not exist
-([tests/test_skills.py:142-157]).
+(`tests/test_skills.py::SkillStandards.test_slash_commands_carry_the_prefix_the_plugin_registers`).
 
 Two neighbours are not skills. A **slash command** is a file under `commands/`
 wired only through the Claude plugin channel - `commands/ponytail.md` and
 `commands/adhd.md` are shells over `tezgah-pony` and `tezgah-adhd`, and no other
 host installs them (`commands/` appears nowhere in `bin/tezgah-setup`). Its name
 is prefixed with the plugin's, so the command is `/tezgah:plan-sync` and a bare
-`/plan-sync` does not exist ([tests/test_skills.py:142-157]). An **always-on
+`/plan-sync` does not exist (`tests/test_skills.py::SkillStandards.test_slash_commands_carry_the_prefix_the_plugin_registers`). An **always-on
 rule** is text injected into every turn by the client hooks, defined in
-`hooks/tezgah_policy.py:595` (`CORE`); the model cannot choose not to load it,
+`hooks/tezgah_policy.py::CORE`; the model cannot choose not to load it,
 and only the on-demand tail of it points at a skill, `tezgah-contract`
-(`hooks/tezgah_policy.py:822`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
+(`hooks/tezgah_policy.py::POINTERS`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
 skill is simply not read.
 
 ## The router
@@ -55,7 +55,7 @@ measured on a live opencode turn that read nothing and answered anyway
 ([bin/tezgah-setup:951-956]).
 
 Each line is `name - trigger - path`, and the trigger is one sentence pulled from
-the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:814-840],
+the frontmatter `description` by `skill_description()` (`bin/tezgah-setup::skill_description`,
 `bin/tezgah-setup:979-988`). **The sentence carrying the `Use when ...` trigger wins over the
 opening one.** A line built from the first sentence is what shipped, and it
 stripped `tezgah-contract` and `ponytail` of every word a session matches on -
@@ -68,7 +68,7 @@ trigger sentence keeps its first sentence.
 
 The on-demand file also carries a **collision table**: the pairs among tezgah's
 own skills whose descriptions share three or more subject words, computed from
-the router lines themselves (`skill_collisions()`, [bin/tezgah-setup:1225-1243]).
+the router lines themselves (`skill_collisions()`, `bin/tezgah-setup::skill_collisions`).
 It rides `opencode-skills.full.md` and never the always-on file, because it is
 read when a session is about to choose, not every turn. It is a view, not a
 rename: it names `plan-add` / `plan-status` / `plan-sync` and
@@ -95,15 +95,15 @@ plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
 `bin/tezgah-setup:3770-3847`, `bin/tezgah-setup:3849-3855`). On Claude the plugin name prefixes the skill name -
-`Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:32-35]).
+`Skill(tezgah:ponytail)` (`hooks/tezgah_policy.py::PONYTAIL`).
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
-directory (`skills_linked()`, [bin/tezgah-setup:129-136]), and it is used for every host row
+directory (`skills_linked()`, `bin/tezgah-setup::skills_linked`), and it is used for every host row
 ([bin/tezgah-setup:3294-3295], `bin/tezgah-setup:3383`, `bin/tezgah-setup:3417`, `bin/tezgah-setup:3453`, `bin/tezgah-setup:3511`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
-it ([tests/test_skills.py:54-69]).
+it (`tests/test_skills.py::SkillStandards`).
 
 ## The shipped skills
 
@@ -133,7 +133,7 @@ it ([tests/test_skills.py:54-69]).
 root MIT LICENSE covers tezgah's own files while these copies keep their
 original terms ([NOTICE:1-2]), and an adapted entry adds what the adaptation
 changed. A test fails if the adapted upstream or its licence stops being named
-([tests/test_skills.py:162-164]). `skills/no-ai-slop`, `skills/ponytail`,
+(`tests/test_skills.py::SkillStandards.test_notice_records_the_adapted_upstream_and_its_licence`). `skills/no-ai-slop`, `skills/ponytail`,
 `skills/i-have-adhd`, `skills/research`, `skills/product-analysis`,
 `skills/pm-frameworks` and `skills/ai-research` are MIT; `skills/rl-env` is
 Apache-2.0 and keeps that repository's terms.
@@ -192,10 +192,10 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
    `description` whose **later** sentence begins `Use when ...` - that sentence
    is the router line, and it must carry the words a session would match on
    ([bin/tezgah-setup:814-840]).
-2. Add the name to `SKILLS` ([bin/tezgah-setup:123-126]). `SKILLS` drives the
+2. Add the name to `SKILLS` (`bin/tezgah-setup::SKILLS`). `SKILLS` drives the
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
-3. Expect `tests/test_skills.py:54-69` to fail if the two disagree, and
+3. Expect `tests/test_skills.py::SkillStandards` to fail if the two disagree, and
    `tests/test_setup.py:590-610` to fail if the generated router line lost its
    trigger words. Re-run `--install` (or opencode's `--refresh`,
    [bin/tezgah-setup:806-810]) so the written routers pick the skill up.
@@ -209,10 +209,10 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
    bytes, pinned by that library's own hash test.
 5. Quote examples in a form the tests accept: no floating `@latest` package tag
    and any pinned package spec must match the one tezgah wires
-   ([tests/test_skills.py:90-97]); slash commands carry the `tezgah:` prefix
-   ([tests/test_skills.py:142-157]); no unrendered placeholder such as
-   `<repo slug>` ([tests/test_skills.py:129-135]); every kill switch named in
-   `CORE` appears in `tezgah-contract` ([tests/test_skills.py:99-109]); a rule
+   (`tests/test_skills.py::SkillStandards`); slash commands carry the `tezgah:` prefix
+   (`tests/test_skills.py::SkillStandards.test_slash_commands_carry_the_prefix_the_plugin_registers`); no unrendered placeholder such as
+   `<repo slug>` (`tests/test_skills.py::SkillStandards.test_no_unrendered_placeholder_reaches_the_injected_text`); every kill switch named in
+   `CORE` appears in `tezgah-contract` (`tests/test_skills.py::SkillStandards`); a rule
    added to the contract must also reach the skill
    ([tests/test_setup.py:858-905]).
 

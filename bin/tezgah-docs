@@ -122,6 +122,58 @@ def loose(text):
     return (m for m in LOOSE.finditer(text) if LOOSE_SHAPE.fullmatch(m.group(1)))
 
 
+# A symbol anchor, `path::name` or `path::Class.method`: no line number, so an
+# edit above or inside the symbol cannot move it. What can still go stale is the
+# name, and the AST of the cited file answers that: a name it does not define
+# is flagged like a line outside its symbol.
+SYMCITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+)::"
+                     r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)`")
+
+
+def qualnames(path):
+    """{dotted name: (start, end)} for every def and class of a Python file,
+    nested ones as `Class.method` / `outer.inner`, and its module-level
+    assignments; None for a file that does not parse as Python."""
+    try:
+        tree = ast.parse(source(path))
+    except (SyntaxError, ValueError, UnicodeDecodeError):
+        return None
+    out = {}
+
+    def walk(body, prefix):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = prefix + node.name
+                start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                out.setdefault(name, (start, node.end_lineno))
+                walk(node.body, name + ".")
+                continue
+            if not prefix and isinstance(node, (ast.Assign, ast.AnnAssign)):
+                for target in getattr(node, "targets", None) or [node.target]:
+                    if isinstance(target, ast.Name):
+                        out.setdefault(target.id, (node.lineno, node.end_lineno))
+            for field in ("body", "orelse", "finalbody"):
+                walk(getattr(node, field, None) or [], prefix)
+            for handler in getattr(node, "handlers", None) or []:
+                walk(handler.body, prefix)
+
+    walk(tree.body, "")
+    return out
+
+
+def anchor_span(names, qual):
+    """The (start, end) `qual` names in a qualnames() table, or None. A name
+    without a dot may also be the one def of that name at any depth, the way a
+    test pin names `test_x` inside its TestCase class."""
+    if qual in names:
+        return names[qual]
+    if "." not in qual:
+        hits = [span for name, span in names.items() if name.rsplit(".", 1)[-1] == qual]
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
 CITATION_BASELINE = os.path.join("docs", "citations-baseline.json")
 
 
@@ -190,7 +242,7 @@ def comment_text(path):
     if not is_python(path):
         return None
     text = source(path)
-    if not (CITE.search(text) or next(loose(text), None)):
+    if not (CITE.search(text) or SYMCITE.search(text) or next(loose(text), None)):
         return ""
     masked = re.sub(r"\S", "\0", text)
     starts = [0]
@@ -233,15 +285,17 @@ def sources():
 def citations(known):
     """(flagged, judged, unjudged, invisible): the citations whose named symbol
     does not contain the cited range, as (`file:line`, token, symbol file, low,
-    high); how many were judgeable; {file: count} of the ones that were not; and
-    how many of those CITE could not read at all (`LOOSE`).
+    high), and the symbol anchors naming no symbol, as (`file:line`, token,
+    cited file, 0, 0); how many were judgeable; {file: count} of the ones that
+    were not; and how many of those CITE could not read at all (`LOOSE`).
 
     A citation that writes its own path is judged against the symbol in that
     file alone: a sentence naming `note_tool` beside `hooks/x.py:12` means the
     `note_tool` in `hooks/x.py`, so a same-named symbol elsewhere is not the
     thing being cited and the row is left unjudged rather than misjudged. A bare
     file name (`tezgah_gate.py:12`) is that path when exactly one code file has
-    the name, and unjudged otherwise."""
+    the name, and unjudged otherwise. A symbol anchor (`SYMCITE`) is always
+    judged: against the qualnames() of the file it names."""
     names = {}
     for rel in code_files():
         names.setdefault(os.path.basename(rel), []).append(rel)
@@ -252,7 +306,7 @@ def citations(known):
         found = names.get(path, ())
         return found[0] if len(found) == 1 else None
 
-    flagged, judged, unjudged, invisible = [], 0, {}, 0
+    flagged, judged, unjudged, invisible, tables = [], 0, {}, 0, {}
     for rel, text in sources():
         read = []
         for m in CITE.finditer(text):
@@ -285,6 +339,17 @@ def citations(known):
                 continue
             line = text.count("\n", 0, m.start()) + 1
             flagged.append(("%s:%d" % (rel, line), m.group(0), where, low, high))
+        for m in SYMCITE.finditer(text):
+            judged += 1
+            path = resolve(m.group(1))
+            full = os.path.join(HERE, path) if path else None
+            if full and os.path.isfile(full):
+                if path not in tables:
+                    tables[path] = qualnames(full) or {}
+                if anchor_span(tables[path], m.group(2)):
+                    continue
+            line = text.count("\n", 0, m.start()) + 1
+            flagged.append(("%s:%d" % (rel, line), m.group(0), path or m.group(1), 0, 0))
         starts = [a for a, _ in read]
         for m in loose(text):
             k = bisect.bisect_right(starts, m.start()) - 1
@@ -819,9 +884,12 @@ def main(argv):
     if "--citations" in flags:
         flagged, judged, unjudged, invisible = citations(symbols())
         for where, token, symbol_in, low, high in flagged:
+            if not low:
+                print("%s  %s -> %s defines no such symbol" % (where, token, symbol_in))
+                continue
             print("%s  %s -> the symbol it names lives at %s:%d-%d"
                   % (where, token, symbol_in, low, high))
-        print("citations: %d judged (%d outside the symbol they name), "
+        print("citations: %d judged (%d outside the symbol they name or naming none), "
               "%d not judgeable (no single symbol named beside them; %d of them "
               "in a shape the audit cannot read)"
               % (judged, len(flagged), sum(unjudged.values()), invisible))
