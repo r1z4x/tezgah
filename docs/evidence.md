@@ -147,21 +147,23 @@ result was measured empty, it does not require the measurement. `last_verify`
 (`hooks/tezgah_integrity.py:3201-3210`) folds the ordered rows to `ok`/`fail`/`ran`/`None`, because a set cannot tell a failure
 that came after a success from one that came before it.
 
-**A check-shaped command is a check only when it checks something.** `verify_command` reads every
-`VERIFY` match with the words after it up to the end of that one command (`_check_runs`): an
-information form - `--version`, `--help`, `--list`, `--collect-only`, `make help`, `just help`, a bare
-`ruff` - checks nothing and records as `run`, and a formatter in its write mode - `ruff format`
-without `--check`/`--diff`, `ruff check --fix`, `prettier --write`, `eslint --fix` - records as `run`
-too and is a change the freshness fold reads (`_change_row`, with no captured target). `pytest
---version; pytest -q` still runs a check. Every reader of `verify_command` follows: the evidence kind,
-the gate's retry exemption, its `began` `check` mark, `piped_check` and the neuter rule; opencode's
-`verifyCommand` carries the same three tables. A check whose own output says it ran nothing
-(`EMPTY_RUN`: `collected 0 items`, `no tests ran`, `Ran 0 tests`, `No tests found`, at a line start,
-read on the result's last 4096 characters) records as `verify` with `empty_run`, never as a pass:
-Claude, Codex and Cursor read the result they already hold, and omp's bridge reads its own copy of
-the literal and sends the flag, never the body (`tests/test_omp_extension.py` pins the two equal).
-A check row also carries `repo`, the git toplevel it ran in (the call's cwd, moved by a leading
-`cd X &&`; no git fork), which the Stop rule reads below.
+**A check-shaped command is a check only when it checks something.** `_check_runs` reads each
+`VERIFY` match. It reads the words after the match, up to the end of that one command. An information
+form checks nothing: `--version`, `--help`, `--list`, `--collect-only`, `make help`, `just help`
+and a bare `ruff`. It records as `run`. A formatter in its write mode records as `run` too:
+`ruff format` without `--check`/`--diff`, `ruff check --fix`, `prettier --write` and `eslint --fix`.
+The freshness fold reads that row as a change (`_change_row`), with no captured target.
+`pytest --version; pytest -q` still runs a check. Every reader of `verify_command` follows. That
+covers the evidence kind, the gate's retry exemption, its `began` `check` mark, `piped_check` and
+the neuter rule. Opencode's `verifyCommand` carries the same three tables.
+
+A check can say in its own output that it ran nothing (`EMPTY_RUN`): `collected 0 items`, `no
+tests ran`, `Ran 0 tests` or `No tests found` at a line start. The reader scans the result's last
+4096 characters. Such a row records as `verify` with `empty_run`, never as a pass. Claude, Codex
+and Cursor read the result they already hold. The omp bridge keeps its own copy of the literal
+and sends only the flag, never the body. `tests/test_omp_extension.py` pins the two copies equal.
+A check row also carries `repo`: the git toplevel it ran in, after a leading `cd X &&`, with no
+git fork. The Stop rule reads it below.
 
 **`edit` carries the write's after-state.** The gate's capture records the pre-write hash;
 `_post_write` (`hooks/tezgah_integrity.py:2624-2670`) adds `hash` (the target's sha256 once the host returned) and `changed`
@@ -171,8 +173,9 @@ anything. `changed_files` (`hooks/tezgah_integrity.py:2671-2691`) reads exactly 
 **`claim` is the false-completion record.** `stop_reason` (`hooks/tezgah_integrity.py:3529-3621`) writes one row per reply per
 turn that is in the claim vocabulary, deduplicated by `_claim_key` (`hooks/tezgah_integrity.py:3309-3325`), with detail `blocked: <class>` or `ok`: a refusal
 and an allowed claim are both recorded, because the rate needs both halves. A blocked reply that
-claimed nothing is a `refusal` row instead, and a `blocked: no verify_ok` row of either kind carries
-`cause`: `no check` (none ran) or `outcome unread` (one ran and no pass of it was seen). **`external` and
+claimed nothing writes a `refusal` row instead. A `blocked: no verify_ok` row of either kind
+carries `cause`. It reads `no check` when none ran and `outcome unread` when one ran without a
+visible pass. **`external` and
 `unknown` claim no step of work.** `external` (`:2726-2728`) is a result with no work of its own — an
 MCP answer, a fetched page — recorded so its provenance is on the ledger at all; an MCP row's
 `detail` is that channel followed by the tool's own name, because the UI rule has to be able to tell
@@ -231,17 +234,17 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    either: the fold's subject is the tree this reply is about, so `_post_write` records no
    after-state for a target beyond the call's own root - a commit message in `/tmp` written after a
    green suite is not a revision of that tree, and reading it as one refused an honest turn.
-   A pass is placed where the check STARTED - its gate-written `began` row, paired by `id` - so a
-   write that landed while the check ran is newer than the tree it read. And a pass counts only in
-   the newest change's own repository: a check row's `repo` against the toplevel of the `edit` row's
-   `target`, so `cd ../other && pytest` does not license a change here. A row with no `repo`
-   (written before the field, or by a host that sent no cwd) and a change with no `target` (a
-   shell write) bind to nothing.
+   The fold dates a pass from the moment its check STARTED: its gate-written `began` row, paired
+   by `id`. A write that landed while the check ran is therefore newer than the tree it read. A
+   pass also counts only in the newest change's own repository. The fold compares the check row's
+   `repo` with the toplevel of the `edit` row's `target`. So `cd ../other && pytest` licenses no
+   change here. A row with no `repo` binds to nothing. That covers an old row and a host that sent
+   no cwd. A change with no `target`, such as a shell write, binds to nothing too.
 8. **no verify_ok** — this turn recorded a step (`edit`, `verify`, `verify_fail`, `run`,
-   `interrupted`) and no check passed in the session (`:2764-2775`). When the turn recorded no
-   step at all, its words are the whole trigger, so a claim word inside a question or under a
-   negation in its own clause - "testler geçti mi?", "is it done?", "not tested yet", "tamamlandı
-   değil" - is not read as the claim (`asserted_claims`); "Tamamlandı, push edeyim mi?" still is.
+   `interrupted`) and no check passed in the session (`:2764-2775`). A turn with no step at all
+   has only its words as the trigger. There a claim word inside a question or under a negation in
+   its own clause is no claim (`asserted_claims`). Examples: "testler geçti mi?", "is it done?",
+   "not tested yet", "tamamlandı değil". "Tamamlandı, push edeyim mi?" still claims.
 9. **no ui_ok** — this turn changed a UI source (`UI_PATH` `hooks/tezgah_integrity.py:113-118`) and the
    check that passed was not one that sees the screen: a unit run never does. A browser/e2e/visual
    check (`UI_CHECK` `hooks/tezgah_integrity.py:133-150`) or a read of the rendered screen (`UI_TOOL`
@@ -526,12 +529,13 @@ Each key, as both readers produce it:
   It is in no rate. `counters_all` sums it per ledger, so one session's answer never closes another's call.
 - `tool_error_rate` — non-zero `exit` values over every row carrying an `exit` (`:1550-1553`, `:1647-1648`);
   a host reporting no outcome contributes to neither half, so every row with an `exit` counts.
-- `claims` and `false_completion` — the `claim` rows (replies in the claim vocabulary), and those
-  whose detail starts with `blocked` (`:1577-1591`), except a shape class (`SHAPE_BLOCKS`): a reply
-  refused for its list or its language made no false claim, so it counts as `shape_blocked` instead.
-- `refusals` — the `refusal` rows: replies refused that claimed nothing (a work-only or a shape
-  refusal; a shape one also counts in `shape_blocked`). Before row version 3 these were `claim`
-  rows, so a corpus folded across the boundary counts them in `claims`.
+- `claims` and `false_completion` — the `claim` rows, which are replies in the claim vocabulary,
+  and those whose detail starts with `blocked` (`:1577-1591`). A shape class (`SHAPE_BLOCKS`) is
+  the exception. A reply refused for its list or its language made no false claim, so it counts
+  as `shape_blocked` instead.
+- `refusals` — the `refusal` rows: refused replies that claimed nothing, work-only or shape. A
+  shape one also counts in `shape_blocked`. Before row version 3 these were `claim` rows, so a
+  corpus folded across the boundary counts them in `claims`.
 - `blocked_claims` — `false_completion` split by its Stop class, the text after `blocked: `
   (`no verify_ok`, `stale evidence`, `no external read`, …), so each class has its own count.
 - `replies` and `shape` — the `shape` rows, written for every judged reply, and those carrying a
@@ -549,13 +553,13 @@ Each key, as both readers produce it:
 - `weeks`, `tools`, `programs` — present only when the caller asked (`counters(..., weeks=True,
   tools=True)`), which is what `tezgah-status --counters --trend` passes; see below.
 
-**`false_completion / claims`** is how often a reply claiming completion or verification had to be
-refused. It is one reading among the counters, not the layer's effect: a refusal the model then
-repaired and a refusal it argued past count the same, and the `after_block` rows are where that
-difference is recorded. One ledger is an anecdote; `--counters --all` is the same ratio over the
-corpus. A published value is dated generated output - the command, the date and the ledger count it
-ran over - never a number restated in prose, because the counters' meaning moves with the row
-version (3: work-only refusals left `claims`).
+**`false_completion / claims`** is how often the rule refused a reply that claimed completion or
+verification. It is one reading among the counters, not the layer's effect. A refusal the model
+then repaired and a refusal it argued past count the same. The `after_block` rows record that
+difference. One ledger is an anecdote. `--counters --all` gives the same ratio over the corpus. A
+published value names the command, the date and the ledger count it ran over. Prose never
+restates a number, because the counters' meaning moves with the row version. At version 3
+work-only refusals left `claims`.
 
 ### The drift series and the firing histograms
 
