@@ -854,19 +854,39 @@ LESSON_MAX_DF = 0.5
 ENFORCED = re.compile(r"\s*\|\|\s*enforced_by:\s*(\S+)\s*$")
 
 
+# The top-level class and function names of a test module, per (path, mtime,
+# size): a ledger's retired lines name one module many times, and parsing a
+# large test file once per line would cost every session start.
+_TEST_NAMES = {}
+
+
+def _test_names(path):
+    """The names `unittest` can load from `path` as `module.NAME`: its top-level
+    classes and functions, by `ast`, so a nested def or a `class X:` inside a
+    string is not one. Empty when the file is missing or does not parse."""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+        if key not in _TEST_NAMES:
+            import ast  # lazy: only a line retired by a test pays for it
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                tree = ast.parse(fh.read(), filename=path)
+            _TEST_NAMES[key] = frozenset(
+                n.name for n in tree.body
+                if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)))
+        return _TEST_NAMES[key]
+    except (OSError, SyntaxError, ValueError):
+        return frozenset()
+
+
 def _enforced(value, root):
     """Whether the enforcer a retired lesson names is armed now: a test only
-    while `<root>/tests/test_x.py` still defines it, a gate rule only while
-    neither its own switch nor `pretooluse-off` is set."""
+    while `<root>/tests/test_x.py` still defines it at top level, a gate rule
+    only while neither its own switch nor `pretooluse-off` is set."""
     test = re.match(r"tests\.(test_\w+)\.(\w+)$", value)
     if test:
-        try:
-            with open(os.path.join(root, "tests", test.group(1) + ".py"),
-                      encoding="utf-8", errors="replace") as fh:
-                src = fh.read()
-        except OSError:
-            return False
-        return bool(re.search(r"^\s*(?:class|def)\s+%s\b" % test.group(2), src, re.M))
+        return test.group(2) in _test_names(
+            os.path.join(root, "tests", test.group(1) + ".py"))
     from tezgah_gate import DENY_RULES  # lazy: only a retired line pays for it
     if value not in DENY_RULES or off("pretooluse-off"):
         return False

@@ -98,7 +98,7 @@ only writer, from the same filter the reader applies — `managed()` — so the
 listing and its reader cannot disagree (`managed()`, `bin/tezgah-setup:4367-4391`,
 `write_manifest()`, `bin/tezgah-setup:4418-4435`). The payload also carries
 `VERSION`, which is what a tree with no `.claude-plugin/` answers from
-(`version()`, `hooks/tezgah_context.py:2594-2621`).
+(`version()`, `hooks/tezgah_context.py:2614-2641`).
 
 ## A first install from a checkout
 
@@ -152,7 +152,7 @@ current one (`bin/tezgah-setup:3751-3769`).
 
 `--status [PATH]` answers a different question — which rules are in force in that
 repo — as one line of marks rendered by the same code every status line uses
-(`hooks/tezgah_context.py:2407-2478`, `hooks/tezgah_context.py:2530-2538`). Mark meanings are in
+(`hooks/tezgah_context.py:2427-2498`, `hooks/tezgah_context.py:2550-2558`). Mark meanings are in
 [status-line.md](status-line.md); `bin/tezgah-status` is that checklist with
 `--json`, `--legend` and `--observable=`. It carries the report's host-list row
 too, from the same `hosts_row`, so the mismatch reaches the surface a session
@@ -373,12 +373,12 @@ It learns nothing and injects nothing yet. It stays off until the user arms it
 with a `taste-on` file in `~/.config/tezgah/` (`enabled`,
 `hooks/tezgah_taste.py:37-54`). The off path costs two stats. Armed, it writes
 only into a repository that already has a `.tezgah/` directory. A `.no-taste`
-mark turns it off for one repository (`hooks/tezgah_context.py:2194-2195`).
+mark turns it off for one repository (`hooks/tezgah_context.py:2214-2215`).
 A workspace of repo-provided data gets nothing.
 
 Rows go to `<repo>/.tezgah/taste/signals.jsonl` through the ledger's own writer
 (`_write`, `hooks/tezgah_taste.py:73-81`). A user turn adds a `prompt` row,
-redacted and cut to 2000 characters (`hooks/tezgah_context.py:1711-1715`).
+redacted and cut to 2000 characters (`hooks/tezgah_context.py:1731-1735`).
 A landed write adds an `edit` row with its redacted old and new text, cut to
 4000, under the ledger row's id. Each written file also adds an `after` row.
 It names a snapshot that holds the bytes the write left (`note_write`,
@@ -514,9 +514,9 @@ with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 | A host shows no status line | `bin/tezgah-setup --report --hosts claude`, then `readlink ~/.claude/statusline.py` | that host's own rows read ` MISS `: the `statusline.py` symlink or the `statusLine` key (`bin/tezgah-setup:2214-2215`). For omp the row `status line answers` runs `hosts/omp/hook.py`, so it fails whenever the Python half cannot start (`bin/tezgah-setup:2644-2663`). codex has no status-line row at all — its surface is hooks, skills and MCP (`bin/tezgah-setup:2534-2555`) |
 | A skill is missing in one host | `ls ~/.codex/skills/*/SKILL.md` (the host's skills dir is in [hosts.md](hosts.md)) | the link was never made: that host was not in the last `--hosts`. `bin/tezgah-setup --install --hosts codex` relinks it. Claude has no skills directory — it reads the plugin copy, so the row to read there is `plugin copy current` (`bin/tezgah-setup:3751-3769`) |
 | A skill link dangles | `ls -lL ~/.omp/agent/skills/*/SKILL.md` | the link resolves to nothing: its source was renamed or removed, or the checkout moved. `skills_linked` asks for a readable `SKILL.md` precisely so this cannot read as linked (`bin/tezgah-setup:131-141`); `--install` relinks from what exists now |
-| A rule still fires after its kill switch | `ls ~/.config/tezgah/*.off`, then `bin/tezgah-context user_prompt . < /dev/null` | the switch was flipped mid-session: the rule leaves the text injected from the next turn on, but text already in the context is not retracted (`hooks/tezgah_context.py:1159-1223`). The static files (`CLAUDE.md`, `AGENTS.md`, `RULES.md`, `opencode-contract.md`) drop a global switch's paragraph only when they are re-rendered, so run `tezgah-setup --refresh` (or `--install`) after flipping one. A per-repo `.no-*` mark does the same job as a switch file for the injected text, but it never edits the global static files (`hooks/tezgah_paths.py:46`, `hooks/tezgah_context.py:2187-2201`) |
-| The status line is thinner outside the roots | `bin/tezgah-setup --status "$PWD"`, then `bin/tezgah-context session_start .` | by design, mostly: the line is global and only the per-repo `idx` and `plans` marks appear inside a root (`hooks/tezgah_context.py:2469-2477`), while the injected contract text is exactly what goes silent off-root (`bin/tezgah-context:21-22`). A line that is empty everywhere is wiring: see the first row |
-| An agent cannot see the graph tools | `bin/tezgah-setup --report` — the common row `codegraph on PATH` and the host's own MCP row; then `which codegraph` | the binary is missing (it is the user's to install; `TEZGAH_CODEGRAPH_BIN` or `config.json`'s `codegraph_bin` can point at it, `hooks/tezgah_paths.py:361-372`), or the host's MCP row was overwritten and `--install --hosts <host>` rewrites it. `.no-graph` in a repo turns the code-graph rule off there (`hooks/tezgah_context.py:1200-1202`) |
+| A rule still fires after its kill switch | `ls ~/.config/tezgah/*.off`, then `bin/tezgah-context user_prompt . < /dev/null` | the switch was flipped mid-session: the rule leaves the text injected from the next turn on, but text already in the context is not retracted (`hooks/tezgah_context.py:1179-1243`). The static files (`CLAUDE.md`, `AGENTS.md`, `RULES.md`, `opencode-contract.md`) drop a global switch's paragraph only when they are re-rendered, so run `tezgah-setup --refresh` (or `--install`) after flipping one. A per-repo `.no-*` mark does the same job as a switch file for the injected text, but it never edits the global static files (`hooks/tezgah_paths.py:46`, `hooks/tezgah_context.py:2207-2221`) |
+| The status line is thinner outside the roots | `bin/tezgah-setup --status "$PWD"`, then `bin/tezgah-context session_start .` | by design, mostly: the line is global and only the per-repo `idx` and `plans` marks appear inside a root (`hooks/tezgah_context.py:2489-2497`), while the injected contract text is exactly what goes silent off-root (`bin/tezgah-context:21-22`). A line that is empty everywhere is wiring: see the first row |
+| An agent cannot see the graph tools | `bin/tezgah-setup --report` — the common row `codegraph on PATH` and the host's own MCP row; then `which codegraph` | the binary is missing (it is the user's to install; `TEZGAH_CODEGRAPH_BIN` or `config.json`'s `codegraph_bin` can point at it, `hooks/tezgah_paths.py:361-372`), or the host's MCP row was overwritten and `--install --hosts <host>` rewrites it. `.no-graph` in a repo turns the code-graph rule off there (`hooks/tezgah_context.py:1220-1222`) |
 | Claude keeps applying old rules | `bin/tezgah-setup --report --hosts claude` — the `plugin copy current` row; then `bin/tezgah-setup --sync` | the copy lags HEAD: Claude runs the copy, not the checkout. `--install` refreshes it too; restart Claude after either (`bin/tezgah-setup:3849-3855`, `bin/tezgah-setup:3845`) |
 
 ## Safety

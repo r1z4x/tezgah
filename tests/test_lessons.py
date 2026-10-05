@@ -126,10 +126,13 @@ class Retirement(Child):
         self.write_lessons(repo, [PIPED, RESEARCH, "pipe the tail into a file, "
                                   "not the terminal", "keep the rule"])
         # the named test exists in this repository, so it enforces
-        self.touch(os.path.join(repo, "tests", "test_research.py"))
+        os.makedirs(os.path.join(repo, "tests"), exist_ok=True)
         with open(os.path.join(repo, "tests", "test_research.py"), "w") as fh:
             fh.write("import unittest\n\n\nclass Unfinished(unittest.TestCase):\n"
-                     "    pass\n")
+                     "    def test_nested_method(self):\n"
+                     "        class NestedClass:\n"
+                     "            pass\n\n\n"
+                     "DOC = '''\nclass OnlyInString:\n    pass\n'''\n")
 
     def test_enforced_lines_leave_every_reader(self):
         repo = self.make_repo()
@@ -170,10 +173,19 @@ class Retirement(Child):
         repo = self.make_repo()
         self.ledger(repo)
         for value in ("nosuchrule", "tests.test_research.NoSuchClass",
-                      "tests.test_nosuchmodule.Unfinished"):
+                      "tests.test_nosuchmodule.Unfinished",
+                      "tests.test_research.test_nested_method",
+                      "tests.test_research.NestedClass",
+                      "tests.test_research.OnlyInString"):
             with self.subTest(value=value):
                 self.write_lessons(repo, ["a rule || enforced_by: " + value])
                 self.assertIn("- a rule\n", self.call("lessons", repo))
+        # an unparseable module keeps the line too
+        with open(os.path.join(repo, "tests", "test_research.py"), "a") as fh:
+            fh.write("def broken(:\n")
+        self.write_lessons(repo, ["a rule || enforced_by: "
+                                  "tests.test_research.Unfinished"])
+        self.assertIn("- a rule\n", self.call("lessons", repo))
 
 
 def known(value):
