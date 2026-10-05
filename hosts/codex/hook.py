@@ -198,11 +198,13 @@ def main():
         # {"decision": "block", "reason": ...}, so the integrity rule's second
         # half runs here too: a done/tested claim with nothing observed behind it
         # cannot end the turn. `verify-off` drops it; outside a root it is inert.
-        if (not payload.get("stop_hook_active") and not off("verify-off")
-                and root_for(cwd)):
+        # The reply after a block (`stop_hook_active`) is judged record-only:
+        # one `after_block` row, never a second block.
+        if not off("verify-off") and root_for(cwd):
             reason = safe(session_id, stop_reason,
                           payload.get("last_assistant_message"), session_id,
-                          cwd=cwd)
+                          cwd=cwd,
+                          record_only=bool(payload.get("stop_hook_active")))
             if reason:
                 out["decision"] = "block"
                 out["reason"] = reason

@@ -115,7 +115,8 @@ UI_CHECK = re.compile(
 # anything. `_screen_read` reads the name out of the one field that carries it -
 # the two shapes in `TOOL_NAME`/`MCP_CHANNEL` below. The CLI capture is matched
 # at a command position like `UI_CHECK`, so a search that merely names
-# `screencapture` is not a read of the screen either.
+# `screencapture` is not a read of the screen either. `tezgah-capture` is the
+# pre-write file snapshot CLI (bin/tezgah-capture), never a read of the screen.
 TOOL_NAME = "unknown tool: "
 MCP_CHANNEL = "mcp"
 UI_TOOL = re.compile(
@@ -123,7 +124,7 @@ UI_TOOL = re.compile(
     r"mobile_(?:list_elements_on_screen|save_screenshot|take_screenshot))\Z",
     re.I)
 UI_TOOL_CMD = re.compile(
-    r"(?:^|[|;&(])\s*(?:\S*/)?(?:tezgah-capture|screencapture|shot-scraper)\b",
+    r"(?:^|[|;&(])\s*(?:\S*/)?(?:screencapture|shot-scraper)\b",
     re.I | re.M)
 # The design contract's checker, the one command that compares a measurement of
 # the running app against the repository's own `.tezgah/design-contract.md`. It
@@ -3341,7 +3342,7 @@ def _shape_block(text, cwd):
     return (None, None)
 
 
-def stop_reason(text, session_id, edited_hint=None, cwd=None):
+def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
     `cwd` is the session's directory, read for the repo's `.no-adhd` mark.
@@ -3366,27 +3367,44 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None):
     Every judged reply also leaves one `shape` row: `detail` is its report-only
     `shape_flags` (or `ok`) and the row carries `reply_shape`'s fields, so the
     list and language numbers the rule refuses on have a published rate over
-    every reply, not only over the ones that made a claim."""
+    every reply, not only over the ones that made a claim.
+
+    `record_only` is the reply after a block (`stop_hook_active`): it is judged
+    the same way but never refused a second time, and its verdict goes to an
+    `after_block` row - `would block: <class>`, `ok` or `no claim`, one per
+    reply - so what a block led to is on the record without counting as a
+    claim or as a second reply in the shape rate. Only a turn this rule
+    refused has one: the flag says some Stop hook blocked, not that this one
+    did. Returns None."""
     rows, turns = turn_rows(session_id, turns=True)
+    if record_only and not any(
+            entry.get("kind") == "claim"
+            and str(entry.get("detail", "")).startswith("blocked:")
+            for entry in rows):
+        return None
     cls, reason = _stop_block(text, session_id, edited_hint, rows=rows, cwd=cwd)
     key = _claim_key(text, turns)
     # Keyed like the claim row, so Cursor's re-run of the handler on a follow-up
     # does not count the same reply twice; above the early return, so a reply
     # with no claim vocabulary still leaves its row.
     shape = reply_shape(text)
-    if not any(entry.get("kind") == "shape"
-               and entry.get("id") == key for entry in rows):
+    if not record_only and not any(entry.get("kind") == "shape"
+                                   and entry.get("id") == key for entry in rows):
         note(session_id, "shape", ",".join(shape_flags(text)) or "ok", id=key,
              **shape)
-    if reason:
-        detail = "blocked: %s" % cls
+    if record_only:
+        detail = ("would block: %s" % cls if reason
+                  else "ok" if any(claims(text)) else "no claim")
+        kind, reason = "after_block", None
+    elif reason:
+        detail, kind = "blocked: %s" % cls, "claim"
     elif any(claims(text)):
-        detail = "ok"
+        detail, kind = "ok", "claim"
     else:
         return None
-    if not any(entry.get("kind") == "claim" and entry.get("id") == key
+    if not any(entry.get("kind") == kind and entry.get("id") == key
                for entry in rows):
-        note(session_id, "claim", detail, id=key, **shape)
+        note(session_id, kind, detail, id=key, **shape)
     return reason
 
 

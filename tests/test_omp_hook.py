@@ -423,7 +423,7 @@ class OmpHook(TempHome):
                              "last_assistant_message": "Fixed; doğrulanmadı."})
         self.assertIsNone(out)
 
-    def test_stop_hook_active_short_circuits(self):
+    def test_the_reply_after_a_block_is_never_blocked_again(self):
         repo = self.make_repo()
         self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",
                     "tool": "bash", "input": {"command": "pytest -q"}})

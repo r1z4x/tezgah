@@ -26,6 +26,11 @@ BRIDGE_EVENTS = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"
                  "SubagentStart", "SubagentStop", "Stop"}
 # The events tezgah declares for Claude that this bridge cannot run.
 BRIDGE_UNSUPPORTED = {"PostCompact", "PostToolUseFailure"}
+# The event the bridge runs that dsh still leaves out on purpose: Stop. The
+# bridge drops every call's outcome (`TEZGAH_CALL_OUTCOME=none`), so no check
+# there can show a pass and the Stop rule could only refuse honest work; until
+# the bridge carries outcomes dsh has no Stop rule (ADR 003, plan 048 part g).
+LEFT_OUT = {"Stop"}
 SCRIPT = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\"]+)")
 # Claude's matcher dialect, which the bridge implements (matchesMatcher in
 # @deepseek-ai/dsh-hook-protocol): a pattern made only of these characters is a
@@ -52,9 +57,10 @@ class DshManifest(unittest.TestCase):
 
     def test_omits_exactly_what_the_bridge_cannot_run(self):
         # Anything Claude grows that the bridge cannot run has to be left out
-        # here too, or the dsh manifest claims a hook that never fires.
+        # here too, or the dsh manifest claims a hook that never fires; the one
+        # event it could run and does not is the deliberate LEFT_OUT.
         missing = set(self.load(CLAUDE_MANIFEST)) - set(self.load(DSH_MANIFEST))
-        self.assertEqual(missing, BRIDGE_UNSUPPORTED)
+        self.assertEqual(missing, BRIDGE_UNSUPPORTED | LEFT_OUT)
 
     def test_every_group_matches_claude_and_its_script_exists(self):
         # The dsh manifest stays Claude's manifest: one group per event, the same
@@ -79,12 +85,12 @@ class DshManifest(unittest.TestCase):
         # `tools/post-execute` is documented to fire for tool failures - while
         # the payload it builds carries no outcome field. Without the
         # declaration a failed `pytest` on dsh would be recorded verify_ok and
-        # the Stop rule would trust a pass nobody saw. Claude splits the two
+        # any Stop rule would trust a pass nobody saw. Claude splits the two
         # outcomes across two events instead, so its command stays plain.
         ours = self.command("PostToolUse")
         self.assertIn("TEZGAH_CALL_OUTCOME=none ", ours)
         self.assertNotIn("TEZGAH_CALL_OUTCOME", self.claude_command("PostToolUse"))
-        for event in ("UserPromptSubmit", "PreToolUse", "Stop"):
+        for event in ("UserPromptSubmit", "PreToolUse"):
             self.assertEqual(self.command(event), self.claude_command(event), event)
 
     def test_the_core_carrying_events_declare_the_file_channel_on_claude_only(self):
@@ -157,11 +163,11 @@ class DshToolVocabulary(unittest.TestCase):
 class DshLedger(TempHome):
     """The manifest's own command, run the way the bridge runs it: the string
     from hosts/dsh/hooks.json with `${CLAUDE_PLUGIN_ROOT}` substituted, and the
-    payload shape the bridge builds (lib/index.js postToolPayload/stopPayload).
+    payload shape the bridge builds (lib/index.js postToolPayload).
 
     Before the matcher carried dsh's tool names, no call on that host reached
-    PostToolUse at all: the ledger held no step rows, so the Stop rule had no
-    evidence to read and the whole integrity control was dead there."""
+    PostToolUse at all: the ledger held no step rows, and the record of what a
+    dsh session did was empty."""
 
     def setUp(self):
         super().setUp()
@@ -205,8 +211,8 @@ class DshLedger(TempHome):
     def test_a_dsh_check_records_that_it_ran_not_that_it_passed(self):
         # The bridge runs the hook for a failed call too and its payload carries
         # no outcome, so a pass is never claimed on this host: the row says the
-        # check ran, which is what the Stop rule needs to keep a "tests pass"
-        # claim from ending a turn it cannot evidence.
+        # check ran and nothing more (and with nothing that could show a pass,
+        # dsh wires no Stop rule - LEFT_OUT above).
         self.post("bash", {"command": "pytest -q"}, "1 failed")
         self.assertEqual([(r["kind"], "exit" in r) for r in self.rows()],
                          [("verify", False)])
@@ -215,23 +221,6 @@ class DshLedger(TempHome):
         out = self.post("web_fetch", {"url": "https://x"}, "page text")
         self.assertIn("untrusted content", out)
         self.assertIn("a web result", out)
-
-    def test_the_stop_rule_no_longer_needs_the_reply_the_bridge_drops(self):
-        # The bridge's stopPayload sends Claude's base fields plus
-        # `stop_hook_active` - no `last_assistant_message`. That used to leave the
-        # Stop rule mute on dsh, and this test pinned that as a tripwire. The
-        # trigger is evidence-shaped now: a turn whose ledger shows work and no
-        # passing check is refused whatever the reply said, so the missing field
-        # no longer disables the control here. The claim the bridge drops is still
-        # refused - now on the strength of the ledger alone, which is the point.
-        self.post("bash", {"command": "pytest -q"}, "1 failed")
-        stop = {"session_id": self.session, "transcript_path": "", "cwd": self.repo,
-                "hook_event_name": "Stop", "stop_hook_active": False}
-        self.assertNotIn("last_assistant_message", stop)
-        self.assertNotEqual(self.run_command("Stop", stop), "")
-        # the same session, with the claim the bridge drops: still refused
-        self.assertNotEqual(self.run_command(
-            "Stop", dict(stop, last_assistant_message="Done. All tests pass.")), "")
 
 
 if __name__ == "__main__":

@@ -4,10 +4,11 @@
 Blocks (decision: "block") when the final message opens by placating, or claims
 done/tested/passing in a session whose newest turn changed code and left a check
 failing or unproven by a later pass. An explicit "doğrulanmadı" always clears
-it, so honest uncertainty is never punished. `stop_hook_active` short-circuits
-the loop, and Claude Code overrides the hook after its own consecutive-block
-cap, so this can never trap a session. Inert outside a tezgah root or under the
-`verify-off` kill switch.
+it, so honest uncertainty is never punished. With `stop_hook_active` set - the
+reply after a block - the reply is judged in record-only mode (an `after_block`
+row) and never blocked again, and Claude Code overrides the hook after its own
+consecutive-block cap, so this can never trap a session. Inert outside a tezgah
+root or under the `verify-off` kill switch.
 """
 import json
 import os
@@ -24,7 +25,7 @@ def main():
         p = json.load(sys.stdin)
     except Exception:
         return
-    if not isinstance(p, dict) or p.get("stop_hook_active"):
+    if not isinstance(p, dict):
         return
     if off("verify-off"):
         return
@@ -35,7 +36,7 @@ def main():
     # never traps a session, and that holds for its own failure too
     reason = safe(p.get("session_id"), stop_reason,
                   p.get("last_assistant_message"), p.get("session_id"),
-                  cwd=cwd)
+                  cwd=cwd, record_only=bool(p.get("stop_hook_active")))
     if reason:
         json.dump({"decision": "block", "reason": reason}, sys.stdout)
 
