@@ -26,7 +26,9 @@ Claude Code installs from a plugin; the other four do not have that channel,
 so they are wired here: Codex hooks.json + skills, Cursor hooks.json + skills,
 opencode plugins + instructions + skills, dsh's managed patch block, and the
 shared MCP registration.
-Re-running is idempotent; every write is backed up once as <file>.tezgah-bak.
+Re-running is idempotent; every write that changes a file first copies it to
+<file>.<timestamp>.tezgah-bak (the first and the newest four are kept), and a
+host config that does not parse as a JSON object is refused, never rewritten.
 """
 import argparse
 import datetime
@@ -530,11 +532,42 @@ def _materialise(src, dst):
 
 
 def read_json(path, default):
+    """The parsed file, or `default` when it is absent, unreadable, or of
+    another top-level type than `default` (a report's `.get` on a list)."""
     try:
         with open(path, encoding="utf-8") as fh:
-            return json.load(fh)
+            data = json.load(fh)
     except Exception:
         return default
+    if default is not None and not isinstance(data, type(default)):
+        return default
+    return data
+
+
+# Every host config read_config refused this run; a non-empty list fails it.
+REFUSED = []
+
+
+def read_config(path, empty):
+    """A host config tezgah is about to rewrite: `empty` when the file is absent,
+    its object when it parses as one, None otherwise - named, recorded in
+    REFUSED, and never written, because a write would replace the user's file
+    with tezgah's default (a trailing comma once cost a whole opencode.json)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return empty
+    except (OSError, ValueError) as exc:
+        why = "not valid JSON: %s" % exc
+    else:
+        if isinstance(data, dict):
+            return data
+        why = "not a JSON object: the top level is %s" % type(data).__name__
+    print("%s %s (%s; left untouched - fix it, then re-run --install)"
+          % (NO, path, why))
+    REFUSED.append(path)
+    return None
 
 
 def write_json(path, data):
@@ -559,12 +592,34 @@ def write_json(path, data):
     return True
 
 
+# Timestamped backups kept per file: the oldest (the user's own, pre-tezgah
+# copy) and the newest BACKUP_CAP - 1 changes. ponytail: a fixed cap, no setting.
+BACKUP_CAP = 5
+BACKUP_RE = re.compile(r"(.+)\.\d{8}T\d{12}(?:-\d+)?\.tezgah-bak")
+
+
 def backup(path):
-    if os.path.exists(path) and not os.path.exists(path + ".tezgah-bak"):
-        try:
-            shutil.copy2(path, path + ".tezgah-bak")
-        except OSError:
-            pass
+    """Copy `path` to `<path>.<timestamp>.tezgah-bak` before a write changes it.
+
+    The suffix stays `.tezgah-bak`, so managed() and the uninstall cleanup still
+    know it; past BACKUP_CAP the middle copies go, never the first."""
+    if not os.path.exists(path):
+        return
+    stamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S%f")
+    dst = "%s.%s.tezgah-bak" % (path, stamp)
+    n = 0
+    while os.path.exists(dst):
+        n += 1
+        dst = "%s.%s-%d.tezgah-bak" % (path, stamp, n)
+    try:
+        shutil.copy2(path, dst)
+        d, base = os.path.split(path)
+        old = sorted(name for name in os.listdir(d or ".")
+                     if (m := BACKUP_RE.fullmatch(name)) and m.group(1) == base)
+        for name in old[1:max(1, len(old) - BACKUP_CAP + 1)]:
+            os.remove(os.path.join(d, name))
+    except OSError:
+        pass
 
 
 def set_managed_block(path, block, start="# tezgah:start", end="# tezgah:end"):
@@ -923,7 +978,7 @@ def wire_claude_attribution():
         return
     settings["attribution"] = wanted
     write_json(sp, settings)
-    print("%s attribution -> none (previous kept as %s.tezgah-bak)" % (OK, sp))
+    print("%s attribution -> none (previous kept as %s.<timestamp>.tezgah-bak)" % (OK, sp))
 
 
 def wire_claude_statusline():
@@ -940,34 +995,35 @@ def wire_claude_statusline():
         return
     settings["statusLine"] = {"type": "command", "command": cmd}
     write_json(sp, settings)
-    print("%s statusLine -> tezgah (previous kept as %s.tezgah-bak)" % (OK, sp))
+    print("%s statusLine -> tezgah (previous kept as %s.<timestamp>.tezgah-bak)" % (OK, sp))
 
 
 def install_codex():
     print("\ncodex:")
     cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-codex-hook"))
     path = os.path.join(CODEX, "hooks.json")
-    data = read_json(path, {"hooks": {}})
-    hooks = data.setdefault("hooks", {})
-    # PreToolUse carries a matcher on the group object, mirroring
-    # hosts/codex/hooks.json, and is what makes the policy gate blocking.
-    for ev, matcher in CODEX_HOOK_EVENTS:
-        arr = hooks.setdefault(ev, [])
-        arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
-        group = {}
-        if matcher:
-            group["matcher"] = matcher
-        group["hooks"] = [{"type": "command", "command": cmd, "timeout": 10}]
-        arr.append(group)
-    write_json(path, data)
-    print("%s %s" % (OK, path))
-    # the group is written, not trusted: codex runs only trusted groups, and a
-    # machine that never approves it has no gate at all (audit H-1)
-    print("%s codex runs a hook group only once it is trusted: approve tezgah's "
-          "group in codex's first interactive run (or start codex with "
-          "--dangerously-bypass-hook-trust). `tezgah-setup --report` reads "
-          "`[hooks.state]` in %s and says untrusted until then."
-          % ("  --  ", os.path.join(CODEX, "config.toml")))
+    data = read_config(path, {"hooks": {}})
+    if data is not None:
+        hooks = data.setdefault("hooks", {})
+        # PreToolUse carries a matcher on the group object, mirroring
+        # hosts/codex/hooks.json, and is what makes the policy gate blocking.
+        for ev, matcher in CODEX_HOOK_EVENTS:
+            arr = hooks.setdefault(ev, [])
+            arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+            group = {}
+            if matcher:
+                group["matcher"] = matcher
+            group["hooks"] = [{"type": "command", "command": cmd, "timeout": 10}]
+            arr.append(group)
+        write_json(path, data)
+        print("%s %s" % (OK, path))
+        # the group is written, not trusted: codex runs only trusted groups, and
+        # a machine that never approves it has no gate at all (audit H-1)
+        print("%s codex runs a hook group only once it is trusted: approve tezgah's "
+              "group in codex's first interactive run (or start codex with "
+              "--dangerously-bypass-hook-trust). `tezgah-setup --report` reads "
+              "`[hooks.state]` in %s and says untrusted until then."
+              % ("  --  ", os.path.join(CODEX, "config.toml")))
     for s in SKILLS:
         print(link(os.path.join(HERE, "skills", s), os.path.join(CODEX, "skills", s)))
     mcp = os.path.join(CODEX, "bin", "consult")
@@ -1440,8 +1496,24 @@ def install_opencode():
     write_artifact(SKILL_ROUTER_FULL, full, write_if_changed)
     print("%s %s (always-on, %d chars)" % (OK, SKILL_ROUTER, len(always)))
     print("%s %s (on demand, %d chars)" % (OK, SKILL_ROUTER_FULL, len(full)))
-    cfg = read_json(os.path.join(OPENCODE, "opencode.json"),
-                    {"$schema": "https://opencode.ai/config.json"})
+    # TUI status line: opencode has no command statusLine, only a TUI plugin
+    # declared in tui.json. Local path spec resolves relative to tui.json.
+    print(link(os.path.join(HERE, "hosts", "opencode", "tui", "tezgah-tui.tsx"),
+               os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")))
+    tpath = os.path.join(OPENCODE, "tui.json")
+    tui = read_config(tpath, {"$schema": "https://opencode.ai/tui.json"})
+    if tui is not None:
+        plugins = tui.get("plugin") or []
+        spec = "./tui-plugins/tezgah-tui.tsx"
+        if spec not in [p if isinstance(p, str) else p[0] for p in plugins]:
+            plugins.append(spec)
+        tui["plugin"] = plugins
+        write_json(tpath, tui)
+        print("%s tui.json (status line plugin)" % OK)
+    cfg = read_config(os.path.join(OPENCODE, "opencode.json"),
+                      {"$schema": "https://opencode.ai/config.json"})
+    if cfg is None:
+        return
     instr = cfg.get("instructions") or []
     for extra in (contract, SKILL_ROUTER):
         if extra not in instr:
@@ -1500,42 +1572,43 @@ def install_opencode():
     print("%s opencode.json (compaction.prune + watcher.ignore)" % OK)
     if changed or dropped:
         restart_hint("opencode", os.path.join(OPENCODE, "opencode.json"))
-    # TUI status line: opencode has no command statusLine, only a TUI plugin
-    # declared in tui.json. Local path spec resolves relative to tui.json.
-    print(link(os.path.join(HERE, "hosts", "opencode", "tui", "tezgah-tui.tsx"),
-               os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")))
-    tpath = os.path.join(OPENCODE, "tui.json")
-    tui = read_json(tpath, {"$schema": "https://opencode.ai/tui.json"})
-    plugins = tui.get("plugin") or []
-    spec = "./tui-plugins/tezgah-tui.tsx"
-    if spec not in [p if isinstance(p, str) else p[0] for p in plugins]:
-        plugins.append(spec)
-    tui["plugin"] = plugins
-    write_json(tpath, tui)
-    print("%s tui.json (status line plugin)" % OK)
 
 
 def install_cursor():
     print("\ncursor:")
     cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-cursor-hook"))
     path = os.path.join(CURSOR, "hooks.json")
-    data = read_json(path, {"version": 1, "hooks": {}})
-    data.setdefault("version", 1)
-    hooks = data.setdefault("hooks", {})
-    # Mirrors hosts/cursor/hooks.json. Existing (Orca) entries are merged,
-    # never overwritten: only tezgah entries are replaced.
-    for ev, extra in CURSOR_HOOK_EVENTS.items():
-        arr = hooks.setdefault(ev, [])
-        arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
-        entry = {"command": cmd}
-        entry.update(extra)
-        arr.append(entry)
-    write_json(path, data)
-    print("%s %s" % (OK, path))
+    data = read_config(path, {"version": 1, "hooks": {}})
+    if data is not None:
+        data.setdefault("version", 1)
+        hooks = data.setdefault("hooks", {})
+        # Mirrors hosts/cursor/hooks.json. Existing (Orca) entries are merged,
+        # never overwritten: only tezgah entries are replaced.
+        for ev, extra in CURSOR_HOOK_EVENTS.items():
+            arr = hooks.setdefault(ev, [])
+            arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+            entry = {"command": cmd}
+            entry.update(extra)
+            arr.append(entry)
+        write_json(path, data)
+        print("%s %s" % (OK, path))
     for s in SKILLS:
         print(link(os.path.join(HERE, "skills", s), os.path.join(CURSOR, "skills", s)))
+    cc = os.path.join(CURSOR, "cli-config.json")
+    cfg = read_config(cc, {})
+    if cfg is not None:
+        cfg.setdefault("version", 1)
+        cfg["statusLine"] = {
+            "type": "command",
+            "command": tp.hook_command(
+                os.path.join(tp.BIN_DIR, "tezgah-statusline")) + " --cursor",
+        }
+        write_json(cc, cfg)
+        print("%s %s (statusLine -> tezgah)" % (OK, cc))
     mpath = os.path.join(CURSOR, "mcp.json")
-    mcfg = read_json(mpath, {"mcpServers": {}})
+    mcfg = read_config(mpath, {"mcpServers": {}})
+    if mcfg is None:
+        return
     servers = mcfg.setdefault("mcpServers", {})
     argv = graph_command()
     servers.setdefault("codegraph", {"command": argv[0], "args": argv[1:],
@@ -1557,16 +1630,6 @@ def install_cursor():
         print("%s removed %s from %s (not selected)" % (OK, ", ".join(dropped), mpath))
     if changed or dropped:
         restart_hint("cursor", mpath)
-    cc = os.path.join(CURSOR, "cli-config.json")
-    cfg = read_json(cc, {})
-    cfg.setdefault("version", 1)
-    cfg["statusLine"] = {
-        "type": "command",
-        "command": tp.hook_command(
-            os.path.join(tp.BIN_DIR, "tezgah-statusline")) + " --cursor",
-    }
-    write_json(cc, cfg)
-    print("%s %s (statusLine -> tezgah)" % (OK, cc))
 
 
 def dsh_app_mcp_rows():
@@ -1999,8 +2062,21 @@ def install_omp():
         path = os.path.join(OMP_AGENT, "agents", name)
         if write_if_changed(path, text):
             print("%s %s" % (OK, path))
+    try:
+        with open(os.path.join(HERE, "hosts", "omp", "tezgah-hook.ts.in"), encoding="utf-8") as fh:
+            hook = fh.read().replace(
+                "@HOOK@", os.path.join(HERE, "hosts", "omp", "hook.py"))
+    except OSError:
+        hook = ""
+    if hook:
+        hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
+        if write_if_changed(hook_dst, hook):
+            print("%s %s (contract + gate + status line)" % (OK, hook_dst))
+        register_omp(hook_dst)
     mcp_path = os.path.join(OMP_AGENT, "mcp.json")
-    cfg = read_json(mcp_path, {})
+    cfg = read_config(mcp_path, {})
+    if cfg is None:
+        return
     cfg["$schema"] = OMP_MCP_SCHEMA
     servers = cfg.setdefault("mcpServers", {})
     argv = graph_command()
@@ -2034,17 +2110,6 @@ def install_omp():
                 else "not selected"))
     if changed or dropped:
         restart_hint("omp", mcp_path)
-    try:
-        with open(os.path.join(HERE, "hosts", "omp", "tezgah-hook.ts.in"), encoding="utf-8") as fh:
-            hook = fh.read().replace(
-                "@HOOK@", os.path.join(HERE, "hosts", "omp", "hook.py"))
-    except OSError:
-        hook = ""
-    if hook:
-        hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
-        if write_if_changed(hook_dst, hook):
-            print("%s %s (contract + gate + status line)" % (OK, hook_dst))
-        register_omp(hook_dst)
 
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
@@ -2301,7 +2366,7 @@ def select_features(enabled, disabled, hosts, dry_run, deps_off=False):
             if row["id"] in (disabled or ()) and row.get("remove") and row["remove"]():
                 print("%s %s: removed its file" % (OK, row["id"]))
     features_report()
-    return 1 if still else 0
+    return 1 if still or REFUSED else 0
 
 
 # How each optional tool is installed on Windows, by channel: the package
@@ -2710,7 +2775,8 @@ def remove_generated_state(full):
             continue
         if name in GENERATED_STATE or name.endswith((".off", "-off")) \
                 or (name.endswith(".tezgah-bak")
-                    and name[:-len(".tezgah-bak")] in GENERATED_STATE):
+                    and name[:-len(".tezgah-bak")] in GENERATED_STATE) \
+                or ((m := BACKUP_RE.fullmatch(name)) and m.group(1) in GENERATED_STATE):
             if name == "bin":
                 unlink_dir(path)  # a user's own file in the farm is not tezgah's
                 if os.path.isdir(path) and os.listdir(path):
@@ -2913,7 +2979,7 @@ def unwire_claude_settings():
         changed = True
     if changed:
         write_json(sp, s)
-        print("%s removed tezgah statusLine/attribution from %s (restore from .tezgah-bak if wanted)" % (OK, sp))
+        print("%s removed tezgah statusLine/attribution from %s (restore from its .tezgah-bak copies if wanted)" % (OK, sp))
 
 
 def unwire_opencode_config():
@@ -3739,6 +3805,25 @@ def live_report(hosts):
     return 1 if failed else 0
 
 
+# The report rows whose MISS means the host is not armed: its hooks wired and
+# its contract current. Rows a correct fresh install leaves MISS stay out:
+# Codex "hooks trusted" (the user approves it in Codex), the provider keys, and
+# Claude's plugin copy, which this installer does not register yet.
+ARMING_ROWS = ("hooks.json wired", "plugin wired (link or copy)",
+               "carries the contract", "contract in instructions",
+               "claude-code hooks bridge in cordis.patch.yml",
+               "session, prompt, tool and stop hooks wired",
+               "hook registered in omp extensions")
+
+
+def arming_miss(label, good):
+    """True for a MISS row in ARMING_ROWS; the omp extension row counts only
+    where an omp CLI exists to register it with."""
+    if good or not any(row in label for row in ARMING_ROWS):
+        return False
+    return "omp extensions" not in label or bool(tp.omp_bin())
+
+
 def report(hosts):
     print("tezgah checkout: %s\n" % HERE)
     print("roots (%s):" % ("TEZGAH_ROOTS" if os.environ.get("TEZGAH_ROOTS")
@@ -3775,11 +3860,15 @@ def report(hosts):
         print("\npredecessor wiring still present (retire with --adopt):")
         for p in pred:
             print("  ?    %s" % p)
+    missed = []
     for h in hosts:
         print("\n%s:" % h)
         for label, good in HOST_CHECKS[h]():
             print("  %s %s" % (OK if good else NO, label))
+            if arming_miss(label, good):
+                missed.append("%s (%s)" % (h, label))
     context_budget_report()
+    return missed
 
 
 def mcp_rows(wired, where, superseded=()):
@@ -4276,8 +4365,8 @@ def managed(rel):
     """True for a relpath a copy is expected to hold: the tracked tree minus the
     maintainer's `.tezgah/` (the private workspace, never shipped - a plan, a
     research line, a lesson), any bytecode cache, the manifest itself, and a
-    `<file>.tezgah-bak` backup - the installer keeps one of a file it
-    overwrote, and a backup is no more a copy member than it is product code.
+    `.tezgah-bak` backup (bare or timestamped) - the installer keeps copies of
+    a file it overwrote, and a backup is no more a copy member than it is product code.
     Shared by plugin_files() and the copy listing, so the two cannot drift.
 
     `.tezgah/` is the private workspace and is never a copy member. A checkout
@@ -4720,7 +4809,8 @@ def wizard_plan(hosts, roots, deps_off, features, adopt_now):
               % (OK, row["id"], "wire" if row["id"] in features else "skip"))
     if adopt_now:
         print("  %s retire the predecessor wiring (moved aside, not deleted)" % OK)
-    print("  files tezgah rewrites are backed up once as <file>.tezgah-bak")
+    print("  files tezgah rewrites are backed up as <file>.<timestamp>.tezgah-bak "
+          "(first and newest four kept); an unparseable host config is refused")
 
 
 def wizard(default_hosts, default_roots, deps_off_default, default_features,
@@ -4856,14 +4946,20 @@ def install_all(hosts, new_roots, deps_off, dry_run, redetect):
     if deps_off:
         print("(deps skipped; run `tezgah-setup --deps` to install orx, and "
               "`--deps --host-deps` for cursor-agent, pnpm and dsh)")
-    report(hosts)
+    missed = report(hosts)
+    if missed:
+        print("\n%s not armed: %s" % (NO, "; ".join(missed)))
+    if REFUSED:
+        print("\n%s refused to rewrite: %s" % (NO, ", ".join(REFUSED)))
     # A requested tool that is still missing is a failed step, not a footnote:
     # the run used to exit 0 after a refused download (audit M-9, GAP-06).
     if still:
         print("\n%s still missing: %s (see `dependencies:` above)"
               % (NO, ", ".join(still)))
         return 1
-    return 0
+    # A planned host the run could not arm is a failed install too: the run
+    # printed MISS under it and exited 0, so `curl | sh` reported success.
+    return 1 if missed or REFUSED else 0
 
 
 def main(argv):

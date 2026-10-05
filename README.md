@@ -67,6 +67,10 @@ curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install
 
 Or through npm: `npm i -g @r1z4x/tezgah && tezgah --install`.
 
+A host config it cannot parse is left untouched, every config it changes
+keeps a dated `.tezgah-bak` copy, and the install exits non-zero when a host
+it set out to arm is not armed.
+
 Rather let your coding assistant do it? Paste this into omp, Claude Code,
 Codex, Cursor or opencode:
 

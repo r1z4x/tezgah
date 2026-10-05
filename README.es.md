@@ -69,6 +69,10 @@ curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install
 
 O a través de npm: `npm i -g @r1z4x/tezgah && tezgah --install`.
 
+Una configuración de host que no puede leer queda intacta, cada configuración
+que cambia conserva una copia `.tezgah-bak` fechada, y la instalación termina
+con un código distinto de cero cuando un host previsto no queda armado.
+
 ¿Prefieres que lo haga tu asistente de programación? Pega esto en omp,
 Claude Code, Codex, Cursor u opencode (el prompt queda en inglés; el
 asistente lo entiende en cualquier idioma):

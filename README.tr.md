@@ -66,6 +66,10 @@ curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install
 
 Ya da npm ile: `npm i -g @r1z4x/tezgah && tezgah --install`.
 
+Ayrıştıramadığı bir barındırıcı yapılandırmasına dokunmaz, değiştirdiği her
+yapılandırmanın tarihli bir `.tezgah-bak` kopyasını tutar ve kurmayı
+planladığı bir barındırıcı kurulamazsa sıfırdan farklı bir kodla çıkar.
+
 Kurulumu kodlama asistanınıza yaptırmak isterseniz bunu omp, Claude Code,
 Codex, Cursor veya opencode'a yapıştırın (istem İngilizce; asistan her dilde
 anlar):
