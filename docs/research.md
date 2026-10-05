@@ -53,7 +53,7 @@ judge the answer:
 - `close --limit "<what is left>" --ack "<what the user said>"` is the way out
   when a criterion is `not-met`: `check` refuses a conclusion over an unjudged or
   unmet criterion without an acknowledgement, and `status` keeps listing such a
-  line as unanswered (`unanswered` `hooks/tezgah_research.py:4591`).
+  line as unanswered (`unanswered` `hooks/tezgah_research.py:4595`).
 
 The reason: 4 of 11 sampled lines in this workspace concluded with the ask
 unanswered and 0 of 416 claims cited any part of it (measured 2026-10-01), because
@@ -189,12 +189,12 @@ calls (`check_line`, `tezgah_research.py:3616`).
 | `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
 | `tezgah-research check [<slug>] [--json] [--strict] [--orx]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `tezgah_research.py:4055`) | 0 clean, 1 a line failed a rule or names no line |
-| `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `tezgah_research.py:4005`) | 0 |
+| `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `tezgah_research.py:4009`) | 0 |
 | `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py:4033-4054`) | 0, 2 misuse |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
 | `tezgah-research predict <slug>` | reads one prediction row from stdin and either appends it under the same lock or refuses it with one reason per problem; a row whose `commit` git cannot place is appended with the warning printed, which is the fail-open `check` uses, and a row written now has to name at least one component the manifest defines (`append_prediction`, `tezgah_research.py:4891`) | 0, 1 refused, 2 misuse |
 | `tezgah-research components [--json]` | the per-component report: one bucket per component the manifest defines, in the manifest's own order, then any key a row names that the manifest does not, each holding the prediction rows that name it and each row's state, and last the rows that name no component; it prints the number of components and rows it read (`component_report`, `tezgah_research.py:5055`) | 0, 2 misuse |
-| `tezgah-research migrate <slug> [--dry-run]` | derives the fields a line written before these rules cannot carry, prints what it derived and what it could not, and is idempotent (`migrate`, `tezgah_research.py:4119`) | 0, 2 misuse |
+| `tezgah-research migrate <slug> [--dry-run]` | derives the fields a line written before these rules cannot carry, prints what it derived and what it could not, and is idempotent (`migrate`, `tezgah_research.py:4123`) | 0, 2 misuse |
 | `tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "..."] [--scope real\|fixture\|derived] [--fixture "<what was generated>"]` | keeps the receipt: runs `orx logs <runId>`, writes `raw/<runId>.log`, appends the results row `{"source": "orx:<runId>", ...}` and the scope and fixture description the filer states (`source_run`, `tezgah_research.py:4408`). A `--scope fixture` filed without `--fixture` still writes the row and prints the field it still owes, so the tool is never the thing that makes its own checker warn silently; a given `--fixture` that is empty is misuse | 0, 1 nothing filed, 2 without orx |
 | `tezgah-research compare <slug> <decision>` | reads one variants x criteria cell from stdin and appends it to `decisions/<decision>/comparison.jsonl` under the lock, or refuses it by the rule `check` applies (`append_comparison` and `comparison_problems`, `hooks/tezgah_research.py`); it notes when `criteria.json` is not committed yet | 0, 1 refused, 2 misuse |
 | `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md` (`close_line`) | 0, 1 unreadable state, 2 misuse |
@@ -672,7 +672,7 @@ of its own rather than dropped, so a hand-written row is visible.
 ## `migrate`: what the artifacts already hold
 
 Three derivations and nothing else (`migrate`,
-`tezgah_research.py:4119`): each claim's `kind` from the files its proof
+`tezgah_research.py:4123`): each claim's `kind` from the files its proof
 names, each results row's `source` from the fields the row carries, and the
 `literature/INDEX.jsonl` rows from the notes.
 

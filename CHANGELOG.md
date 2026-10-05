@@ -21,9 +21,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A wider citation audit.** `bin/tezgah-docs --citations` now judges a bare file
   name and a symbol written after its citation. It also reads the comments and docstrings of the Python code. A
   `path:N` it cannot read counts as unjudged. The tree reads 512 judged and 1018
-  unjudged, up from 429 judged. A file with more unjudged citations than
-  `docs/citations-baseline.json` fails the check, and `--citations --update` rewrites
-  that file. The same pass reads all ten Stop classes by AST. It also checks the
+  unjudged, up from 429 judged. A file whose unjudged count is above or below its
+  entry in `docs/citations-baseline.json` fails the check. `--citations --update`
+  rewrites that file. The same pass reads all ten Stop classes by AST. It also checks the
   gate's rule order and switches, the judge's callers and the kill-switch names.
   `tests/neuter_matrix.py` generates one mutant per gate rule.
 
@@ -38,8 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/judge.md` counted four callers, and `bin/tezgah-taste` is the fifth. The READMEs
   said fourteen kill switches. CORE names sixteen. Forty-one bare-file citations, six in
   code comments, and the repeat-guard anchor in "Adding a rule" pointed at the wrong
-  lines. An uninstall now also sweeps `docs-judge-off`, `triage-off`, `update-check-off`
-  and `workspace-off` from `~/.claude`.
+  lines.
+
+- **Uninstall sweeps four more legacy switches.** An uninstall now also sweeps
+  `workspace-off`, `triage-off`, `docs-judge-off` and `update-check-off` from `~/.claude`.
 
 ## [0.1.2] - 2026-10-04
 

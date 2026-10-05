@@ -65,8 +65,8 @@ reader with one question in mind, and every non-obvious claim in it carries a
   `path:N` the pattern cannot read (unquoted, or a comma list), but it is counted.
   On this tree, 2026-10-05: 512 judged, 1018 not judgeable, 118 of those unreadable.
   The unjudged count is a ratchet. `docs/citations-baseline.json` holds each file's
-  count, and a file over it fails. Only `--citations --update` rewrites it, so CI
-  never writes it. The same pass checks the rule ledger and three inventories read
+  count, and a file above or below it fails. Only `--citations --update` rewrites
+  it, so CI never writes it. The same pass checks the rule ledger and three inventories read
   by AST: the gate's rule headings and switches ([gate](gate.md)), the judge's
   callers ([judge](judge.md)), and the kill-switch names. CI runs it, and it exits
   non-zero on any of them.

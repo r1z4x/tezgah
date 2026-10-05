@@ -299,6 +299,32 @@ class Inventories(unittest.TestCase):
         self.assertIn("BASH_TOOLS", by_rule["secret"][4])
         self.assertLess(by_rule["drift"][1], by_rule["drift"][2] + 1)
 
+    def test_a_deny_site_in_a_handler_or_a_case_is_read(self):
+        module = docs_module()
+        text = (
+            "def _deny(session_id, rule, reason):\n    return reason\n\n\n"
+            "def decision(t, session_id=None):\n"
+            "    try:\n        pass\n"
+            "    except ValueError:\n"
+            "        return _deny(session_id, \"caught\", \"r\")\n"
+            "    match t:\n"
+            "        case \"x\":\n"
+            "            return _deny(session_id, \"matched\", \"r\")\n"
+            "    return None\n")
+        self.assertEqual([s[0] for s in module.rule_sites(text)], ["caught", "matched"])
+        self.assertEqual(module.rule_site_failures(text), [])
+
+    def test_a_deny_call_the_reader_cannot_place_is_refused(self):
+        # `out = _deny(...); return out` is a rule with no statement span to
+        # mutate and no place in the order: it must fail, not vanish.
+        module = docs_module()
+        text = ("def decision(t, session_id=None):\n"
+                "    out = _deny(session_id, \"hidden\", \"r\")\n"
+                "    return out\n")
+        failures = module.rule_site_failures(text)
+        self.assertTrue(any("hidden" in f for f in failures), failures)
+        self.assertEqual(module.rule_site_failures(), [])
+
     def test_the_page_heads_the_rules_in_the_order_decision_checks_them(self):
         self.assertEqual(docs_module().rule_order_failures(), [])
 
@@ -409,18 +435,26 @@ class CitationAudit(unittest.TestCase):
         self.assertEqual((judged, invisible), (0, 2))
         self.assertEqual(unjudged, {"docs/page.md": 2})
 
-    def test_a_new_unjudged_citation_is_over_the_ratchet(self):
+    def test_a_count_that_moved_either_way_is_drift(self):
+        # Over: a new unjudged citation. Under: one was fixed, and a baseline
+        # left high would let the next new one in silently, so it fails too
+        # until `--citations --update` writes the lower count down.
         module = docs_module()
         unjudged = {"docs/a.md": 3, "docs/b.md": 1}
-        self.assertEqual(module.ratchet_over(unjudged, {"docs/a.md": {"unjudged": 3}}),
-                         [("docs/b.md", "unjudged", 1, 0)])
-        self.assertEqual(module.ratchet_over({"docs/a.md": 2},
-                                             {"docs/a.md": {"unjudged": 3}}), [])
+        self.assertEqual(module.ratchet_drift(unjudged, {"docs/a.md": {"unjudged": 3}}),
+                         [("docs/b.md", 1, 0)])
+        self.assertEqual(module.ratchet_drift({"docs/a.md": 2},
+                                              {"docs/a.md": {"unjudged": 3}}),
+                         [("docs/a.md", 2, 3)])
+        self.assertEqual(module.ratchet_drift({}, {"docs/gone.md": {"unjudged": 1}}),
+                         [("docs/gone.md", 0, 1)])
+        self.assertEqual(module.ratchet_drift({"docs/a.md": 3},
+                                              {"docs/a.md": {"unjudged": 3}}), [])
 
-    def test_the_real_tree_has_no_unjudged_citation_over_its_baseline(self):
+    def test_the_real_tree_holds_its_unjudged_baseline_exactly(self):
         module = docs_module()
         _, _, unjudged, _ = module.citations(module.symbols())
-        self.assertEqual(module.ratchet_over(unjudged, module.ratchet_baseline()), [])
+        self.assertEqual(module.ratchet_drift(unjudged, module.ratchet_baseline()), [])
 
 
 if __name__ == "__main__":

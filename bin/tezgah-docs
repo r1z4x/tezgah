@@ -33,6 +33,7 @@ unreadable - the pages are ranked by shared words instead (BM25,
 overruled. Exit codes: 0 with matches, 1 with none, 2 usage.
 """
 import ast
+import bisect
 import glob
 import io
 import json
@@ -110,8 +111,17 @@ AFTER = re.compile(r"\s*\(`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`\)")
 # Any `path:line`, backticked or not: what CITE does not match of these (a
 # bare token, a comma list `x.py:12,40`) is counted as unjudged, so a citation
 # written in a shape the audit cannot read is still a number someone sees.
-LOOSE = re.compile(r"(?<![\w./:-])((?:[\w.-]+/)+[\w.-]*\w|[\w-]+\.\w+):(\d+)"
-                   r"(?:-(\d+))?(?!\w)")
+# Scanned as one token run and then shape-checked: the shape alternation as
+# the scanner (nested `+` under a look-behind) cost a third of a second a pass.
+LOOSE = re.compile(r"(?<![\w./:-])([\w./-]*\w):(\d+)(?:-(\d+))?(?!\w)")
+LOOSE_SHAPE = re.compile(r"(?:[\w.-]+/)+[\w.-]*\w|[\w-]+\.\w+")
+
+
+def loose(text):
+    """The LOOSE matches whose path has a file's shape (a `/`, or `name.ext`)."""
+    return (m for m in LOOSE.finditer(text) if LOOSE_SHAPE.fullmatch(m.group(1)))
+
+
 CITATION_BASELINE = os.path.join("docs", "citations-baseline.json")
 
 
@@ -158,6 +168,14 @@ def symbols():
     return {name: only[0] for name, only in seen.items() if len(only) == 1}
 
 
+def is_python(path):
+    """True for a `.py` file or a script whose first line names python."""
+    if path.endswith(".py"):
+        return True
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return "python" in fh.readline()
+
+
 def comment_text(path):
     """A Python file's comments and docstrings at their own offsets, every other
     non-blank character turned into NUL, or None for a file that is not Python.
@@ -166,12 +184,15 @@ def comment_text(path):
     NUL rather than blank so a symbol in one comment block never pairs with a
     citation in the next one across the code between them. A docstring is a
     string that is a statement of its own; a string inside an expression is a
-    value (a fixture, a captured output) and is blanked with the code."""
-    if not path.endswith(".py"):
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            if "python" not in fh.readline():
-                return None
+    value (a fixture, a captured output) and is blanked with the code. A file
+    holding no citation-shaped token at all is "": no comment of it could hold
+    one either, so it is neither tokenized nor masked."""
+    if not is_python(path):
+        return None
     text = source(path)
+    if not (CITE.search(text) or next(loose(text), None)):
+        return ""
+    masked = re.sub(r"\S", "\0", text)
     starts = [0]
     for line in text.splitlines(keepends=True):
         starts.append(starts[-1] + len(line))
@@ -179,25 +200,23 @@ def comment_text(path):
         tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
     except (tokenize.TokenError, SyntaxError):
         return None
-    keep = bytearray(len(text))
 
     def span(tok, skip=0):
-        lo = starts[tok.start[0] - 1] + tok.start[1] + skip
-        keep[lo:starts[tok.end[0] - 1] + tok.end[1]] = b"\1" * (
-            starts[tok.end[0] - 1] + tok.end[1] - lo)
+        return (starts[tok.start[0] - 1] + tok.start[1] + skip,
+                starts[tok.end[0] - 1] + tok.end[1])
 
     lead = (tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.ENCODING)
     real = [t for t in tokens if t.type not in (tokenize.NL, tokenize.COMMENT)]
-    for tok in tokens:
-        if tok.type == tokenize.COMMENT:
-            span(tok, 1)
-    for k, tok in enumerate(real):
-        if tok.type == tokenize.STRING and (k == 0 or real[k - 1].type in lead) \
-                and k + 1 < len(real) and real[k + 1].type in (
-                    tokenize.NEWLINE, tokenize.ENDMARKER):
-            span(tok)
-    return "".join(c if keep[i] or c.isspace() else "\0"
-                   for i, c in enumerate(text))
+    kept = [span(t, 1) for t in tokens if t.type == tokenize.COMMENT]
+    kept += [span(t) for k, t in enumerate(real)
+             if t.type == tokenize.STRING and (k == 0 or real[k - 1].type in lead)
+             and k + 1 < len(real)
+             and real[k + 1].type in (tokenize.NEWLINE, tokenize.ENDMARKER)]
+    parts, at = [], 0
+    for lo, hi in sorted(kept):
+        parts += [masked[at:lo], text[lo:hi]]
+        at = hi
+    return "".join(parts) + masked[at:]
 
 
 def sources():
@@ -238,7 +257,10 @@ def citations(known):
         read = []
         for m in CITE.finditer(text):
             read.append(m.span())
-            pre = text[:m.start()].rstrip().rstrip("(").rstrip().rstrip(",")
+            # RUN is anchored at the end and five names fit in far fewer than
+            # 600 characters: slicing the whole page per citation was the cost.
+            pre = text[max(0, m.start() - 600):m.start()].rstrip().rstrip("(") \
+                .rstrip().rstrip(",")
             run = RUN.search(pre.rstrip()) if pre.rstrip().endswith("`") else None
             named = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`",
                                run.group(1)) if run else []
@@ -263,8 +285,10 @@ def citations(known):
                 continue
             line = text.count("\n", 0, m.start()) + 1
             flagged.append(("%s:%d" % (rel, line), m.group(0), where, low, high))
-        for m in LOOSE.finditer(text):
-            if any(a <= m.start() and m.end() <= b for a, b in read):
+        starts = [a for a, _ in read]
+        for m in loose(text):
+            k = bisect.bisect_right(starts, m.start()) - 1
+            if k >= 0 and m.end() <= read[k][1]:
                 continue
             path = resolve(m.group(1))
             if path and os.path.isfile(os.path.join(HERE, path)):
@@ -278,14 +302,16 @@ def ratchet_baseline():
     return tezgah_clarity.load(os.path.join(HERE, CITATION_BASELINE))
 
 
-def ratchet_over(unjudged, baseline):
-    """[(file, "unjudged", count, allowed)] for each file with more unjudged
-    citations than its baseline (absent: 0) - the clarity ratchet's `over`,
-    over one rule. Read-only: CI runs `--citations` on a checkout, so the
-    baseline is lowered only by `--citations --update`, never as a side effect
-    of a check."""
-    return tezgah_clarity.over({rel: ({"unjudged": n}, []) for rel, n in unjudged.items()},
-                               baseline, rules=("unjudged",))
+def ratchet_drift(unjudged, baseline):
+    """[(file, count, allowed)] for each file whose unjudged count is not its
+    baseline (absent: 0). Over is a new citation nobody can judge; under is a
+    fixed one whose lower count was not written down, which would let the next
+    new one in silently. Read-only: CI runs `--citations` on a checkout, so the
+    baseline moves only by `--citations --update`, never as a side effect."""
+    allowed = {rel: row.get("unjudged", 0) for rel, row in baseline.items()}
+    return [(rel, unjudged.get(rel, 0), allowed.get(rel, 0))
+            for rel in sorted(set(unjudged) | set(allowed))
+            if unjudged.get(rel, 0) != allowed.get(rel, 0)]
 
 
 # --- the rule ledger --------------------------------------------------------
@@ -340,9 +366,9 @@ def returned_classes(node):
     return out
 
 
-def gate_rules():
+def gate_rules(text=None):
     """The rule names `_deny` writes into the ledger, read off the source."""
-    tree = ast.parse(source(GATE))
+    tree = ast.parse(source(GATE) if text is None else text, filename=GATE)
     out = set()
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call)
@@ -479,10 +505,21 @@ def rule_sites(text=None):
                             tuple(dict.fromkeys(switches)),
                             tuple(dict.fromkeys(tools))))
             else:
-                for field in ("body", "orelse", "finalbody"):
+                for field in ("body", "orelse", "finalbody", "handlers", "cases"):
                     walk(getattr(stmt, field, []), switches, tools)
     walk(body, [], [])
     return out
+
+
+def rule_site_failures(text=None):
+    """A rule `_deny` names that `rule_sites` cannot place - a call outside a
+    `return _deny(...)` statement (`out = _deny(...); return out`) or outside
+    `decision` - has no line span for the neuter matrix and no place in the
+    rule order, so it is refused here instead of vanishing from both."""
+    placed = {site[0] for site in rule_sites(text)}
+    return ["rule `%s` is denied somewhere `rule_sites` cannot read: return "
+            "`_deny(...)` directly inside `decision`" % name
+            for name in sorted(gate_rules(text) - placed)]
 
 
 def sections(text, parent, level="### "):
@@ -531,25 +568,34 @@ def rule_order_failures(text=None):
     return out
 
 
+_PROGRAMS = {}
+
+
 def python_programs():
-    """The Python programs under hooks/ and bin/, relative to HERE, each with
-    its parsed tree."""
-    out = []
-    for rel in code_files():
-        if rel.startswith(("hooks/", "bin/")) and comment_text(
-                os.path.join(HERE, rel)) is not None:
+    """The Python programs under hooks/ and bin/ that call `off`, `armed` or the
+    judge seam - the only ones the two checks below read - relative to HERE,
+    each with its parsed tree; parsed once per HERE."""
+    if HERE not in _PROGRAMS:
+        out = []
+        for rel in code_files():
             path = os.path.join(HERE, rel)
-            out.append((rel, ast.parse(source(path), filename=path)))
-    return out
+            if not rel.startswith(("hooks/", "bin/")) or not is_python(path):
+                continue
+            text = source(path)
+            if "off(" in text or "armed(" in text or "tezgah_judge" in text:
+                out.append((rel, ast.parse(text, filename=path)))
+        _PROGRAMS[HERE] = out
+    return _PROGRAMS[HERE]
 
 
 def judge_callers():
     """The programs that reach `tezgah_judge.ask` (called, or handed on as the
     route's `ask`), sorted."""
     return sorted(rel for rel, tree in python_programs()
-                  if any(isinstance(n, ast.Attribute) and n.attr == "ask"
-                         and getattr(n.value, "id", "") == "tezgah_judge"
-                         for n in ast.walk(tree)))
+                  if "tezgah_judge" in source(os.path.join(HERE, rel))
+                  and any(isinstance(n, ast.Attribute) and n.attr == "ask"
+                          and getattr(n.value, "id", "") == "tezgah_judge"
+                          for n in ast.walk(tree)))
 
 
 def judge_caller_failures(text=None):
@@ -633,7 +679,8 @@ def switch_failures(core=None):
 
 def inventory_failures():
     """Every inventory check above, one list."""
-    return rule_order_failures() + judge_caller_failures() + switch_failures()
+    return (rule_site_failures() + rule_order_failures() + judge_caller_failures()
+            + switch_failures())
 
 
 NONE = "none"
@@ -784,10 +831,13 @@ def main(argv):
             print("citations: baseline rewritten (%s)" % CITATION_BASELINE)
             over = []
         else:
-            over = ratchet_over(unjudged, ratchet_baseline())
-        for rel, _rule, count, allowed in over:
-            print("citations: %s has %d unjudged, baseline %d - name the symbol "
-                  "beside each new citation" % (rel, count, allowed))
+            over = ratchet_drift(unjudged, ratchet_baseline())
+        for rel, count, allowed in over:
+            print("citations: %s has %d unjudged, baseline %d - %s"
+                  % (rel, count, allowed,
+                     "name the symbol beside each new citation" if count > allowed
+                     else "run `bin/tezgah-docs --citations --update` to write the "
+                          "lower count down"))
         ledger = ledger_failures(ledger_rows())
         for problem in ledger:
             print("rule ledger: %s" % problem)
