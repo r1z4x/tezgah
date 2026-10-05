@@ -281,6 +281,12 @@ class ReleaseWaitsForCi(unittest.TestCase):
             self.assertTrue(re.search(r"(?m)^    needs: \[?ci\]?\s*$",
                                       jobs.get(job, "")), job)
 
+    def test_no_ci_matrix_cancels_its_other_legs(self):
+        # the default fail-fast cancelled 3.13 in run 37228979769
+        for name, block in self.jobs(self.workflow("ci.yml")).items():
+            if "matrix:" in block:
+                self.assertIn("fail-fast: false", block, name)
+
     def test_no_ci_step_reads_the_gitignored_workspace(self):
         # `.tezgah/` is gitignored, so a CI step over it reads nothing and
         # cannot fail: it was presented as a check it never was

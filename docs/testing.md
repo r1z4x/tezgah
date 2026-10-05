@@ -76,10 +76,10 @@ cancels its other legs when one fails (`fail-fast: false`).
   app-MCP handshake only - no browser, no device - so it stays deterministic;
   strict mode makes a server that cannot start a failure rather than a skip, so
   a broken wire cannot hide behind a skip (`e2e_analyze_wiring.py:4-12`).
-- `artifact-install` (`ci.yml:88-125`) on Python 3.10 and 3.12: builds the
+- `artifact-install` (`ci.yml:88-126`) on Python 3.10 and 3.12: builds the
   tarball, installs from it under a temp prefix, and runs the artifact smoke on
   the installed tree instead of the checkout.
-- `artifact-install-windows` (`ci.yml:127-173`) on `windows-latest`: the same
+- `artifact-install-windows` (`ci.yml:128-174`) on `windows-latest`: the same
   build, install and smoke through `packaging/install.ps1` - the twin a Windows
   user runs - so it is the only place the Windows claim is proven.
 

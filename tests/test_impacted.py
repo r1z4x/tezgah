@@ -162,6 +162,18 @@ class NothingRanIsNotAPass(unittest.TestCase):
             rc, out = self.main(["--ref", "main"])
         self.assertEqual(rc, 5, out)
 
+    def test_all_with_no_module_exits_5(self):
+        with mock.patch.object(impacted, "test_modules", return_value=[]):
+            rc, out = self.main(["--all"])
+        self.assertEqual(rc, 5, out)
+
+    def test_an_unknown_ref_is_an_error_not_an_empty_diff(self):
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            rc = impacted.main(["--ref", "no-such-ref-r02"])
+        self.assertEqual(rc, 2, err.getvalue())
+        self.assertIn("no-such-ref-r02", err.getvalue())
+
     def test_a_failed_module_prints_its_log_section(self):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, True)

@@ -186,6 +186,9 @@ def changed_paths(ref):
         out = subprocess.run(
             ["git", "-C", REPO, "diff", "--name-only", "%s...HEAD" % ref],
             capture_output=True, text=True)
+        if out.returncode:
+            # an unknown ref is not an empty diff: it must not read as "no change"
+            raise ValueError(out.stderr.strip() or "git diff failed for %s" % ref)
         paths = out.stdout.splitlines()
     else:
         paths = []
@@ -279,6 +282,9 @@ def main(argv):
 
     if args.all:
         modules = test_modules()
+        if not modules:
+            print("no test module found; nothing to run")
+            return 5
     elif args.run:
         mods, unmapped = resolve(args.run, cache)
         if unmapped:
@@ -291,7 +297,11 @@ def main(argv):
             print("no test module maps to the changed paths; nothing to run")
             return 5
     elif args.ref:
-        paths = changed_paths(args.ref)
+        try:
+            paths = changed_paths(args.ref)
+        except ValueError as exc:
+            print("--ref %s: %s" % (args.ref, exc), file=sys.stderr)
+            return 2
         if not paths:
             print("no change since %s; nothing to run" % args.ref)
             return 5
