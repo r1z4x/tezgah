@@ -2740,9 +2740,11 @@ class VersionPrefixIsNotContract(SetupBase):
         # on-demand pointer list gained the design contract - the artifact, the
         # derive/check verbs and the skill that owns its shape (+245 B) - which
         # is the pointer the Stop rule's component branch asks a turn to run.
+        # Re-pinned 2026-10-05: the lessons paragraph asks for a rule-first
+        # line, `<rule> - <incident>`, in fewer words (-23 B).
         # The band is here to catch an accidental move, so a deliberate one is
         # recorded.
-        self.assertEqual(9173, band, "the always-on band moved")
+        self.assertEqual(9150, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

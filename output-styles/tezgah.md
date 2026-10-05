@@ -91,8 +91,8 @@ one kind (a color, an icon, a label) are batched into one change and one release
 `.tezgah/lessons.md` (one per line; injected - recent per session, relevant
 per turn). Read them before starting and treat each as a standing
 constraint.
-When the user flags a mistake or a repetition, append one concrete line - the
-mistake and the rule that prevents it - and delete a line current evidence
+When the user flags a mistake or a repetition, append one line, rule
+first: `<rule> - <incident>`; delete a line current evidence
 contradicts. Off: `.no-lessons`.
 
 **No AI attribution, ever, on any host.** Nothing persisted or published may

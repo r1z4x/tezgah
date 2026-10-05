@@ -47,5 +47,33 @@ class Rank(unittest.TestCase):
         self.assertEqual(tezgah_rank.rank("zzz qq", LESSONS, 3), [])
 
 
+class LessonsCap(unittest.TestCase):
+    """`max_df`, the lessons path's cap: function words and a word most of the
+    ledger carries name no lesson, so a prompt about none of them ranks none."""
+
+    LEDGER = ["the rule %d about the %s" % (i, w) for i, w in enumerate(
+        ("suite", "pipe", "branch", "worktree", "manifest", "citation", "stash",
+         "commit", "probe", "heredoc", "budget", "ledger"))]
+
+    def test_a_common_word_and_a_stopword_rank_nothing_under_the_cap(self):
+        q = "update the changelog about it"
+        self.assertTrue(tezgah_rank.rank(q, self.LEDGER, 3))
+        self.assertEqual(tezgah_rank.rank(q, self.LEDGER, 3, 0.5), [])
+        self.assertEqual(tezgah_rank.rank("bunu bir daha", ["bunu bir daha yap"],
+                                          3, 0.5), [])
+
+    def test_a_topic_word_still_ranks_its_lesson(self):
+        self.assertEqual(tezgah_rank.rank("pipe the suite", self.LEDGER, 3, 0.5),
+                         [0, 1])
+
+    def test_a_one_or_two_text_corpus_keeps_its_terms(self):
+        # every term is in half of two texts: a 50% cap with no corpus guard
+        # would drop each of them
+        for texts in (["red apples"], ["red apples", "green apples"]):
+            self.assertEqual(tezgah_rank.rank("apples", texts, 3, 0.5),
+                             tezgah_rank.rank("apples", texts, 3))
+            self.assertTrue(tezgah_rank.rank("apples", texts, 3, 0.5))
+
+
 if __name__ == "__main__":
     unittest.main()

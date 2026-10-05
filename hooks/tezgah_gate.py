@@ -1669,3 +1669,16 @@ def _dry_decision(tool, inp, cwd, session_id):
     finally:
         g.update(saved)
 
+
+
+# Every rule slug `decision` records a refusal under (`_deny`'s second argument),
+# with the kill switch that disarms it beside `pretooluse-off`, which disarms
+# them all; None means only that one. A lesson the ledger retires with
+# `|| enforced_by: <slug>` (tezgah_context._lesson_lines) leaves the injected
+# block only while its rule is armed, so `piped` brings its lesson back under
+# `verify-off`. `tests/test_lessons.py` holds this map to the `_deny` literals.
+DENY_RULES = {"explorer": None, "shortcut": "verify-off", "piped": "verify-off",
+              "attribution": None, "lang": "lang-off", "race": None,
+              "task": "task-off", "workspace": "workspace-off", "secret": None,
+              "plan": None, "order": "verify-off", "loop": "verify-off",
+              "retry": "verify-off", "drift": "reminder-off"}

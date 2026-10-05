@@ -835,10 +835,43 @@ def resume_state(root, session_id):
 # text and a second pair of literals would drift out of step with it.
 LESSON_LINES = 5
 LESSON_CHARS = 200
+# A lesson is written rule first: `<imperative rule> - <incident>`. One
+# separator, read by the cut (`lesson_cut`), the format advisory (`lessons`) and
+# the tidy CLI (`bin/tezgah-lessons`), and quoted by the policy text, so the
+# shape a writer is told and the shape the reader looks for cannot drift. The
+# advisory wants it within LESSON_SEPARATOR_BY characters: a rule longer than
+# that is an incident. A rule clause past LESSON_CHARS is kept whole up to
+# LESSON_RULE_CHARS, so the block stays bounded whatever a line holds.
+LESSON_SEPARATOR = " - "
+LESSON_SEPARATOR_BY = 120
+LESSON_RULE_CHARS = 300
+# The per-turn ranking's cap (`tezgah_rank.rank`'s `max_df`): a word in more than
+# half the ledger names no lesson. Lessons only; the docs fallback is uncapped.
+LESSON_MAX_DF = 0.5
+# A line a gate rule or a test already enforces ends `|| enforced_by: <slug|test>`
+# and leaves the injected pool while that enforcer is armed: a gate rule slug from
+# `tezgah_gate.DENY_RULES`, or a test named from the repository root
+# (`tests.test_research.Unfinished`). An unknown name keeps the line.
+ENFORCED = re.compile(r"\s*\|\|\s*enforced_by:\s*(\S+)\s*$")
 
 
-def _lesson_lines(root):
-    """The lesson ledger as entries: one per line, markdown bullets stripped."""
+def _enforced(value):
+    """Whether the enforcer a retired lesson names is armed now."""
+    if re.match(r"tests\.test_\w+\.\w+$", value):
+        return True
+    from tezgah_gate import DENY_RULES  # lazy: only a retired line pays for it
+    if value not in DENY_RULES or off("pretooluse-off"):
+        return False
+    return not (DENY_RULES[value] and off(DENY_RULES[value]))
+
+
+def _lesson_lines(root, retired=None):
+    """The lesson ledger as entries: one per line, markdown bullets stripped.
+
+    The one reader, so the session block, the per-turn block and the digest
+    agree on what is a lesson: a line whose enforcer is armed (ENFORCED) is left
+    out and appended to `retired` when given; one whose enforcer is off comes
+    back without its suffix."""
     try:
         with open(os.path.join(root, ".tezgah", "lessons.md"), encoding="utf-8",
                   errors="replace") as fh:
@@ -851,18 +884,32 @@ def _lesson_lines(root):
         if not s or s.startswith("#"):
             continue
         # a ledger written with markdown bullets must not render as "- - ..."
-        out.append(re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", s))
+        s = re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", s)
+        m = ENFORCED.search(s)
+        if m and _enforced(m.group(1)):
+            if retired is not None:
+                retired.append(s)
+            continue
+        out.append(s[:m.start()] if m else s)
     return out
 
 
+def lesson_cut(line):
+    """One lesson as injected: `cut` to LESSON_CHARS, unless its rule clause (the
+    text before LESSON_SEPARATOR) is longer - then cut right after the rule, at
+    most LESSON_RULE_CHARS. The `...(+N chars)` marker stays either way."""
+    rule = line.split(LESSON_SEPARATOR, 1)[0] if LESSON_SEPARATOR in line else ""
+    return cut(line, min(max(LESSON_CHARS, len(rule)), LESSON_RULE_CHARS))
+
+
 def _lesson_shown(lines):
-    """Those entries as injected: the last LESSON_LINES, each cut to LESSON_CHARS.
+    """Those entries as injected: the last LESSON_LINES, each through `lesson_cut`.
 
     One reader for the injected block and for the per-turn stamp, so the digest
     can only move when the text the model was shown moves. A cut entry says how
     much it lost (`tezgah_integrity.cut`): a lesson is a rule sentence, and one
     that lost its verb in silence reads as the whole rule."""
-    return [cut(ln, LESSON_CHARS) for ln in lines[-LESSON_LINES:]]
+    return [lesson_cut(ln) for ln in lines[-LESSON_LINES:]]
 
 
 def repo_provided(rel):
@@ -879,13 +926,28 @@ def lessons(root):
 
     One lesson per line, most recent last. Only the last MAX are injected so the
     block stays bounded no matter how long the ledger grows; blank lines and
-    `#` headings are skipped so the file can carry a human header."""
-    lines = _lesson_lines(root)
+    `#` headings are skipped so the file can carry a human header. Two advisory
+    lines ride it, never a refusal: how many lines an enforcer retired, and how
+    many shown lines do not open with their rule (structural: no
+    LESSON_SEPARATOR in the first LESSON_SEPARATOR_BY characters, because a
+    lexical imperative test misses a Turkish negative imperative)."""
+    retired = []
+    lines = _lesson_lines(root, retired)
     if not lines:
         return ""
     recent = _lesson_shown(lines)
     more = ("\n(+%d older, see .tezgah/lessons.md)" % (len(lines) - len(recent))
             if len(lines) > len(recent) else "")
+    if retired:
+        more += ("\n(%d lesson%s enforced by a gate rule or a test, so not "
+                 "injected)" % (len(retired), "" if len(retired) == 1 else "s"))
+    late = sum(not 0 <= ln.find(LESSON_SEPARATOR) < LESSON_SEPARATOR_BY
+               for ln in lines[-LESSON_LINES:])
+    if late:
+        more += ("\n(%d of these lines do not open with their rule: write a new "
+                 "line as `<rule>%s<incident>`, the rule within its first %d "
+                 "characters; `tezgah-lessons` proposes rewrites for old ones)"
+                 % (late, LESSON_SEPARATOR, LESSON_SEPARATOR_BY))
     return ("## Lessons from past mistakes in this repo (.tezgah/lessons.md)\n"
             + "\n".join("- " + ln for ln in recent) + more + "\n"
             "These are standing constraints: check the spec and the change "
@@ -905,26 +967,34 @@ def lesson_key(line):
     return hashlib.sha1(line.encode("utf-8", "replace")).hexdigest()[:8]
 
 
+def note_lesson(session_id, key, block):
+    """The `lesson` ledger row: one lesson that reached the model, by key, from
+    the session block or the per-turn one. Not proof the gate ran (NOT_TOOL_HOOK)."""
+    note(session_id, "lesson", key=key, block=block)
+
+
 def relevant_lessons(root, prompt, seen):
     """(block, keys): the older lessons this prompt is about, as a context block,
     and the keys to remember them by; ("", []) when none qualify.
 
-    A candidate shares a word with the prompt (`tezgah_rank`; with the opt-in
-    embedding on, also a line whose meaning clears the model's floor,
-    `tezgah_embed.fuse`), is not among the last LESSON_LINES the session block
-    carries, and is not in `seen` (keys already shown). A ledger with no line
-    older than that block returns before ranking: loading and verifying the model
-    cost 35 ms of every prompt there and could not change the answer."""
+    A candidate shares a word with the prompt (`tezgah_rank`, capped at
+    LESSON_MAX_DF; with the opt-in embedding on, also a line whose meaning
+    clears the model's floor, `tezgah_embed.fuse`), is not among the last
+    LESSON_LINES the session block carries, and is not in `seen` (keys already
+    shown). A ledger with no line older than that block returns before ranking:
+    loading and verifying the model cost 35 ms of every prompt there and could
+    not change the answer."""
     lines = _lesson_lines(root)
     older = len(lines) - LESSON_LINES
     if older <= 0:
         return "", []
-    picked = [i for i in tezgah_embed.fuse(prompt, lines, len(lines))
+    picked = [i for i in tezgah_embed.fuse(prompt, lines, len(lines),
+                                           max_df=LESSON_MAX_DF)
               if i < older and lesson_key(lines[i]) not in seen][:RELEVANT_LESSONS]
     if not picked:
         return "", []
     return ("## Lessons relevant to this prompt (.tezgah/lessons.md)\n"
-            + "\n".join("- " + cut(lines[i], LESSON_CHARS) for i in picked)
+            + "\n".join("- " + lesson_cut(lines[i]) for i in picked)
             + "\nStanding constraints, like the session's lessons: check the "
             "change against each line before you finish.",
             [lesson_key(lines[i]) for i in picked])
@@ -1254,8 +1324,9 @@ DEFAULT_BUDGET = 12000
 # The blocks in the order they are given up when the budget is exceeded, lowest
 # value first: text another surface already carries (the plan table
 # lives in the plan-status skill, the sibling checkouts in `tezgah-research
-# --all`, the lessons file is on disk - the per-turn relevant lessons with it, and
-# a dropped one is not marked seen, so a later turn may still carry it - the
+# --all`, the lessons file is on disk - the per-turn relevant lessons with it,
+# which first shrink to their first lesson (SHRINK), and only the lessons a turn
+# still shows are marked seen, so a later turn may still carry the rest - the
 # generated-subagent note is a one-time fact), then the tooling-availability
 # lines, then the live state lines - the stale-graph glance, then the resume
 # block, which outlives every status and availability line because it is the only
@@ -1274,14 +1345,34 @@ DROP_ORDER = ("knowledge", "worktrees", "lessons", "lessons_turn", "plans",
               "task", "delta", "pointer")
 
 
-def _drop_note(event, limit, dropped, size):
+def _first_item(text):
+    """A list block cut to its first `- ` item, its header and trailer kept; None
+    when it has fewer than two items, so there is nothing to shrink."""
+    rows = text.split("\n")
+    items = [i for i, row in enumerate(rows) if row.startswith("- ")]
+    if len(items) < 2:
+        return None
+    return "\n".join(rows[:items[0] + 1] + rows[items[-1] + 1:])
+
+
+# The shrink-before-drop stage: a key here is first cut to the smaller text its
+# function returns, and dropped only when that is still over the budget. One
+# relevant lesson is worth more than none, and the budget used to choose between
+# all three and nothing.
+SHRINK = {"lessons_turn": _first_item}
+
+
+def _drop_note(event, limit, dropped, size, truncated=()):
     """One line naming what the budget gave up, and the order it went in: a drop
     is a decision, so the turn carries it instead of losing it in silence. When
     even that was not enough the note says so and who is left, rather than
     reporting a trim that never reached the limit."""
-    note = ("(Context budget for %s: dropped %s - lowest value first; the "
+    gave = (["shortened %s by %d B" % d for d in truncated]
+            + (["dropped " + ", ".join("%s (%d B)" % d for d in dropped)]
+               if dropped else []))
+    note = ("(Context budget for %s: %s - lowest value first; the "
             "dropped text is still on disk and this drop is logged to %s"
-            % (event, ", ".join("%s (%d B)" % d for d in dropped),
+            % (event, "; ".join(gave),
                os.path.join(cache_dir(), "context-drops.log")))
     if size > limit:
         note += ("; still %d B against the %d B budget, because what remains is "
@@ -1289,16 +1380,17 @@ def _drop_note(event, limit, dropped, size):
     return note + ")"
 
 
-def log_drop(event, limit, dropped):
+def log_drop(event, limit, dropped, kind="omitted"):
     """Record the budget decision: what went, from what, at what size. Truncated
     the way classify.log is, so the log cannot grow without bound itself. The
-    row's kind is `omitted` - a whole block given up - in the vocabulary a
-    context record uses beside `truncated` and `compacted`."""
+    row's kind is `omitted` - a whole block given up - or `truncated` - a block
+    shrunk (SHRINK), by the bytes it lost - in the vocabulary a context record
+    uses beside `compacted`."""
     path = os.path.join(cache_dir(), "context-drops.log")
     try:
         with open(path, "a", encoding="utf-8") as fh:
-            fh.write("%d kind=omitted event=%s limit=%d dropped=%s\n"
-                     % (int(time.time()), event, limit,
+            fh.write("%d kind=%s event=%s limit=%d dropped=%s\n"
+                     % (int(time.time()), kind, event, limit,
                         ",".join("%s:%d" % d for d in dropped)))
         if os.path.getsize(path) > 65536:
             with open(path, encoding="utf-8") as fh:
@@ -1312,16 +1404,17 @@ def log_drop(event, limit, dropped):
 def budgeted(event, parts):
     """Join this event's (key, text) blocks under the event's byte budget.
 
-    Over budget, whole blocks are given up in DROP_ORDER (lowest value first)
-    until the blocks fit. The note that says what went is appended after that
-    count rather than inside it: it exists only when a drop happened, and the
-    sentence explaining a trim must not be able to force another one - so a
-    trimmed turn returns at most `limit` bytes of blocks plus the ~250 B note.
+    Over budget, blocks are given up in DROP_ORDER (lowest value first) until
+    the blocks fit; a key in SHRINK is first shrunk and dropped only when the
+    shrunk text still does not fit. The note that says what went is appended
+    after that count rather than inside it: it exists only when a trim happened,
+    and the sentence explaining a trim must not be able to force another one - so
+    a trimmed turn returns at most `limit` bytes of blocks plus the ~250 B note.
     `parts` is consumed; callers build it for one event. Every droppable key gone
     and the blocks still over (the protected core alone is bigger than the limit)
     is reported by the note, not hidden."""
     limit = CONTEXT_BUDGET.get(event, DEFAULT_BUDGET)
-    dropped = []
+    dropped, truncated = [], []
 
     def content():
         return "\n\n".join(t for _key, t in parts if t)
@@ -1331,14 +1424,25 @@ def budgeted(event, parts):
             break
         for i, (k, text) in enumerate(parts):
             if k == key and text:
+                small = SHRINK[k](text) if k in SHRINK else None
+                if small:
+                    parts[i] = (k, small)
+                    if len(content().encode()) <= limit:
+                        truncated.append((k, len(text.encode())
+                                          - len(small.encode())))
+                        break
                 dropped.append((k, len(text.encode())))
                 del parts[i]
                 break
     text = content()
-    if not dropped:
+    if not dropped and not truncated:
         return text
-    log_drop(event, limit, dropped)
-    return text + "\n" + _drop_note(event, limit, dropped, len(text.encode()))
+    if truncated:
+        log_drop(event, limit, truncated, "truncated")
+    if dropped:
+        log_drop(event, limit, dropped)
+    return text + "\n" + _drop_note(event, limit, dropped, len(text.encode()),
+                                    truncated)
 
 
 # The one line a turn gets when the session's whole evidence base is its own
@@ -1429,15 +1533,16 @@ def _transcript_calls(path, since):
 
 
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
-# turn marker and judge row, the Stop hook's claim and shape rows, compaction,
-# the subagent mark (SubagentStart writes it too) and the guard's crash row
-# (any hook). Every other kind - deny, nudge, drift, run, edit, verify*, ... -
-# can only come from PreToolUse or PostToolUse, so one is proof the gate ran.
+# turn marker, judge row and lesson rows, the Stop hook's claim and shape rows,
+# compaction, the subagent mark (SubagentStart writes it too) and the guard's
+# crash row (any hook). Every other kind - deny, nudge, drift, run, edit,
+# verify*, ... - can only come from PreToolUse or PostToolUse, so one is proof
+# the gate ran.
 # Excluding, not listing: a kind the tool hooks gain later still counts. A row
 # from `deny` carries no `tool` field, and a session whose every gated call the
 # gate refused read as disarmed (review S3).
 NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"shape", b"compact",
-                           b"orch", b"crash", b"route", b"spawned"))
+                           b"orch", b"crash", b"route", b"spawned", b"lesson"))
 
 
 def _ledger_lines(path):
@@ -1659,9 +1764,10 @@ def context_for(event, cwd, payload=None, with_core=True):
         if delta:
             parts.append(("delta", delta))
         # The older lessons this prompt is about, each once per session: the
-        # keys shown so far ride the session's turn stamp, and only a block that
-        # survived the budget adds to them. Repository-provided lessons are data,
-        # so they get the one notice instead, once per session (key "provided").
+        # keys shown so far ride the session's turn stamp, and only a lesson
+        # the budget left in the text adds to them (it may shrink the block to
+        # its first lesson, SHRINK). Repository-provided lessons are data, so
+        # they get the one notice instead, once per session (key "provided").
         seen = list((previous or {}).get("lessons_seen") or []) \
             if (previous or {}).get("root") == root else []
         relevant, keys = "", []
@@ -1694,8 +1800,13 @@ def context_for(event, cwd, payload=None, with_core=True):
             parts.append(("offnote", "(off this session: %s)"
                           % ", ".join(disabled)))
         text = budgeted(event, parts)
-        if relevant and relevant in text:
-            seen += keys
+        items = [ln for ln in relevant.split("\n") if ln.startswith("- ")]
+        shown = ([k for k, ln in zip(keys, items) if ln in text] if items
+                 else keys if relevant and relevant in text else [])
+        seen += shown
+        for key in shown:
+            if key != "provided":
+                note_lesson(session_id, key, "turn")
         write_stamp(session_id, root, dict(stamp, lessons_seen=seen))
         return text
 
@@ -1706,6 +1817,7 @@ def context_for(event, cwd, payload=None, with_core=True):
     parts = ([("brief", subagent_core(core))] if event == "subagent_start"
              else [("core", core)]) if with_core else []
     _, marks = repo_marks(cwd)
+    injected = []  # the session block's lessons, when it carries them
     if ".no-graph" in marks:
         parts.append(("graph", "Graph: disabled for this repo (.no-graph), so use "
                                "grep/find and say the answer came from text "
@@ -1783,6 +1895,7 @@ def context_for(event, cwd, payload=None, with_core=True):
             if past:
                 parts.append(("lessons", repo_provided(".tezgah/lessons.md")
                               if provided() else past))
+                injected = [] if provided() else _lesson_lines(root)[-LESSON_LINES:]
         broken = tezgah_research.failing(root) if not off("research-off") else []
         if broken:
             line_slug, err = broken[0]
@@ -1808,7 +1921,13 @@ def context_for(event, cwd, payload=None, with_core=True):
                       "Full rules: the `tezgah-contract` skill."))
     else:
         parts.append(("pointer", POINTER_LINE))
-    return budgeted(event, [(key, render(text.strip())) for key, text in parts])
+    text = budgeted(event, [(key, render(text.strip())) for key, text in parts])
+    # One `lesson` row per session-block lesson the budget kept (the per-turn
+    # block writes its own above): what reached the model, by key.
+    for ln in injected:
+        if "\n- " + lesson_cut(ln) + "\n" in text:
+            note_lesson(session_of(payload), lesson_key(ln), "session")
+    return text
 
 
 # A tool name that only appears as an ARGUMENT is not a use of that tool: the

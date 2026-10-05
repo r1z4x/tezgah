@@ -18,6 +18,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   measure` and `tezgah-taste rate` sort them with the judge seam into
   preference, defect or none. This phase learns and injects nothing.
 
+- **Lessons keep their rule when injected.** A lesson line is now written rule
+  first: `<rule> - <incident>`. The cut keeps a rule clause longer than 200
+  characters whole, up to 300. The session block says how many of its lines do
+  not open with their rule. A line ending `|| enforced_by: <rule|test>` leaves
+  the injected blocks while that gate rule or test is on. A switched-off rule
+  brings it back. `tezgah-lessons` proposes rule-first rewrites, merges of
+  duplicate lines and those retirements. It never writes the ledger.
+- **The per-turn lessons block shrinks before the budget drops it.** Over budget
+  it keeps its first lesson. The session remembers only the lessons it shows. The
+  drop log records this as `kind=truncated`. Each injected lesson leaves a
+  `lesson` ledger row with its key and block, and that row is not gate evidence.
+
+### Changed
+
+- **The lessons ranking ignores words that name no lesson.** English and
+  Turkish function words no longer rank a line. On a ledger of ten or more
+  lines, neither does a word found in more than half of them. "update the
+  changelog" used to inject three unrelated lessons and now injects none. The
+  docs fallback ranks as before.
+
 ### Fixed
 
 - **Codex write rows know where they ran.** The Codex hook was the one host
