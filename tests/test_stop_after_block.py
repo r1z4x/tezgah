@@ -113,6 +113,31 @@ class AfterBlock(TempHome):
         self.stop("claude", text="Done, ve testler geçti.")
         self.assertEqual(self.rows("after_block"), [])
 
+    def turn(self, prompt):
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_turn", "session": self.session, "prompt": prompt},
+                 env=self.envv)
+
+    def test_only_a_block_in_this_turn_is_answered(self):
+        # the lookup is turn-scoped: a refusal in an earlier turn is not the
+        # block this reply answers
+        self.session = "s-turns"
+        self.turn("first")
+        self.work()
+        self.assertEqual(self.stop("claude", active=False).get("decision"),
+                         "block")
+        self.turn("second")
+        self.stop("claude", text="Done. Testler doğrulanmadı.")
+        self.assertEqual(self.rows("after_block"), [])
+        # the control: the same shape inside one turn leaves exactly one row
+        self.session = "s-one-turn"
+        self.turn("first")
+        self.work()
+        self.assertEqual(self.stop("claude", active=False).get("decision"),
+                         "block")
+        self.stop("claude", text="Done. Testler doğrulanmadı.")
+        self.assertEqual([r["detail"] for r in self.rows("after_block")], ["ok"])
+
     def test_verify_off_records_nothing(self):
         self.stop("claude", active=False)
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
