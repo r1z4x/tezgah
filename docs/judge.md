@@ -1,4 +1,4 @@
-# Judge: the judgement seam, its four callers and its switches
+# Judge: the judgement seam, its five callers and its switches
 
 The judgement seam is `hooks/tezgah_judge.py`: one module that asks TypeSafe
 (Jev) for a batched structured judgement over a state tezgah would otherwise pay
@@ -11,7 +11,7 @@ the kill-switch paragraph and nothing else (`CORE`,
 
 ## What it is
 
-One seam, four callers, one credential, one egress boundary, one price, one
+One seam, five callers, one credential, one egress boundary, one price, one
 redirect guard. The module is stdlib only and total - a failure is a `None`, never
 an exception, because a hook imports it and a hook that raises takes a session
 down (`_request`, `hooks/tezgah_judge.py:274-293`). One endpoint and one key path
@@ -26,7 +26,7 @@ malformed reply never do (`_transient`, `hooks/tezgah_judge.py:262`).
 fallback's; both are test seams, not fallbacks.
 
 Every caller reads an answer through the same two accessors rather than reaching
-into the raw reply, so a Choice and a Noul are read one way for all four
+into the raw reply, so a Choice and a Noul are read one way for all five
 (`choice`, `hooks/tezgah_judge.py:232-241`; `noul`,
 `hooks/tezgah_judge.py:242-260`). Both are total: a missing or wrongly-typed
 answer is a `None`, never an exception.
@@ -48,25 +48,26 @@ the point - with one exception: `bin/tezgah-route` sends its brief through the
 ledger's own redactor (`redact`, `hooks/tezgah_integrity.py:625`), because a
 delegation brief can quote an error message or a token, and a brief matching the
 router's override pattern (stored data, credentials, security) is never sent at
-all. Three of the callers are explicit - a person runs the tool - and the
-fourth, `bin/tezgah-route`, is what the ORCHESTRATE paragraph tells the router to
+all. Four of the callers are explicit - a person runs the tool - and the
+fifth, `bin/tezgah-route`, is what the ORCHESTRATE paragraph tells the router to
 run before every delegation, which is why its redaction is not optional. The
 switches below are the off buttons.
 
-## The four callers
+## The five callers
 
 | Caller | What it asks, and what it is for | On failure |
 |---|---|---|
 | `bin/tezgah-triage` | the analyze-app snapshot triage. `--select FILE --task T` asks one question per repeating unit of the screen in one request and prints the line ids under the selected units with their refs (`select_request`, `bin/tezgah-triage:230-248`; the units are the tree's own repeating pieces, `units`, `bin/tezgah-triage:204-229`). `--states` asks one judgement per state over a component's subtree (`states`, `bin/tezgah-triage:308-431`) | exit 1 with one reason (`no_judgement`, `bin/tezgah-triage:107-113`), and the loop reads the tree directly |
-| `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:346-379`; the question wording is `ASK`, `bin/tezgah-docs:313-318`) | reads as no judgement; with none (no credential, `judge-off`, `docs-judge-off`, or a call that failed or came back without one of its options) the pages are ranked by shared words instead (`ranked`, BM25 in `hooks/tezgah_rank.py` over each page's title and answers and their Turkish phrasings) and the top three printed; a query sharing no word with any page, or a judged `none`, exits 1. With the opt-in embedding feature on, the ranking is fused with a static embedding (`hooks/tezgah_embed.py`), which places every page, so only a judged `none` exits 1 |
+| `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:724-757`; the question wording is `ASK`, `bin/tezgah-docs:691-696`) | reads as no judgement; with none (no credential, `judge-off`, `docs-judge-off`, or a call that failed or came back without one of its options) the pages are ranked by shared words instead (`ranked`, BM25 in `hooks/tezgah_rank.py` over each page's title and answers and their Turkish phrasings) and the top three printed; a query sharing no word with any page, or a judged `none`, exits 1. With the opt-in embedding feature on, the ranking is fused with a static embedding (`hooks/tezgah_embed.py`), which places every page, so only a judged `none` exits 1 |
 | `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py:144-176`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py:84-112`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py:46-48`) and an 8 s timeout (`ASK_TIMEOUT`, `hooks/tezgah_skill_pick.py:49-54`) | returns `""`; the turn loses the hint |
 | `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:667-693`; `TIER_QUESTION`, `hooks/tezgah_models.py:645-666`) - see [models](models.md) | the static phase table, else the middle tier |
+| `bin/tezgah-taste` | the coding-taste measurement: `measure` and `rate` label the prompts a user sent after a writing turn, one Choice per prompt batched into one request, each prompt redacted first (`classify`, `bin/tezgah-taste:228-251`) | with no credential or `judge-off` it exits 2 before any request; a failed call leaves its prompts unlabelled |
 
 The third caller is the one no shell row can see: it runs on the prompt path,
 caches one answer per `(session, prompt)` (`_remember`,
 `hooks/tezgah_skill_pick.py:194-209`; `suggest`,
 `hooks/tezgah_skill_pick.py:210-225`), and asks at all only when its own marker is
-armed. The other two are bin tools a session runs by name.
+armed. The other four are bin tools a session runs by name.
 
 ## The credential's channels
 

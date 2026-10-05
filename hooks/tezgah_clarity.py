@@ -128,10 +128,11 @@ def save(path, baseline):
         fh.write("\n")
 
 
-def over(measured, baseline):
-    """[(file, rule, count, allowed)] for each count above its baseline (absent: 0)."""
+def over(measured, baseline, rules=RULES):
+    """[(file, rule, count, allowed)] for each count above its baseline (absent: 0).
+    `rules` lets the citation ratchet (`bin/tezgah-docs`) reuse it for its one count."""
     return [(rel, rule, counts[rule], baseline.get(rel, {}).get(rule, 0))
-            for rel, (counts, _) in sorted(measured.items()) for rule in RULES
+            for rel, (counts, _) in sorted(measured.items()) for rule in rules
             if counts[rule] > baseline.get(rel, {}).get(rule, 0)]
 
 

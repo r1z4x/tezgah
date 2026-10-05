@@ -47,7 +47,7 @@ en un lugar llega a todos los hosts de la misma manera.
   dirigen a través de OpenResearch con una biblioteca incorporada de 98
   habilidades upstream, cargada de una en una para que el contexto siga
   siendo pequeño.
-- **Cada regla tiene un interruptor de apagado.** Catorce interruptores — más
+- **Cada regla tiene un interruptor de apagado.** Dieciséis interruptores — más
   las marcas por repositorio — eliminan el texto de la regla de la sesión, de
   modo que la regla realmente se detiene en lugar de limitarse a figurar como
   desactivada.

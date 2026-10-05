@@ -56,16 +56,20 @@ reader with one question in mind, and every non-obvious claim in it carries a
   on 2026-09-19 after the code moved under it. The judgement is mechanical in one
   case, and that case is where the drift lands: a citation that names a symbol
   (`note_tool` `hooks/tezgah_integrity.py:2655-2782`) must point inside that symbol's body, so
-  `bin/tezgah-docs --citations` re-runs that half of the audit in one command and
-  counts the citations it cannot judge - 415 judged and 902 not judgeable on this
-  tree, 2026-10-02 (the counts move with the tree: the same command read 355 and 755
-  on the day it was written). Until 2026-10-02 it skipped every `bin/` script,
-  because each one's `.py` symlink twin made its symbols read as defined twice;
-  symlinks are now skipped, so those citations are judged too. The 902 are the
-  next audit's work list rather than a claim of cleanliness. CI runs it, and it
-  exits non-zero on a citation outside its symbol - a
-  symbol named beside a path is judged in that file, and a citation with no
-  symbol beside it is left unjudged rather than guessed at.
+  `bin/tezgah-docs --citations` re-runs that half of the audit in one command. It
+  reads every page under `docs/` and the comments and docstrings of the Python code.
+  A string literal, such as a fixture or a captured output, is data and is not read.
+  A symbol named before the citation, or right after it in parentheses, is judged in
+  the file the citation names. A bare file name means the one code file of that name.
+  A citation with no symbol beside it is left unjudged rather than guessed at. So is a
+  `path:N` the pattern cannot read (unquoted, or a comma list), but it is counted.
+  On this tree, 2026-10-05: 524 judged, 1022 not judgeable, 118 of those unreadable.
+  The unjudged count is a ratchet. `docs/citations-baseline.json` holds each file's
+  count, and a file above or below it fails. Only `--citations --update` rewrites
+  it, so CI never writes it. The same pass checks the rule ledger and three inventories read
+  by AST: the gate's rule headings and switches ([gate](gate.md)), the judge's
+  callers ([judge](judge.md)), and the kill-switch names. CI runs it, and it exits
+  non-zero on any of them.
 - Two hundred lines is the ceiling. A page that needs more is two pages.
 - The [glossary](glossary.md) is the only place a term is defined; every other
   page uses the term and links to it there.

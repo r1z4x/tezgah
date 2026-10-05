@@ -32,7 +32,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 VERSION = "0.0.0-test"
-# "  ok  " is tezgah-setup's OK symbol (bin/tezgah-setup:154).
+# "  ok  " is tezgah-setup's OK symbol (`OK`, `bin/tezgah-setup:265`).
 OK_ROW = re.compile(r"^ *ok +", re.M)
 STRICT = os.environ.get("TEZGAH_E2E_STRICT") == "1"
 

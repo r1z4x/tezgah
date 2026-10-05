@@ -14,14 +14,14 @@ read tool opens it, nothing executes it. `plan-add` and `ponytail` also declare
 `argument-hint` in that frontmatter (`skills/plan-add/SKILL.md:11`,
 `skills/ponytail/SKILL.md:16`), and Claude exposes each skill as
 `/tezgah:<name>` - a bare `/plan-add` is a command that does not exist
-([tests/test_skills.py:130-145]).
+([tests/test_skills.py:142-157]).
 
 Two neighbours are not skills. A **slash command** is a file under `commands/`
 wired only through the Claude plugin channel - `commands/ponytail.md` and
 `commands/adhd.md` are shells over `tezgah-pony` and `tezgah-adhd`, and no other
 host installs them (`commands/` appears nowhere in `bin/tezgah-setup`). Its name
 is prefixed with the plugin's, so the command is `/tezgah:plan-sync` and a bare
-`/plan-sync` does not exist ([tests/test_skills.py:130-145]). An **always-on
+`/plan-sync` does not exist ([tests/test_skills.py:142-157]). An **always-on
 rule** is text injected into every turn by the client hooks, defined in
 `hooks/tezgah_policy.py:595` (`CORE`); the model cannot choose not to load it,
 and only the on-demand tail of it points at a skill, `tezgah-contract`
@@ -133,7 +133,7 @@ it ([tests/test_skills.py:54-69]).
 root MIT LICENSE covers tezgah's own files while these copies keep their
 original terms ([NOTICE:1-2]), and an adapted entry adds what the adaptation
 changed. A test fails if the adapted upstream or its licence stops being named
-([tests/test_skills.py:150-152]). `skills/no-ai-slop`, `skills/ponytail`,
+([tests/test_skills.py:162-164]). `skills/no-ai-slop`, `skills/ponytail`,
 `skills/i-have-adhd`, `skills/research`, `skills/product-analysis`,
 `skills/pm-frameworks` and `skills/ai-research` are MIT; `skills/rl-env` is
 Apache-2.0 and keeps that repository's terms.
@@ -210,8 +210,8 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
 5. Quote examples in a form the tests accept: no floating `@latest` package tag
    and any pinned package spec must match the one tezgah wires
    ([tests/test_skills.py:90-97]); slash commands carry the `tezgah:` prefix
-   ([tests/test_skills.py:130-145]); no unrendered placeholder such as
-   `<repo slug>` ([tests/test_skills.py:117-123]); every kill switch named in
+   ([tests/test_skills.py:142-157]); no unrendered placeholder such as
+   `<repo slug>` ([tests/test_skills.py:129-135]); every kill switch named in
    `CORE` appears in `tezgah-contract` ([tests/test_skills.py:99-109]); a rule
    added to the contract must also reach the skill
    ([tests/test_setup.py:858-905]).

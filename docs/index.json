@@ -198,8 +198,8 @@
     },
     {
       "path": "docs/judge.md",
-      "title": "Judge: the judgement seam, its four callers and its switches",
-      "title_tr": "Yargıç: yargı noktası, dört çağıranı ve anahtarları",
+      "title": "Judge: the judgement seam, its five callers and its switches",
+      "title_tr": "Yargıç: yargı noktası, beş çağıranı ve anahtarları",
       "audience": "agent, maintainer adding a caller",
       "answers": [
         "what is the judgement seam and is it a rule",
