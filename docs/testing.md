@@ -40,8 +40,8 @@ baseline on the next run. Only `--clarity --update` raises it.
 
 A pin is a claim about what ran, not a guarantee about what will. This repository
 has two, and both are about the language rather than about dependencies: the
-floor `py310` (`pyproject.toml:5`) and the CI matrix that proves it on 3.10 and
-3.12 (`.github/workflows/ci.yml:18`). There is no dependency lockfile to pin
+floor `py310` (`pyproject.toml:5`) and the CI matrix that proves it
+(`.github/workflows/ci.yml:24`). There is no dependency lockfile to pin
 because there is no package: tezgah is a set of scripts run in place, and no
 `[project]` or build system is declared (`pyproject.toml:1-2`). The only
 third-party tool the checks name is ruff, at a version in
@@ -57,21 +57,29 @@ conclude from either.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs four jobs:
+`.github/workflows/ci.yml` runs on every push and pull request. `release.yml`
+calls it (`ci.yml:8`) as its `ci` job, so npm and brew publish only after CI
+passed on the release commit. It runs five jobs. No matrix
+cancels its other legs when one fails (`fail-fast: false`).
 
-- `test` (`ci.yml:12-37`) on Python 3.10 and 3.12 - 3.10 is the floor the project
-  supports, and the byte-compile step is what exercises it rather than asserts
-  it: the same three commands, with `-v` on the suite and ruff installed from
-  `requirements-dev.txt` (`ci.yml:30-31`).
-- `apps-e2e` (`ci.yml:39-56`) on Python 3.12 and node 20: one step,
+- `test` (`ci.yml:15-43`) on Python 3.10, 3.12, 3.13 and 3.14. 3.10 is the
+  floor the project supports. The byte-compile step exercises it rather than
+  asserts it. It byte-compiles, runs the suite with `-v`, lints with
+  ruff from `requirements-dev.txt` (`ci.yml:37`), audits the docs citations and
+  runs `TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py`.
+- `test-sharded` (`ci.yml:48-67`) on Python 3.10 and 3.14 with node 20:
+  `python3 tests/impacted.py --all`. It is a shadow that started 2026-10-05.
+  After four weeks it replaces the four-version `test` matrix only if it missed
+  no failure that matrix caught.
+- `apps-e2e` (`ci.yml:69-86`) on Python 3.12 and node 20: one step,
   `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py`. It completes the
   app-MCP handshake only - no browser, no device - so it stays deterministic;
   strict mode makes a server that cannot start a failure rather than a skip, so
   a broken wire cannot hide behind a skip (`e2e_analyze_wiring.py:4-12`).
-- `artifact-install` (`ci.yml:58-95`) on Python 3.10 and 3.12: builds the
+- `artifact-install` (`ci.yml:88-125`) on Python 3.10 and 3.12: builds the
   tarball, installs from it under a temp prefix, and runs the artifact smoke on
   the installed tree instead of the checkout.
-- `artifact-install-windows` (`ci.yml:97-143`) on `windows-latest`: the same
+- `artifact-install-windows` (`ci.yml:127-173`) on `windows-latest`: the same
   build, install and smoke through `packaging/install.ps1` - the twin a Windows
   user runs - so it is the only place the Windows claim is proven.
 
@@ -82,7 +90,10 @@ guard, and runs the gate's test modules; a mutant that still passes is a guard n
 test notices, and an unmutated control that fails voids the run. The guard list is
 hand-written (`MUTANTS`), so a new deny rule is covered once a row names it.
 
-The dsh and omp status-line scripts are not in CI.
+The plan report (`render_table.py --acceptance --strict`) is not in CI: it reads
+the gitignored `.tezgah/`, so on a runner it reads nothing and cannot fail. Run
+it locally. The dsh and omp status-line scripts, `tests/e2e_tezgah_mcp.py` and
+`tests/e2e_docker_cycle.py` are not in CI either.
 
 ## How the suite is shaped
 
@@ -100,8 +111,8 @@ pure logic or for concurrency, which a subprocess cannot express.
 
 **Subprocess tests with a temp HOME.** The default. `TempHome` gives the test a
 fresh `home` and a `roots` dir, `env()`, `make_repo()`, `config()` and `touch()`
-(`support.py:87-113`); the hook or CLI is then run with `run`/`run_json`
-(`support.py:73-84`). `tests/test_codex_hook.py:9-16` is the smallest example.
+(`support.py:120-151`); the hook or CLI is then run with `run`/`run_json`
+(`support.py:83-94`). `tests/test_codex_hook.py:9-16` is the smallest example.
 
 **Probes.** `tests/_probe_*.py` are tiny scripts that call one function of a
 shared module and print its result as JSON, so the call happens in a process
@@ -164,7 +175,8 @@ rule on a synthetic input, not only on the shipped pair
 (`test_setup.py:539-542`).
 
 **Stay deterministic and isolated.** A temp HOME is the mechanism
-(`support.py:3-5`); `base_env` also points `TEZGAH_CODEGRAPH_BIN` and `TEZGAH_ORX_BIN`
+(`support.py:3-5`), and importing `support` gives the test process one too, with
+no `TEZGAH_SESSION` (`support.py:109-117`); `base_env` also points `TEZGAH_CODEGRAPH_BIN` and `TEZGAH_ORX_BIN`
 at paths that do not exist and sets `TEZGAH_CONSULT_CLIS` empty, so the
 machine's own graph binary, orx and agent CLIs cannot leak into an assertion
 (`support.py:49-58`). The installer suite sets

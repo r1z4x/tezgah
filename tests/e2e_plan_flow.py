@@ -11,7 +11,7 @@ Five rules, each a step below:
 
   1. a plan whose Acceptance names no command cannot enter `implementation`, and
      `tezgah-render-table --acceptance --strict` exits 1 on the same item, so
-     the refusal a person meets and the report CI runs name one list;
+     the refusal a person meets and the report a person runs name one list;
   2. with one item naming the command the move succeeds and names the plan's
      `checkpoint:`;
   3. a dirty tree records `checkpoint: pending <sha>`, and the commit the
@@ -141,7 +141,7 @@ def first_line(proc):
 
 def check_acceptance_gap(project):
     """1: a plan whose every item names no command is refused the move, and the
-    report CI runs exits 1 on the same item."""
+    report a person runs exits 1 on the same item."""
     project.write(".tezgah/plans/open/001-gap.md",
                   plan_body("001", items=["the thing works and looks right"]))
     started = project.cli(TASK, "start", "001", "--phase", "discovery")

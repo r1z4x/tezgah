@@ -9,8 +9,8 @@ from that clean state. The leftover scan runs in the container from paths alone
 its own homework.
 
 Opt-in and local only, like the other e2e scripts: it prints SKIP when docker
-or its daemon is missing and exits 0; CI sets TEZGAH_E2E_STRICT=1 to turn a
-skip into a failure.
+or its daemon is missing and exits 0, and TEZGAH_E2E_STRICT=1 turns that skip
+into a failure. CI does not run it.
 
     TEZGAH_E2E_DOCKER_IMAGE  image to run (default python:3.12-slim; pulled
                              on first use)

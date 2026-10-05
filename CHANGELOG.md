@@ -24,6 +24,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that gave the ledger no cwd. Its write rows carried no workspace, and a
   relative path resolved against the hook process instead of the repository.
 
+- **A release publishes only after CI passed on its commit.** `release.yml`
+  now runs `ci.yml` as its `ci` job. `npm-publish` and `brew-formula` wait for
+  it. v0.1.2 reached npm and brew while its own CI run failed.
+- **A test run that runs nothing no longer passes.** A docs-only
+  `tests/impacted.py --run` matched no test file and passed with 0 tests. It
+  now runs the docs modules. A run where nothing maps, and a `--ref` with no
+  change, exit 5. It prints a failed module's log, not only its path.
+- **The suite stays out of the real ledger.** Importing `tests/support.py`
+  gives the process a temp HOME and drops `TEZGAH_SESSION`. `tests/test_models.py`
+  does the same for the `tezgah-route` runs it starts.
+- **CI shows what it checks.** The plan report step read the gitignored
+  `.tezgah/` and could never fail, so it left CI. It stays a local check. The
+  docs now take the CI version list from `.github/workflows/ci.yml`.
+  `test-sharded` runs `tests/impacted.py --all` on 3.10 and 3.14 as a
+  four-week shadow of the four-version matrix. No matrix cancels its other
+  legs on a failure.
+- **`bin/tezgah-mcp.py` exists**, the `.py` twin every other Python entry
+  point in `bin/` has.
+
 ## [0.1.2] - 2026-10-04
 
 ### Added

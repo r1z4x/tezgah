@@ -26,7 +26,11 @@ real cache and each row still carries `python3 -m unittest` as the check. A new
 hooks module with no mapping is pinned by `tests/test_impacted.py`.
 
 With `--all` nothing is mapped: every module runs, sharded across the pool
-(measured 2026-10-01: 8 shards, 103.5 s wall, against 566.9 s serial).
+(measured 2026-10-01: 8 shards, 103.5 s wall, against 566.9 s serial; plan 043
+re-measured 199.1 s wall for the grown suite).
+
+A run that executes no module - nothing maps, or `--ref` finds no change -
+exits 5, unittest's own "no tests ran" code, so it never reads as a pass.
 """
 import argparse
 import concurrent.futures
@@ -60,7 +64,7 @@ OVERRIDES = {
     "tezgah_taste": ("context", "integrity", "snapshot", "opencode_plugin"),
 }
 # a change only in these maps to only these modules
-DOC_TARGETS = ("docs", "docs_router", "clarity")
+DOC_TARGETS = ("test_docs.py", "test_docs_router.py", "test_clarity.py")
 ENTRY_PREFIXES = ("bin/", "hooks/", "hosts/", "statusline.py", "skills/")
 
 
@@ -129,8 +133,7 @@ def modules_for(path, cache):
         return _helper_importers(stem, cache) if ext == ".py" else None
     # docs-only changes exercise the docs modules alone
     if path.startswith("docs/") or path in ("docs/index.json",):
-        mods = [m for m in DOC_TARGETS if os.path.exists(
-            os.path.join(TESTS, "test_%s.py" % m))]
+        mods = [m for m in DOC_TARGETS if os.path.exists(os.path.join(TESTS, m))]
         return mods or None
     if path == "CHANGELOG.md" or path == "MANIFEST":
         mods = _tests_mentioning("packaging", cache)
@@ -139,7 +142,7 @@ def modules_for(path, cache):
         # a root-level page (RELEASING.md, CONTRIBUTING.md, AGENTS.md, README.md):
         # the docs modules read the pages the index names, and the packaging tests
         # hold the shipped listing - not the whole suite
-        mods = {m for m in DOC_TARGETS if os.path.exists(os.path.join(TESTS, "test_%s.py" % m))}
+        mods = {m for m in DOC_TARGETS if os.path.exists(os.path.join(TESTS, m))}
         mods |= set(_tests_mentioning(path, cache))
         return sorted(mods) or None
     if path.startswith("skills/"):
@@ -214,31 +217,35 @@ def _run_module(module, log_path):
                TEZGAH_CONSULT_CLIS="", TEZGAH_UPDATE_CHECK="0")
     start = time.time()
     proc = subprocess.run(
-        [sys.executable, "-m", "unittest", "discover", "-s", "tests",
+        [sys.executable, "-m", "unittest", "discover", "-s", TESTS,
          "-p", module],
         cwd=REPO, env=env, capture_output=True, text=True)
     seconds = time.time() - start
+    section = ("\n===== %s (%.1fs, exit %d) =====\n%s%s\n"
+               % (module, seconds, proc.returncode, proc.stdout, proc.stderr))
     with open(log_path, "a", encoding="utf-8") as fh:
-        fh.write("\n===== %s (%.1fs, exit %d) =====\n%s%s\n"
-                 % (module, seconds, proc.returncode, proc.stdout, proc.stderr))
+        fh.write(section)
     shutil.rmtree(home, ignore_errors=True)
     shutil.rmtree(tmp, ignore_errors=True)
-    return module, proc.returncode, seconds
+    return module, proc.returncode, seconds, section
 
 
 def run_pool(modules, work_dir, workers):
     log_path = os.path.join(work_dir, "impacted.log")
     open(log_path, "w").close()
-    rows, failed = [], []
+    rows, failed, sections = [], [], {}
     start = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(_run_module, m, log_path) for m in modules]
         for fut in concurrent.futures.as_completed(futures):
-            module, rc, seconds = fut.result()
+            module, rc, seconds, section = fut.result()
             rows.append((module, rc, seconds))
             if rc:
                 failed.append(module)
+                sections[module] = section
     rows.sort()
+    for module in sorted(sections):
+        print(sections[module], end="")
     for module, rc, seconds in rows:
         print("  %-34s %-4s %6.1fs" % (module, "FAIL" if rc else "ok", seconds))
     print("%d module(s) in %.1fs; log: %s"
@@ -282,9 +289,13 @@ def main(argv):
             modules = mods or []
         if not modules:
             print("no test module maps to the changed paths; nothing to run")
-            return 0
+            return 5
     elif args.ref:
-        return main(["--run"] + changed_paths(args.ref))
+        paths = changed_paths(args.ref)
+        if not paths:
+            print("no change since %s; nothing to run" % args.ref)
+            return 5
+        return main(["--run"] + paths)
     else:
         ap.print_help()
         return 2

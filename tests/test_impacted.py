@@ -6,10 +6,13 @@ that ships untested. This pins the map's edges rather than its output: every
 source file the repo ships maps to a non-empty set or to FULL, the hand-known
 edges hold, and the fail-safe answers FULL. It runs no test module.
 """
+import contextlib
+import io
 import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import impacted
 
@@ -96,14 +99,19 @@ class TheMap(unittest.TestCase):
             "test_a.py": "import other\n"}))
 
     def test_a_docs_change_maps_to_the_docs_modules_only(self):
-        self.assertEqual(self.modules("docs/gate.md"), ["docs", "docs_router", "clarity"])
+        # real file names: `-p docs` matched no file, so a docs-only run
+        # discovered 0 tests and passed (exit 0 on 3.10 and 3.11)
+        self.assertEqual(self.modules("docs/gate.md"),
+                         ["test_docs.py", "test_docs_router.py", "test_clarity.py"])
+        for name in impacted.DOC_TARGETS:
+            self.assertTrue(os.path.exists(os.path.join(impacted.TESTS, name)), name)
 
     def test_a_root_level_page_maps_to_the_docs_modules(self):
         # measured 2026-10-01: `--run RELEASING.md` fell through to the FULL
         # suite because only CHANGELOG.md and MANIFEST were handled at the root
         for page in ("RELEASING.md", "CONTRIBUTING.md", "AGENTS.md", "README.md"):
             mods = self.modules(page)
-            self.assertIn("docs", mods or [], page)
+            self.assertIn("test_docs.py", mods or [], page)
             self.assertNotEqual(mods, None, page)
 
     def test_an_unknown_path_is_the_full_suite(self):
@@ -124,10 +132,47 @@ class TheMap(unittest.TestCase):
         mods, unmapped = impacted.resolve(
             ["hooks/tezgah_integrity.py", "docs/gate.md"], {})
         self.assertIn("test_integrity.py", mods)
-        self.assertIn("docs", mods)
+        self.assertIn("test_docs.py", mods)
         self.assertEqual(unmapped, [])
         mods, unmapped = impacted.resolve(["hooks/tezgah_paths.py"], {})
         self.assertEqual(unmapped, ["hooks/tezgah_paths.py"])
+
+
+class NothingRanIsNotAPass(unittest.TestCase):
+    """A run that executes no test exits 5 (unittest's own "no tests ran"), never
+    0: the integrity ledger records an exit-0 check as `verify_ok`."""
+
+    def main(self, argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            rc = impacted.main(argv)
+        return rc, out.getvalue()
+
+    def test_zero_modules_exits_5(self):
+        d = tempfile.mkdtemp()  # a tests/ tree with no module at all
+        self.addCleanup(shutil.rmtree, d, True)
+        with mock.patch.object(impacted, "TESTS", d):
+            rc, out = self.main(["--run", "docs/gate.md"])
+        self.assertEqual(rc, 5, out)
+        self.assertIn("nothing to run", out)
+
+    def test_an_empty_ref_diff_exits_5(self):
+        # it used to re-enter `--run` with no path: argparse exit 2
+        with mock.patch.object(impacted, "changed_paths", return_value=[]):
+            rc, out = self.main(["--ref", "main"])
+        self.assertEqual(rc, 5, out)
+
+    def test_a_failed_module_prints_its_log_section(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        with open(os.path.join(d, "test_boom.py"), "w", encoding="utf-8") as fh:
+            fh.write("import unittest\n\nclass T(unittest.TestCase):\n"
+                     "    def test_x(self):\n        self.fail('boom-marker')\n")
+        with mock.patch.object(impacted, "TESTS", d):
+            rc, out = self.main(["--run", os.path.join(d, "test_boom.py")])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("===== test_boom.py", out)
+        self.assertIn("boom-marker", out)
 
 
 if __name__ == "__main__":

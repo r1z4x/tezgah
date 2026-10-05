@@ -3,6 +3,9 @@ name: ci
 on:
   push:
   pull_request:
+  # release.yml runs this whole workflow as its `ci` job, so nothing publishes
+  # before the same commit is green
+  workflow_call:
 
 # No job inherits a token it does not need: the workflow defaults to none and
 # each job re-declares only what it reads.
@@ -14,6 +17,9 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     strategy:
+      # one red leg must not cancel the others: the default cancelled 3.13 in
+      # run 37228979769, so that leg's result was never known
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.12", "3.13", "3.14"]
     steps:
@@ -33,10 +39,32 @@ jobs:
         run: ruff check .
       - name: Every docs citation lands in the symbol it names
         run: python3 bin/tezgah-docs --citations
-      - name: Every open plan names the command that proves it
-        run: python3 skills/plan-add/render_table.py --acceptance --strict
       - name: The plan and decision rules, in a real project
         run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py
+
+  # Shadow (plan 045, from 2026-10-05): the sharded suite on the floor and the
+  # ceiling, with node for the plugin tests. It runs beside the `test` matrix for
+  # four weeks; the matrix is cut only if this job missed no failure it caught.
+  test-sharded:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "20"
+      - name: Run the suite, sharded
+        run: python3 tests/impacted.py --all
 
   apps-e2e:
     permissions:
