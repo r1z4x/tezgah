@@ -8,8 +8,6 @@
 .gitignore
 AGENTS.md
 CHANGELOG.md
-CHANGELOG.md
-CHANGELOG.md
 CODE_OF_CONDUCT.md
 CONTRIBUTING.md
 LICENSE
@@ -89,15 +87,9 @@ bin/tezgah.js
 commands/adhd.md
 commands/ponytail.md
 docs/README.md
-docs/README.md
-docs/README.md
 docs/architecture.md
 docs/citations-baseline.json
 docs/clarity-baseline.json
-docs/clarity-baseline.json
-docs/clarity-baseline.json
-docs/contract.md
-docs/contract.md
 docs/contract.md
 docs/environment.md
 docs/evidence.md
@@ -113,8 +105,6 @@ docs/operations.md
 docs/research.md
 docs/skills.md
 docs/status-line.md
-docs/testing.md
-docs/testing.md
 docs/testing.md
 docs/vision.md
 hooks/hooks.json
