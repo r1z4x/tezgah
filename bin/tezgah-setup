@@ -1013,16 +1013,39 @@ def render_claude_manifest():
                 fh.write(text)
 
 
+def claude_marketplace_source():
+    """The directory the marketplace row names: a path that survives an upgrade.
+
+    A release prefix flips `<prefix>/current` and deletes old version dirs, and
+    Homebrew installs a new keg beside the old one behind `opt/tezgah`, so a row
+    naming this versioned tree would point at nothing after `tezgah update`. npm
+    replaces its tree in place and a git checkout is its own stable path, so
+    both register this tree. The uninstall's `_is_tezgah_marketplace_row`
+    resolves the link, so it still recognises the row."""
+    prefix = running_prefix()
+    if prefix:
+        return os.path.join(prefix, "current")
+    import tezgah_update
+    if tezgah_update.channel(HERE) == "brew":
+        return os.path.dirname(os.path.dirname(tezgah_update.launcher("brew", HERE)))
+    return HERE
+
+
 def register_claude_plugin():
     """Register the plugin with Claude through its own CLI (ADR 013).
 
     Claude's gate, Stop and ledger hooks ship inside the plugin, and Claude
     loads a plugin only from its registry, so an install that wrote no row left
     Claude unarmed on every machine but the maintainer's. The marketplace is a
-    directory source pinned to this tree, the one shape the uninstall's
-    `_is_tezgah_marketplace_row` recognises, never an auto-updating remote. Any
-    `tezgah@*` row already there is left alone: a second one fires every hook
-    twice. The report's plugin row is the verdict."""
+    directory source pinned to `claude_marketplace_source()`, never an
+    auto-updating remote. Any `tezgah@*` row already there is left alone: a
+    second one fires every hook twice. The report's plugin row is the verdict."""
+    # A release tree is new after every upgrade, and the stable link the row
+    # names now resolves to it: the pair must be there for Claude to read, even
+    # when the row exists and nothing is registered. A checkout keeps none
+    # unless it registers, so the suite's own tree gets no untracked pair.
+    if not os.path.isdir(os.path.join(HERE, ".git")):
+        render_claude_manifest()
     rows = read_json(INSTALLED_PLUGINS, {}).get("plugins") or {}
     had = sorted(k for k in rows if k.split("@", 1)[0] == "tezgah")
     if had:
@@ -1038,7 +1061,7 @@ def register_claude_plugin():
             .get("name") or CLAUDE_MARKETPLACE)
     steps = [["plugin", "install", "tezgah@%s" % name]]
     if not isinstance(read_json(KNOWN_MARKETPLACES, {}).get(name), dict):
-        steps.insert(0, ["plugin", "marketplace", "add", HERE])
+        steps.insert(0, ["plugin", "marketplace", "add", claude_marketplace_source()])
     for step in steps:
         try:
             proc = subprocess.run([cli] + step, capture_output=True, text=True,

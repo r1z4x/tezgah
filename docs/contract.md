@@ -121,8 +121,7 @@ research lines with a written flip; everything else keeps one fresh reviewer
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:312-330`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**{REPLY_LANG}, BLUF.**` :624 (rendered `**Turkish, BLUF.**` under the
-default `reply_lang`), `**Ponytail (minimal code).**` :633, `**Output shape:
+`**{REPLY_LANG}, BLUF.**` :624, `**Ponytail (minimal code).**` :633, `**Output shape:
 ADHD-friendly.**` :644, `**Deliver the whole ask; never the shortcut.**` :658,
 `**Integrity: evidence, or "doğrulanmadı".**` :672, `**Loop discipline.**` :688,
 `**Spec before building.**` :697 *(conditional)*, `**Lessons ledger: stop
@@ -132,7 +131,8 @@ repeating mistakes.**` :711, `**Code discovery: graph first.**` :719
 analysis: five axes, one evidence class per finding.**` :760 *(conditional)*,
 `**No AI attribution, ever, on any host.**` :793, `**Identifiers and messages
 stay English.**` :803, `**Session scope: the user's repo, not tezgah.**` :809,
-`**Kill switches:**` :825.
+`**Kill switches:**` :825. The first label renders as `**Turkish, BLUF.**` under
+the default `reply_lang`.
 
 `always_on_core()` (`hooks/tezgah_context.py:1258-1268`) drops the five
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:847-852`):
@@ -155,7 +155,7 @@ applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
 
-- **Turkish, BLUF.** (the label follows `reply_lang`) Every user-facing reply is in the configured language - Turkish by default, even when the prompt is English - outcome first; code, commits, docs and subagent prompts stay English. `reply_lang` in `~/.config/tezgah/config.json` is `tr`, `en` or `any`, set with `tezgah-setup --install --reply-lang`; the value is the switch, so `any` also drops the Stop rule's language check and `en` holds replies to English instead.
+- **Turkish, BLUF.** Every user-facing reply is Turkish even when the prompt is English, outcome first; code, commits, docs and subagent prompts stay English. That is the default. `reply_lang` in `~/.config/tezgah/config.json` picks another: `tr`, `en` or `any`. `tezgah-setup --install --reply-lang` sets it, and the label follows it. The value is the switch. `any` drops the Stop rule's language check, and `en` holds replies to English.
 - **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py:388-397`).
 - **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement.
 - **Deliver the whole ask; never the shortcut.** The request is a floor: no cheaper stand-in, no silent scope cut, no token gesture reported as done.

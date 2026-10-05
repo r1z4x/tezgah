@@ -209,6 +209,33 @@ class Registration(ClaudeHome):
         self.assertTrue(os.path.isfile(os.path.join(copy, "README.md")))
         self.assertTrue(os.path.isfile(os.path.join(copy, ".claude-plugin", "plugin.json")))
 
+    def test_a_release_registers_a_source_that_survives_an_upgrade(self):
+        """A release prefix deletes old version dirs, so the row names
+        `<prefix>/current`, and the next tree carries the manifest again."""
+        prefix = os.path.join(os.path.dirname(self.tree), "prefix")
+        os.makedirs(prefix)
+        old = os.path.join(prefix, "0.1.0")
+        shutil.move(self.tree, old)
+        os.symlink("0.1.0", os.path.join(prefix, "current"))
+        self.tree = old
+        self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
+        current = os.path.join(prefix, "current")
+        self.assertEqual(self.calls()[0], ["plugin", "marketplace", "add", current])
+        # the upgrade: a fresh tree without the untracked pair, `current`
+        # flipped to it, and the old version dir gone
+        new = os.path.join(prefix, "0.2.0")
+        shutil.copytree(old, new, ignore=shutil.ignore_patterns(".claude-plugin"))
+        os.remove(current)
+        os.symlink("0.2.0", current)
+        shutil.rmtree(old)
+        self.tree = new
+        proc = self.setup("--install", "--hosts", "claude")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        source = self.registry("known_marketplaces.json")["tezgah-local"]["source"]["path"]
+        self.assertTrue(os.path.isfile(os.path.join(source, ".claude-plugin",
+                                                    "marketplace.json")), source)
+        self.assertEqual(len(self.calls()), 2)  # the upgrade registered nothing new
+
 
 class Manifest(unittest.TestCase):
     def test_the_manifest_stays_untracked(self):

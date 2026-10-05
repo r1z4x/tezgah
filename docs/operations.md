@@ -169,9 +169,10 @@ a host's config, so a wiring row there would belong to a different tool.
 The version lives in `.claude-plugin/plugin.json` when that untracked local
 manifest is present, else in the newest `## [x.y.z]` heading of `CHANGELOG.md`
 (`bin/tezgah-setup:209-211`); `.gitignore:18-19` is why it is not in the repository, and
-`RELEASING.md:3-7` is how a release bumps it. A `--install` that registers Claude
-renders the pair into its tree from `VERSION` or that heading, never from the
-pair itself, and re-renders a pair it rendered when the version moves.
+`RELEASING.md:3-7` is how a release bumps it. A `--install` that registers
+Claude renders the pair into its tree. The version comes from `VERSION` or that
+heading, never from the pair itself. A pair the install rendered follows the
+version when it moves.
 
 An installed version moves with one command, and nothing moves it on tezgah's own
 initiative: a session may not install, upgrade or restart tezgah's own

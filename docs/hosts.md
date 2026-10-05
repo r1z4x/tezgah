@@ -47,11 +47,11 @@ shared config, contract hash and the CLI symlinks every host shell can call
   `hooks/hooks.json`; no `hooks.json` is written into `~/.claude`. Claude runs a
   **copy** of the checkout under `~/.claude/plugins/cache`, refreshed by
   `--sync` (`bin/tezgah-setup:3770-3847`). The install makes that copy through
-  Claude's own CLI (`register_claude_plugin()`): it renders the untracked
-  `.claude-plugin/{plugin,marketplace}.json` pair into the tree it runs from,
-  adds the tree as a directory marketplace and installs `tezgah@tezgah-local`,
-  and does neither when a `tezgah@*` row already exists. With no `claude` CLI,
-  Claude stays unarmed and the run says so.
+  Claude's own CLI (`register_claude_plugin()`). It renders the untracked
+  `.claude-plugin/{plugin,marketplace}.json` pair into the tree it runs from.
+  It adds that tree as a directory marketplace and installs
+  `tezgah@tezgah-local`. An existing `tezgah@*` row stops both calls. With no
+  `claude` CLI, Claude stays unarmed and the run says so.
 - **codex** - `install_codex` (`bin/tezgah-setup:1095-1132`): `$CODEX_HOME/hooks.json`
   (one group per event, PreToolUse carrying `CODEX_PRETOOL_MATCHER` at `:131-133`),
   `skills/*` symlinks, `~/.codex/bin/consult`, and `mcp_servers.*` tables in
@@ -198,8 +198,8 @@ In order, each step verified by the one below it:
   - **omp, opencode:** not applicable: the prompt hook and the gate live in one extension or
     plugin process, so one cannot run without the other.
   - Everywhere: a disarmed PreToolUse beside a working PostToolUse writes rows and is not
-    detected here; `tezgah-setup --report --live` sends each host one PreToolUse it must
-    deny, and a host whose gate does not answer reads MISS there.
+    detected here. `tezgah-setup --report --live` sends each host one PreToolUse it must
+    deny. A host whose gate does not answer reads MISS there.
 - **Lessons and open plans are injected only when `.tezgah` came from tezgah.**
   `.tezgah/` is the user's private workspace, ignored by the project. When the
   project's own git index holds `.tezgah` or any path under it (as a file, a

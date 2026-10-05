@@ -9,8 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **`--install` arms Claude Code through its own CLI.** Claude's gate, Stop and
-  ledger hooks ship in the plugin, and the installer never registered it, so
-  Claude was unarmed on every machine but the maintainer's. The install now
+  ledger hooks ship in the plugin. The installer never registered that plugin,
+  so only the maintainer's machine had them. The install now
   writes `.claude-plugin/{plugin,marketplace}.json` from the release version
   into its own tree. The pair stays untracked. It then runs `claude plugin
   marketplace add <tree>` and `claude plugin install tezgah@tezgah-local`. An
@@ -21,8 +21,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PreToolUse for `git commit --no-verify -m x` through its own wiring. The row
   is ok only when the host answers with its own deny and the ledger gains a
   deny row. `pretooluse-off` and `verify-off` make it UNVERIFIED, named. The omp
-  bridge must match a fresh render byte for byte. opencode's plugin now records
-  its own refusals as deny rows, as the Python gate does.
+  bridge must match a fresh render byte for byte. opencode's plugin now writes
+  a deny row for its own refusals. The Python gate already did.
 - **`reply_lang` picks the reply language.** `tezgah-setup --install
   --reply-lang tr|en|any` stores it in `config.json`, and `install.sh` forwards
   the flag. `tr` is the default and what an install without the key reads. `en`
