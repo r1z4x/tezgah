@@ -69,25 +69,26 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `TYPESAFE_API_KEY` | `hooks/tezgah_judge.py:109`, `hooks/tezgah_paths.py` | `~/.config/typesafe/key` | The judgement seam's first credential; omp also reads it for its own judge. |
-| `OPENROUTER_API_KEY` | `hooks/tezgah_judge.py:130`, `bin/consult`, `bin/codegen`, `hooks/tezgah_models.py` | `~/.config/openrouter/key` | The seam's chat fallback, consult's and codegen's `openrouter` provider, and omp's `any` family. |
+| `TYPESAFE_API_KEY` | `hooks/tezgah_judge.py:99`, `hooks/tezgah_paths.py` | `~/.config/typesafe/key` | The judgement seam's first credential; omp also reads it for its own judge. |
+| `OPENROUTER_API_KEY` | `hooks/tezgah_judge.py:120`, `bin/consult`, `bin/codegen`, `hooks/tezgah_models.py` | `~/.config/openrouter/key` | The seam's chat fallback, consult's and codegen's `openrouter` provider, and omp's `any` family. |
 | `DEEPSEEK_API_KEY`, `INCEPTION_API_KEY` | `bin/consult`, `bin/codegen` | `~/.config/deepseek/key`, `~/.config/inception/key` | The `deepseek` and `inception` providers of consult and codegen. |
 | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ZAI_API_KEY` | `hooks/tezgah_models.py:208` | omp's own auth store | Read as presence only: whether omp can run the `anthropic` or `zai` model family, so the model table can pick a row omp will run. |
-| `TEZGAH_TYPESAFE_URL` | `hooks/tezgah_judge.py:100` | `https://api.typesafe.ai/v1/systemone` | Repoints the seam's TypeSafe endpoint (tests). A cross-host redirect is refused. |
-| `TEZGAH_OPENROUTER_URL` | `hooks/tezgah_judge.py:121` | OpenRouter's chat-completions URL | Repoints the seam's chat fallback (tests). |
-| `TEZGAH_JUDGE_MODEL` | `hooks/tezgah_judge.py:146` | the cheap `any` row of the models table | The model the seam's chat fallback asks. |
+| `TEZGAH_TYPESAFE_URL` | `hooks/tezgah_judge.py:90` | `https://api.typesafe.ai/v1/systemone` | Repoints the seam's TypeSafe endpoint (tests). A cross-host redirect is refused. |
+| `TEZGAH_OPENROUTER_URL` | `hooks/tezgah_judge.py:111` | OpenRouter's chat-completions URL | Repoints the seam's chat fallback (tests). |
+| `TEZGAH_JUDGE_MODEL` | `hooks/tezgah_judge.py:136` | the cheap `any` row of the models table | The model the seam's chat fallback asks. |
 
 ## consult and codegen
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `CONSULT_URL` | `bin/consult:173` | the provider's URL | Repoints every HTTP member. The bearer token is dropped on a redirect to another host. |
-| `CONSULT_MODELS` | `bin/consult:167` | the provider's default list | Comma list of `openrouter` models for the panel. |
-| `CONSULT_JUDGE` | `bin/consult:707` | the recorded referee | The member that referees, after `--judge`. |
-| `CONSULT_SESSION_MODEL` | `bin/consult:348` | omp's own record of the session model | The model this session runs on, so the panel skips it. |
-| `OMPCODE`, `CLAUDECODE` | `bin/consult:333` | set by the host | Names the calling host's own CLI, so consult does not ask the session to second-guess itself (omp sets both; `OMPCODE` wins). |
-| `CODEGEN_URL` | `bin/codegen:173` | the provider's URL | Repoints codegen's endpoint. |
-| `CODEGEN_MODEL` | `bin/codegen:99` | the cheap `any` row of the models table | The model codegen drafts with. |
+| `CONSULT_URL` | `bin/consult:160` | the provider's URL | Repoints every HTTP member. The bearer token is dropped on a redirect to another host. |
+| `CONSULT_MODELS` | `bin/consult:154` | the provider's default list | Comma list of `openrouter` models for the panel. |
+| `CONSULT_JUDGE` | `bin/consult:702` | the recorded referee, else an available member outside the panel | The member that referees, after `--judge`. With none outside the panel a panel member referees and the run prints a note. |
+| `CONSULT_SEED` | `bin/consult:471` | unset (a fresh shuffle) | Fixes the shuffled order of the anonymised answers the referee reads (tests). |
+| `CONSULT_SESSION_MODEL` | `bin/consult:337` | omp's own record of the session model, read only on omp (`OMPCODE`) | The model this session runs on, so the panel skips it. |
+| `OMPCODE`, `CLAUDECODE` | `bin/consult:320` | set by the host | Names the calling host's own CLI, so consult does not ask the session to second-guess itself (omp sets both; `OMPCODE` wins). `OMPCODE` is also what lets consult read omp's session model. |
+| `CODEGEN_URL` | `bin/codegen:167` | the provider's URL | Repoints codegen's endpoint. Plain `http` is refused unless the host is this machine (`127.0.0.1`, `localhost`); a redirect to another host is refused. |
+| `CODEGEN_MODEL` | `bin/codegen:113` | the cheap `any` row of the models table | The model codegen drafts with. |
 
 ## Status line
 

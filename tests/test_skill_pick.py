@@ -235,35 +235,61 @@ class Suggestion(SkillPick):
         self.assertEqual(len(Fake.seen), 2)
 
     def test_a_failed_call_costs_the_line_and_not_the_turn(self):
+        # The 401 goes last: it arms the provider-down marker, which would skip
+        # the two malformed-reply calls before it ever reached them.
         self.key_file()
-        Fake.status = 401
-        self.assertEqual(sp.suggest(PROMPT, "s1"), "")
-        Fake.status = 200
         Fake.reply.pop("usage")
         self.assertEqual(sp.suggest(PROMPT, "s2"), "")
         Fake.reply = {"answers": {}, "usage": {"input_tokens": 1, "output_tokens": 1}}
         self.assertEqual(sp.suggest(PROMPT, "s3"), "")
+        Fake.status = 401
+        self.assertEqual(sp.suggest(PROMPT, "s1"), "")
+        self.assertEqual(len(Fake.seen), 3, "a call was skipped or repeated")
 
-    def test_a_stalled_call_returns_at_its_timeout(self):
+    def test_a_stalled_call_returns_at_its_deadline_after_one_attempt(self):
+        # One attempt and a wall-clock cap: the per-socket timeout alone let a
+        # retried stall run 2 x the timeout past omp's 10 s hook kill.
         self.key_file()
         Fake.delay = 2.0
-        with mock.patch.object(sp, "ASK_TIMEOUT", 0.2):
+        with mock.patch.object(sp, "ASK_DEADLINE", 0.3):
             started = time.monotonic()
             self.assertEqual(sp.suggest(PROMPT, "s1"), "")
-            self.assertLess(time.monotonic() - started, 2.0,
-                            "the turn waited for the stalled reply")
+            self.assertLess(time.monotonic() - started, 1.5,
+                            "the turn waited past the hint's deadline")
+        self.assertEqual(len(Fake.seen), 1, "the hint retried a stalled call")
+
+    def test_the_shipped_deadline_stays_well_under_the_host_hook_budget(self):
+        # The real constant, not a patched one: omp kills the hook at 10 s and
+        # the rest of the prompt hook runs after the hint.
+        self.assertLessEqual(sp.ASK_DEADLINE, 4.0)
+        self.assertFalse(hasattr(sp, "ASK_TIMEOUT"),
+                         "the dead per-socket constant is back")
+
+    def test_the_prompt_goes_out_redacted_and_capped(self):
+        self.key_file()
+        secret = "sk-" + "a" * 40
+        prompt = "Rotate this key %s then refactor. %s" % (secret, "x" * 5000)
+        sp.suggest(prompt, "s1")
+        sent = Fake.seen[0]["state"]["request"]
+        self.assertNotIn(secret, sent)
+        self.assertIn("[redacted:", sent)
+        self.assertLessEqual(len(sent), sp.PROMPT_MAX)
+        self.assertEqual(sp.PROMPT_MAX, 2000)
 
     def test_a_judged_prompt_writes_one_judge_row_with_its_cost(self):
         # J4, the half no shell row can carry: the prompt-path caller is counted
         # too, with the host's session id, and the row is the spend rather than the
-        # suggestion - it lands whether or not a skill was named.
+        # suggestion - it lands whether or not a skill was named. The model is the
+        # one the reply names, and `judge=` says which provider answered.
         self.key_file()
+        Fake.reply["model"] = "jev-1.12"
         sp.suggest(PROMPT, "s-j4")
         rows = self.ledger()
         self.assertEqual(len(rows), 1, rows)
         self.assertEqual(rows[0]["kind"], "judge")
         self.assertRegex(rows[0]["detail"],
-                         r"^tezgah-skill-pick jev-latest in=900 out=160 ms=\d+$")
+                         r"^tezgah-skill-pick jev-1\.12 in=900 out=160 ms=\d+ "
+                         r"judge=typesafe/jev-1\.12$")
 
     def test_a_prompt_with_no_session_id_writes_no_row(self):
         # `suggest` is reachable with no session id; the hint is unchanged by that

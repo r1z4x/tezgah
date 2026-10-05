@@ -20,18 +20,18 @@ host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 | always-on core | `CORE` (`hooks/tezgah_policy.py:595-810`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
 | conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:816`) | only on the turn whose prompt matches its task class |
 | per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:827-843`) | every user prompt |
-| skill suggestion | one `<skill_relevance>` line naming at most one installed skill, written by `suggest` (`hooks/tezgah_skill_pick.py:210-225`); off unless `skill-suggest-on` is armed | only on a turn the judgement answers with a skill |
+| skill suggestion | one `<skill_relevance>` line naming at most one installed skill, written by `suggest` (`hooks/tezgah_skill_pick.py:212-227`); off unless `skill-suggest-on` is armed | only on a turn the judgement answers with a skill |
 | on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:848-850`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
 
 The skill suggestion is the one surface a judgement writes rather than a constant.
 The roster reaches a session as an index of host-truncated one-liners, so which
 entry to look at first is the turn's own weak spot; one batched judgement request
 answers it - TypeSafe, or the OpenRouter fallback when no TypeSafe key resolves
-(`credential()`, `hooks/tezgah_judge.py:150`) - a Choice across the installed
+(`credential()`, `hooks/tezgah_judge.py:140`) - a Choice across the installed
 skill names plus `none`, and one Noul
 asking whether the turn wants a skill at all - and the winner is appended after
 the armed paragraphs as a hint to look at first, never as an instruction to load
-(`hooks/tezgah_skill_pick.py:35-62` is the whole configuration, wired into
+(`hooks/tezgah_skill_pick.py:35-64` is the whole configuration, wired into
 `context_for` at `hooks/tezgah_context.py:1771-1774`). Measured cost of the line
 itself: 305-317 characters, about 78 tokens of prompt. Measured cost of the
 judgement: one call per unanswered prompt, 909-915 input tokens, 0.77-0.81 s,
@@ -204,7 +204,7 @@ happens in `core_split()`.
 | `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py:1206-1211` |
 | `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py:1212-1213` disables it, `hooks/tezgah_context.py:1929-1932` injects "Orchestration is off", and the skill-ignore note is `hooks/tezgah_context.py:1718-1720` |
 | `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:1744-1745` returns `None` |
-| `judge-off` | the judgement seam: the snapshot triage, the docs page fallback and the skill hint | `hooks/tezgah_judge.py:165` — `available()` is asked before any call, so an armed switch makes no request at all |
+| `judge-off` | the judgement seam: the snapshot triage, the docs page fallback and the skill hint | `hooks/tezgah_judge.py:155` — `available()` is asked before any call, so an armed switch makes no request at all |
 | `triage-off` | the snapshot triage alone (`bin/tezgah-triage`), leaving the docs fallback and the skill hint armed | `bin/tezgah-triage:120` — `off_reason()` answers this switch before the seam's, so the analyze-app loop reads the tree instead of paying for a judgement |
 | `docs-judge-off` | the docs page fallback alone (`bin/tezgah-docs`), leaving the triage and the skill hint armed | `bin/tezgah-docs:706` — `off()` answers this switch first, so a query the index cannot place is ranked by shared words instead (`ranked`), and exits 1 only when no page shares one |
 | `lang-off` | `**Identifiers and messages stay English.**` | `hooks/tezgah_context.py:1214-1216` drops the paragraph; the gate's own check reads the same switch (`hooks/tezgah_gate.py:1493`) |

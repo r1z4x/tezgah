@@ -44,12 +44,14 @@ ARM = "skill-suggest-on"
 # sits: with `none` in the Choice, a forced nearest-neighbour pick is what the
 # gate exists to prevent.
 GATE = 0.30
-# 10x the measured worst case (0.3-1.1 s live), so a slow reply costs the hint and
-# not the user's turn.
-ASK_TIMEOUT = 4.0
-# omp's bridge kills a hook at 10 s and judge.ask retries one transient
-# failure, so the per-ask budget is half the bridge: worst case 8 s.
-ASK_TIMEOUT = 8.0
+# One attempt and a 4 s wall clock (`ask`'s `deadline`), about 4x the measured
+# worst case (0.3-1.1 s live): omp's bridge kills a hook at 10 s, a killed hook
+# loses the whole per-turn injection, and the rest of the prompt hook runs after
+# this call - so a slow reply costs the hint and never the turn.
+ASK_DEADLINE = 4.0
+# The prompt goes out redacted (`ti.redact`) and cut to taste's own cap: the
+# choice needs the request's gist, not a pasted log.
+PROMPT_MAX = 2000
 # The criteria the judge reads per skill, and what the appended line says the
 # skill is for. One line: it must not cost more than the index entry it points at
 # (the host's own entry is 60 characters), and 120 keeps the whole appended block
@@ -155,18 +157,18 @@ def judge(prompt, names, session_id=""):
     criteria = dict(names)
     criteria[NONE] = "no skill in this roster applies to the request"
     result = tezgah_judge.ask(
-        {"request": prompt},
+        {"request": ti.redact(prompt)[:PROMPT_MAX]},
         {"which": {"type": "choice", "instructions": CHOICE_INSTRUCTIONS,
                    "criteria": criteria},
          "needs_skill": {"type": "noul", "instructions": GATE_INSTRUCTIONS}},
-        timeout=ASK_TIMEOUT)
+        timeout=ASK_DEADLINE, attempts=1, deadline=ASK_DEADLINE)
     if not result:
         return ""
     usage = result["usage"]
     ti.note(session_id, "judge",
-            "tezgah-skill-pick %s in=%d out=%d ms=%d"
-            % (tezgah_judge.MODEL, usage["input_tokens"], usage["output_tokens"],
-               result["latency_ms"]))
+            "tezgah-skill-pick %s in=%d out=%d ms=%d judge=%s/%s"
+            % (result["model"], usage["input_tokens"], usage["output_tokens"],
+               result["latency_ms"], result["provider"], result["model"]))
     chosen = tezgah_judge.choice(result, "which")
     gate = tezgah_judge.noul(result, "needs_skill")
     if chosen is None or chosen == NONE:

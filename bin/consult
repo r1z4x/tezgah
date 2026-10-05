@@ -6,8 +6,9 @@ Usage:
   consult -                              read the question from redirected stdin
   consult --use M1[,M2] [--judge M]      record which members answer (no question: record only)
   consult "question" --no-referee        panel only, no cross-examination
-  consult "question" --judge MEMBER      referee (default: the recorded judge, else a member
-                                         that is not on this session's own model)
+  consult "question" --judge MEMBER      referee (default: the recorded judge, else an
+                                         available member outside the panel, else a panel
+                                         member not on this session's model, named in a note)
   consult "question" --provider deepseek one HTTP provider for this run, not the record
   consult "question" --models m1,m2      that provider's models for this run
   consult "question" --online            enable live web search (:online, OpenRouter)
@@ -22,11 +23,14 @@ Members (what --use records into ~/.config/tezgah/config.json "consult"):
     inception   INCEPTION_API_KEY   ~/.config/inception/key
 Key lookup order: the provider's env var, then its key file. CONSULT_URL
 overrides the endpoint (a gateway, or a test server), CONSULT_MODELS the
-OpenRouter panel for one run, CONSULT_JUDGE the referee.
+OpenRouter panel for one run, CONSULT_JUDGE the referee. The referee sees the
+answers as "ANSWER 1..n" in a shuffled order and the output maps each label to
+its member; CONSULT_SEED fixes that order (tests).
 
 CONSULT_SESSION_MODEL names the model this session itself runs on when a host
-hook knows it; otherwise consult reads omp's own `modelRoles.default`. A
-recorded member whose model is that one, or another model of the same family
+hook knows it; otherwise, on an omp session (OMPCODE), consult reads omp's own
+`modelRoles.default`. A recorded member whose model is that one, or another
+model of the same family
 (DeepSeek, Claude, GPT, ...), is skipped - a second opinion from the model
 already answering, or its sibling, is the weakest one on offer - and the
 referee is never it. `--use` naming that member in the same run overrides the
@@ -41,10 +45,10 @@ dir with TEZGAH_NESTED=1 (its tezgah hooks skip the reply-shape rules, since
 consult reads the answer), so the only context it sees is the question.
 
 Output: one "## <member>" section per independent answer, then "## referee
-(<member>)" judging them, then a footer naming what answered, what failed and
-how, and the one variable to change on a retry. A reply that does not answer
-under the five headings the referee was asked for is reported as a failed
-cross-examination, not printed as a judgement.
+(<member>)" judging them, with the label each answer carried, then a footer
+naming what answered, what failed and how, and the one variable to change on a
+retry. A reply that does not answer under the five headings the referee was
+asked for is reported as a failed cross-examination, not printed as a judgement.
 
 Exit codes: 0 at least one member answered; 1 misuse (bad or unknown arguments,
 an unavailable --use member, or --online on a provider that has no :online
@@ -57,6 +61,7 @@ fail. On 4 or 5, ask the user which to use and record it with --use.
 import concurrent.futures
 import json
 import os
+import random
 import re
 import shutil
 import signal
@@ -64,7 +69,6 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
-import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -72,28 +76,11 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_paths as tp  # noqa: E402
 
 
-class _NoCrossHostAuth(urllib.request.HTTPRedirectHandler):
-    """Drop the bearer token on a redirect that leaves the endpoint's host.
-
-    urllib copies the Authorization header onto the redirected request, so a
-    301/302 from a repointed CONSULT_URL (a gateway, or a compromised provider)
-    would hand the provider key to whatever host the answer named - the audit's
-    L-9, the hop hooks/tezgah_judge.py already refuses. Here the hop is still
-    followed without the key, so a host that needs it answers 401 and the run
-    reports that as a key failure instead of leaking it; a same-host redirect
-    keeps the header."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None and urllib.parse.urlsplit(newurl).netloc != \
-                urllib.parse.urlsplit(req.full_url).netloc:
-            new.remove_header("Authorization")
-        return new
-
-
-# The module's one opener: urllib's default handlers with the redirect handler
-# swapped for the subclass above.
-OPENER = urllib.request.build_opener(_NoCrossHostAuth)
+# The module's one opener: a redirect that leaves the endpoint's host is still
+# followed, but without the bearer token (the audit's L-9), so a repointed
+# CONSULT_URL cannot hand the provider key to whatever host the answer named; a
+# host that needs it answers 401 and the run reports a key failure.
+OPENER = tp.guarded_opener(drop_auth=True)
 
 # provider -> (chat-completions URL, key env var, key file, default models)
 PROVIDERS = {
@@ -138,7 +125,7 @@ REFEREE = (
     "Answer under exactly these headings, in this order:\n"
     "1. Recommendation - the single answer you would act on, and why.\n"
     "2. Key disagreements - where the panel actually conflicts, naming which "
-    "model holds which position.\n"
+    "answer holds which position.\n"
     "3. Unchecked assumptions - what every answer assumed and none verified.\n"
     "4. What would change my mind - the observation, test or evidence that "
     "flips the recommendation.\n"
@@ -339,16 +326,18 @@ def session_model():
     """The model this session itself runs on, or None when it cannot be read.
 
     CONSULT_SESSION_MODEL first: a host hook can set it, and a pinned value
-    outranks the machine's own omp record. Otherwise omp's own answer -
-    `modelRoles.default`, read the way `hooks/tezgah_models.py` reads it (same
-    binary lookup, HOME as cwd so a project layer cannot answer for it) - so a
-    session that never set the knob is still recognized as running on it. A
-    missing binary, a non-zero exit or any malformed output is None: consult
-    never raises here, it just applies no exclusion."""
+    outranks the machine's own omp record. Otherwise, on omp only (OMPCODE, the
+    check `own_cli` makes), omp's own answer - `modelRoles.default`, read the way
+    `hooks/tezgah_models.py` reads it (same binary lookup, HOME as cwd so a
+    project layer cannot answer for it) - so a session that never set the knob is
+    still recognized as running on it. On another host omp's default is not this
+    session's model, and reading it there skipped members for nothing. A missing
+    binary, a non-zero exit or any malformed output is None: consult never
+    raises here, it just applies no exclusion."""
     pin = os.environ.get("CONSULT_SESSION_MODEL", "").strip()
     if pin:
         return pin
-    exe = tp.omp_bin()
+    exe = tp.omp_bin() if os.environ.get("OMPCODE") else None
     if not exe:
         return None
     env = dict(os.environ, PI_CODING_AGENT_DIR=os.path.join(tp.HOME, ".omp", "agent"))
@@ -474,12 +463,18 @@ def record(members, judge):
 
 
 def referee_packet(question, answers):
+    """(packet, labels): the answers as "ANSWER 1..n" in a shuffled order, and
+    the member each label stands for. No model name reaches the referee and no
+    panel order does either, so it cannot favour a name or a position;
+    CONSULT_SEED fixes the shuffle so a test can read one order."""
+    order = list(answers)
+    random.Random(os.environ.get("CONSULT_SEED")).shuffle(order)
     parts = ["QUESTION:\n" + question,
              "The models below answered it independently and did not see each "
              "other's answers.\n"]
-    for model, answer in answers:
-        parts.append("\n=== ANSWER (%s) ===\n%s\n" % (model, answer))
-    return "\n".join(parts)
+    for i, (_label, answer) in enumerate(order, 1):
+        parts.append("\n=== ANSWER %d ===\n%s\n" % (i, answer))
+    return "\n".join(parts), [label for label, _answer in order]
 
 
 def retry_hint(classes):
@@ -705,22 +700,36 @@ def main():
     judged = verdict = jcls = None
     if referee and answers:
         name = judge or os.environ.get("CONSULT_JUDGE", "").strip() or recorded.get("judge")
-        if not name:
+        jcall = None
+        if not name and not explicit:
+            # No referee chosen: an available member that is not on the panel,
+            # so the referee never judges a packet holding its own answer. An
+            # explicit --provider/--models run stays on its one provider.
+            in_panel = {c[1] for c in todo} | {c[1] for c, _a in answers}
+            spare = next((o for o in options() if o not in in_panel
+                          and not on_session(calls(o)[0], session)), None)
+            jcall = calls(spare)[0] if spare else None
+        if jcall is None and not name:
             # Never the session's own model when another member answered: a
             # referee that is the panel's weakest opinion judges its own kind.
             jcall = next((c for c, _a in answers if not on_session(c, session)),
                          answers[0][0])
-        elif parse(name):
+            print("note: the referee %s is a panel member, so it judges a packet "
+                  "holding its own answer; record an outside referee with "
+                  "consult --use <members> --judge <member>\n" % jcall[0])
+        elif parse(name or ""):
             jcall = calls(name)[0]
-        else:  # a bare model id: the run's own HTTP provider answers it
+        elif name:  # a bare model id: the run's own HTTP provider answers it
             jcall = (name, provider, "http", provider, name)
-        fut = pool.submit(ask_call, jcall, referee_packet(
-            question, [(c[0], a) for c, a in answers]), timeout, REFEREE)
+        packet, labels = referee_packet(question, [(c[0], a) for c, a in answers])
+        fut = pool.submit(ask_call, jcall, packet, timeout, REFEREE)
         try:
             judged, verdict, jerr, jcls = fut.result(timeout=deadline)
         except concurrent.futures.TimeoutError:
             judged, verdict, jerr, jcls = jcall[0], None, "timed out after %ss" % deadline, "timeout"
         print("## referee (%s)" % judged)
+        print("answer labels: %s" % ", ".join(
+            "Answer %d = %s" % (i, label) for i, label in enumerate(labels, 1)))
         if not jerr:
             missing = [f for f in REFEREE_FIELDS if f not in verdict.lower()]
             if missing:

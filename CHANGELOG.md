@@ -56,6 +56,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lines, neither does a word found in more than half of them. "update the
   changelog" used to inject three unrelated lessons and now injects none. The
   docs fallback ranks as before.
+- **High-stakes briefs route to frontier by rule.** The override also matches
+  destructive data and history operations. It matches keys, certificates,
+  bearer and access tokens, and privilege changes too. A 12-brief fixture pins
+  it: 8 high-stakes briefs go to frontier, 4 near misses do not.
+- **Route rows and the skill hint's cost row name who answered.** Each carries a
+  `judge=<provider>/<model>` word, and the model is the one the reply names.
+  `via` keeps its name, so `tezgah-route --report` groups history as before.
+- **consult's referee reads anonymous answers in a shuffled order.** The output
+  maps each label to its member. With no recorded referee, an available member
+  outside the panel referees. Otherwise a note says the referee is a panel member.
+  consult reads omp's session model only on an omp session.
 
 ### Fixed
 
@@ -66,6 +77,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `//` comment or a top level that is not an object made the installer write
   its default over the file. `--install` now names that file and the parse
   error, leaves its bytes alone and exits 1.
+- **The skill hint can no longer outlive the hook.** It asks once, with a 4 s
+  wall-clock deadline, well under omp's 10 s hook kill. The prompt goes out
+  redacted and cut at 2,000 characters.
+- **A dead judge provider is not paid for on every call.** A 401, 402 or 5xx
+  marks it down for five minutes. The mark covers that provider, endpoint and
+  key. Until it expires the seam answers with no judgement and sends no request.
+- **codegen guards its egress.** It refuses a redirect to another host, a plain
+  `http` endpoint off this machine, and a file that carries a credential. Each
+  exits 2, so the caller writes the change itself.
 - **Every changing write keeps its own backup.** A write that changes a file
   copies it to `<file>.<timestamp>.tezgah-bak` first. Before, only the first
   write left a backup. The oldest timestamped copy is always kept, beside the

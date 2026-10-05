@@ -27,6 +27,7 @@ from unittest import mock
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "hooks"))
 import tezgah_judge  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
 
 import support  # noqa: E402
 
@@ -143,6 +144,13 @@ class JudgeCase(unittest.TestCase):
                                             "TEZGAH_TYPESAFE_URL": self.url})
         patch.start()
         self.addCleanup(patch.stop)
+        # The provider-down marker lives in the cache dir, which tezgah_paths
+        # resolved from this machine's HOME at import: point it at the
+        # throwaway one so a refused call never marks this machine's provider.
+        cache = mock.patch.object(tp, "CACHE", os.path.join(self.home, ".cache",
+                                                            "tezgah"))
+        cache.start()
+        self.addCleanup(cache.stop)
         # The seam has two providers, so "no credential of this machine" means
         # both env channels: leaving OPENROUTER_API_KEY set here made the
         # fallback reach the live network from a case that promises it does not.
@@ -322,6 +330,87 @@ class Retry(JudgeCase):
         self.assertIsNone(self.ask())
         self.assertEqual(len(Fake.seen), 1, "a rejected body was retried")
 
+    def test_one_attempt_is_a_per_caller_choice(self):
+        os.environ["TYPESAFE_API_KEY"] = "test"
+        Fake.status_fn = lambda n: 503 if n == 1 else 200
+        self.assertIsNone(self.ask(attempts=1))
+        self.assertEqual(len(Fake.seen), 1, "attempts=1 still retried")
+
+    def test_a_deadline_bounds_the_wall_clock_the_socket_timeout_does_not(self):
+        # urllib's timeout is per socket operation, so it alone is no bound on
+        # a call's wall time; the deadline is, whatever the timeout says.
+        os.environ["TYPESAFE_API_KEY"] = "test"
+        Fake.delay = 2.0
+        started = time.monotonic()
+        self.assertIsNone(self.ask(timeout=10, deadline=0.3))
+        self.assertLess(time.monotonic() - started, 1.5,
+                        "the call outlived its deadline")
+
+
+class ProviderDown(JudgeCase):
+    """After a 401, 402 or 5xx the provider is marked down for `DOWN_FOR`
+    seconds and the seam answers None without a request; a 4xx that is about
+    the request, not the provider, marks nothing."""
+
+    def test_a_refused_credential_skips_the_next_call_until_the_marker_expires(self):
+        os.environ["TYPESAFE_API_KEY"] = "test"
+        Fake.status = 401
+        self.assertIsNone(self.ask())
+        Fake.status = 200
+        self.assertIsNone(self.ask(), "the marked provider was asked again")
+        self.assertEqual(len(Fake.seen), 1)
+        with mock.patch.object(tezgah_judge, "DOWN_FOR", 0):
+            self.assertIsNotNone(self.ask(), "an expired marker still skipped")
+        self.assertEqual(len(Fake.seen), 2)
+
+    def test_an_empty_account_and_a_failing_upstream_mark_it_too(self):
+        os.environ["TYPESAFE_API_KEY"] = "test"
+        for code, sent in ((402, 1), (503, 2)):
+            with self.subTest(code=code):
+                Fake.seen, Fake.status = [], code
+                os.environ["TEZGAH_TYPESAFE_URL"] = self.url + "?" + str(code)
+                self.assertIsNone(self.ask())
+                self.assertIsNone(self.ask())
+                self.assertEqual(len(Fake.seen), sent)
+
+    def test_a_rejected_body_and_a_retried_5xx_that_cleared_mark_nothing(self):
+        os.environ["TYPESAFE_API_KEY"] = "test"
+        Fake.status = 422
+        self.assertIsNone(self.ask())
+        Fake.status, Fake.status_fn = 200, (lambda n: 503 if n == 2 else 200)
+        self.assertIsNotNone(self.ask())
+        self.assertIsNotNone(self.ask())
+        self.assertEqual(len(Fake.seen), 4)
+
+    def test_a_new_credential_is_not_skipped_by_the_old_ones_marker(self):
+        os.environ["TYPESAFE_API_KEY"] = "dead"
+        Fake.status = 401
+        self.assertIsNone(self.ask())
+        Fake.status = 200
+        os.environ["TYPESAFE_API_KEY"] = "rotated"
+        self.assertIsNotNone(self.ask())
+        self.assertEqual(len(Fake.seen), 2)
+
+
+class AnsweringModel(JudgeCase):
+    """The model recorded is the one the reply names; the requested alias only
+    when the reply names none."""
+
+    def test_the_reply_s_own_model_is_recorded_with_its_provider(self):
+        os.environ["TYPESAFE_API_KEY"] = "test"
+        Fake.reply["model"] = "jev-1.12"
+        out = self.ask()
+        self.assertEqual(out["model"], "jev-1.12")
+        self.assertEqual(out["provider"], "typesafe")
+        self.assertEqual(Fake.seen[0]["body"]["model"], MODEL)
+
+    def test_a_reply_naming_no_model_keeps_the_requested_alias(self):
+        os.environ["TYPESAFE_API_KEY"] = "test"
+        for named in (None, "", 7):
+            with self.subTest(named=named):
+                Fake.reply["model"] = named
+                self.assertEqual(self.ask()["model"], MODEL)
+
 
 class Egress(JudgeCase):
     """What leaves the machine, read off the fake rather than off the prose.
@@ -436,7 +525,8 @@ class Redirect(JudgeCase):
     def test_a_same_host_redirect_is_still_allowed(self):
         # The guard refuses on the network location, not on redirects as such: a
         # same-origin hop is urllib's business and this module does not change it.
-        handler = tezgah_judge._NoCrossHostRedirect()
+        handler = next(h for h in tezgah_judge.OPENER.handlers
+                       if isinstance(h, urllib.request.HTTPRedirectHandler))
         req = urllib.request.Request(self.url, data=b"{}")
         same = handler.redirect_request(req, None, 302, "Found", {}, self.url)
         self.assertIsNotNone(same, "a same-host redirect was refused")
@@ -663,7 +753,10 @@ class OpenRouterFallback(JudgeCase):
         self.assertEqual(sorted(asked["questions"]), ["urgent"])
         self.assertEqual(out["answers"], {"urgent": {"noul": 0.8}})
         self.assertEqual(out["usage"], {"input_tokens": 11, "output_tokens": 3})
+        # The chat fake's reply names no model, so the model asked for is the
+        # one recorded (`AnsweringModel` pins the reply's own, when it names one).
         self.assertEqual(out["model"], tezgah_judge.fallback_model())
+        self.assertEqual(out["provider"], "openrouter")
         self.assertIsInstance(out["latency_ms"], int)
 
     def test_a_choice_answer_maps_into_what_the_callers_read(self):
@@ -703,7 +796,12 @@ class OpenRouterFallback(JudgeCase):
         self.chat({"urgent": {"noul": 0.5}})
         out = self.ask(model="jev-latest")
         self.assertEqual(Fake.seen[0]["body"]["model"], "vendor/cheap-judge")
+        # Pinned before the seam read the reply's own `model`: the fake names
+        # none, so the requested model stands - and a reply that names a
+        # resolved version replaces it, since that is the model that answered.
         self.assertEqual(out["model"], "vendor/cheap-judge")
+        Fake.reply["model"] = "vendor/cheap-judge-20261001"
+        self.assertEqual(self.ask()["model"], "vendor/cheap-judge-20261001")
 
     def test_a_type_safe_key_still_wins_when_both_resolve(self):
         self.key_file()

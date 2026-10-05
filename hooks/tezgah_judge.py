@@ -14,10 +14,14 @@ Privacy, plainly: the state and the questions leave this machine for
 `api.typesafe.ai` - for the triage the state IS the screen's own text (an admin
 table or a mobile view as captured, plus the `--select` task sentence), so a
 screen carrying personal data is read by a third party. Nothing else leaves -
-no session id, no workspace path, no environment - and the state is not
-redacted: sending it is the point, so scrubbing it would hide the risk instead
-of stating it - and that is why the callers are explicit or opt-in, and the
-`judge-off` switch is the off button for the whole path.
+no session id, no workspace path, no environment - and the seam does not
+redact the state: sending it is the point, so scrubbing it would hide the risk
+instead of stating it - and that is why the callers are explicit or opt-in, and
+the `judge-off` switch is the off button for the whole path. Two callers redact
+before they call: `bin/tezgah-route` sends its brief through `ti.redact`, and the
+prompt-path skill hint sends the user's prompt redacted and cut at 2,000
+characters, because a brief or a prompt can quote a token and neither is a
+state a person chose to send.
 
 The credential has two channels on purpose. `~/.zshenv` exports the env var for
 an interactive shell, but a hook or a bin tool started by a host runs in a
@@ -74,25 +78,11 @@ CHAT_SYSTEM = (
     "question sum to 1. Answer every id you were given.")
 
 
-class _NoCrossHostRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuse a redirect that leaves the endpoint's host.
-
-    urllib carries the Authorization header across a 301/302 hop, so following one
-    would hand the credential to whatever host the answer named - and the endpoint
-    is repointable by `TEZGAH_TYPESAFE_URL`, so the redirecting host is not
-    necessarily TypeSafe's. A same-host redirect is still followed; a refusal
-    surfaces as an HTTPError, which `ask()` already turns into a `None`."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if urllib.parse.urlsplit(newurl).netloc != \
-                urllib.parse.urlsplit(req.full_url).netloc:
-            return None
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-# One opener for the module: its default handlers plus the refusal above, which
-# replaces urllib's own redirect handler because it is a subclass of it.
-OPENER = urllib.request.build_opener(_NoCrossHostRedirect)
+# One opener for the module: a redirect that leaves the endpoint's host is
+# refused, because urllib carries the Authorization header across the hop and
+# the endpoint is repointable by `TEZGAH_TYPESAFE_URL`. A refusal surfaces as an
+# HTTPError, which `ask()` already turns into a `None`.
+OPENER = tp.guarded_opener()
 
 
 def endpoint():
@@ -165,14 +155,17 @@ def available():
     return bool(credential()[1]) and not tp.off("judge-off")
 
 
-def ask(state, questions, *, model=MODEL, timeout=30):
-    """One batched call over `questions`; `{"answers", "usage", "latency_ms", "model"}`.
+def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None):
+    """One batched call over `questions`; `{"answers", "usage", "latency_ms",
+    "model", "provider"}`.
 
     `questions` is the API's own map - id -> `{type, instructions, criteria}` -
     so a caller that needs a per-line or per-state pass sends every question in
     one request and pays for the state once. The reply's usage is carried back
-    because a caller quotes what the judgement cost, and the model beside it
-    because the fallback answers with a different one than the caller named.
+    because a caller quotes what the judgement cost, and the model and provider
+    beside it because the fallback answers with a different one than the caller
+    named. The model is the one the reply names, else the one asked for: an alias
+    such as `jev-latest` hides a silent upgrade the reply's own field shows.
 
     One request per call in the normal case, to whichever provider the credential
     resolves - TypeSafe first, the chat fallback only when `key()` is empty. A
@@ -182,7 +175,13 @@ def ask(state, questions, *, model=MODEL, timeout=30):
     and a reply that parsed malformed are never retried, since the second request
     would fail identically and only a call that already worked must not be billed
     twice. The ceiling is one, so the worst case is one duplicated request on a
-    call that answered nothing anyway.
+    call that answered nothing anyway. A caller on a hook's budget passes
+    `attempts=1` and a `deadline` in seconds: urllib's `timeout` bounds one
+    socket operation, not the call, so only the deadline bounds its wall time.
+
+    A call that ends on a 401, 402 or 5xx marks the provider down for
+    `DOWN_FOR` seconds, and until then every call returns None without a
+    request (`_down`), so a dead credential is not re-paid on every prompt.
 
     Total by design: no key, an unreadable state, a refused request, a timeout,
     a reply that is not the documented shape - all `None`, never an exception."""
@@ -191,28 +190,37 @@ def ask(state, questions, *, model=MODEL, timeout=30):
         return None
     try:
         if provider == "typesafe":
-            used = model
+            used, url = model, endpoint()
             body = json.dumps({"state": state, "model": used,
                                "questions": questions}).encode()
 
             def send():
                 return _request(secret, body, timeout)
         else:
-            used = fallback_model()
+            used, url = fallback_model(), openrouter_url()
             body = json.dumps(_chat_body(state, questions, used)).encode()
 
             def send():
                 return _chat_request(secret, body, timeout, questions)
+        marker = _down_marker(provider, url, secret)
+        if _down(marker):
+            return None
     except Exception:
         return None
-    for attempt in (0, 1):
+    stop = None if deadline is None else time.monotonic() + deadline
+    for attempt in range(attempts):
         try:
-            result = send()
+            result = _bounded(send, stop)
         except Exception as exc:
-            if attempt or not _transient(exc):
+            if attempt + 1 >= attempts or not _transient(exc):
+                code = getattr(exc, "code", None)
+                if code in (401, 402) or (isinstance(code, int) and code >= 500):
+                    _mark_down(marker)
                 return None
             continue
-        result["model"] = used
+        named = result.get("model")
+        result["model"] = named if isinstance(named, str) and named else used
+        result["provider"] = provider
         return result
     return None
 
@@ -288,7 +296,8 @@ def _request(secret, body, timeout):
     return {"answers": data["answers"],
             "usage": {"input_tokens": int(usage["input_tokens"]),
                       "output_tokens": int(usage["output_tokens"])},
-            "latency_ms": int((time.monotonic() - started) * 1000)}
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "model": data.get("model")}
 
 
 def _chat_body(state, questions, model):
@@ -314,7 +323,7 @@ def _chat_request(secret, body, timeout, questions):
     here and `_transient()` refuses to retry it - the same reading as a malformed
     TypeSafe reply. Usage keys come back in the OpenAI spelling and are carried
     in the seam's own (`{"input_tokens", "output_tokens"}`), so a caller's cost
-    row does not learn which provider answered."""
+    row reads one usage shape whichever provider answered."""
     request = urllib.request.Request(openrouter_url(), data=body, headers={
         "Authorization": "Bearer " + secret,
         "Content-Type": "application/json"})
@@ -330,7 +339,8 @@ def _chat_request(secret, body, timeout, questions):
     return {"answers": answers,
             "usage": {"input_tokens": int(usage.get("prompt_tokens") or 0),
                       "output_tokens": int(usage.get("completion_tokens") or 0)},
-            "latency_ms": int((time.monotonic() - started) * 1000)}
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "model": data.get("model")}
 
 
 def _chat_answers(parsed, questions):
@@ -399,3 +409,64 @@ def cheap_default():
     except Exception:
         row = None
     return row[0] if row else FALLBACK_MODEL
+
+
+# How long a provider stays marked down after a 401, 402 or 5xx: five minutes,
+# so a dead key or an empty account costs one refusal per five minutes rather
+# than one per prompt, and a provider that comes back is asked again within the
+# same working session. The marker is keyed on the provider, the endpoint and a
+# digest of the credential, so a rotated key is asked at once.
+DOWN_FOR = 300
+
+
+def _down_marker(provider, url, secret):
+    import hashlib
+    digest = hashlib.sha256("\0".join((provider, url, secret)).encode()).hexdigest()
+    return os.path.join(tp.cache_dir(), "judge-down", digest[:16])
+
+
+def _down(marker):
+    """True while the marker is younger than `DOWN_FOR`; any read error is up."""
+    try:
+        return time.time() - os.path.getmtime(marker) < DOWN_FOR
+    except OSError:
+        return False
+
+
+def _mark_down(marker):
+    """Best effort, like every other write a hook makes: a cache that cannot be
+    written costs the next call a request, never an exception."""
+    try:
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, "w", encoding="utf-8"):
+            pass
+    except OSError:
+        pass
+
+
+def _bounded(send, stop):
+    """`send()`, or TimeoutError once the monotonic `stop` passes.
+
+    The request runs on a daemon thread joined for the time that is left,
+    because no urllib timeout bounds a whole call. ponytail: a thread that
+    outlives its deadline is abandoned, not cancelled; it ends with its socket
+    timeout or with the process, which for a hook is moments later."""
+    if stop is None:
+        return send()
+    import threading
+    box = {}
+
+    def run():
+        try:
+            box["ok"] = send()
+        except Exception as exc:
+            box["err"] = exc
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(max(0.0, stop - time.monotonic()))
+    if worker.is_alive():
+        raise TimeoutError("the call outlived its deadline")
+    if "err" in box:
+        raise box["err"]
+    return box["ok"]

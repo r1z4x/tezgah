@@ -482,6 +482,51 @@ class OmpOverrides(unittest.TestCase):
         for brief in elsewhere:
             self.assertEqual(tm.route(brief, "mechanical")["tier"], "cheap", brief)
 
+    # The red-team fixture (REPORT.md R08 part 11): 8 high-stakes briefs the
+    # pattern matched none of, and 4 controls naming the new terms' near misses.
+    HIGH_STAKES = ["Rotate the SSH private key",
+                   "Drop the users table",
+                   "Fix the bearer token check",
+                   "Update the TLS certificate pinning",
+                   "Change file permissions and sudoers",
+                   "Delete old rows from the production database",
+                   "Force-push the rewritten history to main",
+                   "Store the user's GitHub PAT"]
+    CONTROLS = ["Add a dropdown to the settings page",
+                "Count the tokens in each prompt",
+                "Fix the pattern matcher in the docs router",
+                "Delete the unused import in bin/consult"]
+
+    def test_the_override_routes_every_high_stakes_brief_and_no_control(self):
+        for brief in self.HIGH_STAKES:
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "frontier", brief)
+        for brief in self.CONTROLS:
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "cheap", brief)
+
+    def test_the_code_verifier_s_four_extra_misses_are_caught_too(self):
+        for brief in ("Fix the login token refresh",
+                      "Rewrite git history with filter-repo",
+                      "Truncate the events table",
+                      "Rotate the private key"):
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "frontier", brief)
+
+    def test_a_judged_route_names_who_answered_and_keeps_via(self):
+        def ask(state, questions):
+            out = judge("standard")(state, questions)
+            out.update(model="glm-5.3-flash", provider="openrouter")
+            return out
+        out = tm.route("Add a --json flag", "code", ask=ask)
+        self.assertEqual(out["judge"], "openrouter/glm-5.3-flash")
+        detail = tm.route_detail(out, "code")
+        fields = tm.route_fields({"kind": "route", "detail": detail})
+        self.assertEqual(fields["via"], "jev")
+        self.assertEqual(fields["judge"], "openrouter/glm-5.3-flash")
+
+    def test_an_unjudged_route_says_no_judge_answered(self):
+        for out in (tm.route("Drop the users table"), tm.route("Bump it", "mechanical")):
+            fields = tm.route_fields({"kind": "route", "detail": tm.route_detail(out)})
+            self.assertEqual(fields["judge"], "-")
+
     def test_a_malformed_judgement_never_raises(self):
         broken = [None, {"answers": {"tier": "standard"}},
                   {"answers": {"tier": {"choice": ["standard"]}}},
@@ -652,7 +697,7 @@ class Cli(unittest.TestCase):
         self.assertEqual(tm.route_fields(rows[0]),
                          {"tier": "frontier", "agent": "tezgah-frontier", "via": "rule",
                           "static": "standard", "model": "claude-opus-5-5:high",
-                          "override": "-"})
+                          "override": "-", "judge": "-"})
 
     def test_report_joins_a_route_to_its_child_session_s_first_check(self):
         home = tempfile.mkdtemp()

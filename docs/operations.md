@@ -560,9 +560,9 @@ one caller no shell row sees, `bin/tezgah-route`, the tier router
 ([models](models.md)), and `bin/tezgah-taste`'s `measure` and `rate`
 ([above](#opt-in-taste-capture)). All five go through the same stdlib-only seam,
 which returns `None` rather than raising because a hook may import it
-(`available()`, `hooks/tezgah_judge.py:163-167`); the request is
+(`available()`, `hooks/tezgah_judge.py:153-157`); the request is
 one batched call, and the credential resolves per call (`ask()`,
-`hooks/tezgah_judge.py:168-219`; `key()`, `hooks/tezgah_judge.py:103-118`).
+`hooks/tezgah_judge.py:158-227`; `key()`, `hooks/tezgah_judge.py:93-108`).
 
 A transient failure is retried once, and only once: a timeout, a connection error
 or a 5xx gets a second identical request, while a 4xx (a refused credential, a
@@ -591,7 +591,7 @@ made - no credential, the switch below, or a failed call - and the loop reads th
 tree directly instead.
 
 The state leaves the machine. A judgement sends the state and the questions to
-`api.typesafe.ai` (`ask()`, `hooks/tezgah_judge.py:168-219`) - for the triage that is
+`api.typesafe.ai` (`ask()`, `hooks/tezgah_judge.py:158-227`) - for the triage that is
 the snapshot's own text, so a screen carrying personal data is read by a third
 party, and for the docs fallback it is the reader's query. Nothing else goes: no
 session id, no workspace path, no credential beyond the bearer header, and the
@@ -602,10 +602,10 @@ asks for a judgement, no gate does - while the skill hint asks only with its own
 marker armed, and why the switch below is the off button for the whole path.
 
 The credential resolves from `TYPESAFE_API_KEY`, else from
-`~/.config/typesafe/key` (`credential()`, `hooks/tezgah_judge.py:150`), and when
+`~/.config/typesafe/key` (`credential()`, `hooks/tezgah_judge.py:140`), and when
 neither resolves the same questions go to the OpenRouter fallback, whose key rides
 `OPENROUTER_API_KEY` and then `~/.config/openrouter/key`
-(`openrouter_key()`, `hooks/tezgah_judge.py:124`). The file is the channel that
+(`openrouter_key()`, `hooks/tezgah_judge.py:114`). The file is the channel that
 matters on a machine exporting the variable from `~/.zshenv`: a hook or a bin tool
 runs in a non-interactive shell, where that export never ran, so the file is what a
 judgement actually resolves. Cost is input tokens alone - $0.042 per
@@ -616,7 +616,7 @@ rather than Jev (`result["model"]`, `bin/tezgah-triage:134`).
 `judge-off` in `~/.config/tezgah` disarms all of it without touching the callers:
 the snapshot is read the way the loop always read it, and a docs query matching no
 page exits 1 with the message it always printed (`available()`,
-`hooks/tezgah_judge.py:163-167`). A host whose files predate this tool is relinked by
+`hooks/tezgah_judge.py:153-157`). A host whose files predate this tool is relinked by
 `--install`, which links every `~/.config/tezgah/bin` entry including
 `tezgah-triage` (`bin/tezgah-setup:451-473`).
 

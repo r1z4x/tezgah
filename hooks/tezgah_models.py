@@ -625,11 +625,12 @@ def check(today=None):
 # ------------------------------------------------------------------ route ----
 
 # The classes that go to frontier by rule, before any judgement: the data and
-# secret shapes a wrong call cannot be undone on, and the gate's own files.
-# Word-bounded on purpose - `migrate_rows` is a rename, `secretary` is not a
-# secret, `password-less` is a property - while `\bsecurity\b` is kept even
-# when it names a file, because an over-route costs money and an under-route
-# costs a rework loop.
+# secret shapes a wrong call cannot be undone on, destructive data and history
+# operations, privilege changes, and the gate's own files. Word-bounded on
+# purpose - `migrate_rows` is a rename, `secretary` is not a secret,
+# `password-less` is a property, `dropdown` drops nothing - while `\bsecurity\b`
+# is kept even when it names a file, because an over-route costs money and an
+# under-route costs a rework loop.
 OVERRIDE = re.compile(
     r"stored data|on disk|\bpersist\w*|\bschemas?\b|"
     r"\bmigrat(?:e|es|ed|ing|ion|ions|or)\b|"
@@ -638,7 +639,18 @@ OVERRIDE = re.compile(
     r"\bsession cookies?\b|\bsigning keys?\b|\bjwt\b|\boauth\b|\bauthn\b|"
     r"\bauthz?\b|tezgah_gate|tezgah_integrity|\bsecurity\b|threat model|"
     r"\bencrypt\w*|\bauthentication\b|\bauthorization\b|\bpii\b|"
-    r"customer records", re.I)
+    r"customer records|"
+    # destructive data and history
+    r"\bdrop\s+(?:the\s+)?(?:\w+\s+)?(?:tables?|databases?|columns?|indexes)\b|"
+    r"\btruncate\s+(?:the\s+)?(?:\w+\s+)?tables?\b|"
+    r"\bdelete\s+(?:\w+\s+){0,3}(?:rows?|records?|accounts?)\b|"
+    r"\bproduction (?:database|db|data)\b|\brm -rf\b|\bforce[- ]push\w*|"
+    r"\brewr\w* (?:the |git )?history\b|\brewritten history\b|\bfilter-(?:repo|branch)\b|"
+    # keys, certificates and tokens the list above did not name
+    r"\bprivate keys?\b|\bssh keys?\b|\bcertificates?\b|\btls\b|\bbearer\b|"
+    r"\bpats?\b|\bpersonal access tokens?\b|\btoken refresh\b|\blogin tokens?\b|"
+    # privilege
+    r"\bsudo\w*|\bfile permissions?\b|\bchmod\b|\bprivilege\w*|\bsetuid\b", re.I)
 JEV_TIER = {"mechanical": "cheap", "standard": "standard", "frontier": "frontier"}
 PHASE_TIER = {"explore": "standard", "code": "standard", "mechanical": "cheap",
               "plan": "frontier", "review": "frontier", "research": "frontier"}
@@ -665,15 +677,16 @@ TIER_QUESTION = {
 
 
 def route(brief, phase=None, ask=None):
-    """{"agent", "tier", "why", "via", "judged"} for one delegation brief; `via`
-    is what set the tier: `rule`, `jev`, `phase` or `default`.
+    """{"agent", "tier", "why", "via", "judge", "judged"} for one delegation
+    brief; `via` is what set the tier: `rule`, `jev`, `phase` or `default`, and
+    `judge` is the `provider/model` that answered when a judgement set it.
 
     `ask` is the judge call (tezgah_judge.ask) - injected so the rule order is
     testable without the network; None means no judge is available. The brief
     goes out redacted (`ti.redact`, the reader the ledger uses) and only when no
-    override matched: a brief naming a credential never leaves the machine.
-    Answers are read through the seam's own accessors, so a malformed reply is
-    the same as no reply and this never raises."""
+    override matched: a brief matching the override vocabulary never leaves the
+    machine. Answers are read through the seam's own accessors, so a malformed
+    reply is the same as no reply and this never raises."""
     hit = OVERRIDE.search(brief or "")
     if hit:
         return _pick("frontier", "override: %r" % hit.group(0), "rule")
@@ -683,6 +696,8 @@ def route(brief, phase=None, ask=None):
         chance = tj.noul(result, "tier", choice)
         out = _pick(JEV_TIER[choice], "jev %s%s" % (
             choice, "" if chance is None else " %.2f" % chance), "jev")
+        out["judge"] = "%s/%s" % (result.get("provider") or "-",
+                                  result.get("model") or "-")
         out["judged"] = result
         return out
     if phase in PHASE_TIER:
@@ -693,7 +708,7 @@ def route(brief, phase=None, ask=None):
 
 def _pick(tier, why, via):
     return {"agent": "tezgah-" + tier, "tier": tier, "why": why, "via": via,
-            "judged": None}
+            "judge": None, "judged": None}
 
 
 def worker_model(agent):
@@ -721,10 +736,13 @@ def worker_model(agent):
 def route_detail(out, phase=None, model=None, override=None):
     """The `route` ledger row's detail: one `key=value` word per field, so the
     report fold reads it back without a field the ledger contract lacks. `static`
-    is the tier the static table (V1b) would have picked, when a phase was given."""
+    is the tier the static table (V1b) would have picked, when a phase was given;
+    `judge` is who answered a `via=jev` route - `via` keeps its name because the
+    fold groups history by it, even when the chat fallback answered."""
     static = " static=" + PHASE_TIER[phase] if phase in PHASE_TIER else ""
-    return "tezgah-route tier=%s agent=%s via=%s%s model=%s override=%s" % (
-        out["tier"], out["agent"], out["via"], static, model or "-", override or "-")
+    return "tezgah-route tier=%s agent=%s via=%s%s model=%s override=%s judge=%s" % (
+        out["tier"], out["agent"], out["via"], static, model or "-", override or "-",
+        out.get("judge") or "-")
 
 
 def route_fields(row):

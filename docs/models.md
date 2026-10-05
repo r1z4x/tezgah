@@ -75,21 +75,26 @@ omp's bundled agents are routed through the same record (omp's own docs: `omp://
 ## The router
 
 `tezgah-route "<brief>"` prints the worker to spawn and why (`main`,
-`bin/tezgah-route:45-123`; `route`, `hooks/tezgah_models.py:667-693`). The order is
+`bin/tezgah-route:45-123`; `route`, `hooks/tezgah_models.py:679-708`). The order is
 fixed:
 
 1. A brief naming stored data, a persistence or schema change, a migration,
-   credentials, a token or key shape, the gate or security goes
-   to frontier by rule (`OVERRIDE`, `hooks/tezgah_models.py:633-641`) - the class
-   the judge under-routed in its measurement.
+   credentials, a token or key shape, a private key, certificate, bearer token or
+   access token, a destructive data or history operation (dropping or truncating
+   a table, deleting rows, a production database, a force-push or history
+   rewrite), a privilege change, the gate or security goes to frontier by rule
+   (`OVERRIDE`, `hooks/tezgah_models.py:634-653`) - the class the judge
+   under-routed in its measurement, and the classes a wrong call cannot be
+   undone on. A 12-brief fixture pins it: 8 high-stakes briefs route to
+   frontier, 4 near-miss controls do not (`tests/test_models.py`).
 2. Otherwise the brief - redacted with the ledger's own reader
    (`redact`, `hooks/tezgah_integrity.py:625`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
-   `hooks/tezgah_models.py:645-666`). Measured on 40 English briefs labelled by
+   `hooks/tezgah_models.py:657-678`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100.
 3. With no judgement (`judge-off`, no key, a failed call) `--phase` picks the tier
-   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:643-644`), and
+   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:655-656`), and
    with no phase the middle tier is used.
 
 The brief leaves the machine for the judge, like every judgement ([judge](judge.md)).
@@ -98,6 +103,9 @@ tier and the agent. `via` says what set the tier: `rule`, `jev`, `phase` or
 `default`. `static` is the static table's tier when the caller passed `--phase`.
 `model` names the worker's model on this host. `override` reads `user` when omp holds
 an entry the user owns, and `mode` when omp holds none and the session model runs.
+`judge` names the `provider/model` that answered a `via=jev` route, and `-`
+otherwise. `via` keeps the word `jev` even when the chat fallback answered,
+because the report groups history by it. `judge` is where the two differ.
 
 A routed worker runs in its own session, so its checks land in its own ledger. On omp
 and opencode the child's ledger opens with a `spawned` row that names its parent

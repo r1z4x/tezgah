@@ -6,7 +6,8 @@
 
 --timeout (default 300) caps the WHOLE request, not one socket operation, so a
 stalled connection exits 2 instead of hanging the caller. CODEGEN_URL overrides
-the endpoint (a gateway, or a test server); CODEGEN_MODEL the model.
+the endpoint (a gateway, or a test server; plain http only to this machine);
+CODEGEN_MODEL the model.
 
 The model NEVER writes into the repository. It returns whole file bodies, this
 script writes them to a scratch directory and prints `diff -u` against the
@@ -24,9 +25,11 @@ EXIT CODES, and they are the contract:
   0  usable drafts, diff printed
   2  codegen cannot deliver -- WRITE THE CODE YOURSELF with the main model.
      Raised for: no key, API or network failure, a request that outlived
-     --timeout, the model answering BLOCKED, an unparseable reply, a TRUNCATED
-     reply (finish_reason=length), a Python draft that does not parse (a `.py`
-     file, or any file whose shebang names Python), or drafts
+     --timeout, a redirect to another host, a plain-http endpoint off this
+     machine, a --files file carrying a credential (refused, not redacted:
+     nothing is sent), the model answering BLOCKED, an unparseable reply, a
+     TRUNCATED reply (finish_reason=length), a Python draft that does not parse
+     (a `.py` file, or any file whose shebang names Python), or drafts
      identical to what is already there.
      A half-written file that happens to parse is the failure this guards
      against: it looks like an answer and is not one. A draft in a language no
@@ -45,9 +48,25 @@ import tempfile
 import urllib.request
 import json
 
-# The cheap id this script names when the models table cannot be read: codegen
-# ships as a standalone CLI, so a machine whose hooks are missing or broken
-# still drafts. The table is asked first (`cheap_default` below).
+HOOKS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+sys.path.insert(0, HOOKS)
+import tezgah_integrity as ti  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
+
+# The redirect guard: a hop that leaves the endpoint's host is refused, since
+# urllib would carry the bearer to whatever host the answer named.
+OPENER = tp.guarded_opener()
+# A credential in a file codegen would send: a vendor key by its own prefix (the
+# ledger redactor's value shapes) or a private-key block. Value shapes only - the
+# redactor's `name=value` patterns would refuse every source file that reads a
+# key from the environment (142 of this repo's 720 tracked files; these shapes
+# match only 4 test fixtures, all fake keys).
+CREDENTIAL = (ti.SECRET_TOKEN, re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"))
+
+# The cheap id this script names when the models table cannot be read: one
+# unreadable table must not cost a draft. The table is asked first
+# (`cheap_default` below).
 FALLBACK_MODEL = "deepseek/deepseek-v4.1-flash"
 
 # provider -> (chat-completions URL, key env var, key file, default model)
@@ -74,20 +93,15 @@ PROVIDERS = {
         "mercury-2.5",
     ),
 }
-HOOKS = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
 
 
 def cheap_default():
     """The cheap row the models table names on `any`, else `FALLBACK_MODEL`.
 
     One source for the cheap tier: a refresh that moves the row moves this
-    default (`hooks/tezgah_models.py`). The table is not on a standalone CLI's
-    path, and one unreadable table must not cost a draft, so the read is
-    guarded and the literal is the fallback."""
+    default (`hooks/tezgah_models.py`). One unreadable table must not cost a
+    draft, so the read is guarded and the literal is the fallback."""
     try:
-        if HOOKS not in sys.path:
-            sys.path.insert(0, HOOKS)
         import tezgah_models
         row = tezgah_models.cheap_model("any")
     except Exception:
@@ -145,17 +159,25 @@ class Insufficient(Exception):
 
 
 def fetch(req, timeout):
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with OPENER.open(req, timeout=timeout) as r:
         return json.load(r)
 
 
 def ask(task, files, model, provider, timeout, max_tokens):
+    url = os.environ.get("CODEGEN_URL", "").strip() or PROVIDERS[provider][0]
+    if tp.plain_http(url):
+        raise Insufficient("CODEGEN_URL %s is plain http off this machine: the key "
+                           "and the files would cross the network in clear" % url)
     parts = [f"TASK:\n{task}\n"]
     for path in files:
         try:
             body = open(path, encoding="utf-8").read()
         except OSError as e:
             sys.exit(f"codegen: cannot read {path}: {e}")
+        # Refused, not redacted: the draft comes back as the whole file, so a
+        # masked value would be diffed as a change to the credential itself.
+        if any(p.search(body) for p in CREDENTIAL):
+            raise Insufficient(f"{path} carries a credential; nothing was sent")
         parts.append(f"=== FILE: {path} ===\n```\n{body}```\n")
     payload = {
         "model": model,
@@ -170,7 +192,7 @@ def ask(task, files, model, provider, timeout, max_tokens):
         field = "max_completion_tokens" if provider == "inception" else "max_tokens"
         payload[field] = max_tokens
     req = urllib.request.Request(
-        os.environ.get("CODEGEN_URL", "").strip() or PROVIDERS[provider][0],
+        url,
         data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {key(provider)}", "Content-Type": "application/json",
                  "X-Title": "codegen"})
