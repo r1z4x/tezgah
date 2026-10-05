@@ -2085,11 +2085,13 @@ def install_omp():
         path = os.path.join(agents_dir, name)
         if write_if_changed(path, text):
             print("%s %s" % (OK, path))
-    # omp's files carry no MARKER (render_md_omp), so the `tezgah-` prefix the
-    # uninstall step keys on is the ownership test: a role retired from ROLES,
-    # or one whose capability left, stops being loaded instead of lingering.
+    # omp's files carry no MARKER (render_md_omp), so ownership is the name: a
+    # role tezgah ever generated (OWNED_NAMES) that is no longer wanted - retired,
+    # capability gone, or `agents-off` - stops being loaded. A user's own
+    # `tezgah-*.md` is not on that list and stays.
+    owned = {n + ".md" for n in tezgah_agents.OWNED_NAMES}
     for name in (os.listdir(agents_dir) if os.path.isdir(agents_dir) else []):
-        if name.startswith("tezgah-") and name.endswith(".md") and name not in wanted:
+        if name in owned and name not in wanted:
             try:
                 os.remove(os.path.join(agents_dir, name))
                 print("%s removed %s" % (OK, os.path.join(agents_dir, name)))

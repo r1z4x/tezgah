@@ -188,11 +188,12 @@ class Omp(HostModels):
         self.assertIn("  - read", head)
 
     def test_install_sweeps_the_retired_roles_and_keeps_the_users_files(self):
-        # omp's files carry no MARKER, so the `tezgah-` prefix is the ownership
-        # test: a retired role must stop being loaded after the next install
+        # omp's files carry no MARKER, so only names tezgah ever generated are
+        # its own: a retired role must stop being loaded after the next install,
+        # and a user's own `tezgah-*.md` must survive it
         os.makedirs(self.agents(), exist_ok=True)
         for name in ("tezgah-explorer.md", "tezgah-verifier.md",
-                     "tezgah-researcher.md", "my-agent.md"):
+                     "tezgah-researcher.md", "my-agent.md", "tezgah-mine.md"):
             with open(os.path.join(self.agents(), name), "w") as fh:
                 fh.write("---\nname: x\n---\nx\n")
         self.install("omp")
@@ -200,7 +201,18 @@ class Omp(HostModels):
         for gone in ("tezgah-explorer.md", "tezgah-verifier.md", "tezgah-researcher.md"):
             self.assertNotIn(gone, names)
         self.assertIn("my-agent.md", names)
+        self.assertIn("tezgah-mine.md", names)
         self.assertIn("tezgah-cheap.md", names)
+
+    def test_agents_off_removes_the_omp_user_agents(self):
+        self.install("omp")
+        self.assertIn("tezgah-cheap.md", os.listdir(self.agents()))
+        switch = os.path.join(self.home, ".config", "tezgah", "agents-off")
+        os.makedirs(os.path.dirname(switch), exist_ok=True)
+        open(switch, "w").close()
+        self.install("omp")
+        self.assertEqual([], [n for n in os.listdir(self.agents())
+                              if n.startswith("tezgah-")])
 
     def test_the_orchestrator_can_delegate(self):
         self.install("omp")

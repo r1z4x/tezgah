@@ -76,7 +76,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from omp's agent dir. The plugin's hand-kept `agents/tezgah-explorer.md` is
   gone. Steering names none of them.
 - **`agents-off` removes the generated agents.** It used to stop generation and
-  leave the old files for every host to keep loading.
+  leave the old files for every host to keep loading. The next session start
+  sweeps the repo agent dirs. The next `--install` sweeps omp's user-level
+  agents, and it removes only names tezgah ever generated.
 - **A repo's `.no-graph` hides the reviewer from steering**, also on omp, where
   the agent file is user-level.
 - **Claude reads the graph workflows from the plugin only.** `--install` no
@@ -99,9 +101,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The status line marks graph use on a plugin install.** It tested only
   `mcp__codegraph__`. It now shares the PostToolUse store's test.
 - **tezgah records a Claude skill load.** The plugin's PostToolUse matcher
-  carries `Skill`. The hook writes `skill:<name>` (or the pony/adhd mark). The
-  skill-fitness report then counts Claude sessions. Nobody has checked that
-  Claude fires PostToolUse for the Skill tool.
+  carries `Skill`, and so does dsh's manifest, which mirrors it. The hook writes
+  `skill:<name>` (or the pony/adhd mark). The skill-fitness report then counts
+  Claude sessions. Nobody has checked that Claude fires PostToolUse for the
+  Skill tool.
 - **A host config the installer cannot parse is left alone.** Seven install
   steps read a host's JSON config and then rewrote it. They cover Codex and
   Cursor `hooks.json`, opencode's `opencode.json` and `tui.json`, Cursor's

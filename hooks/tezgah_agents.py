@@ -261,6 +261,11 @@ ROLES = (
 
 # The roles gated on the code graph, which a repo's `.no-graph` turns off.
 GRAPH_ROLES = ("tezgah-reviewer",)
+# Every agent name tezgah ever generated: the live roles, the orchestrator and
+# the retired roles. omp's files carry no MARKER, so this list - not the
+# `tezgah-` prefix - is what makes a file there tezgah's to sweep.
+RETIRED_ROLES = ("tezgah-explorer", "tezgah-verifier", "tezgah-researcher")
+OWNED_NAMES = tuple(r[0] for r in ROLES) + ("tezgah-orchestrator",) + RETIRED_ROLES
 
 ORCH_DESC = ("Route work in this repo to the generated tezgah-* subagents. The "
              "main thread decides and verifies; delegate bounded, well-specified "
@@ -393,7 +398,10 @@ def render_md_omp(name, description, body, tools=("read", "grep", "glob", "bash"
 
 
 def omp_user_agents(root="~"):
-    """{filename: text} for omp's user agent dir (~/.omp/agent/agents)."""
+    """{filename: text} for omp's user agent dir (~/.omp/agent/agents); empty
+    under `agents-off`, so the installer's sweep removes the files."""
+    if off("agents-off"):
+        return {}
     infra = detect_infra(os.path.expanduser(root))
     active = [r for r in ROLES if r[2](infra)]
     names = [r[0] for r in active]
