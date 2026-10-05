@@ -346,6 +346,15 @@ class Retry(JudgeCase):
         self.assertLess(time.monotonic() - started, 1.5,
                         "the call outlived its deadline")
 
+    def test_no_second_attempt_starts_once_the_deadline_has_passed(self):
+        # A timeout is transient, so attempts=2 would retry it - but a retry
+        # after the deadline is a request nobody waits for.
+        os.environ["TYPESAFE_API_KEY"] = "test"
+        Fake.delay = 2.0
+        self.assertIsNone(self.ask(timeout=10, deadline=0.3))
+        time.sleep(0.3)
+        self.assertEqual(len(Fake.seen), 1, "a retry fired after the deadline")
+
 
 class ProviderDown(JudgeCase):
     """After a 401, 402 or 5xx the provider is marked down for `DOWN_FOR`
@@ -390,6 +399,17 @@ class ProviderDown(JudgeCase):
         os.environ["TYPESAFE_API_KEY"] = "rotated"
         self.assertIsNotNone(self.ask())
         self.assertEqual(len(Fake.seen), 2)
+
+    def test_a_marker_from_the_future_does_not_hold_the_provider_down(self):
+        # A clock step back (or a copied cache) must not mark it down for good.
+        path = os.path.join(self.home, "future-marker")
+        open(path, "w", encoding="utf-8").close()
+        later = time.time() + 10 * tezgah_judge.DOWN_FOR
+        os.utime(path, (later, later))
+        self.assertFalse(tezgah_judge._down(path))
+        now = time.time() - 1
+        os.utime(path, (now, now))
+        self.assertTrue(tezgah_judge._down(path))
 
 
 class AnsweringModel(JudgeCase):
@@ -533,6 +553,23 @@ class Redirect(JudgeCase):
         other = handler.redirect_request(req, None, 302, "Found", {},
                                          "https://example.invalid/v1/systemone")
         self.assertIsNone(other, "a cross-host redirect was allowed")
+
+    def test_a_same_host_downgrade_to_http_never_carries_the_bearer(self):
+        # Same netloc, different scheme: the hop would send the key in clear.
+        req = urllib.request.Request("https://api.example/v1/x", data=b"{}",
+                                     headers={"Authorization": "Bearer k"})
+        down = "http://api.example/v1/x"
+        refuse = next(h for h in tp.guarded_opener().handlers
+                      if isinstance(h, urllib.request.HTTPRedirectHandler))
+        self.assertIsNone(refuse.redirect_request(req, None, 302, "Found", {}, down))
+        drop = next(h for h in tp.guarded_opener(drop_auth=True).handlers
+                    if isinstance(h, urllib.request.HTTPRedirectHandler))
+        new = drop.redirect_request(req, None, 302, "Found", {}, down)
+        self.assertIsNotNone(new)
+        self.assertFalse(new.has_header("Authorization"), "the bearer rode the downgrade")
+        same = drop.redirect_request(req, None, 302, "Found", {},
+                                     "https://api.example/v2/x")
+        self.assertTrue(same.has_header("Authorization"), "a same-origin hop lost it")
 
 
 class Availability(JudgeCase):

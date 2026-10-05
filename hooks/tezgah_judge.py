@@ -212,7 +212,8 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None)
         try:
             result = _bounded(send, stop)
         except Exception as exc:
-            if attempt + 1 >= attempts or not _transient(exc):
+            late = stop is not None and time.monotonic() >= stop
+            if attempt + 1 >= attempts or late or not _transient(exc):
                 code = getattr(exc, "code", None)
                 if code in (401, 402) or (isinstance(code, int) and code >= 500):
                     _mark_down(marker)
@@ -426,9 +427,10 @@ def _down_marker(provider, url, secret):
 
 
 def _down(marker):
-    """True while the marker is younger than `DOWN_FOR`; any read error is up."""
+    """True while the marker is younger than `DOWN_FOR`; a marker dated in the
+    future (a clock step back, a copied cache) and any read error are up."""
     try:
-        return time.time() - os.path.getmtime(marker) < DOWN_FOR
+        return 0 <= time.time() - os.path.getmtime(marker) < DOWN_FOR
     except OSError:
         return False
 

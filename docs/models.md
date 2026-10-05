@@ -75,7 +75,7 @@ omp's bundled agents are routed through the same record (omp's own docs: `omp://
 ## The router
 
 `tezgah-route "<brief>"` prints the worker to spawn and why (`main`,
-`bin/tezgah-route:45-123`; `route`, `hooks/tezgah_models.py:679-708`). The order is
+`bin/tezgah-route:45-123`; `route`, `hooks/tezgah_models.py:680-709`). The order is
 fixed:
 
 1. A brief naming stored data, a persistence or schema change, a migration,
@@ -83,18 +83,18 @@ fixed:
    access token, a destructive data or history operation (dropping or truncating
    a table, deleting rows, a production database, a force-push or history
    rewrite), a privilege change, the gate or security goes to frontier by rule
-   (`OVERRIDE`, `hooks/tezgah_models.py:634-653`) - the class the judge
+   (`OVERRIDE`, `hooks/tezgah_models.py:634-654`) - the class the judge
    under-routed in its measurement, and the classes a wrong call cannot be
    undone on. A 12-brief fixture pins it: 8 high-stakes briefs route to
    frontier, 4 near-miss controls do not (`tests/test_models.py`).
 2. Otherwise the brief - redacted with the ledger's own reader
    (`redact`, `hooks/tezgah_integrity.py:625`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
-   `hooks/tezgah_models.py:657-678`). Measured on 40 English briefs labelled by
+   `hooks/tezgah_models.py:658-679`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100.
 3. With no judgement (`judge-off`, no key, a failed call) `--phase` picks the tier
-   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:655-656`), and
+   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py:656-657`), and
    with no phase the middle tier is used.
 
 The brief leaves the machine for the judge, like every judgement ([judge](judge.md)).

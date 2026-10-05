@@ -646,9 +646,10 @@ OVERRIDE = re.compile(
     r"\bdelete\s+(?:\w+\s+){0,3}(?:rows?|records?|accounts?)\b|"
     r"\bproduction (?:database|db|data)\b|\brm -rf\b|\bforce[- ]push\w*|"
     r"\brewr\w* (?:the |git )?history\b|\brewritten history\b|\bfilter-(?:repo|branch)\b|"
-    # keys, certificates and tokens the list above did not name
+    # keys, certificates and tokens the list above did not name; `PAT` only in
+    # capitals, so the name Pat and the plural "pats" stay ordinary words
     r"\bprivate keys?\b|\bssh keys?\b|\bcertificates?\b|\btls\b|\bbearer\b|"
-    r"\bpats?\b|\bpersonal access tokens?\b|\btoken refresh\b|\blogin tokens?\b|"
+    r"(?-i:\bPATs?\b)|\bpersonal access tokens?\b|\btoken refresh\b|\blogin tokens?\b|"
     # privilege
     r"\bsudo\w*|\bfile permissions?\b|\bchmod\b|\bprivilege\w*|\bsetuid\b", re.I)
 JEV_TIER = {"mechanical": "cheap", "standard": "standard", "frontier": "frontier"}

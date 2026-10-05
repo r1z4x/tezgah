@@ -14,7 +14,7 @@ the kill-switch paragraph and nothing else (`CORE`,
 One seam, five callers, one credential, one egress boundary, one price, one
 redirect guard. The module is stdlib only and total - a failure is a `None`, never
 an exception, because a hook imports it and a hook that raises takes a session
-down (`_request`, `hooks/tezgah_judge.py:282-302`). One endpoint and one key path
+down (`_request`, `hooks/tezgah_judge.py:283-303`). One endpoint and one key path
 are module constants (`URL`, `hooks/tezgah_judge.py:55`; `KEY_FILE`,
 `hooks/tezgah_judge.py:56`), one opener is shared by every call (`OPENER`,
 `hooks/tezgah_judge.py:81-85`), and it refuses a redirect that leaves the
@@ -22,16 +22,16 @@ endpoint's host, so a `Location` cannot carry the bearer (`guarded_opener`,
 `hooks/tezgah_paths.py`, the one copy `bin/consult` and `bin/codegen` use too). A
 transient failure - a timeout, a connection error, a 5xx - gets exactly one more
 attempt; a 4xx and a malformed reply never do (`_transient`,
-`hooks/tezgah_judge.py:270`). A hook caller asks for one attempt and a
-wall-clock `deadline` instead (`ask`, `hooks/tezgah_judge.py:158-227`).
+`hooks/tezgah_judge.py:271`). A hook caller asks for one attempt and a
+wall-clock `deadline` instead (`ask`, `hooks/tezgah_judge.py:158-228`).
 urllib's timeout bounds one socket operation, not the whole call.
 `TEZGAH_TYPESAFE_URL` repoints the endpoint and `TEZGAH_OPENROUTER_URL` the
 fallback's; both are test seams, not fallbacks.
 
 Every caller reads an answer through the same two accessors rather than reaching
 into the raw reply, so a Choice and a Noul are read one way for all five
-(`choice`, `hooks/tezgah_judge.py:240-249`; `noul`,
-`hooks/tezgah_judge.py:250-268`). Both are total: a missing or wrongly-typed
+(`choice`, `hooks/tezgah_judge.py:241-250`; `noul`,
+`hooks/tezgah_judge.py:251-269`). Both are total: a missing or wrongly-typed
 answer is a `None`, never an exception.
 
 A judgement is an aid, never the claim. It ranks units or names a page; the agent
@@ -68,7 +68,7 @@ why its redaction is not optional. The switches below are the off buttons.
 | `bin/tezgah-triage` | the analyze-app snapshot triage. `--select FILE --task T` asks one question per repeating unit of the screen in one request and prints the line ids under the selected units with their refs (`select_request`, `bin/tezgah-triage:230-248`; the units are the tree's own repeating pieces, `units`, `bin/tezgah-triage:204-229`). `--states` asks one judgement per state over a component's subtree (`states`, `bin/tezgah-triage:308-431`) | exit 1 with one reason (`no_judgement`, `bin/tezgah-triage:107-113`), and the loop reads the tree directly |
 | `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs:724-757`; the question wording is `ASK`, `bin/tezgah-docs:691-696`) | reads as no judgement; with none (no credential, `judge-off`, `docs-judge-off`, or a call that failed or came back without one of its options) the pages are ranked by shared words instead (`ranked`, BM25 in `hooks/tezgah_rank.py` over each page's title and answers and their Turkish phrasings) and the top three printed; a query sharing no word with any page, or a judged `none`, exits 1. With the opt-in embedding feature on, the ranking is fused with a static embedding (`hooks/tezgah_embed.py`), which places every page, so only a judged `none` exits 1 |
 | `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py:146-178`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py:86-114`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py:46`), one attempt and a 4 s wall-clock deadline (`ASK_DEADLINE`, `hooks/tezgah_skill_pick.py:51`), the prompt redacted and cut at 2,000 characters | returns `""`; the turn loses the hint |
-| `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:679-708`; `TIER_QUESTION`, `hooks/tezgah_models.py:657-678`) - see [models](models.md) | the static phase table, else the middle tier |
+| `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py:680-709`; `TIER_QUESTION`, `hooks/tezgah_models.py:658-679`) - see [models](models.md) | the static phase table, else the middle tier |
 | `bin/tezgah-taste` | the coding-taste measurement: `measure` and `rate` label the prompts a user sent after a writing turn, one Choice per prompt batched into one request, each prompt redacted first (`classify`, `bin/tezgah-taste:228-251`) | with no credential or `judge-off` it exits 2 before any request; a failed call leaves its prompts unlabelled |
 
 The third caller is the one no shell row can see: it runs on the prompt path,
@@ -96,10 +96,10 @@ OpenAI-compatible chat endpoint instead (`OPENROUTER_URL`,
 cannot move a machine that already judges with Jev (`credential()`,
 `hooks/tezgah_judge.py:140`). The chat model is asked for the same shapes in prose
 (`CHAT_SYSTEM`, `hooks/tezgah_judge.py:70`), at temperature 0
-(`_chat_body()`, `hooks/tezgah_judge.py:304`), and its reply is filtered to the ids
+(`_chat_body()`, `hooks/tezgah_judge.py:305`), and its reply is filtered to the ids
 that were asked for, dropping any answer whose type does not match its question
-(`_chat_answers()`, `hooks/tezgah_judge.py:347`; `_clean_answer()`,
-`hooks/tezgah_judge.py:367`) - so a dropped answer reads the same as no answer at
+(`_chat_answers()`, `hooks/tezgah_judge.py:348`; `_clean_answer()`,
+`hooks/tezgah_judge.py:368`) - so a dropped answer reads the same as no answer at
 all, which is what the callers already handled. The model is the table's cheap row
 (`cheap_model`, `hooks/tezgah_models.py`) unless `TEZGAH_JUDGE_MODEL` names
 another, and a table that cannot be read falls back to its own literal
@@ -135,7 +135,7 @@ the measurement with every run (`MEASURED`, `bin/tezgah-triage:88-90`;
 `SELECTED_AT`, `bin/tezgah-triage:63-65`). The retry covers a rate that was
 measured rather than assumed - 0 of 184 live calls returned `None` - so the second
 attempt costs a healthy call nothing (`_transient`,
-`hooks/tezgah_judge.py:269-281`); `docs/operations.md` records the run. Each
+`hooks/tezgah_judge.py:270-282`); `docs/operations.md` records the run. Each
 caller also records one `judge` row of cost on the ledger when a session id is
 known (`note`, `hooks/tezgah_integrity.py:792-804`), counted by the row's kind
 (`counters`, `hooks/tezgah_integrity.py:1415-1451`).

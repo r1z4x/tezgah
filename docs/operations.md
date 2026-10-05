@@ -562,7 +562,7 @@ one caller no shell row sees, `bin/tezgah-route`, the tier router
 which returns `None` rather than raising because a hook may import it
 (`available()`, `hooks/tezgah_judge.py:153-157`); the request is
 one batched call, and the credential resolves per call (`ask()`,
-`hooks/tezgah_judge.py:158-227`; `key()`, `hooks/tezgah_judge.py:93-108`).
+`hooks/tezgah_judge.py:158-228`; `key()`, `hooks/tezgah_judge.py:93-108`).
 
 A transient failure is retried once, and only once: a timeout, a connection error
 or a 5xx gets a second identical request, while a 4xx (a refused credential, a
@@ -591,7 +591,7 @@ made - no credential, the switch below, or a failed call - and the loop reads th
 tree directly instead.
 
 The state leaves the machine. A judgement sends the state and the questions to
-`api.typesafe.ai` (`ask()`, `hooks/tezgah_judge.py:158-227`) - for the triage that is
+`api.typesafe.ai` (`ask()`, `hooks/tezgah_judge.py:158-228`) - for the triage that is
 the snapshot's own text, so a screen carrying personal data is read by a third
 party, and for the docs fallback it is the reader's query. Nothing else goes: no
 session id, no workspace path, no credential beyond the bearer header, and the

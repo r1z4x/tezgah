@@ -496,6 +496,16 @@ class OmpOverrides(unittest.TestCase):
                 "Count the tokens in each prompt",
                 "Fix the pattern matcher in the docs router",
                 "Delete the unused import in bin/consult"]
+    # Ordinary briefs a loose term over-routed (review of add7e74): pinned here
+    # only where the tightened pattern leaves them unmatched.
+    NEAR_MISSES = ["Ask Pat to review the copy",
+                   "List the pats in the fixture"]
+
+    def test_a_name_or_a_plural_is_not_a_personal_access_token(self):
+        for brief in self.NEAR_MISSES:
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "cheap", brief)
+        for brief in ("Store the user's GitHub PAT", "Rotate the personal access token"):
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "frontier", brief)
 
     def test_the_override_routes_every_high_stakes_brief_and_no_control(self):
         for brief in self.HIGH_STAKES:

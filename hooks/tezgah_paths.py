@@ -938,22 +938,23 @@ def ws_git(repo, *args, **kw):
 
 
 def guarded_opener(drop_auth=False):
-    """An urllib opener whose redirects never carry the bearer to another host.
+    """An urllib opener whose redirects never carry the bearer off its origin.
 
     urllib copies the Authorization header onto a redirected request, so a
     301/302 from a repointable endpoint would hand the key to whatever host the
-    answer named. A cross-host hop is refused (it surfaces as an HTTPError), or,
-    with `drop_auth`, followed without the header so the far host answers 401
-    and the caller reports a key failure; a same-host redirect is followed as
-    urllib would. One copy for the judge seam and codegen (refuse) and consult
-    (drop). The import is deferred: see the fallback_cache() note above."""
+    answer named - or, on a same-host https->http hop, send it in clear. A hop
+    that changes the scheme or the host is refused (it surfaces as an
+    HTTPError), or, with `drop_auth`, followed without the header so the far end
+    answers 401 and the caller reports a key failure; a same-origin redirect is
+    followed as urllib would. One copy for the judge seam and codegen (refuse)
+    and consult (drop). The import is deferred: see the fallback_cache() note."""
     import urllib.parse
     import urllib.request
 
     class Guard(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
-            cross = urllib.parse.urlsplit(newurl).netloc != \
-                urllib.parse.urlsplit(req.full_url).netloc
+            old, new_url = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+            cross = (new_url.scheme.lower(), new_url.netloc) != (old.scheme.lower(), old.netloc)
             if cross and not drop_auth:
                 return None
             new = super().redirect_request(req, fp, code, msg, headers, newurl)
