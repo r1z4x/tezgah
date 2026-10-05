@@ -136,7 +136,7 @@ was never opened", so it declares what it can see and those marks render `info`
 `TOOL_USE_MEASURES`, hooks/tezgah_context.py:1323). The `--observable=` flag carries it on the CLI
 (bin/tezgah-status:30-34,56-57,129-132). Two callers pass the tool-use set: Cursor's
 status line (statusline.py:109-114) and Codex, which renders the line plain into
-`systemMessage` (hosts/codex/hook.py:190-192,195-198); dsh passes the literal flag
+`systemMessage` (hosts/codex/hook.py:195-197,200-203); dsh passes the literal flag
 string (hosts/dsh/statusline/lib/index.js:18,47-48), which names the five marks its
 own hook can record - `judge` included, since dsh wires the same PostToolUse hook
 every other host does. The set is what a host can write, not what it happens to
@@ -156,9 +156,9 @@ an MCP tool name, else the shell tokenizer's answer, which counts a tool only wh
 the command really ran it (34-38,84) and is the one writer that can earn `judge`
 (a run of `bin/tezgah-triage` or `bin/tezgah-docs`, `shell_kind`, hooks/tezgah_context.py:1075-1090)
 — plus `hooks/projects-auto-init.py:48`
-(`orch` on subagent start), hosts/codex/hook.py:163,168,
-hosts/cursor/hook.py:224,250,256,272,280,295, hosts/opencode/plugins/tezgah.js:1792-1799,
-hosts/opencode/plugins/tezgah.js:2288, hosts/omp/hook.py:172. Both Claude (hooks/hooks.json) and dsh
+(`orch` on subagent start), hosts/codex/hook.py:167,172,
+hosts/cursor/hook.py:231,257,263,279,287,303, hosts/opencode/plugins/tezgah.js:1813-1820,
+hosts/opencode/plugins/tezgah.js:2309, hosts/omp/hook.py:177. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
 its line has (hooks/projects-posttooluse.py:29-32).
@@ -181,7 +181,7 @@ Every other surface reads the store.
   the colored string as-is; `setStatus` is the fallback for a build without
   `setWidget`, and it is plain because omp strips ANSI (12-29). `status_line()`
   builds the line and carries `idx_override`, so a per-tool redraw forks no git
-  (hosts/omp/hook.py:90-105); it redraws on session start, session switch, turn end
+  (hosts/omp/hook.py:95-110); it redraws on session start, session switch, turn end
   and each watched tool result (hosts/omp/tezgah-hook.ts.in:233-234,245-249).
   **Motion:** while the agent runs (`agent_start` until an `agent_end` whose
   `isTerminal` is not `false`) the widget leads with a braille spinner, the tool
@@ -238,7 +238,7 @@ the used marks cannot light up (bin/tezgah-status:128). `--color`/`--no-color` f
 `replies`, `shape` and the `kinds` seen (bin/tezgah-status:72-97); with `--json`
 as JSON. `replies` counts the `shape` rows, one per reply the Stop rule judged,
 and `shape` those that carried a report-only flag - `table-open`,
-`preamble-open`, `recap-close` (`shape_flags`, hooks/tezgah_integrity.py:2005-2036)
+`preamble-open`, `recap-close` (`shape_flags`, hooks/tezgah_integrity.py:2085-2116)
 - so a flag's rate has its denominator; the row also carries the reply's
 `longest_list` and `tr_share`, the two numbers the list-cap and language blocks
 read. `shape_blocked` counts the claim rows refused for their shape rather than
@@ -246,9 +246,9 @@ their evidence, which `false_completion` leaves out. `judge` is the seam's spend
 counted on the row's **kind** and never on a `detail` substring like `consult` and
 `codegen` are, because a judgement's detail carries the caller and the model and a
 substring would also count a commit message that says "judge"
-(hooks/tezgah_integrity.py:1598-1602). It is in neither `STEP_KINDS` nor the check
+(hooks/tezgah_integrity.py:1650-1654). It is in neither `STEP_KINDS` nor the check
 set: a judgement is a cost, and a model answer must never license a "done" claim
-(`STEP_KINDS`, hooks/tezgah_integrity.py:1203). `tezgah-setup --status <path>` prints the plain line for a
+(`STEP_KINDS`, hooks/tezgah_integrity.py:1248). `tezgah-setup --status <path>` prints the plain line for a
 repo (bin/tezgah-setup:4154-4156). A wrong or missing line usually ends in one of
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a
@@ -281,7 +281,7 @@ sandboxes hook writes (dsh) the stamp is never written, and before that state
 existed the mark read green there for good. That is why `observable` exists (hooks/tezgah_context.py:1348-1353),
 why the skill-read check is documented as unavailable on Codex, Cursor and dsh
 (hooks/tezgah_context.py:145-149), why omp ignores any `idx` value that is not one of
-its five glyphs (hosts/omp/hook.py:87-103) - a value outside that set re-probes
+its five glyphs (hosts/omp/hook.py:92-108) - a value outside that set re-probes
 instead of being reused, one fork and never a wrong mark - and
 why `off` is decided before the visibility one - a
 kill switch is observable everywhere (hooks/tezgah_context.py:1348-1353,1306-1309). Cursor's pinned plain

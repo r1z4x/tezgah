@@ -2162,7 +2162,14 @@ class StopHook(TempHome):
         return [r for r in out if r.get("kind") == kind]
 
     def claim_rows(self):
-        return [r.get("detail") for r in self.rows("claim")]
+        """The Stop verdict rows, in order: a `claim` for a reply in the claim
+        vocabulary and a `refusal` for a refused reply that claimed nothing
+        (row version 3; tests/test_stop_after_block.py pins the split)."""
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": self.session},
+                          env=self.envv)
+        return [r.get("detail") for r in out
+                if r.get("kind") in ("claim", "refusal")]
 
     def shape_rows(self):
         return [r.get("detail") for r in self.rows("shape")]
@@ -2655,14 +2662,16 @@ class StopHook(TempHome):
         # unfounded state through when it was stated as a description (E2
         # measured 0 of 10 implicit claims refused). The turn's own evidence is
         # the trigger now, so this reply carries no claim word and is still
-        # refused - and the refusal is recorded like any other.
+        # refused - and the refusal is recorded, as a `refusal` and not as a
+        # false completion: the reply claimed nothing (row version 3).
         self.seed("Edit", {"file_path": "x.py"})
         out = self.stop("The parser handles the new field and the wiring is in "
                         "place.")
         self.assertEqual((out or {}).get("decision"), "block")
         self.assertIn("no check ran", (out or {}).get("reason", ""))
         self.assertEqual(self.claim_rows(), ["blocked: no verify_ok"])
-        self.assertEqual(self.counts()["false_completion"], 1)
+        counts = self.counts()
+        self.assertEqual((counts["false_completion"], counts["refusals"]), (0, 1))
 
     def test_a_step_that_failed_is_refused_without_a_claim_word(self):
         # the same rule over a check that ran and failed: "verify_fail" is a step
@@ -3275,6 +3284,20 @@ class PostToolUse(TempHome):
         self.assertEqual(first["id"], second["id"])
         self.assertNotEqual(first["id"], third["id"])
         self.assertEqual(len(first["id"]), 12)
+
+    def test_a_check_whose_output_ran_nothing_is_no_pass(self):
+        # plan 048 (d): the Bash result's stdout says no test ran, so the exit
+        # 0 is a check that ran over nothing; the row also names its repo
+        os.makedirs(os.path.join(self.repo, ".git"))
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"},
+                      tool_response={"stdout": "collected 0 items\n\n"
+                                     "== no tests ran in 0.01s ==", "stderr": ""})
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"},
+                      tool_response={"stdout": "3 passed in 0.1s", "stderr": ""})
+        empty, real = self.rows()
+        self.assertEqual((empty["kind"], empty.get("empty_run")), ("verify", True))
+        self.assertEqual((real["kind"], real.get("empty_run")), ("verify_ok", None))
+        self.assertEqual(real["repo"], os.path.realpath(self.repo))
 
     def test_a_row_carries_the_outcome_the_result_size_and_the_workspace(self):
         result = "11 passed in 0.2s"
@@ -3979,6 +4002,173 @@ class ToolFirings(TempHome):
             proc = support.run([self.cli] + args, env=self.envv)
             self.assertEqual(proc.returncode, 2, args)
             self.assertIn("tezgah-status:", proc.stderr)
+
+
+class StopRuleRest(unittest.TestCase):
+    """Plan 048 parts d, e, f, i: what a pass is, where it ran, when it started,
+    and what a claim word with no work behind it says (REPORT.md §4.2 R04)."""
+
+    CLAIM = "Tamamlandı, tüm testler geçti."
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        self.ledger = os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: self.ledger
+        self.repo = self.git_dir("repo")
+        self.target = os.path.join(self.repo, "app.py")
+
+    def git_dir(self, name):
+        path = os.path.realpath(os.path.join(self.dir, name))
+        os.makedirs(os.path.join(path, ".git"))
+        return path
+
+    def reset(self):
+        if os.path.exists(self.ledger):
+            os.remove(self.ledger)
+
+    def edit(self, text="v\n"):
+        tz.capture("Edit", {"file_path": self.target}, self.repo, "s")
+        with open(self.target, "a") as fh:
+            fh.write(text)
+        ti.note_tool("s", "Edit", {"file_path": self.target}, failed=False,
+                     cwd=self.repo)
+
+    def shell(self, command, cwd=None, **kw):
+        ti.note_tool("s", "Bash", {"command": command}, failed=False,
+                     out_bytes=42, cwd=cwd or self.repo, **kw)
+        return ti.events("s")[-1]
+
+    # ---- (d) non-checks ------------------------------------------------------
+    NON_CHECKS = ("pytest --version", "pytest --help", "python3 -m pytest --collect-only",
+                  "make help", "just --list", "tsc --version", "echo ok; ruff --version",
+                  "ruff", "ruff format .", "prettier --write .", "eslint --fix .",
+                  "npx prettier --write src", "ruff check --fix .")
+
+    def test_a_non_check_is_no_pass_and_licenses_no_claim(self):
+        # evidence-01's probe: each of these was allowed to close
+        # "Tamamlandı, tüm testler geçti" after an edit
+        for command in self.NON_CHECKS:
+            with self.subTest(command=command):
+                self.reset()
+                self.edit()
+                row = self.shell(command)
+                self.assertEqual(row["kind"], "run")
+                self.assertFalse(ti.passing_check(row))
+                self.assertIsNone(ti.verify_command(command))
+                self.assertIn("did work", ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_real_check_still_licenses_the_claim(self):
+        for command in ("pytest -q", "ruff check .", "ruff format --check .",
+                        "make test", "pytest --version; pytest -q",
+                        "prettier --check ."):
+            with self.subTest(command=command):
+                self.reset()
+                self.edit()
+                self.assertTrue(ti.passing_check(self.shell(command)))
+                self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_formatter_write_after_a_pass_is_a_change(self):
+        # the formatter rewrote the tree the pass judged; its row carries no
+        # captured target and is a change all the same
+        self.edit()
+        self.shell("pytest -q")
+        row = self.shell("ruff format .")
+        self.assertNotIn("hash", row)
+        self.assertTrue(ti._change_row(row))
+        self.assertIn("Stale evidence", ti.stop_reason(self.CLAIM, "s"))
+        # a chained write records as the check, the documented ceiling
+        self.assertFalse(ti._change_row({"kind": "verify_ok",
+                                         "detail": "ruff format . && pytest"}))
+
+    def test_an_empty_run_is_no_pass(self):
+        for text in ({"stdout": "== test session starts ==\ncollected 0 items\n\n"
+                                "== no tests ran in 0.01s =="},
+                     "\nRan 0 tests in 0.000s\n\nOK\n",
+                     "No tests found, exiting with code 0\n",
+                     "x" * 10000 + "\n=== no tests ran in 0.01s ===\n"):
+            with self.subTest(text=str(text)[:40]):
+                self.assertTrue(ti.ran_nothing(text))
+        for text in ("collected 3 items\n3 passed", "log: no tests ran here",
+                     "Ran 12 tests in 0.1s", None, 7, {"stdout": 3}):
+            self.assertFalse(ti.ran_nothing(text), text)
+        self.edit()
+        row = self.shell("pytest -q", empty_run=ti.ran_nothing("collected 0 items\n"))
+        self.assertEqual((row["kind"], row.get("empty_run")), ("verify", True))
+        self.assertFalse(ti.passing_check(row))
+        # a row that says verify_ok and ran nothing (another writer) is no pass
+        self.assertFalse(ti.passing_check(dict(row, kind="verify_ok", exit=0)))
+        self.assertIn("did work", ti.stop_reason(self.CLAIM, "s"))
+
+    # ---- (e) repository binding ------------------------------------------------
+    def test_a_pass_in_another_repo_does_not_license_this_one(self):
+        other = self.git_dir("other")
+        self.edit()
+        row = self.shell("cd ../other && pytest -q")
+        self.assertEqual(row["repo"], other)
+        self.assertIn("did work", ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_pass_in_the_change_s_repo_licenses_it(self):
+        self.edit()
+        self.assertEqual(self.shell("pytest -q")["repo"], self.repo)
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_pass_run_from_elsewhere_into_this_repo_licenses_it(self):
+        # a session rooted in one checkout working in another (a worktree)
+        # binds the pass to where it ran, not to the session's cwd
+        elsewhere = self.git_dir("main")
+        self.edit()
+        self.shell("cd %s && pytest -q" % self.repo, cwd=elsewhere)
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_row_without_a_repo_binds_to_nothing(self):
+        # not retroactive: a row written before the field, or by a host that
+        # sent no cwd, counts as it did
+        self.edit()
+        ti.note("s", "verify_ok", "pytest -q", exit=0, out_bytes=42)
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    # ---- (f) freshness at the check's start -------------------------------------
+    def test_a_write_that_landed_while_the_check_ran_stales_it(self):
+        began = {"kind": "began", "id": "c1", "tool": "Bash", "check": 1}
+        edit = {"kind": "edit", "detail": "app.py", "changed": True}
+        done = {"kind": "verify_ok", "id": "c1", "exit": 0, "out_bytes": 9,
+                "detail": "pytest -q"}
+        self.assertEqual(ti._stop_block(self.CLAIM, None,
+                                        rows=[began, edit, done])[0],
+                         "stale evidence")
+        # the controls: the write before the check began, and no began row
+        self.assertIsNone(ti._stop_block(self.CLAIM, None,
+                                         rows=[edit, began, done])[0])
+        self.assertIsNone(ti._stop_block(self.CLAIM, None, rows=[edit, done])[0])
+        self.assertEqual(ti._last_pass([began, edit, done]), 0)
+
+    # ---- (i) the question/negation window -------------------------------------
+    def turn_with_unverified_work(self):
+        ti.note_turn("s", "first")
+        self.edit()
+        ti.note_turn("s", "second")
+
+    def test_a_question_or_a_negation_on_the_no_work_path_is_no_claim(self):
+        self.turn_with_unverified_work()
+        for text in ("Testler geçti mi?", "Is it done?", "Not tested yet.",
+                     "I haven't verified it.", "Tamamlandı değil."):
+            with self.subTest(text=text):
+                self.assertEqual(ti.asserted_claims(text), (False, False))
+                self.assertIsNone(ti._stop_block(text, "s", rows=ti.turn_rows("s"))[0])
+        # the controls: the INT-01 claim, and a claim followed by a question
+        for text in (self.CLAIM, "Tamamlandı, push edeyim mi?"):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    ti._stop_block(text, "s", rows=ti.turn_rows("s"))[0],
+                    "no verify_ok")
+
+    def test_the_window_does_not_open_a_turn_that_did_work(self):
+        self.edit()
+        self.assertEqual(ti._stop_block("Testler geçti mi?", "s",
+                                        rows=ti.turn_rows("s"))[0],
+                         "no verify_ok")
 
 
 if __name__ == "__main__":

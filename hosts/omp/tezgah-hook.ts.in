@@ -284,6 +284,20 @@ function labelled(content: any, label: string): any {
   return undefined;
 }
 
+// A check's own output saying it ran nothing: the same literal as
+// hooks/tezgah_integrity.py `EMPTY_RUN` (tests/test_omp_extension.py pins the
+// two equal), read here because the bridge sends the hook a size and never the
+// body. Read on the result's last EMPTY_RUN_TAIL characters, like the core.
+const EMPTY_RUN = /^[=\s]*(?:collected 0 items|no tests ran|ran 0 tests|no tests found)\b/im;
+const EMPTY_RUN_TAIL = 4096;
+function emptyRun(content: any): boolean {
+  const text = typeof content === "string" ? content
+    : Array.isArray(content)
+      ? content.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("\n")
+      : "";
+  return EMPTY_RUN.test(text.slice(-EMPTY_RUN_TAIL));
+}
+
 // The hook's failure is the one state the bridge can see and the hook cannot
 // report: no interpreter to start it with, the checkout moved, the hook crashed
 // or ran past the timeout. It is remembered here so the next event can say so.
@@ -639,12 +653,15 @@ export default function tezgahOmp(pi: any): void {
     // onto the hook's stdin, which is exactly the copy the writer's rule bans. A
     // string is its own length, a part list is its count, and anything else is
     // left unstated rather than guessed - an absent field is not a field of 0.
+    // The one thing read from the body is the empty-run flag (`emptyRun`), and
+    // only the flag crosses: the body still never does.
     const content = event?.content;
     const resultLen = typeof content === "string" ? content.length
       : Array.isArray(content) ? content.length : undefined;
     const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
                       input: event?.input ?? {}, failed, idx: idxGlyph,
-                      session_id: sessionOf(ctx), result_len: resultLen });
+                      session_id: sessionOf(ctx), result_len: resultLen,
+                      empty_run: emptyRun(content) || undefined });
     if (hookError) return markBroken(ctx);
     show(ctx, res);
     // A result that came from outside the user and the workspace is labelled in

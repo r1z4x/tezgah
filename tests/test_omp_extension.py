@@ -530,6 +530,46 @@ class OmpExtension(TempHome):
         ])
         self.assertIsNone(self.results(out)[1])
 
+    def test_the_empty_run_literal_is_the_core_s(self):
+        # the bridge reads the result's text because it sends the hook a size
+        # and never the body; its literal must stay the core's (plan 048 d)
+        import re
+        import sys
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_integrity as ti
+        with open(support.OMP_EXTENSION) as fh:
+            text = fh.read()
+        m = re.search(r"^const EMPTY_RUN = /(.*)/(\w*);$", text, re.M)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), ti.EMPTY_RUN.pattern)
+        self.assertEqual(set(m.group(2)), {"i", "m"})
+        self.assertEqual(ti.EMPTY_RUN.flags & (re.I | re.M), re.I | re.M)
+        self.assertIn("const EMPTY_RUN_TAIL = %d;" % ti.EMPTY_RUN_TAIL, text)
+
+    def test_a_check_that_ran_nothing_does_not_clear_the_done_claim(self):
+        for content in ("== test session starts ==\ncollected 0 items\n",
+                        [{"type": "text", "text": "\nRan 0 tests in 0.000s\n\nOK"}]):
+            with self.subTest(content=str(content)[:30]):
+                out = self.drive([
+                    {"event": "tool_result", "arg": {"toolName": "bash",
+                                                     "input": {"command": "pytest -q"},
+                                                     "isError": False,
+                                                     "content": content}},
+                    {"event": "session_stop",
+                     "arg": {"last_assistant_message": "Done."}},
+                ], session="empty-%d" % len(str(content)))
+                self.assertEqual(self.results(out)[1]["decision"], "block")
+
+    def test_the_bridge_sends_the_flag_and_never_the_body(self):
+        hook, log = self.fake_hook({})
+        self.ext = self.make_ext(hook, "fake-hook.ts")
+        self.drive([{"event": "tool_result", "arg": {
+            "toolName": "bash", "input": {"command": "pytest -q"},
+            "isError": False, "content": "collected 0 items\n"}}])
+        asked = self.asked(log)[-1]
+        self.assertIs(asked.get("empty_run"), True)
+        self.assertNotIn("collected", json.dumps(asked))
+
 
 if __name__ == "__main__":
     unittest.main()

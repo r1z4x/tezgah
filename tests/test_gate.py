@@ -501,6 +501,38 @@ class Gate(TempHome):
                              session_id="spin-check")
         self.assertIn("Retry ceiling", reason)
 
+    # ---- plan 048 (d): a non-check is no check for any verify_command reader --
+    def test_a_non_check_is_not_neutered_and_not_a_piped_check(self):
+        for command in ("pytest --version || true", "ruff format . || true",
+                        "pytest --version | head -1", "make help | head -3",
+                        "prettier --write . 2>&1 | tail -3"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+        # a real check beside one is still read
+        self.assertIn("neutered", self.decide(
+            "Bash", {"command": "pytest --version; pytest -q || true"}).lower())
+
+    def test_a_non_check_leaves_no_began_check_mark(self):
+        self.decide("Bash", {"command": "pytest --version"}, session_id="marks")
+        self.decide("Bash", {"command": "pytest -q"}, session_id="marks")
+        began = [r for r in self.rows("marks") if r["kind"] == "began"]
+        self.assertEqual([(r["detail"], r.get("check")) for r in began],
+                         [("pytest --version", None), ("pytest -q", 1)])
+
+    def test_a_non_check_has_no_retry_exemption_after_a_write(self):
+        # the exemption is for a check re-run over a changed tree; an
+        # information form reads nothing of the tree, so it keeps the ceiling
+        for _ in range(3):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "info", "tool": "Bash",
+                      "input": {"command": "pytest --version"}, "failed": False,
+                      "cwd": self.repo}, env=self.envv)
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": "info", "tool": "Write",
+                  "input": {"file_path": os.path.join(self.repo, "x.py")},
+                  "failed": False, "cwd": self.repo}, env=self.envv)
+        self.assertIn("Retry ceiling", self.decide(
+            "Bash", {"command": "pytest --version"}, session_id="info"))
+
     def test_a_file_uri_is_still_a_file_the_race_guard_reads(self):
         # the skip is the harness's own channels, not every scheme: `file://`
         # names a real target two sessions can race on (review 2026-10-01)

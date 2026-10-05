@@ -1198,6 +1198,17 @@ class OpenCodePlugin(TempHome):
         self.after("bash", {"command": "ls -la"})
         self.assertIn("run", self.kinds())
 
+    def test_a_non_check_records_run_like_the_core(self):
+        # plan 048 (d), mirrored: an information form and a formatter's write
+        # mode are no check, and this half agrees with verify_command
+        commands = ("pytest --version", "make help", "ruff format .",
+                    "prettier --write .", "pytest --version; pytest -q")
+        for command in commands:
+            self.after("bash", {"command": command}, exit=0)
+        self.assertEqual(self.kinds(), ["run", "run", "run", "run", "verify_ok"])
+        self.assertEqual([bool(ti.verify_command(c)) for c in commands],
+                         [False, False, False, False, True])
+
     def test_edit_records_edit(self):
         self.after("edit", {"filePath": "/tmp/x.py"})
         self.assertIn("edit", self.kinds())

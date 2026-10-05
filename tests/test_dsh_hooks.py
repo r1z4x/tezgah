@@ -26,11 +26,12 @@ BRIDGE_EVENTS = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"
                  "SubagentStart", "SubagentStop", "Stop"}
 # The events tezgah declares for Claude that this bridge cannot run.
 BRIDGE_UNSUPPORTED = {"PostCompact", "PostToolUseFailure"}
-# The event the bridge runs that dsh still leaves out on purpose: Stop. The
-# bridge drops every call's outcome (`TEZGAH_CALL_OUTCOME=none`), so no check
-# there can show a pass and the Stop rule could only refuse honest work; until
-# the bridge carries outcomes dsh has no Stop rule (ADR 003, plan 048 part g).
-LEFT_OUT = {"Stop"}
+# The events the bridge runs that dsh still leaves out on purpose: Stop and
+# SubagentStop. The bridge drops every call's outcome (`TEZGAH_CALL_OUTCOME=none`),
+# so no check there can show a pass and the Stop rule could only refuse honest
+# work; until the bridge carries outcomes dsh has no Stop rule (ADR 003, plan 048
+# part g), and its subagent-end record (part k) waits for the same.
+LEFT_OUT = {"Stop", "SubagentStop"}
 SCRIPT = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\"]+)")
 # Claude's matcher dialect, which the bridge implements (matchesMatcher in
 # @deepseek-ai/dsh-hook-protocol): a pattern made only of these characters is a

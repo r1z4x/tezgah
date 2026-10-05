@@ -25,6 +25,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   claim. It never blocks a second time and never counts as a claim or as a
   reply. A block from another Stop hook leaves no row. Cursor stays unwired:
   nobody has checked its stop payload yet.
+- **A subagent's end leaves a record-only verdict.** Claude's SubagentStop
+  (a new hook row) and Cursor's subagentStop now judge the subagent's last
+  reply on the evidence half of the Stop rule and write one `subagent_end`
+  row. It never blocks and never counts as a claim. Every Stop adapter names
+  its re-ask budget as `STOP_REASKS = 1`. On Claude a subagent's tool rows
+  still sit in the parent's ledger, so the row judges the parent's turn until
+  the agent key lands.
 - **Lessons keep their rule when injected.** A lesson line is now written rule
   first: `<rule> - <incident>`. The rule sits in the first 120 characters, so
   the 200-character cut keeps it. The session block says how many of its lines
@@ -56,6 +63,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lines, neither does a word found in more than half of them. "update the
   changelog" used to inject three unrelated lessons and now injects none. The
   docs fallback ranks as before.
+- **A pass now licenses a claim only when it checked something.**
+  `--version`, `--help`, `--list`, `--collect-only`, `make help` and a bare
+  `ruff` now record as plain runs. So do formatters in write mode:
+  `ruff format`, `ruff check --fix`, `prettier --write` and `eslint --fix`.
+  A formatter run after a pass now makes that pass stale. A check whose own
+  output says it ran nothing (`collected 0 items`, `no tests ran`, `Ran 0
+  tests`, `No tests found`) no longer counts as a pass. omp's bridge reads
+  that from the result and sends only the flag. A pass also has to come from
+  the changed file's own repository, so `cd ../other && pytest` no longer
+  covers an edit here. The rule now dates a pass from the moment its check
+  began, so a write that landed while the check ran makes it stale. The gate
+  reads the same list: an information form is not a neutered or piped check,
+  and it gets no retry exemption.
+- **Honest Stop counters.** A blocked reply that claimed nothing is now a
+  `refusal` row, not a `claim`. It has no completion word and no claim about
+  an outside system. `false_completion / claims` counts claims only, and
+  `counters` adds `refusals`. A `no verify_ok` row says
+  whether no check ran or none was seen to pass. Rows are now version 3.
+  The docs no longer call that ratio the one number that matters, and no
+  longer quote a fixed value for it.
+- **A question is not a claim on a turn with no work.** "Testler geçti mi?",
+  "is it done?" and "not tested yet" no longer trigger the no-work claim
+  check. "Tamamlandı, push edeyim mi?" still does.
 
 ### Fixed
 

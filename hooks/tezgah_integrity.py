@@ -35,7 +35,7 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
-from tezgah_paths import cache_dir, off, root_for
+from tezgah_paths import _toplevel, cache_dir, off, root_for
 
 # A command that actually checks the change, as opposed to one that merely runs.
 # Command position, like UI_CHECK: `echo pytest` and `cat pytest.ini` were
@@ -72,6 +72,37 @@ VERIFY = re.compile(
     r"lighthouse|pa11y|axe-core|backstop|reg-suit|vitest|jest|ava|mocha|eslint|"
     r"prettier|tsc|pyright)"
     r")\b", re.I | re.M)
+# A check-shaped command that checks nothing, read on the words after the tool
+# up to the end of its own command (evidence-01): an information form prints a
+# version, a help text or a list and exits 0 on any tree, so `pytest --version`
+# and `make help` record as a `run`, never as the pass a claim rests on. `ruff`
+# with no subcommand is its help text. The collect-only form lists tests and
+# runs none.
+INFO_ARGS = re.compile(r"(?:^|\s)(?:--version|--help|--list|--collect-only)(?=\s|$)")
+INFO_SUBCOMMAND = {"make": re.compile(r"^\s*help(?:\s|$)"),
+                   "just": re.compile(r"^\s*help(?:\s|$)"),
+                   "ruff": re.compile(r"^\s*$")}
+# A formatter or fixer in its write mode changes the tree, so its row is a
+# change the freshness fold reads (`_change_row`) and never the pass: `ruff
+# format .` (without --check/--diff), `ruff check --fix`, `prettier --write`
+# and `eslint --fix` rewrote files while their row stood as the check.
+FORMAT_WRITE = {"ruff": re.compile(r"^\s*format\b(?!.*\s--(?:check|diff)\b)|\s--fix\b"),
+                "prettier": re.compile(r"(?:^|\s)(?:--write|-w)(?=\s|$)"),
+                "eslint": re.compile(r"(?:^|\s)--fix\b")}
+# Where one command's words end: the next separator on the masked text.
+COMMAND_END = re.compile(r"[;&|\n)]")
+# A check's own output saying it ran nothing (the output contract of R04 d):
+# pytest's `collected 0 items` / `no tests ran`, unittest's `Ran 0 tests` and
+# jest's `No tests found`, each at the start of its line so a test that prints
+# the phrase mid-line is not read as one. Read on a bounded tail of the result
+# (`EMPTY_RUN_TAIL`): a run of nothing is short, and a Stop/PostToolUse hook has
+# a 5 s budget. The omp bridge carries a copy of this literal
+# (hosts/omp/tezgah-hook.ts.in `EMPTY_RUN`), pinned equal by
+# tests/test_omp_extension.py, because it sends a size and never the body.
+EMPTY_RUN = re.compile(
+    r"^[=\s]*(?:collected 0 items|no tests ran|ran 0 tests|no tests found)\b",
+    re.I | re.M)
+EMPTY_RUN_TAIL = 4096
 # A source file a person looks at: the rendered formats, so a build log or a
 # document written beside them is not a UI turn. Web first, then the native and
 # template formats a screen is written in - a SwiftUI view or a Rails template is
@@ -420,13 +451,21 @@ PERMANENT_ERROR = re.compile(
 # cwd the row does not carry, so the cross-session write guard compared `README.md`
 # in one repository with `README.md` in another and refused both for ten minutes
 # (audit CHAT-03 / M-6). The guard reads this field and nothing else.
+# `repo` is a check row's effective repository: the git toplevel of the cwd the
+# check ran in, after a leading `cd X &&` (`_check_repo`, no git fork). The Stop
+# fold licenses a change only with a pass in the change's own repository, so a
+# pass run in another checkout is not evidence about this one (evidence-01).
+# Not retroactive: a row without it binds to nothing, as before.
+# `empty_run` marks a check whose own output said it ran nothing (EMPTY_RUN).
+# `cause` splits a `blocked: no verify_ok` refusal by what the turn lacked: `no
+# check` (none ran) or `outcome unread` (one ran and no pass was seen).
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
                            "tr_share", "answer_first", "child",
                            "summary_chars", "summary_hash",
                            "constraint_found", "constraint_expected", "parent", "agent",
-                           "check", "key", "block"))
+                           "check", "key", "block", "repo", "empty_run", "cause"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -444,7 +483,13 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
 # this boundary has to know that `interrupted` rows exist - a v1 row's
 # `verify_fail` may be either a failed check or an interrupted one - and that a
 # step row can carry this kind with no `exit` at all.
-ROW_VERSION = 2
+#
+# 3: a `claim` row is written only for a reply in the claim vocabulary
+# (`claims`). A refusal of a reply that claimed nothing - work-only, or its
+# shape - is a `refusal` row with the same detail, so `false_completion /
+# claims` counts completion claims only; and a `blocked: no verify_ok` row
+# carries `cause`. A v2 `claim` row may be either.
+ROW_VERSION = 3
 
 
 def cut(text, limit):
@@ -1529,6 +1574,7 @@ def _counts(rows, weeks=False, tools=False):
            "shape": 0, "replies": 0, "shape_blocked": 0, "fanout": 0,
            "steps": 0, "tool_error_rate": None,
            "claims": 0, "false_completion": 0, "blocked_claims": {},
+           "refusals": 0,
            "subagent_results": 0, "subagent_bytes_p50": None,
            "subagent_bytes_max": None,
            "compactions": 0, "compact_chars": None,
@@ -1574,6 +1620,12 @@ def _counts(rows, weeks=False, tools=False):
             out["denies"][rule] = out["denies"].get(rule, 0) + 1
         elif kind == "nudge":
             out["nudges"] += 1
+        elif kind == "refusal":
+            # a blocked reply that claimed nothing (ROW_VERSION 3): a refusal,
+            # never a false completion, so it is out of `claims`
+            out["refusals"] += 1
+            if detail[len("blocked: "):] in SHAPE_BLOCKS:
+                out["shape_blocked"] += 1
         elif kind == "claim":
             out["claims"] += 1
             refused = False
@@ -1651,6 +1703,26 @@ def _counts(rows, weeks=False, tools=False):
     return out
 
 
+def _check_runs(cmd):
+    """(name, mode) for every check-shaped command in `cmd`, in order. `mode` is
+    `check`, `info` (INFO_ARGS / INFO_SUBCOMMAND: it checks nothing) or `write`
+    (FORMAT_WRITE: it changes the tree), read on the words after the tool up to
+    the end of that one command, so `pytest --version; pytest` still runs a
+    check."""
+    text = mask(cmd)
+    for m in VERIFY.finditer(text):
+        name = (m.groupdict().get("js") or m.group(0)).strip()
+        tool = name.split()[-1].lower()
+        args = COMMAND_END.split(text[m.end():], 1)[0]
+        sub = INFO_SUBCOMMAND.get(tool)
+        if INFO_ARGS.search(args) or (sub and sub.match(args)):
+            yield name, "info"
+        elif tool in FORMAT_WRITE and FORMAT_WRITE[tool].search(args):
+            yield name, "write"
+        else:
+            yield name, "check"
+
+
 def verify_command(cmd):
     """The name of the check this command runs, or None.
 
@@ -1661,12 +1733,20 @@ def verify_command(cmd):
     passing check the ledger invented, which then licensed a "done" claim. Cost
     of the miss it opens: a check run inside a quoted body (`bash -c 'pytest'`)
     reads as a call that ran, never as one that passed, the same way a piped one
-    does."""
-    m = VERIFY.search(mask(cmd))
-    if not m:
-        return None
-    # a JS tool names itself, not its runner (`npx axe-core` is `axe-core`)
-    return (m.groupdict().get("js") or m.group(0)).strip()
+    does.
+
+    An information form and a formatter's write mode are not checks
+    (`_check_runs`), so every consumer - the evidence kind, the gate's retry
+    exemption, its began `check` mark, `piped_check` and the NEUTER rule - reads
+    them as the plain commands they are. A JS tool names itself, not its runner
+    (`npx axe-core` is `axe-core`)."""
+    return next((name for name, mode in _check_runs(cmd) if mode == "check"),
+                None)
+
+
+def format_write(cmd):
+    """True when `cmd` runs a formatter or fixer in its write mode."""
+    return any(mode == "write" for _name, mode in _check_runs(cmd))
 
 
 def _heredoc_tag(cmd, j):
@@ -2653,7 +2733,7 @@ def unanswered(rows, delivered=()):
 
 
 def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
-              out_bytes=None, error=None, cwd=None, source=None):
+              out_bytes=None, error=None, cwd=None, source=None, empty_run=False):
     """Record the evidence kind for one tool call (host PostToolUse hooks).
 
     `failed=None` is the default because a host that passes no argument reported
@@ -2688,12 +2768,17 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     notice reads rather than in nothing at all. A name outside every list - a
     tool the host does not have, or one it added - is recorded as `unknown` with
     the name in the detail, and only the read/search tools record nothing. A
-    write also carries the target's after-state (`_post_write`)."""
+    write also carries the target's after-state (`_post_write`).
+
+    A check row also carries `repo` (`_check_repo`), and `empty_run` when the
+    host saw the check's own output say it ran nothing (`ran_nothing`): such a
+    check exited 0 over nothing, so it records as one that RAN (`verify`), the
+    piped check's kind, and the turn still owes a pass."""
     inp = inp or {}
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     kind = classify(tool, inp)
     if kind == "verify":
-        if failed is None or pipe_hides_status(cmd):
+        if failed is None or pipe_hides_status(cmd) or (empty_run and not failed):
             kind = "verify"
         else:
             kind = "verify_fail" if failed else "verify_ok"
@@ -2768,6 +2853,9 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         # (`writers_elsewhere`): `detail` is the host's own spelling, relative to
         # a cwd the row does not carry (audit CHAT-03 / M-6)
         fields["target"] = _abs_target((_written_paths(inp) or [""])[0], cwd)
+    if kind.startswith("verify"):
+        fields["repo"] = _check_repo(cmd, cwd)
+        fields["empty_run"] = True if empty_run else None
     note(session_id, kind, detail, **fields)
     if kind == "edit" and not failed:
         # the taste capture (tezgah_taste, opt-in): the edit's text under this
@@ -2780,10 +2868,69 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         tezgah_taste.note_write(session_id, fields["id"], inp, cwd)
 
 
+# A leading `cd X &&` (or `;`): the directory the rest of the command ran in.
+LEADING_CD = re.compile(r"^\s*cd\s+(\S+)\s*(?:&&|;)")
+
+
+def _check_repo(cmd, cwd):
+    """The git toplevel the check in `cmd` ran in, or None: `cwd`, moved by a
+    leading `cd X &&`. ponytail: only a leading `cd` is read (plan 054 parses
+    the rest); a cwd the host did not send binds the row to nothing."""
+    if not cwd:
+        return None
+    m = LEADING_CD.match(cmd)
+    where = (os.path.join(cwd, os.path.expanduser(m.group(1).strip("'\"")))
+             if m else cwd)
+    return _toplevel(os.path.realpath(where))
+
+
+def ran_nothing(result):
+    """True when a tool result's own text says the check ran nothing
+    (EMPTY_RUN), read on its last EMPTY_RUN_TAIL characters. `result` is the
+    host's: a string, or a mapping whose `stdout`/`stderr`/`output` strings are
+    read. Anything else says nothing."""
+    if isinstance(result, dict):
+        result = "\n".join(result[k][-EMPTY_RUN_TAIL:]
+                           for k in ("stdout", "stderr", "output")
+                           if isinstance(result.get(k), str))
+    return isinstance(result, str) and bool(
+        EMPTY_RUN.search(result[-EMPTY_RUN_TAIL:]))
+
+
 def claims(text):
     """(claims_completion, claims_verification) for a final reply."""
     t = str(text or "")
     return (bool(DONE.search(t)), bool(VERIFIED.search(t)))
+
+
+# The question/negation window around a claim word (R04 i, evidence-10): "is
+# it done?", "testler geçti mi?", "not tested yet" and "tamamlandı değil" name
+# a claim without making it. Read in the claim's own clause: up to two words
+# after a negation before it, and the particle or a `?` after it before the
+# next `,;:.!` - so "Tamamlandı, push edeyim mi?" still asserts its first half.
+NEGATION_BEFORE = re.compile(r"(?:\bnot|n't|\bnever|\bdeğil)(?:\s+\S+){0,2}\s+\Z",
+                             re.I)
+QUESTION_AFTER = re.compile(r"\s*(?:m[ıiuü]|değil)\b|[^.!,;:\n]*\?", re.I)
+SENTENCE_END = re.compile(r"[.!?\n]")
+
+
+def asserted_claims(text):
+    """`claims`, with a claim word inside a question or under a negation not
+    counted. Applied where the words are the whole trigger - the no-work path
+    of `_stop_block` - so a turn that did work is still judged on its rows.
+    ponytail: a window of words, not a parser; a claim the window hides costs
+    nothing a turn with work could escape through."""
+    t = str(text or "")
+
+    def said(pattern):
+        for m in pattern.finditer(t):
+            before = SENTENCE_END.split(t[max(0, m.start() - 60):m.start()])[-1]
+            if not (NEGATION_BEFORE.search(before)
+                    or QUESTION_AFTER.match(t, m.end())):
+                return True
+        return False
+
+    return said(DONE), said(VERIFIED)
 
 
 def passing_check(entry):
@@ -2791,10 +2938,11 @@ def passing_check(entry):
 
     A `verify_ok` is support only when the host reported exit 0, the tool
     returned something (an exit-0-but-empty result is the classic silent
-    failure) and no pipe owns the status - `pytest | tail` proves nothing about
-    pytest, `set -o pipefail; pytest | tail` does (`pipe_hides_status`).
-    Everything else is a check that ran with an outcome nobody saw."""
-    if entry.get("kind") != "verify_ok":
+    failure), its own output did not say it ran nothing (`empty_run`) and no
+    pipe owns the status - `pytest | tail` proves nothing about pytest, `set -o
+    pipefail; pytest | tail` does (`pipe_hides_status`). Everything else is a
+    check that ran with an outcome nobody saw."""
+    if entry.get("kind") != "verify_ok" or entry.get("empty_run"):
         return False
     if entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
@@ -2823,16 +2971,24 @@ def _changed_write(row):
 
 def _change_row(row):
     """True when this row is one the freshness fold counts as a change to the
-    tree: a write tool's `edit` row, or a shell call that wrote a file (`run`).
+    tree: a write tool's `edit` row, a shell call that wrote a file (`run`), or
+    a formatter's write mode (`format_write`) - a `run` row with no captured
+    target that is a change all the same, because the formatter's job is to
+    rewrite files, so `_changed_write`'s "left unstated" rule does not hold for
+    it.
 
     A `verify*` row is never one, even when its command is a write shape: the row
     that carries a passing check cannot also be the row the fold reads as the
     change, or `_last_pass` and `_last_change` return one position and the turn
     that ran the check is refused for it. ponytail: a shell write chained with a
-    check in one call (`sed -i ... && pytest`) records as the check, so it is not
-    read as a change; a write whose target is not a redirect carries no captured
-    state either (tezgah_gate.write_paths names both ceilings)."""
-    return str(row.get("kind")) in ("edit", "run") and _changed_write(row)
+    check in one call (`sed -i ... && pytest`, `ruff format . && pytest`) records
+    as the check, so it is not read as a change; a write whose target is not a
+    redirect carries no captured state either (tezgah_gate.write_paths names
+    both ceilings)."""
+    kind = str(row.get("kind"))
+    return kind in ("edit", "run") and (
+        _changed_write(row)
+        or (kind == "run" and format_write(str(row.get("detail") or ""))))
 
 
 def _last_change(rows):
@@ -2843,12 +2999,39 @@ def _last_change(rows):
     return -1
 
 
-def _last_pass(rows):
-    """The index of the newest row that is evidence a check passed, or -1."""
-    for i in range(len(rows) - 1, -1, -1):
-        if passing_check(rows[i]):
-            return i
-    return -1
+def _change_repo(rows, i):
+    """The repository of the change at `rows[i]`, or None: the toplevel of an
+    `edit` row's `target`. ponytail: a shell write carries no target, so a turn
+    whose newest change is one binds its pass to nothing; a turn that changed
+    two repositories is judged on the newest change's."""
+    target = rows[i].get("target") if i >= 0 else None
+    return _toplevel(os.path.dirname(str(target))) if target else None
+
+
+def _last_pass(rows, repo=None):
+    """The position of the newest row that is evidence a check passed, or -1.
+
+    The position is the check's START - its gate-written `began` row, paired
+    oldest-first by `id` as `_began_fold` pairs them - and not its outcome row:
+    a write that landed while the check ran is newer than the tree the check
+    read, though its row is older than the check's outcome (evidence-08). A
+    pass with no `began` row (a host that writes none) keeps its own position.
+
+    `repo` binds the pass to a repository: a pass whose `repo` is another one
+    is not evidence about this change (`_check_repo`); a row with no `repo`
+    binds to nothing and counts, as before."""
+    waiting, best = {}, -1
+    for i, row in enumerate(rows):
+        digest, kind = row.get("id"), row.get("kind")
+        if kind == BEGAN_KIND:
+            if digest:
+                waiting.setdefault(digest, []).append(i)
+            continue
+        start = (waiting[digest].pop(0)
+                 if kind in OUTCOME_KINDS and waiting.get(digest) else i)
+        if passing_check(row) and (not repo or row.get("repo") in (None, repo)):
+            best = max(best, start)
+    return best
 
 
 def _stale_paths(rows):
@@ -3292,9 +3475,10 @@ def _shape_block(text, cwd):
     the evidence and is not cleared by "doğrulanmadı". A nested session tezgah
     started itself (`TEZGAH_NESTED`, set by consult on the agent CLIs it runs) is
     a tool answering a tool: its reply is read by code, in English, so neither
-    half applies there. Subagent sessions never reach this: omp documents that
-    `session_stop` does not fire for task sessions, Claude and Cursor send a
-    subagent's end to SubagentStop/subagentStop, which runs no Stop rule."""
+    half applies there. A subagent's end is not judged here either: its report
+    is read by its parent, in English, and the subagent-end record
+    (`stop_reason`'s `subagent`) asks `_stop_block` for the evidence half only.
+    omp documents that `session_stop` does not fire for task sessions."""
     if os.environ.get("TEZGAH_NESTED"):
         return (None, None)
     lines = text.split("\n")
@@ -3342,7 +3526,8 @@ def _shape_block(text, cwd):
     return (None, None)
 
 
-def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False):
+def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
+                subagent=False):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
     `cwd` is the session's directory, read for the repo's `.no-adhd` mark.
@@ -3354,15 +3539,19 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False)
     ledger here, which is what it got before the scope; it loses the bound and
     nothing else.
 
-    The verdict is recorded as a `claim` row when the reply was blocked or made
-    a claim: a blocked stop leaves no trace otherwise, and the false-completion
-    rate (counters) needs both the refusals and the claims that were allowed
-    through. `detail` carries the reason class - `blocked: no verify_ok`,
-    `blocked: check failed`, `blocked: partial failure`, `blocked: stale
-    evidence`, `blocked: no ui_ok` (both halves of the UI rule: the screen proof
-    and the design-contract floor), `blocked: no external read`, the shape classes
-    in SHAPE_BLOCKS, or `ok` - so which branch refused a turn is readable.
-    One row per reply per turn: an identical row for the same key is skipped.
+    The verdict is recorded as a `claim` row when the reply is in the claim
+    vocabulary - a completion or verification word (`claims`), blocked or not,
+    or a refused claim about an external system's state (`_external_claim`) -
+    and as a `refusal` row when a reply that claimed nothing was blocked - a
+    work-only or a shape refusal - so `false_completion / claims` counts claims
+    only (ROW_VERSION 3).
+    `detail` carries the reason class - `blocked: no verify_ok`, `blocked: check
+    failed`, `blocked: partial failure`, `blocked: stale evidence`, `blocked: no
+    ui_ok` (both halves of the UI rule: the screen proof and the design-contract
+    floor), `blocked: no external read`, the shape classes in SHAPE_BLOCKS, or
+    `ok` - so which branch refused a turn is readable; a `no verify_ok` row also
+    carries `cause` (`_no_pass_cause`). One row per reply per turn: an identical
+    row for the same key is skipped.
 
     Every judged reply also leaves one `shape` row: `detail` is its report-only
     `shape_flags` (or `ok`) and the row carries `reply_shape`'s fields, so the
@@ -3375,14 +3564,18 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False)
     reply - so what a block led to is on the record without counting as a
     claim or as a second reply in the shape rate. Only a turn this rule
     refused has one: the flag says some Stop hook blocked, not that this one
-    did. Returns None."""
+    did. `subagent` is a subagent's end (ADR 011): judged the same way, never
+    refused, recorded as a `subagent_end` row with the same detail vocabulary
+    and no turn precondition. Both return None."""
     rows, turns = turn_rows(session_id, turns=True)
-    if record_only and not any(
-            entry.get("kind") == "claim"
+    record_only = record_only or subagent
+    if record_only and not subagent and not any(
+            entry.get("kind") in ("claim", "refusal")
             and str(entry.get("detail", "")).startswith("blocked:")
             for entry in rows):
         return None
-    cls, reason = _stop_block(text, session_id, edited_hint, rows=rows, cwd=cwd)
+    cls, reason = _stop_block(text, session_id, edited_hint, rows=rows, cwd=cwd,
+                              shape=not subagent)
     key = _claim_key(text, turns)
     # Keyed like the claim row, so Cursor's re-run of the handler on a follow-up
     # does not count the same reply twice; above the early return, so a reply
@@ -3392,20 +3585,38 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False)
                                    and entry.get("id") == key for entry in rows):
         note(session_id, "shape", ",".join(shape_flags(text)) or "ok", id=key,
              **shape)
+    claimed = any(claims(text))
     if record_only:
         detail = ("would block: %s" % cls if reason
-                  else "ok" if any(claims(text)) else "no claim")
-        kind, reason = "after_block", None
+                  else "ok" if claimed else "no claim")
+        kind, reason = "subagent_end" if subagent else "after_block", None
     elif reason:
-        detail, kind = "blocked: %s" % cls, "claim"
-    elif any(claims(text)):
+        # an external-state claim is a claim when it is refused: the class it
+        # owes (`no external read`) is about the claim, not the turn's work
+        detail = "blocked: %s" % cls
+        kind = ("claim" if claimed or _external_claim(str(text or ""))
+                else "refusal")
+    elif claimed:
         detail, kind = "ok", "claim"
     else:
         return None
     if not any(entry.get("kind") == kind and entry.get("id") == key
                for entry in rows):
+        if cls == "no verify_ok" and not record_only:
+            shape = dict(shape, cause=_no_pass_cause(rows))
         note(session_id, kind, detail, id=key, **shape)
     return reason
+
+
+def _no_pass_cause(rows):
+    """Why a `no verify_ok` turn had no pass: `outcome unread` when a check ran
+    and no pass was seen of it (no outcome, a pipe, an empty run, a result that
+    never arrived), else `no check`."""
+    waiting = _began_fold(rows)[0]
+    unread = any(row.get("kind") == "verify"
+                 or (row.get("kind") == "verify_ok" and not passing_check(row))
+                 for row in rows) or any(row.get("check") for row in waiting)
+    return "outcome unread" if unread else "no check"
 
 
 def _failed_check(rows):
@@ -3594,7 +3805,8 @@ def _settled(rows):
     return not after or _bookkeeping_turn(after)
 
 
-def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
+def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
+                shape=True):
     """stop_reason's decision as (reason class, block text), without the ledger
     side effect. The class names the branch that refused the turn; the text is
     what the host shows the model.
@@ -3631,7 +3843,7 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     scoped the way `_partial_state`'s already was, and the Stop path still reads
     the file once per turn."""
     t = str(text or "")
-    shaped = _shape_block(t, cwd)
+    shaped = _shape_block(t, cwd) if shape else (None, None)
     if shaped[0]:
         return shaped
     done, verified = claims(t)
@@ -3654,6 +3866,10 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None):
     # not the partial-failure branch above it, because an interruption is no
     # failure at all (the row carries no `exit`).
     worked = ev & WORK_KINDS
+    if not worked:
+        # With no work, the words are the whole trigger, so a question or a
+        # negation is not read as the claim it names (`asserted_claims`).
+        done, verified = asserted_claims(t)
     # A call the gate let through whose result never arrived (`unanswered`) is
     # unknown in both directions. The gate writes `began` before the host's own
     # permission layer, so a call the user refused never answers either: it is
@@ -3768,8 +3984,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
     # write the gate saw change the tree: a green run over the previous revision
     # is not evidence about this one, and the ledger already carries both sides
     # (the check's position, and `changed` on the write). The escape is the
-    # reply's own "doğrulanmadı", which returns above.
-    last_pass, last_change = _last_pass(rows), _last_change(rows)
+    # reply's own "doğrulanmadı", which returns above. The pass has to be one
+    # run in the newest change's own repository (`_last_pass`'s `repo`).
+    last_change = _last_change(rows)
+    last_pass = _last_pass(rows, _change_repo(rows, last_change))
     # The UI half, read before the generic freshness pair because it is a stricter
     # question about the same rows: a proof of the screen - a check that renders,
     # or a read of the rendered screen - stands where a unit pass stands, and only

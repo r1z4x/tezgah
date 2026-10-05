@@ -2276,7 +2276,7 @@ class OmpHost(SetupBase):
 class PowershellMatcher(SetupBase):
     """A PowerShell call is a shell call, so every shell rule has to reach it.
 
-    `powershell` is in `BASH_TOOLS` (`hooks/tezgah_integrity.py:344-345`),
+    `powershell` is in `BASH_TOOLS` (`hooks/tezgah_integrity.py:375-376`),
     which the secret, shortcut, loop, retry and task-shell rules
     are all keyed on - so refusing one is the design. What decides whether the
     gate sees the call at all is the host's own matcher (Claude's manifest, the
