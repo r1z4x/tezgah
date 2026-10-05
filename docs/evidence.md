@@ -609,7 +609,9 @@ only, and never leaves the machine. Every figure it prints names its cutoff.
 `replay --sheet` draws the blind label sample with a fixed seed. It fills per-stratum quotas,
 shuffles them, and writes `tezgah-taste measure`'s `{set, n, text}` format. No item shows its
 verdict, its rule or its reason. The verdicts sit in `sheet-key.jsonl`, which a rater does not
-open. `replay --report --labels <file> ...` reads one labels file per rater
+open. The sheet leaves off every race deny written before the ledger stored `target`, because a
+rater could not see its foreign writer. With no race item on the sheet, the report calls the race
+exemption bar not measurable. `replay --report --labels <file> ...` reads one labels file per rater
 (`{set, n, label, rater}`). It prints these rates, each with a Wilson 95% interval:
 
 - **False-block rate (rule r)** = denies of r labelled `allow` ÷ denies of r with a label.

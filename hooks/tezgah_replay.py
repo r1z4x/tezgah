@@ -77,6 +77,8 @@ SIDE_KINDS = {"deny": ("drift", "nudge"), "began": ("drift", "nudge"),
               "claim": ("shape",)}
 # The rule the family fold (plan 055 part 6, D32a) is about.
 RACE_RULE = "race"
+RACE_BAR_UNMEASURABLE = ("not measurable on this corpus: no race item is on the sheet "
+                         "(every joined live race deny predates the `target` field)")
 # Which rules read only the call and the ledger (replayable as they ran) and
 # which read the disk as it is today. Keyed by `_deny_rule` labels. A rule in
 # `disk_on_write` is disk-state on a write tool; one in `disk_on_file` is
@@ -130,6 +132,7 @@ def _stamp(epoch):
 
 def _owner_write(path, text):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)  # the create mode does not reach a file that already exists
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(text)
 
@@ -657,9 +660,18 @@ def sheet(run, seed=SEED, rules=None):
     summary = json.load(open(os.path.join(run, "summary.json"), encoding="utf-8"))
     rng = random.Random(seed)
     pools = defaultdict(list)
+    # A race deny written before the ledger stored `target` cannot show its
+    # foreign writer, so a rater could only see "none recorded": it is left off
+    # the sheet (H2 amendment 2026-10-06), never shown unanswerable.
+    target = _target_since(summary["cutoff"])
+    dropped = 0
     for it in items:
-        if it["join"]:
-            pools[_bucket(it)].append(it)
+        if not it["join"]:
+            continue
+        if it["live_rule"] == RACE_RULE and (target is None or it["ts"] < target):
+            dropped += 1
+            continue
+        pools[_bucket(it)].append(it)
     chosen = []
     for bucket in sorted(QUOTA):
         pool = pools.get(bucket, [])
@@ -679,8 +691,10 @@ def sheet(run, seed=SEED, rules=None):
     _write_jsonl(paths["sheet.jsonl"], rows)
     _write_jsonl(paths["sheet-key.jsonl"], key)
     _owner_write(paths["instructions.md"], _instructions(
-        summary, len(rows), rules, _target_since(summary["cutoff"])))
-    return paths, Counter(k["bucket"] for k in key)
+        summary, len(rows), rules, target))
+    counts = Counter(k["bucket"] for k in key)
+    counts["race left off (before target)"] = dropped
+    return paths, counts
 
 
 def _target_since(cutoff):
@@ -771,6 +785,9 @@ def report(run, label_files=()):
     labels = _labels(label_files)
     raters = sorted(labels)
     out["raters"] = raters
+    if os.path.exists(keyfile) and not any(k["bucket"] == "deny:" + RACE_RULE
+                                           for k in _read_jsonl(keyfile)):
+        out["race_exemption_bar"] = RACE_BAR_UNMEASURABLE
     if not os.path.exists(keyfile) or not raters:
         out["labels"] = "unverifiable: %s" % ("no sheet drawn" if not os.path.exists(keyfile)
                                               else "no labels file")
@@ -819,7 +836,8 @@ def report(run, label_files=()):
     out["false_block"] = {r: _rate(c["wrong"], c["n"]) for r, c in sorted(rules.items())}
     out["stop_missed_violation"] = _rate(stop["allow:hit"], stop["allow:n"])
     out["stop_false_refusal"] = _rate(stop["block:hit"], stop["block:n"])
-    out["race_intra_false_block"] = _rate(race_intra["wrong"], race_intra["n"])
+    out["race_intra_false_block"] = _rate(race_intra["wrong"], race_intra["n"]) \
+        if drawn["deny:race"] else RACE_BAR_UNMEASURABLE
     return out
 
 
@@ -881,10 +899,12 @@ def main(argv):
     args = p.parse_args(argv)
     if args.sheet:
         paths, counts = sheet(_run_dir(args.run), args.seed, args.rules)
+        left = counts.pop("race left off (before target)")
         print("sheet: %s (%d rows)" % (paths["sheet.jsonl"], sum(counts.values())))
         print("key (raters must not open): %s" % paths["sheet-key.jsonl"])
         print("instructions: %s" % paths["instructions.md"])
         print("rows per stratum: %s" % ", ".join("%s %d" % kv for kv in sorted(counts.items())))
+        print("race denies left off (written before the ledger stored `target`): %d" % left)
         return 0
     if args.report:
         out = report(_run_dir(args.run), args.labels)
@@ -905,6 +925,9 @@ def _print_labels(out):
     print("raters: %s" % (", ".join(out["raters"]) or "none"))
     if isinstance(out.get("labels"), str):
         print("per-rule false-block rates, Stop rates, kappa: %s" % out["labels"])
+        if out.get("race_exemption_bar"):
+            print("race exemption bar (>= 70%% intra-family false blocks): %s"
+                  % out["race_exemption_bar"])
         return
     k = out["kappa"]
     print("kappa: %s" % (k if isinstance(k, str) or k is None else "%.3f over %d pairs"
@@ -919,8 +942,9 @@ def _print_labels(out):
         print("false-block %-8s %s" % (rule, _fmt(r)))
     print("stop missed-violation %s" % _fmt(out["stop_missed_violation"]))
     print("stop false-refusal    %s" % _fmt(out["stop_false_refusal"]))
+    bar = out["race_intra_false_block"]
     print("race intra-family false-block %s (exemption bar: >= 70%%)"
-          % _fmt(out["race_intra_false_block"]))
+          % (bar if isinstance(bar, str) else _fmt(bar)))
 
 
 def _fmt(r):

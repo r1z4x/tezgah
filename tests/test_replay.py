@@ -60,6 +60,7 @@ class Corpus(TempHome):
         evidence = os.path.join(self.home, ".cache", "tezgah", "evidence")
         self.evidence = evidence
         sessions = os.path.join(self.home, ".omp", "agent", "sessions", "-app-")
+        self.race_args = {"path": os.path.join(self.repo, "c.py"), "content": "z = 3\n"}
         top = os.path.join(sessions, "s.jsonl")
         jsonl(top, [
             {"type": "title"},
@@ -67,6 +68,7 @@ class Corpus(TempHome):
             {"type": "message", "message": {"role": "user", "content": "run the tests"}},
             assistant(T0 + 1, call("bash", {"command": "ls", "i": "Listing"})),
             assistant(T0 + 2, call("bash", {"command": PIPED, "i": "Testing"})),
+            assistant(T0 + 5, call("write", dict(self.race_args, i="Writing"))),
             assistant(T0 + 6, {"type": "text", "text": REPLY})])
         self.write_args = {"path": os.path.join(self.repo, "a.py"), "content": "x = 1\n"}
         jsonl(os.path.join(sessions, "s", "worker.jsonl"), [
@@ -88,6 +90,10 @@ class Corpus(TempHome):
              "workspace": ws},
             dict(bash, kind="began", ts=T0 + 4, detail="x" * ti.DETAIL_MAX, id="c1"),
             dict(bash, kind="began", ts=T0 + 4, detail="export K=[redacted:40]", id="c2"),
+            # a race deny from before the ledger stored `target`: no edit row here
+            # carries one, so the sheet cannot show its writer and leaves it off
+            {"kind": "deny", "ts": T0 + 5, "detail": "race: Concurrent write refused",
+             "id": ti.call_id("write", self.race_args), "workspace": ws},
             {"kind": "claim", "ts": T0 + 6, "detail": "blocked: no verify_ok",
              "id": ti._claim_key(REPLY, 1)},
             {"kind": "deny", "ts": CUTOFF + 100, "detail": "drift: long turn", "id": "c3",
@@ -134,7 +140,7 @@ class Corpus(TempHome):
         self.assertEqual(s["excluded"], {"test-row": 1, "after-cutoff": 1,
                                          "retired-rule": 1, "capped": 1, "redacted": 1})
         self.assertEqual(s["cutoff"], CUTOFF)
-        self.assertEqual((s["items"], s["joined"]), (5, 5))
+        self.assertEqual((s["items"], s["joined"]), (6, 6))
         self.assertEqual(s["join"]["began:write:joined"], 2,
                          "omp's `i` key is dropped, and a legacy ledger name still joins")
         self.assertEqual(s["stop_text_fidelity"], 1)
@@ -142,7 +148,7 @@ class Corpus(TempHome):
         self.assertEqual((fid["ledger/piped"]["agree"], fid["ledger/piped"]["n"]), (1, 1))
         self.assertEqual((fid["allow"]["agree"], fid["allow"]["n"]), (3, 3))
         self.assertEqual((fid["stop"]["agree"], fid["stop"]["n"]), (1, 1))
-        self.assertEqual(fid["ledger"]["n_since"], 1)
+        self.assertEqual(fid["ledger"]["n_since"], 2)
 
     def test_writes_only_under_the_replay_cache(self):
         before_repo = self.tree(self.repo)
@@ -169,6 +175,7 @@ class Corpus(TempHome):
         s = self.replay()
         out = self.cli("--sheet")
         self.assertIn("(5 rows)", out)
+        self.assertIn("left off (written before the ledger stored `target`): 1", out)
         with open(os.path.join(s["run"], "sheet.jsonl"), encoding="utf-8") as fh:
             rows = [json.loads(line) for line in fh]
         with open(os.path.join(s["run"], "sheet-key.jsonl"), encoding="utf-8") as fh:
@@ -182,6 +189,8 @@ class Corpus(TempHome):
         self.assertTrue(os.path.exists(os.path.join(s["run"], "instructions.md")))
         print_report = self.cli("--report")
         self.assertIn("no labels file", print_report)
+        self.assertIn("race exemption bar", print_report)
+        self.assertIn("not measurable on this corpus", print_report)
         labels = {"deny:piped": "allow", "stop:block": "honest", "allow": "allow"}
         files = []
         for rater, flip in (("owner", None), ("second", "allow")):
