@@ -19,14 +19,14 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `TEZGAH_PREFIX` | `packaging/install.sh:24`, `packaging/upgrade.sh`, `packaging/install.ps1`, `bin/tezgah-setup:59` | `$XDG_DATA_HOME/tezgah`, else `~/.local/share/tezgah` (`%LOCALAPPDATA%\tezgah` on Windows) | Where the artifact install unpacks its versions and the `current` link; `tezgah-setup` treats it as the install prefix. |
+| `TEZGAH_PREFIX` | `packaging/install.sh:24`, `packaging/upgrade.sh`, `packaging/install.ps1`, `bin/tezgah-setup:61` | `$XDG_DATA_HOME/tezgah`, else `~/.local/share/tezgah` (`%LOCALAPPDATA%\tezgah` on Windows) | Where the artifact install unpacks its versions and the `current` link; `tezgah-setup` treats it as the install prefix. |
 | `TEZGAH_VERSION` | `packaging/install.sh`, `packaging/upgrade.sh`, `packaging/install.ps1`, `packaging/build.sh:70` | the newest GitHub release; `build.sh` falls back to `VERSION`/the CHANGELOG | The version to install, or the version `build.sh` stamps when `--version` is not given. |
 | `TEZGAH_REPO` | `packaging/install.sh:12`, `packaging/upgrade.sh`, `packaging/install.ps1` | `r1z4x/tezgah` | The GitHub repository releases are fetched from. |
 | `TEZGAH_UPDATE_URL` | `hooks/tezgah_update.py` | `https://github.com/<TEZGAH_REPO>/releases/latest` | Where the daily release check reads the newest tag: from the redirect, or from a JSON body's `tag_name`. Tests point it at a `file://` fixture. |
 | `TEZGAH_UPDATE_CHECK` | `hooks/tezgah_update.py` | unset | `0` turns off the update chip and the daily check. The test suite sets it, so no test reaches the network. |
 | `TEZGAH_DIST` | `packaging/upgrade.sh:72`, `packaging/install.ps1` | unset: the release URL | A directory holding `tezgah-<V>.tar.gz` and its `.sha256` (what `build.sh --out` writes) used instead of the release download; CI exercises the real fetch-verify-unpack path with it. |
-| `TEZGAH_NO_DEPS` | `bin/tezgah-setup:4544` | unset | Any value but empty or `0` is `--no-deps`: the optional tools (codegraph, orx, host CLIs) are not installed. |
-| `TEZGAH_NO_SYMLINK` | `bin/tezgah-setup:394` | unset | Any value but empty or `0` writes the copy layout a machine without symlinks gets, on a machine that has them. |
+| `TEZGAH_NO_DEPS` | `bin/tezgah-setup:4636` | unset | Any value but empty or `0` is `--no-deps`: the optional tools (codegraph, orx, host CLIs) are not installed. |
+| `TEZGAH_NO_SYMLINK` | `bin/tezgah-setup:396` | unset | Any value but empty or `0` writes the copy layout a machine without symlinks gets, on a machine that has them. |
 | `TEZGAH_PYTHON` | `hooks/tezgah_paths.py:344`, `bin/tezgah.js`, `bin/tezgah-dsh.cmd`, `hooks/hooks.json`, `hosts/*/hooks.json`, `hosts/omp/tezgah-hook.ts.in`, `hosts/opencode/plugins/tezgah.js`, `packaging/build.sh` | this process's interpreter, then `python3`/`python`/`py` on PATH | The interpreter every host hook and the npm shim start; pin it when the right Python is not first on PATH. |
 
 ## Where tezgah and the hosts keep state
@@ -35,7 +35,7 @@ the kill switches are files, not variables, and live in
 |---|---|---|---|
 | `TEZGAH_ROOTS` | `hooks/tezgah_paths.py:176`, `bin/tezgah-setup`, `hosts/opencode/plugins/tezgah.js` | `roots` in `~/.config/tezgah/config.json`, else `~/Projects` | The directories tezgah is armed over, `os.pathsep`-separated; it outranks the config file. |
 | `XDG_CONFIG_HOME` | `hooks/tezgah_paths.py:21`, `bin/tezgah-doctor`, `bin/tezgah-dsh.cmd`, `hosts/opencode/plugins/tezgah.js` | `~/.config` | Parent of tezgah's config dir (kill switches, `bin/` links, config) and of opencode's. |
-| `XDG_DATA_HOME` | `bin/tezgah-setup:62`, `packaging/install.sh`, `packaging/upgrade.sh` | `~/.local/share` | Parent of the default install prefix. |
+| `XDG_DATA_HOME` | `bin/tezgah-setup:64`, `packaging/install.sh`, `packaging/upgrade.sh` | `~/.local/share` | Parent of the default install prefix. |
 | `XDG_CACHE_HOME` | `hooks/tezgah_apps.py:27` | `~/.cache` | Parent of the app-analysis artifact dir. |
 | `TEZGAH_DEBUG` | `hooks/tezgah_guard.py` | unset | `1` makes every hook process append one line to `<cache>/debug.log` (host, script, each guarded call's outcome or exception class, elapsed ms; no prompt or tool text), created 0600 and swept by `tezgah-doctor --clean`. Off, it costs one environment read. |
 | `TEZGAH_FALLBACK_CACHE` | `hooks/tezgah_paths.py:135` | `<tempdir>/tezgah` | The cache a sandboxed hook writes when its normal cache dir is denied; a test knob. |
@@ -43,7 +43,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_NO_EXCLUDE` | `hooks/tezgah_agents.py:662` | unset | `1` stops tezgah adding its generated-agent dirs to the repository's `.git/info/exclude`. |
 | `CODEX_HOME` | `hooks/tezgah_paths.py:58` | `~/.codex` | The Codex home tezgah installs into and checks; the same variable Codex itself reads. |
 | `DSH_HOME` | `hooks/tezgah_paths.py:61`, `bin/tezgah-dsh`, `bin/tezgah-dsh.cmd` | `~/.dsh` | The dsh home tezgah installs into, and where `tezgah-dsh` looks for the CLI. |
-| `TEZGAH_OPENCODE_DATA` | `bin/tezgah-setup:96`, `bin/tezgah-doctor` | `~/.local/share/opencode` | opencode's data dir: its session database for `tezgah-doctor` and the installer. |
+| `TEZGAH_OPENCODE_DATA` | `bin/tezgah-setup:98`, `bin/tezgah-doctor` | `~/.local/share/opencode` | opencode's data dir: its session database for `tezgah-doctor` and the installer. |
 
 ## Which binary runs
 
@@ -52,7 +52,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_CODEGRAPH_BIN` | `hooks/tezgah_paths.py:379` | the config file, then `codegraph` on PATH | The codegraph executable the index and the graph marks use. |
 | `TEZGAH_ORX_BIN` | `hooks/tezgah_paths.py:492` | `orx` on PATH | The OpenResearch CLI the research rule routes to. |
 | `TEZGAH_OMP_BIN` | `hooks/tezgah_paths.py:502` | `omp` on PATH | The omp binary the installer, the model table and consult's session-model lookup run. |
-| `TEZGAH_DSH_BIN` | `bin/tezgah-setup:701` | the profile-local entry, then `bin/tezgah-dsh`, then npx | How the installer invokes the dsh CLI. |
+| `TEZGAH_DSH_BIN` | `bin/tezgah-setup:759` | the profile-local entry, then `bin/tezgah-dsh`, then npx | How the installer invokes the dsh CLI. |
 | `TEZGAH_INDEX_BIN` | `bin/tezgah-dsh:19`, `bin/tezgah-dsh.cmd` | `~/.config/tezgah/bin/tezgah-index` | The index worker `tezgah-dsh` warms before it starts dsh. |
 | `TEZGAH_STATUS_BIN` | `hosts/dsh/statusline/lib/index.js:24`, `hosts/opencode/tui/tezgah-tui.tsx` | `~/.config/tezgah/bin/tezgah-status` | The status renderer the dsh status line and the opencode TUI call. |
 | `TEZGAH_CONSULT_CLIS` | `hooks/tezgah_paths.py:431` | unset: every agent CLI on PATH counts | Comma list of the agent CLIs that may count as consult members (empty: none); pins the answer in tests and CI. |
@@ -93,8 +93,8 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `NO_COLOR` | `hooks/tezgah_context.py:2482`, `hosts/omp/tezgah-hook.ts.in` | unset | Any value renders the status line without ANSI colour. |
-| `TEZGAH_STATUS_COLOR` | `hooks/tezgah_context.py:2483`, `hosts/omp/tezgah-hook.ts.in` | unset | `0` is the same opt-out as `NO_COLOR`, for tezgah alone. |
+| `NO_COLOR` | `hooks/tezgah_context.py:2484`, `hosts/omp/tezgah-hook.ts.in` | unset | Any value renders the status line without ANSI colour. |
+| `TEZGAH_STATUS_COLOR` | `hooks/tezgah_context.py:2485`, `hosts/omp/tezgah-hook.ts.in` | unset | `0` is the same opt-out as `NO_COLOR`, for tezgah alone. |
 | `TEZGAH_STATUS_ANIMATE` | `hosts/omp/tezgah-hook.ts.in:65` | unset (animated) | `0` keeps omp's status colours and drops the motion. |
 | `TEZGAH_STATUS_HOST` | `statusline.py:32` | `claude` | `cursor` renders for Cursor (the same as `--cursor`). |
 | `TEZGAH_STATUS_LEGEND` | `statusline.py:120` | unset | `1` prints the mark legend under the line. |

@@ -48,7 +48,7 @@ buckets each by `skill_category()` and returns the groups
 ([bin/tezgah-setup:881-902]). Buckets are `tezgah core`, `code & host tooling`,
 `research & papers`, `AI research & engineering`, `marketing & growth`; the first
 two are listed always-on and the rest collapse to a count line pointing at the
-full file ([bin/tezgah-setup:875-878], `bin/tezgah-setup:957-972`). `ai-research` is the one
+full file ([bin/tezgah-setup:875-878], `bin/tezgah-setup:1015-1031`). `ai-research` is the one
 exception: it stays named in the always-on file under `research (tezgah's own)`
 because a library a session is never told about is one it answers from memory -
 measured on a live opencode turn that read nothing and answered anyway
@@ -56,7 +56,7 @@ measured on a live opencode turn that read nothing and answered anyway
 
 Each line is `name - trigger - path`, and the trigger is one sentence pulled from
 the frontmatter `description` by `skill_description()` ([bin/tezgah-setup:814-840],
-`bin/tezgah-setup:921-930`). **The sentence carrying the `Use when ...` trigger wins over the
+`bin/tezgah-setup:979-988`). **The sentence carrying the `Use when ...` trigger wins over the
 opening one.** A line built from the first sentence is what shipped, and it
 stripped `tezgah-contract` and `ponytail` of every word a session matches on -
 `tezgah-contract`'s description opens with "The full tezgah working contract." -
@@ -85,22 +85,22 @@ which is why the installer counts that metadata as an always-on cost
 
 ## How a skill reaches a host
 
-`SKILLS` in `bin/tezgah-setup:123-125` is the shipped list, and it is the single
+`SKILLS` in `bin/tezgah-setup:125-127` is the shipped list, and it is the single
 definition of "a tezgah skill": the router, the per-host linking, the uninstall
 and the context budget all read it. Each install function links those
 directories into the host's own skill directory - Codex
-([bin/tezgah-setup:601-631]), opencode (`bin/tezgah-setup:987-988`), Cursor (`bin/tezgah-setup:1083-1084`), dsh
-(`bin/tezgah-setup:1239-1240`), omp (`bin/tezgah-setup:1303-1305`). Claude is the exception: it installs from a
+([bin/tezgah-setup:601-631]), opencode (`bin/tezgah-setup:1046-1047`), Cursor (`bin/tezgah-setup:1142-1143`), dsh
+(`bin/tezgah-setup:1298-1299`), omp (`bin/tezgah-setup:1362-1364`). Claude is the exception: it installs from a
 plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
-`bin/tezgah-setup:3701-3759`, `bin/tezgah-setup:3761-3767`). On Claude the plugin name prefixes the skill name -
+`bin/tezgah-setup:3770-3847`, `bin/tezgah-setup:3849-3855`). On Claude the plugin name prefixes the skill name -
 `Skill(tezgah:ponytail)` ([hooks/tezgah_policy.py:32-35]).
 
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
 directory (`skills_linked()`, [bin/tezgah-setup:129-136]), and it is used for every host row
-([bin/tezgah-setup:3294-3295], `bin/tezgah-setup:3314`, `bin/tezgah-setup:3348`, `bin/tezgah-setup:3384`, `bin/tezgah-setup:3442`). It was
+([bin/tezgah-setup:3294-3295], `bin/tezgah-setup:3383`, `bin/tezgah-setup:3417`, `bin/tezgah-setup:3453`, `bin/tezgah-setup:3511`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
 it ([tests/test_skills.py:54-69]).
@@ -196,7 +196,7 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
 3. Expect `tests/test_skills.py:54-69` to fail if the two disagree, and
-   `tests/test_setup.py:589-609` to fail if the generated router line lost its
+   `tests/test_setup.py:590-610` to fail if the generated router line lost its
    trigger words. Re-run `--install` (or opencode's `--refresh`,
    [bin/tezgah-setup:806-810]) so the written routers pick the skill up.
 4. Add a row to `tests/routing-fixtures.md`: situation, the skill, and the word

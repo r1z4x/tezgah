@@ -15,7 +15,7 @@ ruff check .                                              # lint; config in pypr
 
 [`AGENTS.md`](../AGENTS.md) gives them in that order (`AGENTS.md:18-20`), and
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) repeats the same three before a pull
-request (`CONTRIBUTING.md:13-19`).
+request (`CONTRIBUTING.md:14-20`).
 
 | Check | What it catches that the other two do not |
 |---|---|
@@ -195,7 +195,7 @@ a browser or a device) or to a `_probe_*.py` helper the tests call.
 - **No coverage target and no coverage tool.** `requirements-dev.txt` pins ruff
   and nothing else (`requirements-dev.txt:1-3`); no coverage tool is named there
   or in `pyproject.toml`. A line count is not a check.
-- **No fixtures framework.** Stdlib `unittest` only (`CONTRIBUTING.md:26`);
+- **No fixtures framework.** Stdlib `unittest` only (`CONTRIBUTING.md:27`);
   `tests/support.py` is the whole fixture layer, with no `conftest.py`.
 - **No network.** Loopback stubs only, as above.
 - **Two e2e scripts stay opt-in and local**: `e2e_analyze_web.py` and
