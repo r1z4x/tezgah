@@ -72,8 +72,8 @@ def spanned(rule, spans):
 # (id, file, edit, guard reverted)
 MUTANTS = (
     ("no-verify", INTEGRITY,
-     anchored("    if NO_VERIFY.search(c) and GITISH.search(c):\n",
-              "    if False and NO_VERIFY.search(c) and GITISH.search(c):\n"),
+     anchored("    if (NO_VERIFY.search(c) and GITISH.search(c)) or _git_skips_hooks(cmd):\n",
+              "    if False or _git_skips_hooks(cmd):\n"),
      "--no-verify beside a git command"),
     ("skip-env", INTEGRITY,
      anchored("    if SKIP_ENV.search(c) and GITISH.search(c):\n",
