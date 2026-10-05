@@ -47,19 +47,20 @@ reaches every host the same way.
 - **Every rule has an off switch.** Sixteen kill switches — plus per-repo
   marks — remove a rule's text from the session, so the rule actually stops
   rather than merely showing as off.
-- **Answers you can act on.** Replies are Turkish and lead with the outcome; a
-  list shows at most five ranked items; an estimate is named as an estimate;
-  an error reads as location, cause, fix.
+- **Answers you can act on.** Replies lead with the outcome, in Turkish unless
+  you pick another language; a list shows at most five ranked items; an
+  estimate is named as an estimate; an error reads as location, cause, fix.
 
 <a id="install"></a>
 
 ## Install
 
 One line, on macOS, Linux or WSL (Python 3.10+, `curl`, `tar`). It downloads
-the latest release, checks its sha256, arms every host it finds, and installs
-the missing optional tools tezgah itself uses (orx; `TEZGAH_NO_DEPS=1` skips
-them). It never installs a host's own CLI (cursor-agent, pnpm, dsh): it prints
-the command instead, or runs it under `tezgah-setup --install --host-deps`.
+the latest release, checks its sha256, arms every host it finds (Claude Code
+through its own `claude plugin` CLI), and installs the missing optional tools
+tezgah itself uses (orx; `TEZGAH_NO_DEPS=1` skips them). It never installs a
+host's own CLI (cursor-agent, pnpm, dsh): it prints the command instead, or
+runs it under `tezgah-setup --install --host-deps`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.sh | sh
@@ -70,6 +71,26 @@ Or through npm: `npm i -g @r1z4x/tezgah && tezgah --install`.
 A host config it cannot parse is left untouched, every config it changes
 keeps a dated `.tezgah-bak` copy, and the install exits non-zero when a host
 it set out to arm is not armed.
+
+### What tezgah changes on your machine
+
+- **Host config.** Each armed host gets tezgah's hooks, its MCP rows and a
+  managed contract block in the host's global rules file (`~/.claude/CLAUDE.md`,
+  `~/.codex/AGENTS.md`, `~/.omp/agent/RULES.md`). Claude Code's hooks ship in a
+  plugin registered through `claude plugin`; with no `claude` CLI, Claude stays
+  unarmed and the report says so.
+- **Agent files in your repositories.** Inside the configured roots, a session
+  writes subagent files to `.claude/agents/`, `.codex/agents/` and
+  `.opencode/agents/`, and lists those directories in the clone's own
+  `.git/info/exclude` (`TEZGAH_NO_EXCLUDE=1` stops that).
+- **A daily update check.** The status line asks for a newer release at most
+  once a day; `~/.config/tezgah/update-check-off` or `TEZGAH_UPDATE_CHECK=0`
+  turns it off.
+- **orx.** The install fetches the OpenResearch CLI that research tasks route
+  through; `TEZGAH_NO_DEPS=1` skips it.
+- **Reply language.** Replies are Turkish by default and the Stop rule holds
+  them to it. `--reply-lang en` asks for English instead, and `any` for your
+  own language with no check: `curl -fsSL … | sh -s -- --reply-lang en`.
 
 Rather let your coding assistant do it? Paste this into omp, Claude Code,
 Codex, Cursor or opencode:

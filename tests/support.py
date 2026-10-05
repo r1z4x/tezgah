@@ -55,6 +55,9 @@ def base_env(home, roots=None, extra=None):
         # likewise orx: research routing is off unless a test points it at a real
         # binary, so the machine's own orx cannot leak into the assertions
         "TEZGAH_ORX_BIN": os.path.join(home, "no-such-orx"),
+        # likewise claude: `--install` registers the plugin through `claude
+        # plugin`, and the developer's real CLI must never run from a test
+        "TEZGAH_CLAUDE_BIN": os.path.join(home, "no-such-claude"),
         # likewise the agent CLIs consult can ask: none counts unless a test
         # lists it, so a developer's own omp/claude/codex is not a consult option
         "TEZGAH_CONSULT_CLIS": "",
@@ -113,6 +116,8 @@ FIXTURE_PARENT = ("/var/tmp"
 _SUITE_HOME = tempfile.TemporaryDirectory(prefix="tezgah-suite-home-", dir=FIXTURE_PARENT,
                                           ignore_cleanup_errors=True)
 os.environ["HOME"] = _SUITE_HOME.name
+# an in-process install must not reach the developer's real `claude` either
+os.environ["TEZGAH_CLAUDE_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-claude")
 for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME"):
     os.environ.pop(_name, None)
 

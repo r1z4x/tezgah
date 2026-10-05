@@ -114,8 +114,8 @@ pure logic or for concurrency, which a subprocess cannot express.
 
 **Subprocess tests with a temp HOME.** The default. `TempHome` gives the test a
 fresh `home` and a `roots` dir, `env()`, `make_repo()`, `config()` and `touch()`
-(`TempHome`, `support.py:120-151`); the hook or CLI is then run with `run`
-(`support.py:83-88`) or `run_json` (`support.py:91-94`). `tests/test_codex_hook.py:9-16` is the smallest example.
+(`TempHome`, `tests/support.py:125-156`); the hook or CLI is then run with `run`
+(`support.py:83-88`) or `run_json` (`tests/support.py:94-107`). `tests/test_codex_hook.py:9-16` is the smallest example.
 
 **Probes.** `tests/_probe_*.py` are tiny scripts that call one function of a
 shared module and print its result as JSON, so the call happens in a process

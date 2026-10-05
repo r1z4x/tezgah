@@ -21,11 +21,11 @@ from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
                               last_check, note, note_compaction, note_turn,
                               scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
-                           open_lines_note, pony_level_line)
+                           REPLY_LANG_TEXT, open_lines_note, pony_level_line)
 from tezgah_paths import (CACHE, ai_research_dir, cache_dir, codegraph_bin,
                           consult_options, ensure_workspace, fallback_cache,
-                          have_judge_key, off, orx_bin, pony_level, root_for,
-                          roots, tool, workspace, workspace_from_repo,
+                          have_judge_key, off, orx_bin, pony_level, reply_lang,
+                          root_for, roots, tool, workspace, workspace_from_repo,
                           worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
@@ -310,7 +310,7 @@ ACTIVE_ROOT = [""]
 # exactly its own paragraph from the injected text; the label is the contract,
 # so tests pin every one and a label edit fails loudly instead of silently.
 CORE_RULES = (
-    ("exec", "**Turkish, BLUF.**"),
+    ("exec", "**{REPLY_LANG}, BLUF.**"),
     ("ponytail", "**Ponytail (minimal code).**"),
     ("adhd", "**Output shape: ADHD-friendly.**"),
     ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
@@ -334,7 +334,7 @@ CORE_RULES = (
 # here as it drops its paragraph from CORE; a test pins every clause to the
 # reminder text, so an edit there fails loudly instead of leaving the clause in.
 REMINDER_CLAUSES = (
-    ("exec", "reply Turkish, BLUF, "),
+    ("exec", "{REPLY_SHORT}, BLUF, "),
     ("adhd", "answer first - no recap, no closer, at most five ranked items; "),
     ("ponytail", "code minimal per ponytail (code first, <=3 note lines); "),
     ("spec", "underspecified/quality asks -> write a checkable spec with a named "
@@ -372,9 +372,12 @@ def prompt_reminder(drop=()):
 
 
 def render(text, root=""):
-    """Fill the path placeholders with stable, existing paths."""
+    """Fill the path placeholders with stable, existing paths, and the reply
+    language placeholders with the words config.json's `reply_lang` names."""
     if not text:
         return text
+    for key, words in REPLY_LANG_TEXT[reply_lang()].items():
+        text = text.replace(key, words)
     return (text.replace("{CONSULT_BIN}", tool("consult"))
                 .replace("{CODEGEN_BIN}", tool("codegen"))
                 .replace("{ORX_BIN}", orx_bin() or "orx")
@@ -1134,7 +1137,7 @@ def constraint_notice(cwd, session_id):
     line = state_delta(repo_root(cwd), read_stamp(session_id))
     if line:
         return line
-    return " ".join(subagent_core(core_for(cwd)[0]).split())
+    return " ".join(render(subagent_core(core_for(cwd)[0])).split())
 
 
 def classify_prompt(text):
@@ -2611,12 +2614,15 @@ PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RELEASE = re.compile(r"^## \[(\d+\.\d+\.\d+)\]")
 
 
-def version():
-    """The version this install is, or None when nothing here carries one."""
+def version(manifest=True):
+    """The version this install is, or None when nothing here carries one.
+
+    `manifest=False` skips the plugin manifest: the installer renders that file
+    from this answer, so it asks the release files underneath it."""
     plugin_json = os.path.join(PLUGIN_ROOT, ".claude-plugin", "plugin.json")
     try:
         with open(plugin_json, encoding="utf-8") as fh:
-            got = json.load(fh).get("version")
+            got = json.load(fh).get("version") if manifest else None
         if got:
             return str(got)
     except Exception:

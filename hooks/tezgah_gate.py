@@ -1164,8 +1164,8 @@ def constraints_line(cwd):
     re-statement, never a second copy of the contract. POINTERS is not appended
     again - it printed the On-demand paragraph twice (audit CHAT-06). Imported
     inside the call because only the call that crosses DRIFT_STEPS pays for it."""
-    from tezgah_context import core_for, subagent_core
-    return " ".join(subagent_core(core_for(cwd)[0]).split())
+    from tezgah_context import core_for, render, subagent_core
+    return " ".join(render(subagent_core(core_for(cwd)[0])).split())
 
 
 def drift_reason(tool, inp, cwd, session_id):

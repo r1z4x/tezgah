@@ -2510,9 +2510,14 @@ class OutputStyleMirrorsCore(unittest.TestCase):
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         sys.path.insert(0, os.path.join(repo, "hooks"))
         import tezgah_context as tc  # noqa: E402
+        import tezgah_policy as policy  # noqa: E402
         with open(os.path.join(repo, "output-styles", "tezgah.md")) as fh:
             body = fh.read().split("---", 2)[2]
-        self.assertIn(tc.always_on_core().strip(), body)
+        # no install renders the style, so it names the reply_lang setting
+        core = tc.always_on_core()
+        for key, words in policy.REPLY_LANG_HOOKLESS.items():
+            core = core.replace(key, words)
+        self.assertIn(core.strip(), body)
         for label in self.CONDITIONAL:
             self.assertNotIn(label, body)
 

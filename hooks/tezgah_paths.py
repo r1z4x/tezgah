@@ -502,6 +502,28 @@ def omp_bin():
     return which_user(os.environ.get("TEZGAH_OMP_BIN") or "omp")
 
 
+def claude_bin():
+    """The Claude Code CLI, or None when it is not installed.
+
+    TEZGAH_CLAUDE_BIN points at a specific binary (tests, CI); otherwise the
+    lookup `omp_bin()` makes. The installer registers tezgah's plugin through
+    `claude plugin`, so the suite must be able to keep the real CLI out."""
+    return which_user(os.environ.get("TEZGAH_CLAUDE_BIN") or "claude")
+
+
+# The values `reply_lang` (config.json) takes. The value itself is the switch:
+# `tr` (the default, and what an install without the key reads) asks for Turkish
+# replies, `en` for English ones, and `any` drops the Stop language check.
+REPLY_LANGS = ("tr", "en", "any")
+
+
+def reply_lang():
+    """The configured reply language, `tr` when unset or not one of REPLY_LANGS."""
+    cfg = config()
+    value = cfg.get("reply_lang") if isinstance(cfg, dict) else None
+    return value if value in REPLY_LANGS else "tr"
+
+
 def off(name):
     """A kill switch, canonical (~/.config/tezgah) or legacy (~/.claude)."""
     return any(os.path.exists(os.path.join(d, name)) for d in OFF_DIRS)

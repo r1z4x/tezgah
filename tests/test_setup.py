@@ -60,6 +60,8 @@ class SetupBase(unittest.TestCase):
             # through `omp config`, and the real CLI must never write the
             # machine's config.yml; OmpHost points at a fake that records it
             "TEZGAH_OMP_BIN": os.path.join(self.home, "no-such-omp"),
+            # and claude: `--install` registers the plugin through `claude plugin`
+            "TEZGAH_CLAUDE_BIN": os.path.join(self.home, "no-such-claude"),
             # never let a test hit the network: --install installs missing deps
             # by default, so the suite opts out and the Deps tests exercise it
             "TEZGAH_NO_DEPS": "1",
@@ -1682,12 +1684,16 @@ class ContractParity(unittest.TestCase):
         path = os.path.join(REPO, "skills", "tezgah-contract", "SKILL.md")
         with open(path, encoding="utf-8") as fh:
             skill = fh.read()
-        # the contract is a template; the skill writes the placeholders out
+        # the contract is a template; the skill writes the placeholders out, and
+        # names the reply_lang setting where a render names one of its values
         text = policy.CONTRACT.replace("{ROOT}", "the configured tezgah roots")
+        for key, words in policy.REPLY_LANG_HOOKLESS.items():
+            text = text.replace(key, words)
         missing = [item for item in self.rules(text) if item not in skill]
         self.assertEqual([], missing,
                          "these rules exist in policy.CONTRACT but not in the "
                          "skill: %s" % missing)
+        self.assertIn("`reply_lang`", skill)
 
 
 class GraphRuleBand(SetupBase):

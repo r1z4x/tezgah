@@ -237,6 +237,16 @@ class Upgrade(Base):
         self.assertTrue(self.current(prefix, "0.2.0"))
         self.assertIn("installed --install", done.stdout)
 
+    def test_install_sh_forwards_the_reply_language(self):
+        """The install is non-interactive, so --reply-lang reaches the installer
+        as a flag or not at all."""
+        prefix = os.path.join(self.tmp, "prefix-lang")
+        done = self.run_script("install.sh", "--version", "0.2.0", "--prefix", prefix,
+                               "--reply-lang", "en",
+                               env={"TEZGAH_DIST": self.dist("0.2.0")})
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("installed --install --reply-lang en", done.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

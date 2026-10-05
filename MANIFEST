@@ -652,6 +652,7 @@ tests/test_bash_agreement.py
 tests/test_cheap_source.py
 tests/test_clarity.py
 tests/test_claude_adapters.py
+tests/test_claude_registration.py
 tests/test_codegen.py
 tests/test_codex_hook.py
 tests/test_components.py
@@ -683,6 +684,7 @@ tests/test_interpreter.py
 tests/test_judge.py
 tests/test_lang.py
 tests/test_lessons.py
+tests/test_live_probe.py
 tests/test_mcp_features.py
 tests/test_mcp_server.py
 tests/test_migrate.py
@@ -698,6 +700,7 @@ tests/test_paths_worktree.py
 tests/test_platform.py
 tests/test_providers.py
 tests/test_rank.py
+tests/test_reply_lang.py
 tests/test_research.py
 tests/test_setup.py
 tests/test_shapes.py

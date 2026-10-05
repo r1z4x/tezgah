@@ -73,6 +73,8 @@ class FeaturesBase(unittest.TestCase):
             "LANG": "C.UTF-8",
             "TEZGAH_CODEGRAPH_BIN": os.path.join(self.home, "no-such-codegraph"),
             "TEZGAH_ORX_BIN": os.path.join(self.home, "no-such-orx"),
+            # `--install` registers the Claude plugin through `claude plugin`
+            "TEZGAH_CLAUDE_BIN": os.path.join(self.home, "no-such-claude"),
             # never let a test hit the network: --install installs missing deps
             # by default
             "TEZGAH_NO_DEPS": "1",

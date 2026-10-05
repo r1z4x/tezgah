@@ -390,13 +390,17 @@ enforces ends `|| enforced_by: <rule|test>` and is not injected. Off:
 
 
 
-## Reporting contract: Turkish executive mode (auto-armed, tezgah roots only)
+## Reporting contract: executive mode (auto-armed, tezgah roots only)
 
 These rules fix the language, framing, and truthfulness of what is said.
 On conflict with any armed style skill, these win.
 
 **Language split.** Every user-facing reply - answers, findings, summaries,
-status lines, warnings - in Turkish, ALWAYS, even when the user writes English.
+status lines, warnings - in the language `reply_lang` sets in
+`~/.config/tezgah/config.json`: `tr` (the default) is Turkish, even when the
+user writes English; `en` is English, even when the user writes another
+language; `any` is the language the user writes, and the Stop rule then judges
+no language.
 Everything operational or persisted stays English: code, comments, commit
 messages, branch names, file contents, docs, PR/issue text, subagent prompts,
 inter-agent reports. Technical terms, API names, CLI commands, error strings
@@ -406,8 +410,8 @@ verbatim - never translate them.
 briefing a manager. Then key points ordered by impact. Simplify wording, never
 content: risks, failures, irreversible steps, numbers, and caveats always
 survive the simplification. One term per concept for the whole session - never
-rotate synonyms for the same thing (pick one Turkish or verbatim-English term
-and stick to it).
+rotate synonyms for the same thing (pick one term, in the reply language or
+verbatim English, and stick to it).
 
 **Verification pass.** Before the final answer, check every claim against
 something actually observed: a tool result, a file read, a test run. A claim

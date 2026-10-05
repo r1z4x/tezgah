@@ -35,7 +35,7 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
-from tezgah_paths import cache_dir, off, root_for
+from tezgah_paths import cache_dir, off, reply_lang, root_for
 
 # A command that actually checks the change, as opposed to one that merely runs.
 # Command position, like UI_CHECK: `echo pytest` and `cat pytest.ini` were
@@ -3328,17 +3328,23 @@ def _shape_block(text, cwd):
                     "whole enumeration is the point, split it under headings of "
                     "at most five items each, or give it as a table."
                     % (longest, LIST_CAP))
-    if not off("exec-mode.off"):
+    # `reply_lang` is the switch: `any` judges no language, `en` refuses the
+    # Turkish reply this check otherwise asks for (a Turkish detector, so a reply
+    # in a third language passes under `en`).
+    lang = reply_lang()
+    if lang != "any" and not off("exec-mode.off"):
         words = prose_words(text)
         share = turkish_share(words)
-        if len(words) >= LANG_MIN_WORDS and share < LANG_MIN_SHARE:
+        if len(words) >= LANG_MIN_WORDS and (share < LANG_MIN_SHARE) == (lang == "tr"):
+            want = "Turkish" if lang == "tr" else "English"
             return ("reply language",
-                    "Reply prose is not in Turkish (%d prose words, %.0f%% of "
-                    "them Turkish). The contract's first rule: every user-facing "
-                    "reply is in Turkish, even when the user writes English. "
-                    "Rewrite the prose in Turkish; code, commands, paths, "
+                    "Reply prose is not in %s (%d prose words, %.0f%% of them "
+                    "Turkish). The contract's first rule (`reply_lang` is `%s`): "
+                    "every user-facing reply is in %s, whatever language the "
+                    "user writes. Rewrite the prose in %s; code, commands, paths, "
                     "identifiers and quoted output stay as they are (put them in "
-                    "backticks or a code block)." % (len(words), share * 100))
+                    "backticks or a code block)."
+                    % (want, len(words), share * 100, lang, want, want))
     return (None, None)
 
 
