@@ -432,6 +432,13 @@ const BASH_TOOLS = new Set(["bash", "shell", "command", "exec_command",
 // comes back empty, while a pre-test tight enough to miss nothing would be the
 // second implementation this host exists not to keep.
 const TASK_CLI = /\btezgah-task\b\s+\S/
+// The control rule's shell half (`hooks/tezgah_gate.control_reason`): a line
+// that could change tezgah's own control plane - a program that writes, removes
+// or moves a path, or a redirect, before a name that plane holds; or one of its
+// CLIs with an argument. The rule, its path table and its `~`/`$HOME`/XDG
+// expansion are the core's; this is only the bound on asking, loose the same
+// way TASK_CLI is: a false hit costs one spawn whose answer comes back empty.
+const CONTROL_CMD = /(?:\b(?:touch|rm|rmdir|unlink|shred|truncate|chmod|chown|chgrp|mv|mkdir|tee|cp|ln|install|rsync|dd|sed|perl|git|sh|bash|zsh)\b|>)[\s\S]*(?:tezgah|\.no-|\.husky|\.git\/hooks|\.claude|\.codex|\.cursor|opencode|\.omp|\.local\/share)|\btezgah-(?:gate(?:\.py)?\s+decide|(?:capture|pony|adhd)(?:\.py)?\s+\S)/
 // The same bound for the language rule: the command shapes that dream up an
 // identifier which outlives the session - `git commit` (its message), `git
 // checkout -b`/`-B`/`--branch` and `git switch -c`/`-C`/`--create` (a branch),
@@ -1763,8 +1770,18 @@ async function rootFor(dir) {
   return null
 }
 
+// Mirrors hooks/tezgah_paths.SWITCHES, the one list of switch and marker names
+// (tests/test_paths.py holds the two equal): a name outside it answers false,
+// so a switch this host invents cannot drift from the one the core reads.
+const SWITCHES = new Set(["adhd-off", "consult-off", "docs-judge-off",
+  "exec-mode.off", "judge-off", "lang-off", "orchestrate-off",
+  "ponytail-auto.off", "pretooluse-off", "reminder-off", "research-off",
+  "spec-off", "task-off", "triage-off", "verify-off", "workspace-off",
+  "agents-off", "skill-suggest-on", "taste-on", "update-check-off"])
+
 function off(name) {
-  return existsSync(join(CONFIG, name)) || existsSync(join(HOME, ".claude", name))
+  return SWITCHES.has(name) &&
+    (existsSync(join(CONFIG, name)) || existsSync(join(HOME, ".claude", name)))
 }
 
 function slug(p) {
@@ -2114,7 +2131,18 @@ export const Tezgah = async ({ directory }) => {
         // the shortcut denials are the gate half of the integrity rule, which
         // `verify-off` removes; attribution and explore are other rules and stay
         const shortcuts = !off("verify-off")
-        if (attribution(tool, args) || shellAttribution(args)) {
+        // The control rule is the Python gate's first (hooks/tezgah_gate.decision),
+        // so a shell line CONTROL_CMD says could touch the control plane is put to
+        // the core before any rule here: its answer is the whole gate's, in the
+        // gate's own order, and this file keeps no copy of the path table.
+        const line = BASH_TOOLS.has(tool) ? String(args.command || args.cmd || "") : ""
+        if (line && CONTROL_CMD.test(line)) {
+          asked = true
+          deny = await gateReason(tool, args, dir, sessionID)
+        }
+        if (deny) {
+          // the core's own refusal, verbatim
+        } else if (attribution(tool, args) || shellAttribution(args)) {
           deny = ATTRIB_DENY
         } else if (tool === "task" && /explore/i.test(sub)) {
           deny = EXPLORE_DENY
@@ -2163,7 +2191,7 @@ export const Tezgah = async ({ directory }) => {
         // A piped check (hooks/tezgah_integrity.piped_check) is the third: the
         // core decides whether the pipe hides the check's status, and it rides
         // `verify-off` like the other integrity denials.
-        if (!deny && cmd && (TASK_CLI.test(cmd) || IDENT_CMD.test(cmd) ||
+        if (!deny && !asked && cmd && (TASK_CLI.test(cmd) || IDENT_CMD.test(cmd) ||
             (shortcuts && cmd.includes("|") && verifyCommand(cmd)))) {
           asked = true
           deny = await gateReason(tool, args, dir, sessionID)

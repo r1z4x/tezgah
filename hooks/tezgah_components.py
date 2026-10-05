@@ -39,7 +39,7 @@ subscription, so no edit in this checkout changes it:
 |---|---|
 | system prompt | owned - `hooks/tezgah_policy.py:595` (`CORE`), injected by `hooks/tezgah_context.py:1246` (`core_for`) |
 | tool descriptions | not-owned - each MCP server authors its own schema and this layer mounts it (`bin/tezgah-setup`); no text here reaches a model as a tool description |
-| tool implementations | not-owned - the tool body runs inside the host CLI and this layer only refuses a call before it (`hooks/tezgah_gate.py:1599`) |
+| tool implementations | not-owned - the tool body runs inside the host CLI and this layer only refuses a call before it (`hooks/tezgah_gate.py:1950`) |
 | middleware | not-owned - the host's own agent loop; this layer subscribes to the host's hook events and never sits in the loop |
 | skills | owned - `skills/<name>/SKILL.md`, symlinked into each host's skill directory by `bin/tezgah-setup` |
 | sub-agents | owned - `hooks/tezgah_agents.py:678` (`sync_root`) renders the per-host briefs |

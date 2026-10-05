@@ -22,8 +22,10 @@ def main():
     cwd = os.path.realpath(p.get("cwd") or os.getcwd())
     tool = p.get("tool_name", "")
     inp = p.get("tool_input") or {}
+    # `agent_id` is set only when the call comes from a subagent (Claude's hook
+    # reference, common input fields): the repeat ceilings key on it
     reason = safe(p.get("session_id"), decision, tool, inp, cwd,
-                  p.get("session_id"))
+                  p.get("session_id"), agent=p.get("agent_id"))
     if reason:
         json.dump({"hookSpecificOutput": {
             "hookEventName": "PreToolUse",

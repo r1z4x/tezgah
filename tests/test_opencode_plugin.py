@@ -916,6 +916,20 @@ class OpenCodePlugin(TempHome):
         self.assertIn("active task's own record", expected)
         self.assertEqual(self.denied(self.before("bash", args)), expected)
 
+    def test_a_control_plane_line_is_the_cores_refusal_on_this_host_too(self):
+        # hooks/tezgah_gate.control_reason: the shell half of the control rule
+        # has no JS copy. CONTROL_CMD only decides that a line is worth asking
+        # about, and the refusal is the core's text, character for character.
+        self.gate_bin()
+        for command in ("touch ~/.config/tezgah/verify-off",
+                        "echo {} >> ~/.cache/tezgah/evidence/x.jsonl",
+                        "mv .husky .husky.bak"):
+            with self.subTest(command=command):
+                args = {"command": command}
+                expected = self.gate("bash", args)
+                self.assertIn("Control plane", expected)
+                self.assertEqual(self.denied(self.before("bash", args)), expected)
+
     # ---- the core's own decision for an identifier (the shell route) -------
     def test_a_non_english_identifier_is_refused_with_the_cores_own_reason(self):
         # A branch, a commit subject and a PR or issue title are the one class of

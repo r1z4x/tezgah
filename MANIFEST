@@ -657,6 +657,7 @@ tests/test_codex_hook.py
 tests/test_components.py
 tests/test_consult_arena.py
 tests/test_context.py
+tests/test_control_plane.py
 tests/test_cursor_hook.py
 tests/test_decisions.py
 tests/test_design_cli.py

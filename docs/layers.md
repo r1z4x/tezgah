@@ -23,7 +23,7 @@ Here tezgah only *configures* servers and classifies a call by its name: the
 app-analysis servers are rendered into each host's own config from one spec
 (`hooks/tezgah_apps.py:1-5`), Codex's rows are appended by `ensure_toml_mcp`
 (`bin/tezgah-setup:1046-1103`), and a tool name starting `mcp__` is classified
-`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2347-2351`).
+`mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2389-2393`).
 
 ## Agent framework
 
@@ -57,8 +57,8 @@ runtime runs what the model asks; nothing inside it stops the model, which is
 the whole reason tezgah exists ([architecture](architecture.md)).
 
 Here the six hosts are the runtimes, one config dir per host
-(`hooks/tezgah_paths.py:49`) with one presence test (`host_installed`
-`hooks/tezgah_paths.py:69-79`), and the adapter under `hosts/<name>/` holds the
+(`hooks/tezgah_paths.py:68`) with one presence test (`host_installed`
+`hooks/tezgah_paths.py:88-98`), and the adapter under `hosts/<name>/` holds the
 host's envelope and nothing else ([hosts](hosts.md)). The README's own intro
 calls dsh a harness (`README.md:27-28`) - the literature's sense, applied to a
 host.
@@ -67,9 +67,9 @@ host.
 
 Owns the rule text (`CORE` `hooks/tezgah_policy.py:595-810`), the per-turn reminder
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:827-843`), the refusal before a call
-(`decision()` `hooks/tezgah_gate.py:1428-1647`), the record after one (`note()`
+(`decision()` `hooks/tezgah_gate.py:1770-2001`), the record after one (`note()`
 `hooks/tezgah_integrity.py:792-804`), the end-of-turn verdict (`stop_reason()`
-`hooks/tezgah_integrity.py:3345-3410`), the pre-write snapshots (`capture()`
+`hooks/tezgah_integrity.py:3390-3456`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:275`), the status marks, and the per-repo plans,
 lessons and research lines.
 
@@ -102,7 +102,7 @@ frameworks.
 
 Under that test tezgah is not one: it holds no loop. It subscribes to a host's
 events (`hooks/hooks.json:2-26`), is handed the injected text at the host's
-session-start and prompt points (`context_for` `hooks/tezgah_context.py:1689-1950`),
+session-start and prompt points (`context_for` `hooks/tezgah_context.py:1731-1992`),
 refuses a call before the host runs it (`hooks/projects-pretooluse.py:24`) and
 answers in the host's own output envelope. It has no model, no tool set and no
 context window of its own.
@@ -155,11 +155,11 @@ to a benchmark instead of to a sentence.
 
 This is the checkable consequence of the transport layer here. A hook is handed
 the call, so that is all the classification can use (`untrusted_source`
-`hooks/tezgah_integrity.py:2411-2434`): an MCP answer enters the ledger as an
+`hooks/tezgah_integrity.py:2453-2476`): an MCP answer enters the ledger as an
 untrusted channel, the channel being `mcp` (`untrusted_source`
-`hooks/tezgah_integrity.py:2411-2434`), and an answer that is no step of work
+`hooks/tezgah_integrity.py:2453-2476`), and an answer that is no step of work
 of its own earns a row of kind `external` (`note_tool`
-`hooks/tezgah_integrity.py:2655-2782`). The compensating control is the taint
+`hooks/tezgah_integrity.py:2697-2827`). The compensating control is the taint
 notice: the first effect in a turn that has read an untrusted channel carries
 it (`hooks/tezgah_untrusted.py:2-22`); nothing refuses that effect since the
 sink rule was removed ([gate](gate.md)).

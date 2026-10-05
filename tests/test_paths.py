@@ -1,7 +1,9 @@
 """hooks/tezgah_paths.py: roots precedence, root_for boundaries, kill switches."""
+import ast
 import json
 import os
 import shutil
+import re
 import sqlite3
 import subprocess
 import sys
@@ -108,6 +110,76 @@ class KillSwitches(TempHome):
         out, _ = run_json([support.PROBE_PATHS, "off", "reminder-off"],
                           env=self.env())
         self.assertTrue(out)
+
+
+class SwitchInventory(unittest.TestCase):
+    """tezgah_paths.SWITCHES is the one list: every other list of switch names
+    is that list or a named part of it, and a name in one and not the others
+    fails here (plan 050, REPORT R05 part 1: three lists had drifted)."""
+
+    def read(self, *rel):
+        with open(os.path.join(support.REPO, *rel), encoding="utf-8") as fh:
+            return fh.read()
+
+    def assign(self, text, name):
+        """The literal a module-level `name = ...` holds; a `frozenset(...)`
+        call is read as its one argument."""
+        node = next(n.value for n in ast.parse(text).body
+                    if isinstance(n, ast.Assign)
+                    and getattr(n.targets[0], "id", "") == name)
+        if isinstance(node, ast.Call):
+            node = node.args[0]
+        return ast.literal_eval(node)
+
+    def test_the_core_paragraph_names_exactly_the_core_switches(self):
+        import tezgah_policy
+        core = tezgah_policy.CORE
+        block = core[core.index("**Kill switches:**"):].split("\n\n")[0]
+        names = {n for n in re.findall(r"`([^`\s]+)`", block)
+                 if n.endswith(("-off", ".off"))}
+        self.assertEqual(names, set(tp.CORE_SWITCHES))
+
+    def test_the_uninstall_sweep_is_every_off_name(self):
+        sweep = self.assign(self.read("bin", "tezgah-setup"), "OFF_SWITCH_NAMES")
+        self.assertEqual(set(sweep), {n for n in tp.SWITCHES
+                                      if n.endswith(("-off", ".off"))})
+
+    def test_the_docs_check_carries_the_same_unclassified_set(self):
+        # ADR 007: the four names wait for the owner, in both places
+        docs = self.assign(self.read("bin", "tezgah-docs"), "UNCLASSIFIED_SWITCHES")
+        self.assertEqual(set(docs), set(tp.UNCLASSIFIED_SWITCHES))
+
+    def test_the_context_off_note_reads_only_listed_names(self):
+        import inspect
+        import tezgah_context
+        source = inspect.getsource(tezgah_context.switches)
+        named = set(re.findall(r'off\("([^"]+)"\)', source))
+        named |= set(re.findall(r'"(\.no-[a-z-]+)"', source))
+        self.assertTrue(named)
+        self.assertLessEqual(named, set(tp.SWITCHES) | set(tp.REPO_MARKS))
+
+    def test_the_opencode_plugin_reads_the_same_list(self):
+        text = self.read("hosts", "opencode", "plugins", "tezgah.js")
+        block = re.search(r"const SWITCHES = new Set\(\[(.*?)\]\)", text, re.S)
+        self.assertIsNotNone(block, "the plugin has no SWITCHES list")
+        self.assertEqual(set(re.findall(r'"([^"]+)"', block.group(1))),
+                         set(tp.SWITCHES))
+        self.assertLessEqual(set(re.findall(r'\boff\("([^"]+)"\)', text)),
+                             set(tp.SWITCHES))
+
+    def test_every_off_and_armed_name_the_code_reads_is_listed(self):
+        read = set()
+        for folder in ("hooks", "bin"):
+            for name in os.listdir(os.path.join(support.REPO, folder)):
+                path = os.path.join(support.REPO, folder, name)
+                if not os.path.isfile(path) or name.endswith((".js", ".json", ".cmd")):
+                    continue
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+                read |= set(re.findall(
+                    r'\b(?:off|armed)\("([a-z][a-z-]*(?:-off|-on|\.off))"\)', text))
+        self.assertTrue(read)
+        self.assertLessEqual(read, set(tp.SWITCHES))
 
 
 class CacheDirFallback(TempHome):

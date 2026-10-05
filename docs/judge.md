@@ -34,7 +34,7 @@ answer is a `None`, never an exception.
 A judgement is an aid, never the claim. It ranks units or names a page; the agent
 still reads the selected refs and owns the finding, and the ledger's step kinds
 are untouched, so a model answer can never license a "done" (`STEP_KINDS`,
-`hooks/tezgah_integrity.py:1204-1209`).
+`hooks/tezgah_integrity.py:1246-1251`).
 
 The state leaves the machine. A judgement sends the state and the questions to
 `api.typesafe.ai` - for the triage that is the screen's own text, so a screen
@@ -127,7 +127,7 @@ attempt costs a healthy call nothing (`_transient`,
 `hooks/tezgah_judge.py:261-273`); `docs/operations.md` records the run. Each
 caller also records one `judge` row of cost on the ledger when a session id is
 known (`note`, `hooks/tezgah_integrity.py:792-804`), counted by the row's kind
-(`counters`, `hooks/tezgah_integrity.py:1415-1451`).
+(`counters`, `hooks/tezgah_integrity.py:1457-1493`).
 
 ## What the seam never does
 
@@ -152,7 +152,7 @@ known (`note`, `hooks/tezgah_integrity.py:792-804`), counted by the row's kind
    the tools' own docstrings, and the user-facing surface is already the two tool
    names.
 7. **A judgement never counts as a check or a step.** The step kinds stay as they
-   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:1204-1209`); the cost row is a
+   are (`STEP_KINDS`, `hooks/tezgah_integrity.py:1246-1251`); the cost row is a
    counter, not evidence.
 
 ## Source of truth

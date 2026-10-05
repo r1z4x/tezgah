@@ -719,10 +719,10 @@ class StopReadBound(unittest.TestCase):
         given = []
         real = ti._parse
 
-        def counting(lines):
+        def counting(lines, path=None):
             lines = lines if isinstance(lines, list) else list(lines)
             given.append(len(lines))
-            return real(lines)
+            return real(lines, path)
 
         with mock.patch.object(ti, "_parse", counting):
             out = fn()
@@ -990,24 +990,26 @@ class WritersElsewhere(unittest.TestCase):
                             "detail": "/repo/x.py"}])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
 
-    def test_a_damaged_foreign_ledger_costs_only_its_own_rows(self):
+    def test_a_damaged_foreign_ledger_costs_only_its_damaged_line(self):
         # audit GAP-02 / M-7: one `[1,2]` row or one terminated non-JSON line in
         # any recently written ledger raised out of this reader, and the gate's
-        # guard then let every write of every session through unchecked
+        # guard then let every write of every session through unchecked. The
+        # damaged line is skipped now, so the rows beside it still count
         self.write("ok", [self.edit("/repo/x.py")])
         for name, junk in (("list", "[1, 2]\n"), ("torn", "{not json\n")):
             path = os.path.join(self.evidence, ti._slug(name) + ".jsonl")
             with open(path, "w") as fh:
                 fh.write(json.dumps(self.edit("/repo/x.py")) + "\n" + junk)
-        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"),
-                         [ti._slug("ok")])
+        self.assertEqual(sorted(ti.writers_elsewhere("/repo/x.py", "mine")),
+                         sorted(ti._slug(n) for n in ("ok", "list", "torn")))
 
-    def test_the_own_ledger_still_refuses_a_non_object_row(self):
-        # `_parse`'s documented reading of a committed line that is not a row
-        # holds for the session's own ledger: it raises, and the guard files
-        # the crash row, rather than shrinking the evidence in silence
-        with self.assertRaises(ValueError):
-            ti._parse(['{"kind": "run"}\n', "[1, 2]\n"])
+    def test_the_own_ledger_names_a_non_object_row_instead_of_raising(self):
+        # `_parse` used to raise here, and the guard then failed the Stop rule
+        # open for the turn: the damage was an allow route. The committed line
+        # is now skipped and stands in the answer as a `ledger_damage` row; an
+        # unterminated fragment is still nothing at all
+        rows = ti._parse(['{"kind": "run"}\n', "[1, 2]\n"])
+        self.assertEqual([r["kind"] for r in rows], ["run", ti.DAMAGE_KIND])
         self.assertEqual(ti._parse(['{"kind": "run"}\n', "[1, 2]"]),
                          [{"kind": "run"}])
 
@@ -2044,16 +2046,54 @@ class CommittedBoundary(unittest.TestCase):
         self.assertEqual([r["detail"] for r in ti.events_path(self.path,
                                                              tail=2)], ["ls"])
 
-    def test_a_terminated_line_that_lost_its_bytes_is_a_hard_error(self):
-        # the other damage: the newline is there, so the record committed, and a
-        # reader that skipped it would have shrunk the evidence in silence
+    def test_a_terminated_line_that_lost_its_bytes_is_named_once(self):
+        # the other damage: the newline is there, so the record committed. It
+        # used to raise, which failed the Stop rule open; it is skipped now, and
+        # one `ledger_damage` row lands in the damaged file however often the
+        # file is read
         ti.note("s", "run", "ls")
         with open(self.path, "a") as fh:
             fh.write("{broken\n")
-        with self.assertRaises(ValueError):
-            ti.events("s")
-        with self.assertRaises(ValueError):
+        for _ in range(3):
+            self.assertEqual([r["kind"] for r in ti.events("s")][:2],
+                             ["run", ti.DAMAGE_KIND])
             ti.events("s", tail=2)
+        stored = [json.loads(line) for line in self.raw().splitlines()
+                  if line.startswith(b"{\"")]
+        self.assertEqual([r["kind"] for r in stored].count(ti.DAMAGE_KIND), 1)
+
+    def test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered(self):
+        # the case the damage made an allow route: the turn's failed check is
+        # corrupted, so the fold no longer sees `check failed`
+        ti.note("s", "turn", "", key="t1")
+        ti.note("s", "edit", "a.py")
+        ti.note("s", "verify_fail", "pytest -q")
+        data = self.raw()
+        with open(self.path, "wb") as fh:
+            fh.write(data[:-12] + b"\n")
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIsNotNone(reason)
+        self.assertIn("Evidence tampered", reason)
+        claims = [r for r in ti.events("s") if r.get("kind") == "claim"]
+        self.assertEqual(claims[-1]["detail"], "blocked: evidence tampered")
+        # an honest admission claims nothing the damage could carry
+        self.assertNotIn("Evidence tampered",
+                         ti.stop_reason("Done, doğrulanmadı.", "s") or "")
+
+    def test_an_honest_writer_leaves_no_damage(self):
+        # the two ways a write can be cut short - a torn tail, and the unlocked
+        # fallback taken when the lock cannot be had - must not themselves read
+        # as tampering
+        ti.note("s", "run", "ls")
+        self.torn()
+        ti.note("s", "run", "pwd")
+        self.addCleanup(setattr, ti, "LOCK_WAIT", ti.LOCK_WAIT)
+        ti.LOCK_WAIT = 0.0
+        with open(self.path, "a+b") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            ti.note("s", "run", "whoami")
+        self.assertEqual([r["detail"] for r in ti.events("s")],
+                         ["ls", "pwd", "whoami"])
 
     def test_the_next_append_repairs_the_torn_tail_instead_of_burying_it(self):
         # left in place, the fragment is terminated by the row written after it
