@@ -865,7 +865,9 @@ class KillSwitchEnforcement(TempHome):
         import tezgah_context as tc  # noqa: E402
         out = self.prompt(self.make_repo(), "x")
         for _key, clause in tc.REMINDER_CLAUSES:
-            self.assertIn(self.clause_marker(clause), out)
+            # a string clause is rendered: the exec one names the reply language
+            self.assertIn(self.clause_marker(
+                clause if hasattr(clause, "sub") else tc.render(clause)), out)
 
     def test_verify_off_drops_the_no_verify_claim_from_the_reminder(self):
         repo = self.make_repo()
