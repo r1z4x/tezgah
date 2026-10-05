@@ -54,7 +54,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Docs cite Python code by symbol.** A citation into Python code is now
   `path::name` or `path::Class.method`, not `path:line`. Moving lines no longer
   shifts it. `bin/tezgah-docs --citations` reads the cited file's AST and fails
-  on a name it does not define. 920 docs citations moved to the new form. The
+  on a name it does not define. 921 docs citations moved to the new form. The
   rest kept `path:line`: no single enclosing symbol, a non-Python target, or a
   stale line. They stay under the unjudged ratchet.
 

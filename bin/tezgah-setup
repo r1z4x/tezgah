@@ -898,7 +898,19 @@ def install_common(new_roots, hosts):
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
-            ("tezgah-statusline", os.path.join(HERE, "statusline.py")), ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")), ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")), ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp")), ("tezgah-design", os.path.join(HERE, "bin", "tezgah-design")), ("tezgah-decisions", os.path.join(HERE, "bin", "tezgah-decisions")), ("tezgah-route", os.path.join(HERE, "bin", "tezgah-route")), ("tezgah-lessons", os.path.join(HERE, "bin", "tezgah-lessons")), ("tezgah", os.path.join(HERE, "bin", "tezgah-setup"))]:  # in place: a new row would renumber the docs' bin/tezgah-setup:N citations. `tezgah` is this installer under the name `tezgah update` is typed with (npm ships the same name). Not here on purpose: tezgah-dsh (wired as ~/.local/bin/dsh, see dsh_launcher) and tezgah-import-ai-research (dev-time only, its docstring)
+            ("tezgah-statusline", os.path.join(HERE, "statusline.py")),
+            ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")),
+            ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")),
+            ("tezgah-mcp", os.path.join(HERE, "bin", "tezgah-mcp")),
+            ("tezgah-design", os.path.join(HERE, "bin", "tezgah-design")),
+            ("tezgah-decisions", os.path.join(HERE, "bin", "tezgah-decisions")),
+            ("tezgah-route", os.path.join(HERE, "bin", "tezgah-route")),
+            ("tezgah-lessons", os.path.join(HERE, "bin", "tezgah-lessons")),
+            # `tezgah` is this installer under the name `tezgah update` is typed
+            # with (npm ships the same name). Not here on purpose: tezgah-dsh
+            # (wired as ~/.local/bin/dsh, see dsh_launcher) and
+            # tezgah-import-ai-research (dev-time only, its docstring).
+            ("tezgah", os.path.join(HERE, "bin", "tezgah-setup"))]:
         print(link(src, os.path.join(tp.BIN_DIR, name)))
     mkdirp(tezgah_apps.ARTIFACTS)
     print("%s app artifacts -> %s" % (OK, tezgah_apps.ARTIFACTS))
@@ -5201,8 +5213,6 @@ def hosts_row():
 
 
 # --- tier models on omp ------------------------------------------------------
-# Kept at the end of the file on purpose: the docs cite this file by line, and a
-# helper inserted above the cited lines would move them.
 
 def register_omp(hook_dst):
     """The bridge in omp's `extensions`, then the tier workers' models in

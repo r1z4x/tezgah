@@ -138,11 +138,11 @@ on `subagent_start` the payload is the short brief, not the whole CORE
 | On-demand full contract | the deep detail — orchestration, codegen, the exact kill switches — as a skill, not a hook payload | `skills/tezgah-contract/SKILL.md`, whose joined text is `hooks/tezgah_policy.py::CONTRACT` | only when loaded |
 
 A host that carries the CORE in a static file does not pay for it twice: omp's
-managed `RULES.md` already holds it (`bin/tezgah-setup:1907-1969`), so its session hook
+managed `RULES.md` already holds it (`bin/tezgah-setup:1919-1981`), so its session hook
 passes `with_core=False` and injects only the live state
 (`hosts/omp/hook.py::handle`, `hooks/tezgah_context.py::context_for`). opencode's
 always-on file is written from the same policy by the installer
-(`bin/tezgah-setup:1130-1135`). The
+(`bin/tezgah-setup:1142-1147`). The
 sum of every block is bounded per event, and when the bound is crossed the
 lowest-value blocks are dropped in a fixed order rather than the rules
 (`hooks/tezgah_context.py::DROP_ORDER`, `hooks/tezgah_context.py::budgeted`).
@@ -156,7 +156,7 @@ lowest-value blocks are dropped in a fixed order rather than the rules
 | Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py::_store`) | `capture` on the write path (`hooks/tezgah_snapshot.py:206`) | the pre-write bytes; the rollback source |
 | Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py::_stamp_path`) | `write_stamp` (`hooks/tezgah_context.py::write_stamp`) | the comparison behind the one-line delta, nothing else |
 | Installed config dir | `~/.config/tezgah` (`hooks/tezgah_paths.py:19-23`) | the installer and the user | which roots are armed, which kill switches are on |
-| Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:4051`) | `tezgah-setup --sync` (`bin/tezgah-setup:4049-4108`) | what Claude Code actually executes — a copy, never this checkout |
+| Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:4063`) | `tezgah-setup --sync` (`bin/tezgah-setup:4061-4120`) | what Claude Code actually executes — a copy, never this checkout |
 
 The cache dir is resolved once per process and falls back to a temp dir on a
 sandboxed host, so one session's state never splits across two files
@@ -175,7 +175,7 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
 - **One definition per concept.** The contract text lives only in
   `hooks/tezgah_policy.py`; adapters carry envelopes (`hooks/projects-auto-init.py:2-7`).
   Host-specific copies exist only where a host cannot load Python, and those are
-  generated from the policy, not hand-kept (`bin/tezgah-setup:1130-1135`).
+  generated from the policy, not hand-kept (`bin/tezgah-setup:1142-1147`).
 - **A hook never takes a session down.** Every call an entry point makes into
   the core goes through `tezgah_guard.safe`, which returns `None` and files a
   `crash` row rather than letting the exception out: a fault costs one envelope,

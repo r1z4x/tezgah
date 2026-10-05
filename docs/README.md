@@ -70,7 +70,7 @@ citation you can open: `path::symbol` into Python code, `path:line` elsewhere.
   is a judgement, not a regex. So a `path:line` with no symbol beside it is left
   unjudged rather than guessed at. So is a `path:N` the pattern cannot read
   (unquoted, or a comma list), but it is counted.
-  On this tree, 2026-10-05: 955 judged (954 of them symbol citations), 623 not
+  On this tree, 2026-10-05: 956 judged (955 of them symbol citations), 622 not
   judgeable, 85 of those unreadable.
   The unjudged count is a ratchet. `docs/citations-baseline.json` holds each file's
   count, and a file above or below it fails. Only `--citations --update` rewrites

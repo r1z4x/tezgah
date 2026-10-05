@@ -142,7 +142,7 @@ pointer with no conditional paragraph behind it, because the Stop rule's `no
 ui_ok` class is what asks for the check). That is
 what a host with no prompt-time hook writes into a static file: opencode's
 `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:846-850`) and omp's
-managed `RULES.md` (`bin/tezgah-setup:1358-1360`). Claude gets it from the
+managed `RULES.md` (`bin/tezgah-setup:1370-1372`). Claude gets it from the
 managed block in `~/.claude/CLAUDE.md` (its global memory file, and the reason
 its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 `output-styles/tezgah.md` where a build loads plugin output styles

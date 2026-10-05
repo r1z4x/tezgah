@@ -249,7 +249,7 @@ substring would also count a commit message that says "judge"
 (`hooks/tezgah_integrity.py::_counts`). It is in neither `STEP_KINDS` nor the check
 set: a judgement is a cost, and a model answer must never license a "done" claim
 (`STEP_KINDS`, `hooks/tezgah_integrity.py::STEP_KINDS`). `tezgah-setup --status <path>` prints the plain line for a
-repo (bin/tezgah-setup:4154-4156). A wrong or missing line usually ends in one of
+repo (bin/tezgah-setup:4166-4168). A wrong or missing line usually ends in one of
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a
 sandboxed host could not write (hooks/tezgah_paths.py:120-133).
