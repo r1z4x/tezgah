@@ -93,8 +93,8 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `NO_COLOR` | `hooks/tezgah_context.py:2482`, `hosts/omp/tezgah-hook.ts.in` | unset | Any value renders the status line without ANSI colour. |
-| `TEZGAH_STATUS_COLOR` | `hooks/tezgah_context.py:2483`, `hosts/omp/tezgah-hook.ts.in` | unset | `0` is the same opt-out as `NO_COLOR`, for tezgah alone. |
+| `NO_COLOR` | `hooks/tezgah_context.py:2502`, `hosts/omp/tezgah-hook.ts.in` | unset | Any value renders the status line without ANSI colour. |
+| `TEZGAH_STATUS_COLOR` | `hooks/tezgah_context.py:2503`, `hosts/omp/tezgah-hook.ts.in` | unset | `0` is the same opt-out as `NO_COLOR`, for tezgah alone. |
 | `TEZGAH_STATUS_ANIMATE` | `hosts/omp/tezgah-hook.ts.in:65` | unset (animated) | `0` keeps omp's status colours and drops the motion. |
 | `TEZGAH_STATUS_HOST` | `statusline.py:32` | `claude` | `cursor` renders for Cursor (the same as `--cursor`). |
 | `TEZGAH_STATUS_LEGEND` | `statusline.py:120` | unset | `1` prints the mark legend under the line. |
