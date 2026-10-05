@@ -20,6 +20,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A host config the installer cannot parse is left alone.** Seven install
+  steps read a host's JSON config and then rewrote it. They cover Codex and
+  Cursor `hooks.json`, opencode's `opencode.json` and `tui.json`, Cursor's
+  `mcp.json` and `cli-config.json`, and omp's `mcp.json`. A trailing comma, a
+  `//` comment or a top level that is not an object made the installer write
+  its default over the file. `--install` now names that file and the parse
+  error, leaves its bytes alone and exits 1.
+- **Every changing write keeps its own backup.** A write that changes a file
+  copies it to `<file>.<timestamp>.tezgah-bak` first. Before, only the first
+  write left a backup. The oldest timestamped copy is always kept, beside the
+  newest four. A bare `<file>.tezgah-bak` from an older release stays as is.
+  A full uninstall removes the timestamped backups of tezgah's own state too.
+- **`--install` fails when a planned host is not armed.** The run printed MISS
+  under a host and still exited 0. Now it exits 1 and names the host and row
+  under `not armed:`. Only the arming rows count: hooks wired, the contract
+  current, and omp's extension row where an omp CLI exists. Codex
+  `hooks trusted`, the provider keys and Claude's plugin copy stay out,
+  because a correct fresh install leaves them MISS.
 - **Codex write rows know where they ran.** The Codex hook was the one host
   that gave the ledger no cwd. Its write rows carried no workspace, and a
   relative path resolved against the hook process instead of the repository.

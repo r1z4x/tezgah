@@ -9,6 +9,7 @@ shape `tests/test_setup.py` uses), so the real ~/.claude, ~/.codex,
 ~/.config/opencode, ~/.cursor, ~/.dsh and ~/.omp are never touched, and none of
 these tests needs the network.
 """
+import glob
 import json
 import os
 import shutil
@@ -356,8 +357,9 @@ class Idempotence(FeaturesBase):
                          "an unchanged run laid a backup")
         # the symptom the finding names: a backup that is a copy of its own file
         for path in paths:
-            bak = path + ".tezgah-bak"
-            if os.path.exists(bak):
+            baks = sorted(glob.glob(path + ".*.tezgah-bak"))
+            if baks:
+                bak = baks[-1]
                 self.assertNotEqual(self.read_text(bak), self.read_text(path),
                                     "%s got an identical-bytes backup" % path)
 

@@ -268,7 +268,7 @@ bytes with a fresh render. That notices that the text a session gets changed;
 is the drift that actually happens (`tests/test_setup.py:1297-1311`).
 `tezgah-setup --refresh` re-renders every armed host's artifact, not only
 opencode's, and drops the paragraph of any global kill switch that is on
-(`refresh_contract`, `bin/tezgah-setup:1194-1211`).
+(`refresh_contract`, `bin/tezgah-setup:1253-1270`).
 
 The skill may hold more than the contract. Two rules live only in the skill
 today. The graph rule says an empty caller list is not proof that a change is
