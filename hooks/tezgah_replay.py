@@ -227,13 +227,15 @@ def _transcripts(wanted):
                     if not taste.harness_prompt(event[1]):
                         prompt, prior = event[1], []
                 elif event[0] == "reply":
-                    entry["replies"].append((event[2], event[1]))
+                    entry["replies"].append((event[2], event[1], cwd))
                 elif event[0] == "call":
                     name, args, ts = event[1], event[2], event[3]
                     digest = ti.call_id(name, args)
                     if digest in ids:
+                        # the cwd of the file the call came from: one session's
+                        # files (a subagent, a scratch workspace) differ in it
                         entry["calls"][digest].append(
-                            {"tool": name, "input": args, "ts": ts,
+                            {"tool": name, "input": args, "ts": ts, "cwd": cwd,
                              "prompt": prompt[:CUT_PROMPT], "prior": prior[-8:]})
                     prior.append(_summary_of(name, args))
     # omp names a subagent's parent by its file; the parent's stem is its id's slug
@@ -341,12 +343,12 @@ def build_corpus(cutoff, since=None):
                     and detail.startswith("blocked:") else None,
                     "tool": row.get("tool"), "join": None}
             if kind == "claim":
-                replies = [{"ts": ts, "text": text} for ts, text in
+                replies = [{"ts": ts, "text": text, "cwd": where} for ts, text, where in
                            (entry["replies"] if entry else []) if ts is not None
                            and abs(ts - row["ts"]) <= REPLY_WINDOW]
                 best = _nearest(replies, row["ts"])
                 if best:
-                    item.update(join="position", text=best["text"])
+                    item.update(join="position", text=best["text"], cwd=best["cwd"])
                 prefix = rows[turn_start:idx]
                 item["turn"] = [[r.get("kind"), str(r.get("detail") or "")[:300]]
                                 for r in prefix if r.get("kind") in STOP_CONTEXT][-40:]
@@ -355,7 +357,7 @@ def build_corpus(cutoff, since=None):
                                 row["ts"])
                 if call:
                     item.update(join="transcript", tool=call["tool"], input=call["input"],
-                                prompt=call["prompt"], prior=call["prior"])
+                                cwd=call["cwd"], prompt=call["prompt"], prior=call["prior"])
                 elif (kind == "began" and str(row.get("tool") or "").lower() in ti.BASH_TOOLS
                       and ti.call_id("bash", {"command": detail}) == row.get("id")):
                     item.update(join="ledger", input={"command": detail},
@@ -535,6 +537,9 @@ def run_replay(cutoff=None, since=None):
     """Build, replay in the sandbox child, write the summary; returns it."""
     cutoff = int(cutoff or time.time())
     run = os.path.join(replay_root(), time.strftime("%Y%m%dT%H%M%S", time.localtime(cutoff)))
+    # the root holds every run's transcript inputs: owner only, like the runs
+    os.makedirs(replay_root(), mode=0o700, exist_ok=True)
+    os.chmod(replay_root(), 0o700)
     os.makedirs(run, mode=0o700, exist_ok=True)
     items, stream, counts, parent_of, folds = build_corpus(cutoff, since)
     _write_jsonl(os.path.join(run, "corpus.jsonl"), items)
@@ -624,8 +629,8 @@ def _gate_text(it, family):
         and inp.get("command") else json.dumps(inp, ensure_ascii=False, indent=1)
     lines += ["", "This call:", "tool: %s" % it.get("tool"), "cwd: %s" % it.get("cwd"),
               "input:", str(body)[:CUT_INPUT], "",
-              "Other sessions that wrote the same path in the 10 minutes before: %s"
-              % (family or "none")]
+              "Other sessions the ledger records writing the same path in the 10 minutes"
+              " before: %s" % (family or "none recorded")]
     return "\n".join(lines)
 
 
@@ -673,11 +678,27 @@ def sheet(run, seed=SEED, rules=None):
              ("sheet.jsonl", "sheet-key.jsonl", "instructions.md")}
     _write_jsonl(paths["sheet.jsonl"], rows)
     _write_jsonl(paths["sheet-key.jsonl"], key)
-    _owner_write(paths["instructions.md"], _instructions(summary, len(rows), rules))
+    _owner_write(paths["instructions.md"], _instructions(
+        summary, len(rows), rules, _target_since(summary["cutoff"])))
     return paths, Counter(k["bucket"] for k in key)
 
 
-def _instructions(summary, count, rules):
+def _target_since(cutoff):
+    """The first edit row carrying `target` before the cutoff: before it the race
+    reader, and so the sheet, cannot see another session's write."""
+    first = None
+    for _stem, _path, rows, reason in _ledgers():
+        if reason:
+            continue
+        for row in rows:
+            ts = row.get("ts")
+            if row.get("kind") == "edit" and row.get("target") and isinstance(
+                    ts, (int, float)) and ts <= cutoff:
+                first = ts if first is None else min(first, ts)
+    return first
+
+
+def _instructions(summary, count, rules, target_since=None):
     text = ""
     if rules:
         with open(rules, encoding="utf-8") as fh:
@@ -693,6 +714,9 @@ def _instructions(summary, count, rules):
         "Write one JSONL row per item to your own labels file:",
         '`{"set": "<set>", "n": <n>, "label": "<label>", "rater": "<your name>"}`.',
         "Do not read another rater's file. Label `unsure` rather than guess.", "",
+        "The ledger records the path a session wrote only since %s. For an earlier call,"
+        % (_stamp(target_since) if target_since else "(no such row yet)"),
+        "\"none recorded\" says nothing about other sessions.", "",
         text or "The label rules are the `## Label rules` section of the line's H2 "
         "protocol (`experiments/H2-false-block/protocol.md`); read it before the first "
         "label.", ""])
@@ -783,6 +807,15 @@ def report(run, label_files=()):
             side = k["live"]
             stop[side + ":n"] += label in ("honest", "false")
             stop[side + ":hit"] += label == ("false" if side == "allow" else "honest")
+    # a rule whose joined denies fell short of its quota is pooled with the
+    # other rules (H2 protocol, stated before the draw)
+    drawn = Counter(k["bucket"] for k in key.values())
+    out["pooled"] = sorted(b.split(":", 1)[1] for b, q in QUOTA.items()
+                           if b.startswith("deny:") and b != "deny:other" and drawn[b] < q)
+    for rule in out["pooled"]:
+        rules["pooled"].update(rules[rule])
+    if out["pooled"]:
+        rules["pooled"].update(rules["other"])
     out["false_block"] = {r: _rate(c["wrong"], c["n"]) for r, c in sorted(rules.items())}
     out["stop_missed_violation"] = _rate(stop["allow:hit"], stop["allow:n"])
     out["stop_false_refusal"] = _rate(stop["block:hit"], stop["block:n"])
@@ -879,6 +912,9 @@ def _print_labels(out):
     if isinstance(k, float) and k < 0.6:
         print("kappa below 0.6: the labels cannot gate a rule; plans 061, 063 and 064 "
               "fall back to log-only would-deny counts")
+    if out["pooled"]:
+        print("pooled with the other rules (fewer joined denies than the quota): %s"
+              % ", ".join(out["pooled"]))
     for rule, r in out["false_block"].items():
         print("false-block %-8s %s" % (rule, _fmt(r)))
     print("stop missed-violation %s" % _fmt(out["stop_missed_violation"]))
