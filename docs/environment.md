@@ -93,8 +93,8 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `NO_COLOR` | `hooks/tezgah_context.py:2365`, `hosts/omp/tezgah-hook.ts.in` | unset | Any value renders the status line without ANSI colour. |
-| `TEZGAH_STATUS_COLOR` | `hooks/tezgah_context.py:2366`, `hosts/omp/tezgah-hook.ts.in` | unset | `0` is the same opt-out as `NO_COLOR`, for tezgah alone. |
+| `NO_COLOR` | `hooks/tezgah_context.py:2367`, `hosts/omp/tezgah-hook.ts.in` | unset | Any value renders the status line without ANSI colour. |
+| `TEZGAH_STATUS_COLOR` | `hooks/tezgah_context.py:2368`, `hosts/omp/tezgah-hook.ts.in` | unset | `0` is the same opt-out as `NO_COLOR`, for tezgah alone. |
 | `TEZGAH_STATUS_ANIMATE` | `hosts/omp/tezgah-hook.ts.in:65` | unset (animated) | `0` keeps omp's status colours and drops the motion. |
 | `TEZGAH_STATUS_HOST` | `statusline.py:32` | `claude` | `cursor` renders for Cursor (the same as `--cursor`). |
 | `TEZGAH_STATUS_LEGEND` | `statusline.py:120` | unset | `1` prints the mark legend under the line. |
@@ -105,7 +105,7 @@ the kill switches are files, not variables, and live in
 |---|---|---|---|
 | `TEZGAH_SESSION` | `bin/tezgah-status:229`, `bin/tezgah-docs`, `bin/tezgah-route`, `bin/tezgah-triage`, `hosts/omp/tezgah-hook.ts.in` | unset; the omp hook exports it to its shells | The session id `tezgah-docs`, `tezgah-route` and `tezgah-triage` write their ledger rows under, and the id `tezgah-status` lights its "used" marks from when none is passed. |
 | `TEZGAH_CORE_IN_FILE` | `hooks/projects-auto-init.py:53`, `hooks/hooks.json` | unset | `1` (set by the Claude plugin's hook rows) drops the core rules from the injection when the host's static file really carries the tezgah block; a file without it falls back to the hook. |
-| `TEZGAH_NESTED` | `hooks/tezgah_integrity.py:3297`, `bin/consult` | unset | Set by consult on the agent CLIs it runs: that session's Stop rule does not fire. |
+| `TEZGAH_NESTED` | `hooks/tezgah_integrity.py:3298`, `bin/consult` | unset | Set by consult on the agent CLIs it runs: that session's Stop rule does not fire. |
 | `TEZGAH_CALL_OUTCOME` | `hooks/projects-posttooluse.py:102`, `hosts/dsh/hooks.json` | unset | `none` (dsh's Task rows) records the call's outcome as unknown instead of as a pass. |
 | `CLAUDE_PROJECT_DIR` | `hooks/projects-auto-init.py:68` | the process cwd | The project dir when the hook payload carries no `cwd`. |
 | `PLAYWRIGHT_BROWSERS_PATH`, `LOCALAPPDATA` | `hooks/tezgah_apps.py:83` | Playwright's own cache dirs | Where `analyze-app` looks for an installed browser before it reports one missing. |

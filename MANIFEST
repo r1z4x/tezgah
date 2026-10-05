@@ -697,6 +697,7 @@ tests/test_skill_pick.py
 tests/test_skills.py
 tests/test_snapshot.py
 tests/test_statusline.py
+tests/test_stop_after_block.py
 tests/test_task.py
 tests/test_taste.py
 tests/test_taste_cli.py

@@ -29,6 +29,8 @@ the same code every other host runs.
            is absent for every ordinary result)
     {"event": "stop", "last_assistant_message": ..., "stop_hook_active": bool}
         -> {"decision": "block", "reason": reason}
+           (with `stop_hook_active` the reply is recorded as an `after_block`
+           row and never blocked a second time)
 
 Every answer that carries the line carries `idx` with it - the glyph of the
 line's idx mark - so the caller can hand it back on the redraws that must not
@@ -211,7 +213,13 @@ def handle(payload):
             out["label"] = label
         return out
     if event == "stop":
-        if payload.get("stop_hook_active") or off("verify-off"):
+        if off("verify-off"):
+            return {}
+        if payload.get("stop_hook_active"):
+            # the reply after a block: recorded, never refused a second time,
+            # under its own guard so a record that fails still answers empty
+            safe(session_id, stop_reason, payload.get("last_assistant_message"),
+                 session_id, cwd=cwd, record_only=True)
             return {}
         reason = stop_reason(payload.get("last_assistant_message"), session_id,
                              cwd=cwd)

@@ -83,7 +83,7 @@ fixed:
    to frontier by rule (`OVERRIDE`, `hooks/tezgah_models.py:633-641`) - the class
    the judge under-routed in its measurement.
 2. Otherwise the brief - redacted with the ledger's own reader
-   (`redact`, `hooks/tezgah_integrity.py:624`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
+   (`redact`, `hooks/tezgah_integrity.py:625`) - goes to Jev as one Choice over three tiers (`TIER_QUESTION`,
    `hooks/tezgah_models.py:645-666`). Measured on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a

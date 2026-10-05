@@ -1737,6 +1737,23 @@ class UiEvidence(unittest.TestCase):
                      out_bytes=10)
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
+    SNAPSHOT = "tezgah-capture '{\"tool\": \"Edit\", \"session_id\": \"s\"}'"
+
+    def test_the_snapshot_cli_is_not_a_read_of_the_screen(self):
+        # `tezgah-capture` takes a pre-write snapshot of a file (bin/tezgah-capture);
+        # it reads no screen, so it is neither the UI proof nor, through the
+        # proof that discharges a non-UI write, a pass for anything else
+        screen = os.path.join(self.dir, "admin", "pages", "users.tsx")
+        os.makedirs(os.path.dirname(screen), exist_ok=True)
+        self.edit(screen)
+        ti.note_tool("s", "Bash", {"command": self.SNAPSHOT}, out_bytes=10)
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_the_snapshot_cli_does_not_discharge_a_non_ui_write(self):
+        self.edit(os.path.join(self.dir, "worker.py"))
+        ti.note_tool("s", "Bash", {"command": self.SNAPSHOT}, out_bytes=10)
+        self.assertIsNotNone(ti.stop_reason("Done. All tests pass.", "s"))
+
     def test_a_turn_that_wrote_no_ui_source_is_unchanged(self):
         # the control: the same shape over a `.py` file - a green unit run is
         # the evidence the UI branch does not apply to

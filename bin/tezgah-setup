@@ -1626,9 +1626,9 @@ def dsh_patch_block():
     native deepseek-official route stays the default model provider. The bridge
     knows only SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/SubagentStart/
     SubagentStop/Stop and silently drops any other event, so `configPath` names
-    hosts/dsh/hooks.json rather than the Claude manifest - the file declares six
-    of those seven, with no SubagentStop, because nothing here handles a
-    subagent's end (the Claude manifest has no such entry either)."""
+    hosts/dsh/hooks.json rather than the Claude manifest - the file declares five
+    of those seven: no SubagentStop (nothing handles a subagent's end) and no
+    Stop (the bridge drops every outcome, so no check there can show a pass)."""
     return (
         "- insert:\n"
         "    - id: tezgah-hooks\n"

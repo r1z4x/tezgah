@@ -465,8 +465,8 @@ class CrossHostStopAgreement(TempHome):
     is driven through its own adapter in its own payload shape; a passing run
     must license the claim on all four and a failing one must refuse it on all
     four. dsh is left out on purpose: its bridge drops the outcome
-    (`TEZGAH_CALL_OUTCOME=none` in hosts/dsh/hooks.json), so every check there
-    is one that ran and the claim is always refused."""
+    (`TEZGAH_CALL_OUTCOME=none` in hosts/dsh/hooks.json), so no check there
+    can show a pass, and dsh wires no Stop rule at all."""
 
     CLAIM = "Tamamlandı, tüm testler geçti."
     CHECK = {"command": "python3 -m pytest -q"}

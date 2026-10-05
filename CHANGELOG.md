@@ -18,11 +18,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   measure` and `tezgah-taste rate` sort them with the judge seam into
   preference, defect or none. This phase learns and injects nothing.
 
+- **The Stop hook now records the reply after a block.** On Claude, Codex and
+  omp the hook skipped the reply that answers a block. It now judges that
+  reply in record-only mode and writes one `after_block` row. The row says
+  whether the rule would refuse the reply, let a claim through, or found no
+  claim. It never blocks a second time and never counts as a claim. Cursor
+  stays unwired: nobody has checked its stop payload yet.
+
 ### Fixed
 
 - **Codex write rows know where they ran.** The Codex hook was the one host
   that gave the ledger no cwd. Its write rows carried no workspace, and a
   relative path resolved against the hook process instead of the repository.
+- **`tezgah-capture` no longer counts as a read of the screen.** It is the
+  pre-write file snapshot CLI. A turn could end on a done claim because this
+  run stood in for a screen proof or for a passing check.
+- **dsh has no Stop rule.** Its bridge drops every call's outcome, so no check
+  there can show a pass. The rule could only refuse honest work there. The
+  Stop entry leaves `hosts/dsh/hooks.json` until the bridge carries outcomes.
 
 ## [0.1.2] - 2026-10-04
 
