@@ -60,6 +60,7 @@ bin/tezgah-import-ai-research.py
 bin/tezgah-index
 bin/tezgah-index.py
 bin/tezgah-mcp
+bin/tezgah-mcp.py
 bin/tezgah-migrate
 bin/tezgah-migrate.py
 bin/tezgah-pony

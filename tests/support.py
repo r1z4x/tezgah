@@ -106,6 +106,16 @@ FIXTURE_PARENT = ("/var/tmp"
                   if os.path.isdir("/var/tmp") and os.access("/var/tmp", os.W_OK)
                   else None)
 
+# This process too: a test that calls a hook in-process, or hands a child
+# `os.environ`, wrote to the real ~/.cache/tezgah ledger under the session that
+# ran the suite. tezgah_paths fixes HOME and CACHE at import, so this runs before
+# any hooks/ import a test module makes after `import support`.
+_SUITE_HOME = tempfile.TemporaryDirectory(prefix="tezgah-suite-home-", dir=FIXTURE_PARENT,
+                                          ignore_cleanup_errors=True)
+os.environ["HOME"] = _SUITE_HOME.name
+for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME"):
+    os.environ.pop(_name, None)
+
 
 class TempHome(unittest.TestCase):
     """A test with a fresh temp HOME and a Projects root inside it."""

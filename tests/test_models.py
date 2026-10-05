@@ -589,9 +589,39 @@ class Cli(unittest.TestCase):
         home = tempfile.mkdtemp()
         os.makedirs(os.path.join(home, "tezgah"))
         open(os.path.join(home, "tezgah", "judge-off"), "w").close()
-        env = dict(os.environ, XDG_CONFIG_HOME=home, **extra)
+        # this module does not import `support`, so it sandboxes the child
+        # itself: no real HOME (the ledger lives under it), and no session but
+        # the one a test passes
+        env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=home)
+        env.pop("TEZGAH_SESSION", None)
+        env.update(extra)
         return subprocess.run([sys.executable, os.path.join(REPO, "bin", "tezgah-route")]
                               + list(args), capture_output=True, text=True, env=env)
+
+    def test_a_route_run_reaches_neither_the_real_home_nor_the_session(self):
+        # 36 rows in the live route ledger came from this class: the child
+        # inherited the real HOME and the running session's TEZGAH_SESSION
+        with mock.patch.dict(os.environ, {"TEZGAH_SESSION": "r02-probe",
+                                          "HOME": "/real-home"}), \
+                mock.patch.object(subprocess, "run") as run:
+            self.run_route("x")
+        env = run.call_args.kwargs["env"]
+        self.assertNotIn("TEZGAH_SESSION", env)
+        self.assertNotEqual(env["HOME"], "/real-home")
+        self.assertTrue(env["HOME"].startswith(env["XDG_CONFIG_HOME"]))
+
+    def test_importing_support_sandboxes_the_process(self):
+        # set before any hooks/ import: tezgah_paths fixes HOME and CACHE then
+        code = ("import os, support; print(os.environ['HOME']); "
+                "print('TEZGAH_SESSION' in os.environ, 'XDG_CONFIG_HOME' in os.environ)")
+        env = dict(os.environ, HOME="/real-home", TEZGAH_SESSION="r02-probe",
+                   XDG_CONFIG_HOME="/real-home/.config")
+        p = subprocess.run([sys.executable, "-c", code], cwd=os.path.join(REPO, "tests"),
+                           env=env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        home, flags = p.stdout.splitlines()
+        self.assertNotEqual(home, "/real-home")
+        self.assertEqual(flags, "False False")
 
     def test_judge_off_routes_by_rule_and_phase(self):
         p = self.run_route("Migrate the ledger rows", "--json")

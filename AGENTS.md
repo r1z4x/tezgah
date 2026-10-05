@@ -43,12 +43,13 @@ edit loop, and never twice on one revision.
 
 - `ruff` is installed as a uv tool (`uv tool install ruff`); without it, run the
   same check via `uvx ruff check .`. There is no other linter or type checker.
-- CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.10, 3.12, 3.13
-  and 3.14, so 3.10 is the floor and 3.14 the ceiling; its ubuntu legs also
-  measure the heredoc reader against bash 5.x. An `apps-e2e` job runs
-  the app-MCP handshake below on node 20. The last two are the audits the suite
+- CI runs the same checks on the Python matrix in `.github/workflows/ci.yml`,
+  whose oldest version is the floor and newest the ceiling. Its ubuntu legs also
+  measure the heredoc reader against bash 5.x. An `apps-e2e` job runs the
+  app-MCP handshake below on node 20. The citations audit is the check the suite
   is silent about: a green run says nothing about a citation that moved with a
-  file, or about an open plan's item that never said how it is proven.
+  file. The plan report (`render_table.py --acceptance --strict`) is local only:
+  it reads the gitignored `.tezgah/`, which a CI checkout does not have.
 - The artifact smoke is the one check that leaves the checkout: it builds
   `dist/tezgah-<version>.tar.gz` (`packaging/build.sh`), unpacks it in a temp
   dir and installs from the unpacked tree, so a broken manifest or a path that

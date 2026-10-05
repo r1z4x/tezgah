@@ -505,7 +505,7 @@ class Cli(TempHome):
 
     def test_a_writing_phase_is_refused_when_no_acceptance_item_names_a_command(
             self):
-        # What CI's `--acceptance --strict` reports is refused here, before the
+        # What `render_table --acceptance --strict` reports is refused here, before the
         # work rather than after the push: a plan whose every item names no
         # command has nothing the work can be held to. The refusal names the
         # file and the reader, so the plan and the report cannot disagree.

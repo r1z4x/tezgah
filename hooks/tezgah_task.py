@@ -224,7 +224,7 @@ def acceptance_gap(text):
     Acceptance items at all.
 
     A plan with an empty or absent section is a different defect - the format asks
-    plan-add to write the items, and the report the CI runs does not gate that
+    plan-add to write the items, and the render_table report does not gate that
     case either - so refusing it here would tax every plan that predates the rule
     while the two readers still agreed about every item either of them can see.
     Returns the items so a refusal can count them."""
