@@ -42,7 +42,7 @@ def main():
     session_id = p.get("session_id")
     if p.get("hook_event_name") == "SubagentStop":
         safe(session_id, stop_reason, p.get("last_assistant_message"),
-             session_id, cwd=cwd, subagent=True)
+             session_id, cwd=cwd, subagent=True, agent=p.get("agent_id"))
         return
     blocked = 1 if p.get("stop_hook_active") else 0
     # a core that cannot answer has refused nothing, so the turn ends: the rule

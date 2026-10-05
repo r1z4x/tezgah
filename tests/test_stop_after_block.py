@@ -237,6 +237,18 @@ class AfterBlock(TempHome):
         self.assertNotIn("Traceback", proc.stderr)
         self.assertEqual(proc.stdout.strip(), "")
 
+    def test_a_subagent_end_row_names_its_agent(self):
+        # plan 055 separates subagent rows from the parent's by this field
+        self.session = "s-sub-agent"
+        self.work()
+        out, proc = run_json([support.STOP_HOOK], {
+            "hook_event_name": "SubagentStop", "cwd": self.repo,
+            "session_id": self.session, "agent_id": "a-123",
+            "last_assistant_message": CLAIM}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([r.get("agent") for r in self.rows("subagent_end")],
+                         ["a-123"])
+
     def test_new_kinds_are_not_tool_hook_rows(self):
         for kind in (b"after_block", b"refusal", b"subagent_end"):
             self.assertIn(kind, tezgah_context.NOT_TOOL_HOOK)

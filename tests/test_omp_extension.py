@@ -560,6 +560,39 @@ class OmpExtension(TempHome):
                 ], session="empty-%d" % len(str(content)))
                 self.assertEqual(self.results(out)[1]["decision"], "block")
 
+    EMPTY_VECTORS = (
+        "collected 0 items\n", "== test session starts ==\ncollected 0 items\n",
+        "=== no tests ran in 0.01s ===", "\nRan 0 tests in 0.000s\n\nOK",
+        "No tests found, exiting with code 0", "no tests found related to x",
+        "  collected 0 items / 2 skipped", "COLLECTED 0 ITEMS",
+        "collected 3 items\n3 passed", "Ran 12 tests in 0.1s\nOK",
+        "log: no tests ran here", "tests ran: 0 failures", "collected 10 items",
+        "", "ok", "x" * 5000 + "\ncollected 0 items",
+        "collected 0 items\n" + "x" * 5000, "Ran 0 tests\r\nOK",
+        "error: no tests ran because of a crash",
+        "PASS src/a.test.ts\nTests: 3 passed")
+
+    def test_the_two_empty_run_copies_agree_on_real_outputs(self):
+        # the literals are pinned equal above; this pins what they DO, tail
+        # included, over realistic outputs, through node and through python
+        import re
+        import sys
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_integrity as ti
+        with open(support.OMP_EXTENSION) as fh:
+            text = fh.read()
+        literal = re.search(r"^const EMPTY_RUN = (/.*/\w*);$", text, re.M).group(1)
+        script = ("const R = %s; const T = %d;"
+                  "const v = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+                  "process.stdout.write(JSON.stringify(v.map(s => R.test(s.slice(-T)))));"
+                  % (literal, ti.EMPTY_RUN_TAIL))
+        proc = subprocess.run([self.node, "-e", script],
+                              input=json.dumps(list(self.EMPTY_VECTORS)),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout),
+                         [ti.ran_nothing(s) for s in self.EMPTY_VECTORS])
+
     def test_the_bridge_sends_the_flag_and_never_the_body(self):
         hook, log = self.fake_hook({})
         self.ext = self.make_ext(hook, "fake-hook.ts")

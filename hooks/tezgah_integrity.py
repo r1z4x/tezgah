@@ -2854,7 +2854,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         # a cwd the row does not carry (audit CHAT-03 / M-6)
         fields["target"] = _abs_target((_written_paths(inp) or [""])[0], cwd)
     if kind.startswith("verify"):
-        fields["repo"] = _check_repo(cmd, cwd)
+        fields["repo"] = _check_repo(cmd, cwd, inp)
         fields["empty_run"] = True if empty_run else None
     note(session_id, kind, detail, **fields)
     if kind == "edit" and not failed:
@@ -2868,20 +2868,56 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         tezgah_taste.note_write(session_id, fields["id"], inp, cwd)
 
 
-# A leading `cd X &&` (or `;`): the directory the rest of the command ran in.
-LEADING_CD = re.compile(r"^\s*cd\s+(\S+)\s*(?:&&|;)")
+# One leading step a check's command opens with: a subshell paren, an
+# assignment (`export X=1`, `X=1`) or a `cd X`, closed by `&&` or `;`.
+LEAD_STEP = re.compile(r"\s*\(?\s*(?:(?:export\s+)?\w+=\S*|cd\s+(\S+))\s*(?:&&|;)")
 
 
-def _check_repo(cmd, cwd):
-    """The git toplevel the check in `cmd` ran in, or None: `cwd`, moved by a
-    leading `cd X &&`. ponytail: only a leading `cd` is read (plan 054 parses
-    the rest); a cwd the host did not send binds the row to nothing."""
-    if not cwd:
+def _check_repo(cmd, cwd, inp=None):
+    """The git toplevel the check in `cmd` ran in, or None when that cannot be
+    told with confidence - and None binds as before, so an unknown repository
+    never refuses a turn.
+
+    Only an explicit location counts: the tool's own `cwd`/`workdir` argument,
+    a leading `cd X` (after a subshell paren or assignments), or path
+    arguments of the check that all sit in one repository. The host's session
+    cwd alone is not one: a shell that kept an earlier call's `cd` runs
+    elsewhere. A `cd` the reader cannot resolve (`cd "$WT"`, a directory that
+    does not exist) and path arguments in two repositories give None."""
+    inp = inp or {}
+    base = inp.get("cwd") or inp.get("workdir")
+    explicit = bool(base)
+    where = os.path.join(cwd or "", os.path.expanduser(str(base))) if base else cwd
+    if not where or not os.path.isabs(where):
         return None
-    m = LEADING_CD.match(cmd)
-    where = (os.path.join(cwd, os.path.expanduser(m.group(1).strip("'\"")))
-             if m else cwd)
-    return _toplevel(os.path.realpath(where))
+    rest = str(cmd or "")
+    m = LEAD_STEP.match(rest)
+    while m:
+        if m.group(1):
+            target = m.group(1).strip("'\"")
+            if "$" in target or "`" in target:
+                return None
+            where, explicit = os.path.join(where, os.path.expanduser(target)), True
+        rest = rest[m.end():]
+        m = LEAD_STEP.match(rest)
+    if not os.path.isdir(where):
+        return None
+    tops = {_toplevel(os.path.realpath(os.path.join(where, word)))
+            for word in COMMAND_END.split(rest, 1)[0].split()[1:]
+            if not word.startswith("-") and (explicit or os.path.isabs(word))
+            and os.path.exists(os.path.join(where, word))}
+    if tops:
+        return tops.pop() if len(tops) == 1 else None
+    return _toplevel(os.path.realpath(where)) if explicit else None
+
+
+def _same_repo(a, b):
+    """True when a check in repository `a` can speak for a change in `b`: either
+    is unknown, they are one, or one is nested in the other (a vendored or
+    nested checkout under the root a suite runs from)."""
+    if not a or not b or a == b:
+        return True
+    return a.startswith(b.rstrip(os.sep) + os.sep) or b.startswith(a.rstrip(os.sep) + os.sep)
 
 
 def ran_nothing(result):
@@ -2905,28 +2941,33 @@ def claims(text):
 
 # The question/negation window around a claim word (R04 i, evidence-10): "is
 # it done?", "testler geçti mi?", "not tested yet" and "tamamlandı değil" name
-# a claim without making it. Read in the claim's own clause: up to two words
-# after a negation before it, and the particle or a `?` after it before the
-# next `,;:.!` - so "Tamamlandı, push edeyim mi?" still asserts its first half.
+# a claim without making it. Both halves read the claim's own clause only,
+# bounded by punctuation and by a joining word (`CLAUSE_END`): a negation up to
+# two words before the claim word, and a question particle or a `?` that ends
+# the clause after it. So "Don't worry, it's done.", "All tests pass so should
+# I open the PR?", "Done (no regressions?)" and "Tamamlandı, push edeyim mi?"
+# all still assert.
 NEGATION_BEFORE = re.compile(r"(?:\bnot|n't|\bnever|\bdeğil)(?:\s+\S+){0,2}\s+\Z",
                              re.I)
-QUESTION_AFTER = re.compile(r"\s*(?:m[ıiuü]|değil)\b|[^.!,;:\n]*\?", re.I)
-SENTENCE_END = re.compile(r"[.!?\n]")
+QUESTION_PARTICLE = re.compile(r"\s*(?:m[ıiuü]|değil)\b", re.I)
+CLAUSE_END = re.compile(r"[.!?\n,;:\u2014\u2013()]|\b(?:so|and|but|ama|ve)\b",
+                        re.I)
 
 
 def asserted_claims(text):
-    """`claims`, with a claim word inside a question or under a negation not
-    counted. Applied where the words are the whole trigger - the no-work path
-    of `_stop_block` - so a turn that did work is still judged on its rows.
-    ponytail: a window of words, not a parser; a claim the window hides costs
-    nothing a turn with work could escape through."""
+    """`claims`, with a claim word inside a question or under a negation of its
+    own clause not counted. Read by `_stop_block` on the no-work path and by
+    `stop_reason` for the claim row; a turn that did work is still judged on its
+    rows. ponytail: a window of words, not a parser."""
     t = str(text or "")
 
     def said(pattern):
         for m in pattern.finditer(t):
-            before = SENTENCE_END.split(t[max(0, m.start() - 60):m.start()])[-1]
-            if not (NEGATION_BEFORE.search(before)
-                    or QUESTION_AFTER.match(t, m.end())):
+            before = CLAUSE_END.split(t[max(0, m.start() - 80):m.start()])[-1]
+            end = CLAUSE_END.search(t, m.end())
+            asked = (QUESTION_PARTICLE.match(t, m.end())
+                     or (end and end.group(0) == "?"))
+            if not (NEGATION_BEFORE.search(before) or asked):
                 return True
         return False
 
@@ -3011,15 +3052,18 @@ def _change_repo(rows, i):
 def _last_pass(rows, repo=None):
     """The position of the newest row that is evidence a check passed, or -1.
 
-    The position is the check's START - its gate-written `began` row, paired
-    oldest-first by `id` as `_began_fold` pairs them - and not its outcome row:
-    a write that landed while the check ran is newer than the tree the check
-    read, though its row is older than the check's outcome (evidence-08). A
-    pass with no `began` row (a host that writes none) keeps its own position.
+    The position is the check's START - the newest gate-written `began` row of
+    the same `id` before it - and not its outcome row: a write that landed while
+    the check ran is newer than the tree the check read, though its row is older
+    than the check's outcome (evidence-08). Newest, not oldest: an id is the
+    call's hash, so an earlier attempt that never answered (denied, abandoned)
+    shares it, and pairing with that one dated a fresh pass before the edit it
+    followed. A pass with no `began` row (a host that writes none) keeps its own
+    position.
 
-    `repo` binds the pass to a repository: a pass whose `repo` is another one
-    is not evidence about this change (`_check_repo`); a row with no `repo`
-    binds to nothing and counts, as before."""
+    `repo` binds the pass to a repository: a pass in another one is not
+    evidence about this change (`_check_repo`, `_same_repo`); a row with no
+    `repo` binds to nothing and counts, as before."""
     waiting, best = {}, -1
     for i, row in enumerate(rows):
         digest, kind = row.get("id"), row.get("kind")
@@ -3027,9 +3071,9 @@ def _last_pass(rows, repo=None):
             if digest:
                 waiting.setdefault(digest, []).append(i)
             continue
-        start = (waiting[digest].pop(0)
+        start = (waiting[digest].pop()
                  if kind in OUTCOME_KINDS and waiting.get(digest) else i)
-        if passing_check(row) and (not repo or row.get("repo") in (None, repo)):
+        if passing_check(row) and _same_repo(row.get("repo"), repo):
             best = max(best, start)
     return best
 
@@ -3527,7 +3571,7 @@ def _shape_block(text, cwd):
 
 
 def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
-                subagent=False):
+                subagent=False, agent=None):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
     `cwd` is the session's directory, read for the repo's `.no-adhd` mark.
@@ -3565,8 +3609,10 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
     claim or as a second reply in the shape rate. Only a turn this rule
     refused has one: the flag says some Stop hook blocked, not that this one
     did. `subagent` is a subagent's end (ADR 011): judged the same way, never
-    refused, recorded as a `subagent_end` row with the same detail vocabulary
-    and no turn precondition. Both return None."""
+    refused, recorded as a `subagent_end` row with the same detail vocabulary,
+    the host's subagent id in `agent` when it sent one, and no turn
+    precondition. Both return None. A reply counts as claiming only with
+    `asserted_claims`: "Testler geçti mi?" leaves no `claim ok` row."""
     rows, turns = turn_rows(session_id, turns=True)
     record_only = record_only or subagent
     if record_only and not subagent and not any(
@@ -3585,7 +3631,7 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
                                    and entry.get("id") == key for entry in rows):
         note(session_id, "shape", ",".join(shape_flags(text)) or "ok", id=key,
              **shape)
-    claimed = any(claims(text))
+    claimed = any(asserted_claims(text))
     if record_only:
         detail = ("would block: %s" % cls if reason
                   else "ok" if claimed else "no claim")
@@ -3604,14 +3650,19 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
                for entry in rows):
         if cls == "no verify_ok" and not record_only:
             shape = dict(shape, cause=_no_pass_cause(rows))
+        if subagent and agent:
+            shape = dict(shape, agent=str(agent))
         note(session_id, kind, detail, id=key, **shape)
     return reason
 
 
 def _no_pass_cause(rows):
-    """Why a `no verify_ok` turn had no pass: `outcome unread` when a check ran
-    and no pass was seen of it (no outcome, a pipe, an empty run, a result that
-    never arrived), else `no check`."""
+    """Why a `no verify_ok` turn had no pass: `other repo` when a pass exists
+    but ran in another repository, `outcome unread` when a check ran and no
+    pass was seen of it (no outcome, a pipe, an empty run, a result that never
+    arrived), else `no check`."""
+    if any(passing_check(row) for row in rows):
+        return "other repo"
     waiting = _began_fold(rows)[0]
     unread = any(row.get("kind") == "verify"
                  or (row.get("kind") == "verify_ok" and not passing_check(row))
@@ -4063,6 +4114,17 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "A green run over the previous revision does not cover this one."
                 % (shown or "a file this session wrote",
                    "was" if len(names) <= 1 else "were"))
+    elif worked and _last_pass(rows) > last_change:
+        # a pass newer than the change exists, only in another repository: the
+        # class stays (ledger continuity), the text names the real reason
+        return ("no verify_ok",
+                "%s changed %s, and the check that passed after it ran in "
+                "another repository (%s), so it says nothing about this one. "
+                "Run the check in the repository you changed and report its "
+                "output, or mark the claim \"doğrulanmadı\"."
+                % (where.capitalize(), _change_repo(rows, last_change),
+                   rows[max(i for i, r in enumerate(rows)
+                            if passing_check(r))].get("repo")))
     elif worked:
         return ("no verify_ok",
                 "%s did work (edits or commands) and no check ran "

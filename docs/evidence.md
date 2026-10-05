@@ -159,11 +159,18 @@ the neuter rule. Opencode's `verifyCommand` carries the same three tables.
 
 A check can say in its own output that it ran nothing (`EMPTY_RUN`): `collected 0 items`, `no
 tests ran`, `Ran 0 tests` or `No tests found` at a line start. The reader scans the result's last
-4096 characters. Such a row records as `verify` with `empty_run`, never as a pass. Claude, Codex
+4096 characters. Such a row records as `verify` with `empty_run`, never as a pass. One result
+covers the whole call, so `pytest a && pytest b` with one empty suite marks the whole row empty.
+That is a ceiling: the reader does not split the output per check. Claude, Codex
 and Cursor read the result they already hold. The omp bridge keeps its own copy of the literal
 and sends only the flag, never the body. `tests/test_omp_extension.py` pins the two copies equal.
-A check row also carries `repo`: the git toplevel it ran in, after a leading `cd X &&`, with no
-git fork. The Stop rule reads it below.
+A check row also carries `repo`, the git toplevel it ran in, read with no git fork. Only an
+explicit location sets it. That is the tool's own `cwd` or `workdir`, or a leading `cd X`, also
+after a paren or assignments. Path arguments that all sit in one repository count too. The
+session cwd alone does not, because a shell may keep an earlier call's `cd`. An unreadable
+`cd "$WT"` gives no `repo` either.
+A row without one binds as before, so an unknown location never refuses. The Stop rule reads it
+below.
 
 **`edit` carries the write's after-state.** The gate's capture records the pre-write hash;
 `_post_write` (`hooks/tezgah_integrity.py:2624-2670`) adds `hash` (the target's sha256 once the host returned) and `changed`

@@ -3297,7 +3297,8 @@ class PostToolUse(TempHome):
         empty, real = self.rows()
         self.assertEqual((empty["kind"], empty.get("empty_run")), ("verify", True))
         self.assertEqual((real["kind"], real.get("empty_run")), ("verify_ok", None))
-        self.assertEqual(real["repo"], os.path.realpath(self.repo))
+        # the session cwd alone is no location (a shell may have moved)
+        self.assertIsNone(real.get("repo"))
 
     def test_a_row_carries_the_outcome_the_result_size_and_the_workspace(self):
         result = "11 passed in 0.2s"
@@ -4035,9 +4036,9 @@ class StopRuleRest(unittest.TestCase):
         ti.note_tool("s", "Edit", {"file_path": self.target}, failed=False,
                      cwd=self.repo)
 
-    def shell(self, command, cwd=None, **kw):
-        ti.note_tool("s", "Bash", {"command": command}, failed=False,
-                     out_bytes=42, cwd=cwd or self.repo, **kw)
+    def shell(self, command, cwd=None, extra=None, **kw):
+        ti.note_tool("s", "Bash", dict({"command": command}, **(extra or {})),
+                     failed=False, out_bytes=42, cwd=cwd or self.repo, **kw)
         return ti.events("s")[-1]
 
     # ---- (d) non-checks ------------------------------------------------------
@@ -4107,11 +4108,86 @@ class StopRuleRest(unittest.TestCase):
         self.edit()
         row = self.shell("cd ../other && pytest -q")
         self.assertEqual(row["repo"], other)
-        self.assertIn("did work", ti.stop_reason(self.CLAIM, "s"))
+        reason = ti.stop_reason(self.CLAIM, "s")
+        # the refusal names the real reason, not "no check ran"
+        self.assertIn("another repository", reason)
+        self.assertNotIn("no check ran", reason)
+        self.assertEqual([r.get("cause") for r in ti.events("s")
+                          if r["kind"] == "claim"], ["other repo"])
+
+    def test_the_session_cwd_alone_binds_nothing(self):
+        # a shell may have kept an earlier call's `cd`, so the host's session
+        # cwd is no location: the row carries no repo and binds as before
+        self.edit()
+        self.assertIsNone(self.shell("pytest -q").get("repo"))
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    # review probes (plan 048 e): each location the reader must follow, and
+    # each it cannot read, which binds nothing rather than refusing
+    def test_the_tool_s_own_cwd_or_workdir_is_the_location(self):
+        elsewhere = self.git_dir("main")
+        for key in ("cwd", "workdir"):
+            with self.subTest(key=key):
+                self.reset()
+                self.edit()
+                row = self.shell("pytest -q", cwd=elsewhere, extra={key: self.repo})
+                self.assertEqual(row["repo"], self.repo)
+                self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_cd_behind_a_paren_or_an_assignment_is_followed(self):
+        other = self.git_dir("other")
+        for command in ("(cd ../other && pytest -q)",
+                        "export X=1 && cd ../other && pytest -q",
+                        "X=1; cd ../other; pytest -q"):
+            with self.subTest(command=command):
+                self.reset()
+                self.edit()
+                self.assertEqual(self.shell(command)["repo"], other)
+                self.assertIn("another repository", ti.stop_reason(self.CLAIM, "s"))
+
+    def test_an_unreadable_location_binds_nothing(self):
+        self.git_dir("other")
+        for command in ('cd "$WT" && pytest -q', "cd `pwd` && pytest -q",
+                        "cd ../missing && pytest -q"):
+            with self.subTest(command=command):
+                self.reset()
+                self.edit()
+                self.assertIsNone(self.shell(command).get("repo"))
+                self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_path_argument_in_another_repo_is_that_repo(self):
+        other = self.git_dir("other")
+        os.makedirs(os.path.join(other, "tests"))
+        self.edit()
+        row = self.shell("pytest %s" % os.path.join(other, "tests"))
+        self.assertEqual(row["repo"], other)
+        self.assertIn("another repository", ti.stop_reason(self.CLAIM, "s"))
+        # paths in two repositories: no single answer, so none
+        self.reset()
+        self.edit()
+        row = self.shell("pytest %s %s" % (os.path.join(other, "tests"), self.target))
+        self.assertIsNone(row.get("repo"))
+
+    def test_an_earlier_cd_does_not_refuse(self):
+        # the host's cwd stays A while the shell moved to B: unknown, so allowed
+        other = self.git_dir("other")
+        self.edit()
+        self.shell("cd %s" % other)
+        self.assertIsNone(self.shell("pytest -q").get("repo"))
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_nested_checkout_counts_as_its_parent_s(self):
+        nested = os.path.join(self.repo, "vendor", "lib")
+        os.makedirs(os.path.join(nested, ".git"))
+        self.target = os.path.join(nested, "x.py")
+        self.edit()
+        self.shell("cd %s && pytest -q" % self.repo)
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
 
     def test_a_pass_in_the_change_s_repo_licenses_it(self):
         self.edit()
-        self.assertEqual(self.shell("pytest -q")["repo"], self.repo)
+        self.assertEqual(self.shell("cd %s && pytest -q" % self.repo)["repo"],
+                         self.repo)
         self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
 
     def test_a_pass_run_from_elsewhere_into_this_repo_licenses_it(self):
@@ -4169,6 +4245,47 @@ class StopRuleRest(unittest.TestCase):
         self.assertEqual(ti._stop_block("Testler geçti mi?", "s",
                                         rows=ti.turn_rows("s"))[0],
                          "no verify_ok")
+
+
+class StopRuleReviewProbes(unittest.TestCase):
+    """The review of plan 048's first cut: each probe failed on it."""
+
+    CLAIM = "Tamamlandı, tüm testler geçti."
+
+    def test_an_orphan_began_does_not_date_a_fresh_pass(self):
+        # ids are the call's hash: a denied or abandoned `pytest` shares the id
+        # of the later passing one, which must pair with its own began row
+        orphan = {"kind": "began", "id": "c1", "tool": "Bash", "check": 1}
+        edit = {"kind": "edit", "detail": "app.py", "changed": True}
+        began = dict(orphan)
+        done = {"kind": "verify_ok", "id": "c1", "exit": 0, "out_bytes": 9,
+                "detail": "pytest -q"}
+        rows = [orphan, edit, began, done]
+        self.assertEqual(ti._last_pass(rows), 2)
+        self.assertIsNone(ti._stop_block(self.CLAIM, None, rows=rows)[0])
+
+    def test_the_windows_stay_inside_the_claim_s_clause(self):
+        for text in ("Don't worry, it's done.", "Never mind, it's done.",
+                     "It isn't just done, all tests pass.",
+                     "All tests pass so should I open the PR?",
+                     "All tests pass \u2014 should I open the PR?",
+                     "Done (no regressions?)", "Tamamlandı, push edeyim mi?",
+                     "Tamamlandı ama push edeyim mi?"):
+            with self.subTest(text=text):
+                self.assertTrue(any(ti.asserted_claims(text)))
+        for text in ("Testler geçti mi?", "Is it done?", "Not tested yet.",
+                     "I haven't verified it.", "Tamamlandı değil.",
+                     "Is the build green?"):
+            with self.subTest(text=text):
+                self.assertFalse(any(ti.asserted_claims(text)))
+
+    def test_a_question_on_a_no_work_turn_writes_no_claim_row(self):
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(directory, "s.jsonl")
+        self.assertIsNone(ti.stop_reason("Testler geçti mi?", "s"))
+        self.assertEqual([r for r in ti.events("s") if r["kind"] == "claim"], [])
 
 
 if __name__ == "__main__":
