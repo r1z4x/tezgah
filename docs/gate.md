@@ -255,34 +255,33 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
   entry names, which is why the distinction is written down rather than smoothed over.
 - `evidence` — where that incident is written down: the page section, the module comment, or the experiment's own preregistration.
 - `pin` — the case that guards it, as `tests/<file>.py::<test_name>`. The checker refuses a pin that names no test, so the case and the row move together.
-- `since` — the first commit in this repository's history that carries the rule (`git log -S`; where the history was rewritten, it is the earliest one left).
 
-| rule | incident | evidence | pin | since |
-|---|---|---|---|---|
-| `explorer` | designed | the grep-only subagent was replaced by the graph tools; no incident recorded | `tests/test_gate.py::test_explore_subagent_denies` | 2026-09-23 |
-| `shortcut` | E7c: with the write tools refused, 3 of 25 armed runs wrote a test skip through a heredoc | an internal benchmark (block E7, not published) | `tests/test_gate.py::test_a_shell_write_that_disables_a_test_is_denied` | 2026-09-23 |
-| `piped` | a real omp session: 13 checks ran piped and 3 of 6 completion claims were blocked | the Piped section above | `tests/test_gate.py::test_a_piped_check_is_refused_and_pipefail_passes` | 2026-09-27 |
-| `attribution` | E7c: the same 3 of 25 runs, a credit written through a heredoc | an internal benchmark (block E7, not published) | `tests/test_gate.py::test_attribution_denies_a_credit_written_by_the_shell` | 2026-09-23 |
-| `lang` | a plan branch was created as `plan/004-admin-durum-onarimi`, and its slug is in the public history for good | `hooks/tezgah_gate.py:261-270` | `tests/test_gate.py::test_a_turkish_branch_name_is_refused` | 2026-09-23 |
-| `race` | two sessions on one file - a parent and its subagent, or two worktrees - landing on a stale read | `hooks/tezgah_gate.py:587-593` | `tests/test_gate.py::test_a_write_to_a_file_another_session_wrote_is_refused` | 2026-09-23 |
-| `task` | E7: with the unlocking command printed, an armed arm removed or disabled the gate in 25 of 25 runs; E7b: the heredoc redirect in 3 of 25 | the Task section above (the checkpoint refusal) | `tests/test_gate.py::test_a_reading_phase_refuses_a_write_inside_the_allowlist` | 2026-09-23 |
-| `secret` | E7c: the same 3 of 25 runs, a key written through a heredoc | an internal benchmark (block E7, not published) | `tests/test_gate.py::test_a_credential_written_by_a_heredoc_is_denied` | 2026-09-23 |
-| `workspace` | sessions wrote root `plans/`, `research/` and `analysis/` (observed across several unrelated projects on one machine) | `hooks/tezgah_gate.py:936-938` | `tests/test_gate.py::test_untracked_root_kinds_are_refused_for_tools_and_redirects` | 2026-09-27 |
-| `plan` | a turn wrote four product files - a hook, its tests, its docs and the changelog - straight onto `main` | `hooks/tezgah_gate.py:1216-1222` | `tests/test_gate.py::test_the_third_product_write_on_main_is_refused` | 2026-09-29 |
-| `order` | FAVA: the shape found in 90% of real agent-instruction projects ("do not commit before running the tests") | the Ordering section above | `tests/test_gate.py::test_a_commit_is_refused_while_the_newest_check_failed` | 2026-09-23 |
-| `loop` | designed | the turn's own repeated failure; no incident recorded | `tests/test_gate.py::test_an_identical_failed_call_is_denied_after_the_ceiling` | 2026-09-23 |
-| `retry` | designed | the session ceiling over the same guard; no incident recorded | `tests/test_gate.py::test_a_fourth_identical_call_is_refused_whatever_the_outcome` | 2026-09-23 |
-| `drift` | an internal plan's flip rule on the 2026-09-20 move to a result-channel notice: at 27 sessions the blocked-claim rate in turns under 25 work rows read 112/140 = 0.8000, against 59/142 = 0.4155 before | `hooks/tezgah_gate.py:1108-1120` | `tests/test_gate.py::test_a_long_turn_restates_the_constraints_before_a_write` | 2026-09-30 |
-| `check failed` | designed | the newest check failing is its own class; no incident recorded | `tests/test_integrity.py::test_failed_check_blocks` | 2026-09-23 |
-| `partial failure` | designed | a failure the turn never resolved; no incident recorded | `tests/test_integrity.py::test_an_unresolved_failure_blocks_even_after_an_earlier_pass` | 2026-09-23 |
-| `stale evidence` | measured 2026-09-19: reading a rewrite as a change refused honest turns | `hooks/tezgah_integrity.py:2415-2417` | `tests/test_integrity.py::test_a_write_after_the_check_makes_the_check_stale` | 2026-09-23 |
-| `no verify_ok` | E2: 0 of 10 description-shaped claims refused before the `worked` trigger | `hooks/tezgah_integrity.py:2870-2879` | `tests/test_integrity.py::test_work_with_no_passing_check_is_refused_without_a_claim_word` | 2026-09-23 |
-| `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_integrity.py:3327-3329` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` | 2026-09-29 |
-| `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py:3015-3017` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` | 2026-09-29 |
-| `placating opener` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_sycophantic_opener_blocks` | 2026-09-23 |
-| `forbidden closer` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_closer_from_the_skills_own_list_blocks` | 2026-09-23 |
-| `list cap` | designed | output rule 8 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_list_over_the_cap_blocks_with_its_size` | 2026-09-27 |
-| `reply language` | measured 2026-09-19: the 161 final replies the claim vocabulary was read off | `hooks/tezgah_integrity.py:219-220` | `tests/test_integrity.py::test_english_prose_blocks_and_names_the_language` | 2026-09-27 |
+| rule | incident | evidence | pin |
+|---|---|---|---|
+| `explorer` | designed | the grep-only subagent was replaced by the graph tools; no incident recorded | `tests/test_gate.py::test_explore_subagent_denies` |
+| `shortcut` | E7c: with the write tools refused, 3 of 25 armed runs wrote a test skip through a heredoc | an internal benchmark (block E7, not published) | `tests/test_gate.py::test_a_shell_write_that_disables_a_test_is_denied` |
+| `piped` | a real omp session: 13 checks ran piped and 3 of 6 completion claims were blocked | the Piped section above | `tests/test_gate.py::test_a_piped_check_is_refused_and_pipefail_passes` |
+| `attribution` | E7c: the same 3 of 25 runs, a credit written through a heredoc | an internal benchmark (block E7, not published) | `tests/test_gate.py::test_attribution_denies_a_credit_written_by_the_shell` |
+| `lang` | a plan branch was created as `plan/004-admin-durum-onarimi`, and its slug is in the public history for good | `hooks/tezgah_gate.py:261-270` | `tests/test_gate.py::test_a_turkish_branch_name_is_refused` |
+| `race` | two sessions on one file - a parent and its subagent, or two worktrees - landing on a stale read | `hooks/tezgah_gate.py:587-593` | `tests/test_gate.py::test_a_write_to_a_file_another_session_wrote_is_refused` |
+| `task` | E7: with the unlocking command printed, an armed arm removed or disabled the gate in 25 of 25 runs; E7b: the heredoc redirect in 3 of 25 | the Task section above (the checkpoint refusal) | `tests/test_gate.py::test_a_reading_phase_refuses_a_write_inside_the_allowlist` |
+| `secret` | E7c: the same 3 of 25 runs, a key written through a heredoc | an internal benchmark (block E7, not published) | `tests/test_gate.py::test_a_credential_written_by_a_heredoc_is_denied` |
+| `workspace` | sessions wrote root `plans/`, `research/` and `analysis/` (observed across several unrelated projects on one machine) | `hooks/tezgah_gate.py:936-938` | `tests/test_gate.py::test_untracked_root_kinds_are_refused_for_tools_and_redirects` |
+| `plan` | a turn wrote four product files - a hook, its tests, its docs and the changelog - straight onto `main` | `hooks/tezgah_gate.py:1216-1222` | `tests/test_gate.py::test_the_third_product_write_on_main_is_refused` |
+| `order` | FAVA: the shape found in 90% of real agent-instruction projects ("do not commit before running the tests") | the Ordering section above | `tests/test_gate.py::test_a_commit_is_refused_while_the_newest_check_failed` |
+| `loop` | designed | the turn's own repeated failure; no incident recorded | `tests/test_gate.py::test_an_identical_failed_call_is_denied_after_the_ceiling` |
+| `retry` | designed | the session ceiling over the same guard; no incident recorded | `tests/test_gate.py::test_a_fourth_identical_call_is_refused_whatever_the_outcome` |
+| `drift` | an internal plan's flip rule on the 2026-09-20 move to a result-channel notice: at 27 sessions the blocked-claim rate in turns under 25 work rows read 112/140 = 0.8000, against 59/142 = 0.4155 before | `hooks/tezgah_gate.py:1108-1120` | `tests/test_gate.py::test_a_long_turn_restates_the_constraints_before_a_write` |
+| `check failed` | designed | the newest check failing is its own class; no incident recorded | `tests/test_integrity.py::test_failed_check_blocks` |
+| `partial failure` | designed | a failure the turn never resolved; no incident recorded | `tests/test_integrity.py::test_an_unresolved_failure_blocks_even_after_an_earlier_pass` |
+| `stale evidence` | measured 2026-09-19: reading a rewrite as a change refused honest turns | `hooks/tezgah_integrity.py:2415-2417` | `tests/test_integrity.py::test_a_write_after_the_check_makes_the_check_stale` |
+| `no verify_ok` | E2: 0 of 10 description-shaped claims refused before the `worked` trigger | `hooks/tezgah_integrity.py:2870-2879` | `tests/test_integrity.py::test_work_with_no_passing_check_is_refused_without_a_claim_word` |
+| `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_integrity.py:3327-3329` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` |
+| `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py:3015-3017` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` |
+| `placating opener` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_sycophantic_opener_blocks` |
+| `forbidden closer` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_closer_from_the_skills_own_list_blocks` |
+| `list cap` | designed | output rule 8 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_list_over_the_cap_blocks_with_its_size` |
+| `reply language` | measured 2026-09-19: the 161 final replies the claim vocabulary was read off | `hooks/tezgah_integrity.py:219-220` | `tests/test_integrity.py::test_english_prose_blocks_and_names_the_language` |
 
 ## Adding a rule
 

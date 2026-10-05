@@ -384,8 +384,8 @@ def ratchet_drift(unjudged, baseline):
 # prose spread through docs/gate.md: the rule name in the section, the incident
 # in a sentence inside it. The table under that page's `## Rule provenance` is
 # that record moved to where a machine reads it - one row per refused rule, with
-# the incident that produced it, where that incident is written down, the test
-# that guards it, and the commit it first appeared in. This check is the
+# the incident that produced it, where that incident is written down, and the
+# test that guards it. This check is the
 # citation audit's sibling and rides the same `--citations` pass, because both
 # answer "is what the page promises still true" and both are re-run after a
 # change to the module a page documents.
@@ -406,7 +406,7 @@ def ratchet_drift(unjudged, baseline):
 GATE = os.path.join(HERE, "hooks", "tezgah_gate.py")
 STOP = os.path.join(HERE, "hooks", "tezgah_integrity.py")
 LEDGER = os.path.join(HERE, "docs", "gate.md")
-LEDGER_COLUMNS = ("rule", "incident", "evidence", "pin", "since")
+LEDGER_COLUMNS = ("rule", "incident", "evidence", "pin")
 
 
 def source(path):
