@@ -836,29 +836,37 @@ def resume_state(root, session_id):
 LESSON_LINES = 5
 LESSON_CHARS = 200
 # A lesson is written rule first: `<imperative rule> - <incident>`. One
-# separator, read by the cut (`lesson_cut`), the format advisory (`lessons`) and
-# the tidy CLI (`bin/tezgah-lessons`), and quoted by the policy text, so the
-# shape a writer is told and the shape the reader looks for cannot drift. The
-# advisory wants it within LESSON_SEPARATOR_BY characters: a rule longer than
-# that is an incident. A rule clause past LESSON_CHARS is kept whole up to
-# LESSON_RULE_CHARS, so the block stays bounded whatever a line holds.
+# separator, read by the format advisory (`lessons`) and the tidy CLI
+# (`bin/tezgah-lessons`), and quoted by the policy text, so the shape a writer is
+# told and the shape the reader looks for cannot drift. The advisory wants it
+# within LESSON_SEPARATOR_BY characters, so a rule-first line's rule survives the
+# LESSON_CHARS cut whole.
 LESSON_SEPARATOR = " - "
 LESSON_SEPARATOR_BY = 120
-LESSON_RULE_CHARS = 300
 # The per-turn ranking's cap (`tezgah_rank.rank`'s `max_df`): a word in more than
 # half the ledger names no lesson. Lessons only; the docs fallback is uncapped.
 LESSON_MAX_DF = 0.5
 # A line a gate rule or a test already enforces ends `|| enforced_by: <slug|test>`
 # and leaves the injected pool while that enforcer is armed: a gate rule slug from
 # `tezgah_gate.DENY_RULES`, or a test named from the repository root
-# (`tests.test_research.Unfinished`). An unknown name keeps the line.
+# (`tests.test_research.Unfinished`) that this repository still defines. An
+# unknown name keeps the line.
 ENFORCED = re.compile(r"\s*\|\|\s*enforced_by:\s*(\S+)\s*$")
 
 
-def _enforced(value):
-    """Whether the enforcer a retired lesson names is armed now."""
-    if re.match(r"tests\.test_\w+\.\w+$", value):
-        return True
+def _enforced(value, root):
+    """Whether the enforcer a retired lesson names is armed now: a test only
+    while `<root>/tests/test_x.py` still defines it, a gate rule only while
+    neither its own switch nor `pretooluse-off` is set."""
+    test = re.match(r"tests\.(test_\w+)\.(\w+)$", value)
+    if test:
+        try:
+            with open(os.path.join(root, "tests", test.group(1) + ".py"),
+                      encoding="utf-8", errors="replace") as fh:
+                src = fh.read()
+        except OSError:
+            return False
+        return bool(re.search(r"^\s*(?:class|def)\s+%s\b" % test.group(2), src, re.M))
     from tezgah_gate import DENY_RULES  # lazy: only a retired line pays for it
     if value not in DENY_RULES or off("pretooluse-off"):
         return False
@@ -886,7 +894,7 @@ def _lesson_lines(root, retired=None):
         # a ledger written with markdown bullets must not render as "- - ..."
         s = re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", s)
         m = ENFORCED.search(s)
-        if m and _enforced(m.group(1)):
+        if m and _enforced(m.group(1), root):
             if retired is not None:
                 retired.append(s)
             continue
@@ -894,22 +902,14 @@ def _lesson_lines(root, retired=None):
     return out
 
 
-def lesson_cut(line):
-    """One lesson as injected: `cut` to LESSON_CHARS, unless its rule clause (the
-    text before LESSON_SEPARATOR) is longer - then cut right after the rule, at
-    most LESSON_RULE_CHARS. The `...(+N chars)` marker stays either way."""
-    rule = line.split(LESSON_SEPARATOR, 1)[0] if LESSON_SEPARATOR in line else ""
-    return cut(line, min(max(LESSON_CHARS, len(rule)), LESSON_RULE_CHARS))
-
-
 def _lesson_shown(lines):
-    """Those entries as injected: the last LESSON_LINES, each through `lesson_cut`.
+    """Those entries as injected: the last LESSON_LINES, each cut to LESSON_CHARS.
 
     One reader for the injected block and for the per-turn stamp, so the digest
     can only move when the text the model was shown moves. A cut entry says how
     much it lost (`tezgah_integrity.cut`): a lesson is a rule sentence, and one
     that lost its verb in silence reads as the whole rule."""
-    return [lesson_cut(ln) for ln in lines[-LESSON_LINES:]]
+    return [cut(ln, LESSON_CHARS) for ln in lines[-LESSON_LINES:]]
 
 
 def repo_provided(rel):
@@ -944,10 +944,8 @@ def lessons(root):
     late = sum(not 0 <= ln.find(LESSON_SEPARATOR) < LESSON_SEPARATOR_BY
                for ln in lines[-LESSON_LINES:])
     if late:
-        more += ("\n(%d of these lines do not open with their rule: write a new "
-                 "line as `<rule>%s<incident>`, the rule within its first %d "
-                 "characters; `tezgah-lessons` proposes rewrites for old ones)"
-                 % (late, LESSON_SEPARATOR, LESSON_SEPARATOR_BY))
+        more += ("\n(%d of the lines above do not open with their rule; run "
+                 "`tezgah-lessons` for rewrites)" % late)
     return ("## Lessons from past mistakes in this repo (.tezgah/lessons.md)\n"
             + "\n".join("- " + ln for ln in recent) + more + "\n"
             "These are standing constraints: check the spec and the change "
@@ -994,7 +992,7 @@ def relevant_lessons(root, prompt, seen):
     if not picked:
         return "", []
     return ("## Lessons relevant to this prompt (.tezgah/lessons.md)\n"
-            + "\n".join("- " + lesson_cut(lines[i]) for i in picked)
+            + "\n".join("- " + cut(lines[i], LESSON_CHARS) for i in picked)
             + "\nStanding constraints, like the session's lessons: check the "
             "change against each line before you finish.",
             [lesson_key(lines[i]) for i in picked])
@@ -1925,7 +1923,7 @@ def context_for(event, cwd, payload=None, with_core=True):
     # One `lesson` row per session-block lesson the budget kept (the per-turn
     # block writes its own above): what reached the model, by key.
     for ln in injected:
-        if "\n- " + lesson_cut(ln) + "\n" in text:
+        if "\n- " + cut(ln, LESSON_CHARS) + "\n" in text:
             note_lesson(session_of(payload), lesson_key(ln), "session")
     return text
 

@@ -19,12 +19,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preference, defect or none. This phase learns and injects nothing.
 
 - **Lessons keep their rule when injected.** A lesson line is now written rule
-  first: `<rule> - <incident>`. The cut keeps a rule clause longer than 200
-  characters whole, up to 300. The session block says how many of its lines do
-  not open with their rule. A line ending `|| enforced_by: <rule|test>` leaves
-  the injected blocks while that gate rule or test is on. A switched-off rule
-  brings it back. `tezgah-lessons` proposes rule-first rewrites, merges of
-  duplicate lines and those retirements. It never writes the ledger.
+  first: `<rule> - <incident>`. The rule sits in the first 120 characters, so
+  the 200-character cut keeps it. The session block says how many of its lines
+  do not open with their rule. A line ending `|| enforced_by: <rule|test>` leaves
+  the injected blocks while that gate rule or test is on. A test counts only
+  while the repository still defines it. A switched-off rule brings the line
+  back. `tezgah-lessons` proposes rule-first rewrites, merges of duplicate lines
+  and those retirements. It never writes the ledger. On this repository's
+  47-line ledger the session block grows from 1266 to 1352 bytes. omp's
+  `RULES.md` lessons line grows from 230 to 270 bytes. The always-on core
+  shrinks by 23 bytes.
 - **The per-turn lessons block shrinks before the budget drops it.** Over budget
   it keeps its first lesson. The session remembers only the lessons it shows. The
   drop log records this as `kind=truncated`. Each injected lesson leaves a

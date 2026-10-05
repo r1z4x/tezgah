@@ -26,9 +26,8 @@ import tezgah_policy  # noqa: E402
 
 CLI = os.path.join(support.REPO, "bin", "tezgah-lessons")
 SEP = tc.LESSON_SEPARATOR
-# a rule clause longer than LESSON_CHARS: cut() alone keeps 200 of it
-LONG_RULE = "Never report a check as passing from a pipe " + "r" * 220
-INCIDENT = "a run piped into tail recorded as ran " + "i" * 120
+# a rule-first line whose separator sits late: its incident must not widen the cut
+LATE = "Rotate the widget sprocket " + "w" * 230 + " - it jammed once " + "i" * 60
 PIPED = "A piped check is not evidence - re-run it unpiped || enforced_by: piped"
 RESEARCH = ("Keep one research line open at a time - init refuses a second "
             "|| enforced_by: tests.test_research.Unfinished")
@@ -64,41 +63,26 @@ class Child(TempHome):
                           "print(json.dumps(rows))\n" % session)
 
 
-class RuleAwareCut(Child):
-    def test_a_long_rule_survives_the_cut_whole(self):
-        line = LONG_RULE + SEP + INCIDENT
-        shown = tc.lesson_cut(line)
-        self.assertTrue(shown.startswith(LONG_RULE + " ...(+"), shown)
-        self.assertIn("...(+%d chars)" % (len(line) - len(LONG_RULE)), shown)
-        # cut() alone loses the rule's tail: this is the one case the helper differs
-        self.assertNotIn(LONG_RULE, tezgah_integrity.cut(line, tc.LESSON_CHARS))
-
-    def test_otherwise_it_is_cut(self):
-        for line in ("short rule" + SEP + "x" * 300, "no separator " + "y" * 300,
-                     "a short line"):
-            self.assertEqual(tc.lesson_cut(line),
-                             tezgah_integrity.cut(line, tc.LESSON_CHARS))
-        # a clause past the bound is bounded too: the rule cannot grow the block
-        line = "z" * 500 + SEP + "tail"
-        self.assertEqual(tc.lesson_cut(line),
-                         tezgah_integrity.cut(line, tc.LESSON_RULE_CHARS))
-
-    def test_all_three_sites_keep_the_rule(self):
+class OneCut(Child):
+    def test_no_shown_line_is_longer_than_the_plain_cut(self):
         repo = self.make_repo()
-        old = "Rotate the widget sprocket " + "w" * 230 + SEP + "it jammed once"
-        recent = ["recent %s" % n for n in "abcd"] + [LONG_RULE + SEP + INCIDENT]
-        self.write_lessons(repo, [old] + recent)
-        self.assertIn("- " + LONG_RULE + " ...(+", self.call("lessons", repo))
+        recent = ["recent %s" % n for n in "abcd"] + [LATE + "!"]
+        self.write_lessons(repo, [LATE] + recent)
+        bound = len(tezgah_integrity.cut(LATE, tc.LESSON_CHARS))
+        out = self.call("lessons", repo)
         block, keys = self.call("relevant_lessons", repo, "the widget sprocket", [])
-        self.assertIn(old.split(SEP)[0] + " ...(+", block)
-        self.assertEqual(keys, [tc.lesson_key(old)])
-        # the digest moves with the shown rule, not with the incident past it
+        self.assertEqual(keys, [tc.lesson_key(LATE)])
+        for text in (out, block):
+            shown = [ln[2:] for ln in text.split("\n") if "widget" in ln]
+            self.assertTrue(shown, text)
+            for ln in shown:
+                self.assertLessEqual(len(ln), bound + 1, ln)
+        # the digest moves with the shown text, not with what lies past the cut
         # (same length, so the `...(+N chars)` marker is the same too)
         before = self.call("_lessons_state", repo)
-        other = LONG_RULE + SEP + "o" * len(INCIDENT)
-        self.write_lessons(repo, [old] + recent[:-1] + [other])
+        self.write_lessons(repo, [LATE] + recent[:-1] + [LATE + "?"])
         self.assertEqual(before, self.call("_lessons_state", repo))
-        self.write_lessons(repo, [old] + recent[:-1] + [LONG_RULE + "!" + SEP + "x"])
+        self.write_lessons(repo, [LATE] + recent[:-1] + ["x" + LATE])
         self.assertNotEqual(before, self.call("_lessons_state", repo))
 
     def test_the_separator_is_one_constant_quoted_by_every_copy(self):
@@ -128,8 +112,8 @@ class FormatAdvisory(Child):
                                   "x" * 130 + SEP + "late separator",
                                   "no separator at all"])
         out = self.call("lessons", repo)
-        self.assertIn("2 of these lines do not open with their rule", out)
-        self.assertIn("`<rule>%s<incident>`" % SEP, out)
+        self.assertIn("(2 of the lines above do not open with their rule; "
+                      "run `tezgah-lessons` for rewrites)", out)
 
     def test_rule_first_lines_get_none(self):
         repo = self.make_repo()
@@ -141,6 +125,11 @@ class Retirement(Child):
     def ledger(self, repo):
         self.write_lessons(repo, [PIPED, RESEARCH, "pipe the tail into a file, "
                                   "not the terminal", "keep the rule"])
+        # the named test exists in this repository, so it enforces
+        self.touch(os.path.join(repo, "tests", "test_research.py"))
+        with open(os.path.join(repo, "tests", "test_research.py"), "w") as fh:
+            fh.write("import unittest\n\n\nclass Unfinished(unittest.TestCase):\n"
+                     "    pass\n")
 
     def test_enforced_lines_leave_every_reader(self):
         repo = self.make_repo()
@@ -160,13 +149,31 @@ class Retirement(Child):
         self.assertNotIn("enforced_by", out)
         self.assertNotIn("research line", out)
         self.assertIn("1 lesson enforced", out)
-        self.switch("pretooluse-off")
-        self.assertIn("piped check", self.call("lessons", repo))
+
+    def test_each_rule_switch_brings_its_lesson_back(self):
+        repo = self.make_repo()
+        for slug, switch in sorted(tezgah_gate.DENY_RULES.items()):
+            for name in [switch, "pretooluse-off"] if switch else ["pretooluse-off"]:
+                with self.subTest(slug=slug, switch=name):
+                    self.write_lessons(repo, ["rule of %s || enforced_by: %s"
+                                              % (slug, slug), "keep"])
+                    path = os.path.join(self.home, ".config", "tezgah", name)
+                    self.assertNotIn("rule of", self.call("lessons", repo))
+                    self.switch(name)
+                    try:
+                        self.assertIn("- rule of %s\n" % slug,
+                                      self.call("lessons", repo))
+                    finally:
+                        os.remove(path)
 
     def test_an_unknown_enforcer_keeps_the_line(self):
         repo = self.make_repo()
-        self.write_lessons(repo, ["a rule || enforced_by: nosuchrule"])
-        self.assertIn("- a rule\n", self.call("lessons", repo))
+        self.ledger(repo)
+        for value in ("nosuchrule", "tests.test_research.NoSuchClass",
+                      "tests.test_nosuchmodule.Unfinished"):
+            with self.subTest(value=value):
+                self.write_lessons(repo, ["a rule || enforced_by: " + value])
+                self.assertIn("- a rule\n", self.call("lessons", repo))
 
 
 def known(value):
