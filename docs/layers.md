@@ -69,8 +69,8 @@ Owns the rule text (`CORE` `hooks/tezgah_policy.py:595-810`), the per-turn remin
 (`PROMPT_REMINDER` `hooks/tezgah_policy.py:827-843`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1428-1647`), the record after one (`note()`
 `hooks/tezgah_integrity.py:791-803`), the end-of-turn verdict (`stop_reason()`
-`hooks/tezgah_integrity.py:3335-3383`), the pre-write snapshots (`capture()`
-`hooks/tezgah_snapshot.py:235`), the status marks, and the per-repo plans,
+`hooks/tezgah_integrity.py:3344-3392`), the pre-write snapshots (`capture()`
+`hooks/tezgah_snapshot.py:275`), the status marks, and the per-repo plans,
 lessons and research lines.
 
 Must not own the loop, the model, the tools or the network. tezgah never runs
@@ -102,7 +102,7 @@ frameworks.
 
 Under that test tezgah is not one: it holds no loop. It subscribes to a host's
 events (`hooks/hooks.json:2-26`), is handed the injected text at the host's
-session-start and prompt points (`context_for` `hooks/tezgah_context.py:1559-1801`),
+session-start and prompt points (`context_for` `hooks/tezgah_context.py:1564-1811`),
 refuses a call before the host runs it (`hooks/projects-pretooluse.py:24`) and
 answers in the host's own output envelope. It has no model, no tool set and no
 context window of its own.
@@ -159,7 +159,7 @@ the call, so that is all the classification can use (`untrusted_source`
 untrusted channel, the channel being `mcp` (`untrusted_source`
 `hooks/tezgah_integrity.py:2410-2433`), and an answer that is no step of work
 of its own earns a row of kind `external` (`note_tool`
-`hooks/tezgah_integrity.py:2654-2772`). The compensating control is the taint
+`hooks/tezgah_integrity.py:2654-2781`). The compensating control is the taint
 notice: the first effect in a turn that has read an untrusted channel carries
 it (`hooks/tezgah_untrusted.py:2-22`); nothing refuses that effect since the
 sink rule was removed ([gate](gate.md)).

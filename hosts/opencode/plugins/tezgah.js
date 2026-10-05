@@ -1032,6 +1032,14 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
     if (target) row.target = target
   }
   await appendRow(sessionID, row)
+  // The opt-in taste capture: on the Python hosts note_tool calls
+  // hooks/tezgah_taste.note_write in process, and this host writes its edit row
+  // here, so the same call goes to that module through a process. The marker
+  // lives where the kill switches do (tezgah_paths.armed), so off it costs two
+  // stats and spawns nothing.
+  if (kind === "edit" && row.exit !== 1 && off("taste-on")) {
+    await noteTaste(sessionID, row.id, args, cwd)
+  }
 }
 
 // How far back the pre-state search reads: the gate writes its snapshot row in
@@ -2023,6 +2031,20 @@ function captureSnapshot(tool, args, dir, sessionID) {
   { stdio: "ignore" }, null, () => undefined)
 }
 
+// hooks/tezgah_taste.py's own entry point, found beside the bin the snapshot
+// capture runs (the installed bins are links into the checkout, which holds no
+// copy of hooks/ under CONFIG). Best effort and silent, like captureSnapshot.
+function noteTaste(sessionID, id, args, cwd) {
+  let script
+  try {
+    script = join(dirname(dirname(realpathSync(CAPTURE_BIN))), "hooks",
+      "tezgah_taste.py")
+  } catch { return undefined }
+  return collect([script, JSON.stringify({
+    session_id: sessionID, id, input: args, cwd, host: "opencode" })],
+  { stdio: "ignore" }, null, () => undefined)
+}
+
 export const Tezgah = async ({ directory }) => {
   // installed under both plugin/ and plugins/ for opencode version drift; if
   // both are scanned, only the first module instance registers hooks
@@ -2290,7 +2312,7 @@ export const Tezgah = async ({ directory }) => {
             .filter((p) => p && p.type === "text" && typeof p.text === "string")
             .map((p) => p.text).join("\n")
           const text = await builderText("user_prompt", dir,
-                                         { prompt, session_id: sessionID })
+                                         { prompt, session_id: sessionID, host: "opencode" })
           if (text) {
             const anchor = output.message && typeof output.message === "object"
               ? output.message : {}

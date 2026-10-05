@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""tezgah-taste - mine and measure the coding-taste signals in local sessions.
+
+  tezgah-taste mine [--host omp|claude|all] [--root DIR] [--stats] [--out FILE]
+  tezgah-taste measure --samples FILE --labels FILE [--model M] [--json]
+  tezgah-taste rate --in MINED [--limit N] [--json]
+
+`mine` reads the session transcripts on this machine - omp's top-level session
+files under `~/.omp/agent/sessions/*/` (a nested file is a subagent session) and
+Claude's top-level transcripts under `~/.claude/projects/*/` - whose cwd is under
+`--root` (default `~/Projects`, a `.runs` directory excluded). A writing turn is
+one in which the agent wrote a file without an error (omp `edit`/`write`, Claude
+`Edit`/`Write`/`MultiEdit`/`NotebookEdit`); the prompt the user sent directly
+after one, unless it is a harness injection, is a row. The definitions are the
+ones the coding-taste-learning line froze, so `--stats` prints the same session,
+write and prompt counts that line's `measure.py` prints for omp. Each row is
+`{host, session, cwd, repo, prompt, writes_in_turn}`, the prompt redacted and cut
+to 2000 characters, because the rows are what `rate` sends to the judge.
+
+`measure` classifies hand-labelled samples (`{set, n, text}` joined with
+`{set, n, label}`) with the judge seam and prints the confusion against the
+labels, per-class precision and recall, and what the calls cost. `rate`
+classifies mined rows the same way and prints preference corrections per
+writing-turn prompt, per repo and overall. Both send the sample text to the
+judge's provider (`hooks/tezgah_judge.py` names it); with no credential or
+`judge-off` set they send nothing and exit 2.
+
+Exit codes: 0 done, 2 misuse or no judge.
+"""
+import argparse
+import glob
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
+import tezgah_judge  # noqa: E402
+import tezgah_models  # noqa: E402
+
+WRITE_TOOLS = {"omp": {"edit", "write"},
+               "claude": {"Edit", "Write", "MultiEdit", "NotebookEdit"}}
+HARNESS = ("<system-", "<harness-", "This turn did work", "The reply states")
+CUT = 2000
+BATCH = 20
+CLASSES = ("preference", "defect", "none")
+RULE = """Each sample is a user prompt that followed a turn in which the agent wrote files. Label it with exactly one class.
+- preference: the user asks to change how something the agent already produced looks, is named, is structured or worded, or which language, library, pattern or approach it uses, or states a standing "do it this way" about code or written output - where the complaint is about form or choice, not that it is broken.
+- defect: the user says something the agent produced is wrong, broken, missing, not done, still failing, or still visible when it should not be.
+- none: everything else, including a new task or feature request that corrects nothing in the previous turn; a workflow directive about how to run the work (use subagents, run in parallel, push, release, commit, ask or do not ask, which tool or model to consult); a question, approval, continuation or status request.
+If a prompt carries both a defect and a preference, label it preference. If unsure between preference and none, label none."""
+CRITERIA = {"preference": "a correction of form or choice in what the agent produced",
+            "defect": "what the agent produced is wrong, broken, missing or not done",
+            "none": "anything else"}
+# Jev's price as `bin/tezgah-triage` quotes it: $0.042 per 1M input, output free.
+JEV_PRICE = (0.042, 0.0)
+
+
+def misuse(message):
+    print("tezgah-taste: %s" % message, file=sys.stderr)
+    return 2
+
+
+# ------------------------------------------------------------------- mine ----
+
+def text_of(content):
+    if isinstance(content, str):
+        return content
+    return "\n".join(part.get("text") or "" for part in content or []
+                     if isinstance(part, dict) and part.get("type") == "text")
+
+
+def harness_prompt(text):
+    stripped = text.lstrip()
+    return not stripped or stripped.startswith(HARNESS)
+
+
+def rows_of(path):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                yield row
+
+
+def omp_cwd(path):
+    """The cwd the session header names; it sits in the first four lines."""
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for i, line in enumerate(fh):
+            if i > 3:
+                break
+            if '"type":"session"' in line:
+                try:
+                    return json.loads(line).get("cwd") or ""
+                except ValueError:
+                    pass
+    return ""
+
+
+def claude_cwd(path):
+    for row in rows_of(path):
+        if isinstance(row.get("cwd"), str):
+            return row["cwd"]
+    return ""
+
+
+def walk_omp(path):
+    """('user', text) and ('write',) in transcript order."""
+    for row in rows_of(path):
+        m = row.get("message")
+        if not isinstance(m, dict):
+            continue
+        if m.get("role") == "user":
+            yield ("user", text_of(m.get("content")))
+        elif (m.get("role") == "toolResult" and m.get("toolName") in WRITE_TOOLS["omp"]
+              and not m.get("isError")):
+            yield ("write",)
+
+
+def walk_claude(path):
+    pending = {}
+    for row in rows_of(path):
+        m = row.get("message")
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if row.get("type") == "assistant" and isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "tool_use":
+                    pending[part.get("id")] = part.get("name")
+        elif row.get("type") == "user":
+            results = [p for p in content if isinstance(p, dict)
+                       and p.get("type") == "tool_result"] if isinstance(content, list) else []
+            if results:
+                for part in results:
+                    if (pending.get(part.get("tool_use_id")) in WRITE_TOOLS["claude"]
+                            and not part.get("is_error")):
+                        yield ("write",)
+                continue
+            text = text_of(content)
+            if "[Request interrupted by user" not in text:
+                yield ("user", text)
+
+
+HOSTS = {
+    "omp": (lambda: os.path.join(os.path.expanduser("~"), ".omp", "agent", "sessions"),
+            omp_cwd, walk_omp),
+    "claude": (lambda: os.path.join(os.path.expanduser("~"), ".claude", "projects"),
+               claude_cwd, walk_claude),
+}
+
+
+def sessions(host, root):
+    base, cwd_of, _walk = HOSTS[host]
+    for path in sorted(glob.glob(os.path.join(base(), "*", "*.jsonl"))):
+        cwd = cwd_of(path)
+        if cwd.startswith(root + os.sep) and ".runs" not in cwd.split(os.sep):
+            yield path, cwd
+
+
+def repo_of(cwd, root):
+    """The nearest directory holding `.git` below the root, else the first path
+    component under it - without git, since a session's cwd may be gone."""
+    here = cwd
+    while here.startswith(root + os.sep):
+        if os.path.exists(os.path.join(here, ".git")):
+            return here
+        here = os.path.dirname(here)
+    return os.path.join(root, os.path.relpath(cwd, root).split(os.sep)[0])
+
+
+def mine_session(events):
+    """(writes, [(prompt, writes_in_turn)]) under the frozen definitions."""
+    writes, turn, prompts = 0, 0, []
+    for event in events:
+        if event[0] == "write":
+            writes += 1
+            turn += 1
+            continue
+        if turn and not harness_prompt(event[1]):
+            prompts.append((event[1], turn))
+        turn = 0
+    return writes, prompts
+
+
+def cmd_mine(args):
+    root = os.path.abspath(os.path.expanduser(args.root or "~/Projects"))
+    out = open(args.out, "w", encoding="utf-8") if args.out and not args.stats else sys.stdout
+    try:
+        for host in (("omp", "claude") if args.host == "all" else (args.host,)):
+            count = writes = prompts = 0
+            for path, cwd in sessions(host, root):
+                count += 1
+                wrote, rows = mine_session(HOSTS[host][2](path))
+                writes += wrote
+                prompts += len(rows)
+                if args.stats:
+                    continue
+                for text, turn in rows:
+                    out.write(json.dumps({
+                        "host": host,
+                        "session": os.path.splitext(os.path.basename(path))[0],
+                        "cwd": cwd, "repo": repo_of(cwd, root),
+                        "prompt": ti.redact(text)[:CUT], "writes_in_turn": turn},
+                        ensure_ascii=False) + "\n")
+            if args.stats:
+                print("%s: sessions=%d writes=%d prompts_after_write=%d"
+                      % (host, count, writes, prompts))
+    finally:
+        if out is not sys.stdout:
+            out.close()
+    return 0
+
+
+# ------------------------------------------------------- judge, measure ----
+
+def read_jsonl(path):
+    try:
+        return list(rows_of(path))
+    except OSError as exc:
+        raise SystemExit(misuse("cannot read %s: %s" % (path, exc)))
+
+
+def classify(texts, model):
+    """One label per text (None when the judge gave none) and the usage.
+
+    The rule rides the state, so each request pays for it once and the
+    questions carry only their own prompt."""
+    labels, tokens_in, tokens_out, used = [], 0, 0, model
+    for start in range(0, len(texts), BATCH):
+        chunk = texts[start:start + BATCH]
+        questions = {"p%d" % i: {"type": "choice", "criteria": CRITERIA,
+                                 "instructions": "Label this prompt under the rule "
+                                                 "in the state:\n" + ti.redact(text)}
+                     for i, text in enumerate(chunk)}
+        result = tezgah_judge.ask(RULE, questions, model=model, timeout=120)
+        if result is not None:
+            tokens_in += result["usage"]["input_tokens"]
+            tokens_out += result["usage"]["output_tokens"]
+            used = result.get("model", used)
+        for i in range(len(chunk)):
+            label = tezgah_judge.choice(result, "p%d" % i)
+            labels.append(label if label in CLASSES else None)
+    return labels, {"model": used, "input_tokens": tokens_in,
+                    "output_tokens": tokens_out, "cost_usd": cost(used, tokens_in,
+                                                                  tokens_out)}
+
+
+def cost(model, tokens_in, tokens_out):
+    """Dollars at the model's listed price per 1M tokens, None when unlisted."""
+    price = JEV_PRICE if model == tezgah_judge.MODEL else (
+        tezgah_models.overlay().get("prices", {}).get(model)
+        or tezgah_models.SNAPSHOT.get(model))
+    if not (isinstance(price, (list, tuple)) and len(price) == 2):
+        return None
+    return round((tokens_in * price[0] + tokens_out * price[1]) / 1e6, 6)
+
+
+def usage_line(usage):
+    money = ("$%.6f" % usage["cost_usd"] if usage["cost_usd"] is not None
+             else "cost unknown (no listed price)")
+    return "judge: %s, %d input tokens, %d output; %s" % (
+        usage["model"], usage["input_tokens"], usage["output_tokens"], money)
+
+
+def ratio(a, b):
+    return round(a / b, 4) if b else None
+
+
+def cmd_measure(args):
+    labels = {(r.get("set"), r.get("n")): r.get("label") for r in read_jsonl(args.labels)}
+    pairs = [(r.get("text") or "", labels[(r.get("set"), r.get("n"))])
+             for r in read_jsonl(args.samples) if (r.get("set"), r.get("n")) in labels]
+    if not pairs:
+        return misuse("no sample joins a label on (set, n)")
+    if not tezgah_judge.available():
+        return misuse("no judge: no credential resolves or judge-off is set; nothing sent")
+    got, usage = classify([text for text, _gold in pairs], args.model)
+    confusion = {g: {p: 0 for p in CLASSES} for g in CLASSES}
+    unjudged = 0
+    for (_text, gold), pred in zip(pairs, got):
+        if pred is None or gold not in CLASSES:
+            unjudged += 1
+            continue
+        confusion[gold][pred] += 1
+    per_class = {c: {"precision": ratio(confusion[c][c], sum(confusion[g][c] for g in CLASSES)),
+                     "recall": ratio(confusion[c][c], sum(confusion[c].values()))}
+                 for c in CLASSES}
+    report = {"n": len(pairs) - unjudged, "unjudged": unjudged, "confusion": confusion,
+              "per_class": per_class, "usage": usage}
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+    print("n=%d unjudged=%d (rows: label, columns: judge)" % (report["n"], unjudged))
+    print("%-11s %s" % ("", " ".join("%10s" % p for p in CLASSES)))
+    for g in CLASSES:
+        print("%-11s %s" % (g, " ".join("%10d" % confusion[g][p] for p in CLASSES)))
+    for c in CLASSES:
+        print("%s: precision %s, recall %s" % (c, per_class[c]["precision"],
+                                                per_class[c]["recall"]))
+    print(usage_line(usage))
+    return 0
+
+
+def cmd_rate(args):
+    rows = read_jsonl(args.inp)
+    if args.limit is not None:
+        rows = rows[:args.limit]
+    if not rows:
+        return misuse("no mined rows in %s" % args.inp)
+    if not tezgah_judge.available():
+        return misuse("no judge: no credential resolves or judge-off is set; nothing sent")
+    got, usage = classify([(r.get("prompt") or "")[:CUT] for r in rows], tezgah_judge.MODEL)
+    repos = {}
+    for row, label in zip(rows, got):
+        if label is None:
+            continue
+        tally = repos.setdefault(row.get("repo") or "", [0, 0])
+        tally[0] += 1
+        tally[1] += label == "preference"
+    n = sum(t[0] for t in repos.values())
+    pref = sum(t[1] for t in repos.values())
+    report = {"n": n, "unjudged": len(rows) - n, "preference": pref,
+              "rate": ratio(pref, n),
+              "repos": {repo: {"n": t[0], "preference": t[1], "rate": ratio(t[1], t[0])}
+                        for repo, t in sorted(repos.items())},
+              "usage": usage}
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+    for repo, row in report["repos"].items():
+        print("%s: %d/%d preference (%s)" % (repo, row["preference"], row["n"], row["rate"]))
+    print("overall: %d/%d preference (%s), unjudged %d"
+          % (pref, n, report["rate"], report["unjudged"]))
+    print(usage_line(usage))
+    return 0
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(prog="tezgah-taste", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    mine = sub.add_parser("mine")
+    mine.add_argument("--host", choices=("omp", "claude", "all"), default="all")
+    mine.add_argument("--root")
+    mine.add_argument("--stats", action="store_true")
+    mine.add_argument("--out")
+    measure = sub.add_parser("measure")
+    measure.add_argument("--samples", required=True)
+    measure.add_argument("--labels", required=True)
+    measure.add_argument("--model", default=tezgah_judge.MODEL)
+    measure.add_argument("--json", action="store_true")
+    rate = sub.add_parser("rate")
+    rate.add_argument("--in", dest="inp", required=True)
+    rate.add_argument("--limit", type=int)
+    rate.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv[1:])
+    return {"mine": cmd_mine, "measure": cmd_measure, "rate": cmd_rate}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

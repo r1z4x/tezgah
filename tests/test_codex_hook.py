@@ -173,6 +173,17 @@ class CodexEvidence(TempHome):
         self.assertEqual(row["kind"], "verify")
         self.assertNotIn("out_bytes", row)
 
+    def test_a_relative_write_is_resolved_against_the_hook_cwd(self):
+        # Codex was the one host handing note_tool no cwd, so its write rows
+        # carried no workspace and no absolute target, and a relative path
+        # could not be tied to the repository the call ran in.
+        self.post("apply_patch", {"file_path": "a.py", "content": "x = 1\n"},
+                  {"exit_code": 0})
+        row = self.rows()[-1]
+        self.assertEqual(row["kind"], "edit")
+        self.assertEqual(row["target"], os.path.join(os.path.realpath(self.repo), "a.py"))
+        self.assertTrue(row.get("workspace"))
+
     def test_a_call_outside_every_root_records_no_row(self):
         # Audit L-4 (INT-07): the same PostToolUse outside the roots left nothing
         # on Claude, dsh and omp and a verify_ok row on Codex, so a session's

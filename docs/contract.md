@@ -11,7 +11,7 @@ surface is [hosts.md](hosts.md).
 Every string is a module constant in `hooks/tezgah_policy.py`, so that every
 host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 (`{ROOT}`, `{CONSULT_BIN}`, `{ORX_BIN}`, …) are filled at injection time by
-`render()` (`hooks/tezgah_context.py:369-380`).
+`render()` (`hooks/tezgah_context.py:374-385`).
 
 ## The five surfaces
 
@@ -32,7 +32,7 @@ skill names plus `none`, and one Noul
 asking whether the turn wants a skill at all - and the winner is appended after
 the armed paragraphs as a hint to look at first, never as an instruction to load
 (`hooks/tezgah_skill_pick.py:35-62` is the whole configuration, wired into
-`context_for` at `hooks/tezgah_context.py:1636-1639`). Measured cost of the line
+`context_for` at `hooks/tezgah_context.py:1646-1649`). Measured cost of the line
 itself: 305-317 characters, about 78 tokens of prompt. Measured cost of the
 judgement: one call per unanswered prompt, 909-915 input tokens, 0.77-0.81 s,
 $0.000038 at $0.042/1M on three live judgements. It is OFF UNLESS ARMED -
@@ -47,18 +47,18 @@ session is never paid for twice (`tests/test_skill_pick.py`). The host's own
 roster text is left untouched: that is what a session matches on and what its
 prefix cache covers, which is the whole reason the upstream recipe keeps it.
 
-`context_for(event, …)` is the one dispatcher (`hooks/tezgah_context.py:1559`):
+`context_for(event, …)` is the one dispatcher (`hooks/tezgah_context.py:1564`):
 `session_start`/`post_compact` build core plus live state, `user_prompt` builds
 the reminder, whatever was armed and any skill hint, `subagent_start` builds a short brief
-(`hooks/tezgah_context.py:1696-1697`). Outside every configured root it returns `None`
-(`hooks/tezgah_context.py:1570-1571`). A host whose static always-on file already
+(`hooks/tezgah_context.py:1706-1707`). Outside every configured root it returns `None`
+(`hooks/tezgah_context.py:1575-1576`). A host whose static always-on file already
 carries the core passes `with_core=False` so the session does not pay for the
-contract twice (`hooks/tezgah_context.py:1564-1568`); a delegated agent gets
+contract twice (`hooks/tezgah_context.py:1569-1573`); a delegated agent gets
 `subagent_core()`, which keeps every always-on label and its opening clause, and
 carries the two always-on blocks that are not labelled rules - the on-demand
 pointer line and the kill-switch list - in its header, because its header claims
 every rule is in force and a delegate that cannot name a switch cannot tell its
-caller how to disarm one (`hooks/tezgah_context.py:1173-1211`).
+caller how to disarm one (`hooks/tezgah_context.py:1178-1216`).
 
 One block on those two events is not a standing rule but the live turn state.
 `session_start` and `post_compact` also build `resume_state`: a plan's
@@ -98,11 +98,11 @@ One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
 `fixture`/`fake`/`stub`/`sample`/`demo` (`SCRATCH_PATH`,
-`hooks/tezgah_integrity.py:3038-3044`; `scratch_evidence`,
-`hooks/tezgah_integrity.py:3059-3083`) - the turn is told the command and the
+`hooks/tezgah_integrity.py:3047-3053`; `scratch_evidence`,
+`hooks/tezgah_integrity.py:3068-3092`) - the turn is told the command and the
 rule: evidence from a scratch path is evidence about the code path, so a claim
 about the running system needs a check that ran against it (`SCRATCH_REMINDER`,
-`hooks/tezgah_context.py:1344-1348`, appended at `hooks/tezgah_context.py:1679`).
+`hooks/tezgah_context.py:1349-1353`, appended at `hooks/tezgah_context.py:1689`).
 It is a reminder and not a block because whether a scratch script exercises the
 real system is not decidable from the command; one passing check against a real
 path makes the reader answer `None`, so a session that also ran the real thing is
@@ -119,7 +119,7 @@ research lines with a written flip; everything else keeps one fresh reviewer
 ## Composition order of the always-on core
 
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
-the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:307-325`).
+the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py:312-330`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
 `**Turkish, BLUF.**` :598, `**Ponytail (minimal code).**` :607, `**Output shape:
 ADHD-friendly.**` :618, `**Deliver the whole ask; never the shortcut.**` :632,
@@ -133,7 +133,7 @@ analysis: five axes, one evidence class per finding.**` :734 *(conditional)*,
 stay English.**` :777, `**Session scope: the user's repo, not tezgah.**` :783,
 `**Kill switches:**` :799.
 
-`always_on_core()` (`hooks/tezgah_context.py:1162-1170`) drops the five
+`always_on_core()` (`hooks/tezgah_context.py:1167-1175`) drops the five
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:821-823`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, product analysis, the code graph, and the
@@ -149,13 +149,13 @@ its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
 hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
-(`hooks/tezgah_context.py:1153-1159`) is that text with the kill-switch filtering
+(`hooks/tezgah_context.py:1158-1164`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
 
 - **Turkish, BLUF.** Every user-facing reply is Turkish even when the prompt is English, outcome first; code, commits, docs and subagent prompts stay English.
-- **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py:383-392`).
+- **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py:388-397`).
 - **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement.
 - **Deliver the whole ask; never the shortcut.** The request is a floor: no cheaper stand-in, no silent scope cut, no token gesture reported as done.
 - **Integrity: evidence, or "doğrulanmadı".** A done/tested claim holds only if the check ran in this session and its output was seen; the mechanical half is enforced by [gate.md](gate.md).
@@ -168,11 +168,11 @@ applied, and it also returns the names of the switches that fired.
 
 ## Arming the conditional paragraphs, and the per-turn reminder
 
-`PROMPT_HINTS` (`hooks/tezgah_context.py:85-295`) is one compiled pattern per key
+`PROMPT_HINTS` (`hooks/tezgah_context.py:90-300`) is one compiled pattern per key
 — `spec`, `consult`, `research`, `product`, `graph` — and `classify_prompt()` returns the keys
-a prompt matches (`hooks/tezgah_context.py:1047-1050`). On that turn only, the
+a prompt matches (`hooks/tezgah_context.py:1052-1055`). On that turn only, the
 matching paragraphs are appended after the reminder
-(`hooks/tezgah_context.py:1614-1628`); a session that never asks such a question
+(`hooks/tezgah_context.py:1624-1638`); a session that never asks such a question
 pays the one-line pointer instead. The patterns carry Turkish stems because the
 user writes Turkish, and a plain prompt arms nothing. The same prompt arms the
 same rules on every host (`tests/test_context.py:2358-2379`) and each advisory
@@ -181,43 +181,43 @@ rule keeps a pointer line in the always-on text (`tests/test_context.py:2381-238
 `PROMPT_REMINDER` is the compact restatement of the invariants. It stays
 inside the `<harness-reminder>` envelope the hosts and
 tests look for (`hooks/tezgah_policy.py:827-843`), with its `{PONY_LEVEL}` slot naming a non-default ponytail level
-(`hooks/tezgah_context.py:383-392`). The session-start text ends with the pointer
+(`hooks/tezgah_context.py:388-397`). The session-start text ends with the pointer
 telling the model to load `tezgah-contract` for the deep detail
-(`hooks/tezgah_context.py:1799-1800`), whose two appendixes apply only on a machine
+(`hooks/tezgah_context.py:1809-1810`), whose two appendixes apply only on a machine
 missing the code graph or every consult option (`hooks/tezgah_policy.py:511-531`).
 
 ## How a rule is disarmed
 
 A kill switch removes the rule's text, not just a status mark
-(`hooks/tezgah_context.py:1086-1150`). `off()` checks `~/.config/tezgah` and the
+(`hooks/tezgah_context.py:1091-1155`). `off()` checks `~/.config/tezgah` and the
 legacy `~/.claude` (`hooks/tezgah_paths.py:46`, `:463-465`); the drop itself
 happens in `core_split()`.
 
 | Switch file | Rule it removes | Where the drop is implemented |
 |---|---|---|
-| `exec-mode.off` | `**Turkish, BLUF.**` | `hooks/tezgah_context.py:1091-1093` |
-| `ponytail-auto.off` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:1094-1097` |
-| `adhd-off` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:1098-1100` |
-| `spec-off` | `**Spec before building.**` | `hooks/tezgah_context.py:1101-1103` |
-| `verify-off` | `**Integrity: evidence…**`, and the per-turn evidence-scope line with it | `hooks/tezgah_context.py:1104-1106`, `:1662` |
-| `consult-off` | `**Consult before irreversible.**` | `hooks/tezgah_context.py:1110-1112` |
-| `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py:1113-1118` |
-| `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py:1119-1120` disables it, `hooks/tezgah_context.py:1786-1789` injects "Orchestration is off", and the skill-ignore note is `hooks/tezgah_context.py:1588-1590` |
-| `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:1609-1610` returns `None` |
+| `exec-mode.off` | `**Turkish, BLUF.**` | `hooks/tezgah_context.py:1096-1098` |
+| `ponytail-auto.off` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:1099-1102` |
+| `adhd-off` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:1103-1105` |
+| `spec-off` | `**Spec before building.**` | `hooks/tezgah_context.py:1106-1108` |
+| `verify-off` | `**Integrity: evidence…**`, and the per-turn evidence-scope line with it | `hooks/tezgah_context.py:1109-1111`, `:1662` |
+| `consult-off` | `**Consult before irreversible.**` | `hooks/tezgah_context.py:1115-1117` |
+| `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py:1118-1123` |
+| `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py:1124-1125` disables it, `hooks/tezgah_context.py:1796-1799` injects "Orchestration is off", and the skill-ignore note is `hooks/tezgah_context.py:1593-1595` |
+| `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py:1619-1620` returns `None` |
 | `judge-off` | the judgement seam: the snapshot triage, the docs page fallback and the skill hint | `hooks/tezgah_judge.py:165` — `available()` is asked before any call, so an armed switch makes no request at all |
 | `triage-off` | the snapshot triage alone (`bin/tezgah-triage`), leaving the docs fallback and the skill hint armed | `bin/tezgah-triage:120` — `off_reason()` answers this switch before the seam's, so the analyze-app loop reads the tree instead of paying for a judgement |
 | `docs-judge-off` | the docs page fallback alone (`bin/tezgah-docs`), leaving the triage and the skill hint armed | `bin/tezgah-docs:328` — `off()` answers this switch first, so a query the index cannot place is ranked by shared words instead (`ranked`), and exits 1 only when no page shares one |
-| `lang-off` | `**Identifiers and messages stay English.**` | `hooks/tezgah_context.py:1121-1123` drops the paragraph; the gate's own check reads the same switch (`hooks/tezgah_gate.py:1493`) |
+| `lang-off` | `**Identifiers and messages stay English.**` | `hooks/tezgah_context.py:1126-1128` drops the paragraph; the gate's own check reads the same switch (`hooks/tezgah_gate.py:1493`) |
 | `pretooluse-off` | the gate's denials, not a rule | [gate.md](gate.md) |
-| `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:1094-1097` |
-| `.no-adhd` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:1098-1100` |
-| `.no-graph` | `**Code discovery: graph first.**` | `hooks/tezgah_context.py:1127-1129` |
-| `.no-lessons` | `**Lessons ledger: stop repeating mistakes.**` | `hooks/tezgah_context.py:1107-1109`, and neither the session's lessons block (`hooks/tezgah_context.py:1771-1775`) nor the per-turn one (`relevant_lessons`) is injected |
+| `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py:1099-1102` |
+| `.no-adhd` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py:1103-1105` |
+| `.no-graph` | `**Code discovery: graph first.**` | `hooks/tezgah_context.py:1132-1134` |
+| `.no-lessons` | `**Lessons ledger: stop repeating mistakes.**` | `hooks/tezgah_context.py:1112-1114`, and neither the session's lessons block (`hooks/tezgah_context.py:1781-1785`) nor the per-turn one (`relevant_lessons`) is injected |
 
 The last four are per-repo [marks](glossary.md#per-repo-mark), read by
 `repo_marks()`, walking up to the enclosing [root](glossary.md#root)
-(`hooks/tezgah_context.py:2058-2071`). Every switch that fired is named back to the
-session at start (`hooks/tezgah_context.py:1784-1785`) and per turn (`hooks/tezgah_context.py:1683-1685`), with the instruction to
+(`hooks/tezgah_context.py:2068-2082`). Every switch that fired is named back to the
+session at start (`hooks/tezgah_context.py:1794-1795`) and per turn (`hooks/tezgah_context.py:1693-1695`), with the instruction to
 ignore the matching section in `tezgah-contract` — that skill is loaded
 separately and would otherwise re-arm the rule. `tezgah-adhd off` writes the same
 channel as the file (`bin/tezgah-adhd:19`); the ponytail *level* is not a switch.
@@ -231,11 +231,11 @@ they survive every other switch being off.
 1. Write the full text as a constant in `hooks/tezgah_policy.py`.
 2. If not every session should pay it, add the key to `CONDITIONAL_KEYS`
    (`hooks/tezgah_policy.py:816`), a pattern to `PROMPT_HINTS`
-   (`hooks/tezgah_context.py:85-295`) and a line to `POINTERS`
+   (`hooks/tezgah_context.py:90-300`) and a line to `POINTERS`
    (`hooks/tezgah_policy.py:821-823`); the two halves are asserted together
    (`tests/test_context.py:2381-2388`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
-   pair to `CORE_RULES` (`hooks/tezgah_context.py:307-325`). The label is the
+   pair to `CORE_RULES` (`hooks/tezgah_context.py:312-330`). The label is the
    contract: `core_split()` matches paragraphs by it and `subagent_core()` builds
    the brief from it, so a label edit fails loudly instead of silently dropping
    a rule.
@@ -282,10 +282,10 @@ and `tests/test_agents.py` asserts it on every host.
 
 Each event has a byte budget: `session_start` and `post_compact` 12000,
 `user_prompt` 6000, `subagent_start` 5000, anything else 12000
-(`hooks/tezgah_context.py:1246-1248`). Each sits at about 1.5× the largest text
+(`hooks/tezgah_context.py:1251-1253`). Each sits at about 1.5× the largest text
 that event was measured to build in this repository, so it never fires on a
 healthy repo and fires before a pathological one reaches the model; it is a byte
-count, not a token estimate (`hooks/tezgah_context.py:1244-1245`).
+count, not a token estimate (`hooks/tezgah_context.py:1249-1250`).
 
 Over budget, `budgeted()` gives up whole blocks in `DROP_ORDER`, lowest value
 first — the text another surface already carries (project knowledge, the
@@ -293,13 +293,13 @@ sibling-checkout line, lessons, the per-turn relevant lessons, the plan table) f
 glance, then the resume state (it outlives those because it is the only one that
 says what this session was doing, and it still yields to a rule), then the
 evidence-scope warning, the task phase, the delta, and the skill pointer last
-(`hooks/tezgah_context.py:1249-1265`, `hooks/tezgah_context.py:1266-1269`). Any key absent from that tuple is
+(`hooks/tezgah_context.py:1254-1270`, `hooks/tezgah_context.py:1271-1274`). Any key absent from that tuple is
 never dropped: the core, the reminder and the armed paragraphs are the rules, and
 a budget able to spend them would turn bloat into rule loss. The note naming what
 went is appended after the count, so the sentence explaining the trim cannot force
 another one, and it says so when what remains is still over the limit
-(`hooks/tezgah_context.py:1272-1284`); the drop is logged to `~/.cache/tezgah/context-drops.log`, truncated
-to its last 200 lines (`hooks/tezgah_context.py:1287-1304`).
+(`hooks/tezgah_context.py:1277-1289`); the drop is logged to `~/.cache/tezgah/context-drops.log`, truncated
+to its last 200 lines (`hooks/tezgah_context.py:1292-1309`).
 
 ## Source of truth
 

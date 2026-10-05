@@ -210,6 +210,20 @@ def _capture_one(path, cwd, session_id):
                              "hash": digest, "out_bytes": len(data),
                              "workspace": workspace})
         return None
+    sid = _save(data, {"path": apath, "hash": digest, "session": session_id,
+                       "workspace": workspace, "bytes": len(data), "ts": ts})
+    if not sid:
+        return None
+    # the row comes last: it must never name a copy that is not on disk
+    _append(session_id, {"kind": "snapshot", "ts": ts, "detail": apath,
+                         "id": sid, "hash": digest, "out_bytes": len(data),
+                         "workspace": workspace})
+    return sid
+
+
+def _save(data, meta):
+    """Write one blob and its manifest under a fresh id, evict past CAP, and
+    return the id - or None, with nothing left behind, when the write failed."""
     sid = uuid.uuid4().hex[:12]
     try:
         os.makedirs(_store(), mode=0o700, exist_ok=True)
@@ -217,19 +231,45 @@ def _capture_one(path, cwd, session_id):
         with _private_open(_blob(sid)) as fh:
             fh.write(data)
         with _private_open(_manifest(sid)) as fh:
-            fh.write(json.dumps({"id": sid, "path": apath, "hash": digest,
-                                 "session": session_id, "workspace": workspace,
-                                 "bytes": len(data), "ts": ts}).encode("utf-8"))
+            fh.write(json.dumps(dict(meta, id=sid)).encode("utf-8"))
     except OSError:
         import shutil  # deferred: see _evict
         shutil.rmtree(_dir(sid), ignore_errors=True)  # no half a snapshot
         return None
-    # the row comes last: it must never name a copy that is not on disk
-    _append(session_id, {"kind": "snapshot", "ts": ts, "detail": apath,
-                         "id": sid, "hash": digest, "out_bytes": len(data),
-                         "workspace": workspace})
     _evict()
     return sid
+
+
+def capture_after(path, cwd=None, session_id=None):
+    """Copy the bytes a write left behind into the store; return (id, sha256),
+    or None when there is nothing to keep.
+
+    The post-write half of a taste signal (tezgah_taste): the after-state of the
+    agent's edit is what a later user correction is compared against, and the
+    file will have moved on by the time anything reads it. Same limits and same
+    eviction as a pre-write capture - a credential file (`SECRET_FILE`), a file
+    over MAX_BYTES or an unreadable one is not copied. No ledger row: the
+    pre-state reader (`tezgah_integrity._snapshot_hash`) and a session rollback
+    read `snapshot` rows, and an after-state there would be taken for a
+    pre-state. The manifest says `after`, so a reader of the store can tell."""
+    apath = os.path.realpath(
+        str(path) if os.path.isabs(str(path))
+        else os.path.join(cwd or ".", str(path)))
+    if SECRET_FILE.match(os.path.basename(apath)):
+        return None
+    try:
+        if not os.path.isfile(apath) or os.path.getsize(apath) > MAX_BYTES:
+            return None
+        with open(apath, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    digest = hashlib.sha256(data).hexdigest()
+    sid = _save(data, {"path": apath, "hash": digest, "session": session_id,
+                       "workspace": root_for(cwd) if cwd else None,
+                       "bytes": len(data), "ts": int(time.time()),
+                       "after": True})
+    return (sid, digest) if sid else None
 
 
 def capture(tool, inp, cwd, session_id):

@@ -25,7 +25,7 @@ refusal rows into that session's counters (audit L-14b, CHAT-07).
 |---|---|---|
 | claude, dsh | `hooks/projects-pretooluse.py:24-30` (`hosts/dsh/hooks.json:13`) | `hookSpecificOutput.permissionDecision: "deny"` |
 | codex, cursor, omp | `hosts/codex/hook.py:151-158`, `hosts/cursor/hook.py:336-337`, `hosts/omp/hook.py:126-129` | that host's own envelope — [hosts.md](hosts.md) |
-| opencode | `hosts/opencode/plugins/tezgah.js:2074` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:2214` |
+| opencode | `hosts/opencode/plugins/tezgah.js:2096` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:2236` |
 
 Every refusal is also recorded before it is returned: `_deny` appends a ledger row `deny` whose `detail` is `"<rule>: <reason, first 80 chars>"`, plus any
 `extra` (`hooks/tezgah_gate.py:1412-1427`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
@@ -69,7 +69,7 @@ Passes: a line that opens with `set -o pipefail` (`PIPEFAIL` `hooks/tezgah_integ
 (`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). Told: redirect the
 check to a file and read the file, or prefix `set -o pipefail;`, with the check named as it was typed. Standing, under `verify-off`
 (`hooks/tezgah_gate.py:1470`). opencode asks the core for this rule on any shell line that pipes a check
-(`hosts/opencode/plugins/tezgah.js:2141`) and records such a line as `verify` unless it opens with pipefail (`hosts/opencode/plugins/tezgah.js:974-977`).
+(`hosts/opencode/plugins/tezgah.js:2163`) and records such a line as `verify` unless it opens with pipefail (`hosts/opencode/plugins/tezgah.js:974-977`).
 
 ### Attribution — an AI/model credit on its way into an artifact
 
@@ -226,17 +226,17 @@ widen a list a regex already covers.
 ## The mirror: the opencode plugin
 
 opencode cannot run Python hooks, so `hosts/opencode/plugins/tezgah.js` is an independent JavaScript re-implementation of the same rules, dispatched from
-`tool.execute.before` (hosts/opencode/plugins/tezgah.js:2074, exported `hosts/opencode/plugins/tezgah.js:2022`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:2088-2160`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:266`,
+`tool.execute.before` (hosts/opencode/plugins/tezgah.js:2074, exported `hosts/opencode/plugins/tezgah.js:2030`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:2110-2182`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:266`,
 `SKIP_ENV` hosts/opencode/plugins/tezgah.js:267, `NO_VERIFY` hosts/opencode/plugins/tezgah.js:268, `GITISH` hosts/opencode/plugins/tezgah.js:269, `SKIP_TEST` hosts/opencode/plugins/tezgah.js:385). What keeps the two halves honest is a test, not a shared module:
 `tests/test_opencode_plugin.py` drives the plugin's hooks through a node harness with a throwaway HOME, and imports the Python `tezgah_integrity.call_id` so a
 separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `:22-25`, `tests/test_opencode_plugin.py:1089-1161`).
 
 The shell rule kinds mirrored last are each pinned in both suites: the shell's write body (`SHELL_WRITE` `hosts/opencode/plugins/tezgah.js:780`,
 `heredocBodies` `hosts/opencode/plugins/tezgah.js:786`, `shellWriteBody` `hosts/opencode/plugins/tezgah.js:819`, the shortcut and attribution twins at
-`hosts/opencode/plugins/tezgah.js:2117` and `hosts/opencode/plugins/tezgah.js:1375`, the credential twin at `hosts/opencode/plugins/tezgah.js:1334`) and the
-ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:1265`, `ORDER_DENY`
-`hosts/opencode/plugins/tezgah.js:1267`, `lastVerify` `hosts/opencode/plugins/tezgah.js:1277`, `orderReason` `hosts/opencode/plugins/tezgah.js:1302`, dispatched at
-`hosts/opencode/plugins/tezgah.js:2155`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
+`hosts/opencode/plugins/tezgah.js:2139` and `hosts/opencode/plugins/tezgah.js:1383`, the credential twin at `hosts/opencode/plugins/tezgah.js:1342`) and the
+ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:1273`, `ORDER_DENY`
+`hosts/opencode/plugins/tezgah.js:1275`, `lastVerify` `hosts/opencode/plugins/tezgah.js:1285`, `orderReason` `hosts/opencode/plugins/tezgah.js:1310`, dispatched at
+`hosts/opencode/plugins/tezgah.js:2177`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
 `fail`, and a row that narrowing would refuse reads `ok`/`ran` on both sides, so the outcome is identical.
 
 ## Rule provenance
@@ -272,9 +272,9 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` h
 | `check failed` | designed | the newest check failing is its own class; no incident recorded | `tests/test_integrity.py::test_failed_check_blocks` | 2026-09-23 |
 | `partial failure` | designed | a failure the turn never resolved; no incident recorded | `tests/test_integrity.py::test_an_unresolved_failure_blocks_even_after_an_earlier_pass` | 2026-09-23 |
 | `stale evidence` | measured 2026-09-19: reading a rewrite as a change refused honest turns | `hooks/tezgah_integrity.py:2414-2416` | `tests/test_integrity.py::test_a_write_after_the_check_makes_the_check_stale` | 2026-09-23 |
-| `no verify_ok` | E2: 0 of 10 description-shaped claims refused before the `worked` trigger | `hooks/tezgah_integrity.py:2860-2869` | `tests/test_integrity.py::test_work_with_no_passing_check_is_refused_without_a_claim_word` | 2026-09-23 |
-| `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_integrity.py:3317-3319` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` | 2026-09-29 |
-| `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py:3005-3007` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` | 2026-09-29 |
+| `no verify_ok` | E2: 0 of 10 description-shaped claims refused before the `worked` trigger | `hooks/tezgah_integrity.py:2869-2878` | `tests/test_integrity.py::test_work_with_no_passing_check_is_refused_without_a_claim_word` | 2026-09-23 |
+| `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_integrity.py:3326-3328` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` | 2026-09-29 |
+| `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py:3014-3016` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` | 2026-09-29 |
 | `placating opener` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_sycophantic_opener_blocks` | 2026-09-23 |
 | `forbidden closer` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_closer_from_the_skills_own_list_blocks` | 2026-09-23 |
 | `list cap` | designed | output rule 8 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_list_over_the_cap_blocks_with_its_size` | 2026-09-27 |
@@ -301,7 +301,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` h
   `RETRY_CEILING` `hooks/tezgah_gate.py:476-478`, `retry_reason` `hooks/tezgah_gate.py:510-545`; `secret_command` `hooks/tezgah_gate.py:568-602`, `race_reason` `hooks/tezgah_gate.py:664-708`,
   `drift_reason` `hooks/tezgah_gate.py:1171-1200`, `effectful` `hooks/tezgah_gate.py:1201-1236`, `_deny` `hooks/tezgah_gate.py:1412-1427`; the plan rule's own section `hooks/tezgah_gate.py:1109-1222` — `plan_reason` `hooks/tezgah_gate.py:1381-1409`, `_branch` `hooks/tezgah_gate.py:1274-1291`, `_checkout` `hooks/tezgah_gate.py:1350-1372`, `_product` `hooks/tezgah_gate.py:1375-1378`, `PLAN_DENY` `hooks/tezgah_gate.py:1246-1255`; `write_paths` `hooks/tezgah_gate.py:636-663`, `shell_target` `hooks/tezgah_gate.py:995-1034`, `SHELL_AS_WRITE` `hooks/tezgah_gate.py:633-635`; the `capture` call `hooks/tezgah_gate.py:1634-1644` (a write tool's target, and a shell write's)
 - `hooks/projects-pretooluse.py` — the Claude and dsh envelope; `hooks/tezgah_paths.py` — `off`, `root_for`, `cache_dir`
-- `hooks/tezgah_integrity.py` — `BASH_TOOLS`/`WRITE_TOOLS` `hooks/tezgah_integrity.py:340-349`; `NEUTER`/`SKIP_ENV`/`NO_VERIFY`/`GITISH` `:151-159`; `HOOKS_KEY`/`GIT_VALUE_OPTS`/`CONFIG_READS`/`ROUGH_WORDS` `:171-186`; `SKIP_TEST` `:195-204`; `TEST_PATH`
+- `hooks/tezgah_integrity.py` — `WRITE_TOOLS` `hooks/tezgah_integrity.py:340-342`, `BASH_TOOLS` `hooks/tezgah_integrity.py:343-344`; `NEUTER`/`SKIP_ENV`/`NO_VERIFY`/`GITISH` `:151-159`; `HOOKS_KEY`/`GIT_VALUE_OPTS`/`CONFIG_READS`/`ROUGH_WORDS` `:171-186`; `SKIP_TEST` `:195-204`; `TEST_PATH`
   `:205-212`; `call_id` `hooks/tezgah_integrity.py:513-540`; `_path` `:556`, `note` `hooks/tezgah_integrity.py:791-803`, `events` `hooks/tezgah_integrity.py:920-933`, `writers_elsewhere` `hooks/tezgah_integrity.py:1067-1132`, `mask` `hooks/tezgah_integrity.py:1871-1876`, `shortcut_command` `hooks/tezgah_integrity.py:2021-2031`,
   `shortcut_edit` `hooks/tezgah_integrity.py:2254-2290`
 - `hosts/opencode/plugins/tezgah.js` — the JavaScript mirror

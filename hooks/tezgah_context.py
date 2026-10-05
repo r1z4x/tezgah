@@ -41,6 +41,11 @@ try:  # One cheap judgement in front of the skill choice (tezgah_skill_pick): a
 except ImportError:  # pragma: no cover - only where the module has not landed
     tezgah_skill_pick = None
 
+try:  # The opt-in taste capture (tezgah_taste); a missing module costs the row.
+    import tezgah_taste
+except ImportError:  # pragma: no cover - only where the module has not landed
+    tezgah_taste = None
+
 # A prompt that matches one of these arms the matching conditional rule for that
 # turn only. Kept as (key, compiled regex) so the arming is one pass and the
 # patterns are reviewable. Word-ish boundaries keep "deploy" from firing inside
@@ -1598,6 +1603,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         prompt = prompt_text(payload)
         session_id = session_of(payload)
         note_turn(session_id, prompt, workspace=root_for(cwd))
+        # the taste capture (tezgah_taste), opt-in: off, one marker stat
+        if tezgah_taste:
+            host = (payload or {}).get("host") if isinstance(payload, dict) else None
+            tezgah_taste.note_prompt(session_id, prompt, cwd,
+                                     host=host if isinstance(host, str) else None)
         # Before the reminder switch: the status mark follows the gate's state
         # even when the per-turn text is off. Never in DROP_ORDER, so no budget
         # gives it up - it says the rules below are not being enforced.
@@ -2062,7 +2072,8 @@ def repo_marks(cwd):
     base = root_for(cwd)
     p = os.path.realpath(cwd)
     while base and p.startswith(base):
-        for f in (".no-ponytail", ".no-adhd", ".no-graph", ".no-lessons"):
+        for f in (".no-ponytail", ".no-adhd", ".no-graph", ".no-lessons",
+                  ".no-taste"):
             if os.path.exists(os.path.join(p, f)):
                 marks.add(f)
         if p == base:

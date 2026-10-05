@@ -178,7 +178,7 @@ def main():
         result = payload.get("tool_response")
         if root_for(cwd):
             safe(session_id, note_tool, session_id, tool, inp,
-                 failed=verify_outcome(payload), source=source,
+                 failed=verify_outcome(payload), source=source, cwd=cwd,
                  out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
                             else result_size(result)))
         if notice:

@@ -47,15 +47,17 @@ OVERRIDES = {
     "tezgah_integrity": ("codex_hook", "cursor_hook", "opencode_plugin",
                          "dsh_hooks", "gate"),
     "tezgah_gate": ("codex_hook", "cursor_hook", "opencode_plugin",
-                    "dsh_hooks", "integrity"),
+                    "dsh_hooks", "integrity", "taste"),
     "tezgah_lang": ("gate",),
     "tezgah_policy": ("skills", "context", "setup"),
     "tezgah_paths": None,  # None means FULL: every module imports the paths
-    "tezgah_context": ("gate", "skills", "agents"),
+    "tezgah_context": ("gate", "skills", "agents", "taste"),
     # the lessons block and the docs fallback rank through it
     "tezgah_rank": ("context", "docs_router", "embed"),
     # the opt-in fusion both of those call, and the registry rows that probe it
     "tezgah_embed": ("context", "docs_router", "apps_registry"),
+    # the opt-in taste capture the prompt path, note_tool and the snapshot store call
+    "tezgah_taste": ("context", "integrity", "snapshot", "opencode_plugin"),
 }
 # a change only in these maps to only these modules
 DOC_TARGETS = ("docs", "docs_router", "clarity")

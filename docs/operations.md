@@ -98,7 +98,7 @@ only writer, from the same filter the reader applies — `managed()` — so the
 listing and its reader cannot disagree (`managed()`, `bin/tezgah-setup:4275-4299`,
 `write_manifest()`, `bin/tezgah-setup:4326-4343`). The payload also carries
 `VERSION`, which is what a tree with no `.claude-plugin/` answers from
-(`version()`, `hooks/tezgah_context.py:2464-2491`).
+(`version()`, `hooks/tezgah_context.py:2475-2502`).
 
 ## A first install from a checkout
 
@@ -152,7 +152,7 @@ current one (`bin/tezgah-setup:3682-3700`).
 
 `--status [PATH]` answers a different question — which rules are in force in that
 repo — as one line of marks rendered by the same code every status line uses
-(`hooks/tezgah_context.py:2277-2348`, `hooks/tezgah_context.py:2400-2408`). Mark meanings are in
+(`hooks/tezgah_context.py:2288-2359`, `hooks/tezgah_context.py:2411-2419`). Mark meanings are in
 [status-line.md](status-line.md); `bin/tezgah-status` is that checklist with
 `--json`, `--legend` and `--observable=`. It carries the report's host-list row
 too, from the same `hosts_row`, so the mismatch reaches the surface a session
@@ -207,7 +207,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 - `--refresh` does that without a reinstall, for every armed host's static
   block and not only opencode's (`refresh_contract`). opencode has no
   session-start hook, so its plugin runs it once per session
-  (`hosts/opencode/plugins/tezgah.js:2309-2313`). Until 2026-10-02 it
+  (`hosts/opencode/plugins/tezgah.js:2331-2335`). Until 2026-10-02 it
   re-rendered opencode's files alone and reset the one shared hash, so a rule
   edit left the other static files stale while `--report` went green (audit
   M-5).
@@ -366,6 +366,47 @@ extension the engine has no parser for and an extensionless script it cannot key
 on at all. The extensionless case is why `bin/*` carries `.py` twins, and the
 report counts a tracked `bin/x` as covered when the index holds `bin/x.py`.
 
+## Opt-in taste capture
+
+Phase 1 of a coding-taste learner stores the signals tezgah already receives.
+It learns nothing and injects nothing yet. It stays off until the user arms it
+with a `taste-on` file in `~/.config/tezgah/` (`enabled`,
+`hooks/tezgah_taste.py:37-54`). The off path costs two stats. Armed, it writes
+only into a repository that already has a `.tezgah/` directory. A `.no-taste`
+mark turns it off for one repository (`hooks/tezgah_context.py:2075-2076`).
+A workspace of repo-provided data gets nothing.
+
+Rows go to `<repo>/.tezgah/taste/signals.jsonl` through the ledger's own writer
+(`_write`, `hooks/tezgah_taste.py:73-81`). A user turn adds a `prompt` row,
+redacted and cut to 2000 characters (`hooks/tezgah_context.py:1606-1610`).
+A landed write adds an `edit` row with its redacted old and new text, cut to
+4000, under the ledger row's id. Each written file also adds an `after` row.
+It names a snapshot that holds the bytes the write left (`note_write`,
+`hooks/tezgah_taste.py:156-183`, called from `note_tool`,
+`hooks/tezgah_integrity.py:2771-2779`). The after blob shares the snapshot
+store's limits and eviction. Armed, each landed write therefore keeps two blobs,
+and a session rollback reaches about half as far back. The after blob writes no
+ledger row. A rollback therefore never reads it as a pre-state (`capture_after`,
+`hooks/tezgah_snapshot.py:243-272`). A file outside the repository gets no
+after blob.
+opencode reaches the same call through a process (`noteTaste`,
+`hosts/opencode/plugins/tezgah.js:2037-2046`).
+
+```sh
+touch ~/.config/tezgah/taste-on               # arm; rm it to disarm
+bin/tezgah-taste mine --host omp --stats      # sessions, writes, prompts after a writing turn
+bin/tezgah-taste mine --out mined.jsonl       # one row per such prompt, redacted
+bin/tezgah-taste measure --samples S --labels L   # judge precision/recall against labels
+bin/tezgah-taste rate --in mined.jsonl        # preference corrections per writing turn
+```
+
+`mine` reads the host transcripts already on disk, so it needs no capture. It
+reads omp's top-level session files and Claude's top-level transcripts whose cwd
+is under `--root` (`cmd_mine`, `bin/tezgah-taste:190-218`). `measure` and `rate`
+send the sample text to the judge seam's provider ([judge](judge.md)), redacted
+first (`classify`, `bin/tezgah-taste:228-250`). They use a fixed labelling rule
+(`RULE`, `bin/tezgah-taste:48-52`). Without a credential they send nothing.
+
 ## Opt-in embedding relevance
 
 The per-turn lessons block and the `tezgah-docs` fallback rank by shared words
@@ -448,9 +489,9 @@ with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 | A host shows no status line | `bin/tezgah-setup --report --hosts claude`, then `readlink ~/.claude/statusline.py` | that host's own rows read ` MISS `: the `statusline.py` symlink or the `statusLine` key (`bin/tezgah-setup:2146-2147`). For omp the row `status line answers` runs `hosts/omp/hook.py`, so it fails whenever the Python half cannot start (`bin/tezgah-setup:2576-2595`). codex has no status-line row at all — its surface is hooks, skills and MCP (`bin/tezgah-setup:2466-2487`) |
 | A skill is missing in one host | `ls ~/.codex/skills/*/SKILL.md` (the host's skills dir is in [hosts.md](hosts.md)) | the link was never made: that host was not in the last `--hosts`. `bin/tezgah-setup --install --hosts codex` relinks it. Claude has no skills directory — it reads the plugin copy, so the row to read there is `plugin copy current` (`bin/tezgah-setup:3682-3700`) |
 | A skill link dangles | `ls -lL ~/.omp/agent/skills/*/SKILL.md` | the link resolves to nothing: its source was renamed or removed, or the checkout moved. `skills_linked` asks for a readable `SKILL.md` precisely so this cannot read as linked (`bin/tezgah-setup:129-139`); `--install` relinks from what exists now |
-| A rule still fires after its kill switch | `ls ~/.config/tezgah/*.off`, then `bin/tezgah-context user_prompt . < /dev/null` | the switch was flipped mid-session: the rule leaves the text injected from the next turn on, but text already in the context is not retracted (`hooks/tezgah_context.py:1086-1150`). The static files (`CLAUDE.md`, `AGENTS.md`, `RULES.md`, `opencode-contract.md`) drop a global switch's paragraph only when they are re-rendered, so run `tezgah-setup --refresh` (or `--install`) after flipping one. A per-repo `.no-*` mark does the same job as a switch file for the injected text, but it never edits the global static files (`hooks/tezgah_paths.py:46`, `hooks/tezgah_context.py:2058-2071`) |
-| The status line is thinner outside the roots | `bin/tezgah-setup --status "$PWD"`, then `bin/tezgah-context session_start .` | by design, mostly: the line is global and only the per-repo `idx` and `plans` marks appear inside a root (`hooks/tezgah_context.py:2339-2347`), while the injected contract text is exactly what goes silent off-root (`bin/tezgah-context:21-22`). A line that is empty everywhere is wiring: see the first row |
-| An agent cannot see the graph tools | `bin/tezgah-setup --report` — the common row `codegraph on PATH` and the host's own MCP row; then `which codegraph` | the binary is missing (it is the user's to install; `TEZGAH_CODEGRAPH_BIN` or `config.json`'s `codegraph_bin` can point at it, `hooks/tezgah_paths.py:361-372`), or the host's MCP row was overwritten and `--install --hosts <host>` rewrites it. `.no-graph` in a repo turns the code-graph rule off there (`hooks/tezgah_context.py:1127-1129`) |
+| A rule still fires after its kill switch | `ls ~/.config/tezgah/*.off`, then `bin/tezgah-context user_prompt . < /dev/null` | the switch was flipped mid-session: the rule leaves the text injected from the next turn on, but text already in the context is not retracted (`hooks/tezgah_context.py:1091-1155`). The static files (`CLAUDE.md`, `AGENTS.md`, `RULES.md`, `opencode-contract.md`) drop a global switch's paragraph only when they are re-rendered, so run `tezgah-setup --refresh` (or `--install`) after flipping one. A per-repo `.no-*` mark does the same job as a switch file for the injected text, but it never edits the global static files (`hooks/tezgah_paths.py:46`, `hooks/tezgah_context.py:2068-2082`) |
+| The status line is thinner outside the roots | `bin/tezgah-setup --status "$PWD"`, then `bin/tezgah-context session_start .` | by design, mostly: the line is global and only the per-repo `idx` and `plans` marks appear inside a root (`hooks/tezgah_context.py:2350-2358`), while the injected contract text is exactly what goes silent off-root (`bin/tezgah-context:21-22`). A line that is empty everywhere is wiring: see the first row |
+| An agent cannot see the graph tools | `bin/tezgah-setup --report` — the common row `codegraph on PATH` and the host's own MCP row; then `which codegraph` | the binary is missing (it is the user's to install; `TEZGAH_CODEGRAPH_BIN` or `config.json`'s `codegraph_bin` can point at it, `hooks/tezgah_paths.py:361-372`), or the host's MCP row was overwritten and `--install --hosts <host>` rewrites it. `.no-graph` in a repo turns the code-graph rule off there (`hooks/tezgah_context.py:1132-1134`) |
 | Claude keeps applying old rules | `bin/tezgah-setup --report --hosts claude` — the `plugin copy current` row; then `bin/tezgah-setup --sync` | the copy lags HEAD: Claude runs the copy, not the checkout. `--install` refreshes it too; restart Claude after either (`bin/tezgah-setup:3761-3767`, `bin/tezgah-setup:3757`) |
 
 ## Safety
@@ -479,12 +520,13 @@ or its optional tools and config, on its own initiative
 
 ## Triage: `tezgah-triage` and the `judge-off` switch
 
-One judgement seam serves four callers, each of them asking TypeSafe a batched
+One judgement seam serves five callers, each of them asking TypeSafe a batched
 question instead of paying an agent to read a page: the analyze-app loop's snapshot
 triage (`bin/tezgah-triage`), `bin/tezgah-docs` for a query its keyword index
 cannot place, and the prompt-path skill hint (`hooks/tezgah_skill_pick.py`), the
-one caller no shell row sees, and `bin/tezgah-route`, the tier router
-([models](models.md)). All four go through the same stdlib-only seam,
+one caller no shell row sees, `bin/tezgah-route`, the tier router
+([models](models.md)), and `bin/tezgah-taste`'s `measure` and `rate`
+([above](#opt-in-taste-capture)). All five go through the same stdlib-only seam,
 which returns `None` rather than raising because a hook may import it
 (`available()`, `hooks/tezgah_judge.py:163-167`); the request is
 one batched call, and the credential resolves per call (`ask()`,
@@ -559,8 +601,8 @@ page exits 1 with the message it always printed (`available()`,
   `bin/tezgah-context` — the health pass, the rollback, the checklist CLI, the
   injected text.
 - `bin/tezgah-triage`, `hooks/tezgah_judge.py`, `bin/tezgah-docs` — the snapshot
-  triage, the judgement seam all four callers share (the third is
-  `hooks/tezgah_skill_pick.py`, the fourth `bin/tezgah-route`), and the docs fallback that uses it;
+  triage, the judgement seam all five callers share (the others are
+  `hooks/tezgah_skill_pick.py`, `bin/tezgah-route` and `bin/tezgah-taste`), and the docs fallback that uses it;
   `tests/test_judge.py`, `tests/test_triage.py` pin them against a loopback
   endpoint.
 - `hooks/tezgah_embed.py`, `hooks/tezgah_apps.py` — the opt-in embedding model:

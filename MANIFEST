@@ -76,6 +76,8 @@ bin/tezgah-status
 bin/tezgah-status.py
 bin/tezgah-task
 bin/tezgah-task.py
+bin/tezgah-taste
+bin/tezgah-taste.py
 bin/tezgah-triage
 bin/tezgah-triage.py
 bin/tezgah.js
@@ -127,6 +129,7 @@ hooks/tezgah_shapes.py
 hooks/tezgah_skill_pick.py
 hooks/tezgah_snapshot.py
 hooks/tezgah_task.py
+hooks/tezgah_taste.py
 hooks/tezgah_untrusted.py
 hooks/tezgah_update.py
 hosts/codex/hook.py
@@ -695,6 +698,8 @@ tests/test_skills.py
 tests/test_snapshot.py
 tests/test_statusline.py
 tests/test_task.py
+tests/test_taste.py
+tests/test_taste_cli.py
 tests/test_tezgah_mcp_wiring.py
 tests/test_triage.py
 tests/test_untrusted.py

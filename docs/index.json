@@ -367,14 +367,16 @@
         "what does each installer flag do",
         "how do I install or upgrade a released version without a git checkout",
         "where does an installed version unpack and how do I roll back",
-        "something is broken what do I check first"
+        "something is broken what do I check first",
+        "how do I turn on taste signal capture and measure my corrections"
       ],
       "answers_tr": [
         "bunu bir makineye nasıl kurar, doğrular ve yükseltirim",
         "her kurulum bayrağı ne yapar",
         "git deposu olmadan yayımlanmış bir sürümü nasıl kurar veya yükseltirim",
         "kurulu bir sürüm nereye açılır ve nasıl geri alırım",
-        "bir şey bozuk, önce neyi kontrol etmeliyim"
+        "bir şey bozuk, önce neyi kontrol etmeliyim",
+        "zevk sinyali kaydını nasıl açar ve düzeltmelerimi nasıl ölçerim"
       ],
       "sources": [
         "bin/tezgah-setup",
@@ -386,7 +388,9 @@
         "packaging/install.ps1",
         "RELEASING.md",
         "README.md",
-        "hooks/tezgah_embed.py"
+        "hooks/tezgah_embed.py",
+        "hooks/tezgah_taste.py",
+        "bin/tezgah-taste"
       ]
     },
     {

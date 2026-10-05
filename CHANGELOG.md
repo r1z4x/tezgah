@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in taste capture, and a miner for the corrections already on disk.**
+  Arm it with `~/.config/tezgah/taste-on`. A repository with a `.tezgah/`
+  directory then gets `.tezgah/taste/signals.jsonl`. It holds each prompt,
+  each landed edit's old and new text, and a snapshot of the bytes the write
+  left. Redaction and a length cut apply to the text. A `.no-taste` mark turns it off per
+  repository. `tezgah-taste mine` counts and extracts the prompts that
+  followed a writing turn in omp and Claude transcripts. `tezgah-taste
+  measure` and `tezgah-taste rate` sort them with the judge seam into
+  preference, defect or none. This phase learns and injects nothing.
+
+### Fixed
+
+- **Codex write rows know where they ran.** The Codex hook was the one host
+  that gave the ledger no cwd. Its write rows carried no workspace, and a
+  relative path resolved against the hook process instead of the repository.
+
 ## [0.1.2] - 2026-10-04
 
 ### Added

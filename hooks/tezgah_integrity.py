@@ -2768,6 +2768,15 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         # a cwd the row does not carry (audit CHAT-03 / M-6)
         fields["target"] = _abs_target((_written_paths(inp) or [""])[0], cwd)
     note(session_id, kind, detail, **fields)
+    if kind == "edit" and not failed:
+        # the taste capture (tezgah_taste, opt-in): the edit's text under this
+        # row's id, and the bytes it left - read here because only PostToolUse
+        # runs after the write. Off, it costs one marker stat.
+        try:
+            import tezgah_taste
+        except ImportError:
+            return
+        tezgah_taste.note_write(session_id, fields["id"], inp, cwd)
 
 
 def claims(text):

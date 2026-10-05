@@ -55,7 +55,7 @@ reader with one question in mind, and every non-obvious claim in it carries a
   sentence names* is a judgement, not a regex. The layer was audited page by page
   on 2026-09-19 after the code moved under it. The judgement is mechanical in one
   case, and that case is where the drift lands: a citation that names a symbol
-  (`note_tool` `hooks/tezgah_integrity.py:2654-2772`) must point inside that symbol's body, so
+  (`note_tool` `hooks/tezgah_integrity.py:2654-2781`) must point inside that symbol's body, so
   `bin/tezgah-docs --citations` re-runs that half of the audit in one command and
   counts the citations it cannot judge - 415 judged and 902 not judgeable on this
   tree, 2026-10-02 (the counts move with the tree: the same command read 355 and 755
