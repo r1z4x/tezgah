@@ -2826,7 +2826,7 @@ class StopHook(TempHome):
                           env=dict(self.envv, TEZGAH_NESTED="1"))
         self.assertIsNone(out)
 
-    def test_stop_hook_active_passes(self):
+    def test_the_reply_after_a_block_is_never_blocked_again(self):
         self.seed("Bash", {"command": "ls"})
         self.assertIsNone(self.stop("Done.", stop_hook_active=True))
 

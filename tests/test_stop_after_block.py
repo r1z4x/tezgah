@@ -83,18 +83,38 @@ class AfterBlock(TempHome):
                                  ["blocked: no verify_ok"])
 
     def test_an_honest_reply_after_a_block_records_its_verdict(self):
+        self.stop("claude", active=False)
         self.stop("claude", text="Done, ama testler doğrulanmadı.")
         self.assertEqual([r["detail"] for r in self.rows("after_block")], ["ok"])
 
     def test_a_reply_with_no_claim_still_leaves_its_row(self):
-        # a session with no work: nothing to refuse and no claim made, which
-        # the first stop would not record at all
+        # a session with no work, refused for its opener only
         self.session = "s-clean"
+        self.assertEqual(self.stop("claude", text="Haklısın, düzelttim.",
+                                   active=False).get("decision"), "block")
         self.stop("claude", text="Parser yazıldı, sırada testler var.")
         self.assertEqual([r["detail"] for r in self.rows("after_block")],
                          ["no claim"])
 
-    def test_off_root_and_verify_off_record_nothing(self):
+    def test_another_hooks_block_leaves_no_row(self):
+        # `stop_hook_active` says only that SOME Stop hook blocked: with no
+        # tezgah refusal in the turn the reply is not an answer to this rule
+        for host in ("claude", "codex", "omp"):
+            with self.subTest(host=host):
+                self.assertNotIn("decision", self.stop(host))
+        self.assertEqual(self.rows("after_block"), [])
+        self.assertEqual(self.rows("shape"), [])
+
+    def test_an_allowed_claim_is_not_a_block_to_answer(self):
+        self.session = "s-clean"
+        self.assertNotIn("decision", self.stop("claude", text="Done.",
+                                               active=False))
+        self.assertEqual([r["detail"] for r in self.rows("claim")], ["ok"])
+        self.stop("claude", text="Done, ve testler geçti.")
+        self.assertEqual(self.rows("after_block"), [])
+
+    def test_verify_off_records_nothing(self):
+        self.stop("claude", active=False)
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
         for host in ("claude", "codex", "omp"):
             with self.subTest(host=host):
@@ -103,9 +123,13 @@ class AfterBlock(TempHome):
 
     def test_the_kind_is_not_a_tool_hook_row_and_not_a_claim(self):
         self.assertIn(b"after_block", tezgah_context.NOT_TOOL_HOOK)
-        self.stop("claude")
+        self.stop("claude", active=False)
+        self.stop("claude", text="Parser yazıldı; testler doğrulanmadı.")
+        self.assertEqual(len(self.rows("after_block")), 1)
         counts = self.counters()
-        self.assertEqual((counts["claims"], counts["false_completion"]), (0, 0))
+        # the refusal is the one claim, and the one reply the shape rate sees
+        self.assertEqual((counts["claims"], counts["false_completion"],
+                          counts["replies"]), (1, 1, 1))
 
     def test_a_raising_core_still_yields_an_empty_answer(self):
         for host in ("claude", "codex", "omp"):

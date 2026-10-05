@@ -3373,16 +3373,23 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False)
     the same way but never refused a second time, and its verdict goes to an
     `after_block` row - `would block: <class>`, `ok` or `no claim`, one per
     reply - so what a block led to is on the record without counting as a
-    claim. Returns None."""
+    claim or as a second reply in the shape rate. Only a turn this rule
+    refused has one: the flag says some Stop hook blocked, not that this one
+    did. Returns None."""
     rows, turns = turn_rows(session_id, turns=True)
+    if record_only and not any(
+            entry.get("kind") == "claim"
+            and str(entry.get("detail", "")).startswith("blocked:")
+            for entry in rows):
+        return None
     cls, reason = _stop_block(text, session_id, edited_hint, rows=rows, cwd=cwd)
     key = _claim_key(text, turns)
     # Keyed like the claim row, so Cursor's re-run of the handler on a follow-up
     # does not count the same reply twice; above the early return, so a reply
     # with no claim vocabulary still leaves its row.
     shape = reply_shape(text)
-    if not any(entry.get("kind") == "shape"
-               and entry.get("id") == key for entry in rows):
+    if not record_only and not any(entry.get("kind") == "shape"
+                                   and entry.get("id") == key for entry in rows):
         note(session_id, "shape", ",".join(shape_flags(text)) or "ok", id=key,
              **shape)
     if record_only:

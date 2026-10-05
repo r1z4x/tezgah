@@ -22,8 +22,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   omp the hook skipped the reply that answers a block. It now judges that
   reply in record-only mode and writes one `after_block` row. The row says
   whether the rule would refuse the reply, let a claim through, or found no
-  claim. It never blocks a second time and never counts as a claim. Cursor
-  stays unwired: nobody has checked its stop payload yet.
+  claim. It never blocks a second time and never counts as a claim or as a
+  reply. A block from another Stop hook leaves no row. Cursor stays unwired:
+  nobody has checked its stop payload yet.
 
 ### Fixed
 

@@ -420,7 +420,7 @@ class CodexStopGate(TempHome):
         out = self.stop("The header parser is in place.")
         self.assertNotIn("files this turn changed", out.get("systemMessage", ""))
 
-    def test_stop_hook_active_passes(self):
+    def test_the_reply_after_a_block_is_never_blocked_again(self):
         self.worked()
         self.assertNotIn("decision", self.stop("Done.", stop_hook_active=True))
 
