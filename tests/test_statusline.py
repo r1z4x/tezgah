@@ -106,6 +106,22 @@ class Statusline(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("research\u2713", proc.stdout)
 
+    def test_a_plugin_namespaced_codegraph_call_lights_the_graph_mark(self):
+        # A plugin install exposes the server as `mcp__plugin_tezgah_codegraph__*`;
+        # the line tested only `mcp__codegraph__`, so a plugin user's graph use
+        # never lit. The shared GRAPH_TOOL_MARK is the test on both names.
+        for i, name in enumerate(("mcp__plugin_tezgah_codegraph__codegraph_explore",
+                                  "mcp__codegraph__codegraph_explore")):
+            tp = os.path.join(self.home, "transcript%d.jsonl" % i)
+            with open(tp, "w") as fh:
+                fh.write(json.dumps({"message": {"content": [
+                    {"type": "tool_use", "name": name, "input": {"query": "x"}}]}}) + "\n")
+            proc = run([support.STATUSLINE],
+                       {"cwd": self.repo, "session_id": "s%d" % i, "transcript_path": tp},
+                       env=self.env(extra={"TEZGAH_CODEGRAPH_BIN": sys.executable}))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("graph\u2713", proc.stdout, name)
+
     def test_a_tezgah_research_run_lights_the_research_mark(self):
         # The layer's own CLI, not only the tool its rule routes to: `check` reads
         # the line's own artifacts, and a run of it has to be classified the way a
@@ -272,7 +288,7 @@ def changelog_version():
     with open(os.path.join(support.REPO, "CHANGELOG.md"), encoding="utf-8") as fh:
         for line in fh:
             # A version-shaped heading only, the way the product's own reader
-            # matches (`RELEASE`, `hooks/tezgah_context.py:2611`): an `Unreleased`
+            # matches (`RELEASE`, `hooks/tezgah_context.py:2625`): an `Unreleased`
             # section is a heading this file keeps at the top, and taking it for
             # the version pins the expected prefix to a string no status line
             # ever prints.

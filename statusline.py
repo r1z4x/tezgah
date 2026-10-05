@@ -21,9 +21,9 @@ import sys
 # real file to find the plugin it ships with before importing the shared core
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "hooks"))
-from tezgah_context import (LEGEND, TOOL_USE_MEASURES, color_default,
-                            health_segments, render_line, shell_kind,
-                            skill_read_kind,
+from tezgah_context import (GRAPH_TOOL_MARK, LEGEND, TOOL_USE_MEASURES,
+                            color_default, health_segments, render_line,
+                            shell_kind, skill_read_kind,
                             used as used_kinds)  # noqa: E402
 
 HOME = os.path.expanduser("~")
@@ -92,7 +92,7 @@ def claude_used():
             read_kind = skill_read_kind(name, b.get("input"))
             if read_kind:
                 used.add(read_kind)
-            elif name.startswith("mcp__codegraph__"):
+            elif name.startswith("mcp__") and GRAPH_TOOL_MARK in name.lower():
                 used.add("graph")
             elif name in ("Task", "Agent"):
                 used.add("orch")

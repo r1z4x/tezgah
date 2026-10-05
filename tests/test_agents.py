@@ -18,6 +18,14 @@ CODEX = os.path.join(".codex", "agents")
 CODEGRAPH_CLI_VERBS = ("query", "node", "callers", "callees", "impact",
                        "affected", "files", "status", "explore", "init", "sync",
                        "serve", "unlock", "uninstall", "upgrade", "version")
+sys.path.insert(0, support.HOOKS)
+import tezgah_agents  # noqa: E402  (pure renderers, read in-process)
+
+
+def setup_mcp_tools():
+    """The codegraph MCP tools tezgah's server row enables (bin/tezgah-setup)."""
+    with open(os.path.join(support.REPO, "bin", "tezgah-setup"), encoding="utf-8") as fh:
+        return re.search(r'"CODEGRAPH_MCP_TOOLS": "([^"]+)"', fh.read()).group(1).split(",")
 
 
 class AgentsBase(TempHome):
@@ -83,9 +91,8 @@ class Generation(AgentsBase):
                          "the help path generated agents")
 
     def test_generates_every_active_role_for_every_file_host(self):
-        self.assertIn("7 agent(s)", self.sync())
-        roles = ["cheap", "explorer", "frontier", "researcher", "reviewer",
-                 "standard", "verifier"]
+        self.assertIn("4 agent(s)", self.sync())
+        roles = ["cheap", "frontier", "reviewer", "standard"]
         for d in (CLAUDE, OPENCODE, CODEX):
             self.assertEqual(
                 self.names(d),
@@ -115,7 +122,6 @@ class Generation(AgentsBase):
         # main session's variant, where a full id breaks on Bedrock or a gateway
         self.assertIn("model: opus\neffort: low", cheap)
         self.assertIn("effort: high", self.read(CLAUDE, "tezgah-reviewer.md"))
-        self.assertIn("effort: medium", self.read(CLAUDE, "tezgah-explorer.md"))
         self.assertIn("model: inherit", self.read(CLAUDE, "tezgah-orchestrator.md"))
         codex = self.read(CODEX, "tezgah-frontier.toml")
         self.assertIn('model = "gpt-6-astra"', codex)
@@ -127,41 +133,87 @@ class Generation(AgentsBase):
     def test_cursor_is_served_by_the_claude_dir(self):
         self.sync()
         self.assertFalse(os.path.isdir(os.path.join(self.repo, ".cursor", "agents")))
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
 
     def test_markdown_frontmatter_is_readonly_for_cursor_and_claude(self):
         self.sync()
-        explorer = self.read(CLAUDE, "tezgah-explorer.md")
-        self.assertIn("# tezgah: managed", explorer)
-        self.assertIn("readonly: true", explorer)
-        self.assertIn("disallowedTools:", explorer)
-        self.assertIn("codegraph_explore", explorer)
-        # the verifier may run a shell, so it is not marked read-only
-        self.assertNotIn("readonly: true", self.read(CLAUDE, "tezgah-verifier.md"))
+        reviewer = self.read(CLAUDE, "tezgah-reviewer.md")
+        self.assertIn("# tezgah: managed", reviewer)
+        self.assertIn("readonly: true", reviewer)
+        self.assertIn("disallowedTools:", reviewer)
+        self.assertIn("codegraph_explore", reviewer)
+        # a tier worker edits, so it is not marked read-only
+        self.assertNotIn("readonly: true", self.read(CLAUDE, "tezgah-cheap.md"))
 
     def test_every_codegraph_tool_a_brief_names_really_exists(self):
         # The generated reviewer once told the agent to run a tool the ToolSearch
         # select line - built from the same tool list - did not carry. On Claude,
         # where ToolSearch is what makes an MCP tool callable, the role named a
-        # call it could not make, while the hand-written plugin agent
-        # (agents/tezgah-reviewer.md) listed it, so the shipped role worked and
-        # the generated one did not. codegraph's MCP surface is one default tool,
-        # so the select line names exactly that and every other call is a CLI
-        # verb that exists.
+        # call it could not make. Claude's reviewer has no shell, so it names
+        # MCP tools only, each one in its select line under both namespaces and
+        # enabled by tezgah's server row; Codex's names CLI verbs that exist.
         self.sync()
         rev = self.read(CLAUDE, "tezgah-reviewer.md")
-        self.assertIn("codegraph_explore", rev)
-        select = rev[rev.index("ToolSearch("):]
-        select = select[:select.index(")")]
-        self.assertIn("mcp__codegraph__codegraph_explore", select)
-        named = set(re.findall(r"`codegraph ([a-z]+)", rev))
-        self.assertTrue(named, "the brief names no codegraph CLI verb")
-        self.assertEqual(set(), named - set(CODEGRAPH_CLI_VERBS),
+        select = rev[rev.index('ToolSearch("select:') + len('ToolSearch("select:'):]
+        select = set(select[:select.index('"')].split(","))
+        named = set(re.findall(r"`(codegraph_[a-z]+)`", rev)) | {"codegraph_explore"}
+        enabled = {"codegraph_" + t for t in setup_mcp_tools()}
+        for tool in named:
+            for prefix in ("mcp__codegraph__", "mcp__plugin_tezgah_codegraph__"):
+                self.assertIn(prefix + tool, select)
+            self.assertIn(tool, enabled, "named a tool the server row does not enable")
+        self.assertEqual(set(), set(re.findall(r"`codegraph ([a-z]+)", rev)),
+                         "a no-shell role was told to run the CLI")
+        codex = self.read(CODEX, "tezgah-reviewer.toml")
+        verbs = set(re.findall(r"`codegraph ([a-z]+)", codex))
+        self.assertTrue(verbs, "the codex brief names no codegraph CLI verb")
+        self.assertEqual(set(), verbs - set(CODEGRAPH_CLI_VERBS),
                          "named a verb codegraph does not answer")
+
+    def test_a_no_shell_reviewer_gets_the_recipe_it_can_run(self):
+        # Claude's `disallowedTools: ... Bash` and opencode's `bash: deny` leave
+        # no shell, so `git diff` and the CLI are out of reach: the caller passes
+        # the changed files and the role runs the MCP impact tool per symbol. A
+        # role with a shell (Codex, omp) runs the diff and `codegraph impact`.
+        self.sync()
+        for d, name in ((CLAUDE, "tezgah-reviewer.md"), (OPENCODE, "tezgah-reviewer.md")):
+            body = " ".join(self.read(d, name).split())
+            self.assertIn("the caller passes the changed files", body, d)
+            self.assertIn("`codegraph_impact` tool per changed symbol", body, d)
+            self.assertNotIn("codegraph affected", body, d)
+        codex = " ".join(self.read(CODEX, "tezgah-reviewer.toml").split())
+        self.assertIn("`git diff <target>`", codex)
+        self.assertIn("`codegraph impact <symbol>` per changed symbol", codex)
+        self.assertIn("codegraph affected --stdin", codex)
+
+    def test_the_plugin_reviewer_is_the_generated_render(self):
+        # agents/tezgah-reviewer.md was hand-kept and drifted from the role body
+        # the generator writes; it is now rendered from that body
+        # (`tezgah-setup --write-plugin-agents`), and the retired explorer's
+        # plugin copy is gone with its role.
+        out = tezgah_agents.plugin_agents()
+        self.assertEqual(sorted(out), ["tezgah-reviewer.md"])
+        with open(os.path.join(support.REPO, "agents", "tezgah-reviewer.md"),
+                  encoding="utf-8") as fh:
+            self.assertEqual(out["tezgah-reviewer.md"], fh.read(),
+                             "run `python3 bin/tezgah-setup --write-plugin-agents`")
+        self.assertEqual(sorted(os.listdir(os.path.join(support.REPO, "agents"))),
+                         ["tezgah-reviewer.md"])
+
+    def test_no_body_names_a_retired_role(self):
+        self.sync()
+        out, proc = run_json([support.PROBE_AGENTS],
+                             {"fn": "omp", "root": self.repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        texts = [self.read(d, n) for d in (CLAUDE, OPENCODE) for n in self.names(d)]
+        texts += [self.read(CODEX, n) for n in self.names(CODEX)] + list(out.values())
+        for text in texts:
+            for retired in ("tezgah-explorer", "tezgah-verifier", "tezgah-researcher"):
+                self.assertNotIn(retired, text)
 
     def test_opencode_markdown_uses_native_frontmatter(self):
         self.sync()
-        ex = self.read(OPENCODE, "tezgah-explorer.md")
+        ex = self.read(OPENCODE, "tezgah-reviewer.md")
         self.assertIn("mode: subagent", ex)
         self.assertIn("edit: deny", ex)
         # opencode validates `tools` as an object; a Claude `Agent(...)` string
@@ -178,8 +230,8 @@ class Generation(AgentsBase):
 
     def test_codex_toml_has_required_fields_and_readonly_sandbox(self):
         self.sync()
-        ex = self.read(CODEX, "tezgah-explorer.toml")
-        self.assertIn('name = "tezgah-explorer"', ex)
+        ex = self.read(CODEX, "tezgah-reviewer.toml")
+        self.assertIn('name = "tezgah-reviewer"', ex)
         self.assertIn("description = '''", ex)
         self.assertIn("developer_instructions = '''", ex)
         self.assertIn('sandbox_mode = "read-only"', ex)
@@ -187,39 +239,11 @@ class Generation(AgentsBase):
 
     def test_idempotent_second_run_writes_nothing_and_says_nothing(self):
         self.sync()
-        before = self.read(CLAUDE, "tezgah-explorer.md")
+        before = self.read(CLAUDE, "tezgah-reviewer.md")
         # no "N agent(s) current" line: a steady-state session must not be told
         # about tezgah's own files in this repo
         self.assertIsNone(self.sync())
-        self.assertEqual(self.read(CLAUDE, "tezgah-explorer.md"), before)
-
-    def test_agent_bodies_use_absolute_cli_paths(self):
-        # same bug an earlier fix closed in the contract: a subagent shell is
-        # non-interactive, so a bare bin/consult or orx is "not found".
-        self.sync()
-        verifier = self.read(CLAUDE, "tezgah-verifier.md")
-        self.assertNotIn("`bin/consult", verifier)
-        self.assertIn(os.path.join(support.REPO, "bin", "consult"), verifier)
-        researcher = self.read(CLAUDE, "tezgah-researcher.md")
-        self.assertNotIn("`orx`", researcher)
-        self.assertIn(sys.executable, researcher)  # TEZGAH_ORX_BIN here
-
-    def test_the_researcher_body_promises_the_manual_the_fallback_and_its_tools(self):
-        # The body is the whole contract this role gets. Without the manual and
-        # experiment-tree sentence it improvises a protocol the audit can never
-        # check; without the fallback it goes silent on a machine where orx is
-        # absent instead of saying so; and the tool boundary is what keeps a
-        # research role from editing the tree whose evidence it reports.
-        self.sync()
-        body = " ".join(self.read(CLAUDE, "tezgah-researcher.md").split())
-        self.assertIn("load its manual first (`%s skill`)" % sys.executable, body)
-        self.assertIn("experiment-tree rules instead of improvising the protocol",
-                      body)
-        self.assertIn("If `%s` is missing, say the research tooling is unavailable "
-                      "and fall back to a bounded host subagent." % sys.executable,
-                      body)
-        self.assertIn("You may use: the `%s` CLI, read, grep and glob. Nothing else."
-                      % sys.executable, body)
+        self.assertEqual(self.read(CLAUDE, "tezgah-reviewer.md"), before)
 
     def test_omps_graph_roles_have_a_tool_that_runs_the_cli_they_name(self):
         # omp's MCP device refuses a subagent's call while the parent holds the
@@ -228,26 +252,12 @@ class Generation(AgentsBase):
         out, proc = run_json([support.PROBE_AGENTS],
                              {"fn": "omp", "root": self.repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        for name in ("tezgah-explorer.md", "tezgah-reviewer.md"):
+        for name in ("tezgah-reviewer.md",):
             text = out[name]
             head, _, body = text.partition("\n---\n")
             self.assertIn("  - bash", head, name)
             self.assertIn("`codegraph callers`", body, name)
             self.assertNotIn("xd://mcp__codegraph_explore", body)
-
-    def test_the_researcher_keeps_a_writable_sandbox_for_the_cli_it_drives(self):
-        # The read-only flag is a behaviour, and for this role it must stay
-        # false: the body tells it to run the orx CLI and to fall back to a host
-        # subagent, so `readonly`/`disallowedTools: ... Bash` (Claude, Cursor),
-        # opencode's denied bash or codex's read-only sandbox would leave it
-        # unable to do the one thing it is for.
-        self.sync()
-        researcher = self.read(CLAUDE, "tezgah-researcher.md")
-        self.assertNotIn("readonly: true", researcher)
-        self.assertNotIn("disallowedTools", researcher)
-        self.assertNotIn("edit: deny", self.read(OPENCODE, "tezgah-researcher.md"))
-        self.assertNotIn('sandbox_mode = "read-only"',
-                         self.read(CODEX, "tezgah-researcher.toml"))
 
     FLOOR = "An empty or short caller list is not proof that a change is safe"
 
@@ -260,7 +270,7 @@ class Generation(AgentsBase):
         out, proc = run_json([support.PROBE_AGENTS],
                              {"fn": "omp", "root": self.repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        for role in ("explorer", "reviewer"):
+        for role in ("reviewer",):
             plugin = os.path.join(support.REPO, "agents", "tezgah-%s.md" % role)
             with open(plugin, encoding="utf-8") as fh:
                 texts = {"plugin": fh.read()}
@@ -312,8 +322,8 @@ class OpencodeConfig(AgentsBase):
     def test_json_exposes_subagents_and_an_orchestrator(self):
         data = self.opencode_json()
         agent = data["agent"]
-        self.assertEqual(agent["tezgah-explorer"]["mode"], "subagent")
-        self.assertEqual(agent["tezgah-explorer"]["permission"]["edit"], "deny")
+        self.assertEqual(agent["tezgah-reviewer"]["mode"], "subagent")
+        self.assertEqual(agent["tezgah-reviewer"]["permission"]["edit"], "deny")
         self.assertIn("prompt", agent["tezgah-reviewer"])
         orch = agent["tezgah-orchestrator"]
         self.assertEqual(orch["mode"], "primary")
@@ -367,7 +377,7 @@ class Exclude(AgentsBase):
 
     def test_generated_files_are_not_untracked_noise(self):
         self.sync()
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
         status = self.status()
         for noise in (".claude", ".codex", ".opencode", ".gitignore"):
             self.assertNotIn(noise, status, status)
@@ -451,12 +461,12 @@ class Exclude(AgentsBase):
             fh.write("node_modules/\n")
         self.sync()
         self.assertEqual(self.gi(), "node_modules/\n")
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
 
     def test_the_exclude_write_can_be_opted_out(self):
         self.sync(extra={"TEZGAH_NO_EXCLUDE": "1"})
         self.assertNotIn("# tezgah: generated agents", self.ex())
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
 
     def test_an_unwritable_exclude_does_not_fail_the_session(self):
         # the module promises every write fails open: the exclude write runs
@@ -466,7 +476,7 @@ class Exclude(AgentsBase):
         self.addCleanup(os.chmod, os.path.join(self.repo, ".git", "info"), 0o755)
         note = self.sync()
         self.assertIn("written", note)
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
 
 
 class OpencodePlugin(AgentsBase):
@@ -498,8 +508,8 @@ class OpencodePlugin(AgentsBase):
                               env=self.env(), timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         agent = json.loads(proc.stdout.strip().splitlines()[-1])
-        self.assertEqual(agent["tezgah-explorer"]["mode"], "subagent")
-        self.assertEqual(agent["tezgah-explorer"]["permission"]["edit"], "deny")
+        self.assertEqual(agent["tezgah-reviewer"]["mode"], "subagent")
+        self.assertEqual(agent["tezgah-reviewer"]["permission"]["edit"], "deny")
         self.assertEqual(agent["tezgah-orchestrator"]["mode"], "primary")
         self.assertEqual(agent["tezgah-orchestrator"]["permission"]["task"]["*"], "deny")
 
@@ -555,16 +565,49 @@ class Gating(AgentsBase):
 
     def test_missing_capability_removes_its_agent(self):
         self.sync()
-        self.assertTrue(self.exists(CLAUDE, "tezgah-researcher.md"))
-        note = self.sync(extra={"TEZGAH_ORX_BIN": self.pathless()})
-        self.assertNotIn("researcher", " ".join(self.names(CLAUDE)))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        note = self.sync(extra={"TEZGAH_CODEGRAPH_BIN": self.pathless()})
+        self.assertNotIn("reviewer", " ".join(self.names(CLAUDE)))
         self.assertIn("removed", note)
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-cheap.md"))
 
     def test_agents_off_kill_switch(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "agents-off"))
         self.assertIsNone(self.sync())
         self.assertEqual(self.names(CLAUDE), [])
+
+    def test_agents_off_sweeps_what_an_earlier_session_wrote(self):
+        # the switch used to return before the sweep, so the files it was meant
+        # to turn off stayed for every host to keep loading
+        self.sync()
+        self.assertTrue(self.names(CLAUDE))
+        self.touch(os.path.join(self.home, ".config", "tezgah", "agents-off"))
+        self.assertIn("removed", self.sync())
+        for d in (CLAUDE, OPENCODE, CODEX):
+            self.assertEqual(self.names(d), [], d)
+
+    def test_a_retired_roles_managed_file_is_swept(self):
+        # tezgah-explorer, -verifier and -researcher left ROLES; their managed
+        # copies from an earlier session must stop being loaded
+        self.sync()
+        stale = '---\n# tezgah: managed by tezgah-agents; do not edit\nname: x\n---\nx\n'
+        for d, ext in ((CLAUDE, ".md"), (OPENCODE, ".md"), (CODEX, ".toml")):
+            for role in ("explorer", "verifier", "researcher"):
+                with open(os.path.join(self.repo, d, "tezgah-%s%s" % (role, ext)), "w") as fh:
+                    fh.write(stale)
+        self.assertIn("removed", self.sync())
+        for d in (CLAUDE, OPENCODE, CODEX):
+            for role in ("explorer", "verifier", "researcher"):
+                self.assertNotIn("tezgah-" + role, " ".join(self.names(d)), d)
+
+    def test_steering_names_no_retired_role_and_honours_no_graph(self):
+        self.sync()
+        line = tezgah_agents.steering(self.repo)
+        self.assertIn("-> tezgah-reviewer", line)
+        self.touch(os.path.join(self.repo, ".no-graph"))
+        line = tezgah_agents.steering(self.repo)
+        self.assertNotIn("tezgah-reviewer", line)
+        self.assertIn("-> tezgah-cheap", line)
 
 
 class Cleanup(AgentsBase):
@@ -594,7 +637,7 @@ class Detection(AgentsBase):
 
     def test_detects_caps_stack_and_file_hosts(self):
         out = self.detect()
-        self.assertEqual(out["caps"], {"graph": True, "orx": True, "consult": True})
+        self.assertEqual(out["caps"], {"graph": True})
         self.assertEqual(out["stack"], ["python"])
         self.assertEqual(sorted(out["hosts"]), ["claude", "codex", "cursor", "opencode"])
 
@@ -608,7 +651,7 @@ class Detection(AgentsBase):
         # a repo that got agents while another host was configured must not keep
         # them: Claude and Cursor load that dir, so a stale agent is a live one
         self.sync()
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
         self.config({"hosts": ["omp"]})
         self.sync()
         self.assertEqual(self.names(CLAUDE), [])
@@ -641,7 +684,7 @@ class ContextWiring(AgentsBase):
                               "cwd": self.repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Subagents (this repo, generated)", out)
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
 
     def test_only_session_start_generates(self):
         run_json([support.PROBE_CONTEXT],
@@ -655,7 +698,7 @@ class ContextWiring(AgentsBase):
                               capture_output=True, text=True, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("agent(s)", proc.stdout)
-        self.assertTrue(self.exists(CLAUDE, "tezgah-explorer.md"))
+        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
 
     def test_the_agents_flag_reports_a_steady_state(self):
         # the command answers a user, so it says "current" instead of the
@@ -665,7 +708,7 @@ class ContextWiring(AgentsBase):
         proc = subprocess.run([sys.executable, setup, "--agents", self.repo],
                               capture_output=True, text=True, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("7 agent(s) current", proc.stdout)
+        self.assertIn("4 agent(s) current", proc.stdout)
 
 
 if __name__ == "__main__":

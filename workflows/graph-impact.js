@@ -15,10 +15,12 @@ const direction = (args && args.direction) || 'inbound'
 const MAX_MODULES = 6
 
 const GRAPH = `On Claude the MCP server exposes one tool by default: load it with
-ToolSearch("select:mcp__codegraph__codegraph_explore") before the first query. The rest of the surface is
-the CLI: \`codegraph callers <symbol>\` walks inbound call paths, \`codegraph callees <symbol>\` outbound,
-\`codegraph impact <symbol>\` gives a symbol's blast radius, \`codegraph affected <ref>\` the same for a git
-ref, \`codegraph node <symbol>\` pulls a definition with its body, \`codegraph query <text>\` finds symbols,
+ToolSearch("select:mcp__codegraph__codegraph_explore,mcp__plugin_tezgah_codegraph__codegraph_explore")
+before the first query (a plugin install uses the plugin_tezgah_ name). The rest of the surface is the CLI:
+\`codegraph callers <symbol>\` walks inbound call paths, \`codegraph callees <symbol>\` outbound,
+\`codegraph impact <symbol>\` gives a symbol's blast radius - for a git ref, run it per changed symbol of
+\`git diff <ref>\` - \`git diff --name-only <ref> | codegraph affected --stdin\` names the test files the
+changed files reach, \`codegraph node <symbol>\` pulls a definition with its body, \`codegraph query <text>\` finds symbols,
 \`codegraph files\` dumps what the index holds. The index is the repo's own \`.codegraph/codegraph.db\`.
 codegraph ships no coverage report, so what the index does NOT know about is measured by diffing
 \`codegraph files\` against \`git ls-files\`.`
@@ -71,15 +73,16 @@ const trace = await agent(
   `Find every place affected by changing: ${target}
 ${GRAPH}
 Resolve what the target actually is with \`codegraph query\` / \`codegraph node\`, then walk callers with
-\`codegraph ${direction === 'outbound' ? 'callees' : 'callers'}\` (and \`codegraph affected\` when the target
-is a git ref) until the frontier stops growing. Group call sites by module. Then diff \`codegraph files\`
+\`codegraph ${direction === 'outbound' ? 'callees' : 'callers'}\` (and, when the target is a git ref,
+\`codegraph impact\` per changed symbol of \`git diff <ref>\`) until the frontier stops growing. Group call sites by module. Then diff \`codegraph files\`
 against \`git ls-files\` and state plainly what the graph cannot see - unindexed files, generated code,
 dynamic dispatch, string-keyed lookups, config and templates that reference the symbol by name, and the
 extensionless scripts under \`bin/\` that only their \`.py\` twin puts in the graph. Do not plan any edit yet.`,
   { label: 'trace', schema: TRACE, effort: 'high' },
 )
 
-if (!trace || !trace.call_sites) return { error: 'trace failed - is the repo indexed? run `codegraph init` first', target, call_sites: [], modules_skipped: [], graph_blind_spots: [] }
+if (!trace) return { error: 'the trace agent failed - nothing was traced; unknown, not clean', target, unknown: ['trace'] }
+if (!trace.call_sites) return { error: 'trace returned no call-site list - is the repo indexed? run `codegraph init` first', target, unknown: ['trace'] }
 if (!trace.call_sites.length) {
   return { target, resolved_target: trace.resolved_target, call_sites: [], modules_skipped: [], graph_blind_spots: [], note: 'no callers in the graph - possible dead code, but confirm against unindexed_risk: ' + (trace.unindexed_risk || 'n/a') }
 }
@@ -103,7 +106,7 @@ Read the actual lines before proposing an edit. For each call site say the concr
 breaks if it is skipped. Flag ordering constraints against other modules. Name the tests that cover it.
 Do not edit anything - plan only.`,
   { label: `plan:${m}`, phase: 'Plan', schema: PLAN, effort: 'high' },
-))))
+)))
 
 // the sweep prompt reads only the trace, so it starts now instead of waiting
 // out the slowest planner
@@ -129,8 +132,12 @@ Glob across the repo - including non-source files - for the symbol name and its 
   }, effort: 'high' },
 )
 
-const plans = (await plansPending).filter(Boolean)
+const planned = await plansPending
 const sweep = await sweepPending
+// a failed planner or sweep is unknown: its module is unplanned, its blind spots unsearched
+const unknown = picked.filter((m, i) => !planned[i]).map(m => `plan:${m}`).concat(sweep ? [] : ['sweep'])
+const plans = planned.filter(Boolean)
+if (unknown.length) log(`failed, reported as unknown: ${unknown.join(', ')}`)
 
 return {
   target,
@@ -139,7 +146,8 @@ return {
   modules_planned: picked,
   modules_skipped: modules.slice(MAX_MODULES),
   plans,
-  graph_blind_spots: (sweep && sweep.missed) || [],
-  sweep_coverage: sweep && sweep.searched,
+  graph_blind_spots: sweep ? (sweep.missed || []) : 'unknown - the sweep agent failed',
+  sweep_coverage: sweep ? sweep.searched : 'none - the sweep agent failed',
   unindexed_risk: trace.unindexed_risk,
+  unknown,
 }

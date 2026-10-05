@@ -249,18 +249,27 @@ class OmpHook(TempHome):
         repo = self.make_repo()
         start = {"event": "session_start", "cwd": repo, "session_id": "s"}
         out, _ = self.event(start)
-        self.assertNotIn("tezgah-explorer", out["context"])
+        self.assertNotIn("tezgah-reviewer", out["context"])
         agents = os.path.join(self.home, ".omp", "agent", "agents")
         os.makedirs(agents)
-        for name in ("tezgah-explorer", "tezgah-orchestrator"):
+        # a retired role's file left behind by an older install is never named
+        for name in ("tezgah-reviewer", "tezgah-orchestrator", "tezgah-explorer",
+                     "tezgah-verifier", "tezgah-researcher"):
             open(os.path.join(agents, name + ".md"), "w").close()
         out, _ = self.event(start)
-        self.assertIn("-> tezgah-explorer", out["context"])
-        # only the files that exist: no reviewer was installed
-        self.assertNotIn("tezgah-reviewer", out["context"])
+        self.assertIn("-> tezgah-reviewer", out["context"])
+        for retired in ("tezgah-explorer", "tezgah-verifier", "tezgah-researcher"):
+            self.assertNotIn(retired, out["context"])
+        # only the files that exist: no tier worker was installed
+        self.assertNotIn("tezgah-cheap", out["context"])
+        # a repo's .no-graph turns the graph off there, so its role is not named
+        self.touch(os.path.join(repo, ".no-graph"))
+        out, _ = self.event(start)
+        self.assertNotIn("-> tezgah-reviewer", out["context"])
+        os.remove(os.path.join(repo, ".no-graph"))
         self.touch(os.path.join(self.home, ".config", "tezgah", "orchestrate-off"))
         out, _ = self.event(start)
-        self.assertNotIn("-> tezgah-explorer", out["context"])
+        self.assertNotIn("-> tezgah-reviewer", out["context"])
 
     def test_status_answers_off_root(self):
         # the status line is the one global signal: tezgah loads as a globally

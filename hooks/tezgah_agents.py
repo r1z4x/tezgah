@@ -8,8 +8,8 @@ of specialized agents, rendered into every host surface that actually exists:
   opencode              `.opencode/agents/*.md` (fallback) + config injection
   Codex                 `.codex/agents/*.toml`
 
-A role is only emitted when the capability it needs is present (the code graph,
-orx, or the consult key); the three tier workers are emitted in every root,
+A role is only emitted when the capability it needs is present (the reviewer
+needs the code graph); the three tier workers are emitted in every root,
 because `tezgah-route` names one of them for every delegated task. The whole set is regenerated when either this manifest
 or the repo's infrastructure changes, so the definitions stay updatable instead
 of drifting. Hosts with no such surface (dsh) get nothing here; the orchestrator
@@ -28,9 +28,8 @@ import re
 import subprocess
 
 import tezgah_models as tm
-from tezgah_paths import (CONFIG_DIR, HOME, ai_research_dir, codegraph_bin,
-                          consult_options, host_installed, off, orx_bin,
-                          root_for, tool)
+from tezgah_paths import (CONFIG_DIR, HOME, codegraph_bin, host_installed, off,
+                          root_for)
 
 MARKER = "# tezgah: managed by tezgah-agents; do not edit"
 STATE = os.path.join(CONFIG_DIR, "agents.state.json")
@@ -48,13 +47,24 @@ HOST_DIRS = {"claude": os.path.join(".claude", "agents"),
 STACK_FILES = (("pyproject.toml", "python"), ("setup.py", "python"),
                ("requirements.txt", "python"), ("package.json", "node"),
                ("go.mod", "go"), ("Cargo.toml", "rust"), ("Makefile", "make"))
-# The codegraph surface a brief may name: one MCP tool, which is the server's
-# default - every other verb needs CODEGRAPH_MCP_TOOLS - plus the CLI verbs the
-# rest of the surface is reached through. A brief that named a tool outside this
-# set would be naming a call the role cannot make.
+# The codegraph surface a brief may name: the MCP tools tezgah's server row
+# enables (CODEGRAPH_MCP_TOOLS in bin/tezgah-setup; `affected` is not among
+# them) and the CLI verbs a role with a shell reaches. A brief that named a tool
+# outside this set would be naming a call the role cannot make.
 GRAPH_TOOL = "codegraph_explore"
-GRAPH_CLI = ("callers", "callees", "impact", "affected", "node", "files")
+GRAPH_MCP = ("codegraph_explore", "codegraph_impact", "codegraph_callers",
+             "codegraph_node")
+# Claude names a server's tools by where it was registered: the plugin's server
+# as `mcp__plugin_tezgah_codegraph__*`, a checkout's own `.mcp.json` server as
+# `mcp__codegraph__*`. A select line names both, so it loads whichever exists.
+MCP_PREFIXES = ("mcp__codegraph__", "mcp__plugin_tezgah_codegraph__")
+GRAPH_SELECT = ",".join(p + t for t in GRAPH_MCP for p in MCP_PREFIXES)
+GRAPH_CLI = ("callers", "callees", "impact", "node", "files")
 GRAPH_TOOLS = ", ".join("`codegraph %s`" % verb for verb in GRAPH_CLI)
+# A role with no shell (Claude `disallowedTools` Bash, opencode `bash: deny`)
+# cannot run `git diff` or the CLI, so its blast radius comes from the caller's
+# brief and the MCP impact tool; a role with a shell runs the diff itself.
+NO_SHELL = ("claude", "opencode")
 # The floor every graph role carries (gortex edge provenance): the index holds
 # only the edges its parser saw, so an absence of callers is a coverage gap
 # until shown otherwise, never a safety verdict.
@@ -66,13 +76,10 @@ EMPTY_IS_NOT_PROOF = (
 # The task class each generated specialist is for, in the order the steering
 # line names them. The orchestrator is not here: it is a primary agent, not one
 # the main thread delegates to.
-STEER = (("structure (who calls X, what breaks)", "tezgah-explorer"),
-         ("mechanical edit (tier from `tezgah-route`)", "tezgah-cheap"),
+STEER = (("mechanical edit (tier from `tezgah-route`)", "tezgah-cheap"),
          ("bounded code or tests", "tezgah-standard"),
          ("design, invariants, unknown-cause debugging", "tezgah-frontier"),
-         ("review of a diff", "tezgah-reviewer"),
-         ("second opinion", "tezgah-verifier"),
-         ("research", "tezgah-researcher"))
+         ("review of a diff", "tezgah-reviewer"))
 
 
 def manifest_sha():
@@ -89,11 +96,11 @@ def _stack(root):
 
 def _graph_howto(host):
     if host == "claude":
-        # Claude defers the MCP schema, so the one default tool has to be
-        # selected before the first call; the CLI needs no such step.
-        return ('Load the graph tool first: ToolSearch('
-                '"select:mcp__codegraph__%s"). For the rest use the CLI as a '
-                "shell command: %s." % (GRAPH_TOOL, GRAPH_TOOLS))
+        # Claude defers MCP schemas, so the tools have to be selected before the
+        # first call; the role has no shell, so the MCP tools are its whole graph.
+        return ('Load the graph tools first: ToolSearch("select:%s"). You have no\n'
+                "shell, so the codegraph CLI is out of reach: use those MCP tools."
+                % GRAPH_SELECT)
     if host == "omp":
         # omp's MCP device refuses a second session's call while another one
         # holds the index ("Concurrent write refused"), and a subagent always
@@ -102,18 +109,38 @@ def _graph_howto(host):
                 "`codegraph status`). Do not call the `xd://mcp__codegraph_*`\n"
                 "devices: omp refuses them with \"Concurrent write refused\"\n"
                 "while the parent session holds the index." % GRAPH_TOOLS)
+    if host == "opencode":
+        return ("codegraph is registered as an MCP server (%s). You have no\n"
+                "shell, so the codegraph CLI is out of reach: use those MCP tools."
+                % ", ".join("`%s`" % t for t in GRAPH_MCP))
     return ("codegraph is registered as an MCP server (default tool\n"
             "`%s`) and the rest of the surface is the CLI (%s); use both as-is."
             % (GRAPH_TOOL, GRAPH_TOOLS))
 
 
+def _blast_radius(host):
+    """How the reviewer derives the blast radius on this host."""
+    if host in NO_SHELL:
+        return ("You have no shell, so you cannot run `git diff`: the caller passes\n"
+                "the changed files and symbols of the target (a base branch, a ref or\n"
+                "the PR under review). Run the MCP `codegraph_impact` tool per changed\n"
+                "symbol - that is the blast radius. If the brief names no changed files,\n"
+                "say so and ask for them instead of guessing.")
+    return ("Take the changed files and symbols from `git diff <target>` (a base\n"
+            "branch, a ref or the PR under review), then run `codegraph impact\n"
+            "<symbol>` per changed symbol - that is the blast radius.\n"
+            "`git diff --name-only <target> | codegraph affected --stdin` names the\n"
+            "test files the change reaches.")
+
+
 def _may_use(host):
-    """The read-only roles' tool sentence: on omp the graph is the CLI, so the
-    role has bash and the sentence bounds it to that CLI."""
-    if host == "omp":
-        return ("You may use: read, grep, glob, and bash for the `codegraph` CLI\n"
-                "only. Read-only: no writes, no edits, no other shell command.")
-    return ("You may use: the codegraph tools, read, grep and glob. Read-only:\n"
+    """The read-only roles' tool sentence: on omp and Codex the role has a shell,
+    and the sentence bounds it to the codegraph CLI and read-only git."""
+    if host in ("omp", "codex"):
+        return ("You may use: read, grep, glob, and a shell for the `codegraph` CLI\n"
+                "and read-only `git` (diff, log, show) only. Read-only: no writes, no\n"
+                "edits, no other shell command.")
+    return ("You may use: the codegraph MCP tools, read, grep and glob. Read-only:\n"
             "no writes, no edits, no shell.")
 
 
@@ -122,8 +149,6 @@ def detect_infra(root):
     caps = {
         "graph": bool(codegraph_bin()) and not os.path.exists(
             os.path.join(root, ".no-graph")),
-        "orx": bool(orx_bin()),
-        "consult": bool(consult_options()),
     }
     try:
         cfg = json.load(open(os.path.join(CONFIG_DIR, "config.json"), encoding="utf-8"))
@@ -142,30 +167,6 @@ def detect_infra(root):
 
 # ------------------------------------------------------------------ roles ----
 
-def _explorer_body(host):
-    return (
-        "You are tezgah-explorer, a read-only code-discovery agent. Answer\n"
-        "structural questions from evidence, never from memory or guesswork.\n\n"
-        "%s\n\n"
-        "Match tool to question: callers -> `codegraph callers <symbol>`;\n"
-        "callees -> `codegraph callees <symbol>`; a blast radius ->\n"
-        "`codegraph impact <symbol>` for one symbol, `codegraph affected <ref>`\n"
-        "for a diff or a ref; definitions -> `codegraph node` (body) or\n"
-        "`codegraph query` (search); what the index holds -> `codegraph files`;\n"
-        "orientation -> `codegraph status`.\n\n"
-        "Rules: the graph beats grep for structure; use Read/Grep/Glob only for\n"
-        "literal text the graph does not model and say it was a text search. Every\n"
-        "claim carries file:line; never invent a symbol, caller or result. Disclose\n"
-        "the gaps: what `codegraph files` does not hold against `git ls-files`\n"
-        "(extensionless scripts, dot-directories, generated code) and what a call\n"
-        "graph is blind to (string dispatch, templates, dynamic calls). %s If the\n"
-        "repo has no index, say so and stop.\n\n"
-        "%s\n\n"
-        "Return the direct answer first in one or two sentences, then file:line\n"
-        "evidence, then a one-line Coverage note."
-        % (_graph_howto(host), EMPTY_IS_NOT_PROOF, _may_use(host)))
-
-
 def _reviewer_body(host):
     return (
         "You are tezgah-reviewer, an adversarial code reviewer. Review a change,\n"
@@ -176,9 +177,7 @@ def _reviewer_body(host):
         "live in the exact text, and a framing you were handed is a finding you will\n"
         "not make: a reviewer given the implementer's view finds measurably fewer\n"
         "defects. If you were handed a paraphrase, read the files instead.\n\n"
-        "Run `codegraph affected` for the target (a base branch, a ref or the PR\n"
-        "under review), or `codegraph impact <symbol>` for one symbol. That is the\n"
-        "blast radius; read the changed code and any caller you intend to accuse.\n"
+        "%s Read the changed code and any caller you intend to accuse.\n"
         "%s\n"
         "Look only for defects the change causes: correctness, contract/callers,\n"
         "security, tests, concurrency and performance. Classify every candidate as\n"
@@ -211,55 +210,8 @@ def _reviewer_body(host):
         "`-k` test when a specific accusation needs it. The same defect family\n"
         "confirmed three times is a sign the design needs a pivot, not another\n"
         "patch.\n\n"
-        "%s" % (_graph_howto(host), EMPTY_IS_NOT_PROOF, _may_use(host)))
-
-
-def _researcher_body(_host):
-    orx = orx_bin() or "orx"
-    return (
-        "You are tezgah-researcher, a research agent. Drive research through the\n"
-        "OpenResearch CLI (`%s`): load its manual first (`%s skill`) and follow its\n"
-        "experiment-tree rules instead of improvising the protocol. Use it for a\n"
-        "literature/reference review, forming and testing hypotheses, or producing a\n"
-        "research artifact. Do not use it for plain code discovery (that is the\n"
-        "graph-first explorer). If `%s` is missing, say the research tooling is\n"
-        "unavailable and fall back to a bounded host subagent. Report commands run\n"
-        "and observed output; never claim a result you did not see.\n\n"
-        "The domain library ships with tezgah at `%s`: read `index/<stage>.md`\n"
-        "there, then the one entry the work needs, when the experiment needs ML\n"
-        "machinery. Its flags mark thin or superseded bodies.\n\n"
-        "You may use: the `%s` CLI, read, grep and glob. Nothing else."
-        % (orx, orx, orx, ai_research_dir(), orx))
-
-
-def _verifier_body(_host):
-    consult = tool("consult")
-    return (
-        "You are tezgah-verifier. On a call that is hard to reverse, or that one\n"
-        "model would answer with unearned confidence, get an independent second\n"
-        "opinion before the decision is committed. Run\n"
-        "`%s \"<self-contained English question incl. options, constraints\n"
-        "and what would falsify each>\"` and report which models agreed or disagreed.\n"
-        "Send the RAW artifact and the acceptance criteria, never your own summary,\n"
-        "conclusion or self-assessment: a reviewer handed the author's framing finds\n"
-        "measurably fewer defects, and a verdict you supply is a verdict you did not\n"
-        "get. For a packet longer than a few lines, pipe it in (`%s - < packet.md`)\n"
-        "rather than pasting it into argv.\n\n"
-        "The tool answers with independent models and then one referee. Read back the\n"
-        "referee's named fields - recommendation, key disagreements, unchecked\n"
-        "assumptions, what would change its mind, requested evidence - not a\n"
-        "paraphrase, and never drop the minority view it preserved. Treat the answers\n"
-        "as advisory and verify each claim against the code; never adopt an\n"
-        "unverified claim. Relay the failure class and the retry line the tool\n"
-        "prints. On exit 4 (no recorded choice) or 5 (every recorded member\n"
-        "failed) return the `offer:`/`reoffer:` lines as they are, so the main\n"
-        "thread asks the user and records the answer with `--use`; never record a\n"
-        "choice yourself. If a member errors or all members fail, say\n"
-        "exactly which part of the second opinion is missing - never report one that\n"
-        "did not happen - and if the referee died, say the panel answers stand\n"
-        "unjudged. Skip trivial local edits.\n\n"
-        "You may use: the `%s` CLI, read, grep and glob. Nothing else."
-        % (consult, consult, consult))
+        "%s" % (_graph_howto(host), _blast_radius(host), EMPTY_IS_NOT_PROOF,
+                _may_use(host)))
 
 
 def _worker_body(tier):
@@ -285,24 +237,11 @@ def _worker_body(tier):
 
 # name, description, capability gate, body(host), read-only?
 ROLES = (
-    ("tezgah-explorer",
-     "Read-only code discovery from the codegraph index: definitions, callers, "
-     "blast radius, architecture. Use for structural \"where/who calls\" "
-     "questions in an indexed repo.",
-     lambda infra: infra["caps"]["graph"], _explorer_body, True),
     ("tezgah-reviewer",
      "Adversarial, read-only review of a diff, branch or PR: derives the blast "
      "radius, checks correctness, contract, security, tests and performance, and "
      "classifies every finding confirmed/refuted/unverified.",
      lambda infra: infra["caps"]["graph"], _reviewer_body, True),
-    ("tezgah-researcher",
-     "Research and hypothesis work driven through the OpenResearch CLI; "
-     "literature review, experiments, research artifacts.",
-     lambda infra: infra["caps"]["orx"], _researcher_body, False),
-    ("tezgah-verifier",
-     "Independent second opinion via the tezgah `consult` CLI before a "
-     "hard-to-reverse decision; reports which models agreed or disagreed.",
-     lambda infra: infra["caps"]["consult"], _verifier_body, False),
     ("tezgah-cheap",
      "Mechanical, fully specified edits on the cheapest model tier: renames, "
      "fixtures, formatting, version bumps, commit messages, a listed migration. "
@@ -320,6 +259,9 @@ ROLES = (
      lambda infra: True, _worker_body("frontier"), False),
 )
 
+# The roles gated on the code graph, which a repo's `.no-graph` turns off.
+GRAPH_ROLES = ("tezgah-reviewer",)
+
 ORCH_DESC = ("Route work in this repo to the generated tezgah-* subagents. The "
              "main thread decides and verifies; delegate bounded, well-specified "
              "work and never let a subagent orchestrate another.")
@@ -331,9 +273,11 @@ def _orch_body(names):
         "You are the tezgah orchestrator for this repository. You decide and\n"
         "verify; you delegate bounded, well-specified work and read the evidence\n"
         "back. Available specialists: %s.\n\n"
-        "Route code discovery and blast radius to tezgah-explorer, reviews to\n"
-        "tezgah-reviewer, research to tezgah-researcher, and a pre-commit second\n"
-        "opinion to tezgah-verifier. Other work goes to the tier worker\n"
+        "Route reviews to tezgah-reviewer, with the changed files and symbols in\n"
+        "the brief: where it has no shell it cannot run `git diff` itself. Brief a\n"
+        "code-discovery task to a tier worker with the codegraph tools; a second\n"
+        "opinion (`consult`) and research (`orx`) stay with the main thread. Other\n"
+        "work goes to the tier worker\n"
         "`tezgah-route \"<brief>\"` names (tezgah-cheap, tezgah-standard,\n"
         "tezgah-frontier); an ESCALATE answer is restarted on tezgah-frontier with\n"
         "the same brief. Never delegate a task a specialist is not\n"
@@ -396,6 +340,22 @@ def render_md(name, description, readonly, body):
     return "\n".join(lines) + "\n\n" + body.strip() + "\n"
 
 
+def plugin_agents():
+    """{filename: text} for the plugin's own tracked `agents/` dir.
+
+    The graph roles' Claude render, from the same body the per-repo files get,
+    so the shipped copy cannot drift from the generated one. The MARKER line is
+    dropped: the copy is tracked, never swept by `_remove_stale`, and its
+    manifest sha would turn every edit of this module into a stale file.
+    `tezgah-setup --write-plugin-agents` writes it; a test pins it."""
+    out = {}
+    for name, desc, _cap, body, readonly in ROLES:
+        if name in GRAPH_ROLES:
+            lines = render_md(name, desc, readonly, body("claude")).split("\n")
+            out[name + ".md"] = "\n".join(lines[:1] + lines[2:])
+    return out
+
+
 def render_md_opencode(name, description, readonly, body):
     """opencode `.opencode/agents/*.md`. opencode validates `tools` as an object
     (the Claude `Agent(...)` string is rejected), so this uses opencode's own
@@ -456,13 +416,17 @@ def steering(root, host=None):
     reached for the host's generic explorer instead. Existence is read from
     disk, not from the capabilities: a specialist is named only when its file
     is there for the host to load - omp's user agent dir on omp, the repo's
-    generated dirs everywhere else."""
+    generated dirs everywhere else. A repo's `.no-graph` turns the graph off
+    there, so a graph role is not named in it even when omp's user-level file
+    exists."""
     if host == "omp":
         dirs = [os.path.join(HOME, ".omp", "agent", "agents")]
     else:
         dirs = [os.path.join(root, d) for d in set(HOST_DIRS.values())]
     have = {os.path.splitext(os.path.basename(p))[0]
             for d in dirs for p in glob.glob(os.path.join(d, "tezgah-*.*"))}
+    if os.path.exists(os.path.join(root, ".no-graph")):
+        have -= set(GRAPH_ROLES)
     pairs = ["%s -> %s" % (task, name) for task, name in STEER if name in have]
     if not pairs:
         return None
@@ -682,14 +646,17 @@ def sync_root(root, report_steady=False):
     `report_steady`, "N agent(s) current". A steady state returns None by
     default because the session hook injects this line: a session that changed
     nothing was being told about tezgah's own files in the repo. The explicit
-    CLI asks for the steady line, since it is answering a user's command."""
-    if off("agents-off"):
-        return None
+    CLI asks for the steady line, since it is answering a user's command.
+
+    Under `agents-off` nothing is generated and the sweep below still runs:
+    the switch removes what an earlier session wrote, so the host stops
+    loading it."""
     if not root_for(root):
         return None
+    disabled = off("agents-off")
     infra = detect_infra(root)
-    hosts = set(infra["hosts"])
-    active = [r for r in ROLES if r[2](infra)]
+    hosts = set() if disabled else set(infra["hosts"])
+    active = [] if disabled else [r for r in ROLES if r[2](infra)]
     names = [r[0] for r in active]
 
     # markdown: one dir serves Claude and Cursor (Cursor reads .claude/agents/)

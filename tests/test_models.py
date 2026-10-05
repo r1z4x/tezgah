@@ -72,15 +72,18 @@ class OmpOverrides(unittest.TestCase):
     def test_the_anthropic_mode_carries_effort_and_the_frontier_row(self):
         out = self.overrides("anthropic", funded=("anthropic",))
         self.assertEqual(out["tezgah-cheap"], "anthropic/claude-opus-5-5:low")
-        self.assertEqual(out["tezgah-explorer"], "anthropic/claude-opus-5-5:medium")
+        self.assertEqual(out["scout"], "anthropic/claude-opus-5-5:medium")
         # the frontier agents are written too: a session that started on a
         # weaker model must not drag security-sensitive work down with it
-        for agent in ("tezgah-frontier", "tezgah-reviewer", "tezgah-researcher"):
+        for agent in ("tezgah-frontier", "tezgah-reviewer"):
             self.assertEqual(out[agent], "anthropic/claude-opus-5-5:high")
+        # the retired roles are no longer generated, so no override names them
+        for agent in ("tezgah-explorer", "tezgah-researcher", "tezgah-verifier"):
+            self.assertNotIn(agent, out)
 
     def test_any_mode_writes_the_frontier_row_through_openrouter(self):
         out = self.overrides("any", funded=("any",))
-        for agent in ("tezgah-frontier", "tezgah-reviewer", "tezgah-researcher"):
+        for agent in ("tezgah-frontier", "tezgah-reviewer"):
             self.assertEqual(out[agent], "openrouter/anthropic/claude-opus-5.5:high")
 
     def test_the_frontier_row_is_concrete_on_every_family(self):
@@ -327,7 +330,7 @@ class OmpOverrides(unittest.TestCase):
         # funded provider is z.ai routes without a hand-edited override
         out = self.overrides("zai", funded=("zai",))
         self.assertEqual(out["tezgah-cheap"], "zai/glm-5.3-flash")
-        self.assertEqual(out["tezgah-explorer"], "zai/glm-5.3-flash")
+        self.assertEqual(out["scout"], "zai/glm-5.3-flash")
         self.assertEqual(out["tezgah-standard"], "zai/glm-5.3")
         self.assertEqual(out["tezgah-frontier"], "zai/glm-5.3")
         self.assertEqual(tm.omp_role_overrides("zai"),

@@ -20,10 +20,14 @@ It is not tezgah's own layer around a host, and not the runtime a host itself is
 
 Repo tree is indexed by codegraph, at the repo's own `.codegraph/codegraph.db`.
 Graph beats grep for structure. On Claude load the one default MCP tool with
-ToolSearch("select:mcp__codegraph__codegraph_explore") before searching by hand;
-on Codex, Cursor, opencode, dsh and omp that server is registered too. Everything
-else is the CLI and needs no loading: `codegraph callers`, `callees`, `impact`,
-`affected`, `node`, `files`, `status`, `query`, `explore`. A missing index is
+ToolSearch("select:mcp__codegraph__codegraph_explore,mcp__plugin_tezgah_codegraph__codegraph_explore")
+before searching by hand (a plugin install names it with the `plugin_tezgah_`
+prefix); on Codex, Cursor, opencode, dsh and omp that server is registered too.
+Everything else is the CLI and needs no loading: `codegraph callers`, `callees`,
+`impact`, `node`, `files`, `status`, `query`, `explore`. A diff's blast radius is
+`git diff` plus `codegraph impact <symbol>` per changed symbol;
+`git diff --name-only <ref> | codegraph affected --stdin` names the tests it
+reaches. A missing index is
 `codegraph init` (about 1 s for a repo this size) and a stale one is
 `codegraph sync`.
 
@@ -49,10 +53,12 @@ hand, and do not run two harnesses on the same question.
 Report the harness and agent count before launching, so the cost is visible up front.
 
 Every workflow returns caps explicitly - `modules_dropped`, `unverified`, `modules_skipped`,
-`graph_blind_spots`. Relay them. A capped run reads as complete coverage unless you say what was dropped.
+`graph_blind_spots`, `unknown`. Relay them. A capped run reads as complete coverage unless you say what was dropped.
+An agent that failed is `unknown`, never clean: a failed dimension, refuter, planner or sweep
+is reported as such, and an empty list beside it is not evidence of absence.
 
 `graph-review` splits findings into `confirmed` (no refuter refuted it), `refuted` (do not report as bugs),
-and `unverified` (hit the cap - label them as such). Never promote a refuted or unverified finding.
+and `unverified` (hit the cap, or every refuter failed - label them as such). Never promote a refuted or unverified finding.
 
 `graph-impact`'s `graph_blind_spots` are call sites the graph could not see - string dispatch, config,
 templates, generated code. They are usually where a migration actually breaks. Lead with them.
@@ -71,12 +77,12 @@ buys nothing when one context window already holds the whole problem.
 
 ## Repair
 
-Workflow name not found on Claude -> the script's `meta` block failed to parse, or the file is not under a loaded
-workflows directory. `~/.claude/workflows/` is user-global (installed by `bin/tezgah-setup --install`).
+Workflow name not found on Claude -> the script's `meta` block failed to parse, or the plugin is not
+loaded: Claude reads the workflows from the tezgah plugin's own `workflows/` directory.
 On Codex, Cursor, opencode, dsh and omp there is no `Workflow` runtime: run the phases by hand as above (dsh exposes a single subagent at a time, so run its readers sequentially).
 Survey/trace returns nothing -> repo not indexed yet; run `codegraph init` in the repo root (or
 `codegraph sync` to bring an existing index up to HEAD), then retry. One live MCP writer per project: a
 second writer waits for the lock, and `codegraph unlock` clears the stale one a dead writer left - a run
 that hangs at the index is that lock, not a slow query.
-Editing a harness: scripts live in the plugin's `workflows/` directory, symlinked from `~/.claude/workflows/*.js`; re-run with
+Editing a harness: scripts live in the plugin's `workflows/` directory; re-run with
 `Workflow({scriptPath:'...'})` while iterating, `Workflow({name:'...'})` once it is right.

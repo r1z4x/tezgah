@@ -2221,6 +2221,25 @@ class PostToolUseUsedKind(TempHome):
         # call green
         self.assertEqual(self.kinds("mcp__tezgah__search", {"query": "x"}), [])
 
+    def test_a_plugin_namespaced_codegraph_call_marks_the_graph(self):
+        self.assertEqual(self.kinds("mcp__plugin_tezgah_codegraph__codegraph_impact",
+                                    {"symbol": "x"}), ["graph"])
+
+    def test_a_claude_skill_call_records_the_skill_it_loaded(self):
+        # Claude loads a skill through its Skill tool, never a Read, so a load
+        # left no row and skill_fitness counted every Claude session as opening
+        # nothing. A plugin skill arrives as `tezgah:<name>`.
+        self.assertEqual(self.kinds("Skill", {"skill": "tezgah:harness"}, session="k1"),
+                         ["skill:harness"])
+        self.assertEqual(self.kinds("Skill", {"skill": "ponytail"}, session="k2"),
+                         ["pony"])
+        self.assertEqual(self.kinds("Skill", {"skill": "not-shipped"}, session="k3"), [])
+
+    def test_claudes_post_tool_use_matcher_carries_the_skill_tool(self):
+        with open(os.path.join(support.REPO, "hooks", "hooks.json")) as fh:
+            hooks = json.load(fh)["hooks"]["PostToolUse"]
+        self.assertTrue(any("Skill" in h["matcher"].split("|") for h in hooks))
+
 
 class StatusCli(TempHome):
     """bin/tezgah-status must light up the used marks from the session id."""

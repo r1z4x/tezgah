@@ -22,7 +22,7 @@ and it writes no ledger [row](glossary.md#row).
 Here tezgah only *configures* servers and classifies a call by its name: the
 app-analysis servers are rendered into each host's own config from one spec
 (`hooks/tezgah_apps.py:1-5`), Codex's rows are appended by `ensure_toml_mcp`
-(`bin/tezgah-setup:1046-1103`), and a tool name starting `mcp__` is classified
+(`bin/tezgah-setup:1064-1121`), and a tool name starting `mcp__` is classified
 `mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2347-2351`).
 
 ## Agent framework
@@ -65,8 +65,8 @@ host.
 
 ## tezgah's policy and evidence layer
 
-Owns the rule text (`CORE` `hooks/tezgah_policy.py:595-810`), the per-turn reminder
-(`PROMPT_REMINDER` `hooks/tezgah_policy.py:827-843`), the refusal before a call
+Owns the rule text (`CORE` `hooks/tezgah_policy.py:600-815`), the per-turn reminder
+(`PROMPT_REMINDER` `hooks/tezgah_policy.py:832-848`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1428-1647`), the record after one (`note()`
 `hooks/tezgah_integrity.py:792-804`), the end-of-turn verdict (`stop_reason()`
 `hooks/tezgah_integrity.py:3345-3410`), the pre-write snapshots (`capture()`
@@ -102,7 +102,7 @@ frameworks.
 
 Under that test tezgah is not one: it holds no loop. It subscribes to a host's
 events (`hooks/hooks.json:2-26`), is handed the injected text at the host's
-session-start and prompt points (`context_for` `hooks/tezgah_context.py:1689-1950`),
+session-start and prompt points (`context_for` `hooks/tezgah_context.py:1703-1964`),
 refuses a call before the host runs it (`hooks/projects-pretooluse.py:24`) and
 answers in the host's own output envelope. It has no model, no tool set and no
 context window of its own.

@@ -252,7 +252,7 @@ judgement; the static phase table with no key). A worker that answers
 `ESCALATE:` is restarted on tezgah-frontier with the original brief, never
 continued; the main thread never switches model (the cache is per model). A
 code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,
-`impact`, `affected`, `node`, `files`, `codegraph_explore`) and says "answer from
+`impact`, `node`, `files`, `codegraph_explore`) and says "answer from
 the graph, grep only for literal text"; never a grep-only explorer (observed).
 Subagents never orchestrate: no nested harnesses, no sub-subagents.
 
@@ -549,7 +549,8 @@ codegraph is this session's code-graph engine and should be registered as MCP
 server `codegraph` (index: %s). Over MCP it exposes `codegraph_explore` by
 default - every other verb needs `CODEGRAPH_MCP_TOOLS` - and in a shell the CLI
 answers the same questions, one verb per question shape: `codegraph callers`,
-`callees`, `impact`, `affected`, `node`, `files`, `status`, `query`, `explore`.
+`callees`, `impact`, `affected`, `node`, `files`, `status`, `query`, `explore` -
+`affected` selects the test files a list of changed files reaches, nothing more.
 %s.
 A missing binary is not this rule's report - the status line's `idx` mark carries
 that - and `.no-graph` in a repo turns the rule off there. When the index does
@@ -557,9 +558,11 @@ not hold the repo, say so and fall back to grep/find without claiming the graph
 answered.
 For "where is X defined", "what calls Y", "what breaks if I change Z", "how is
 this wired": use the graph. Routing rule: a caller or blast-radius question -
-"who calls X", "what breaks if X changes" - goes to `codegraph callers`,
-`codegraph impact` or `codegraph affected` FIRST, and grep alone is not an
-acceptable answer to one. grep stays right for literal text, configs, and
+"who calls X", "what breaks if X changes" - goes to `codegraph callers` or
+`codegraph impact` FIRST, and grep alone is not an acceptable answer to one. A
+diff's blast radius is `git diff` plus `codegraph impact <symbol>` per changed
+symbol; `git diff --name-only <ref> | codegraph affected --stdin` names the tests
+it reaches. grep stays right for literal text, configs, and
 non-code files - including `grep`/`rg` run through a shell, whose host prompt
 prefers shell tools; that preference does NOT cover definitions, callers, or
 blast radius - those go to the graph. The graph answers from a parsed call
@@ -567,7 +570,9 @@ graph, so it beats text search on renames, dynamic dispatch and cross-file
 callers. On Claude a PreToolUse hook denies the Explore subagent here and nudges
 the first identifier-shaped Grep per session toward the graph. The MCP tool's
 schema is deferred: on the FIRST code-discovery step of the session load it -
-ToolSearch("select:mcp__codegraph__codegraph_explore") - and then use it; do not
+ToolSearch("select:mcp__codegraph__codegraph_explore,mcp__plugin_tezgah_codegraph__codegraph_explore")
+(the plain name on a checkout's own server, the `plugin_tezgah_` one on a plugin
+install) - and then use it; do not
 fall back to grep because it was not pre-loaded. On Claude NEVER use the keyword
 form ToolSearch("+codegraph"): it returns the first N tools alphabetically, which
 is how a session ends up "loading the graph" and then grepping. Repo CLAUDE.md /
@@ -692,9 +697,9 @@ contradicts. Off: `.no-lessons`.
 
 **Code discovery: graph first.** For "where is X", "who calls Y", "what breaks
 if Z changes", "how is this wired": use the codegraph index (`codegraph
-callers`/`impact`/`affected`/`node`/`files`, or the `codegraph_explore` MCP tool)
+callers`/`impact`/`node`/`files`, or the `codegraph_explore` MCP tool)
 before grep/find. Caller and blast-radius questions go to `codegraph callers` /
-`codegraph affected` first; grep is only for literal text, configs and non-code
+`codegraph impact` first; grep is only for literal text, configs and non-code
 files. If the graph is not loaded or installed, say so and use grep - never claim
 the index answered. Code-discovery subagents must name these graph tools; never
 send a grep-only explorer.
@@ -833,7 +838,7 @@ any item; no placating openers ("haklısın"), own a mistake in one line;
 underspecified/quality asks -> write a
 checkable spec with a named standard, never guess; .tezgah/lessons.md lines are
 standing constraints; "who calls X"/"what breaks" -> `codegraph callers` /
-`codegraph affected`, not grep alone; consult before irreversible calls;
+`codegraph impact`, not grep alone; consult before irreversible calls;
 research -> orx/OpenResearch, not ad-hoc; done/tested claims need observed
 evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
 test skip) and the Stop hook on Claude/Codex/Cursor/omp blocks an unverified "done"; no

@@ -181,11 +181,26 @@ class Omp(HostModels):
         # no tools: a tier worker edits, so it gets every tool the session has
         self.assertNotIn("\ntools:", "\n" + head)
 
-    def test_the_explorer_keeps_its_tool_list(self):
+    def test_the_reviewer_keeps_its_tool_list(self):
         self.install("omp")
-        head = self.read("tezgah-explorer.md").split("\n---\n", 1)[0]
+        head = self.read("tezgah-reviewer.md").split("\n---\n", 1)[0]
         self.assertIn("\ntools:", "\n" + head)
         self.assertIn("  - read", head)
+
+    def test_install_sweeps_the_retired_roles_and_keeps_the_users_files(self):
+        # omp's files carry no MARKER, so the `tezgah-` prefix is the ownership
+        # test: a retired role must stop being loaded after the next install
+        os.makedirs(self.agents(), exist_ok=True)
+        for name in ("tezgah-explorer.md", "tezgah-verifier.md",
+                     "tezgah-researcher.md", "my-agent.md"):
+            with open(os.path.join(self.agents(), name), "w") as fh:
+                fh.write("---\nname: x\n---\nx\n")
+        self.install("omp")
+        names = sorted(os.listdir(self.agents()))
+        for gone in ("tezgah-explorer.md", "tezgah-verifier.md", "tezgah-researcher.md"):
+            self.assertNotIn(gone, names)
+        self.assertIn("my-agent.md", names)
+        self.assertIn("tezgah-cheap.md", names)
 
     def test_the_orchestrator_can_delegate(self):
         self.install("omp")
