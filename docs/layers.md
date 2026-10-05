@@ -22,7 +22,7 @@ and it writes no ledger [row](glossary.md#row).
 Here tezgah only *configures* servers and classifies a call by its name: the
 app-analysis servers are rendered into each host's own config from one spec
 (`hooks/tezgah_apps.py:1-5`), Codex's rows are appended by `ensure_toml_mcp`
-(`bin/tezgah-setup:1137-1194`), and a tool name starting `mcp__` is classified
+(`bin/tezgah-setup:1169-1226`), and a tool name starting `mcp__` is classified
 `mcp` rather than trusted (`MCP_TOOL` `hooks/tezgah_integrity.py:2347-2351`).
 
 ## Agent framework
@@ -65,11 +65,11 @@ host.
 
 ## tezgah's policy and evidence layer
 
-Owns the rule text (`CORE` `hooks/tezgah_policy.py:621-841`), the per-turn reminder
-(`PROMPT_REMINDER` `hooks/tezgah_policy.py:853-873`), the refusal before a call
+Owns the rule text (`CORE` `hooks/tezgah_policy.py:629-848`), the per-turn reminder
+(`PROMPT_REMINDER` `hooks/tezgah_policy.py:860-880`), the refusal before a call
 (`decision()` `hooks/tezgah_gate.py:1428-1647`), the record after one (`note()`
 `hooks/tezgah_integrity.py:792-804`), the end-of-turn verdict (`stop_reason()`
-`hooks/tezgah_integrity.py:3351-3416`), the pre-write snapshots (`capture()`
+`hooks/tezgah_integrity.py:3348-3413`), the pre-write snapshots (`capture()`
 `hooks/tezgah_snapshot.py:275`), the status marks, and the per-repo plans,
 lessons and research lines.
 

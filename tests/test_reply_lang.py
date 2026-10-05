@@ -4,9 +4,15 @@ Written from plan 047's Phase C acceptance list (ADR 001, REPORT.md R03 part 5):
 the contract's first rule asked for Turkish replies and the Stop rule refused an
 English one, and the only escapes (`exec-mode.off`, `verify-off`) dropped
 unrelated discipline with it. `tr` (the default, and what an install without
-the key reads) keeps that behaviour; `en` asks for English and refuses a
-Turkish reply instead; `any` asks for the user's language and judges none.
+the key reads) keeps that behaviour; `en` asks for English and `any` for the
+user's language, and under both the Stop rule judges no language: an English
+reply carries the contract's own hedge word `doğrulanmadı` or quotes the user's
+Turkish, so a Turkish detector cannot hold a reply to English.
 `--install --reply-lang` stores it, and the rendered contract says it.
+
+Guards hooks/tezgah_integrity.py (the Stop language check), hooks/tezgah_policy.py
+and hooks/tezgah_context.py (the rendered rule), hooks/tezgah_paths.py
+(`reply_lang`) and bin/tezgah-setup (`--reply-lang`, the config refusal).
 
 The Stop rule runs as the real hook in a throwaway HOME; installs run with no
 host CLI and write only under that HOME.
@@ -35,6 +41,15 @@ TURKISH = ("Kurulum artık yanıt dilini yapılandırma dosyasından okuyor ve "
            "izliyor, yani yapılandırılan dilde bir yanıt geçiyor ve öteki dilde "
            "bir yanıt bir kez geri gönderiliyor, bu yüzden kullanıcı için "
            "davranış her zaman açık ve tutarlı kalıyor.")
+# An English reply that carries the hedge word the contract asks for (share 0.062
+# on the old reversed check) and one that quotes the user's Turkish (0.194).
+HEDGED = ("The parser change is in and the unit tests for the tokenizer pass, "
+          "but the end to end run against the staging database was not done, "
+          "so that part is doğrulanmadı and I have left it marked as such in "
+          "the summary below for you to check before the release goes out.")
+QUOTED = ("You wrote \"bu dosyayı silme, içinde kullanıcının ayarları var\", so "
+          "I left the settings file alone and changed only the loader that reads "
+          "it, which now skips a key it does not know instead of failing.")
 
 
 class StopLanguage(TempHome):
@@ -64,11 +79,11 @@ class StopLanguage(TempHome):
     def test_en_lets_an_english_reply_through(self):
         self.assertIsNone(self.stop(ENGLISH, "en"))
 
-    def test_en_refuses_a_turkish_reply_and_names_the_value(self):
-        out = self.stop(TURKISH, "en")
-        self.assertEqual((out or {}).get("decision"), "block", out)
-        self.assertIn("not in English", out["reason"])
-        self.assertIn("`reply_lang` is `en`", out["reason"])
+    def test_en_judges_no_language(self):
+        # the reply in the asked-for language, and the two English replies a
+        # Turkish detector misreads, all pass; so does Turkish itself
+        for text in (ENGLISH, HEDGED, QUOTED, TURKISH):
+            self.assertIsNone(self.stop(text, "en"), text)
 
     def test_any_judges_no_language(self):
         self.assertIsNone(self.stop(ENGLISH, "any"))
@@ -99,6 +114,17 @@ class RenderedRule(TempHome):
         self.assertIn("reply in the user's language, BLUF", self.context("any"))
         for lang in (None, "en", "any"):
             self.assertNotIn("{REPLY_", self.context(lang))
+
+    def test_the_default_render_keeps_the_first_rules_line_breaks(self):
+        """Installed CLAUDE.md/AGENTS.md hold the rendered core: under `tr` the
+        first rule must render to the bytes it had before `reply_lang`, or every
+        upgrade rewrites those files for a whitespace change."""
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc
+        self.assertIn("**Turkish, BLUF.** Every user-facing reply in Turkish, even "
+                      "when the user\nwrites English: outcome/decision first, then "
+                      "points by impact. Code, commits,\ndocs, subagent prompts",
+                      tc.render(tc.always_on_core()))
 
 
 class InstallFlag(TempHome):

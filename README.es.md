@@ -93,7 +93,7 @@ con un código distinto de cero cuando un host previsto no queda armado.
   tareas de investigación; `TEZGAH_NO_DEPS=1` la omite.
 - **Idioma de las respuestas.** Por defecto las respuestas son en turco y la
   regla Stop las sostiene en él. `--reply-lang en` pide inglés, y `any` tu
-  propio idioma sin comprobación: `curl -fsSL … | sh -s -- --reply-lang en`.
+  propio idioma; ninguno se comprueba: `curl -fsSL … | sh -s -- --reply-lang en`.
 
 ¿Prefieres que lo haga tu asistente de programación? Pega esto en omp,
 Claude Code, Codex, Cursor u opencode (el prompt queda en inglés; el

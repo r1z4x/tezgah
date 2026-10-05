@@ -11,6 +11,10 @@ switch. The omp bridge must also match a fresh render byte for byte.
 
 Six hosts are installed into a throwaway HOME from a release-shaped copy of the
 tree, with stub `claude` and `omp` CLIs; no real host CLI or config is touched.
+
+Guards bin/tezgah-setup (`live_plan`, `live_probe`, `omp_bridge`),
+hooks/tezgah_gate.py and hooks/tezgah_integrity.py (the deny and its row), and
+hosts/opencode/plugins/tezgah.js (its own deny row).
 """
 import json
 import os

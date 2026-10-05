@@ -23,7 +23,7 @@ host installs them (`commands/` appears nowhere in `bin/tezgah-setup`). Its name
 is prefixed with the plugin's, so the command is `/tezgah:plan-sync` and a bare
 `/plan-sync` does not exist ([tests/test_skills.py:142-157]). An **always-on
 rule** is text injected into every turn by the client hooks, defined in
-`hooks/tezgah_policy.py:621-841` (`CORE`); the model cannot choose not to load it,
+`hooks/tezgah_policy.py:629-848` (`CORE`); the model cannot choose not to load it,
 and only the on-demand tail of it points at a skill, `tezgah-contract`
 (`hooks/tezgah_policy.py:822`). A rule is disarmed with a [kill switch](glossary.md#kill-switch); a
 skill is simply not read.

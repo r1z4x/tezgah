@@ -399,8 +399,8 @@ On conflict with any armed style skill, these win.
 status lines, warnings - in the language `reply_lang` sets in
 `~/.config/tezgah/config.json`: `tr` (the default) is Turkish, even when the
 user writes English; `en` is English, even when the user writes another
-language; `any` is the language the user writes, and the Stop rule then judges
-no language.
+language; `any` is the language the user writes. The Stop rule judges the
+language only under `tr`.
 Everything operational or persisted stays English: code, comments, commit
 messages, branch names, file contents, docs, PR/issue text, subagent prompts,
 inter-agent reports. Technical terms, API names, CLI commands, error strings

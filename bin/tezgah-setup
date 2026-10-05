@@ -986,12 +986,14 @@ def render_claude_manifest():
     release version (ADR 013). Untracked (.gitignore), so a clone or a release
     tree has none until this runs. A pair this installer rendered follows the
     version on every run, because a checkout's CHANGELOG moves under it; a pair
-    under another marketplace name is the maintainer's and is never rewritten."""
+    under another marketplace name is the maintainer's and is never rewritten.
+    False, with a MISS row, when the tree is not writable (a root-owned
+    `sudo npm -g` install): the install goes on to its report."""
     d = os.path.join(HERE, ".claude-plugin")
     market = os.path.join(d, "marketplace.json")
     name = read_json(market, {}).get("name")
     if name and name != CLAUDE_MARKETPLACE:
-        return
+        return True
     url = "https://github.com/r1z4x/tezgah"
     plugin = {"name": "tezgah", "displayName": "Tezgah",
               "description": "One working contract for every AI coding assistant "
@@ -1004,13 +1006,19 @@ def render_claude_manifest():
                                  "owner": {"name": "r1z4x"},
                                  "plugins": [dict(plugin, source="./")],
                                  "version": plugin["version"]}}
-    mkdirp(d)
-    for fname, data in pair.items():
-        # tezgah's own generated file: no backup, unlike a host config
-        path, text = os.path.join(d, fname), json.dumps(data, indent=2) + "\n"
-        if read_json(path, None) != data:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(text)
+    try:
+        mkdirp(d)
+        for fname, data in pair.items():
+            # tezgah's own generated file: no backup, unlike a host config
+            path, text = os.path.join(d, fname), json.dumps(data, indent=2) + "\n"
+            if read_json(path, None) != data:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+    except OSError as exc:
+        print("%s cannot write %s (%s): Claude's plugin manifest is not rendered"
+              % (NO, d, exc.strerror or exc))
+        return False
+    return True
 
 
 def claude_marketplace_source():
@@ -1044,10 +1052,10 @@ def register_claude_plugin():
     # names now resolves to it: the pair must be there for Claude to read, even
     # when the row exists and nothing is registered. A checkout keeps none
     # unless it registers, so the suite's own tree gets no untracked pair.
-    if not os.path.isdir(os.path.join(HERE, ".git")):
-        render_claude_manifest()
     rows = read_json(INSTALLED_PLUGINS, {}).get("plugins") or {}
     had = sorted(k for k in rows if k.split("@", 1)[0] == "tezgah")
+    if had and not os.path.isdir(os.path.join(HERE, ".git")):
+        render_claude_manifest()
     if had:
         print("%s Claude plugin registered (%s)" % (OK, ", ".join(had)))
         return
@@ -1056,7 +1064,8 @@ def register_claude_plugin():
         print("%s no `claude` CLI on PATH: Claude's gate, Stop and ledger hooks "
               "stay unarmed - install Claude Code, then re-run --install" % NO)
         return
-    render_claude_manifest()
+    if not render_claude_manifest():
+        return
     name = (read_json(os.path.join(HERE, ".claude-plugin", "marketplace.json"), {})
             .get("name") or CLAUDE_MARKETPLACE)
     steps = [["plugin", "install", "tezgah@%s" % name]]

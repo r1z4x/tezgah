@@ -3328,23 +3328,20 @@ def _shape_block(text, cwd):
                     "whole enumeration is the point, split it under headings of "
                     "at most five items each, or give it as a table."
                     % (longest, LIST_CAP))
-    # `reply_lang` is the switch: `any` judges no language, `en` refuses the
-    # Turkish reply this check otherwise asks for (a Turkish detector, so a reply
-    # in a third language passes under `en`).
-    lang = reply_lang()
-    if lang != "any" and not off("exec-mode.off"):
+    # `reply_lang` is the switch, and only `tr` is judged: this is a Turkish
+    # detector, and an English reply carries the contract's own hedge word or
+    # quotes the user's Turkish, so it cannot hold a reply to English (`en`).
+    if reply_lang() == "tr" and not off("exec-mode.off"):
         words = prose_words(text)
         share = turkish_share(words)
-        if len(words) >= LANG_MIN_WORDS and (share < LANG_MIN_SHARE) == (lang == "tr"):
-            want = "Turkish" if lang == "tr" else "English"
+        if len(words) >= LANG_MIN_WORDS and share < LANG_MIN_SHARE:
             return ("reply language",
-                    "Reply prose is not in %s (%d prose words, %.0f%% of them "
-                    "Turkish). The contract's first rule (`reply_lang` is `%s`): "
-                    "every user-facing reply is in %s, whatever language the "
-                    "user writes. Rewrite the prose in %s; code, commands, paths, "
+                    "Reply prose is not in Turkish (%d prose words, %.0f%% of "
+                    "them Turkish). The contract's first rule: every user-facing "
+                    "reply is in Turkish, even when the user writes English. "
+                    "Rewrite the prose in Turkish; code, commands, paths, "
                     "identifiers and quoted output stay as they are (put them in "
-                    "backticks or a code block)."
-                    % (want, len(words), share * 100, lang, want, want))
+                    "backticks or a code block)." % (len(words), share * 100))
     return (None, None)
 
 

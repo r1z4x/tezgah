@@ -93,7 +93,7 @@ gerüstet ist.
   Forschungsaufgaben laufen; `TEZGAH_NO_DEPS=1` überspringt sie.
 - **Antwortsprache.** Antworten sind standardmäßig türkisch, und die Stop-Regel
   hält sie dazu an. `--reply-lang en` verlangt Englisch, `any` Ihre eigene
-  Sprache ohne Prüfung: `curl -fsSL … | sh -s -- --reply-lang en`.
+  Sprache; beides wird nicht geprüft: `curl -fsSL … | sh -s -- --reply-lang en`.
 
 Lieber der Coding-Assistent erledigen? Fügen Sie dies in omp, Claude Code,
 Codex, Cursor oder opencode ein (der Prompt bleibt Englisch; der Assistent

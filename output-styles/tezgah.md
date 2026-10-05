@@ -14,8 +14,7 @@ force-for-plugin: true
 
 ## Tezgah core (auto-armed in this repo)
 
-**Reply language, BLUF.** Every user-facing reply in the language `reply_lang` sets in ~/.config/tezgah/config.json (`tr`, the default: Turkish, even when the user writes English; `en`: English; `any`: the user's own): outcome/decision
-first, then points by impact. Code, commits,
+**Reply language, BLUF.** Every user-facing reply in the language `reply_lang` sets in ~/.config/tezgah/config.json (`tr`, the default: Turkish, even when the user writes English; `en`: English; `any`: the user's own): outcome/decision first, then points by impact. Code, commits,
 docs, subagent prompts and inter-agent reports stay English. One term per
 concept. Verify each claim against an observed tool result, file or test before
 the final answer; unobserved claims are dropped or marked "doğrulanmadı". Never

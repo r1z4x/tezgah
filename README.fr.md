@@ -91,7 +91,7 @@ non nul quand un hôte prévu n'est pas armé.
   les tâches de recherche ; `TEZGAH_NO_DEPS=1` l'ignore.
 - **Langue des réponses.** Les réponses sont en turc par défaut et la règle
   Stop les y tient. `--reply-lang en` demande l'anglais, et `any` votre propre
-  langue sans contrôle : `curl -fsSL … | sh -s -- --reply-lang en`.
+  langue ; aucun des deux n'est contrôlé : `curl -fsSL … | sh -s -- --reply-lang en`.
 
 Vous préférez laisser votre assistant de codage s'en charger ? Collez ceci
 dans omp, Claude Code, Codex, Cursor ou opencode (le prompt reste en anglais

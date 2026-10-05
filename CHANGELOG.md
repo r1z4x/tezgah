@@ -26,8 +26,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`reply_lang` picks the reply language.** `tezgah-setup --install
   --reply-lang tr|en|any` stores it in `config.json`, and `install.sh` forwards
   the flag. `tr` is the default and what an install without the key reads. `en`
-  asks for English and the Stop rule refuses a Turkish reply instead. `any`
-  asks for the user's language and checks none. The contract's first rule and
+  asks for English and `any` for the user's language. The Stop rule checks
+  the language only under `tr`. The contract's first rule and
   the per-turn reminder name the configured language.
 - **README: what tezgah changes on your machine**, in all five languages.
 

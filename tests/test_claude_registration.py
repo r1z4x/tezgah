@@ -236,6 +236,35 @@ class Registration(ClaudeHome):
                                                     "marketplace.json")), source)
         self.assertEqual(len(self.calls()), 2)  # the upgrade registered nothing new
 
+    def read_only_tree(self):
+        """The tree a root-owned `sudo npm -g` leaves: no directory writable."""
+        dirs = [d for d, _, _ in os.walk(self.tree)]
+        for d in dirs:
+            os.chmod(d, 0o555)
+        self.addCleanup(lambda: [os.chmod(d, 0o755) for d in dirs])
+
+    def test_a_read_only_tree_with_a_registered_plugin_does_not_crash(self):
+        plugins = os.path.join(self.home, ".claude", "plugins")
+        os.makedirs(plugins)
+        with open(os.path.join(plugins, "installed_plugins.json"), "w") as fh:
+            json.dump({"version": 2, "plugins": {"tezgah@tezgah-local": [
+                {"scope": "user", "installPath": "/nowhere", "version": "0.1.0"}]}}, fh)
+        self.read_only_tree()
+        proc = self.setup("--install", "--hosts", "claude")
+        out = proc.stdout + proc.stderr
+        self.assertNotIn("Traceback", out)
+        self.assertIn("Claude plugin registered (tezgah@tezgah-local)", out)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_read_only_tree_cannot_register_and_says_why(self):
+        self.read_only_tree()
+        proc = self.setup("--install", "--hosts", "claude")
+        out = proc.stdout + proc.stderr
+        self.assertNotIn("Traceback", out)
+        self.assertIn("cannot write %s" % os.path.join(self.tree, ".claude-plugin"), out)
+        self.assertEqual(self.calls(), [])  # nothing registered without a manifest
+        self.assertIn("plugin copy current", out.split("not armed")[-1], out)
+
 
 class Manifest(unittest.TestCase):
     def test_the_manifest_stays_untracked(self):

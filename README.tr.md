@@ -89,8 +89,8 @@ planladığı bir barındırıcı kurulamazsa sıfırdan farklı bir kodla çık
 - **orx.** Kurulum, araştırma görevlerinin yönlendirildiği OpenResearch CLI'ını
   indirir; `TEZGAH_NO_DEPS=1` bunu atlar.
 - **Yanıt dili.** Yanıtlar varsayılan olarak Türkçedir ve Stop kuralı bunu
-  denetler. `--reply-lang en` İngilizce ister, `any` ise denetimsiz olarak
-  sizin dilinizi: `curl -fsSL … | sh -s -- --reply-lang en`.
+  denetler. `--reply-lang en` İngilizce, `any` ise sizin dilinizi ister;
+  ikisi de denetlenmez: `curl -fsSL … | sh -s -- --reply-lang en`.
 
 Kurulumu kodlama asistanınıza yaptırmak isterseniz bunu omp, Claude Code,
 Codex, Cursor veya opencode'a yapıştırın (istem İngilizce; asistan her dilde

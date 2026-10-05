@@ -89,8 +89,8 @@ it set out to arm is not armed.
 - **orx.** The install fetches the OpenResearch CLI that research tasks route
   through; `TEZGAH_NO_DEPS=1` skips it.
 - **Reply language.** Replies are Turkish by default and the Stop rule holds
-  them to it. `--reply-lang en` asks for English instead, and `any` for your
-  own language with no check: `curl -fsSL … | sh -s -- --reply-lang en`.
+  them to it. `--reply-lang en` asks for English, and `any` for your own
+  language; neither is checked: `curl -fsSL … | sh -s -- --reply-lang en`.
 
 Rather let your coding assistant do it? Paste this into omp, Claude Code,
 Codex, Cursor or opencode:

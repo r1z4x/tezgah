@@ -17,11 +17,11 @@ host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 
 | Surface | Text | Paid |
 |---|---|---|
-| always-on core | `CORE` (`hooks/tezgah_policy.py:621-841`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
-| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:842-846`) | only on the turn whose prompt matches its task class |
-| per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:853-873`) | every user prompt |
+| always-on core | `CORE` (`hooks/tezgah_policy.py:629-848`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
+| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py:849-853`) | only on the turn whose prompt matches its task class |
+| per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py:860-880`) | every user prompt |
 | skill suggestion | one `<skill_relevance>` line naming at most one installed skill, written by `suggest` (`hooks/tezgah_skill_pick.py:210-225`); off unless `skill-suggest-on` is armed | only on a turn the judgement answers with a skill |
-| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:874-898`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
+| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py:881-905`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
 
 The skill suggestion is the one surface a judgement writes rather than a constant.
 The roster reaches a session as an index of host-truncated one-liners, so which
@@ -135,7 +135,7 @@ stay English.**` :803, `**Session scope: the user's repo, not tezgah.**` :809,
 the default `reply_lang`.
 
 `always_on_core()` (`hooks/tezgah_context.py:1258-1268`) drops the five
-conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:847-852`):
+conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py:854-859`):
 one line each saying the rule exists and where its full text lives — spec-first,
 a second opinion, OpenResearch routing, product analysis, the code graph, and the
 per-repo design contract `bin/tezgah-design` checks a UI change against (the one
@@ -155,7 +155,7 @@ applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
 
-- **Turkish, BLUF.** Every user-facing reply is Turkish even when the prompt is English, outcome first; code, commits, docs and subagent prompts stay English. That is the default. `reply_lang` in `~/.config/tezgah/config.json` picks another: `tr`, `en` or `any`. `tezgah-setup --install --reply-lang` sets it, and the label follows it. The value is the switch. `any` drops the Stop rule's language check, and `en` holds replies to English.
+- **Turkish, BLUF.** Every user-facing reply is Turkish even when the prompt is English, outcome first; code, commits, docs and subagent prompts stay English. That is the default. `reply_lang` in `~/.config/tezgah/config.json` picks another: `tr`, `en` or `any`. `tezgah-setup --install --reply-lang` sets it, and the label follows it. The value is the switch. The Stop rule checks the language only under `tr`: under `en` and `any` it judges none.
 - **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py:388-397`).
 - **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement.
 - **Deliver the whole ask; never the shortcut.** The request is a floor: no cheaper stand-in, no silent scope cut, no token gesture reported as done.
@@ -231,9 +231,9 @@ they survive every other switch being off.
 
 1. Write the full text as a constant in `hooks/tezgah_policy.py`.
 2. If not every session should pay it, add the key to `CONDITIONAL_KEYS`
-   (`hooks/tezgah_policy.py:842-846`), a pattern to `PROMPT_HINTS`
+   (`hooks/tezgah_policy.py:849-853`), a pattern to `PROMPT_HINTS`
    (`hooks/tezgah_context.py:90-300`) and a line to `POINTERS`
-   (`hooks/tezgah_policy.py:847-852`); the two halves are asserted together
+   (`hooks/tezgah_policy.py:854-859`); the two halves are asserted together
    (`tests/test_context.py:2381-2388`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
    pair to `CORE_RULES` (`hooks/tezgah_context.py:312-330`). The label is the
@@ -269,7 +269,7 @@ bytes with a fresh render. That notices that the text a session gets changed;
 is the drift that actually happens (`tests/test_setup.py:1298-1312`).
 `tezgah-setup --refresh` re-renders every armed host's artifact, not only
 opencode's, and drops the paragraph of any global kill switch that is on
-(`refresh_contract`, `bin/tezgah-setup:1344-1361`).
+(`refresh_contract`, `bin/tezgah-setup:1376-1393`).
 
 The skill may hold more than the contract. Two rules live only in the skill
 today. The graph rule says an empty caller list is not proof that a change is
