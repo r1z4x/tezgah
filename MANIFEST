@@ -623,6 +623,7 @@ skills/rl-env/rl-env-from-description/references/verifiers.md
 skills/tezgah-contract/EVALS.md
 skills/tezgah-contract/SKILL.md
 statusline.py
+tests/_fuzz_shell_reader.mjs
 tests/_mcp_stdio.py
 tests/_omp_extension_harness.mjs
 tests/_opencode_plugin_harness.mjs
@@ -634,6 +635,7 @@ tests/_probe_paths.py
 tests/_probe_poisoned.py
 tests/_workflow_harness.mjs
 tests/bash_vectors.py
+tests/bench_gate_latency.py
 tests/constraint-fixtures.md
 tests/e2e_analyze_mobile.py
 tests/e2e_analyze_web.py

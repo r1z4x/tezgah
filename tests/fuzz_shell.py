@@ -22,6 +22,7 @@ a disagreement is its class: one shape rather than one line.
     python3 tests/fuzz_shell.py --seed 1 --lines 10000
 """
 import argparse
+import json
 import os
 import random
 import shutil
@@ -138,32 +139,59 @@ def _visible(name, masked):
     return any(w.strip("`$()") == name for w in masked.replace(";", " ").split())
 
 
-def disagreements(text, ran):
-    """`reader:direction:program` for every way the readers differ from bash."""
-    named = set(tc.shell_programs(text)) & set(STUBS)
-    masked = ti.mask(text)
-    return (["programs:hidden:" + p for p in sorted(ran - named)]
-            + ["programs:phantom:" + p for p in sorted(named - ran)]
-            + ["mask:hidden:" + p for p in sorted(ran) if not _visible(p, masked)])
+def disagreements(text, ran, js=None):
+    """`reader:direction:program` for every way the readers differ from bash.
+    With `js` (the plugin's {mask, programs} for this line) the readers are the
+    opencode ports, prefixed `js-`, plus `js-parity:<reader>` where the port's
+    answer is not the core's."""
+    py_named, py_masked = tc.shell_programs(text), ti.mask(text)
+    if js is None:
+        named, masked, tag, parity = py_named, py_masked, "", []
+    else:
+        named, masked, tag = js["programs"], js["mask"], "js-"
+        parity = ([] if named == py_named else ["js-parity:programs"]) + (
+            [] if masked == py_masked else ["js-parity:mask"])
+    named = set(named) & set(STUBS)
+    return (["%sprograms:hidden:%s" % (tag, p) for p in sorted(ran - named)]
+            + ["%sprograms:phantom:%s" % (tag, p) for p in sorted(named - ran)]
+            + ["%smask:hidden:%s" % (tag, p) for p in sorted(ran)
+               if not _visible(p, masked)] + parity)
 
 
-def run(seed, lines):
+PLUGIN = os.path.join(os.path.dirname(HERE), "hosts", "opencode", "plugins",
+                      "tezgah.js")
+
+
+def js_read(texts):
+    """The opencode plugin's {mask, programs} for each line, one node process."""
+    out = subprocess.run([shutil.which("node"),
+                          os.path.join(HERE, "_fuzz_shell_reader.mjs"), PLUGIN],
+                         input=json.dumps(texts), capture_output=True, text=True,
+                         timeout=600, check=True)
+    return json.loads(out.stdout)
+
+
+def run(seed, lines, js=False):
     """(Counter of lines per disagreement class, invalid-line count, one example
-    line per class)."""
+    line per class). `js` reads each line with the opencode plugin's ports."""
     rnd = random.Random(seed)
     oracle = Oracle()
-    classes, examples, invalid = Counter(), {}, 0
+    seen, invalid = [], 0
     try:
         for _ in range(lines):
             text = line(rnd)
             if not oracle.valid(text):
                 invalid += 1
                 continue
-            for key in disagreements(text, oracle.ran(text)):
-                classes[key] += 1
-                examples.setdefault(key, text)
+            seen.append((text, oracle.ran(text)))
     finally:
         oracle.close()
+    reads = js_read([t for t, _ in seen]) if js else [None] * len(seen)
+    classes, examples = Counter(), {}
+    for (text, ran), read in zip(seen, reads):
+        for key in disagreements(text, ran, read):
+            classes[key] += 1
+            examples.setdefault(key, text)
     return classes, invalid, examples
 
 
@@ -171,10 +199,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--lines", type=int, default=10000)
+    ap.add_argument("--js", action="store_true",
+                    help="read with the opencode plugin's ports (needs node)")
     args = ap.parse_args(argv)
-    classes, invalid, examples = run(args.seed, args.lines)
-    print("bash %s, seed %d, %d lines, %d invalid"
-          % (bash_version(), args.seed, args.lines, invalid))
+    classes, invalid, examples = run(args.seed, args.lines, args.js)
+    print("bash %s, seed %d, %d lines, %d invalid, reader %s"
+          % (bash_version(), args.seed, args.lines, invalid,
+             "opencode plugin (node)" if args.js else "core (python)"))
     for key, n in classes.most_common():
         print("%6d  (%.1f per 10^4)  %s\n        e.g. %r"
               % (n, n * 1e4 / args.lines, key, examples[key]))

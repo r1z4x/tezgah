@@ -12,7 +12,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   draws seeded lines from the hand vectors' grammar. It runs each in `bash`
   with a stub per program word and prints each class where `shell_programs` or
   `mask` disagrees. `tests/test_fuzz_shell.py` runs a small sample per suite
-  run and fails if `mask` blanks a program bash ran.
+  run and fails if `mask` blanks a program bash ran. `--js` reads the same
+  lines with the opencode plugin's ports through node. It reports where a port
+  disagrees with bash or with the core, and the suite sample fails on either.
+- **`tests/bench_gate_latency.py` times the gate.** It prints p50/p95 of
+  `decision(..., record=False)` over 200 common calls, for this tree or for
+  another revision's exported `hooks/`.
 - **Concluding or closing a research line seals it.** `conclude` and `close`
   write `state.json` `order_seal`. It holds, per experiment, the sha256 of
   `protocol.md` and `results.jsonl`, and no order verdict. Every `check`
