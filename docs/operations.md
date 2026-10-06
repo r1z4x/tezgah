@@ -95,7 +95,8 @@ junction is refused, and starts the installer with the first of `py -3`,
 `packaging/install.ps1:128-163`). The installer knows both shapes of `current`
 (`bin/tezgah-setup::running_prefix`). A junction answers to
 `os.path.isjunction`, or to its reparse tag below Python 3.12. A copy is the
-running tree at `<prefix>/current` with a version tree beside it. So
+running tree at `<prefix>/current` with no `.git`, whose `VERSION` names a
+version tree beside it. A checkout cloned as `current` is not a copy. So
 `tezgah update` finds the release prefix and `--uninstall` removes it.
 `--upgrade` on Windows runs `install.ps1 -NoInstall` in place of
 `packaging/upgrade.sh` and then re-arms from the new tree. A missing `bash` (or

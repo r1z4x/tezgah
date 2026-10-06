@@ -49,12 +49,15 @@ class Base(SetupBase):
             setattr(obj, name, value)
 
     def release(self, name="released", version="1.2.3"):
-        """<prefix>/<version>/bin/tezgah-setup; returns (prefix, version dir)."""
+        """<prefix>/<version>/bin/tezgah-setup plus the VERSION file build.sh
+        writes at a tree's root; returns (prefix, version dir)."""
         prefix = self.path(name)
         tree = os.path.join(prefix, version)
         os.makedirs(os.path.join(tree, "bin"))
         with open(os.path.join(tree, "bin", "tezgah-setup"), "w") as fh:
             fh.write("# a released installer\n")
+        with open(os.path.join(tree, "VERSION"), "w") as fh:
+            fh.write(version + "\n")
         return prefix, tree
 
     def junction(self, prefix, tree, with_isjunction):
@@ -109,6 +112,43 @@ class RunningPrefix(Base):
         self.assertEqual(self.mod.running_prefix(), "")
         self.swap(self.mod, "HERE", REPO)
         self.assertEqual(self.mod.running_prefix(), "")
+
+    def test_a_checkout_named_current_beside_a_tree_is_not_a_release(self):
+        """A git checkout cloned as `current` next to another tezgah tree:
+        taken for a copy, `--uninstall` rmtree'd the checkout and its sibling.
+        A copy is a release only with no `.git`, a VERSION, and
+        `<prefix>/<VERSION>/bin/tezgah-setup`."""
+        prefix, tree = self.release("checkouts")
+        checkout = os.path.join(prefix, "current")
+        shutil.copytree(tree, checkout)
+        os.makedirs(os.path.join(checkout, ".git"))
+        self.swap(self.mod, "HERE", checkout)
+        self.assertEqual(self.mod.running_prefix(), "")
+        # the uninstall's prefix is what main() resolves; the default is kept
+        default = self.path("posix-default")
+        self.swap(self.mod, "PREFIX_PINNED", False)
+        self.swap(self.mod, "INSTALL_PREFIX", default)
+        self.swap(tp, "CONFIG", self.path(".config", "tezgah", "config.json"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.mod.main(["tezgah-setup", "--upgrade", "9.9.9", "--dry-run"])
+            self.mod.remove_install_tree()
+        self.assertEqual(self.mod.INSTALL_PREFIX, default)
+        self.assertTrue(os.path.isfile(os.path.join(checkout, "bin", "tezgah-setup")))
+        self.assertTrue(os.path.isfile(os.path.join(tree, "bin", "tezgah-setup")))
+
+    def test_a_copy_needs_its_own_version_beside_it(self):
+        for case in ("no VERSION", "another version"):
+            with self.subTest(case):
+                prefix, tree = self.release(case.replace(" ", "-"))
+                copy = os.path.join(prefix, "current")
+                shutil.copytree(tree, copy)
+                if case == "no VERSION":
+                    os.remove(os.path.join(copy, "VERSION"))
+                else:
+                    with open(os.path.join(copy, "VERSION"), "w") as fh:
+                        fh.write("9.9.9\n")
+                self.swap(self.mod, "HERE", copy)
+                self.assertEqual(self.mod.running_prefix(), "")
 
 
 class DefaultPrefix(Base):

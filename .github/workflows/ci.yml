@@ -195,9 +195,15 @@ jobs:
           if ($out -notmatch 'install\.ps1') { throw "update did not take the PowerShell path" }
           python $setup --install --hosts opencode --no-deps
           if ($LASTEXITCODE) { throw "--install --hosts opencode exited $LASTEXITCODE" }
-          # TEZGAH_ROOTS is a drive path here: a `:` split made the plugin inert
-          python $setup --report --live --hosts opencode
+          # TEZGAH_ROOTS is a drive path here: a `:` split made the plugin inert.
+          # A live row reads UNVERIFIED, exit 0, when node is missing: that is no
+          # proof, so it fails the step too.
+          $live = python $setup --report --live --hosts opencode | Out-String
+          Write-Output $live
           if ($LASTEXITCODE) { throw "--report --live --hosts opencode exited $LASTEXITCODE" }
+          if ($live -match 'UNVERIFIED\s+live opencode') {
+            throw "the opencode live probe did not run (UNVERIFIED above)"
+          }
           python $setup --uninstall --hosts claude,codex,opencode,cursor,dsh,omp
           if ($LASTEXITCODE) { throw "--uninstall exited $LASTEXITCODE" }
           if (Test-Path -LiteralPath $prefix) {

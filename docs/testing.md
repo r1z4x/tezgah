@@ -79,7 +79,7 @@ cancels its other legs when one fails (`fail-fast: false`).
 - `artifact-install` (`ci.yml:88-126`) on Python 3.10 and 3.12: builds the
   tarball, installs from it under a temp prefix, and runs the artifact smoke on
   the installed tree instead of the checkout.
-- `artifact-install-windows` (`ci.yml:128-206`) on `windows-latest`: the same
+- `artifact-install-windows` (`ci.yml:128-212`) on `windows-latest`: the same
   build, install and smoke through `packaging/install.ps1` - the twin a Windows
   user runs - so it is the only place the Windows claim is proven. It then runs
   the opencode plugin's path tests natively, `tezgah update --dry-run`, the

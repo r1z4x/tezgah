@@ -119,18 +119,26 @@ def running_prefix():
 
     `current` is a symlink, or on Windows a junction; when install.ps1 could not
     make the junction it copied the tree, and the installer runs from the copy,
-    so HERE is `<prefix>/current` itself - a release when a version tree sits
-    beside it."""
+    so HERE is `<prefix>/current` itself. That copy is a release only when it
+    has no `.git` and the VERSION build.sh writes names a version tree beside
+    it: a checkout cloned as `current` next to another tree is not one, and
+    `--uninstall` would remove both."""
     prefix = os.path.dirname(HERE)  # HERE is <prefix>/<version>, two levels above bin/
     current = os.path.join(prefix, "current")
     if not os.path.isdir(prefix):
         return ""
     if is_link(current) and os.path.realpath(current) == HERE:
         return prefix
-    if HERE == current and any(
-            name != "current"
-            and os.path.isfile(os.path.join(prefix, name, "bin", "tezgah-setup"))
-            for name in os.listdir(prefix)):
+    if HERE != current or os.path.exists(os.path.join(HERE, ".git")):
+        return ""
+    try:
+        with open(os.path.join(HERE, "VERSION"), encoding="utf-8") as fh:
+            version = fh.read(64).strip()
+    except OSError:
+        return ""
+    if version and os.path.basename(version) == version \
+            and version not in (".", "..", "current") \
+            and os.path.isfile(os.path.join(prefix, version, "bin", "tezgah-setup")):
         return prefix
     return ""
 # The per-host config roots live in tezgah_paths, the one place that also decides
