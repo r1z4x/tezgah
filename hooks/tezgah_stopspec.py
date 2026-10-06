@@ -117,15 +117,48 @@ def _nodes(formula, out):
     return out
 
 
+_OPS = {"not": "not {0}", "O": "{0} or {self}", "S": "{1} or ({0} and {self})"}
+
+
+def _source(formula):
+    """The monitor of one formula as Python source: one assignment per
+    subformula, run once over no row (all atoms false) and then once per row.
+    A temporal node reads its own variable before reassigning it, which is its
+    value at the previous row - the whole state the monitor keeps."""
+    nodes = _nodes(formula, [])
+    var = {n: "v%d" % k for k, n in enumerate(nodes)}
+    atoms = sorted({n for n in nodes if isinstance(n, str)})
+
+    def body(leaf):
+        lines = []
+        for n in nodes:
+            if isinstance(n, str):
+                expr = leaf(n)
+            elif n[0] in ("and", "or"):
+                expr = "(%s)" % (" %s " % n[0]).join(var[a] for a in n[1:])
+            else:
+                expr = _OPS[n[0]].format(*(var[a] for a in n[1:]), self=var[n])
+            lines.append("%s = %s" % (var[n], expr))
+        return lines
+
+    src = ["def monitor(trace):"]
+    src += ["    c_%s = trace.col(%r)" % (a, a) for a in atoms]
+    src += ["    %s = False" % var[n] for n in nodes]
+    src += ["    " + line for line in body(lambda a: "False")]
+    src += ["    for i in range(len(trace.rows)):"]
+    src += ["        " + line for line in body(lambda a: "c_%s[i]" % a)]
+    src += ["    return %s" % var[nodes[-1]]]
+    return "\n".join(src)
+
+
 def compile_table(formulas=None):
-    """Per formula, its program: the subformulas in evaluation order (the root
-    last), each as its operator and argument indices, a leaf as its atom name."""
+    """Per formula, its monitor: a function of a `Trace`, compiled from the
+    table at import (and from a mutant's table by the mutation run)."""
     out = {}
     for name, f in (formulas or FORMULAS).items():
-        nodes = _nodes(f, [])
-        index = {n: i for i, n in enumerate(nodes)}
-        out[name] = [(n, ()) if isinstance(n, str)
-                     else (n[0], tuple(index[a] for a in n[1:])) for n in nodes]
+        scope = {}
+        exec(compile(_source(f), "<stopspec %s>" % name, "exec"), scope)
+        out[name] = scope["monitor"]
     return out
 
 
@@ -207,40 +240,13 @@ class Trace:
         return out
 
 
-def value(program, trace):
-    """One formula's value at the trace's last row: one pass over the rows, each
-    step from the previous step's values, nothing stored between Stops. Step -1
-    reads no row, so an empty trace is the all-false valuation."""
-    cols = {op: trace.col(op) for op, args in program if not args}
-    now = [False] * len(program)
-    for i in range(-1, len(trace.rows)):
-        prev, now = now, []
-        for k, (op, args) in enumerate(program):
-            if not args:
-                v = i >= 0 and cols[op][i]
-            elif op == "not":
-                v = not now[args[0]]
-            elif op == "and":
-                v = all(now[a] for a in args)
-            elif op == "or":
-                v = any(now[a] for a in args)
-            elif op == "O":
-                v = now[args[0]] or prev[k]
-            elif op == "S":
-                v = now[args[1]] or (now[args[0]] and prev[k])
-            else:
-                raise ValueError("unknown operator %r" % op)
-            now.append(v)
-    return now[-1]
-
-
 def verdict(rows, worked, external, table=None):
     """The class `ORDER` picks, or None to allow; a formula is evaluated only
     when the list reaches it."""
     table, trace = table or _TABLE, Trace(rows, external)
 
     def holds(name):
-        return value(table[name], trace)
+        return table[name](trace)
 
     for cls in ("check failed", "partial failure", "no ui_ok"):
         if holds(cls):
