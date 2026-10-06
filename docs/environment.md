@@ -19,7 +19,7 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `TEZGAH_PREFIX` | `packaging/install.sh:26`, `packaging/upgrade.sh`, `packaging/install.ps1`, `bin/tezgah-setup::INSTALL_PREFIX` | `$XDG_DATA_HOME/tezgah`, else `~/.local/share/tezgah` (`%LOCALAPPDATA%\tezgah` on Windows) | Where the artifact install unpacks its versions and the `current` link; `tezgah-setup` treats it as the install prefix. |
+| `TEZGAH_PREFIX` | `packaging/install.sh:26`, `packaging/upgrade.sh`, `packaging/install.ps1`, `bin/tezgah-setup::default_prefix` | `$XDG_DATA_HOME/tezgah`, else `%LOCALAPPDATA%\tezgah` on Windows, else `~/.local/share/tezgah` | Where the artifact install unpacks its versions and the `current` link; `tezgah-setup` treats it as the install prefix. |
 | `TEZGAH_VERSION` | `packaging/install.sh`, `packaging/upgrade.sh`, `packaging/install.ps1`, `packaging/build.sh:70` | the newest GitHub release; `build.sh` falls back to `VERSION`/the CHANGELOG | The version to install, or the version `build.sh` stamps when `--version` is not given. |
 | `TEZGAH_REPO` | `packaging/install.sh:12`, `packaging/upgrade.sh`, `packaging/install.ps1` | `r1z4x/tezgah` | The GitHub repository releases are fetched from. |
 | `TEZGAH_UPDATE_URL` | `hooks/tezgah_update.py` | `https://github.com/<TEZGAH_REPO>/releases/latest` | Where the daily release check reads the newest tag: from the redirect, or from a JSON body's `tag_name`. Tests point it at a `file://` fixture. |
@@ -34,9 +34,9 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `TEZGAH_ROOTS` | `hooks/tezgah_paths.py::roots`, `bin/tezgah-setup`, `hosts/opencode/plugins/tezgah.js` | `roots` in `~/.config/tezgah/config.json`, else `~/Projects` | The directories tezgah is armed over, `os.pathsep`-separated; it outranks the config file. |
+| `TEZGAH_ROOTS` | `hooks/tezgah_paths.py::roots`, `bin/tezgah-setup`, `hosts/opencode/plugins/tezgah.js` | `roots` in `~/.config/tezgah/config.json`, else `~/Projects` | The directories tezgah is armed over, `os.pathsep`-separated (`;` on Windows, the opencode plugin included); it outranks the config file. |
 | `XDG_CONFIG_HOME` | `hooks/tezgah_paths.py::CONFIG_DIR`, `bin/tezgah-doctor`, `bin/tezgah-dsh.cmd`, `hosts/opencode/plugins/tezgah.js` | `~/.config` | Parent of tezgah's config dir (kill switches, `bin/` links, config) and of opencode's. |
-| `XDG_DATA_HOME` | `bin/tezgah-setup::INSTALL_PREFIX`, `packaging/install.sh`, `packaging/upgrade.sh` | `~/.local/share` | Parent of the default install prefix. |
+| `XDG_DATA_HOME` | `bin/tezgah-setup::default_prefix`, `packaging/install.sh`, `packaging/upgrade.sh` | `~/.local/share` | Parent of the default install prefix. |
 | `XDG_CACHE_HOME` | `hooks/tezgah_apps.py::ARTIFACTS` | `~/.cache` | Parent of the app-analysis artifact dir. |
 | `TEZGAH_DEBUG` | `hooks/tezgah_guard.py` | unset | `1` makes every hook process append one line to `<cache>/debug.log` (host, script, each guarded call's outcome or exception class, elapsed ms; no prompt or tool text), created 0600 and swept by `tezgah-doctor --clean`. Off, it costs one environment read. |
 | `TEZGAH_FALLBACK_CACHE` | `hooks/tezgah_paths.py::fallback_cache` | `<tempdir>/tezgah` | The cache a sandboxed hook writes when its normal cache dir is denied; a test knob. |
@@ -111,7 +111,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_NESTED` | `hooks/tezgah_integrity.py::_shape_block`, `bin/consult` | unset | Set by consult on the agent CLIs it runs: that session's Stop rule does not fire. |
 | `TEZGAH_CALL_OUTCOME` | `hooks/projects-posttooluse.py::main`, `hosts/dsh/hooks.json` | unset | `none` (dsh's Task rows) records the call's outcome as unknown instead of as a pass. |
 | `CLAUDE_PROJECT_DIR` | `hooks/projects-auto-init.py::main` | the process cwd | The project dir when the hook payload carries no `cwd`. |
-| `PLAYWRIGHT_BROWSERS_PATH`, `LOCALAPPDATA` | `hooks/tezgah_apps.py::_browser_caches` | Playwright's own cache dirs | Where `analyze-app` looks for an installed browser before it reports one missing. |
+| `PLAYWRIGHT_BROWSERS_PATH`, `LOCALAPPDATA` | `hooks/tezgah_apps.py::_browser_caches`, `bin/tezgah-setup::default_prefix` (`LOCALAPPDATA` only) | Playwright's own cache dirs | Where `analyze-app` looks for an installed browser before it reports one missing; on Windows `LOCALAPPDATA` is also the parent of the default install prefix. |
 
 ## Test knob
 

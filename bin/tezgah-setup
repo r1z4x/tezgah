@@ -65,21 +65,46 @@ from tezgah_policy import (  # noqa: E402
 
 HOME = os.path.expanduser("~")
 # Where a released artifact unpacks: <prefix>/<version> plus a `current` symlink
-# to the active one. XDG_DATA_HOME is honoured and TEZGAH_PREFIX wins outright,
-# and main() resolves the prefix a flag, that env var, the tree this process is
-# running from, or the prefix an install recorded - in that order - because "is
-# this link tezgah's?" has to accept an install tree exactly as it accepts this
-# checkout: a version flip moves what `current` points at, and a link judged by
-# the checkout alone is orphaned by every upgrade.
+# (a junction or a copy on Windows) to the active one. XDG_DATA_HOME is honoured,
+# Windows defaults to LOCALAPPDATA as packaging/install.ps1 does, TEZGAH_PREFIX
+# wins outright, and main() resolves the prefix a flag, that env var, the tree
+# this process is running from, or the prefix an install recorded - in that
+# order - because "is this link tezgah's?" has to accept an install tree exactly
+# as it accepts this checkout: a version flip moves what `current` points at, and
+# a link judged by the checkout alone is orphaned by every upgrade.
 PREFIX_ENV = "TEZGAH_PREFIX"
-INSTALL_PREFIX = os.path.realpath(
-    os.environ.get(PREFIX_ENV)
-    or os.path.join(os.environ.get("XDG_DATA_HOME")
-                    or os.path.join(HOME, ".local", "share"), "tezgah"))
+
+
+def default_prefix():
+    """The prefix when nothing names one: XDG_DATA_HOME, then LOCALAPPDATA on
+    Windows (install.ps1's own default), then ~/.local/share."""
+    data = (os.environ.get("XDG_DATA_HOME")
+            or (os.name == "nt" and os.environ.get("LOCALAPPDATA"))
+            or os.path.join(HOME, ".local", "share"))
+    return os.path.join(data, "tezgah")
+
+
+INSTALL_PREFIX = os.path.realpath(os.environ.get(PREFIX_ENV) or default_prefix())
 # True when the prefix came from the environment rather than from the computed
 # default: an explicit answer outranks both fallbacks main() resolves (the tree
 # that is running, and the prefix an install recorded).
 PREFIX_PINNED = bool(os.environ.get(PREFIX_ENV))
+
+
+def is_link(path):
+    """True for a symlink and for a Windows directory junction, which
+    `os.path.islink` does not see. `os.path.isjunction` is 3.12+; below it the
+    reparse tag answers (`st_reparse_tag`, and the `stat` constant, exist only
+    on Windows, so the tag is IO_REPARSE_TAG_MOUNT_POINT's value)."""
+    if os.path.islink(path):
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    if isjunction:
+        return isjunction(path)
+    try:
+        return os.lstat(path).st_reparse_tag == 0xA0000003
+    except (OSError, AttributeError):
+        return False
 
 
 def running_prefix():
@@ -88,13 +113,32 @@ def running_prefix():
     `<prefix>/<version>/bin/tezgah-setup` with `<prefix>/current` pointing back
     at it is exactly the released layout, and the running tree is the one piece
     of evidence that cannot be stale about where it lives. It is needed because
-    `packaging/install.sh` runs this installer from the tree it just unpacked,
-    without a --prefix to pass on: without this, a first `--upgrade` from an
-    artifact would aim at ~/.local/share/tezgah wherever the user put the tree."""
+    `packaging/install.sh` and `install.ps1` run this installer from the tree
+    they just unpacked: without this, a first `--upgrade` from an artifact would
+    aim at the default prefix wherever the user put the tree.
+
+    `current` is a symlink, or on Windows a junction; when install.ps1 could not
+    make the junction it copied the tree, and the installer runs from the copy,
+    so HERE is `<prefix>/current` itself. That copy is a release only when it
+    has no `.git` and the VERSION build.sh writes names a version tree beside
+    it: a checkout cloned as `current` next to another tree is not one, and
+    `--uninstall` would remove both."""
     prefix = os.path.dirname(HERE)  # HERE is <prefix>/<version>, two levels above bin/
     current = os.path.join(prefix, "current")
-    if os.path.isdir(prefix) and os.path.islink(current) \
-            and os.path.realpath(current) == HERE:
+    if not os.path.isdir(prefix):
+        return ""
+    if is_link(current) and os.path.realpath(current) == HERE:
+        return prefix
+    if HERE != current or os.path.exists(os.path.join(HERE, ".git")):
+        return ""
+    try:
+        with open(os.path.join(HERE, "VERSION"), encoding="utf-8") as fh:
+            version = fh.read(64).strip()
+    except OSError:
+        return ""
+    if version and os.path.basename(version) == version \
+            and version not in (".", "..", "current") \
+            and os.path.isfile(os.path.join(prefix, version, "bin", "tezgah-setup")):
         return prefix
     return ""
 # The per-host config roots live in tezgah_paths, the one place that also decides
@@ -3038,12 +3082,12 @@ def remove_install_tree():
     versions = [name for name in sorted(entries)
                 if os.path.isfile(os.path.join(INSTALL_PREFIX, name, "bin",
                                                "tezgah-setup"))
-                and not os.path.islink(os.path.join(INSTALL_PREFIX, name))]
+                and not is_link(os.path.join(INSTALL_PREFIX, name))]
     if not versions:
         print("%s kept %s (no tezgah version tree recognised)" % (NO, INSTALL_PREFIX))
         return
     current = os.path.join(INSTALL_PREFIX, "current")
-    if os.path.islink(current):
+    if is_link(current):
         try:
             os.unlink(current)
             print("%s removed %s" % (OK, current))
@@ -5301,7 +5345,10 @@ def wizard(default_hosts, default_roots, deps_off_default, default_features,
 # packaging/upgrade.sh owns the whole version move: fetch, checksum, unpack,
 # flip `current`. install.sh (a first install) and `tezgah-setup --upgrade` both
 # call it rather than re-implementing it, so a version is unpacked in one place.
+# Windows has no `bash` to run it, and packaging/install.ps1 does the same move
+# there (`-NoInstall` leaves the re-arm to upgrade()).
 UPGRADE = os.path.join(HERE, "packaging", "upgrade.sh")
+UPGRADE_PS1 = os.path.join(HERE, "packaging", "install.ps1")
 
 
 def upgrade(version, dry_run):
@@ -5318,9 +5365,17 @@ def upgrade(version, dry_run):
     cfg = tp.config()
     hosts = cfg.get("hosts") or detected_hosts()
     roots = cfg.get("roots") or []
-    cmd = ["bash", UPGRADE, "--prefix", INSTALL_PREFIX]
-    if version:
-        cmd += ["--version", version]
+    if os.name == "nt":
+        script = UPGRADE_PS1
+        cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+               script, "-Prefix", INSTALL_PREFIX, "-NoInstall"]
+        if version:
+            cmd += ["-Version", version]
+    else:
+        script = UPGRADE
+        cmd = ["bash", script, "--prefix", INSTALL_PREFIX]
+        if version:
+            cmd += ["--version", version]
     print("upgrade: %s -> %s" % (version or "the newest release", INSTALL_PREFIX))
     print("  fetch/unpack: %s" % " ".join(cmd))
     print("  re-arm: %s (roots: %s)"
@@ -5328,16 +5383,20 @@ def upgrade(version, dry_run):
     if dry_run:
         print("  --dry-run: nothing fetched, nothing unpacked, nothing re-armed")
         return 0
-    if not os.path.isfile(UPGRADE):
+    if not os.path.isfile(script):
         print("%s no %s - this tree carries no packaging/ layer, so it cannot "
-              "upgrade itself" % (NO, UPGRADE))
+              "upgrade itself" % (NO, script))
         return 1
+    if not shutil.which(cmd[0]):
+        print("%s no `%s` on PATH to run %s, so this install cannot upgrade "
+              "itself" % (NO, cmd[0], script))
+        return 127
     import tezgah_update
     old = tezgah_update.installed_entries(hosts)
     proc = subprocess.run(cmd)
     if proc.returncode != 0:
         print("%s %s exited %d; tezgah was not re-armed"
-              % (NO, UPGRADE, proc.returncode))
+              % (NO, script, proc.returncode))
         return proc.returncode
     launcher = os.path.join(INSTALL_PREFIX, "current", "bin", "tezgah-setup")
     if not os.path.isfile(launcher):

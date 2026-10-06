@@ -361,6 +361,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A Windows release install can update, upgrade and uninstall itself.**
+  `running_prefix()` now accepts the junction `install.ps1` makes. It also
+  accepts the copy `install.ps1` makes when Windows refuses the junction. So
+  `tezgah update` finds the release prefix. The default prefix is
+  `%LOCALAPPDATA%\tezgah` on Windows. `install.ps1` passes `-Prefix` to
+  `--install`. `--upgrade` runs
+  `install.ps1 -NoInstall` there instead of `bash`. A missing `bash` or
+  `powershell` is a refusal that names it, not a traceback. `--uninstall`
+  removes the junction as a link (`bin/tezgah-setup::is_link`).
+- **The opencode plugin reads Windows roots.** `TEZGAH_ROOTS` splits on the
+  platform delimiter (`;` on Windows), and `shell.env` joins with it. The
+  root test uses `path.relative`. So a `C:\` root no longer leaves the plugin
+  inert.
 - **opencode keeps one snapshot per write and one nudge per session.**
   The core captures a write it answers through `tezgah-gate decide`.
   The plugin now captures only a call the core did not answer.

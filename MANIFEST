@@ -695,6 +695,7 @@ tests/test_host_models.py
 tests/test_identity.py
 tests/test_impacted.py
 tests/test_index.py
+tests/test_install_channels.py
 tests/test_install_exit.py
 tests/test_install_safety.py
 tests/test_install_tree.py

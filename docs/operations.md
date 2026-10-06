@@ -91,8 +91,16 @@ Windows goes through `packaging/install.ps1`, which assumes no `sh`, no `python3
 and no symlink privilege: it unpacks with the `tar.exe` that Windows 10 1803+
 ships, materialises `current` as a directory junction, copies the tree where a
 junction is refused, and starts the installer with the first of `py -3`,
-`python`, `python3` it finds (`packaging/install.ps1:10-23`,
-`packaging/install.ps1:126-150`).
+`python`, `python3` it finds, passing `--prefix` on (`packaging/install.ps1:12-23`,
+`packaging/install.ps1:128-163`). The installer knows both shapes of `current`
+(`bin/tezgah-setup::running_prefix`). A junction answers to
+`os.path.isjunction`, or to its reparse tag below Python 3.12. A copy is the
+running tree at `<prefix>/current` with no `.git`, whose `VERSION` names a
+version tree beside it. A checkout cloned as `current` is not a copy. So
+`tezgah update` finds the release prefix and `--uninstall` removes it.
+`--upgrade` on Windows runs `install.ps1 -NoInstall` in place of
+`packaging/upgrade.sh` and then re-arms from the new tree. A missing `bash` (or
+`powershell`) is a refusal that names it (`bin/tezgah-setup::upgrade`).
 
 An unpacked tree lists itself without git. `plugin_files()` reads `git ls-files`
 in a checkout and falls back to the tracked `MANIFEST` where there is no `.git`; a

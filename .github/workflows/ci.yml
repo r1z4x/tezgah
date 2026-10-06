@@ -172,3 +172,41 @@ jobs:
       - name: Install the unpacked artifact, end to end
         shell: bash
         run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_packaged_install.py
+      - name: The opencode plugin's path rules, natively
+        shell: bash
+        working-directory: tests
+        run: python -m unittest -v test_opencode_plugin.PluginPaths
+      # The installed tree from install.ps1 above: `current` is a junction (or a
+      # copy), so this is the one place `running_prefix()` and the uninstall's
+      # link test meet the real thing.
+      - name: Update, opencode live probe and uninstall from the installed tree
+        shell: pwsh
+        env:
+          TEZGAH_NO_DEPS: "1"
+        run: |
+          $prefix = "$env:RUNNER_TEMP\prefix"
+          $setup = "$prefix\current\bin\tezgah-setup"
+          $out = python $setup update --dry-run | Out-String
+          Write-Output $out
+          if ($LASTEXITCODE) { throw "update --dry-run exited $LASTEXITCODE" }
+          if ($out -notmatch [regex]::Escape("-> $prefix")) {
+            throw "update did not resolve the install prefix $prefix"
+          }
+          if ($out -notmatch 'install\.ps1') { throw "update did not take the PowerShell path" }
+          python $setup --install --hosts opencode --no-deps
+          if ($LASTEXITCODE) { throw "--install --hosts opencode exited $LASTEXITCODE" }
+          # TEZGAH_ROOTS is a drive path here: a `:` split made the plugin inert.
+          # A live row reads UNVERIFIED, exit 0, when node is missing: that is no
+          # proof, so it fails the step too.
+          $live = python $setup --report --live --hosts opencode | Out-String
+          Write-Output $live
+          if ($LASTEXITCODE) { throw "--report --live --hosts opencode exited $LASTEXITCODE" }
+          if ($live -match 'UNVERIFIED\s+live opencode') {
+            throw "the opencode live probe did not run (UNVERIFIED above)"
+          }
+          python $setup --uninstall --hosts claude,codex,opencode,cursor,dsh,omp
+          if ($LASTEXITCODE) { throw "--uninstall exited $LASTEXITCODE" }
+          if (Test-Path -LiteralPath $prefix) {
+            Get-ChildItem -Force -LiteralPath $prefix
+            throw "--uninstall left $prefix behind"
+          }

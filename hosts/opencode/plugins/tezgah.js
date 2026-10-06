@@ -61,7 +61,7 @@ import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { homedir, tmpdir } from "node:os"
-import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path"
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const HOME = homedir()
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "tezgah")
@@ -1993,11 +1993,13 @@ function real(p) {
 }
 
 // `"roots"` is a list; a string is one root and anything else the default -
-// the reading `tezgah_paths.roots()` does.
+// the reading `tezgah_paths.roots()` does. TEZGAH_ROOTS is split on the
+// platform's PATH delimiter (`;` on Windows, where `C:` holds a colon), as
+// `os.pathsep` splits it there.
 async function roots() {
   let raw = []
   if (process.env.TEZGAH_ROOTS) {
-    raw = process.env.TEZGAH_ROOTS.split(":")
+    raw = process.env.TEZGAH_ROOTS.split(delimiter)
   } else {
     try {
       const cfg = JSON.parse(await readFile(join(CONFIG, "config.json"), "utf8"))
@@ -2010,8 +2012,12 @@ async function roots() {
   return [...new Set(raw.map(expand).filter(Boolean).map(real))]
 }
 
+// `dir` is `root` or below it, in the platform's own path rules: `relative`
+// handles `\` and case-folds drive paths on Windows, and a step out (`..`) or
+// another drive (an absolute answer) is not below.
 function under(dir, root) {
-  return dir === root || dir.startsWith(root.endsWith("/") ? root : root + "/")
+  const rel = relative(root, dir)
+  return rel === "" || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel))
 }
 
 async function rootFor(dir) {
@@ -2564,7 +2570,7 @@ export const Tezgah = async ({ directory }) => {
         if (!output || typeof output !== "object") return
         const env = output.env && typeof output.env === "object" ? output.env : (output.env = {})
         const rs = await roots()
-        if (rs.length) env.TEZGAH_ROOTS = rs.join(":")
+        if (rs.length) env.TEZGAH_ROOTS = rs.join(delimiter)
         env.TEZGAH_HOME = CONFIG
         env.TEZGAH_STATUS_BIN = STATUS_BIN
         if (input && input.sessionID) env.TEZGAH_SESSION = String(input.sessionID)
