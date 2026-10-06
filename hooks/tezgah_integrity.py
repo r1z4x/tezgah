@@ -2709,10 +2709,28 @@ WEB_TOOLS = ("web_search", "websearch", "web_fetch", "webfetch", "fetch",
 MCP_TOOL = re.compile(r"^mcp__", re.I)
 # A read that leaves the machine, matched on the masked text so that quoting curl
 # in a commit message is not a read, and only at a command position so that
-# `grep -n curl hooks/` is not one either. ponytail: `sudo curl` and a program
-# reached through a variable are missed rather than matched by accident.
-NETWORK_READ = re.compile(r"(?:^|[|;&(])\s*(?:curl|wget|gh\s+api)\b",
-                          re.I | re.M)
+# `grep -n curl hooks/` is not one either. An issue or PR body, diff or list
+# (`gh issue view|list`, `gh pr view|diff|checkout|list`) is third-party text,
+# and so is a tree from someone else's URL, so they count - after `git -C dir`,
+# `-c k=v` or `--flag`, an `X=1` environment prefix, and a `sudo` with its own
+# flags, none of which makes the read the user's. A `git clone` counts unless
+# its first non-flag argument is a path on this machine (`.`, `/`, `~`,
+# `file:`). A `git pull|fetch` counts only when that argument is a URL
+# (`scheme://`, `user@host:`): a bare one, or one naming a remote, reads the
+# repository's own remote, which is the user's tree, and marking it would put
+# the notice on every `git pull && pytest` turn. ponytail: a program reached
+# through a variable, a `sudo` flag that takes a separate value (`sudo -u root
+# curl`), a git flag with a separate value before the first argument (`git
+# clone --depth 1 ../r` is labelled, `git fetch --depth 1 https://x` is not), and
+# a quoted URL after pull/fetch (the mask blanks it) are read by shape, not by
+# parser. hosts/opencode/plugins/tezgah.js carries this pattern byte for byte.
+NETWORK_READ = re.compile(
+    r"(?:^|[|;&(])\s*(?:(?:[A-Za-z_]\w*=\S*|sudo(?:\s+-\S+)*)\s+)*"
+    r"(?:(?:curl|wget|gh\s+(?:api|issue\s+(?:view|list)|pr\s+(?:view|diff|checkout|list)))\b"
+    r"|git(?:\s+(?:-[Cc]\s+\S+|--\S+))*\s+"
+    r"(?:clone\b(?!(?:\s+-\S+)*\s+(?:[./~]|file:))"
+    r"|(?:pull|fetch)(?:\s+-\S+)*\s+(?!file:)(?:[a-z][\w+.-]*:\/\/|[\w.-]+@[\w.-]+:)))",
+    re.I | re.M)
 # The tier's own read, read the same way: the shell reader the status line
 # already uses to say "a shell command really ran consult" (`shell_kind`), so a
 # mention of the tool in an argument is not a run of it. ponytail: that reader

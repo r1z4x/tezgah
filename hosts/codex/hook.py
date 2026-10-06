@@ -32,7 +32,7 @@ try:
     from tezgah_gate import decision  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, changed_files_notice, note_tool, ran_nothing,
-        report_bytes, stop_reason)
+        report_bytes, stop_reason, untrusted_source)
     from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
 except Exception as exc:
@@ -188,7 +188,10 @@ def main():
         if root_for(cwd):
             safe(session_id, note_tool, session_id, tool, inp,
                  failed=verify_outcome(payload), source=source, cwd=cwd,
-                 out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
+                 # the report's byte rule is the delegate call's own: an effect
+                 # that only inherits the channel keeps its top-level measure
+                 out_bytes=(report_bytes(result)
+                            if untrusted_source(tool, inp) == SUBAGENT_CHANNEL
                             else result_size(result)),
                  empty_run=ran_nothing(result))
         if notice:

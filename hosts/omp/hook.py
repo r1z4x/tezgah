@@ -25,8 +25,9 @@ the same code every other host runs.
         -> {"status": "pony✓ ...", "idx": glyph, "label": one line}
            (records the evidence the Stop rule reads; `idx` echoed from the
            payload skips the git probe; `label` is the untrusted-content notice
-           for a result that came from outside the user and the workspace, and
-           is absent for every ordinary result)
+           for a result that came from outside the user and the workspace, or
+           the taint notice on the first effect after such a result in a turn,
+           and is absent for every ordinary result)
     {"event": "stop", "last_assistant_message": ..., "stop_hook_active": bool}
         -> {"decision": "block", "reason": reason}
            (with `stop_hook_active` the reply is recorded as an `after_block`
@@ -61,6 +62,7 @@ try:
         SUBAGENT_CHANNEL, note, note_tool, stop_reason, untrusted_label,
         untrusted_source)
     from tezgah_paths import off, root_for  # noqa: E402
+    from tezgah_untrusted import marks  # noqa: E402
 except Exception as exc:
     import_failed(exc)
 
@@ -182,17 +184,31 @@ def handle(payload):
         tool = payload.get("tool", "")
         inp = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         failed = payload.get("failed")
-        source = untrusted_source(tool, inp)
+        # Read before this call's row lands, as hooks/projects-posttooluse.py
+        # does: `source` is the row's taint mark and `marks` answers about the
+        # turn the call arrived in. The bridge never sends the result's body, and
+        # `marks` reads a None result as a subagent call that read nothing, so a
+        # non-None stand-in keeps the call-decided subagent label omp always
+        # had. ponytail: a background `task` launch is labelled like a report,
+        # because the bridge sends nothing that tells the two apart. A failed
+        # call made no effect, so it keeps its own channel and earns no notice.
+        own = untrusted_source(tool, inp)
+        if failed is True:
+            source, label = own, untrusted_label(own)
+        else:
+            source, label = safe(session_id, marks, tool, inp, session_id,
+                                 "") or (None, None)
         record(session_id, classify(tool, inp))
         # failed is tri-state on purpose: None means omp reported no outcome,
         # and the ledger then records a check that ran, never one that passed.
-        # `source` is the untrusted channel the result came through, and is left
-        # out of the row for every result that is the user's or the workspace's.
+        # `source` is the untrusted channel the result came through, or the one
+        # an effect inherits from its turn, and is left out of the row for every
+        # other call.
         # `result_len` is the size the bridge measured, never the body, and only
         # an integer counts: a value of any other shape is left unstated so the
         # row cannot claim a size nobody measured.
         size = payload.get("result_len")
-        if source == SUBAGENT_CHANNEL:
+        if own == SUBAGENT_CHANNEL:
             # The bridge measures a result by its top-level length, so a
             # delegate's report - a part list - arrives as a part count (1 on
             # 32174 ledger rows), never as a byte length, and the report's own
@@ -221,8 +237,8 @@ def handle(payload):
         out = answered(*status_line(cwd, session_id, payload.get("idx")))
         # The result is the other thing this event carries. A label is not a
         # deny: the bridge puts it in front of the content itself, so the model
-        # reads where the text came from while it reads the text.
-        label = untrusted_label(source)
+        # reads where the text came from - or, on an effect after such a read,
+        # the taint notice - while it reads the result.
         if label:
             out["label"] = label
         return out

@@ -298,6 +298,32 @@ In order, each step verified by the one below it:
   result the hook is handed (`labelResult` `:1710`). A shared corpus in
   `tests/test_opencode_plugin.py::OpenCodePlugin.test_the_classifier_agrees_with_the_python_half_on_a_shared_corpus` drives both halves over the same calls and
   fails if their answers differ, so neither can move without the other.
+- **omp carries both untrusted-content marks through the shared core.** Its
+  `post_tool_use` calls `marks` (`hooks/tezgah_untrusted.py::marks`), as
+  `hooks/projects-posttooluse.py::main` does. The row's `source` carries the
+  channel an effect inherits from its turn. The line goes back as `label`: the
+  label on a result from outside, or the taint notice on the first effect after
+  one. The bridge puts it in front of the result (`hosts/omp/hook.py::handle`,
+  `labelled` in `hosts/omp/tezgah-hook.ts.in`). The bridge never sends a
+  result's body. `marks` reads a missing result as a subagent call that read
+  nothing. So the hook passes an empty stand-in, and a `task` report keeps its
+  label. A failed call keeps its own channel and earns no notice. omp writes one
+  ledger per subagent, so the hook passes no agent key.
+- **No host gets the taint notice as PreToolUse context.** Checked 2026-10-06
+  against each host's own reference, not in a live run:
+  - Claude takes `additionalContext` but adds it "alongside the tool result"
+    (code.claude.com/docs/en/hooks, PreToolUse decision control).
+  - omp 18.6.1 takes a `tool_call` `additionalContext` and adds it after the
+    tool ran (read from the installed binary).
+  - Codex takes it (`pre-tool-use.command.output.schema.json` in openai/codex,
+    and its hooks page). Its timing is not stated.
+  - Cursor's `preToolUse` output has no context field, only `agent_message` on
+    a deny (cursor.com/docs/hooks).
+  - opencode's `tool.execute.before` can change only the arguments.
+  - dsh: nobody has checked its bridge.
+
+  On Claude and omp the line would land where the PostToolUse notice already
+  does. Sending it there too would show it twice, with no timing gain.
 - **opencode asks the core for the rules it cannot port, and counts the ask.** The
   task rule's phase and allowlist and the language rule's word list are answered by
   `bin/tezgah-gate decide` (the recording verb; `check` is the dry run) rather than copied into JavaScript (`IDENT_CMD`

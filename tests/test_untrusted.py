@@ -99,9 +99,37 @@ class PostToolUseProvenance(TempHome):
                  ("web_fetch", {"url": "https://x"}, "a web result"),
                  ("web_search", {"query": "x"}, "a web result"),
                  ("mcp__github__get_file", {"path": "x"}, "an MCP server"),
-                 ("Bash", {"command": "curl -s https://x"}, "a network read")]
+                 ("Bash", {"command": "curl -s https://x"}, "a network read"),
+                 # the forms security-06 found unlabelled: an issue or PR body
+                 # is third-party text, a clone is a third party's tree, and
+                 # `sudo` in front of a read does not make it the user's
+                 ("Bash", {"command": "gh issue view 12"}, "a network read"),
+                 ("Bash", {"command": "gh pr view 3 --comments"}, "a network read"),
+                 ("Bash", {"command": "cd /tmp && git clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": "sudo curl -s https://x"}, "a network read"),
+                 ("Bash", {"command": "sudo -E wget -q https://x"},
+                  "a network read"),
+                 # a PR diff, a checked-out PR and an issue or PR list are a
+                 # third party's text too, and so is a tree pulled from a URL
+                 ("Bash", {"command": "gh pr diff 3"}, "a network read"),
+                 ("Bash", {"command": "gh pr checkout 3"}, "a network read"),
+                 ("Bash", {"command": "gh issue list"}, "a network read"),
+                 ("Bash", {"command": "gh pr list --state open"},
+                  "a network read"),
+                 ("Bash", {"command": "git -C /tmp clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": "GIT_TERMINAL_PROMPT=0 git clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": 'git clone "https://x/y"'}, "a network read"),
+                 ("Bash", {"command": "git pull https://x/y main"},
+                  "a network read"),
+                 ("Bash", {"command": "git fetch git@github.com:o/r.git"},
+                  "a network read"),
+                 ("Bash", {"command": "git -C d pull --rebase ssh://h/r"},
+                  "a network read")]
         for i, (tool, inp, channel) in enumerate(cases):
-            with self.subTest(tool=tool):
+            with self.subTest(tool=tool, inp=inp):
                 text = self.line(tool, inp, session="s-label-%d" % i)
                 self.assertIn("untrusted content", text)
                 self.assertIn(channel, text)
@@ -117,10 +145,29 @@ class PostToolUseProvenance(TempHome):
         cases = [("Bash", {"command": "pytest -q"}),
                  ("Bash", {"command": 'git commit -m "curl is not a read"'}),
                  ("Bash", {"command": "grep -n curl hooks/"}),
+                 ("Bash", {"command": "gh issue create -t x -b y"}),
+                 ("Bash", {"command": 'git commit -m "git clone and gh pr view"'}),
+                 ("Bash", {"command": "git log --grep clone"}),
+                 ("Bash", {"command": "sudo rm -f /tmp/x"}),
+                 # a clone or pull of a tree on this machine reads nothing from
+                 # outside it
+                 ("Bash", {"command": "git clone ../repo copy"}),
+                 ("Bash", {"command": "git clone --bare /abs/repo"}),
+                 ("Bash", {"command": "git clone ~/src/repo"}),
+                 ("Bash", {"command": "git clone file:///abs/repo"}),
+                 ("Bash", {"command": "git pull . feature"}),
+                 ("Bash", {"command": "git fetch ../other"}),
+                 ("Bash", {"command": "git pull file:///abs/repo"}),
+                 # the repository's own remote is the user's tree: a `git pull
+                 # && pytest` turn must not wear a notice
+                 ("Bash", {"command": "git pull"}),
+                 ("Bash", {"command": "git pull origin main && pytest -q"}),
+                 ("Bash", {"command": "git fetch --all"}),
+                 ("Bash", {"command": "git -c x=y fetch upstream"}),
                  ("Edit", {"file_path": "/tmp/x.py"}),
                  ("Grep", {"pattern": "curl"})]
         for i, (tool, inp) in enumerate(cases):
-            with self.subTest(tool=tool):
+            with self.subTest(tool=tool, inp=inp):
                 self.assertEqual(self.line(tool, inp, session="s-plain-%d" % i), "")
         self.assertEqual([r for r in self.rows("s-plain-0") if r.get("source")], [])
 
@@ -317,6 +364,9 @@ class PostToolUseProvenance(TempHome):
                                    tool_response=launch), "")
         self.assertEqual(self.line("Edit", {"file_path": "/tmp/x.py"}), "")
         self.assertEqual([r for r in self.rows() if r.get("source")], [])
+        # the launch is measured by the report rule, which finds no report text:
+        # its size is unknown, not the launch object's field count
+        self.assertNotIn("out_bytes", self.rows()[0])
 
     def test_outside_a_root_nothing_is_shown(self):
         out = self.post("WebFetch", {"url": "https://x"}, cwd=self.home)
