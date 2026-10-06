@@ -850,10 +850,28 @@ class KillSwitchEnforcement(TempHome):
     # per REMINDER_CLAUSES key; the repo marks sit at the repo root while the
     # prompt comes from a subdirectory, the walk-up `repo_marks` does.
     REMINDER_SWITCHES = {
-        "exec": "exec-mode.off", "spec": "spec-off", "consult": "consult-off",
-        "research": "research-off", "integrity": "verify-off",
+        "exec": "exec-mode.off", "integrity": "verify-off",
         "adhd": ".no-adhd", "ponytail": ".no-ponytail",
-        "lessons": ".no-lessons", "graph": ".no-graph"}
+        "lessons": ".no-lessons", "consult": "consult-off"}
+
+    def test_the_reminder_leaves_the_conditional_rules_to_their_armed_turn(self):
+        # spec, graph and research ride the turn whose prompt arms them; a
+        # clause restating them on every turn was paid twice. Consult keeps its
+        # short clause: a terse irreversible turn ("push it to main", "prod
+        # veritabanını sil") arms nothing and no gate enforces the rule
+        out = self.prompt(self.make_repo(), "x")
+        for gone in ("checkable spec", "codegraph callers", "orx/OpenResearch"):
+            self.assertNotIn(gone, out)
+        self.assertIn("consult before irreversible calls", out)
+        for terse in ("push it to main", "prod veritabanını sil",
+                      "force push the branch"):
+            self.assertNotIn("consult", self.tc_classify(terse), terse)
+
+    @staticmethod
+    def tc_classify(prompt):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        return tc.classify_prompt(prompt)
 
     @staticmethod
     def clause_marker(clause):
@@ -2522,6 +2540,29 @@ class SubagentBrief(unittest.TestCase):
             if key in self.tc.CONDITIONAL_KEYS:
                 continue
             self.assertIn(label, brief, "missing from the subagent brief: %s" % key)
+
+    def test_the_brief_keeps_each_rules_operative_clause_cut_from_core(self):
+        # the first-sentence cut lost "inter-agent reports stay English" and
+        # left the lessons rule a statement with no instruction; the kept
+        # sentences are counted (BRIEF_SENTENCES), never hand-written, so each
+        # one is a verbatim run of CORE with its whitespace collapsed
+        tc = self.tc
+        brief = tc.render(tc.subagent_core())
+        flat = " ".join(brief.split())
+        self.assertIn("subagent prompts and inter-agent reports stay English", flat)
+        self.assertIn("Read them before starting and treat each as a standing "
+                      "constraint", flat)
+        self.assertIn("Never install, upgrade, restart or kill anything for "
+                      "tezgah", flat)
+        core = " ".join(tc.render(tc.always_on_core()).split())
+        self.assertTrue(set(tc.BRIEF_SENTENCES) <= {k for k, _ in tc.CORE_RULES})
+        self.assertTrue(all(isinstance(n, int) for n in tc.BRIEF_SENTENCES.values()))
+        for line in brief.split("\n**")[1:]:
+            if line.startswith(("Contract.", "On-demand", "Kill switches")):
+                continue
+            body = " ".join(line.split("**", 1)[1].split())
+            self.assertIn(body.rstrip("."), core)
+        self.assertLess(len(brief.encode()), 5000)
 
     def test_the_brief_is_shorter_and_leaves_the_detail_on_demand(self):
         core = self.tc.always_on_core()

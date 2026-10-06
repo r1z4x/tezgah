@@ -326,8 +326,10 @@ class ContextLine(SkillPick):
 
     def baseline(self, repo):
         """The per-turn text with no judgement available at all: no credential, so
-        nothing is asked and nothing is appended."""
-        return self.prompt(repo, env=self.child_env())
+        nothing is asked and nothing is appended. Its own session: an armed
+        paragraph is paid in full once per session, so a second turn of the same
+        session would carry the one-line repeat instead."""
+        return self.prompt(repo, env=self.child_env(), session="baseline")
 
     def test_the_line_is_appended_and_the_rest_is_byte_identical(self):
         repo = os.path.join(self.home, "Projects", "repo")

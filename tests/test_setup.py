@@ -1667,8 +1667,18 @@ class LiveReport(SetupBase):
 
 
 
+def contract_blocks():
+    """The policy blocks the hand-kept contract skill mirrors, joined - the
+    test's own reading of them, since the policy keeps no joined constant."""
+    import tezgah_policy as p
+    return "\n\n".join((p.CODEGRAPH_RULE % p.CODEGRAPH_STATIC, p.WORKFLOWS,
+                        p.ORCHESTRATE, p.PONYTAIL, p.ADHD, p.SPEC, p.LESSONS,
+                        p.EXEC, p.CONSULT, p.RESEARCH, p.PRODUCT, p.NO_GRAPH,
+                        p.NO_CONSULT))
+
+
 class ContractParity(unittest.TestCase):
-    """policy.CONTRACT and skills/tezgah-contract/SKILL.md are two hand-kept
+    """The policy blocks and skills/tezgah-contract/SKILL.md are two hand-kept
     copies of the same rules. The sha record in bin/tezgah-setup notices that a
     render changed; this notices that only one of them changed, which is the
     drift that actually happens."""
@@ -1684,16 +1694,26 @@ class ContractParity(unittest.TestCase):
         path = os.path.join(REPO, "skills", "tezgah-contract", "SKILL.md")
         with open(path, encoding="utf-8") as fh:
             skill = fh.read()
-        # the contract is a template; the skill writes the placeholders out, and
+        # the blocks are a template; the skill writes the placeholders out, and
         # names the reply_lang setting where a render names one of its values
-        text = policy.CONTRACT.replace("{ROOT}", "the configured tezgah roots")
+        text = contract_blocks().replace("{ROOT}", "the configured tezgah roots")
         for key, words in policy.REPLY_LANG_HOOKLESS.items():
             text = text.replace(key, words)
         missing = [item for item in self.rules(text) if item not in skill]
         self.assertEqual([], missing,
-                         "these rules exist in policy.CONTRACT but not in the "
+                         "these rules exist in the policy blocks but not in the "
                          "skill: %s" % missing)
         self.assertIn("`reply_lang`", skill)
+
+    def test_the_cost_report_measures_the_shipped_skill(self):
+        # the joined constant drifted from the skill and still drove the
+        # report's on-demand figure; the policy keeps no join now
+        import tezgah_policy as policy
+        self.assertFalse(hasattr(policy, "CONTRACT"))
+        path = os.path.join(REPO, "skills", "tezgah-contract", "SKILL.md")
+        with open(path, encoding="utf-8") as fh:
+            size = len(fh.read())
+        self.assertEqual(setup_module().context_budget()[1], size)
 
 
 class GraphRuleBand(SetupBase):
@@ -1708,7 +1728,7 @@ class GraphRuleBand(SetupBase):
     session pays its text only then."""
 
     def test_the_rule_rides_the_task_class_not_the_always_on_band(self):
-        """The rule is rendered into policy.CONTRACT, never into CORE.
+        """The rule is one of the on-demand contract blocks, never in CORE.
 
         The always-on band the installer prints (`core contract (always-on, per
         session)`) is CORE minus the conditional paragraphs, so a rule that
@@ -1717,10 +1737,9 @@ class GraphRuleBand(SetupBase):
         the rendered text, not on a length, because the band's number moves with
         any CORE edit and a pinned number would report that as this rule
         drifting."""
-        import tezgah_policy as policy
         module = setup_module()
         rule = module.CODEGRAPH_RULE % module.CODEGRAPH_STATIC
-        self.assertIn(rule, policy.CONTRACT)
+        self.assertIn(rule, contract_blocks())
         always = module.tezgah_context.always_on_core()
         self.assertNotIn(rule, always)
         # the short CORE paragraph is the same rule's arming stub: it is paid per

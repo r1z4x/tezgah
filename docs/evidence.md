@@ -97,9 +97,11 @@ be told apart and the same summary can be recognised twice), the host's own word
 (`trigger`: `manual` or `auto`) on `detail`, and the constraint report. The summary's **text is never
 stored** — it is the whole conversation by proxy and the ledger is a redacted channel — so a row can
 never be read back as prose. The constraint report is `constraint_found` of `constraint_expected`: how
-many of the fixed sentences tezgah injects the summary still carries, counted against the very text the
+many of the constraint lines tezgah injects the summary still carries, counted against the very text the
 block renders (`constraint_lines`, `hooks/tezgah_context.py::constraint_lines`, over `POINTER_LINE`
-`hooks/tezgah_context.py::POINTER_LINE` and the active plan's front matter). It is a **report and never a refusal**: a compaction
+`hooks/tezgah_context.py::POINTER_LINE`, the active plan's front matter, and the object of each constraint the
+user issued this session, kept in the turn stamp as its matched clause and never the prompt -
+`hooks/tezgah_context.py::user_constraints`). It is a **report and never a refusal**: a compaction
 that dropped a rule is a finding to report, not a turn to block. A host that hands no summary writes no
 row, and `tezgah-status --counters` folds the rows into `compactions`, `compact_chars` (the newest
 summary's length) and `compact_constraint_rate` — which stays `None` until one row carries both counts,

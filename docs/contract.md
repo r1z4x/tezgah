@@ -18,10 +18,10 @@ host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
 | Surface | Text | Paid |
 |---|---|---|
 | always-on core | `CORE` (`hooks/tezgah_policy.py::CORE`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
-| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`) | only on the turn whose prompt matches its task class |
+| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`) | in full on the first turn of a session whose prompt matches its task class; a later match pays one line (`hooks/tezgah_context.py::armed_again`) until a compaction or `ARMED_RESURFACE` turns (`hooks/tezgah_context.py::ARMED_RESURFACE`) bring the full text back |
 | per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py::PROMPT_REMINDER`) | every user prompt |
 | skill suggestion | one `<skill_relevance>` line naming at most one installed skill, written by `suggest` (`hooks/tezgah_skill_pick.py::suggest`); off unless `skill-suggest-on` is armed | only on a turn the judgement answers with a skill |
-| on-demand full contract | `CONTRACT` (`hooks/tezgah_policy.py::CONTRACT`), shipped as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
+| on-demand full contract | the long-form blocks of `hooks/tezgah_policy.py` (`EXEC`, `CONSULT`, `RESEARCH`, …), shipped hand-kept as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
 
 The skill suggestion is the one surface a judgement writes rather than a constant.
 The roster reaches a session as an index of host-truncated one-liners, so which
@@ -54,7 +54,9 @@ the reminder, whatever was armed and any skill hint, `subagent_start` builds a s
 (`hooks/tezgah_context.py::context_for`). A host whose static always-on file already
 carries the core passes `with_core=False` so the session does not pay for the
 contract twice (`hooks/tezgah_context.py::context_for`); a delegated agent gets
-`subagent_core()`, which keeps every always-on label and its opening clause, and
+`subagent_core()`, which keeps every always-on label and its opening sentence -
+two where the operative clause is the second, counted by `BRIEF_SENTENCES`
+(`hooks/tezgah_context.py::BRIEF_SENTENCES`) and cut from CORE's own text - and
 carries the two always-on blocks that are not labelled rules - the on-demand
 pointer line and the kill-switch list - in its header, because its header claims
 every rule is in force and a delegate that cannot name a switch cannot tell its
@@ -84,15 +86,34 @@ The same event is where a compaction is recorded rather than only answered. When
 the host hands the PostCompact payload a summary - Claude's `compact_summary`,
 the text the model is about to receive - the shared funnel writes one ledger row
 holding the summary's length, a 12-hex digest of it, the host's `trigger`
-(`manual` or `auto`) and how many of the fixed constraint lines tezgah injects
-(the pointer line, and the active plan's line when the repo keeps an open plan)
-the summary still carries, out of how many were injected. The text itself is
+(`manual` or `auto`) and how many of the constraint lines tezgah injects (the
+pointer line, the active plan's line when the repo keeps an open plan, and each
+constraint the user issued this session) the summary still carries, out of how
+many were injected. The text itself is
 never stored: the summary is the whole conversation by proxy and the ledger is a
 redacted channel, so a row must not be readable as prose. The count is a report
 and never a refusal - a compaction that dropped a rule is a finding to report,
 not a turn to block - and `tezgah-status --counters` folds the rows into
 `compactions`, `compact_chars` and `compact_constraint_rate`
 ([evidence.md](evidence.md#the-kinds-by-what-reads-them)).
+
+A user constraint is the clause a prompt states it in: "don't touch
+hooks.json", "ask before pushing", "README'ye dokunma", "bana sormadan push
+etme". A closed set of imperative shapes matches it (`CONSTRAINT_SHAPES`,
+`hooks/tezgah_context.py::CONSTRAINT_SHAPES`, read by `user_constraints`,
+`hooks/tezgah_context.py::user_constraints`). The turn stamp keeps the clause
+from the shape to its sentence's end, redacted and cut to 120 characters, and
+never the prompt. It keeps the five newest. A shape that starts inside quotes,
+inline code, a fenced block or a `>` line does not count. A quoted object after
+a plain "don't touch" does. The recogniser skips a prompt over 12,000
+characters (`CONSTRAINT_PROMPT_MAX`, `hooks/tezgah_context.py::CONSTRAINT_PROMPT_MAX`).
+Pasted material is not the user's constraint. `post_compact` and `session_start`
+restate the clauses as one block
+(`pinned_block`, `hooks/tezgah_context.py::pinned_block`). The compaction count
+looks for each clause's object phrase, the words a paraphrasing summary keeps
+(`constraint_needle`, `hooks/tezgah_context.py::constraint_needle`). The shapes are
+precise rather than complete. `tests/constraint-fixtures.md` lists the real
+prompts the shapes ran on, the misses and the known false positives.
 
 One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
@@ -182,7 +203,10 @@ rule keeps a pointer line in the always-on text (`tests/test_context.py::ArmingC
 `PROMPT_REMINDER` is the compact restatement of the invariants. It stays
 inside the `<harness-reminder>` envelope the hosts and
 tests look for (`hooks/tezgah_policy.py::PROMPT_REMINDER`), with its `{PONY_LEVEL}` slot naming a non-default ponytail level
-(`hooks/tezgah_context.py::_pony_level_line`). The session-start text ends with the pointer
+(`hooks/tezgah_context.py::_pony_level_line`). It names three conditional rules
+nowhere: spec, graph and research reach a turn through their armed paragraph.
+Consult keeps its short clause. A terse irreversible ask ("push it to main")
+arms no paragraph, and no gate enforces the rule. The session-start text ends with the pointer
 telling the model to load `tezgah-contract` for the deep detail
 (`hooks/tezgah_context.py::context_for`), whose two appendixes apply only on a machine
 missing the code graph or every consult option (`hooks/tezgah_policy.py:511-531`).
@@ -258,7 +282,7 @@ they survive every other switch being off.
 | Copy A | Copy B | Test that fails when only one changed |
 |---|---|---|
 | `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:2517` |
-| `policy.CONTRACT` (`hooks/tezgah_policy.py::CONTRACT`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:800` |
+| the long-form blocks of `hooks/tezgah_policy.py` (`EXEC`, `CONSULT`, …) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py::ContractParity` |
 
 Drift between the source and what a host reads is caught on the rendered side:
 `~/.config/tezgah/contract.sha256` holds one `<sha>  <path>` line per rendered
@@ -282,20 +306,24 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 ## When the injected text grows too large
 
 Each event has a byte budget: `session_start` and `post_compact` 12000,
-`user_prompt` 6000, `subagent_start` 5000, anything else 12000
-(`hooks/tezgah_context.py:1339-1341`). Each sits at about 1.5× the largest text
-that event was measured to build in this repository, so it never fires on a
-healthy repo and fires before a pathological one reaches the model; it is a byte
-count, not a token estimate (`hooks/tezgah_context.py:1337-1338`).
+`user_prompt` 6000, `subagent_start` 5500, anything else 12000
+(`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
+sizes sit beside it. A fixture repo builds 10066 B at `session_start` and about
+5150 B at `subagent_start`. A `user_prompt` that arms all five conditional rules
+for the first time builds 7503 B. That is over its budget on purpose: an armed paragraph
+is never dropped, and every later match in the session pays one line. The
+budget is a byte count, not a token estimate.
 
 Over budget, `budgeted()` gives up blocks in `DROP_ORDER`, lowest value
 first — the text another surface already carries (project knowledge, the
-sibling-checkout line, lessons, the per-turn relevant lessons, the plan table) first, then the tooling-availability lines and the live graph
+sibling-checkout line, lessons), the skill hint (a suggestion, never an
+instruction), the per-turn relevant lessons and the plan table first, then the tooling-availability lines and the live graph
 glance, then the resume state (it outlives those because it is the only one that
 says what this session was doing, and it still yields to a rule), then the
 evidence-scope warning, the task phase, the delta, and the skill pointer last
-(`hooks/tezgah_context.py:1342-1359`, `hooks/tezgah_context.py::DROP_ORDER`). Any key absent from that tuple is
-never dropped: the core, the reminder and the armed paragraphs are the rules, and
+(`hooks/tezgah_context.py::DROP_ORDER`). Any key absent from that tuple is
+never dropped: the core, the reminder, the armed paragraphs and the user's pinned
+constraints are the rules, and
 a budget able to spend them would turn bloat into rule loss. The note naming what
 went is appended after the count, so the sentence explaining the trim cannot force
 another one, and it says so when what remains is still over the limit
@@ -308,8 +336,8 @@ session remembers only the lessons a turn still shows.
 
 ## Source of truth
 
-- `hooks/tezgah_policy.py` — `CORE`, `CONDITIONAL_KEYS`, `POINTERS`, `PROMPT_REMINDER`, `CONTRACT`, and the long-form blocks they are built from
-- `hooks/tezgah_context.py` — `CORE_RULES`, `PROMPT_HINTS`, `classify_prompt`, `core_split`, `core_for`, `always_on_core`, `subagent_core`, `context_for`, `repo_marks`, `CONTEXT_BUDGET`, `DROP_ORDER`, `budgeted`, `log_drop`
+- `hooks/tezgah_policy.py` — `CORE`, `CONDITIONAL_KEYS`, `POINTERS`, `PROMPT_REMINDER`, and the long-form blocks they are built from
+- `hooks/tezgah_context.py` — `CORE_RULES`, `PROMPT_HINTS`, `classify_prompt`, `core_split`, `core_for`, `always_on_core`, `subagent_core`, `BRIEF_SENTENCES`, `armed_again`, `ARMED_RESURFACE`, `user_constraints`, `constraint_lines`, `context_for`, `repo_marks`, `CONTEXT_BUDGET`, `DROP_ORDER`, `budgeted`, `log_drop`
 - `hooks/tezgah_paths.py` — `OFF_DIRS`, `off()`, the ponytail level path; `bin/tezgah-setup` — `install_common`, `opencode_contract`, `refresh_contract`, the omp `RULES.md` writer, `--refresh`; `bin/tezgah-adhd` — the CLI that writes the `adhd-off` switch
 - `skills/tezgah-contract/SKILL.md` — the on-demand full contract; `output-styles/tezgah.md` — Claude's always-on duplicate of the core
 - `tests/test_context.py`, `tests/test_setup.py`, `tests/test_skills.py` — the label, kill-switch, budget and mirror tests

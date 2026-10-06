@@ -398,7 +398,9 @@ enforces ends `|| enforced_by: <rule|test>` and is not injected. Off:
 ## Reporting contract: executive mode (auto-armed, tezgah roots only)
 
 These rules fix the language, framing, and truthfulness of what is said.
-On conflict with any armed style skill, these win.
+On conflict with any armed style skill over output and report style, these
+win; a project's own rule file (a nested AGENTS.md or CLAUDE.md) still binds
+the subtree it sits in.
 
 **Language split.** Every user-facing reply - answers, findings, summaries,
 status lines, warnings - in the language `reply_lang` sets in

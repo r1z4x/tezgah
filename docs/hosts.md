@@ -223,7 +223,10 @@ In order, each step verified by the one below it:
     (`hooks/projects-auto-init.py:25-36`, `hosts/codex/hook.py::main`).
   - **opencode**: `experimental.session.compacting` carries the builder's
     post-compact block, so the contract survives the summary
-    (`hosts/opencode/plugins/tezgah.js:39-40`).
+    (`hosts/opencode/plugins/tezgah.js:39-40`). It hands the builder the
+    session id. The builder then forgets the lessons and armed paragraphs
+    that session saw, and restates its pinned user constraints. The call
+    used to send `{}`, which keyed nothing on the session.
   - **omp**: re-injected. The extension subscribes to omp's `session_compact`
     event (payload `{type, compactionEntry, fromExtension}`;
     `compactionEntry.summary` is the post-compaction summary) and asks

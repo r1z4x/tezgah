@@ -1852,6 +1852,23 @@ class OpenCodePlugin(TempHome):
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["output"]["context"], [self.builder("post_compact")])
 
+    def test_compacting_passes_the_session_so_the_seen_sets_clear(self):
+        # An armed paragraph is paid once per session and its repeat is one
+        # line; compaction must clear that, and the builder can only find the
+        # session's stamp when the plugin hands it the session id.
+        self.context_bin()
+        prompt = "make it look better"
+        self.assertNotIn("Armed again", self.message(prompt)[-1]["text"])
+        again = self.message(prompt + " please")[-1]["text"]
+        self.assertIn("**Spec before building.** Armed again", again)
+        res = self.drive([{"hook": "experimental.session.compacting",
+                           "input": {"sessionID": "s1"},
+                           "output": {"context": []}}])[0]
+        self.assertTrue(res["ok"], res)
+        after = self.message(prompt + " now")[-1]["text"]
+        self.assertIn("**Spec before building.**", after)
+        self.assertNotIn("Armed again", after)
+
     def test_compacting_is_inert_outside_the_roots(self):
         self.context_bin()
         res = self.drive([{"hook": "experimental.session.compacting",

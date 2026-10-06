@@ -167,7 +167,7 @@ EXEC = """
 ## Reporting contract: executive mode (auto-armed, tezgah roots only)
 
 These rules fix the language, framing, and truthfulness of what is said.
-On conflict with any armed style skill, these win.
+On conflict with any armed style skill over output and report style, these win; a project's own rule file (a nested AGENTS.md or CLAUDE.md) still binds the subtree it sits in.
 
 **Language split.** Every user-facing reply - answers, findings, summaries,
 status lines, warnings - {REPLY_SPLIT}.
@@ -868,11 +868,8 @@ no recap, no closer, at most five ranked items; code minimal per ponytail
 (code first, <=3 note lines); deliver the whole ask - no cheaper
 stand-in, no silent scope cut, no partial reported as done, ask before dropping
 any item; no placating openers ("haklısın"), own a mistake in one line;
-underspecified/quality asks -> write a
-checkable spec with a named standard, never guess; .tezgah/lessons.md lines are
-standing constraints; "who calls X"/"what breaks" -> `codegraph callers` /
-`codegraph impact`, not grep alone; consult before irreversible calls;
-research -> orx/OpenResearch, not ad-hoc; done/tested claims need observed
+.tezgah/lessons.md lines are standing constraints; consult before irreversible
+calls; done/tested claims need observed
 evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
 test skip) and the Stop hook on Claude/Codex/Cursor/omp blocks an unverified "done"; no
 AI/model attribution in any persisted or published artifact. Full
@@ -880,12 +877,10 @@ detail: the tezgah-contract skill.{PONY_LEVEL} Kill switches under ~/.config/tez
 </harness-reminder>
 """
 
-# Every block joined: the on-demand full contract shipped as
-# skills/tezgah-contract/SKILL.md. CORE stays the always-on summary. The rule's
-# own two slots are filled here so the joined text never carries a raw `%s`.
-CONTRACT = "\n\n".join((CODEGRAPH_RULE % CODEGRAPH_STATIC, WORKFLOWS, ORCHESTRATE,
-                        PONYTAIL, ADHD, SPEC, LESSONS, EXEC, CONSULT, RESEARCH,
-                        PRODUCT, NO_GRAPH, NO_CONSULT))
+# The blocks above are the on-demand full contract, shipped hand-kept as
+# skills/tezgah-contract/SKILL.md; CORE stays the always-on summary. There is no
+# joined constant: the cost report measures the shipped skill itself, and
+# ContractParity (tests/test_setup.py) walks these blocks against it.
 
 # --- the research rule's one computed sentence -------------------------------
 # Everything above is text a renderer fills with paths. This is the one piece of
