@@ -264,6 +264,9 @@ CURSOR_HOOK_EVENTS = {
 # makes a config written before this existed behave exactly as it used to.
 # --enable/--disable/--devtools and the wizard set it before anything is written.
 FEATURES = None
+# The `reply_lang` this run stores (--reply-lang); None keeps what config.json
+# says, and a config without the key reads as `tr` (tezgah_paths.reply_lang).
+REPLY_LANG = None
 OK, NO = "  ok  ", " MISS "
 
 
@@ -727,8 +730,8 @@ def save_features(ids):
     a mtime or leave a second backup, because "wrote nothing" is what makes the
     command idempotent rather than merely convergent. Returns True when the file
     changed."""
-    cfg = tp.config()
-    if list(cfg.get("features") or []) == list(ids):
+    cfg = read_config(tp.CONFIG, {})
+    if cfg is None or list(cfg.get("features") or []) == list(ids):
         return False
     cfg["features"] = list(ids)
     write_json(tp.CONFIG, cfg)
@@ -859,7 +862,11 @@ def detected():
 # ---------------------------------------------------------------- install ----
 
 def install_common(new_roots, hosts):
-    cfg = tp.config()
+    # tezgah's own config is refused like a host's: tp.config() reads a malformed
+    # file as {}, and writing that back would drop the user's roots and settings
+    cfg = read_config(tp.CONFIG, {})
+    own = cfg is not None
+    cfg = cfg if own else {}
     cfg["roots"] = [expand(r) for r in new_roots] if new_roots else \
         (tp.roots() or [tp.DEFAULT_ROOT])
     if tp.codegraph_bin():
@@ -876,8 +883,11 @@ def install_common(new_roots, hosts):
     # anywhere, so it moves the tree the install actually used instead of the
     # XDG default. An explicit --prefix or TEZGAH_PREFIX still wins over it.
     cfg["prefix"] = INSTALL_PREFIX
-    write_json(tp.CONFIG, cfg)
-    print("%s %s  roots=%s" % (OK, tp.CONFIG, cfg["roots"]))
+    if REPLY_LANG:
+        cfg["reply_lang"] = REPLY_LANG
+    if own:
+        write_json(tp.CONFIG, cfg)
+        print("%s %s  roots=%s" % (OK, tp.CONFIG, cfg["roots"]))
     for name, src in [
             ("consult", os.path.join(HERE, "bin", "consult")),
             ("codegen", os.path.join(HERE, "bin", "codegen")),
@@ -973,6 +983,119 @@ def install_claude():
     # (`TEZGAH_CORE_IN_FILE`, hooks/projects-auto-init.py), so a session pays for
     # the contract once.
     print("%s %s (always-on contract)" % (OK, write_rules("claude")))
+    register_claude_plugin()
+
+
+# The marketplace a manifest rendered by this installer carries, so Claude
+# installs the plugin as `tezgah@tezgah-local`. A manifest the tree already has
+# under another name (the maintainer's) is kept, name included.
+CLAUDE_MARKETPLACE = "tezgah-local"
+CLAUDE_CLI_TIMEOUT = 120
+
+
+def render_claude_manifest():
+    """Write `.claude-plugin/{plugin,marketplace}.json` into this tree from the
+    release version (ADR 013). Untracked (.gitignore), so a clone or a release
+    tree has none until this runs. A pair this installer rendered follows the
+    version on every run, because a checkout's CHANGELOG moves under it; a pair
+    under another marketplace name is the maintainer's and is never rewritten.
+    False, with a MISS row, when the tree is not writable (a root-owned
+    `sudo npm -g` install): the install goes on to its report."""
+    d = os.path.join(HERE, ".claude-plugin")
+    market = os.path.join(d, "marketplace.json")
+    name = read_json(market, {}).get("name")
+    if name and name != CLAUDE_MARKETPLACE:
+        return True
+    url = "https://github.com/r1z4x/tezgah"
+    plugin = {"name": "tezgah", "displayName": "Tezgah",
+              "description": "One working contract for every AI coding assistant "
+                             "inside the configured roots.",
+              "version": tezgah_context.version(manifest=False) or "0.0.0",
+              "author": {"name": "r1z4x"}, "license": "MIT",
+              "repository": url, "homepage": url}
+    pair = {"plugin.json": plugin,
+            "marketplace.json": {"name": CLAUDE_MARKETPLACE,
+                                 "owner": {"name": "r1z4x"},
+                                 "plugins": [dict(plugin, source="./")],
+                                 "version": plugin["version"]}}
+    try:
+        mkdirp(d)
+        for fname, data in pair.items():
+            # tezgah's own generated file: no backup, unlike a host config
+            path, text = os.path.join(d, fname), json.dumps(data, indent=2) + "\n"
+            if read_json(path, None) != data:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+    except OSError as exc:
+        print("%s cannot write %s (%s): Claude's plugin manifest is not rendered"
+              % (NO, d, exc.strerror or exc))
+        return False
+    return True
+
+
+def claude_marketplace_source():
+    """The directory the marketplace row names: a path that survives an upgrade.
+
+    A release prefix flips `<prefix>/current` and deletes old version dirs, and
+    Homebrew installs a new keg beside the old one behind `opt/tezgah`, so a row
+    naming this versioned tree would point at nothing after `tezgah update`. npm
+    replaces its tree in place and a git checkout is its own stable path, so
+    both register this tree. The uninstall's `_is_tezgah_marketplace_row`
+    resolves the link, so it still recognises the row."""
+    prefix = running_prefix()
+    if prefix:
+        return os.path.join(prefix, "current")
+    import tezgah_update
+    if tezgah_update.channel(HERE) == "brew":
+        return os.path.dirname(os.path.dirname(tezgah_update.launcher("brew", HERE)))
+    return HERE
+
+
+def register_claude_plugin():
+    """Register the plugin with Claude through its own CLI (ADR 013).
+
+    Claude's gate, Stop and ledger hooks ship inside the plugin, and Claude
+    loads a plugin only from its registry, so an install that wrote no row left
+    Claude unarmed on every machine but the maintainer's. The marketplace is a
+    directory source pinned to `claude_marketplace_source()`, never an
+    auto-updating remote. Any `tezgah@*` row already there is left alone: a
+    second one fires every hook twice. The report's plugin row is the verdict."""
+    # A release tree is new after every upgrade, and the stable link the row
+    # names now resolves to it: the pair must be there for Claude to read, even
+    # when the row exists and nothing is registered. A checkout keeps none
+    # unless it registers, so the suite's own tree gets no untracked pair.
+    rows = read_json(INSTALLED_PLUGINS, {}).get("plugins") or {}
+    had = sorted(k for k in rows if k.split("@", 1)[0] == "tezgah")
+    if had and not os.path.isdir(os.path.join(HERE, ".git")):
+        render_claude_manifest()
+    if had:
+        print("%s Claude plugin registered (%s)" % (OK, ", ".join(had)))
+        return
+    cli = tp.claude_bin()
+    if not cli:
+        print("%s no `claude` CLI on PATH: Claude's gate, Stop and ledger hooks "
+              "stay unarmed - install Claude Code, then re-run --install" % NO)
+        return
+    if not render_claude_manifest():
+        return
+    name = (read_json(os.path.join(HERE, ".claude-plugin", "marketplace.json"), {})
+            .get("name") or CLAUDE_MARKETPLACE)
+    steps = [["plugin", "install", "tezgah@%s" % name]]
+    if not isinstance(read_json(KNOWN_MARKETPLACES, {}).get(name), dict):
+        steps.insert(0, ["plugin", "marketplace", "add", claude_marketplace_source()])
+    for step in steps:
+        try:
+            proc = subprocess.run([cli] + step, capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, timeout=CLAUDE_CLI_TIMEOUT)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print("%s claude %s (%s)" % (NO, " ".join(step), exc))
+            return
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip().splitlines()
+            print("%s claude %s exited %d%s" % (NO, " ".join(step), proc.returncode,
+                                                ": " + err[-1][:200] if err else ""))
+            return
+        print("%s claude %s" % (OK, " ".join(step)))
 
 
 def wire_claude_attribution():
@@ -2066,6 +2189,18 @@ def rules_current(host):
             and "\n".join(lines[starts[0] + 1:ends[0]]) == rules_block(host).strip())
 
 
+def omp_bridge():
+    """The omp extension as an install writes it: the template with this tree's
+    hook path, or "" when the template is unreadable. The install and the live
+    report's byte-compare both call this one renderer."""
+    try:
+        with open(os.path.join(HERE, "hosts", "omp", "tezgah-hook.ts.in"), encoding="utf-8") as fh:
+            return fh.read().replace(
+                "@HOOK@", os.path.join(HERE, "hosts", "omp", "hook.py"))
+    except OSError:
+        return ""
+
+
 def install_omp():
     print("\nomp:")
     mkdirp(OMP_AGENT)
@@ -2077,12 +2212,7 @@ def install_omp():
         path = os.path.join(OMP_AGENT, "agents", name)
         if write_if_changed(path, text):
             print("%s %s" % (OK, path))
-    try:
-        with open(os.path.join(HERE, "hosts", "omp", "tezgah-hook.ts.in"), encoding="utf-8") as fh:
-            hook = fh.read().replace(
-                "@HOOK@", os.path.join(HERE, "hosts", "omp", "hook.py"))
-    except OSError:
-        hook = ""
+    hook = omp_bridge()
     if hook:
         hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
         if write_if_changed(hook_dst, hook):
@@ -2733,6 +2863,13 @@ def remove_plugin_copies():
             print("%s %s (%s)" % (NO, target, exc))
             continue
         print("%s removed plugin copy %s" % (OK, target))
+    # the manifest pair this installer rendered into the tree (never the
+    # maintainer's own, which carries another marketplace name)
+    rendered = os.path.join(HERE, ".claude-plugin")
+    if read_json(os.path.join(rendered, "marketplace.json"), {}).get("name") \
+            == CLAUDE_MARKETPLACE:
+        shutil.rmtree(rendered, ignore_errors=True)
+        print("%s removed %s" % (OK, rendered))
 
 
 def sweep_legacy_switches():
@@ -2980,7 +3117,8 @@ def verify_uninstall(hosts, full):
 
 
 def unwire_claude_settings():
-    """Remove tezgah's statusLine and attribution keys, leaving everything else."""
+    """Remove tezgah's statusLine, attribution and enabledPlugins keys, leaving
+    everything else."""
     sp = os.path.join(CLAUDE, "settings.json")
     s = read_json(sp, None)
     if not s:
@@ -2992,9 +3130,14 @@ def unwire_claude_settings():
     if s.get("attribution") == {"commit": "", "pr": "", "sessionUrl": False}:
         s.pop("attribution", None)
         changed = True
+    enabled = s.get("enabledPlugins")
+    for key in [k for k in enabled if k.split("@", 1)[0] == "tezgah"] \
+            if isinstance(enabled, dict) else []:
+        del enabled[key]
+        changed = True
     if changed:
         write_json(sp, s)
-        print("%s removed tezgah statusLine/attribution from %s (restore from its .tezgah-bak copies if wanted)" % (OK, sp))
+        print("%s removed tezgah statusLine/attribution/enabledPlugins from %s (restore from its .tezgah-bak copies if wanted)" % (OK, sp))
 
 
 def unwire_opencode_config():
@@ -3575,20 +3718,25 @@ def context_budget_report():
 # ------------------------------------------------------------------ live ----
 # `--report` reads what was WRITTEN; `--live` proves the hooks EXECUTE (audit
 # Phase 1.2: Codex's hooks were wired, untrusted and silently skipped while the
-# report said ok, H-1). Per host, one harmless PostToolUse for `true` goes
-# through the wiring the host itself reads - the command in its hooks.json,
-# the plugin file it imports, the extension it loads - never through tezgah's
-# own constants, and a ledger row for a dedicated session id must appear. The
-# event runs against a throwaway root (TEZGAH_ROOTS), so no repository is
-# touched, and every cache file named for the session is removed after.
+# report said ok, H-1). Per host, two synthetic events go through the wiring the
+# host itself reads - the command in its hooks.json, the plugin file it imports,
+# the extension it loads - never through tezgah's own constants: a harmless
+# PostToolUse for `true`, which must write a ledger row, and a PreToolUse for
+# LIVE_DENY_COMMAND, which the gate must refuse in the host's own deny envelope
+# and record as a deny row. Both run against a throwaway root (TEZGAH_ROOTS), so
+# no repository is touched, and every cache file named for the session is
+# removed after.
 
 LIVE_TIMEOUT = 20
+LIVE_DENY_COMMAND = "git commit --no-verify -m x"
 # The JS half: loads the omp extension (`--experimental-strip-types`, the .ts as
 # omp's bun would) or the opencode plugin (an ES module, as opencode imports
-# it), registers its handlers against inert host objects and fires the one
-# tool-result handler. argv: host, module path, root, session id.
+# it), registers its handlers against inert host objects and fires one handler:
+# the tool-result one, or with a command the tool-call one, printing what it
+# answered (omp) or what it threw (opencode) as JSON. argv: host, module path,
+# root, session id, command ("" for the tool result).
 LIVE_DRIVER = r"""
-const [host, mod, root, sid] = process.argv.slice(1);
+const [host, mod, root, sid, cmd] = process.argv.slice(1);
 const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
 (async () => {
   const m = await import(require("node:url").pathToFileURL(mod).href);
@@ -3596,18 +3744,34 @@ const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
     const handlers = {};
     m.default(new Proxy({ on: (n, fn) => { handlers[n] = fn; } },
                         { get: (t, k) => (k in t ? t[k] : noop) }));
-    if (!handlers.tool_result) throw new Error("the extension registered no tool_result handler");
+    const want = cmd ? "tool_call" : "tool_result";
+    if (!handlers[want]) throw new Error("the extension registered no " + want + " handler");
     const ctx = new Proxy({ cwd: root, sessionManager: { getSessionId: () => sid } },
                           { get: (t, k) => (k in t ? t[k] : noop) });
+    if (cmd) {
+      const res = await handlers.tool_call({ toolName: "bash", input: { command: cmd } }, ctx);
+      process.stdout.write(JSON.stringify(res || {}));
+      return;
+    }
     await handlers.tool_result({ toolName: "bash", input: { command: "true" },
                                  isError: false, content: "ok" }, ctx);
   } else {
     const hooks = await (m.Tezgah || m.default)({ directory: root, worktree: root,
                                                   client: noop, $: noop });
-    const after = hooks && hooks["tool.execute.after"];
-    if (!after) throw new Error("the plugin registered no tool.execute.after hook");
-    await after({ tool: "bash", sessionID: sid, callID: "live", args: { command: "true" } },
-                { title: "", output: "ok", metadata: { exit: 0 }, args: { command: "true" } });
+    const want = cmd ? "tool.execute.before" : "tool.execute.after";
+    if (!hooks || !hooks[want]) throw new Error("the plugin registered no " + want + " hook");
+    if (cmd) {
+      try {
+        await hooks[want]({ tool: "bash", sessionID: sid, callID: "live" },
+                          { args: { command: cmd } });
+        process.stdout.write("{}");
+      } catch (e) {
+        process.stdout.write(JSON.stringify({ threw: String((e && e.message) || e) }));
+      }
+      return;
+    }
+    await hooks[want]({ tool: "bash", sessionID: sid, callID: "live", args: { command: "true" } },
+                      { title: "", output: "ok", metadata: { exit: 0 }, args: { command: "true" } });
   }
 })().catch((e) => { process.stderr.write(String((e && e.message) || e) + "\n"); process.exit(1); });
 """
@@ -3670,48 +3834,56 @@ def _node_for_ts():
         return None
 
 
-def live_plan(host):
+def live_plan(host, deny=False):
     """How one host's real wiring is driven: ("shell", command, payload, env),
-    ("node", argv-head, module path), or ("unverified"|"miss", cause)."""
-    claude_payload = {"hook_event_name": "PostToolUse", "tool_name": "Bash",
-                      "tool_input": {"command": "true"},
-                      "tool_response": {"exit_code": 0}}
+    ("node", argv-head, module path), or ("unverified"|"miss", cause). `deny`
+    drives the PreToolUse wiring with LIVE_DENY_COMMAND instead of the
+    PostToolUse wiring with `true`."""
+    event = "PreToolUse" if deny else "PostToolUse"
+    claude_payload = ({"hook_event_name": event, "tool_name": "Bash",
+                       "tool_input": {"command": LIVE_DENY_COMMAND}} if deny else
+                      {"hook_event_name": event, "tool_name": "Bash",
+                       "tool_input": {"command": "true"},
+                       "tool_response": {"exit_code": 0}})
     if host == "codex":
         groups = (read_json(os.path.join(CODEX, "hooks.json"), {}).get("hooks")
-                  or {}).get("PostToolUse")
+                  or {}).get(event)
         cmd = _hook_command(groups)
         if not cmd:
-            return ("miss", "no tezgah PostToolUse command in %s"
-                    % os.path.join(CODEX, "hooks.json"))
+            return ("miss", "no tezgah %s command in %s"
+                    % (event, os.path.join(CODEX, "hooks.json")))
         return ("shell", cmd, claude_payload, {})
     if host == "claude":
         root, cause = _claude_plugin_root()
         if not root:
             return ("miss", cause)
         groups = (read_json(os.path.join(root, "hooks", "hooks.json"), {})
-                  .get("hooks") or {}).get("PostToolUse")
+                  .get("hooks") or {}).get(event)
         cmd = _hook_command(groups, own=True)
         if not cmd:
-            return ("miss", "no PostToolUse command for Bash in %s/hooks/hooks.json" % root)
+            return ("miss", "no %s command for Bash in %s/hooks/hooks.json" % (event, root))
         return ("shell", cmd, claude_payload, {"CLAUDE_PLUGIN_ROOT": root})
     if host == "dsh":
         conf, root = _dsh_bridge()
         if not conf or not root:
             return ("miss", "no tezgah hook bridge row in %s" % DSH_PATCH)
-        cmd = _hook_command((read_json(conf, {}).get("hooks") or {}).get("PostToolUse"),
+        cmd = _hook_command((read_json(conf, {}).get("hooks") or {}).get(event),
                             own=True)
         if not cmd:
-            return ("miss", "no PostToolUse command for Bash in %s" % conf)
+            return ("miss", "no %s command for Bash in %s" % (event, conf))
         return ("shell", cmd, claude_payload, {"CLAUDE_PLUGIN_ROOT": root})
     if host == "cursor":
+        name = "preToolUse" if deny else "postToolUse"
         cmd = _hook_command((read_json(os.path.join(CURSOR, "hooks.json"), {})
-                             .get("hooks") or {}).get("postToolUse"), "Shell")
+                             .get("hooks") or {}).get(name), "Shell")
         if not cmd:
-            return ("miss", "no tezgah postToolUse command in %s"
-                    % os.path.join(CURSOR, "hooks.json"))
-        return ("shell", cmd, {"hook_event_name": "postToolUse", "tool_name": "Shell",
-                               "tool_input": {"command": "true"},
-                               "tool_output": json.dumps({"exitCode": 0})}, {})
+            return ("miss", "no tezgah %s command in %s"
+                    % (name, os.path.join(CURSOR, "hooks.json")))
+        payload = {"hook_event_name": name, "tool_name": "Shell",
+                   "tool_input": {"command": LIVE_DENY_COMMAND if deny else "true"}}
+        if not deny:
+            payload["tool_output"] = json.dumps({"exitCode": 0})
+        return ("shell", cmd, payload, {})
     if host == "opencode":
         plugin = next((p for p in (os.path.join(OPENCODE, d, "tezgah.js")
                                    for d in ("plugins", "plugin")) if os.path.exists(p)), None)
@@ -3723,8 +3895,16 @@ def live_plan(host):
         return ("node", [node, "--no-warnings"], plugin)
     if host == "omp":
         ext = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
-        if not os.path.exists(ext):
+        try:
+            with open(ext, encoding="utf-8") as fh:
+                bridge = fh.read()
+        except OSError:
             return ("miss", "no extension at %s" % ext)
+        # the same renderer the install writes with: a bridge edited by hand, or
+        # left by an older tree, is not the wiring this tree arms
+        if bridge != omp_bridge():
+            return ("miss", "%s differs from a fresh render of this tree's bridge "
+                    "- re-run `tezgah-setup --install --hosts omp`" % ext)
         registered = omp_extensions()
         if registered is not None and ext not in registered:
             return ("miss", "%s is not in omp's `extensions` list, so omp never "
@@ -3740,6 +3920,23 @@ def live_plan(host):
     return ("unverified", "no live probe for this host")
 
 
+def _denied(host, stdout):
+    """True when a PreToolUse answer is the host's own deny envelope."""
+    try:
+        got = json.loads((stdout or "").strip() or "null")
+    except ValueError:
+        return False
+    if not isinstance(got, dict):
+        return False
+    if host == "cursor":
+        return got.get("permission") == "deny"
+    if host == "omp":
+        return got.get("block") is True
+    if host == "opencode":
+        return bool(got.get("threw"))
+    return (got.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
+
+
 def _live_cleanup(slug):
     """Remove every cache file the synthetic session left (named by its slug)."""
     for dirpath, _dirs, files in os.walk(tp.cache_dir()):
@@ -3751,13 +3948,25 @@ def _live_cleanup(slug):
                     pass
 
 
-def live_probe(host):
-    """(state, line) for one host: ok, miss or unverified."""
-    plan = live_plan(host)
+def live_probe(host, deny=False):
+    """(state, line) for one host: ok, miss or unverified. `deny` sends the
+    PreToolUse probe: the host's deny envelope and a deny row must both appear;
+    its line reads `live <host> deny:`."""
+    who = host + " deny" if deny else host
+    if deny:
+        # the two switches that stand the probe's refusal down: the whole gate,
+        # or the integrity rule whose shortcut denial `--no-verify` is
+        switch = next((s for s in ("pretooluse-off", "verify-off") if tp.off(s)), None)
+        if switch:
+            return "unverified", ("live %s: %s is set, so the gate does not refuse "
+                                  "`%s` - nothing to prove" % (who, switch,
+                                                               LIVE_DENY_COMMAND))
+    event = "PreToolUse" if deny else "PostToolUse"
+    plan = live_plan(host, deny)
     if plan[0] == "miss":
-        return "miss", "live %s: %s" % (host, plan[1])
+        return "miss", "live %s: %s" % (who, plan[1])
     if plan[0] == "unverified":
-        return "unverified", "live %s: %s" % (host, plan[1])
+        return "unverified", "live %s: %s" % (who, plan[1])
     sid = "tezgah-live-%d-%d" % (os.getpid(), int(time.time() * 1000))
     slug = tezgah_integrity._slug(sid)
     ledger = os.path.join(tp.cache_dir(), "evidence", slug + ".jsonl")
@@ -3773,23 +3982,34 @@ def live_probe(host):
                                   capture_output=True, text=True, env=env,
                                   cwd=root, timeout=LIVE_TIMEOUT)
         else:
-            proc = subprocess.run(plan[1] + ["-e", LIVE_DRIVER, host, plan[2],
-                                             root, sid],
+            proc = subprocess.run(plan[1] + ["-e", LIVE_DRIVER, host, plan[2], root,
+                                             sid, LIVE_DENY_COMMAND if deny else ""],
                                   capture_output=True, text=True, env=env,
                                   cwd=root, timeout=LIVE_TIMEOUT)
         ms = int((time.monotonic() - started) * 1000)
-        wrote = os.path.isfile(ledger) and os.path.getsize(ledger) > 0
+        try:
+            with open(ledger, encoding="utf-8") as fh:
+                kinds = [json.loads(ln).get("kind") for ln in fh if ln.strip()]
+        except (OSError, ValueError):
+            kinds = []
     except (OSError, subprocess.SubprocessError) as exc:
-        return "miss", "live %s: the hook did not run (%s)" % (host, exc)
+        return "miss", "live %s: the hook did not run (%s)" % (who, exc)
     finally:
         _live_cleanup(slug)
         shutil.rmtree(root, ignore_errors=True)
-    if not wrote:
-        err = (proc.stderr or "").strip().splitlines()
-        return "miss", ("live %s: PostToolUse wrote no ledger row (exit %d%s)"
-                        % (host, proc.returncode,
-                           ": " + err[-1][:160] if err else ""))
-    line = "live %s: PostToolUse wrote a ledger row in %d ms" % (host, ms)
+    err = (proc.stderr or "").strip().splitlines()
+    tail = " (exit %d%s)" % (proc.returncode, ": " + err[-1][:160] if err else "")
+    if deny and not _denied(host, proc.stdout):
+        return "miss", ("live %s: PreToolUse returned no deny envelope for `%s`%s"
+                        % (who, LIVE_DENY_COMMAND, tail))
+    if deny and "deny" not in kinds:
+        return "miss", ("live %s: PreToolUse denied `%s` but wrote no deny row%s"
+                        % (who, LIVE_DENY_COMMAND, tail))
+    if not kinds:
+        return "miss", "live %s: %s wrote no ledger row%s" % (who, event, tail)
+    line = ("live %s: PreToolUse denied `%s` and wrote a deny row in %d ms"
+            % (who, LIVE_DENY_COMMAND, ms) if deny else
+            "live %s: PostToolUse wrote a ledger row in %d ms" % (who, ms))
     if host == "codex":
         hooks = os.path.join(CODEX, "hooks.json")
         try:
@@ -3798,45 +4018,53 @@ def live_probe(host):
         except OSError:
             toml = ""
         if not _codex_hooks_trusted(hooks, toml):
-            return "miss", ("live codex: the hook runs, but codex does not trust "
+            return "miss", ("live %s: the hook runs, but codex does not trust "
                             "tezgah's group in %s [hooks.state], so codex skips it "
                             "- approve it in one interactive codex run"
-                            % os.path.join(CODEX, "config.toml"))
+                            % (who, os.path.join(CODEX, "config.toml")))
     if len(plan) > 3 and plan[0] == "node":
         return "unverified", line + "; " + plan[3]
     return "ok", line
 
 
 def live_report(hosts):
-    """Print one live row per host; 1 when any host is MISS. UNVERIFIED (no
-    way to drive the loader here) is reported, never as ok, and never fails."""
-    print("\nlive (one synthetic PostToolUse per host, through its own wiring):")
+    """Print two live rows per host (the PostToolUse ledger row, the PreToolUse
+    deny); 1 when any is MISS. UNVERIFIED (no way to drive the loader here, or a
+    switch that stands the refusal down) is reported, never as ok, and never
+    fails."""
+    print("\nlive (per host, through its own wiring: one synthetic PostToolUse, "
+          "one PreToolUse the gate must deny):")
     failed = False
     for h in hosts:
-        state, line = live_probe(h)
-        mark = {"ok": OK, "miss": NO}.get(state, " UNVERIFIED ")
-        print("  %s %s" % (mark, line))
-        failed = failed or state == "miss"
+        for deny in (False, True):
+            state, line = live_probe(h, deny)
+            mark = {"ok": OK, "miss": NO}.get(state, " UNVERIFIED ")
+            print("  %s %s" % (mark, line))
+            failed = failed or state == "miss"
     return 1 if failed else 0
 
 
 # The report rows whose MISS means the host is not armed: its hooks wired and
 # its contract current. Rows a correct fresh install leaves MISS stay out:
-# Codex "hooks trusted" (the user approves it in Codex), the provider keys, and
-# Claude's plugin copy, which this installer does not register yet.
+# Codex "hooks trusted" (the user approves it in Codex) and the provider keys.
 ARMING_ROWS = ("hooks.json wired", "plugin wired (link or copy)",
                "carries the contract", "contract in instructions",
                "claude-code hooks bridge in cordis.patch.yml",
                "session, prompt, tool and stop hooks wired",
-               "hook registered in omp extensions")
+               "hook registered in omp extensions", "plugin copy current")
 
 
 def arming_miss(label, good):
-    """True for a MISS row in ARMING_ROWS; the omp extension row counts only
-    where an omp CLI exists to register it with."""
+    """True for a MISS row in ARMING_ROWS. A row the host's own CLI arms counts
+    only where that CLI exists: the omp extension row (`omp config`) and
+    Claude's plugin row (`claude plugin`)."""
     if good or not any(row in label for row in ARMING_ROWS):
         return False
-    return "omp extensions" not in label or bool(tp.omp_bin())
+    if "omp extensions" in label:
+        return bool(tp.omp_bin())
+    if "plugin copy current" in label:
+        return bool(tp.claude_bin())
+    return True
 
 
 def report(hosts):
@@ -4630,8 +4858,12 @@ def sync():
         if real == HERE or HERE.startswith(real + os.sep):
             print("%s skip %s (it holds this checkout)" % (NO, t))
             continue
+        # A copy's manifest stays when this tree has none to carry over: without
+        # it the copy is not a plugin Claude can load.
+        keep = {".git"} | (set() if os.path.isdir(os.path.join(HERE, ".claude-plugin"))
+                           else {".claude-plugin"})
         for name in os.listdir(t):
-            if name != ".git":
+            if name not in keep:
                 path = os.path.join(t, name)
                 shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) \
                     else os.remove(path)
@@ -5042,6 +5274,10 @@ def main(argv):
                     version=tezgah_context.version() or "unknown")
     ap.add_argument("--roots")
     ap.add_argument("--hosts")
+    ap.add_argument("--reply-lang", choices=tp.REPLY_LANGS,
+                    help="with --install: the language replies are asked for and "
+                         "the Stop rule checks (config.json `reply_lang`; `tr` "
+                         "when unset, `any` checks none)")
     # `--version` is argparse's print-and-exit action, so `--upgrade --version V`
     # would print the current version, exit 0 and move nothing at all - the
     # "reads as done, did nothing" shape this repo hunts. Refused by name here,
@@ -5056,8 +5292,9 @@ def main(argv):
     # so it is taken off before the flags are parsed (`--dry-run` still reads)
     command = argv[1:2] == ["update"]
     args = ap.parse_args(argv[2:] if command else argv[1:])
-    global FEATURES, INSTALL_PREFIX, HOST_DEPS
+    global FEATURES, INSTALL_PREFIX, HOST_DEPS, REPLY_LANG
     HOST_DEPS = args.host_deps
+    REPLY_LANG = args.reply_lang
     select_code = 0
     # --devtools is --enable <id> and nothing else: one code path, so the flag
     # cannot reach the selection in a way the explicit command does not.

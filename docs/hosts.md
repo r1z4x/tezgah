@@ -46,7 +46,12 @@ shared config, contract hash and the CLI symlinks every host shell can call
   Its hook manifest is the plugin's own
   `hooks/hooks.json`; no `hooks.json` is written into `~/.claude`. Claude runs a
   **copy** of the checkout under `~/.claude/plugins/cache`, refreshed by
-  `--sync` (`bin/tezgah-setup:3782-3859`).
+  `--sync` (`bin/tezgah-setup::sync`). The install makes that copy through
+  Claude's own CLI (`register_claude_plugin()`). It renders the untracked
+  `.claude-plugin/{plugin,marketplace}.json` pair into the tree it runs from.
+  It adds that tree as a directory marketplace and installs
+  `tezgah@tezgah-local`. An existing `tezgah@*` row stops both calls. With no
+  `claude` CLI, Claude stays unarmed and the run says so.
 - **codex** - `install_codex` (`bin/tezgah-setup::install_codex`): `$CODEX_HOME/hooks.json`
   (one group per event, PreToolUse carrying `CODEX_PRETOOL_MATCHER` at `:131-133`),
   `skills/*` symlinks, `~/.codex/bin/consult`, and `mcp_servers.*` tables in
@@ -193,7 +198,8 @@ In order, each step verified by the one below it:
   - **omp, opencode:** not applicable: the prompt hook and the gate live in one extension or
     plugin process, so one cannot run without the other.
   - Everywhere: a disarmed PreToolUse beside a working PostToolUse writes rows and is not
-    detected; `tezgah-setup --report --live` is the check for the wiring itself.
+    detected here. `tezgah-setup --report --live` sends each host one PreToolUse it must
+    deny. A host whose gate does not answer reads MISS there.
 - **Lessons and open plans are injected only when `.tezgah` came from tezgah.**
   `.tezgah/` is the user's private workspace, ignored by the project. When the
   project's own git index holds `.tezgah` or any path under it (as a file, a

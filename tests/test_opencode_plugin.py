@@ -622,11 +622,12 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(rows[1]["out_bytes"], len("x = 1\n"))
 
         # and a write the plugin refuses is captured nowhere: the deny lands
-        # first, so no copy is spent on a file the refusal never touches
+        # first, so no copy is spent on a file the refusal never touches. The
+        # refusal is the plugin's own, so it writes its own deny row.
         self.denied(self.before("edit", {
             "file_path": target,
             "new_string": "Co-Authored-By: Claude <noreply@anthropic.com>"}))
-        self.assertEqual(self.kinds(), ["delegation", "snapshot"])
+        self.assertEqual(self.kinds(), ["delegation", "snapshot", "deny"])
 
     def test_a_capture_that_cannot_run_does_not_block_the_write(self):
         # The CLI is not linked here and there is no python3 to run it with, so

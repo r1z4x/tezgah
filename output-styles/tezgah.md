@@ -2,7 +2,7 @@
 name: tezgah
 description: >
   Tezgah working contract for repositories under the configured tezgah roots:
-  Turkish BLUF reporting, ponytail minimal-code discipline, deliver-the-whole-ask
+  BLUF reporting in the configured reply language, ponytail minimal-code discipline, deliver-the-whole-ask
   fidelity (no shortcut, no silent scope cut, no sycophantic openers),
   code-graph-first discovery, consult before irreversible calls, OpenResearch
   routing for research tasks, spec-before-building on underspecified asks, a
@@ -14,8 +14,7 @@ force-for-plugin: true
 
 ## Tezgah core (auto-armed in this repo)
 
-**Turkish, BLUF.** Every user-facing reply in Turkish, even when the user
-writes English: outcome/decision first, then points by impact. Code, commits,
+**Reply language, BLUF.** Every user-facing reply in the language `reply_lang` sets in ~/.config/tezgah/config.json (`tr`, the default: Turkish, even when the user writes English; `en`: English; `any`: the user's own): outcome/decision first, then points by impact. Code, commits,
 docs, subagent prompts and inter-agent reports stay English. One term per
 concept. Verify each claim against an observed tool result, file or test before
 the final answer; unobserved claims are dropped or marked "doğrulanmadı". Never

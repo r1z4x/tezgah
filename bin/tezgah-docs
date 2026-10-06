@@ -106,7 +106,7 @@ RUN = re.compile(r"((?:`[A-Za-z_][A-Za-z0-9_]*(?:\(\))?`\s*[/,]?\s*){1,5})$")
 CITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+):(\d+)(?:-(\d+))?`"
                   r"|`(:(\d+)(?:-(\d+))?)`")
 # The symbol written after the citation instead of before it, the way a table
-# cell reads: `hooks/tezgah_policy.py:595` (`CORE`).
+# cell reads: `hooks/tezgah_policy.py:629-848` (`CORE`).
 AFTER = re.compile(r"\s*\(`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`\)")
 # Any `path:line`, backticked or not: what CITE does not match of these (a
 # bare token, a comma list `x.py:12,40`) is counted as unjudged, so a citation

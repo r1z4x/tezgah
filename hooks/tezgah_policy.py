@@ -9,6 +9,8 @@ Placeholders are filled by tezgah_context.render():
   {OPEN_LINES}  - the research lines already open, filled by
                   tezgah_context.context_for: that fact is about the repo the
                   prompt came from, and render() has no repo to read.
+  {REPLY_LANG}, {REPLY_IN}, {REPLY_SPLIT}, {REPLY_SHORT} - the reply language config.json's
+                  `reply_lang` names, from REPLY_LANG_TEXT below.
 Keeping the text here (not in each hook) is what makes Claude, Codex, Cursor,
 opencode, dsh and omp say exactly the same thing.
 """
@@ -129,14 +131,46 @@ enforces ends `|| enforced_by: <rule|test>` and is not injected. Off:
 `.no-lessons` in the repo.
 """
 
+# What each `reply_lang` value (tezgah_paths.REPLY_LANGS) makes the contract say:
+# the first rule's label, its language clause, the executive mode's language
+# split, and the per-turn reminder's clause. render() fills them, so the hosts
+# and the static files say one thing. `tr` carries the first rule's original
+# line break: an installed CLAUDE.md or AGENTS.md renders to the bytes it had,
+# so an upgrade does not rewrite it for whitespace.
+REPLY_LANG_TEXT = {
+    "tr": {"{REPLY_LANG}": "Turkish",
+           "{REPLY_IN}": "in Turkish, even when the user\nwrites English",
+           "{REPLY_SPLIT}": "in Turkish, ALWAYS, even when the user writes English",
+           "{REPLY_SHORT}": "reply Turkish"},
+    "en": {"{REPLY_LANG}": "English",
+           "{REPLY_IN}": "in English, even when the user\nwrites another language",
+           "{REPLY_SPLIT}": "in English, even when the user writes another language",
+           "{REPLY_SHORT}": "reply English"},
+    "any": {"{REPLY_LANG}": "Reply language",
+            "{REPLY_IN}": "in the language the user\nwrites",
+            "{REPLY_SPLIT}": "in the language the user writes",
+            "{REPLY_SHORT}": "reply in the user's language"},
+}
+# The hookless copy (output-styles/tezgah.md) is a static file no install
+# renders, so it names the setting instead of one value of it.
+_HOOKLESS_IN = ("in the language `reply_lang` sets in ~/.config/tezgah/config.json "
+                "(`tr`, the default: Turkish, even when the user writes English; "
+                "`en`: English; `any`: the user's own)")
+REPLY_LANG_HOOKLESS = {
+    "{REPLY_LANG}": "Reply language",
+    "{REPLY_IN}": _HOOKLESS_IN,
+    "{REPLY_SPLIT}": _HOOKLESS_IN,
+    "{REPLY_SHORT}": "reply in the configured language",
+}
+
 EXEC = """
-## Reporting contract: Turkish executive mode (auto-armed, tezgah roots only)
+## Reporting contract: executive mode (auto-armed, tezgah roots only)
 
 These rules fix the language, framing, and truthfulness of what is said.
 On conflict with any armed style skill, these win.
 
 **Language split.** Every user-facing reply - answers, findings, summaries,
-status lines, warnings - in Turkish, ALWAYS, even when the user writes English.
+status lines, warnings - {REPLY_SPLIT}.
 Everything operational or persisted stays English: code, comments, commit
 messages, branch names, file contents, docs, PR/issue text, subagent prompts,
 inter-agent reports. Technical terms, API names, CLI commands, error strings
@@ -146,8 +180,8 @@ verbatim - never translate them.
 briefing a manager. Then key points ordered by impact. Simplify wording, never
 content: risks, failures, irreversible steps, numbers, and caveats always
 survive the simplification. One term per concept for the whole session - never
-rotate synonyms for the same thing (pick one Turkish or verbatim-English term
-and stick to it).
+rotate synonyms for the same thing (pick one term, in the reply language or
+verbatim English, and stick to it).
 
 **Verification pass.** Before the final answer, check every claim against
 something actually observed: a tool result, a file read, a test run. A claim
@@ -595,8 +629,7 @@ in parallel, a synthesizer, then a critic that names what was dropped.
 CORE = """
 ## Tezgah core (auto-armed in this repo)
 
-**Turkish, BLUF.** Every user-facing reply in Turkish, even when the user
-writes English: outcome/decision first, then points by impact. Code, commits,
+**{REPLY_LANG}, BLUF.** Every user-facing reply {REPLY_IN}: outcome/decision first, then points by impact. Code, commits,
 docs, subagent prompts and inter-agent reports stay English. One term per
 concept. Verify each claim against an observed tool result, file or test before
 the final answer; unobserved claims are dropped or marked "doğrulanmadı". Never
@@ -825,7 +858,7 @@ POINTERS = """
 # The compact per-turn form, inside the <harness-reminder> envelope the hosts
 # and tests look for.
 PROMPT_REMINDER = """
-<harness-reminder>Tezgah still in force: reply Turkish, BLUF, answer first -
+<harness-reminder>Tezgah still in force: {REPLY_SHORT}, BLUF, answer first -
 no recap, no closer, at most five ranked items; code minimal per ponytail
 (code first, <=3 note lines); deliver the whole ask - no cheaper
 stand-in, no silent scope cut, no partial reported as done, ask before dropping

@@ -52,7 +52,8 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_CODEGRAPH_BIN` | `hooks/tezgah_paths.py::codegraph_bin` | the config file, then `codegraph` on PATH | The codegraph executable the index and the graph marks use. |
 | `TEZGAH_ORX_BIN` | `hooks/tezgah_paths.py::orx_bin` | `orx` on PATH | The OpenResearch CLI the research rule routes to. |
 | `TEZGAH_OMP_BIN` | `hooks/tezgah_paths.py::omp_bin` | `omp` on PATH | The omp binary the installer, the model table and consult's session-model lookup run. |
-| `TEZGAH_DSH_BIN` | `bin/tezgah-setup::dsh_cli_args` | the profile-local entry, then `bin/tezgah-dsh`, then npx | How the installer invokes the dsh CLI. |
+| `TEZGAH_CLAUDE_BIN` | `claude_bin`, `hooks/tezgah_paths.py::claude_bin` | `claude` on PATH | The Claude Code CLI `--install` registers the plugin with (`claude plugin`); the test suite points it at a path that does not exist. |
+| `TEZGAH_DSH_BIN` | `bin/tezgah-setup::reconcile_json_servers` | the profile-local entry, then `bin/tezgah-dsh`, then npx | How the installer invokes the dsh CLI. |
 | `TEZGAH_INDEX_BIN` | `bin/tezgah-dsh:19`, `bin/tezgah-dsh.cmd` | `~/.config/tezgah/bin/tezgah-index` | The index worker `tezgah-dsh` warms before it starts dsh. |
 | `TEZGAH_STATUS_BIN` | `hosts/dsh/statusline/lib/index.js:24`, `hosts/opencode/tui/tezgah-tui.tsx` | `~/.config/tezgah/bin/tezgah-status` | The status renderer the dsh status line and the opencode TUI call. |
 | `TEZGAH_CONSULT_CLIS` | `hooks/tezgah_paths.py::consult_options` | unset: every agent CLI on PATH counts | Comma list of the agent CLIs that may count as consult members (empty: none); pins the answer in tests and CI. |

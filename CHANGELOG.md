@@ -21,6 +21,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   turn, and sessions with 20 or more. Nothing leaves `~/.cache/tezgah/replay`,
   and no gate behaviour changes. `tezgah-taste`'s transcript walkers can now
   read subagent files and tool inputs. `mine` reads what it read before.
+- **`--install` arms Claude Code through its own CLI.** Claude's gate, Stop and
+  ledger hooks ship in the plugin. The installer never registered that plugin,
+  so only the maintainer's machine had them. The install now
+  writes `.claude-plugin/{plugin,marketplace}.json` from the release version
+  into its own tree. The pair stays untracked. It then runs `claude plugin
+  marketplace add <tree>` and `claude plugin install tezgah@tezgah-local`. An
+  existing `tezgah@*` row is left alone, so no hook fires twice. Claude's
+  `plugin copy current` row now fails `--install` where a `claude` CLI exists.
+  `--uninstall` also drops the `enabledPlugins` key and the rendered pair.
+- **`--report --live` proves the gate runs.** Each host now also gets one
+  PreToolUse for `git commit --no-verify -m x` through its own wiring. The row
+  is ok only when the host answers with its own deny and the ledger gains a
+  deny row. `pretooluse-off` and `verify-off` make it UNVERIFIED, named. The omp
+  bridge must match a fresh render byte for byte. opencode's plugin now writes
+  a deny row for its own refusals. The Python gate already did.
+- **`reply_lang` picks the reply language.** `tezgah-setup --install
+  --reply-lang tr|en|any` stores it in `config.json`, and `install.sh` forwards
+  the flag. `tr` is the default and what an install without the key reads. `en`
+  asks for English and `any` for the user's language. The Stop rule checks
+  the language only under `tr`. The contract's first rule and
+  the per-turn reminder name the configured language.
+- **README: what tezgah changes on your machine**, in all five languages.
 
 - **Opt-in taste capture, and a miner for the corrections already on disk.**
   Arm it with `~/.config/tezgah/taste-on`. A repository with a `.tezgah/`
@@ -126,6 +148,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A malformed `~/.config/tezgah/config.json` is no longer rewritten.**
+  `--install` read it as empty and wrote its defaults over the user's roots.
+  It now refuses the file, names it, leaves its bytes alone and exits 1.
 - **A host config the installer cannot parse is left alone.** Seven install
   steps read a host's JSON config and then rewrote it. They cover Codex and
   Cursor `hooks.json`, opencode's `opencode.json` and `tui.json`, Cursor's

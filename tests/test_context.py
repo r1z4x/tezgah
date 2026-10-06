@@ -865,7 +865,9 @@ class KillSwitchEnforcement(TempHome):
         import tezgah_context as tc  # noqa: E402
         out = self.prompt(self.make_repo(), "x")
         for _key, clause in tc.REMINDER_CLAUSES:
-            self.assertIn(self.clause_marker(clause), out)
+            # a string clause is rendered: the exec one names the reply language
+            self.assertIn(self.clause_marker(
+                clause if hasattr(clause, "sub") else tc.render(clause)), out)
 
     def test_verify_off_drops_the_no_verify_claim_from_the_reminder(self):
         repo = self.make_repo()
@@ -2510,9 +2512,14 @@ class OutputStyleMirrorsCore(unittest.TestCase):
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         sys.path.insert(0, os.path.join(repo, "hooks"))
         import tezgah_context as tc  # noqa: E402
+        import tezgah_policy as policy  # noqa: E402
         with open(os.path.join(repo, "output-styles", "tezgah.md")) as fh:
             body = fh.read().split("---", 2)[2]
-        self.assertIn(tc.always_on_core().strip(), body)
+        # no install renders the style, so it names the reply_lang setting
+        core = tc.always_on_core()
+        for key, words in policy.REPLY_LANG_HOOKLESS.items():
+            core = core.replace(key, words)
+        self.assertIn(core.strip(), body)
         for label in self.CONDITIONAL:
             self.assertNotIn(label, body)
 

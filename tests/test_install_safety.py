@@ -64,6 +64,7 @@ class Home(unittest.TestCase):
             "TEZGAH_CODEGRAPH_BIN": self.path("no-such-codegraph"),
             "TEZGAH_ORX_BIN": self.path("no-such-orx"),
             "TEZGAH_OMP_BIN": self.path("no-such-omp"),
+            "TEZGAH_CLAUDE_BIN": self.path("no-such-claude"),
             "TEZGAH_NO_DEPS": "1",
             "TEZGAH_UPDATE_CHECK": "0",
         }

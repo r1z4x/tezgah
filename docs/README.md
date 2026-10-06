@@ -1,6 +1,8 @@
 # tezgah docs
 
-The engineering layer of this repository. The [README](../README.md) explains the
+Tezgah arms every AI coding assistant you run with one working contract, inside
+the repository roots you configure. These pages are the engineering layer of
+this repository. The [README](../README.md) explains the
 tool to someone deciding whether to install it; `AGENTS.md` says how to check a
 change; these pages explain how the thing actually works, so a session does not
 have to re-derive it by reading 55 Python files. Every page is written for one
@@ -12,6 +14,7 @@ citation you can open: `path::symbol` into Python code, `path:line` elsewhere.
 | You are | Read |
 |---|---|
 | an agent mid-task, before touching a rule or a host | [contract](contract.md), then [hosts](hosts.md) |
+| a user in the first session after installing | the [README install section](../README.md#install) (what changed on your machine), then `tezgah-setup --report --live` (every host's hooks run and its gate denies), then [contract](contract.md) for what the session is told |
 | an agent that has to decide whether something is safe to do | [gate](gate.md), [evidence](evidence.md) |
 | a maintainer adding a rule, a host or a mark | [architecture](architecture.md), then the page of the thing you are adding |
 | someone debugging what a session was actually told | [contract](contract.md), [status-line](status-line.md) |

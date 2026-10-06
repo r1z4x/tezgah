@@ -51,7 +51,7 @@ en un lugar llega a todos los hosts de la misma manera.
   las marcas por repositorio — eliminan el texto de la regla de la sesión, de
   modo que la regla realmente se detiene en lugar de limitarse a figurar como
   desactivada.
-- **Respuestas sobre las que puedes actuar.** Las respuestas son en turco y
+- **Respuestas sobre las que puedes actuar.** Las respuestas son en turco salvo que elijas otro idioma, y
   empiezan por el resultado; una lista muestra como máximo cinco elementos
   ordenados; una estimación se nombra como estimación; un error se lee como
   ubicación, causa, solución.
@@ -61,7 +61,8 @@ en un lugar llega a todos los hosts de la misma manera.
 ## Instalación
 
 Una línea, en macOS, Linux o WSL (Python 3.10+, `curl`, `tar`). Descarga la
-última versión, comprueba su sha256 y arma cada host que encuentra:
+última versión, comprueba su sha256 y arma cada host que encuentra (Claude
+Code a través de su propia CLI `claude plugin`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.sh | sh
@@ -72,6 +73,27 @@ O a través de npm: `npm i -g @r1z4x/tezgah && tezgah --install`.
 Una configuración de host que no puede leer queda intacta, cada configuración
 que cambia conserva una copia `.tezgah-bak` fechada, y la instalación termina
 con un código distinto de cero cuando un host previsto no queda armado.
+
+### Qué cambia tezgah en tu máquina
+
+- **Configuración de los hosts.** Cada host armado recibe los hooks de tezgah,
+  sus entradas MCP y un bloque de contrato gestionado en su archivo de reglas
+  global (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`,
+  `~/.omp/agent/RULES.md`). Los hooks de Claude Code van en un plugin
+  registrado con `claude plugin`; sin la CLI `claude`, Claude queda sin armar y
+  el informe lo dice.
+- **Archivos de agentes en tus repositorios.** Dentro de las raíces
+  configuradas, una sesión escribe archivos de subagentes en `.claude/agents/`,
+  `.codex/agents/` y `.opencode/agents/`, y añade esos directorios al
+  `.git/info/exclude` propio del clon (`TEZGAH_NO_EXCLUDE=1` lo impide).
+- **Una comprobación diaria de actualizaciones.** La línea de estado pregunta
+  por una versión nueva como mucho una vez al día;
+  `~/.config/tezgah/update-check-off` o `TEZGAH_UPDATE_CHECK=0` la desactiva.
+- **orx.** La instalación descarga la CLI de OpenResearch por la que pasan las
+  tareas de investigación; `TEZGAH_NO_DEPS=1` la omite.
+- **Idioma de las respuestas.** Por defecto las respuestas son en turco y la
+  regla Stop las sostiene en él. `--reply-lang en` pide inglés, y `any` tu
+  propio idioma; ninguno se comprueba: `curl -fsSL … | sh -s -- --reply-lang en`.
 
 ¿Prefieres que lo haga tu asistente de programación? Pega esto en omp,
 Claude Code, Codex, Cursor u opencode (el prompt queda en inglés; el

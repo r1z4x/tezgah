@@ -2165,6 +2165,14 @@ export const Tezgah = async ({ directory }) => {
             if (body) deny = await shortcutEdit(body)
           }
         }
+        // A refusal this file decided is counted the way the Python gate counts
+        // its own (hooks/tezgah_gate._deny); one the core answered (`asked`) is
+        // in the ledger already. Without the row, `--report --live` saw the
+        // shortcut refused and nothing recorded.
+        if (deny && !asked) {
+          await noteDeny(sessionID, deny === ATTRIB_DENY ? "attribution"
+            : deny === EXPLORE_DENY ? "explorer" : "shortcut", deny, tool, args, base)
+        }
         // Two rules with a shell route, asked of the core in one spawn (TASK_CLI
         // and IDENT_CMD carry which commands are worth asking about, and why
         // their pre-tests are loose): a command that names the task CLI may be

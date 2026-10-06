@@ -121,17 +121,18 @@ research lines with a written flip; everything else keeps one fresh reviewer
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py::CORE_RULES`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**Turkish, BLUF.**` :598, `**Ponytail (minimal code).**` :607, `**Output shape:
-ADHD-friendly.**` :618, `**Deliver the whole ask; never the shortcut.**` :632,
-`**Integrity: evidence, or "doğrulanmadı".**` :646, `**Loop discipline.**` :662,
-`**Spec before building.**` :671 *(conditional)*, `**Lessons ledger: stop
-repeating mistakes.**` :685, `**Code discovery: graph first.**` :693
-*(conditional)*, `**Consult before irreversible.**` :702 *(conditional)*,
-`**Research: route it to OpenResearch.**` :718 *(conditional)*, `**Product
-analysis: five axes, one evidence class per finding.**` :734 *(conditional)*,
-`**No AI attribution, ever, on any host.**` :767, `**Identifiers and messages
-stay English.**` :777, `**Session scope: the user's repo, not tezgah.**` :783,
-`**Kill switches:**` :799.
+`**{REPLY_LANG}, BLUF.**` :632, `**Ponytail (minimal code).**` :640, `**Output shape:
+ADHD-friendly.**` :651, `**Deliver the whole ask; never the shortcut.**` :665,
+`**Integrity: evidence, or "doğrulanmadı".**` :679, `**Loop discipline.**` :695,
+`**Spec before building.**` :704 *(conditional)*, `**Lessons ledger: stop
+repeating mistakes.**` :718, `**Code discovery: graph first.**` :726
+*(conditional)*, `**Consult before irreversible.**` :735 *(conditional)*,
+`**Research: route it to OpenResearch.**` :751 *(conditional)*, `**Product
+analysis: five axes, one evidence class per finding.**` :767 *(conditional)*,
+`**No AI attribution, ever, on any host.**` :800, `**Identifiers and messages
+stay English.**` :810, `**Session scope: the user's repo, not tezgah.**` :816,
+`**Kill switches:**` :832. The first label renders as `**Turkish, BLUF.**` under
+the default `reply_lang`.
 
 `always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the five
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py::POINTERS`):
@@ -154,7 +155,7 @@ applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
 
-- **Turkish, BLUF.** Every user-facing reply is Turkish even when the prompt is English, outcome first; code, commits, docs and subagent prompts stay English.
+- **Turkish, BLUF.** Every user-facing reply is Turkish even when the prompt is English, outcome first; code, commits, docs and subagent prompts stay English. That is the default. `reply_lang` in `~/.config/tezgah/config.json` picks another: `tr`, `en` or `any`. `tezgah-setup --install --reply-lang` sets it, and the label follows it. The value is the switch. The Stop rule checks the language only under `tr`: under `en` and `any` it judges none.
 - **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py::_pony_level_line`).
 - **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement.
 - **Deliver the whole ask; never the shortcut.** The request is a floor: no cheaper stand-in, no silent scope cut, no token gesture reported as done.
@@ -195,7 +196,7 @@ happens in `core_split()`.
 
 | Switch file | Rule it removes | Where the drop is implemented |
 |---|---|---|
-| `exec-mode.off` | `**Turkish, BLUF.**` | `hooks/tezgah_context.py::switches` |
+| `exec-mode.off` | `**{REPLY_LANG}, BLUF.**` | `hooks/tezgah_context.py::switches` |
 | `ponytail-auto.off` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py::switches` |
 | `adhd-off` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py::switches` |
 | `spec-off` | `**Spec before building.**` | `hooks/tezgah_context.py::switches` |

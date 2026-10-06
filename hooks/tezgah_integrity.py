@@ -35,7 +35,7 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
-from tezgah_paths import _toplevel, cache_dir, off, root_for
+from tezgah_paths import _toplevel, cache_dir, off, reply_lang, root_for
 
 # A command that actually checks the change, as opposed to one that merely runs.
 # Command position, like UI_CHECK: `echo pytest` and `cat pytest.ini` were
@@ -3556,7 +3556,10 @@ def _shape_block(text, cwd):
                     "whole enumeration is the point, split it under headings of "
                     "at most five items each, or give it as a table."
                     % (longest, LIST_CAP))
-    if not off("exec-mode.off"):
+    # `reply_lang` is the switch, and only `tr` is judged: this is a Turkish
+    # detector, and an English reply carries the contract's own hedge word or
+    # quotes the user's Turkish, so it cannot hold a reply to English (`en`).
+    if reply_lang() == "tr" and not off("exec-mode.off"):
         words = prose_words(text)
         share = turkish_share(words)
         if len(words) >= LANG_MIN_WORDS and share < LANG_MIN_SHARE:
