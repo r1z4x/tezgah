@@ -79,6 +79,10 @@ def main():
     inp = p.get("tool_input") or {}
     session_id = p.get("session_id")
     result = p.get("tool_response", p.get("tool_result"))
+    # Claude sets `agent_id` only on a call a subagent made (its hook reference,
+    # common input fields). The row carries it, and the taint reader keys on it,
+    # so one sibling's web read does not mark another sibling's effects.
+    agent = p.get("agent_id") if isinstance(p.get("agent_id"), str) else None
     # A failure has no result and made no effect, and both lines assert one
     # ("this result came from ..."), so only PostToolUse shows them. The channel
     # is a property of the call either way, so the row keeps it on both events.
@@ -88,7 +92,7 @@ def main():
         # a crash in `marks` costs both halves of the provenance rather than the
         # envelope: no source on the row, no notice to the model
         source, notice = safe(session_id, marks, tool, inp, session_id,
-                              result) or (None, None)
+                              result, agent) or (None, None)
     else:
         source, notice = untrusted_source(tool, inp), None
     safe(session_id, record, session_id, used_kind(tool, inp))
@@ -127,7 +131,8 @@ def main():
          source=source,
          # the Bash result's own stdout/stderr, read on a bounded tail for the
          # empty-run contract (tezgah_integrity.EMPTY_RUN)
-         empty_run=ran_nothing(result))
+         empty_run=ran_nothing(result),
+         agent=agent)
     if notice:
         json.dump({"hookSpecificOutput": {
             "hookEventName": event,

@@ -40,7 +40,7 @@ INTEGRITY = "hooks/tezgah_integrity.py"
 GATE = "hooks/tezgah_gate.py"
 PLUGIN = "hosts/opencode/plugins/tezgah.js"
 MODULES = ("test_integrity.py", "test_gate.py", "test_opencode_plugin.py",
-           "test_cursor_hook.py", "test_codex_hook.py")
+           "test_cursor_hook.py", "test_codex_hook.py", "test_control_plane.py")
 
 
 def anchored(anchor, replacement):

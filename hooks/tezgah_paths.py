@@ -44,6 +44,25 @@ USER_BINS = (os.path.join(HOME, ".local", "bin"), os.path.join(HOME, ".cargo", "
 # canonical kill switches live in CONFIG_DIR; the pre-multi-host setup wrote
 # them to ~/.claude, so that stays a recognized channel
 OFF_DIRS = (CONFIG_DIR, os.path.join(HOME, ".claude"))
+# The one list of every name `off()` and `armed()` are asked about, and of the
+# repo marks read from a root: the installer's uninstall sweep
+# (bin/tezgah-setup OFF_SWITCH_NAMES), the context's off-note (`switches()`),
+# the opencode plugin's own `off()` and the gate's control rule all answer from
+# it, and tests/test_paths.py fails when any of them names a switch it lacks.
+# CORE_SWITCHES are the sixteen the always-on contract names. ADR 007 leaves
+# UNCLASSIFIED_SWITCHES open - two `off()` names CORE does not list and two
+# opt-in markers read with `armed()` - and until the owner classifies them the
+# control rule protects them like the rest (bin/tezgah-docs carries the same
+# set for its inventory check; the test pins the two equal).
+CORE_SWITCHES = ("adhd-off", "consult-off", "docs-judge-off", "exec-mode.off",
+                 "judge-off", "lang-off", "orchestrate-off", "ponytail-auto.off",
+                 "pretooluse-off", "reminder-off", "research-off", "spec-off",
+                 "task-off", "triage-off", "verify-off", "workspace-off")
+UNCLASSIFIED_SWITCHES = ("agents-off", "skill-suggest-on", "taste-on",
+                         "update-check-off")
+SWITCHES = CORE_SWITCHES + UNCLASSIFIED_SWITCHES
+REPO_MARKS = (".no-adhd", ".no-graph", ".no-lessons", ".no-plan-gate",
+              ".no-ponytail", ".no-taste")
 # Where each host keeps its config. One definition, shared by the installer
 # (which writes into these) and the agent generator (which decides whose
 # per-repo subagent files to render), so "is this host installed?" cannot mean

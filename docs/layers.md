@@ -57,7 +57,7 @@ runtime runs what the model asks; nothing inside it stops the model, which is
 the whole reason tezgah exists ([architecture](architecture.md)).
 
 Here the six hosts are the runtimes, one config dir per host
-(`hooks/tezgah_paths.py:49`) with one presence test (`host_installed`
+(`hooks/tezgah_paths.py:68`) with one presence test (`host_installed`
 `hooks/tezgah_paths.py::host_installed`), and the adapter under `hosts/<name>/` holds the
 host's envelope and nothing else ([hosts](hosts.md)). The README's own intro
 calls dsh a harness (`README.md:27-28`) - the literature's sense, applied to a

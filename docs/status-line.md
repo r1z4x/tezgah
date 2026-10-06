@@ -96,12 +96,12 @@ measure the surface cannot see, then armed-and-used or armed-not-used.
 | `graph` | a code-graph tool call (an `mcp__…codegraph…` tool) | `.no-graph` — a missing binary is `idx`'s report, not this mark's |
 | `orch` | a delegate call (`Task`/`Agent`/`spawn_agent`) or a subagent start | `orchestrate-off` |
 | `judge` | a shell command really ran `tezgah-triage` or `tezgah-docs` | `judge-off`, or no credential: no `TYPESAFE_API_KEY` and no non-empty `~/.config/typesafe/key`, and neither the fallback's `OPENROUTER_API_KEY` nor its `~/.config/openrouter/key` |
-| `gate` | never `on`: shown only as `gate✗`, right after the version, when the prompt hook found at least 3 gated tool calls in this session's transcript since its first turn (Bash/Edit/Write/MultiEdit/NotebookEdit/PowerShell/WebFetch/WebSearch/Agent/Task/`mcp__*` on Claude, `exec_command`/`shell` on Codex) and not one row from the tool hooks in the ledger over the same span - the gate is not running on this host. The same prompt carries the line "tezgah gate inactive on this host: ...". Both clear when a tool-hook row appears (`gate_inactive`, mark file `<cache>/gate-inactive/<session>`, audit Phase 1.3) | a tool-hook row appears |
+| `gate` | never `on`: shown only as `gate✗`, right after the version, in two cases. One: the prompt hook found at least 3 gated tool calls in this session's transcript since its first turn (Bash/Edit/Write/MultiEdit/NotebookEdit/PowerShell/WebFetch/WebSearch/Agent/Task/`mcp__*` on Claude, `exec_command`/`shell` on Codex) and not one row from the tool hooks in the ledger over the same span - the gate is not running on this host. The same prompt carries the line "tezgah gate inactive on this host: ...". Two: a kill switch appeared after the session's first prompt; the prompt hook writes one `disarm` row naming it (`disarmed`, baseline `<cache>/switches/<session>.json`). Mark file `<cache>/gate-inactive/<session>` (`gate_inactive`, audit Phase 1.3) | a tool-hook row appears and no switch armed mid-session is still armed |
 
 Read `on` for `consult`/`research`/`judge` as "installed and usable", not "you
 must use it": a missing key or binary reads the same red as a kill switch
 (`consult_options()`, `orx_bin()`, `have_judge_key()`, hooks/tezgah_context.py:1398-1402,
-hooks/tezgah_paths.py:411-416, hooks/tezgah_paths.py:442-468). `judge` is the seam
+hooks/tezgah_paths.py:430-435, hooks/tezgah_paths.py:461-487). `judge` is the seam
 behind `bin/tezgah-triage`, `bin/tezgah-docs` and the skill picker
 ([judge](judge.md)), and its credential is the seam's own two channels, never
 omp's login store. `graph` and `orch` are the two switch-only marks: nothing at
@@ -252,7 +252,7 @@ set: a judgement is a cost, and a model answer must never license a "done" claim
 repo (bin/tezgah-setup:4166-4168). A wrong or missing line usually ends in one of
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a
-sandboxed host could not write (hooks/tezgah_paths.py:120-133).
+sandboxed host could not write (hooks/tezgah_paths.py:139-152).
 
 `--rule-yield` is a corpus report, not a mark: every live gate rule - the labels
 `hooks/tezgah_gate.py` passes to `_deny`, read from the code with `ast`, so a

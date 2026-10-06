@@ -22,11 +22,11 @@ from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
                               scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            REPLY_LANG_TEXT, open_lines_note, pony_level_line)
-from tezgah_paths import (CACHE, ai_research_dir, cache_dir, codegraph_bin,
-                          consult_options, ensure_workspace, fallback_cache,
-                          have_judge_key, off, orx_bin, pony_level, reply_lang,
-                          root_for, roots, tool, workspace, workspace_from_repo,
-                          worktrees, writable_dir)
+from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir,
+                          cache_dir, codegraph_bin, consult_options,
+                          ensure_workspace, fallback_cache, have_judge_key, off,
+                          orx_bin, pony_level, reply_lang, root_for, roots, tool,
+                          workspace, workspace_from_repo, worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
     # once per user prompt for the phase line. The module is newer than some
@@ -1568,19 +1568,19 @@ def _transcript_calls(path, since):
 
 
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
-# turn marker, judge row and lesson rows, the Stop hook's claim, refusal,
-# after_block and shape rows, the subagent-end hook's subagent_end row,
-# compaction, the subagent mark (SubagentStart writes it too) and the guard's
-# crash row (any hook). Every other kind - deny, nudge, drift, run, edit,
-# verify*, ... - can only come from PreToolUse or PostToolUse, so one is proof
-# the gate ran.
+# turn marker, judge row, lesson rows and disarm row, the Stop hook's claim,
+# refusal, after_block and shape rows, the subagent-end hook's subagent_end row,
+# compaction, the subagent mark (SubagentStart writes it too), the guard's crash
+# row (any hook) and the damage row any reader writes. Every other kind - deny,
+# nudge, drift, run, edit, verify*, ... - can only come from PreToolUse or
+# PostToolUse, so one is proof the gate ran.
 # Excluding, not listing: a kind the tool hooks gain later still counts. A row
 # from `deny` carries no `tool` field, and a session whose every gated call the
 # gate refused read as disarmed (review S3).
 NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"refusal",
                            b"after_block", b"subagent_end",
                            b"shape", b"compact", b"orch", b"crash", b"route",
-                           b"spawned", b"lesson"))
+                           b"spawned", b"lesson", b"disarm", b"ledger_damage"))
 
 
 def _ledger_lines(path):
@@ -1632,19 +1632,61 @@ def _gate_mark(session_id):
     return os.path.join(cache_dir(), "gate-inactive", slug(str(session_id)))
 
 
+def _switch_baseline(session_id):
+    return os.path.join(cache_dir(), "switches", slug(str(session_id)) + ".json")
+
+
+def disarmed(session_id):
+    """The switches armed since this session's first prompt and still armed,
+    each written once as a `disarm` row the prompt it is first seen on.
+
+    The baseline is what was armed at the first prompt this session made: a
+    switch the user set before the session is their standing choice, and one
+    that appears mid-session is the shape the control rule exists to refuse
+    (tezgah_gate.control_reason), so it is put on the record and on the status
+    line whoever set it. The baseline lives in the cache the control rule
+    protects. ponytail: a switch armed at the start, lifted and armed again is
+    not seen; the baseline is a set, not a history."""
+    now = sorted(n for n in SWITCHES if off(n))
+    path = _switch_baseline(session_id)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        start, seen = list(state["start"]), list(state["seen"])
+    except (OSError, ValueError, KeyError, TypeError):
+        start, seen = now, []
+    moved = [n for n in now if n not in start]
+    for name in moved:
+        if name not in seen:
+            note(session_id, "disarm", name)
+            seen.append(name)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"start": start, "seen": seen}, fh)
+    except OSError:
+        pass
+    return moved
+
+
 def gate_inactive(session_id, payload):
     """The disarmed-gate line for this prompt, or "" - and the status mark
-    `health_segments` reads, written or cleared to match."""
+    `health_segments` reads, written or cleared to match. A switch armed since
+    the session's first prompt (`disarmed`) sets the same mark: either way the
+    rules the other marks name are not all being enforced."""
     p = payload if isinstance(payload, dict) else {}
-    if not session_id or not p.get("transcript_path"):
+    moved = disarmed(session_id) if session_id else []
+    if not session_id or not (p.get("transcript_path") or moved):
         return ""
-    since, rows = _ledger_since(session_id)
-    calls = 0 if since is None or rows else _transcript_calls(
-        p.get("transcript_path"), since)
+    calls = 0
+    if p.get("transcript_path"):
+        since, rows = _ledger_since(session_id)
+        calls = 0 if since is None or rows else _transcript_calls(
+            p.get("transcript_path"), since)
     inactive = calls >= GATE_MIN_CALLS
     mark = _gate_mark(session_id)
     try:
-        if inactive:
+        if inactive or moved:
             os.makedirs(os.path.dirname(mark), exist_ok=True)
             open(mark, "w", encoding="utf-8").close()
         elif os.path.exists(mark):
@@ -2229,8 +2271,7 @@ def repo_marks(cwd):
     base = root_for(cwd)
     p = os.path.realpath(cwd)
     while base and p.startswith(base):
-        for f in (".no-ponytail", ".no-adhd", ".no-graph", ".no-lessons",
-                  ".no-taste"):
+        for f in REPO_MARKS:
             if os.path.exists(os.path.join(p, f)):
                 marks.add(f)
         if p == base:

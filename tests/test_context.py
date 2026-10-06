@@ -1480,12 +1480,12 @@ class ResumeBlock(ChildCall):
         self.assertEqual("", self.block(repo))
         self.assertNotIn("## Session so far", self.session(repo))
 
-    def test_a_damaged_ledger_line_costs_the_bullets_and_not_the_block(self):
-        # `_parse` raises on a line that is terminated but does not parse, on
-        # purpose. That raise escaping the hook would drop the WHOLE injection -
-        # core, plans, lessons, pointer - for a session whose ledger holds one
-        # bad line, so the two ledger reads behind the resume block are guarded:
-        # the block loses its two ledger bullets and keeps the rest.
+    def test_a_damaged_ledger_line_costs_the_line_and_not_the_block(self):
+        # A line that is terminated but does not parse used to make `_parse`
+        # raise, and the guarded reads behind the resume block then dropped both
+        # ledger bullets. `_parse` now skips the line and records it as
+        # `ledger_damage` (the Stop rule reads that as "evidence tampered"), so
+        # the block keeps its bullets from the rows beside the damage.
         repo = self.repo()
         self.plan(repo)
         self.commit(repo, "first")
@@ -1501,8 +1501,8 @@ class ResumeBlock(ChildCall):
         self.assertIn("## Session so far", out)          # the block survives
         self.assertIn("commits on", out)
         self.assertIn("plan 021-thing:", out)
-        self.assertNotIn("last check", out)              # the bullets the
-        self.assertNotIn("changed this turn", out)       # damaged read owed
+        self.assertIn("last check", out)                 # the rows beside
+        self.assertIn("changed this turn", out)          # the damage still read
         self.assertIn("tezgah-contract` skill", out)     # and the core too
 
     def test_an_open_plan_the_branch_does_not_own_is_named_as_open(self):
@@ -1667,6 +1667,23 @@ class GateLiveness(ChildCall):
         out = self.prompt()
         self.assertNotIn("tezgah gate inactive", out)
         self.assertNotIn("gate", [s["key"] for s in self.segments()])
+
+    def test_a_switch_armed_mid_session_leaves_one_row_and_the_mark(self):
+        # A switch set before the session is the user's standing choice; one
+        # that appears after the first prompt is the tamper shape the control
+        # rule refuses, so whoever set it, it is on the record once and on the
+        # status line for as long as it stays.
+        self.touch(os.path.join(self.home, ".config", "tezgah", "spec-off"))
+        self.prompt()
+        self.assertNotIn("gate", [s["key"] for s in self.segments()])
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.prompt()
+        self.prompt()
+        rows = self.child("import json, tezgah_integrity as ti\n"
+                          "print(json.dumps(ti.events('g1')))\n")
+        self.assertEqual([r["detail"] for r in rows if r["kind"] == "disarm"],
+                         ["verify-off"])
+        self.assertIn("gate", [s["key"] for s in self.segments()])
 
     def test_calls_the_gate_denied_are_proof_the_gate_ran(self):
         # Review S3: a deny row carries no `tool` field, and a session whose

@@ -28,7 +28,7 @@ nothing about a host's event names or output envelope.
 |---|---|---|
 | `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `hooks/tezgah_context.py::context_for` |
 | `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `hooks/tezgah_policy.py::CORE`, `hooks/tezgah_policy.py::CONDITIONAL_KEYS` |
-| `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:2-75`, `hooks/tezgah_gate.py::decision` |
+| `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:2-84`, `hooks/tezgah_gate.py::decision` |
 | `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-24`, `hooks/tezgah_integrity.py::note_tool`, `hooks/tezgah_integrity.py::stop_reason` |
 | `tezgah_guard.py` | the one catch around an entry point's call into the core, so a crash costs an envelope rather than a session, and the `crash` ledger row that keeps it countable | `hooks/tezgah_guard.py:2-25`, `hooks/tezgah_guard.py::safe` |
 | `tezgah_paths.py` | where tezgah is armed: [roots](glossary.md#root) and the linked worktrees of a repository under one, kill switches, the config dir, and the writable cache dir - the fallback resolved on use rather than at import, so a gated call does not pay for `tempfile`, `shutil` or `sqlite3` | `hooks/tezgah_paths.py:2-14`, `hooks/tezgah_paths.py::cache_dir`, `hooks/tezgah_paths.py::fallback_cache` |
@@ -116,7 +116,7 @@ One session, in order. Each step names the file that handles the event on Claude
    object on every host: `hosts/omp/hook.py::handle`, `hosts/codex/hook.py:108`.
 4. **PostToolUse** — `hooks/projects-posttooluse.py:64` writes the evidence row
    through `note_tool` (`hooks/projects-posttooluse.py::main`), records the used
-   kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:90`),
+   kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:94`),
    and attaches the untrusted-content label when the result came from outside.
 5. **Stop** — `hooks/projects-stop.py:41` calls `stop_reason`, which reads the
    ledger and can refuse the turn (`hooks/tezgah_integrity.py::stop_reason`). omp and
@@ -160,7 +160,7 @@ lowest-value blocks are dropped in a fixed order rather than the rules
 
 The cache dir is resolved once per process and falls back to a temp dir on a
 sandboxed host, so one session's state never splits across two files
-(`hooks/tezgah_paths.py:119-158`). Per-repo state — `.tezgah/plans/open/`,
+(`hooks/tezgah_paths.py:138-177`). Per-repo state — `.tezgah/plans/open/`,
 `.tezgah/lessons.md`, `.tezgah/research/` — lives in the repository, and the
 checkout is the source from which the plugin copy is made. Each checkout of a
 repository keeps its own: a linked `git worktree` gets its own `.tezgah`, locks
@@ -168,7 +168,7 @@ and private git repository, never a share of the main checkout's. It sees the
 others read-only - the session-start line above and `tezgah-research --all` -
 through `worktrees`, which lists `<main>/.git/worktrees/*/gitdir` with no git
 fork and skips an entry whose checkout is gone, as git's own `prunable` does
-(`hooks/tezgah_paths.py:270-299`).
+(`hooks/tezgah_paths.py:289-318`).
 
 ## Invariants
 
@@ -181,7 +181,7 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
   `crash` row rather than letting the exception out: a fault costs one envelope,
   and on omp - where the bridge turns a crash or one 10 s timeout into a
   session-wide disable - it is what keeps the gate, the ledger and the status
-  line armed (`hooks/tezgah_guard.py:23-42`, `hooks/projects-pretooluse.py:25`).
+  line armed (`hooks/tezgah_guard.py:23-42`, `hooks/projects-pretooluse.py:27`).
   A host that cannot call the core in process gets the same rule in its own
   language: opencode's plugin runs every awaited core CLI through one `collect`
   helper with a 10 s deadline (`SPAWN_DEADLINE_MS`,
@@ -191,7 +191,7 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
   a linked `git worktree` counts as inside when its main checkout is, read from
   its `.git` pointer file rather than a git fork (`worktree_top`,
   `hooks/tezgah_paths.py::worktree_top`), and answers its own top level so every path
-  stays under the base `root_for` returns (`hooks/tezgah_paths.py:183-202`);
+  stays under the base `root_for` returns (`hooks/tezgah_paths.py:202-221`);
   `context_for` returns `None` (`hooks/tezgah_context.py::context_for`), the gate only acts
   inside one (`hooks/tezgah_gate.py::decision`), and the status line is the single
   deliberate exception, because a globally loaded rules file must still show that

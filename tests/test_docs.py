@@ -288,13 +288,13 @@ class Inventories(unittest.TestCase):
 
     def test_every_deny_site_of_decision_is_read_with_its_guards(self):
         sites = docs_module().rule_sites()
-        self.assertEqual(len(sites), 23)
+        self.assertEqual(len(sites), 24)
         order = []
         for site in sites:
             if site[0] not in order:
                 order.append(site[0])
         self.assertEqual(order, [
-            "explorer", "shortcut", "piped", "attribution", "lang", "race",
+            "control", "explorer", "shortcut", "piped", "attribution", "lang", "race",
             "task", "workspace", "secret", "plan", "order", "loop", "retry",
             "drift"])
         by_rule = {s[0]: s for s in sites}

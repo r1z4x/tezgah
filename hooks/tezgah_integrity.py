@@ -897,28 +897,81 @@ def _tail_lines(path, n):
     # `keepends`: whether the last line was terminated is what `_parse` reads to
     # tell a torn tail from a committed record, and splitting it away here would
     # leave every line looking unterminated.
-    return data.decode("utf-8", "replace").splitlines(keepends=True)[-n:]
+    return _lines(data)[-n:]
 
 
-def _parse(lines):
+def _lines(data):
+    """A ledger's bytes as text lines, ends kept, split on b"\\n" alone.
+
+    `str.splitlines` also splits on U+2028, U+2029 and U+0085, which a JSON
+    writer may leave raw inside a string (opencode's JSON.stringify does), so an
+    honest row read as two damaged ones. A line that is not UTF-8 becomes a
+    marker no JSON reader parses, so `_parse` names it as damage; decoding the
+    whole file strictly raised instead, and the Stop rule failed open."""
+    parts = data.split(b"\n")
+    out = []
+    for i, part in enumerate(parts):
+        if i < len(parts) - 1:
+            part += b"\n"
+        elif not part:
+            break
+        try:
+            out.append(part.decode("utf-8"))
+        except UnicodeDecodeError:
+            out.append("\x00not utf-8 %s%s" % (
+                hashlib.sha1(part).hexdigest()[:12],
+                "\n" if part.endswith(b"\n") else ""))
+    return out
+
+
+# The kind a damaged ledger line is recorded under: one row per damaged line,
+# keyed on a digest of it (`key`), written into the ledger the line is in. The
+# Stop rule reads one in the turn as "evidence tampered" (`_stop_block`).
+DAMAGE_KIND = "ledger_damage"
+TAMPERED = (
+    "Evidence tampered: a line of this session's evidence ledger is not a row "
+    "(recorded as `ledger_damage`), so the ledger cannot carry a done or tested "
+    "claim this turn. Say what is unverified (\"doğrulanmadı\") and tell the "
+    "user the ledger was damaged; the ledger is theirs to inspect.")
+# The damaged lines this process already recorded, so a reader that parses the
+# same tail on every gated call scans the file for the row once, not each time.
+_DAMAGE_SEEN = set()
+
+
+def _note_damage(path, key, line):
+    """Write the one `ledger_damage` row for a damaged line, unless the ledger
+    already holds it. Damage is rare, so the dedup reads the whole file."""
+    if (path, key) in _DAMAGE_SEEN:
+        return
+    _DAMAGE_SEEN.add((path, key))
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            if any(DAMAGE_KIND in held and key in held for held in fh):
+                return
+    except OSError:
+        return
+    note_path(path, DAMAGE_KIND, cut(line.strip(), 80), key=key)
+
+
+def _parse(lines, path=None):
     """The parseable JSON objects among `lines`, oldest first.
 
     The two damages a JSONL file can carry are not one damage. A line the file
     never terminated - the fragment a killed process left - is not a record: it
     is dropped, because the gate runs this reader on every gated call and half a
-    write must not become a row. A line that *was* terminated and does not parse
-    is a committed record that lost bytes, and dropping that one would shrink the
-    evidence in silence, which is the reading this module exists to refuse - so
-    it raises. Every entry point calls into the core through `tezgah_guard.safe`,
-    which files the crash as a `crash` row rather than hiding it, so the layer's
-    fail-open direction is unchanged: a rule that cannot read the ledger has
-    refused nothing. A blank line is neither damage - it is nothing to parse,
-    not a broken row. A line that parses to something other than an object
-    (`[1,2]`, a bare number) is the same committed damage as one that does not
-    parse: no reader can take a row from it, and every reader calls `.get` on
-    what this returns, so it raises the same ValueError rather than the
-    AttributeError the first `.get` would raise far from the line (audit
-    GAP-02). A reader of ANOTHER session's ledger catches it (`_foreign_rows`)."""
+    write must not become a row (`_append` repairs such a tail before its own
+    write, so an honest writer never terminates one). A line that *was*
+    terminated and does not parse is a committed record that lost bytes - or one
+    a session wrote to the ledger by hand - and dropping it would shrink the
+    evidence in silence. It used to raise, and `tezgah_guard.safe` then failed
+    the whole Stop rule open for the turn: the damage was an allow route, the
+    one corrupting a `verify_fail` row takes. So it is skipped and named
+    instead: a `ledger_damage` row stands in its place in the answer, and the
+    same row is written once into the ledger at `path` (`_note_damage`), where
+    the Stop rule reads it as "evidence tampered". A line that parses to
+    something other than an object (`[1,2]`, a bare number) is the same damage:
+    no reader can take a row from it. A blank line is neither - it is nothing
+    to parse, not a broken row."""
     out = []
     for line in lines:
         if not line.strip():
@@ -927,10 +980,13 @@ def _parse(lines):
             row = json.loads(line)
             if not isinstance(row, dict):
                 raise ValueError("not a JSON object")
-        except ValueError as exc:
+        except ValueError:
             if not line.endswith("\n"):
                 continue  # unterminated: a fragment, never a whole record
-            raise ValueError("a terminated ledger line does not parse: %s" % exc)
+            key = hashlib.sha1(line.encode("utf-8", "replace")).hexdigest()[:12]
+            if path:
+                _note_damage(path, key, line)
+            row = {"kind": DAMAGE_KIND, "key": key}
         out.append(row)
     return out
 
@@ -938,13 +994,11 @@ def _parse(lines):
 def _foreign_rows(path, tail=None):
     """Another session's ledger rows, or [] when that ledger cannot be read.
 
-    `_parse` raises on a committed line that is not a row, which is right for
-    the session's own ledger (its crash row names the damage). A reader that
-    walks every session's ledger must not inherit it: one damaged ledger turned
-    the cross-session write gate and the snapshot capture off for every session
-    on the machine for as long as it stayed active (audit GAP-02 / M-7). That
-    ledger is not this session's evidence, so it costs its own rows and nothing
-    else."""
+    A reader that walks every session's ledger must not inherit one ledger's
+    failure: a damaged ledger used to turn the cross-session write gate and the
+    snapshot capture off for every session on the machine (audit GAP-02 / M-7).
+    `_parse` no longer raises on damage, and this still keeps any other read
+    error to that ledger's own rows."""
     try:
         return events_path(path, tail)
     except (OSError, ValueError):
@@ -955,10 +1009,10 @@ def events_path(path, tail=None):
     """Every parseable ledger entry at an explicit ledger path, oldest first.
     `events` is this function with the path derived from a session id."""
     if tail:
-        return _parse(_tail_lines(path, tail))
+        return _parse(_tail_lines(path, tail), path)
     try:
-        with open(path, encoding="utf-8") as fh:
-            return _parse(fh)
+        with open(path, "rb") as fh:
+            return _parse(_lines(fh.read()), path)
     except OSError:
         return []
 
@@ -981,7 +1035,7 @@ TURN_KIND = "turn"
 TURN_ROW = re.compile(r'"kind"\s*:\s*"%s"' % re.escape(TURN_KIND))
 
 
-def turn_rows(session_id, turns=False):
+def turn_rows(session_id, turns=False, agent=None):
     """The parsed rows from the current user turn's start to the end of the
     ledger.
 
@@ -1000,14 +1054,21 @@ def turn_rows(session_id, turns=False):
     holds): `stop_reason` keys one reply by its turn, and the markers are that
     turn's name. The count costs no second read - the lines are in hand, and a
     marker is spotted by its serialized shape and confirmed by parsing that one
-    line, the way `_turn_line` confirms the one it takes."""
+    line, the way `_turn_line` confirms the one it takes.
+
+    With `agent` (a host's subagent id), only that agent's rows: siblings in one
+    session share one ledger on Claude, and one sibling's web read must not
+    taint another's effects (security-09). The parent (`agent` None) keeps the
+    whole turn, its subagents' work included - that work is the parent's turn."""
     path = _path(session_id)
     try:
-        with open(path, encoding="utf-8") as fh:
-            lines = fh.readlines()
+        with open(path, "rb") as fh:
+            lines = _lines(fh.read())
     except OSError:
         return ([], 0) if turns else []
-    rows = _parse(lines[_turn_line(lines):])
+    rows = _parse(lines[_turn_line(lines):], path)
+    if agent:
+        rows = [row for row in rows if row.get("agent") == agent]
     return (rows, _turn_count(lines)) if turns else rows
 
 
@@ -1018,7 +1079,8 @@ def _turn_count(lines):
     them: a line a killed process left half-written carries the marker's text
     without being a row, and a count that included it would name a turn the
     ledger does not have."""
-    return sum(1 for line in lines if TURN_ROW.search(line) and _parse([line]))
+    return sum(1 for line in lines if TURN_ROW.search(line)
+               and [r.get("kind") for r in _parse([line])] == [TURN_KIND])
 
 
 def _turn_line(lines):
@@ -1051,7 +1113,7 @@ def _turn_start(rows):
     return 0
 
 
-def prior_calls(session_id, digest, tail=200):
+def prior_calls(session_id, digest, tail=200, agent=None):
     """(attempts in the current user turn, attempts in the whole tail, the newest
     attempt's exit, its fail_class) for this action identity, over the ledger
     tail only.
@@ -1079,6 +1141,10 @@ def prior_calls(session_id, digest, tail=200):
     rows = events(session_id, tail=tail)
     if not rows:
         return 0, 0, None, None
+    # one agent's attempts: a sibling's failures are not this agent's repeats,
+    # and the parent's (`agent` None) are the rows no subagent wrote
+    rows = [e for e in rows if e.get("kind") == TURN_KIND
+            or e.get("agent") == (agent or None)]
     made = [e for e in rows if e.get("id") == digest and "exit" in e]
     turn = [e for e in rows[_turn_start(rows):]
             if e.get("id") == digest and "exit" in e]
@@ -2733,7 +2799,8 @@ def unanswered(rows, delivered=()):
 
 
 def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
-              out_bytes=None, error=None, cwd=None, source=None, empty_run=False):
+              out_bytes=None, error=None, cwd=None, source=None, empty_run=False,
+              agent=None):
     """Record the evidence kind for one tool call (host PostToolUse hooks).
 
     `failed=None` is the default because a host that passes no argument reported
@@ -2773,7 +2840,9 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     A check row also carries `repo` (`_check_repo`), and `empty_run` when the
     host saw the check's own output say it ran nothing (`ran_nothing`): such a
     check exited 0 over nothing, so it records as one that RAN (`verify`), the
-    piped check's kind, and the turn still owes a pass."""
+    piped check's kind, and the turn still owes a pass.
+    `agent` is the host's subagent id (Claude's `agent_id`), written into the
+    row's `agent` field so the turn readers can key on (session, agent)."""
     inp = inp or {}
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     kind = classify(tool, inp)
@@ -2836,6 +2905,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
               "fail_class": None if interrupted else fail_class(error),
               "out_bytes": out_bytes,
               "source": source,
+              "agent": agent or None,
               "workspace": root_for(cwd) if cwd else None}
     if kind in ("edit", "run"):
         # the other half of the write: `capture` recorded the pre-state in the
@@ -3595,7 +3665,8 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
     `detail` carries the reason class - `blocked: no verify_ok`, `blocked: check
     failed`, `blocked: partial failure`, `blocked: stale evidence`, `blocked: no
     ui_ok` (both halves of the UI rule: the screen proof and the design-contract
-    floor), `blocked: no external read`, the shape classes in SHAPE_BLOCKS, or
+    floor), `blocked: no external read`, `blocked: evidence tampered`, the shape
+    classes in SHAPE_BLOCKS, or
     `ok` - so which branch refused a turn is readable; a `no verify_ok` row also
     carries `cause` (`_no_pass_cause`). One row per reply per turn: an identical
     row for the same key is skipped.
@@ -3893,6 +3964,13 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
     above it carries the one exemption - an advice-only turn is exactly the
     shape that stated both of the claims this class was written for.
 
+    "Evidence tampered" is the first evidence class: a `ledger_damage` row in
+    the turn (`_parse`) means a line of the ledger is not a row, and no fold
+    over it can carry a claim - corrupting a `verify_fail` row would otherwise
+    turn `check failed` into an allow. It sits after the shape check (a rule
+    about the reply, not the ledger) and after NEGATED: an admission that the
+    work is unverified claims nothing the damage could carry.
+
     `rows` is this turn's own rows, read once by `stop_reason`: the fold is
     scoped the way `_partial_state`'s already was, and the Stop path still reads
     the file once per turn."""
@@ -3904,6 +3982,8 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
     if NEGATED.search(t):
         return (None, None)
     rows = events(session_id) if rows is None else rows
+    if (done or verified) and any(r.get("kind") == DAMAGE_KIND for r in rows):
+        return ("evidence tampered", TAMPERED)
     ev = {str(entry.get("kind")) for entry in rows}
     if edited_hint:
         ev = ev | set(edited_hint)

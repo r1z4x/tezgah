@@ -43,6 +43,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the language only under `tr`. The contract's first rule and
   the per-turn reminder name the configured language.
 - **README: what tezgah changes on your machine**, in all five languages.
+- **The gate guards tezgah's own control plane (`control`).** It refuses a
+  change to a kill switch. It covers `~/.config/tezgah`, the evidence ledger
+  and the hook wiring too. It also refuses a change to a repository's `.no-*`
+  mark or `.git/hooks`. It
+  refuses a delete or move of `.husky` or of an open plan. It refuses a
+  forced `git add` of a `.tezgah/` path, and the CLIs that change that state.
+  Claude's `disableAllHooks` and Codex's hook trust entries count as wiring.
+  The rule follows a `cd`, `if`/`for`/`!`, `eval` and `bash -lc`. It refuses a
+  write through a link and a delete of a directory that holds this state.
+  Only `pretooluse-off` removes the rule, and the refusal names no command.
+  All 12 tamper probes of the deep analysis passed the gate before. Now the
+  gate refuses all 12. ADR 010 freezes new gate rules, and ADR 004 makes this
+  one the exception: it ships this half of R05 (R05a) now. An interpreter
+  (`python3 -c`) still gets through. `SECURITY.md` names it as a residual.
+- **A damaged ledger line blocks a done-claim.** A bad ledger line used to
+  make the reader raise. The Stop rule then failed open for the turn. The new
+  Stop class is "evidence tampered". Now the reader
+  skips the line and writes one `ledger_damage` row for it. The Stop rule
+  refuses a done or tested claim in that turn. That covers a corrupted
+  `verify_fail` row too.
+- **A switch armed mid-session leaves a record.** The prompt hook writes one
+  `disarm` row for a switch that appears after the session's first prompt.
+  The status line shows its `gate✗` mark while that switch stays armed.
+- **Subagents stop sharing taint on Claude.** Claude's hook payload names the
+  subagent (`agent_id`), and its rows now carry it. One sibling's web read no
+  longer marks another sibling's effects. The repeat ceilings count each
+  agent's own attempts.
+- **`SECURITY.md` states the threat model.** It names a cooperative but
+  fallible agent, the state the gate guards and how, and the residual routes.
 
 - **Opt-in taste capture, and a miner for the corrections already on disk.**
   Arm it with `~/.config/tezgah/taste-on`. A repository with a `.tezgah/`

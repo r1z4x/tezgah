@@ -1659,7 +1659,11 @@ class TaskGate(TempHome):
                         "python3 /opt/tezgah/bin/tezgah-task phase verification",
                         "tezgah-task allow '**'",
                         "cd /x && bin/tezgah-task stop",
-                        "bin/tezgah-task start 001 --phase implementation"):
+                        "bin/tezgah-task start 001 --phase implementation",
+                        # the script's own file name, through an interpreter or
+                        # not: the CLI is matched by basename, `.py` or none
+                        "python3 bin/tezgah-task.py phase 1 build",
+                        "tezgah-task.py allow 'src/**'"):
             reason = self.decide({"command": command}, tool="Bash")
             self.assertIsNotNone(reason, command)
             self.assertIn("record", reason)

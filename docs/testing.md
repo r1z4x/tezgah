@@ -106,7 +106,7 @@ test built: a throwaway `HOME`, `TEZGAH_ROOTS` under tempfile, `PYTHONPATH` at
 read or written (`tests/support.py:3-5`). Four kinds of test live under `tests/`,
 on top of that support layer.
 
-**Unit tests over a module.** `tests/test_paths.py:15-16` imports
+**Unit tests over a module.** `tests/test_paths.py:17-18` imports
 `hooks/tezgah_paths.py` directly and drives it in-process; where a temp HOME must
 matter it patches the module's own constants with
 `unittest.mock.patch.multiple` (`tests/test_paths.py::ConcurrentProbe`). Reach for this only for

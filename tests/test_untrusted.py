@@ -183,6 +183,19 @@ class PostToolUseProvenance(TempHome):
         self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
                          [("external", "mcp"), ("edit", "mcp"), ("run", None)])
 
+    def test_one_sibling_s_web_read_does_not_taint_the_other(self):
+        # security-09: subagents of one Claude session share one ledger, and the
+        # sibling that read the web used to taint every sibling's effects. The
+        # payload's `agent_id` (set only inside a subagent) keys the reader.
+        self.turn("split the work")
+        self.post("WebFetch", {"url": "https://example.com"}, agent_id="a-web")
+        self.assertEqual(self.line("Bash", {"command": "make"},
+                                   agent_id="a-quiet"), "")
+        self.assertIn("already read",
+                      self.line("Bash", {"command": "make"}, agent_id="a-web"))
+        self.assertEqual({r.get("agent") for r in self.rows()
+                          if r["kind"] != "turn"}, {"a-web", "a-quiet"})
+
     def test_a_consult_taints_the_turn_like_any_other_read(self):
         # An answer from the tier is the same kind of read, so the effect after
         # it wears the same notice and its own row carries the channel.
@@ -416,9 +429,9 @@ class TurnRows(unittest.TestCase):
         parsed = []
         real = ti._parse
 
-        def counting(lines):
+        def counting(lines, path=None):
             parsed.append(len(lines))
-            return real(lines)
+            return real(lines, path)
 
         with mock.patch.object(ti, "_parse", counting):
             rows = ti.turn_rows("s")

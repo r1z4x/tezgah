@@ -234,7 +234,7 @@ they survive every other switch being off.
    (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`), a pattern to `PROMPT_HINTS`
    (`hooks/tezgah_context.py::PROMPT_HINTS`) and a line to `POINTERS`
    (`hooks/tezgah_policy.py::POINTERS`); the two halves are asserted together
-   (`tests/test_context.py:2381-2388`).
+   (`tests/test_context.py:2398-2405`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
    pair to `CORE_RULES` (`hooks/tezgah_context.py::CORE_RULES`). The label is the
    contract: `core_split()` matches paragraphs by it and `subagent_core()` builds
@@ -257,7 +257,7 @@ they survive every other switch being off.
 
 | Copy A | Copy B | Test that fails when only one changed |
 |---|---|---|
-| `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:2500` |
+| `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:2517` |
 | `policy.CONTRACT` (`hooks/tezgah_policy.py::CONTRACT`) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py:800` |
 
 Drift between the source and what a host reads is caught on the rendered side:
