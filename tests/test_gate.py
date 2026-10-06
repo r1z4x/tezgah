@@ -1151,8 +1151,26 @@ class Gate(TempHome):
                 ("mcp__mobile_mcp_mobile_click_on_screen_at_coordinates",
                  {"x": 1, "y": 2}),
                 # a read lands nothing, so a token in its query is not a write
-                ("mcp__github__get_file", {"query": self.TOKEN})):
+                ("mcp__github__get_file", {"query": self.TOKEN}),
+                # the first verb word decides: `get_commit` reads a commit
+                ("mcp__github__get_commit", {"q": self.TOKEN})):
             self.assertIsNone(self.decide(tool, inp), tool)
+
+    def test_an_identifier_shaped_like_a_key_prefix_is_not_an_mcp_credential(self):
+        # A key, a branch and a slug that start with sk/pk/rk pass `gh` and
+        # Write; on MCP they must pass too. Vendor shapes are what refuses.
+        for word in ("pk_users_organization_id", "sk-telemetry-dashboard-refactor",
+                     "pk-fix-login-redirect-loop", "rk_customer_billing_address"):
+            for tool, inp in (
+                    ("mcp__github__create_issue", {"title": "t", "body": word}),
+                    ("mcp__filesystem__write_file", {"path": "a.py",
+                                                     "content": "k = '%s'\n" % word})):
+                self.assertIsNone(self.decide(tool, inp), (tool, word))
+        for token in ("sk_" + "live_" + "a" * 24, "sk-" + "proj-" + "a" * 24,
+                      "sk-" + "a" * 40, "AKIA" + "B" * 16, "xoxb-" + "1" * 12):
+            reason = self.decide("mcp__github__create_issue", {"body": token})
+            self.assertIsNotNone(reason, token)
+            self.assertIn("Credential", reason)
 
     def test_the_mcp_payload_walk_is_bounded(self):
         # audit H-3: a hook past Claude's 5 s budget never refuses anything. The

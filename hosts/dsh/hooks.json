@@ -11,7 +11,7 @@
     ],
     "PreToolUse": [
       { "matcher": "Agent|agent|Task|task|Grep|grep|Bash|bash|PowerShell|pwsh|Shell|shell|subagent|Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-pretooluse.py\"", "timeout": 5 } ] },
-      { "matcher": "mcp__.*", "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-pretooluse.py\"", "timeout": 5 } ] }
+      { "matcher": "^mcp__(?:.*[^A-Za-z0-9])?(?:append|cancel|clear|click|close|comment|commit|copy|create|delete|deploy|drag|edit|email|evaluate|exec|execute|fill|insert|install|kill|launch|merge|message|mkdir|move|navigate|notify|patch|pause|post|press|print|publish|push|put|release|remove|rename|replace|reply|resume|review|run|save|send|set|share|skip|start|stop|submit|swipe|tag|tap|terminate|type|uninstall|update|upload|write)(?:[^A-Za-z0-9].*)?$", "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-pretooluse.py\"", "timeout": 5 } ] }
     ],
     "PostToolUse": [
       { "matcher": "Edit|edit|Write|write|MultiEdit|NotebookEdit|Bash|bash|PowerShell|pwsh|str_replace_editor|WebFetch|WebSearch|web_fetch|web_search|fetch|mcp__.*", "hooks": [ { "type": "command", "command": "TEZGAH_CALL_OUTCOME=none \"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-posttooluse.py\"", "timeout": 5 } ] },

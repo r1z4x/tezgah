@@ -522,8 +522,9 @@ parsed, so a taint check costs the length of the turn and not the length of the 
 the turn, never a cause: whether the
 fetched page *caused* the write is not something a hook can see (`:14-17`). One notice per read, and
 the effect's own row then carries the channel, so the taint is a transition rather than a repeat.
-An MCP effect carries both lines. Its result came from the server, so it keeps the label. Its row
-carries the `mcp` channel, which takes the inherited channel's place.
+An MCP effect after another channel's read carries both lines. Its result came from the server, so
+it keeps the label. Its row carries the `mcp` channel, which takes the inherited channel's place.
+After an MCP read it carries the label only, because the label already names that channel.
 
 Subagents of one Claude session write one ledger, so one sibling's web read used to taint every
 sibling's effects. Claude's hook payload carries `agent_id` on a call a subagent makes, and

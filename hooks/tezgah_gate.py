@@ -94,7 +94,6 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               mcp_class, mcp_text, note, prior_calls,
                               shortcut_command, shortcut_edit, turn_rows,
                               verify_command)
-from tezgah_integrity import SECRET_TOKEN as SECRET_FAMILY
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -241,6 +240,23 @@ MCP_SECRET_DENY = (
     "token such as `ghp_...` or `sk-...`) in what the server writes or posts. "
     "Record the credential's name, length or a fingerprint instead of its value, "
     "or let the server read it from its own environment.")
+
+# The credential shapes the MCP half reads: vendor tokens only, case-sensitive.
+# The redactor's families (tezgah_integrity.SECRET_TOKEN) also take any
+# `sk|pk|rk` + 16 characters, which is what an identifier or a branch name looks
+# like (`pk_users_organization_id`, `sk-telemetry-dashboard-refactor`) - right for
+# a redactor, which loses nothing by blanking one, wrong for a refusal.
+MCP_TOKEN = re.compile(
+    r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}"
+    r"|\bsk-(?:proj|ant)-[A-Za-z0-9_\-]{16,}"
+    r"|\bsk-[A-Za-z0-9]{32,}"
+    r"|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}"
+    r"|\bgithub_pat_[A-Za-z0-9_]{20,}"
+    r"|\bxox[baprs]-[A-Za-z0-9-]{10,}"
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
+    r"|\bAIza[0-9A-Za-z_\-]{30,}"
+    r"|\bglpat-[A-Za-z0-9_\-]{20,}"
+    r"|\bnpm_[A-Za-z0-9]{30,}")
 
 EXPLORE_DENY = (
     "A grep-only explorer subagent is not allowed in this tree: it greps by "
@@ -2136,8 +2152,8 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     # write does, so its payload meets the same content rules. The verb class
     # (tezgah_integrity.MCP_VERBS) only picks which rules read it - it never
     # refuses or asks by itself - and the payload is read through the bounded
-    # walk (mcp_text). The credential half reads the prefixed token families,
-    # never the shell's name=value shape, which matches a program's own text.
+    # walk (mcp_text). The credential half reads vendor token shapes only
+    # (MCP_TOKEN), never the shell's name=value shape.
     verb = mcp_class(t)
     if verb in ("write", "publish"):
         text = mcp_text(inp)
@@ -2148,7 +2164,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
                 return _deny(session_id, "shortcut", reason, tool, inp, base)
         if ATTRIB_LINE.search(text):
             return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
-        if SECRET_FAMILY.search(text):
+        if MCP_TOKEN.search(text):
             return _deny(session_id, "secret", MCP_SECRET_DENY, tool, inp, base)
     # A credential on its way into a file. No escape hatch: the deny text
     # names the rephrase (a name, a length, a fingerprint), so the write can

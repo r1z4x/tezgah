@@ -100,8 +100,13 @@ def marks(tool, inp, session_id, result=None, agent=None):
     # An MCP effect is both: its result came from the server (the label, and
     # the `mcp` channel on its `external` row, which takes the inherited one's
     # place in turn_channel) and it is an effect made in the turn (the notice).
+    # Every MCP row re-arms the `mcp` channel, so an MCP effect after an MCP
+    # read would wear the notice on each click of a run; its label already
+    # says the same, so only another channel (a web read) earns the notice.
     inherited = turn_channel(session_id, agent) if (
         own in (None, "mcp") and effectful(tool)) else None
+    if own == "mcp" and inherited == "mcp":
+        inherited = None
     line = "\n".join(t for t in (untrusted_label(own), taint_notice(inherited))
                      if t)
     return own or inherited, line or None

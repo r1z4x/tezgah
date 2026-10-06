@@ -332,18 +332,19 @@ In order, each step verified by the one below it:
   already knew the spelling), and omp's `GATED` list
   (`hosts/omp/tezgah-hook.ts.in:58-60`). A host this list does not cover is a
   host whose shell the gate cannot see.
-- **An MCP tool reaches the gate on every host that can route it**. Claude and
-  dsh run it through a PreToolUse group of its own (`mcp__.*` in
-  `hooks/hooks.json` and `hosts/dsh/hooks.json`). That group stays apart from
-  the literal one, because one regex character would end its exact-name dialect.
-  Codex's matcher carries `mcp__.*` (`hosts/codex/hooks.json`). On omp,
-  `tool_call` passes any `mcp__` name beside `GATED` (`hosts/omp/tezgah-hook.ts.in`).
+- **An MCP effect reaches the gate on every host that can route it**. Claude
+  and dsh run it through a PreToolUse group of its own in `hooks/hooks.json` and
+  `hosts/dsh/hooks.json`. That group stays apart from the literal one, because
+  one regex character would end its exact-name dialect. Its pattern names the
+  effect verbs of `hooks/tezgah_integrity.py::MCP_VERBS`, and omp's `tool_call`
+  tests the same pattern (`MCP_EFFECT`, `hosts/omp/tezgah-hook.ts.in`). Both
+  hosts read a matcher as an unanchored JavaScript `RegExp`, and the pattern
+  uses no lookahead. A read-only MCP call, such as a code-graph query, spawns no
+  hook there. Codex's matcher carries `mcp__.*` (`hosts/codex/hooks.json`).
   Cursor's `beforeMCPExecution` asks `decision` under the `mcp__<server>__<tool>`
   name (`hosts/cursor/hook.py::dispatch`). It answers a deny, or `allow` for the
   code graph, or nothing, so a user policy stands. The gate's own page says what
-  it reads on such a call ([gate.md](gate.md#mcp-a-servers-effect-tool)). Each
-  MCP call costs one more python spawn on Claude, dsh and omp, inside their 5 s
-  hook budget.
+  it reads on such a call ([gate.md](gate.md#mcp-a-servers-effect-tool)).
 - **Claude runs a copy of the checkout, never this tree** (`bin/tezgah-setup:3763-3781`),
   so a change is not live until `--sync` or a refresh
   (`refresh_plugin_copy`, `bin/tezgah-setup::refresh_plugin_copy`).

@@ -2713,10 +2713,13 @@ MCP_TOOL = re.compile(r"^mcp__", re.I)
 # `publish` lands text on a service under the workspace's name (attribution,
 # secret), `act` changes state and carries no artifact text (drift and taint
 # only). Matched per word of the name, so Claude/dsh/Codex
-# `mcp__<server>__<tool>` and omp `mcp__<server>_<tool>` read the same; the first
-# class with a word in the name wins.
+# `mcp__<server>__<tool>` and omp `mcp__<server>_<tool>` read the same. The first
+# verb word decides, and a read verb there (MCP_READS) makes the call a read:
+# `get_commit` names what it reads, not what it does.
 # ponytail: a verb missing here (a server's own word for "send") reads as a read:
-# it costs that tool the content rules, never a call.
+# it costs that tool the content rules, never a call. The host matchers that
+# spawn the gate for these names (hooks/hooks.json, hosts/dsh/hooks.json, omp's
+# MCP_EFFECT) are built from the same words; tests/test_setup.py holds them equal.
 MCP_VERBS = (
     ("write", frozenset(("write", "edit", "create", "update", "insert", "append",
                          "replace", "patch", "put", "save", "upload", "move",
@@ -2730,6 +2733,7 @@ MCP_VERBS = (
                        "install", "uninstall", "deploy", "set", "launch",
                        "terminate", "kill", "print", "pause", "resume", "skip",
                        "clear", "navigate", "evaluate"))))
+MCP_READS = frozenset(("get", "list", "search", "read", "fetch", "describe"))
 # The payload walk the content rules read an MCP effect through: string values,
 # depth-first, up to MCP_WALK_MAX characters, MCP_WALK_DEPTH levels and
 # MCP_WALK_NODES values. A server's payload has no shape of its own to key on,
@@ -2748,10 +2752,12 @@ def mcp_class(tool):
     name = str(tool or "").strip().lower()
     if not MCP_TOOL.match(name):
         return None
-    words = set(re.split(r"[^a-z0-9]+", name[5:]))
-    for cls, verbs in MCP_VERBS:
-        if words & verbs:
-            return cls
+    for word in re.split(r"[^a-z0-9]+", name[5:]):
+        if word in MCP_READS:
+            return None
+        for cls, verbs in MCP_VERBS:
+            if word in verbs:
+                return cls
     return None
 
 

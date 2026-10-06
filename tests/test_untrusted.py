@@ -245,9 +245,37 @@ class PostToolUseProvenance(TempHome):
                      "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"):
             self.assertTrue(tu.effectful(tool), tool)
             self.assertIsNotNone(ti.mcp_class(tool), tool)
-        for tool in ("mcp__github__get_file", "mcp__codegraph_explore"):
+        for tool in ("mcp__github__get_file", "mcp__codegraph_explore",
+                     "mcp__github__get_commit", "mcp__github__get_workflow_run",
+                     "mcp__mobile_mcp_mobile_list_elements_on_screen"):
             self.assertFalse(tu.effectful(tool), tool)
             self.assertIsNone(ti.mcp_class(tool), tool)
+
+    def test_a_run_of_mcp_effects_wears_one_notice_per_read(self):
+        # Each MCP row re-arms the `mcp` channel, so without the guard every
+        # click after the first carried the notice. The web read is noticed on
+        # the first MCP effect; the MCP results after it carry their label only.
+        self.post("WebFetch", {"url": "https://x"})
+        click = "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"
+        self.assertIn("already read a web result", self.line(click, {"x": 1}))
+        for tool in (click, click, click, "mcp__github__create_issue"):
+            text = self.line(tool, {"x": 1})
+            self.assertNotIn("already read", text)
+            self.assertIn("an MCP server", text)
+        # the MCP results are a read of their own: the first non-MCP effect after
+        # them is noticed once, as it was before an MCP call counted as an effect
+        self.assertIn("already read an MCP server",
+                      self.line("Bash", {"command": "make"}))
+        self.assertEqual(self.line("Bash", {"command": "make"}), "")
+
+    def test_four_mobile_clicks_after_an_mcp_read_carry_no_notice(self):
+        # the reported flood: a screen read, then four clicks, each noticed
+        self.line("mcp__mobile_mcp_mobile_list_elements_on_screen", {})
+        click = "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"
+        for _ in range(4):
+            text = self.line(click, {"x": 1})
+            self.assertNotIn("already read", text)
+            self.assertIn("an MCP server", text)
 
     def test_a_stale_turn_s_read_is_not_this_turn_s(self):
         # The turn marker bounds the read, so a page the *previous* turn fetched

@@ -288,6 +288,18 @@ class OmpExtension(TempHome):
         self.assertIn("Credential", blocked["reason"])
         self.assertIsNone(passed)
 
+    def test_a_read_only_mcp_call_spawns_no_gate(self):
+        # An omp hook timeout disables the session, so a code-graph query (a
+        # read, which no content rule reads) must not pay a python spawn.
+        hook, log = self.fake_hook({})
+        self.ext = self.make_ext(hook, name="mcp-hook.ts")
+        self.results(self.drive([
+            {"event": "tool_call", "arg": {"toolName": tool, "input": {}}}
+            for tool in ("mcp__codegraph_explore", "mcp__github__get_file",
+                         "mcp__fs_write_file")]))
+        self.assertEqual([p.get("tool") for p in self.asked(log)
+                          if p["event"] == "pre_tool_use"], ["mcp__fs_write_file"])
+
     def test_a_broken_hook_is_visible_and_never_blocks(self):
         # the audit's reproduction: with the hook missing, every event was a
         # silent no-op - an attribution commit and an unverified done-claim both

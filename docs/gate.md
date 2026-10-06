@@ -45,17 +45,18 @@ change; the two halves of that rule are `hooks/tezgah_integrity.py`'s and are de
 
 ## MCP — a server's effect tool
 
-An `mcp__` tool reaches `decision` on every host that can route it ([hosts.md](hosts.md)). No rule refuses it for what it is.
-Its verb class only picks which existing content rules read its payload. The class comes from the tool's name
-(`hooks/tezgah_integrity.py::mcp_class`, `hooks/tezgah_integrity.py::MCP_VERBS`).
+An MCP effect tool reaches `decision` on every host that can route it ([hosts.md](hosts.md)). No rule refuses it for what it is.
+Its verb class only picks which existing content rules read its payload. The first verb word of the tool's name decides the class
+(`hooks/tezgah_integrity.py::mcp_class`, `hooks/tezgah_integrity.py::MCP_VERBS`). A read verb there (`get`, `list`, `search`, ...) makes the call a read.
 A `write` call such as `write_file` meets the shortcut, attribution and secret rules.
-A `publish` call such as `create_comment` meets attribution and secret. An `act` call such as `click` meets none of them.
+A `publish` call such as `send_message` meets attribution and secret. An `act` call such as `click` meets none of them.
 Every class counts as an effect for the drift re-statement (`hooks/tezgah_gate.py::effectful`) and the taint notice
-(`hooks/tezgah_untrusted.py::effectful`). The gate reads the payload through a bounded walk (`hooks/tezgah_integrity.py::mcp_text`).
+(`hooks/tezgah_untrusted.py::effectful`). So an `act` call can now draw the drift re-statement, once per long turn.
+The gate reads the payload through a bounded walk (`hooks/tezgah_integrity.py::mcp_text`).
 An unbounded read of an unbounded payload runs past the 5 s hook budget, and a late hook refuses nothing (audit H-3).
+On Claude, dsh and omp the host matcher names the effect verbs only, so a read-only MCP call spawns no hook.
 A temp-HOME fixture measured the cost: 200 spawns per case, on a loaded machine.
-The Claude hook took p95 107 ms on an MCP read and 135 ms on a 300-byte MCP write.
-A 1 MB write took 222 ms, and a plain `Bash` call took 101 ms.
+The Claude hook took p95 135 ms on a 300-byte MCP write and 222 ms on a 1 MB one. A plain `Bash` call took 101 ms.
 
 ## The rules, in the order `decision` checks them
 
@@ -67,7 +68,7 @@ of each rule's first deny site. A rule's section names every `off(...)` switch t
 ### Control — tezgah's own control plane
 
 Trigger: a write tool or a shell command that changes a file the other rules rest on (`control_reason` `hooks/tezgah_gate.py::control_reason`). `decision` checks
-it first after the root check (`decision` `hooks/tezgah_gate.py:2009-2013`). The protected set (`control_target` `hooks/tezgah_gate.py::control_target`):
+it first after the root check (`decision` `hooks/tezgah_gate.py::decision`). The protected set (`control_target` `hooks/tezgah_gate.py::control_target`):
 
 | What | Paths | Refused for |
 |---|---|---|
@@ -177,8 +178,9 @@ Trigger: one simple command (split on `&&`, `||`, `;`, newline — `hooks/tezgah
 `| tee`, a curl `--trace`, or `git add`); `hooks/tezgah_gate.py::secret_command`. Told: record the name, length or a fingerprint instead, and pass the value through the
 tool's environment (`hooks/tezgah_gate.py::SECRET_DENY`). Standing, no escape hatch. The shell's own write route is the third twin: a credential inside a heredoc body
 is refused from the body (`hooks/tezgah_gate.py::decision`), because `mask()` blanks that body and the text-level scan above cannot see it.
-The gate refuses an MCP `write` or `publish` payload that carries a prefixed token such as `ghp_` (`hooks/tezgah_integrity.py::SECRET_TOKEN`).
-The `name=value` shape does not count there, because a program's own text matches it (`hooks/tezgah_gate.py::MCP_SECRET_DENY`).
+The gate refuses an MCP `write` or `publish` payload that carries a vendor token such as `ghp_` or `sk_live_` (`hooks/tezgah_gate.py::MCP_TOKEN`).
+A bare `sk-`, `pk_` or `rk_` prefix does not count there, because identifiers and branch names carry it (`hooks/tezgah_gate.py::MCP_SECRET_DENY`).
+Neither does the `name=value` shape, which a program's own text matches.
 
 ### Plan — a turn's third product file on `main`
 
