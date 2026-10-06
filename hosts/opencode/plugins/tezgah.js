@@ -1647,7 +1647,7 @@ const SUBAGENT_TOOLS = new Set(["task", "agent", "spawn_agent", "subagent"])
 // are hooks/tezgah_integrity.NETWORK_READ's; the pattern is that one, byte for
 // byte, and tests/test_opencode_plugin.py pins the two to one answer.
 const NETWORK_READ =
-  /(?:^|[|;&(])\s*(?:(?:[A-Za-z_]\w*=\S*|sudo(?:\s+-\S+)*)\s+)*(?:curl|wget|gh\s+(?:api|issue\s+(?:view|list)|pr\s+(?:view|diff|checkout|list))|git(?:\s+(?:-[Cc]\s+\S+|--\S+))*\s+(?:clone|pull|fetch)\b(?!(?:\s+-\S+)*\s+(?:[./~]|file:)))\b/im
+  /(?:^|[|;&(])\s*(?:(?:[A-Za-z_]\w*=\S*|sudo(?:\s+-\S+)*)\s+)*(?:(?:curl|wget|gh\s+(?:api|issue\s+(?:view|list)|pr\s+(?:view|diff|checkout|list)))\b|git(?:\s+(?:-[Cc]\s+\S+|--\S+))*\s+(?:clone\b(?!(?:\s+-\S+)*\s+(?:[./~]|file:))|(?:pull|fetch)(?:\s+-\S+)*\s+(?!file:)(?:[a-z][\w+.-]*:\/\/|[\w.-]+@[\w.-]+:)))/im
 const TIER_PROGRAMS = ["consult", "codegen"]
 const TIER_CALL = /\b(?:consult|codegen)\b([^|;&<>()\n]*)/gi
 // The invocation that reaches a model is the one with an argument: `consult

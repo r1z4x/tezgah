@@ -111,7 +111,7 @@ class PostToolUseProvenance(TempHome):
                  ("Bash", {"command": "sudo -E wget -q https://x"},
                   "a network read"),
                  # a PR diff, a checked-out PR and an issue or PR list are a
-                 # third party's text too, and so is whatever a remote sends
+                 # third party's text too, and so is a tree pulled from a URL
                  ("Bash", {"command": "gh pr diff 3"}, "a network read"),
                  ("Bash", {"command": "gh pr checkout 3"}, "a network read"),
                  ("Bash", {"command": "gh issue list"}, "a network read"),
@@ -122,10 +122,11 @@ class PostToolUseProvenance(TempHome):
                  ("Bash", {"command": "GIT_TERMINAL_PROMPT=0 git clone https://x/y"},
                   "a network read"),
                  ("Bash", {"command": 'git clone "https://x/y"'}, "a network read"),
-                 ("Bash", {"command": "git pull"}, "a network read"),
-                 ("Bash", {"command": "git pull origin main"}, "a network read"),
-                 ("Bash", {"command": "git fetch --all"}, "a network read"),
-                 ("Bash", {"command": "git -c x=y fetch upstream"},
+                 ("Bash", {"command": "git pull https://x/y main"},
+                  "a network read"),
+                 ("Bash", {"command": "git fetch git@github.com:o/r.git"},
+                  "a network read"),
+                 ("Bash", {"command": "git -C d pull --rebase ssh://h/r"},
                   "a network read")]
         for i, (tool, inp, channel) in enumerate(cases):
             with self.subTest(tool=tool, inp=inp):
@@ -156,6 +157,13 @@ class PostToolUseProvenance(TempHome):
                  ("Bash", {"command": "git clone file:///abs/repo"}),
                  ("Bash", {"command": "git pull . feature"}),
                  ("Bash", {"command": "git fetch ../other"}),
+                 ("Bash", {"command": "git pull file:///abs/repo"}),
+                 # the repository's own remote is the user's tree: a `git pull
+                 # && pytest` turn must not wear a notice
+                 ("Bash", {"command": "git pull"}),
+                 ("Bash", {"command": "git pull origin main && pytest -q"}),
+                 ("Bash", {"command": "git fetch --all"}),
+                 ("Bash", {"command": "git -c x=y fetch upstream"}),
                  ("Edit", {"file_path": "/tmp/x.py"}),
                  ("Grep", {"pattern": "curl"})]
         for i, (tool, inp) in enumerate(cases):
