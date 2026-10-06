@@ -127,7 +127,10 @@ def main():
     safe(session_id, note_tool, session_id, tool, inp,
          failed=failed,
          interrupted=interrupted,
-         out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
+         # the report's byte rule is the delegate call's own: an effect that
+         # only inherits the subagent channel keeps its top-level measure
+         out_bytes=(report_bytes(result)
+                    if untrusted_source(tool, inp) == SUBAGENT_CHANNEL
                     else result_size(result)),
          error=p.get("error"),
          cwd=cwd,

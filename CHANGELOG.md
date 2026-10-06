@@ -315,6 +315,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **tezgah labels more shell reads as network reads.** These now count:
   `gh issue view`, `gh pr view`, `git clone`, and a read behind `sudo`. Every
   host and the opencode plugin read them the same way. Nothing new gets refused.
+- **A shell call after a subagent keeps its result size.** On Claude, dsh and
+  Codex, such a call inherits the subagent channel. Its row then lost
+  `out_bytes`, because the report's byte rule keyed on that channel. The rule
+  now keys on the call's own channel.
 - **The masker and the status reader drop three misreads.** An escaped `\$'` no longer
   opens an ANSI-C string. A quote left open blanks only what follows it, and an
   apostrophe in a heredoc body opens no quote. A quoted newline, a comment, a

@@ -3512,6 +3512,19 @@ class PostToolUse(TempHome):
                          ("external", "subagent", len(text.encode("utf-8")) + 2))
         self.assertNotIn("bulgu", json.dumps(row))
 
+    def test_an_effect_after_a_report_keeps_its_own_size(self):
+        # The Bash right after an Agent inherits the subagent channel on its
+        # row, but the report's byte rule is the delegate's own: the shell
+        # result keeps its top-level measure instead of losing it.
+        self.run_hook("PostToolUse", "Agent", {"prompt": "look"},
+                      tool_response={"content": [{"type": "text", "text": "r"}]})
+        result = {"stdout": "x" * 10, "stderr": ""}
+        self.run_hook("PostToolUse", "Bash", {"command": "ls"},
+                      tool_response=result)
+        row = self.rows()[-1]
+        self.assertEqual((row["kind"], row.get("source"), row.get("out_bytes")),
+                         ("run", "subagent", len(result)))
+
     def test_a_piped_check_is_recorded_as_ran(self):
         self.run_hook("PostToolUse", "Bash", {"command": "pytest -q | tail -1"})
         self.assertEqual(self.kinds(), ["verify"])
