@@ -196,7 +196,9 @@ class Trace:
         if name == "C":
             return ti._change_row(row)
         if name == "U":
-            return bool(ti._ui_write(row))
+            # `_ui_write` is None for a row `_change_row` refuses: ask it only of
+            # the change rows, so the C test is paid once per row
+            return self.col("C")[i] and bool(ti._ui_write(row))
         if name == "Sp":
             return ((self.col("P")[i] and bool(ti.UI_CHECK.search(self.masked(i))))
                     or ti._screen_read(row)
