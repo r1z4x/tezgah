@@ -24,6 +24,9 @@
     ],
     "Stop": [
       { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-stop.py\"", "timeout": 5 } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-stop.py\"", "timeout": 5 } ] }
     ]
   }
 }

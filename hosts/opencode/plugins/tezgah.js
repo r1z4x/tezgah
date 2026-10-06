@@ -609,12 +609,33 @@ function maskText(text) {
   return blankHeredocs(text).replace(LITERALS, (m) => " ".repeat(m.length))
 }
 
+// mirrors hooks/tezgah_integrity INFO_ARGS / INFO_SUBCOMMAND / FORMAT_WRITE: an
+// information form checks nothing and a formatter's write mode changes the
+// tree, so neither is a check; read on the words after the tool up to the end
+// of that one command
+const INFO_ARGS = /(?:^|\s)(?:--version|--help|--list|--collect-only)(?=\s|$)/
+const INFO_SUBCOMMAND = { make: /^\s*help(?:\s|$)/, just: /^\s*help(?:\s|$)/,
+                          ruff: /^\s*$/ }
+const FORMAT_WRITE = { ruff: /^\s*format\b(?!.*\s--(?:check|diff)\b)|\s--fix\b/,
+                       prettier: /(?:^|\s)(?:--write|-w)(?=\s|$)/,
+                       eslint: /(?:^|\s)--fix\b/ }
+const VERIFY_ALL = new RegExp(VERIFY.source, "gi")
+
 function verifyCommand(cmd) {
   // the masked text, the convention shortcutCommand already follows: a check
   // named inside a quoted string or a heredoc body is text ABOUT a command, not
   // one, and reading it as one records a passing check nobody ran
-  const m = maskText(cmd).match(VERIFY)
-  return m ? m[0] : null
+  const text = maskText(cmd)
+  for (const m of text.matchAll(VERIFY_ALL)) {
+    const words = m[0].trim().split(/\s+/)
+    const tool = words[words.length - 1].toLowerCase()
+    const args = text.slice(m.index + m[0].length).split(/[;&|\n)]/)[0]
+    const sub = INFO_SUBCOMMAND[tool]
+    if (INFO_ARGS.test(args) || (sub && sub.test(args))) continue
+    if (FORMAT_WRITE[tool] && FORMAT_WRITE[tool].test(args)) continue
+    return m[0]
+  }
+  return null
 }
 
 // mirrors hooks/tezgah_integrity._git_skips_hooks: commit's short `-n` (alone or

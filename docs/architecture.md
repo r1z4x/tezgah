@@ -47,14 +47,14 @@ A host adapter translates one host's event names and output schema into the
 core's vocabulary and translates the answer back. It contains no rule text and
 no gate logic; the imports are the proof. Codex is the most readable example:
 its hook maps `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PostCompact` to
-the core's events (`hosts/codex/hook.py:35-40`), imports the builder, gate,
+the core's events (`hosts/codex/hook.py:35-44`), imports the builder, gate,
 integrity and untrusted modules from `hooks/` (`hosts/codex/hook.py:21-33`), and
 passes Codex's tool names through a translation table before calling the gate
 (`hosts/codex/hook.py::GATE_TOOLS`, `hosts/codex/hook.py::gate_name`, `decision` at `hosts/codex/hook.py::gate_reason`). omp is
 the same split in another language: the TypeScript extension is "only the
 bridge" and substitutes the absolute path of
 the Python half (`hosts/omp/tezgah-hook.ts.in:3-6`), whose `handle()` dispatches
-every event (`hosts/omp/hook.py::handle`). Cursor (`hosts/cursor/hook.py:2-23`) and
+every event (`hosts/omp/hook.py::handle`). Cursor (`hosts/cursor/hook.py:2-24`) and
 opencode (`hosts/opencode/plugins/tezgah.js:1-57`) follow the same rule; opencode
 is the one host whose plugin cannot call the core in process, so it shells out
 through `bin/tezgah-context` and `bin/tezgah-capture` instead of copying it
@@ -113,12 +113,12 @@ One session, in order. Each step names the file that handles the event on Claude
    and the stale-index notice (`hooks/tezgah_context.py::index_notice`).
 3. **PreToolUse** — `hooks/projects-pretooluse.py:24` calls `decision` and emits
    the deny envelope (`hooks/projects-pretooluse.py::main`). The gate is the same
-   object on every host: `hosts/omp/hook.py::handle`, `hosts/codex/hook.py:104`.
+   object on every host: `hosts/omp/hook.py::handle`, `hosts/codex/hook.py:108`.
 4. **PostToolUse** — `hooks/projects-posttooluse.py:64` writes the evidence row
    through `note_tool` (`hooks/projects-posttooluse.py::main`), records the used
    kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:90`),
    and attaches the untrusted-content label when the result came from outside.
-5. **Stop** — `hooks/projects-stop.py:34` calls `stop_reason`, which reads the
+5. **Stop** — `hooks/projects-stop.py:41` calls `stop_reason`, which reads the
    ledger and can refuse the turn (`hooks/tezgah_integrity.py::stop_reason`). omp and
    Codex reach the same function from their own Stop events
    (`hosts/omp/hook.py::handle`).

@@ -1705,7 +1705,7 @@ def dsh_patch_block():
     knows only SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/SubagentStart/
     SubagentStop/Stop and silently drops any other event, so `configPath` names
     hosts/dsh/hooks.json rather than the Claude manifest - the file declares five
-    of those seven: no SubagentStop (nothing handles a subagent's end) and no
+    of those seven: no SubagentStop (its record-only verdict waits for outcomes too) and no
     Stop (the bridge drops every outcome, so no check there can show a pass)."""
     return (
         "- insert:\n"

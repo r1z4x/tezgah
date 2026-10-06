@@ -152,7 +152,7 @@ current one (`bin/tezgah-setup:3763-3781`).
 
 `--status [PATH]` answers a different question — which rules are in force in that
 repo — as one line of marks rendered by the same code every status line uses
-(`hooks/tezgah_context.py:2427-2498`, `hooks/tezgah_context.py::render_line`). Mark meanings are in
+(`hooks/tezgah_context.py:2428-2499`, `hooks/tezgah_context.py::render_line`). Mark meanings are in
 [status-line.md](status-line.md); `bin/tezgah-status` is that checklist with
 `--json`, `--legend` and `--observable=`. It carries the report's host-list row
 too, from the same `hosts_row`, so the mismatch reaches the surface a session
@@ -207,7 +207,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 - `--refresh` does that without a reinstall, for every armed host's static
   block and not only opencode's (`refresh_contract`). opencode has no
   session-start hook, so its plugin runs it once per session
-  (`hosts/opencode/plugins/tezgah.js:2331-2335`). Until 2026-10-02 it
+  (`hosts/opencode/plugins/tezgah.js:2352-2356`). Until 2026-10-02 it
   re-rendered opencode's files alone and reset the one shared hash, so a rule
   edit left the other static files stale while `--report` went green (audit
   M-5).
@@ -378,7 +378,7 @@ A workspace of repo-provided data gets nothing.
 
 Rows go to `<repo>/.tezgah/taste/signals.jsonl` through the ledger's own writer
 (`_write`, `hooks/tezgah_taste.py::_write`). A user turn adds a `prompt` row,
-redacted and cut to 2000 characters (`hooks/tezgah_context.py:1731-1735`).
+redacted and cut to 2000 characters (`hooks/tezgah_context.py:1732-1736`).
 A landed write adds an `edit` row with its redacted old and new text, cut to
 4000, under the ledger row's id. Each written file also adds an `after` row.
 It names a snapshot that holds the bytes the write left (`note_write`,
@@ -390,7 +390,7 @@ ledger row. A rollback therefore never reads it as a pre-state (`capture_after`,
 `hooks/tezgah_snapshot.py::capture_after`). A file outside the repository gets no
 after blob.
 opencode reaches the same call through a process (`noteTaste`,
-`hosts/opencode/plugins/tezgah.js:2037-2046`).
+`hosts/opencode/plugins/tezgah.js:2058-2067`).
 
 ```sh
 touch ~/.config/tezgah/taste-on               # arm; rm it to disarm

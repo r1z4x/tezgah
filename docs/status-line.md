@@ -136,7 +136,7 @@ was never opened", so it declares what it can see and those marks render `info`
 `TOOL_USE_MEASURES`, `hooks/tezgah_context.py::TOOL_USE_MEASURES`). The `--observable=` flag carries it on the CLI
 (bin/tezgah-status:30-34,56-57,129-132). Two callers pass the tool-use set: Cursor's
 status line (statusline.py:109-114) and Codex, which renders the line plain into
-`systemMessage` (hosts/codex/hook.py:190-192,195-198); dsh passes the literal flag
+`systemMessage` (hosts/codex/hook.py:195-197,200-203); dsh passes the literal flag
 string (hosts/dsh/statusline/lib/index.js:18,47-48), which names the five marks its
 own hook can record - `judge` included, since dsh wires the same PostToolUse hook
 every other host does. The set is what a host can write, not what it happens to
@@ -157,8 +157,8 @@ the command really ran it (34-38,84) and is the one writer that can earn `judge`
 (a run of `bin/tezgah-triage` or `bin/tezgah-docs`, `shell_kind`, `hooks/tezgah_context.py::shell_kind`)
 — plus `hooks/projects-auto-init.py:48`
 (`orch` on subagent start), `hosts/codex/hook.py::main`,
-hosts/cursor/hook.py:224,250,256,272,280,295, hosts/opencode/plugins/tezgah.js:1792-1799,
-hosts/opencode/plugins/tezgah.js:2288, hosts/omp/hook.py:172. Both Claude (hooks/hooks.json) and dsh
+hosts/cursor/hook.py:231,257,263,279,287,303, hosts/opencode/plugins/tezgah.js:1813-1820,
+hosts/opencode/plugins/tezgah.js:2309, hosts/omp/hook.py:177. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
 its line has (hooks/projects-posttooluse.py:29-32).
@@ -181,7 +181,7 @@ Every other surface reads the store.
   the colored string as-is; `setStatus` is the fallback for a build without
   `setWidget`, and it is plain because omp strips ANSI (12-29). `status_line()`
   builds the line and carries `idx_override`, so a per-tool redraw forks no git
-  (hosts/omp/hook.py:90-105); it redraws on session start, session switch, turn end
+  (hosts/omp/hook.py:95-110); it redraws on session start, session switch, turn end
   and each watched tool result (hosts/omp/tezgah-hook.ts.in:233-234,245-249).
   **Motion:** while the agent runs (`agent_start` until an `agent_end` whose
   `isTerminal` is not `false`) the widget leads with a braille spinner, the tool
@@ -281,7 +281,7 @@ sandboxes hook writes (dsh) the stamp is never written, and before that state
 existed the mark read green there for good. That is why `observable` exists (hooks/tezgah_context.py:1348-1353),
 why the skill-read check is documented as unavailable on Codex, Cursor and dsh
 (hooks/tezgah_context.py:145-149), why omp ignores any `idx` value that is not one of
-its five glyphs (hosts/omp/hook.py:87-103) - a value outside that set re-probes
+its five glyphs (hosts/omp/hook.py:92-108) - a value outside that set re-probes
 instead of being reused, one fork and never a wrong mark - and
 why `off` is decided before the visibility one - a
 kill switch is observable everywhere (hooks/tezgah_context.py:1348-1353,1306-1309). Cursor's pinned plain

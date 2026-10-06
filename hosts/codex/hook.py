@@ -30,10 +30,14 @@ from tezgah_context import (  # noqa: E402
 from tezgah_gate import decision  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, changed_files_notice, note_tool, report_bytes,
-    stop_reason)
+    SUBAGENT_CHANNEL, changed_files_notice, note_tool, ran_nothing,
+    report_bytes, stop_reason)
 from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
 from tezgah_untrusted import marks  # noqa: E402
+
+# How many times one stop chain may be refused (hooks/projects-stop.py names the
+# same constant): one, deliberately; raising it is owner decision 11.
+STOP_REASKS = 1
 
 EVENTS = {
     "SessionStart": "session_start",
@@ -180,7 +184,8 @@ def main():
             safe(session_id, note_tool, session_id, tool, inp,
                  failed=verify_outcome(payload), source=source, cwd=cwd,
                  out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
-                            else result_size(result)))
+                            else result_size(result)),
+                 empty_run=ran_nothing(result))
         if notice:
             # Codex's PostToolUse output carries `additionalContext` with the
             # result - the field is part of its own hook output schema
@@ -199,12 +204,12 @@ def main():
         # half runs here too: a done/tested claim with nothing observed behind it
         # cannot end the turn. `verify-off` drops it; outside a root it is inert.
         # The reply after a block (`stop_hook_active`) is judged record-only:
-        # one `after_block` row, never a second block.
+        # one `after_block` row, never a second block (STOP_REASKS).
         if not off("verify-off") and root_for(cwd):
+            blocked = 1 if payload.get("stop_hook_active") else 0
             reason = safe(session_id, stop_reason,
                           payload.get("last_assistant_message"), session_id,
-                          cwd=cwd,
-                          record_only=bool(payload.get("stop_hook_active")))
+                          cwd=cwd, record_only=blocked >= STOP_REASKS)
             if reason:
                 out["decision"] = "block"
                 out["reason"] = reason

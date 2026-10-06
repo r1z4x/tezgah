@@ -30,8 +30,8 @@
     "semicolons": 3
   },
   "docs/evidence.md": {
-    "long_sentences": 112,
-    "passive": 58,
+    "long_sentences": 109,
+    "passive": 57,
     "replace_words": 1,
     "semicolons": 40
   },

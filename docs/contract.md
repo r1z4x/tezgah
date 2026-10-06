@@ -148,7 +148,7 @@ its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 `output-styles/tezgah.md` where a build loads plugin output styles
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
-hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:241`). `core_for()`
+hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:248`). `core_for()`
 (`hooks/tezgah_context.py::core_for`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
@@ -212,7 +212,7 @@ happens in `core_split()`.
 | `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py::switches` |
 | `.no-adhd` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py::switches` |
 | `.no-graph` | `**Code discovery: graph first.**` | `hooks/tezgah_context.py::switches` |
-| `.no-lessons` | `**Lessons ledger: stop repeating mistakes.**` | `hooks/tezgah_context.py::switches`, and neither the session's lessons block (`hooks/tezgah_context.py:1913-1917`) nor the per-turn one (`relevant_lessons`) is injected |
+| `.no-lessons` | `**Lessons ledger: stop repeating mistakes.**` | `hooks/tezgah_context.py::switches`, and neither the session's lessons block (`hooks/tezgah_context.py:1914-1918`) nor the per-turn one (`relevant_lessons`) is injected |
 
 The last four are per-repo [marks](glossary.md#per-repo-mark), read by
 `repo_marks()`, walking up to the enclosing [root](glossary.md#root)

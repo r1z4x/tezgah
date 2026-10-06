@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_context import record, shell_kind  # noqa: E402
 from tezgah_guard import safe  # noqa: E402
 from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, note_tool, report_bytes, untrusted_source)
+    SUBAGENT_CHANNEL, note_tool, ran_nothing, report_bytes, untrusted_source)
 from tezgah_paths import root_for  # noqa: E402
 from tezgah_untrusted import marks  # noqa: E402
 
@@ -122,7 +122,10 @@ def main():
                     else result_size(result)),
          error=p.get("error"),
          cwd=cwd,
-         source=source)
+         source=source,
+         # the Bash result's own stdout/stderr, read on a bounded tail for the
+         # empty-run contract (tezgah_integrity.EMPTY_RUN)
+         empty_run=ran_nothing(result))
     if notice:
         json.dump({"hookSpecificOutput": {
             "hookEventName": event,

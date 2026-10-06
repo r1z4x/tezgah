@@ -40,7 +40,7 @@ Here tezgah plugs into those points and never supplies one: omp's extension is
 "only the bridge" (`hosts/omp/tezgah-hook.ts.in:3-6`), opencode's plugin adds
 what its generated `instructions` files cannot carry
 (`hosts/opencode/plugins/tezgah.js:3-12`), and Codex's hook maps the host's
-events and tool names onto the shared vocabulary (`hosts/codex/hook.py:36-49`).
+events and tool names onto the shared vocabulary (`hosts/codex/hook.py:36-53`).
 
 ## Agent host runtime
 

@@ -60,6 +60,11 @@ from tezgah_integrity import (  # noqa: E402
     SUBAGENT_CHANNEL, note, note_tool, stop_reason, untrusted_label, untrusted_source)
 from tezgah_paths import off, root_for  # noqa: E402
 
+# How many times one stop chain may be refused (hooks/projects-stop.py names the
+# same constant): one, deliberately; raising it is owner decision 11. omp has no
+# subagent-end event: `session_stop` does not fire for task sessions.
+STOP_REASKS = 1
+
 
 def classify(tool, inp):
     """The used-tool kind for one omp tool call, or None.
@@ -188,10 +193,13 @@ def handle(payload):
             # text is not in the payload. The row states no size rather than
             # claiming a 1-byte report; an absent field means unknown.
             size = None
+        # `empty_run` is the bridge's own reading of the result's text (its
+        # EMPTY_RUN copy), sent as a flag because the body is never sent
         note_tool(session_id, tool, inp,
                   failed=failed if isinstance(failed, bool) else None,
                   out_bytes=size if isinstance(size, int) and size >= 0 else None,
-                  source=source, cwd=cwd)
+                  source=source, cwd=cwd,
+                  empty_run=payload.get("empty_run") is True)
         if str(tool).lower() == "task" and isinstance(inp.get("tasks"), list):
             # omp names a child's ledger by its task name (`<parent>/<name>.jsonl`)
             # and only this call knows which agent that name runs - `task` when
@@ -215,7 +223,7 @@ def handle(payload):
     if event == "stop":
         if off("verify-off"):
             return {}
-        if payload.get("stop_hook_active"):
+        if (1 if payload.get("stop_hook_active") else 0) >= STOP_REASKS:
             # the reply after a block: recorded, never refused a second time,
             # under its own guard so a record that fails still answers empty
             safe(session_id, stop_reason, payload.get("last_assistant_message"),
