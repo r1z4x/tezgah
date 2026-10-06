@@ -103,6 +103,16 @@ sample.
 HOME and prints p50/p95 in milliseconds; `--hooks` points it at another
 revision's exported `hooks/` (`git archive <rev> hooks | tar -x -C /tmp/base`).
 
+### Injected bytes per session
+
+`python3 tests/replay_context.py [--base REV] [--head REV] [--json]` replays the
+prompts of the top-level omp and Claude transcripts `bin/tezgah-taste mine`
+reads (read-only) through `tezgah_context.context_for` on two exported
+revisions, each in a throwaway HOME against one empty project, and prints n
+sessions, median/p90/total injected bytes per session per revision and the
+head/base ratios. No model call; `tests/test_replay_context.py` runs it on a
+seeded two-session fixture.
+
 ### App-analysis MCP, end to end
 
 `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py` starts the exact

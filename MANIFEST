@@ -651,6 +651,7 @@ tests/fuzz_shell.py
 tests/gate_vectors.json
 tests/impacted.py
 tests/neuter_matrix.py
+tests/replay_context.py
 tests/routing-fixtures.md
 tests/stop_spec_eval.py
 tests/support.py
@@ -719,6 +720,7 @@ tests/test_platform.py
 tests/test_providers.py
 tests/test_rank.py
 tests/test_replay.py
+tests/test_replay_context.py
 tests/test_reply_lang.py
 tests/test_research.py
 tests/test_research_import.py
