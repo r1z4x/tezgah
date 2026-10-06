@@ -642,6 +642,14 @@ class UsedToolKind(unittest.TestCase):
                 ("echo hi\nconsult q", "consult")):
             self.assertEqual(self.kind(command), want, command)
 
+    def test_the_line_is_read_as_bash_reads_it(self):
+        # gate-08: a `#` inside a word is text, a redirect target is not a
+        # program, and a line shlex cannot read is read roughly, not dropped
+        self.assertEqual(self.kind("echo a#b; consult 'q'"), "consult")
+        self.assertEqual(self.kind("echo $'it\\'s'; consult q"), "consult")
+        self.assertEqual(self.tc.shell_programs("pytest > log; tail log"),
+                         ["pytest", "tail"])
+
     def test_the_layers_own_cli_is_a_research_run(self):
         # `tezgah-research` reads and writes the research workspace, so a run of
         # it is a research run; before this it was classified as nothing, and the

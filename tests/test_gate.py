@@ -823,6 +823,23 @@ class Gate(TempHome):
         self.assertIsNone(self.decide("Bash", {"command": "git commit -m x"},
                                       session_id="order"))
 
+    # ---- gate-01: a prefix the masker misread hid the rule after it ---------
+    # bash reads a URL's `//`, a word's `#`, a `/* */` glob pair and `'x\'` as
+    # plain words; the polyglot masker read them as a comment or an open string
+    # and blanked the command behind them (plan 054)
+    GATE01_WRAPS = ("curl -s https://example.com/health; %s",
+                    "echo a#b; %s",
+                    "ls src/*.py; %s; ls lib/*/",
+                    "echo 'x\\'; %s; echo '\\'")
+
+    def test_a_prefix_bash_reads_as_words_does_not_hide_a_rule(self):
+        for command, marker in (("HUSKY=0 git commit -m y", "bypass"),
+                                ("pytest || true", "neutered"),
+                                ("echo api_key=abc123 > out.txt", "Credential")):
+            for wrap in self.GATE01_WRAPS:
+                reason = self.decide("Bash", {"command": wrap % command})
+                self.assertIn(marker, reason or "", wrap % command)
+
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):
         for command in (
@@ -1667,6 +1684,11 @@ class TaskGate(TempHome):
             reason = self.decide({"command": command}, tool="Bash")
             self.assertIsNotNone(reason, command)
             self.assertIn("record", reason)
+        # gate-01: a prefix bash reads as plain words does not hide the CLI
+        for wrap in Gate.GATE01_WRAPS:
+            command = wrap % "tezgah-task phase implementation"
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("record", reason or "", command)
 
     def test_recording_a_review_and_closing_a_plan_are_the_sessions(self):
         # neither moves the phase or the allowlist: `review` writes the verdict

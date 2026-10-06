@@ -313,7 +313,7 @@ function shellSegments(cmd) {
   const segs = []
   const text = unquotedBackticks(blankHeredocs(String(cmd || "")).replace(/\\\n/g, " "))
   for (const line of text.split(/\r\n|\r|\n/)) {
-    const words = shellWords(line, false) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
+    const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
     // a redirection is not an argument and not a command: its words (the fd
     // before, the `&` of `2>&1`/`&>`, the target after) are dropped, as
     // hooks/tezgah_integrity._shell_segments drops them
@@ -1495,11 +1495,9 @@ const TIER_LOCAL_ARGS = ["-h", "--help"]
 const EFFECTFUL = new Set([...BASH_TOOLS, ...WRITE_TOOLS])
 // The shell vocabulary the program-position reader needs, spelled as
 // hooks/tezgah_context has it (_SHELL_WRAPPERS, _SHELL_KEYWORDS, _WRAPPER_ARG,
-// _OPTION_ARG, _SHELL_SEPARATORS, _ASSIGNMENT): a mention of the tool in an
+// _OPTION_ARG, _ASSIGNMENT): a mention of the tool in an
 // argument is not a run of it, and the two halves have to agree on which word a
 // shell line would run.
-const SHELL_SEPARATORS = new Set([";", "&&", "||", "|", "&", "(", ")", "<",
-  ">", ">>"])
 const SHELL_WRAPPERS = new Set(["sudo", "env", "nohup", "time", "timeout",
   "command", "exec", "xargs", "bash", "sh", "zsh", "dash", "ksh"])
 const SHELL_KEYWORDS = new Set(["if", "elif", "while", "until", "then", "do",
@@ -1512,19 +1510,16 @@ const WRAPPER_ARG = new Set(["timeout"])
 const OPTION_ARG = new Set(["-u", "-g", "-k", "-o", "-C", "-h", "-T", "-r",
   "-t", "--user", "--group", "--prompt", "--chdir"])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
-const PROGRAM_HEREDOC = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/
 
 // One shell line's words, as `shlex.shlex(line, posix=True,
 // punctuation_chars=";&|()<>")` with whitespace_split reads them: quotes and
 // escapes are removed, and a run of one punctuation character is a token of its
 // own, so `a&&b` is three words. null is shlex's ValueError - an unterminated
-// quote, or a backslash with nothing to escape - which the Python caller answers
-// by dropping that whole line, so `consult 'q` and `consult q's` reach no
-// program position on either side rather than one.
-// `comments` is shlex's default commenter: a word-initial `#` ends the line.
-// The gate reader turns it off because bash does not end a line at `x=a#b`, and
-// stops at a word-initial `#` itself (shellSegments).
-function shellWords(line, comments = true) {
+// quote, or a backslash with nothing to escape - which shellSegments answers by
+// reading the line roughly (ROUGH_WORDS), as the Python reader does. shlex's
+// commenter is off: bash does not end a line at `x=a#b`, so shellSegments stops
+// at a word-initial `#` itself.
+function shellWords(line) {
   const text = String(line || "")
   const out = []
   let word = ""
@@ -1537,7 +1532,6 @@ function shellWords(line, comments = true) {
   while (i < text.length) {
     const c = text[i]
     if (/\s/.test(c)) { push(); i += 1; continue }
-    if (comments && c === "#" && !word) break
     if (";&|()<>".includes(c)) {
       push()
       let run = c
@@ -1584,7 +1578,7 @@ function shellWords(line, comments = true) {
   return out
 }
 
-// The command positions of one tokenized shell line, in the Python order
+// The command positions of one simple command's words, in the Python order
 // (hooks/tezgah_context._command_words): the word after the program is an
 // argument whatever it looks like, and `bash -c '<line>'` is a command line of
 // its own and not an argument.
@@ -1594,12 +1588,6 @@ function commandWords(words, depth) {
   let skip = 0
   let shellC = false
   for (const word of words) {
-    if (SHELL_SEPARATORS.has(word)) {
-      want = true
-      skip = 0
-      shellC = false
-      continue
-    }
     if (!want) continue
     if (skip && !word.startsWith("-")) { skip -= 1; continue }
     if (word.startsWith("-")) {
@@ -1625,23 +1613,18 @@ function commandWords(words, depth) {
   return out
 }
 
-// Every word a shell line would run as a program, in order, with heredoc bodies
-// skipped as data (hooks/tezgah_context.shell_programs).
+// Every word a shell line would run as a program, in order
+// (hooks/tezgah_context.shell_programs): every closed heredoc body is data,
+// quoted tag or not, and the line is read by shellSegments.
 function shellPrograms(command, depth = 0) {
-  const out = []
-  const lines = String(command || "").split(/\r\n|\r|\n/)
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i]
-    i += 1
-    const opener = PROGRAM_HEREDOC.exec(line)
-    if (opener) {
-      while (i < lines.length && lines[i].trim() !== opener[2]) i += 1
-      i += 1
-    }
-    const words = shellWords(line)
-    if (words) out.push(...commandWords(words, depth))
+  const s = String(command || "")
+  const text = s.split("")
+  for (const h of heredocs(s)) {
+    if (!h[5]) continue
+    for (let k = h[4]; k < h[5][0]; k++) if (text[k] !== "\n") text[k] = " "
   }
+  const out = []
+  for (const words of shellSegments(text.join(""))) out.push(...commandWords(words, depth))
   return out
 }
 

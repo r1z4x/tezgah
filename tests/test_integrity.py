@@ -104,6 +104,20 @@ class ShortcutCommand(unittest.TestCase):
                   "git commit --no-verbose -m x", "bash -c 'pytest -q'"):
             self.assertIsNone(ti.shortcut_command(c), c)
 
+    def test_the_shell_line_is_masked_as_bash_reads_it(self):
+        # gate-01: `//`, `a#b`, a `/* */` glob pair and `'x\'` are words to
+        # bash, so the command after them stays visible to every rule
+        for wrap in ("curl -s https://example.com/health; %s", "echo a#b; %s",
+                     "ls src/*.py; %s; ls lib/*/", "echo 'x\\'; %s; echo '\\'"):
+            self.assertIn("HUSKY=0 git commit", ti.mask(wrap % "HUSKY=0 git commit"))
+            self.assertIsNotNone(ti.shortcut_command(wrap % "pytest || true"))
+        # quotes, `$'...'` escapes and a word-initial `#` are still blanked
+        for c in ("git commit -m 'run pytest || true'",
+                  'git commit -m "a \\" pytest || true"',
+                  "echo $'it\\'s pytest || true'", "ls # pytest || true",
+                  "git commit -m 'a\npytest || true'"):
+            self.assertNotIn("pytest", ti.mask(c), c)
+
     # The review's cases, shared with the opencode mirror's test.
     STUCK_AND_WRAPPED = (
         # F4: `-S`/`-u` take no separate word, so the `-n` after them is a flag

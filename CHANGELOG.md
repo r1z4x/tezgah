@@ -303,6 +303,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A prefix bash reads as words no longer hides a shell rule.** Such a
+  prefix is a URL's `//`, `a#b`, a glob pair or `'x\'`. The masker read it as
+  a comment or an open string and hid the command after it: `HUSKY=0 git
+  commit`, `pytest || true`, `tezgah-task phase` or a credential write. `mask()` now
+  reads a shell line the way bash does. Source files keep the old reading
+  (`mask_source`). `shell_programs` uses the gate's own reader, so `a#b`, a
+  redirect target and an unreadable line no longer mislead it. The opencode
+  plugin keeps its own masker.
 - **A check whose status the line does not keep is no longer a pass.** These
   lines record as ran: `pytest; echo done`, `pytest; echo EXIT=$?`, `pytest &`,
   `pytest > log; tail log`. Each exits 0 whatever pytest found.

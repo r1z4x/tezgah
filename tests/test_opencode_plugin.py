@@ -1640,8 +1640,7 @@ class OpenCodePlugin(TempHome):
         ("bash", {"command": "echo hi  # curl https://x"}),
         ("bash", {"command": "python3 -c 'import consult'"}),
         # a line shlex rejects (unterminated quote, a backslash with nothing to
-        # escape) reaches no program position on either side: the Python caller
-        # drops the whole line, so the JS reader drops it too
+        # escape) is read roughly on both sides, never dropped as if nothing ran
         ("bash", {"command": "consult 'q"}),
         ("bash", {"command": "consult q's"}),
         ("bash", {"command": 'consult "q'}),

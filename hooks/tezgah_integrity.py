@@ -242,7 +242,9 @@ TEST_PATH = re.compile(
 # Strings, comments and heredoc bodies are neither commands nor test code: the
 # repo's own tests quote a skip marker, and a commit message that *describes*
 # `--no-verify` disables nothing. Both scans run on a copy where those regions
-# are blanked - length preserved, so offsets stay usable.
+# are blanked - length preserved, so offsets stay usable. LITERALS is the
+# source-file reading (`mask_source`); a shell line is read as bash reads it
+# (`mask`), where `//`, `/* */` and a `#` inside a word are plain text.
 LITERALS = re.compile(
     r"'''(?:.|\n)*?'''|\"\"\"(?:.|\n)*?\"\"\"|"
     r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|"
@@ -2021,10 +2023,49 @@ def _blank_heredocs(text):
     return "".join(out)
 
 
-def mask(text):
-    """The text with quoted strings, comments and heredoc bodies blanked."""
+def mask_source(text):
+    """A source file's text with quoted strings, comments and heredoc bodies
+    blanked (LITERALS): the test-disable scan's reading, length kept."""
     return LITERALS.sub(lambda m: " " * len(m.group(0)),
                         _blank_heredocs(str(text or "")))
+
+
+def mask(text):
+    """A shell line with quoted strings, comments and heredoc bodies blanked,
+    length and newlines kept, read the way bash reads it: `'...'` takes no
+    escape, `$'...'` and `"..."` do, a `\\` outside quotes escapes one
+    character, and `#` starts a comment only at the start of a word. So
+    `https://x`, `a#b`, `src/*.py ... lib/*/` and `'x\\'` are words, not a
+    comment or an open string that blanks the command after them (gate-01). A
+    quote left open is a line this reader cannot tell: it keeps the source
+    reading (`mask_source`), the answer it had before."""
+    text = _blank_heredocs(str(text or ""))
+    out, i, n, start = list(text), 0, len(text), True
+    while i < n:
+        ch = text[i]
+        if ch == "\\":
+            i, start = i + 2, False
+            continue
+        if ch in "'\"":
+            escapes = ch == '"' or text[i - 1:i] == "$"
+            end = i + 1
+            while end < n and text[end] != ch:
+                end += 2 if escapes and text[end] == "\\" else 1
+            if end >= n:
+                return mask_source(text)
+            end += 1
+        elif ch == "#" and start:
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+        else:
+            start = ch.isspace() or ch in ";&|()<>"
+            i += 1
+            continue
+        for k in range(i, end):
+            if out[k] != "\n":
+                out[k] = " "
+        i, start = end, False
+    return "".join(out)
 
 
 def _unquoted_backticks(text):
@@ -2472,7 +2513,7 @@ def shortcut_edit(inp):
                 old = fh.read()
         except OSError:
             old = ""
-    added = _added(mask(new), mask(old))
+    added = _added(mask_source(new), mask_source(old))
     if added:
         return ("Test disable denied: this change adds %s. Making a failing test "
                 "disappear is not a fix - fix the code or say the test is failing. "
