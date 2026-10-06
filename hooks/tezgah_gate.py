@@ -1947,7 +1947,11 @@ def _blank_script_heredocs(text):
     (SECURITY.md's interpreter residual). Only when bash would expand nothing
     in it - no `$` and no backtick in the body - and nothing on the operator's
     line before it opens a context (`HEREDOC_RISK`) or follows it on its line
-    (`PLAIN_TAIL`); a body handed to a shell stays commands."""
+    (`PLAIN_TAIL`); a body handed to a shell stays commands. The consumer is
+    the last simple command before the operator, read by a plain split, so a
+    quote or a backslash before the operator on its line, or a continued line
+    above it, keeps the body visible: `bash -s \\| python3 <<EOF` and
+    `bash -s "x | python3 " <<EOF` hand it to bash."""
     out = list(text)
     for start, stop, _tag, _quoted, body, term, safe in _heredocs(text):
         line = text.rfind("\n", 0, start) + 1
@@ -1958,6 +1962,8 @@ def _blank_script_heredocs(text):
         if (safe or not term or not head
                 or os.path.basename(head[0]) not in INTERPRETERS - SHELL_NAMES
                 or re.search(r"[$`]", text[body:term[0]])
+                or re.search(r"[\\'\"]", text[line:start])
+                or text[max(0, line - 2):line] == "\\\n"
                 or HEREDOC_RISK.search(text, line, start)
                 or tail < len(text) and text[tail] != "\n"):
             continue

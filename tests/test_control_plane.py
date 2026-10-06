@@ -401,6 +401,21 @@ class ControlPlane(unittest.TestCase):
                         "git -C .tezgah mv plans/open/040-x.md plans/done/040-x.md"):
             with self.subTest(command=command):
                 self.refused("Bash", {"command": command})
+        # a heredoc whose consumer is a shell, though a plain split of its line
+        # names python: an escaped or quoted separator, a continued line
+        touch, hooks = "touch ~/.config/tezgah/verify-off", "rm -rf .git/hooks"
+        for head, body in (("bash -s x \\| python3 <<EOF", touch),
+                           ("bash -s x\\|python3 <<EOF", hooks),
+                           ("bash -s -- \\; python3 - <<EOF", touch),
+                           ("bash -s \\& python3 <<EOF", hooks),
+                           ("bash -s \\( python3 <<EOF", touch),
+                           ('bash -s "x | python3 " <<EOF', hooks),
+                           ('sh -s "a ; python3 " <<EOF', touch),
+                           ("zsh -s 'x | python ' <<EOF", hooks),
+                           ("bash -s \\\npython3 - <<EOF", touch),
+                           ("bash -s \\\n  python3 <<EOF", hooks)):
+            with self.subTest(head=head, body=body):
+                self.refused("Bash", {"command": "%s\n%s\nEOF" % (head, body)})
 
     def test_a_fixture_and_the_install_trees_workspace_are_not_wiring(self):
         # plan 050 replay rows 4/6/7: a plan in the private `.tezgah/` of the
