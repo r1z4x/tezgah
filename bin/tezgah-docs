@@ -753,12 +753,16 @@ def switch_failures(core=None):
 
 
 # --- the enforcement matrix -------------------------------------------------
-# Every always-on CORE rule against what enforces it: a gate rule, a Stop class,
-# a report-only shape flag, or none. A link is read off the code wherever the
-# code states one - an enforcer named like the rule's CORE_RULES key, or guarded
-# by a switch whose `switches()` branch drops the rule's paragraph - and
-# HAND_LINKS carries the few it cannot state. A rule with no enforcer needs a
-# row in docs/contract.md's prose-only table saying why, or "no decision".
+# Every always-on CORE rule against what enforces it: a gate rule or a Stop
+# class that refuses, a report-only shape flag that only records, or none. A
+# link is read off the code wherever the code states one - an enforcer named
+# like the rule's CORE_RULES key, or guarded by a switch whose `switches()`
+# branch drops the rule's paragraph - and HAND_LINKS carries the few it cannot
+# state. Each enforcer also carries its guards, the enclosing `if` tests that
+# can switch it off, so a rule whose every refusal vanishes while its text stays
+# reads `partial` rather than `enforced`. A rule with no refusing enforcer, or
+# one whose enforcers cover only part of it, has a row in docs/contract.md's
+# table saying why (or "no decision").
 
 CONTEXT = os.path.join(HERE, "hooks", "tezgah_context.py")
 STOP_HOOK = os.path.join(HERE, "hooks", "projects-stop.py")
@@ -826,97 +830,152 @@ def core_rules(core=None):
     return out
 
 
-def stop_sites():
-    """[(class, switches)] for every class `_shape_block`, `_stop_block` and
-    `_evidence_block` return, with the switches of its enclosing `if` tests; a
-    call there to a function of the same module counts with the switches that
-    function reads (`_adhd_armed`)."""
-    tree = ast.parse(source(STOP), filename=STOP)
-    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+def _guarded_returns(func, funcs, pick):
+    """[(name, switches, conditions)] for every `return` in `func` that `pick`
+    names, with what its enclosing `if` tests guard it by. A conjunct of a test
+    that reads a switch (`_switch_words`, or a call to a function in `funcs`
+    that reads one: `_adhd_armed`) is a switch guard; a conjunct that names no
+    argument or local of `func` is a condition on the environment (`reply_lang()
+    == "tr"`); a conjunct reading the call's own data is the trigger itself and
+    is not a guard. The switch a whole hook checks first (`pretooluse-off`, the
+    Stop hook's `verify-off`) is outside these functions and is not counted."""
+    own = {a.arg for a in func.args.args + func.args.kwonlyargs} | {
+        n.id for n in ast.walk(func) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
     out = []
 
-    def words(test):
-        return _switch_words(test) + [
-            w for n in ast.walk(test) if isinstance(n, ast.Call)
-            and getattr(n.func, "id", "") in funcs for w in _switch_words(funcs[n.func.id])]
+    def split(test):
+        parts = test.values if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And) \
+            else [test]
+        switches, conditions = [], []
+        for part in parts:
+            words = _switch_words(part) + [
+                w for n in ast.walk(part) if isinstance(n, ast.Call)
+                and getattr(n.func, "id", "") in funcs for w in _switch_words(funcs[n.func.id])]
+            if words:
+                switches += words
+            elif not any(isinstance(n, ast.Name) and n.id in own for n in ast.walk(part)):
+                conditions.append(ast.unparse(part))
+        return switches, conditions
 
-    def walk(stmts, switches):
+    def walk(stmts, switches, conditions):
         for stmt in stmts:
             if isinstance(stmt, ast.If):
-                walk(stmt.body, switches + words(stmt.test))
-                walk(stmt.orelse, switches)
+                more, extra = split(stmt.test)
+                walk(stmt.body, switches + more, conditions + extra)
+                walk(stmt.orelse, switches, conditions)
             elif isinstance(stmt, ast.Return):
-                out.extend((c, tuple(dict.fromkeys(switches)))
-                           for c in sorted(returned_classes(stmt)))
+                out.extend((name, tuple(dict.fromkeys(switches)),
+                            tuple(dict.fromkeys(conditions))) for name in pick(stmt))
             else:
                 for field in ("body", "orelse", "finalbody", "handlers"):
-                    walk(getattr(stmt, field, []), switches)
-    for name in ("_shape_block", "_stop_block", "_evidence_block"):
-        walk(funcs[name].body, [])
+                    walk(getattr(stmt, field, []), switches, conditions)
+    walk(func.body, [], [])
     return out
 
 
+def stop_sites():
+    """[(class, switches, conditions)] for every class `_shape_block`,
+    `_stop_block` and `_evidence_block` return (`_guarded_returns`)."""
+    tree = ast.parse(source(STOP), filename=STOP)
+    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    return [site for name in ("_shape_block", "_stop_block", "_evidence_block")
+            for site in _guarded_returns(funcs[name], funcs,
+                                         lambda r: sorted(returned_classes(r)))]
+
+
+def gate_sites():
+    """[(rule, switches, conditions)] for every `return _deny(...)` in
+    `decision` (`_guarded_returns`)."""
+    def pick(ret):
+        call = ret.value
+        return [call.args[1].value] if isinstance(call, ast.Call) \
+            and getattr(call.func, "id", "") == "_deny" else []
+    return _guarded_returns(_function(GATE, "decision"), {}, pick)
+
+
 def enforcer_links():
-    """{enforcer id: {CORE_RULES key}} for every gate rule (`gate:<rule>`), Stop
-    class (`stop:<class>`) and report-only shape flag (`flag:<flag>`), in that
-    order. A Stop class with no guard of its own rides the Stop hook's switch."""
+    """{enforcer id: {"rules", "switches", "conditions"}} for every gate rule
+    (`gate:<rule>`), Stop class (`stop:<class>`) and report-only shape flag
+    (`flag:<flag>`), in that order: the CORE_RULES keys it is linked to, and the
+    guards every one of its sites shares. A Stop class with no switch of its own
+    is linked through the Stop hook's switch; a flag rides only that switch."""
     drops = switch_drops()
     keys = {key for key, _ in core_rules()}
     found = {}
 
-    def link(eid, name, switches):
-        got = found.setdefault(eid, set())
-        got.update({name} & keys)
-        for s in switches:
-            got |= drops.get(s, set())
-    for rule, _first, _last, switches, _tools in rule_sites():
-        link("gate:" + rule, rule, switches)
+    def link(eid, name, switches, conditions, via):
+        row = found.get(eid)
+        if row is None:
+            row = found[eid] = {"rules": set(), "switches": switches,
+                                "conditions": conditions}
+        row["switches"] = tuple(s for s in row["switches"] if s in switches)
+        row["conditions"] = tuple(c for c in row["conditions"] if c in conditions)
+        row["rules"].update({name} & keys)
+        for s in via:
+            row["rules"] |= drops.get(s, set())
+    for rule, switches, conditions in gate_sites():
+        link("gate:" + rule, rule, switches, conditions, switches)
     hook = [w for n in ast.walk(_function(STOP_HOOK, "main")) if isinstance(n, ast.If)
             for w in _switch_words(n.test)]
-    for cls, switches in stop_sites():
-        link("stop:" + cls, cls, switches or hook)
+    for cls, switches, conditions in stop_sites():
+        link("stop:" + cls, cls, switches, conditions, switches or hook)
     for c in ast.walk(_function(STOP, "shape_flags")):
         if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "append":
-            link("flag:" + c.args[0].value, None, ())
-    for eid, got in found.items():
+            link("flag:" + c.args[0].value, None, (), (), ())
+    for eid, row in found.items():
         hand = HAND_LINKS.get(eid) or HAND_LINKS.get(eid.split(":")[0] + ":*")
-        got.update({hand} if hand else set())
+        row["rules"].update({hand} if hand else set())
     return found
 
 
 def prose_only_rows():
-    """The prose-only record in docs/contract.md, as {rule, decision} dicts."""
+    """The record in docs/contract.md, as {rule, decision} dicts: why a rule has
+    no refusing enforcer, or which part of it no enforcer covers."""
     return table_rows(CONTRACT_PAGE, PROSE_ONLY_COLUMNS)
 
 
-def enforcers(core=None, record=None):
-    """[{rule, label, enforcers, decision}], one per always-on CORE rule in
-    policy order: the enforcer ids linked to it, and its prose-only record's
-    decision (None when the record has no row for it)."""
+def enforcers(core=None, record=None, links=None):
+    """[{rule, label, status, enforcers, guards, decision}], one per always-on
+    CORE rule in policy order. `status` is `enforced`, `partial` (every refusing
+    enforcer has a guard that can remove it while the rule's text stays, or the
+    record names a part no enforcer covers), `records` (only shape flags, which
+    refuse nothing) or `prose-only`; `guards` maps each enforcer to its switches
+    and conditions; `decision` is the record's row (None without one)."""
     record = prose_only_rows() if record is None else record
     decisions = {r["rule"]: r["decision"] for r in record}
-    links = enforcer_links()
-    return [{"rule": key, "label": label,
-             "enforcers": [eid for eid, got in links.items() if key in got],
-             "decision": decisions.get(key)} for key, label in core_rules(core)]
+    links = enforcer_links() if links is None else links
+    drops = switch_drops()
+    rows = []
+    for key, label in core_rules(core):
+        ids = [eid for eid, row in links.items() if key in row["rules"]]
+        refusing = [eid for eid in ids if not eid.startswith("flag:")]
+        conditional = all(
+            links[eid]["conditions"] or any(key not in drops.get(s, set())
+                                            for s in links[eid]["switches"])
+            for eid in refusing)
+        decision = decisions.get(key)
+        status = ("prose-only" if not ids else "records" if not refusing
+                  else "partial" if conditional or decision is not None else "enforced")
+        rows.append({"rule": key, "label": label, "status": status, "enforcers": ids,
+                     "guards": {eid: list(links[eid]["switches"] + links[eid]["conditions"])
+                                for eid in ids},
+                     "decision": decision})
+    return rows
 
 
-def enforcer_failures(core=None, record=None):
-    """The ways the matrix is not whole: a CORE rule with neither an enforcer
-    nor a prose-only row, a prose-only row for a rule something enforces, and a
-    row naming no CORE rule."""
+def enforcer_failures(core=None, record=None, links=None):
+    """The ways the matrix is not whole: a CORE rule that nothing refuses on
+    (no enforcer, or shape flags only) with no row in the record, and a row
+    naming no CORE rule."""
     record = prose_only_rows() if record is None else record
-    rows = enforcers(core, record)
-    out = []
-    for row in rows:
-        if not row["enforcers"] and row["decision"] is None:
-            out.append("CORE rule `%s` (%s) has no enforcer and no prose-only row "
-                       "in docs/contract.md" % (row["rule"], row["label"]))
-        if row["enforcers"] and row["decision"] is not None:
-            out.append("prose-only row `%s` names a rule enforced by %s"
-                       % (row["rule"], ", ".join(row["enforcers"])))
+    rows = enforcers(core, record, links)
+    out = ["CORE rule `%s` (%s) is %s and has no row in docs/contract.md"
+           % (row["rule"], row["label"], "recorded only by %s" % ", ".join(row["enforcers"])
+              if row["status"] == "records" else "enforced by nothing")
+           for row in rows if row["status"] in ("records", "prose-only")
+           and row["decision"] is None]
     named = {row["rule"] for row in rows}
-    out += ["prose-only row `%s` names no CORE rule" % r["rule"]
+    out += ["record row `%s` names no CORE rule" % r["rule"]
             for r in record if r["rule"] not in named]
     return out
 
@@ -925,7 +984,7 @@ def enforcement_report():
     """The matrix as `tezgah-status --enforcers` prints it: the rows, the
     enforcers tied to no CORE rule, and the failures."""
     return {"rows": enforcers(),
-            "unattached": sorted(e for e, got in enforcer_links().items() if not got),
+            "unattached": sorted(e for e, row in enforcer_links().items() if not row["rules"]),
             "failures": enforcer_failures()}
 
 

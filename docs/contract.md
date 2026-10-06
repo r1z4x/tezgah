@@ -191,9 +191,9 @@ applied, and it also returns the names of the switches that fired.
 ## Which mechanism enforces each always-on rule
 
 `tezgah-status --enforcers` prints one row per always-on rule. A row names the
-gate rules (`gate:`), Stop classes (`stop:`) and report-only shape flags
-(`flag:`) that enforce the rule, or says `none`. The rows come from the bold
-heads of `CORE`. The links come from the code
+gate rules (`gate:`) and Stop classes (`stop:`) that refuse on the rule. It
+also names the shape flags (`flag:`) that only record it, or says `none`. The
+rows come from the bold heads of `CORE`. The links come from the code
 (`bin/tezgah-docs::enforcer_links`). An enforcer links to a rule when its name
 is the rule's `CORE_RULES` key. It also links when a switch guards it and that
 switch's branch of `hooks/tezgah_context.py::switches` drops the rule's
@@ -204,13 +204,30 @@ paragraph. A Stop class with no switch of its own rides the Stop hook's
 shape flags for the output-shape rule. The report also lists the enforcers tied
 to no always-on rule, such as `task`, `secret` and `plan`.
 
-A rule with no enforcer is prose-only, and the table below records why.
-`bin/tezgah-docs --citations` and `tests/test_enforcers.py` fail on a rule
-with neither an enforcer nor a row. They also fail on a row for a rule that
-something enforces.
+Each enforcer shows its guards in brackets: the switches and environment
+conditions of the `if` tests around it (`bin/tezgah-docs::_guarded_returns`).
+The switch a whole hook reads first, `pretooluse-off` or the Stop hook's
+`verify-off`, is not shown. A row's status is one of four:
+
+- `enforced`: at least one refusing enforcer stays armed while the rule's text
+  is in force.
+- `partial`: every refusing enforcer has a guard that can remove it while the
+  text stays, or the table below names a part nothing covers.
+- `records`: only shape flags, which refuse nothing.
+- `prose-only`: no enforcer at all.
+
+The table below records why a rule is prose-only, and which part of a partial
+rule no enforcer covers. `bin/tezgah-docs --citations` and
+`tests/test_enforcers.py` fail on a prose-only or records-only rule with no
+row, and on a row naming no rule. A coverage row exists only where someone
+reviewed the gap, so `enforced` says a refusal exists, not that it covers every
+sentence of the rule.
 
 | rule | decision |
 |---|---|
+| exec | Only the reply language is refused, and only under `reply_lang` `tr`. Answer-first (BLUF) has no mechanism. |
+| fidelity | Only the placating opener is refused, and only while the output-shape switches are on. Delivering the whole ask has no mechanism. |
+| loop | Only an identical repeat is refused, under `verify-off`. Re-running a check that already passed is not refused. |
 | ponytail | no decision |
 | spec | no decision |
 | lessons | Owner decision ADR 010 (2026-10-05): a tainted lesson costs a row, never a refusal. |

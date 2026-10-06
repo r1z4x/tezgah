@@ -55,9 +55,11 @@ their status line; this CLI is how every host (and a human) gets it:
                            low-exposure. A report, not a gate: it always exits 0
                            and prints the corpus it read. `--json` prints it all.
   tezgah-status --enforcers
-                           every always-on CORE rule with the gate rules, Stop
-                           classes and shape flags that enforce it, read from
-                           the code, or "none" with its prose-only record from
+                           every always-on CORE rule with the gate rules and
+                           Stop classes that refuse on it (each with its
+                           guards) and the shape flags that only record it,
+                           read from the code; a status (enforced, partial,
+                           records, prose-only) and the record from
                            docs/contract.md. A report, not a gate: it always
                            exits 0. `--json` prints the rows.
   tezgah-status --legend   explain the marks
@@ -177,16 +179,22 @@ def print_enforcers(as_json):
         print(json.dumps(found, sort_keys=True))
         return
     rows = found["rows"]
-    enforced = [r for r in rows if r["enforcers"]]
-    print("%d always-on CORE rules: %d enforced, %d prose-only (%d with a "
-          "recorded decision)" % (
-              len(rows), len(enforced), len(rows) - len(enforced),
-              sum(1 for r in rows if not r["enforcers"] and r["decision"]
+    count = {s: sum(1 for r in rows if r["status"] == s)
+             for s in ("enforced", "partial", "records", "prose-only")}
+    print("%d always-on CORE rules: %d enforced, %d partial, %d record only, %d "
+          "prose-only (%d prose-only with a recorded decision)" % (
+              len(rows), count["enforced"], count["partial"], count["records"],
+              count["prose-only"],
+              sum(1 for r in rows if r["status"] == "prose-only" and r["decision"]
                   and r["decision"] != "no decision")))
     for r in rows:
-        what = (", ".join(r["enforcers"]) if r["enforcers"]
-                else "none - %s" % (r["decision"] or "unrecorded"))
-        print("  %-12s %s  %s" % (r["rule"], r["label"], what))
+        what = ", ".join("%s [%s]" % (e, ", ".join(r["guards"][e]))
+                         if r["guards"][e] else e for e in r["enforcers"]) or "none"
+        if r["decision"]:
+            what += " - %s" % r["decision"]
+        elif r["status"] in ("records", "prose-only"):
+            what += " - unrecorded"
+        print("  %-12s %-10s %s  %s" % (r["rule"], r["status"], r["label"], what))
     print("tied to no always-on rule: %s" % (", ".join(found["unattached"]) or "-"))
     for failure in found["failures"]:
         print("unrecorded: %s" % failure)

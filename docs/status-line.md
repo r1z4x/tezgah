@@ -274,11 +274,13 @@ old is not read as dead. It always exits 0 and prints the corpus it read;
 `--json` prints the whole fold.
 
 `--enforcers` reports on the rule layer, not on a session. It prints one row
-per always-on CORE rule with the gate rules, Stop classes and shape flags that
-enforce it. A rule with none shows the prose-only record that says why
-([contract.md](contract.md#which-mechanism-enforces-each-always-on-rule)). It
-always exits 0, and `--json` prints the rows, the enforcers tied to no rule and
-the failures.
+per always-on CORE rule. The row names the gate rules and Stop classes that
+refuse on the rule, each with its guards. It also names the shape flags that
+only record it. The row's status
+is `enforced`, `partial`, `records` or `prose-only`, with the record that says
+why ([contract.md](contract.md#which-mechanism-enforces-each-always-on-rule)).
+It always exits 0, and `--json` prints the rows, the enforcers tied to no rule
+and the failures.
 
 ## A mark must not claim what it cannot see
 

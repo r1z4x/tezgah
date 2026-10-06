@@ -36,11 +36,13 @@ def heads(core):
 
 
 class Matrix(unittest.TestCase):
-    def setUp(self):
-        self.d = docs_module()
+    @classmethod
+    def setUpClass(cls):
+        cls.d = docs_module()
+        cls.rows = cls.d.enforcers()
 
     def row(self, rule):
-        return next(r for r in self.d.enforcers() if r["rule"] == rule)
+        return next(r for r in self.rows if r["rule"] == rule)
 
     def test_every_core_rule_has_an_enforcer_or_a_prose_only_row(self):
         self.assertEqual(self.d.enforcer_failures(), [])
@@ -92,14 +94,44 @@ class Matrix(unittest.TestCase):
         self.assertEqual(len(fails), 1, fails)
         self.assertIn("consult", fails[0])
 
-    def test_a_record_row_for_an_enforced_rule_fails(self):
+    def test_a_record_row_naming_no_rule_fails(self):
         record = self.d.prose_only_rows() + [
-            {"rule": "lang", "decision": "stale"},
             {"rule": "no-such-rule", "decision": "typo"}]
         fails = self.d.enforcer_failures(record=record)
-        self.assertEqual(len(fails), 2, fails)
-        self.assertTrue(any("`lang`" in f and "gate:lang" in f for f in fails))
-        self.assertTrue(any("no-such-rule" in f for f in fails))
+        self.assertEqual(len(fails), 1, fails)
+        self.assertIn("no-such-rule", fails[0])
+
+    def test_conditional_or_part_coverage_reads_partial_with_its_guard(self):
+        # loop: both denies sit under `verify-off`, which drops the integrity
+        # paragraph and leaves the loop paragraph in force. fidelity: the
+        # placating opener returns only while the output-shape switches are
+        # on. exec: the reply-language block runs only under `reply_lang` tr.
+        guards = {"loop": ("gate:loop", "verify-off"),
+                  "fidelity": ("stop:placating opener", "adhd-off"),
+                  "exec": ("stop:reply language", "reply_lang() == 'tr'")}
+        for rule, (enforcer, guard) in guards.items():
+            row = self.row(rule)
+            self.assertEqual(row["status"], "partial", rule)
+            self.assertIn(guard, row["guards"][enforcer], rule)
+            self.assertTrue(row["decision"], rule)
+
+    def test_unconditional_enforcers_read_enforced(self):
+        for rule in ("integrity", "adhd", "attribution", "lang", "workspace",
+                     "graph"):
+            self.assertEqual(self.row(rule)["status"], "enforced", rule)
+
+    def test_a_rule_that_only_records_is_not_enforced(self):
+        # the shape flags refuse nothing: a rule whose only link is a flag
+        # reads `records` and needs a record row like a prose-only one
+        links = self.d.enforcer_links()
+        links["flag:table-open"]["rules"] = {"ponytail"}
+        record = [r for r in self.d.prose_only_rows() if r["rule"] != "ponytail"]
+        row = next(r for r in self.d.enforcers(record=record, links=links)
+                   if r["rule"] == "ponytail")
+        self.assertEqual(row["status"], "records")
+        fails = self.d.enforcer_failures(record=record, links=links)
+        self.assertEqual(len(fails), 1, fails)
+        self.assertIn("ponytail", fails[0])
 
     def test_the_citations_pass_carries_the_check(self):
         self.assertIn(self.d.enforcer_failures, self.d.INVENTORY_CHECKS)
@@ -118,13 +150,16 @@ class Cli(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         lines = proc.stdout.splitlines()
         self.assertRegex(lines[0], r"^16 always-on CORE rules: \d+ enforced, "
-                                   r"\d+ prose-only")
+                                   r"\d+ partial, \d+ record only, \d+ prose-only")
         rules = [r["rule"] for r in docs_module().enforcers()]
         for rule in rules:
             self.assertTrue(any(line.split()[:1] == [rule] for line in lines),
                             rule)
         self.assertIn("gate:shortcut", proc.stdout)
         self.assertIn("none - ", proc.stdout)
+        loop = next(line for line in lines if line.split()[:1] == ["loop"])
+        self.assertIn("partial", loop)
+        self.assertIn("gate:loop [verify-off]", loop)
 
     def test_json_carries_the_rows(self):
         proc = self.run_status("--json")
