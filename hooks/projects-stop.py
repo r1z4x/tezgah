@@ -17,9 +17,12 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import stop_reason  # noqa: E402
-from tezgah_paths import off, root_for  # noqa: E402
+from tezgah_guard import import_failed, safe  # noqa: E402
+try:
+    from tezgah_integrity import stop_reason  # noqa: E402
+    from tezgah_paths import off, root_for  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 # How many times one stop chain may be refused: the one-nudge semantics is
 # deliberate, and raising it is owner decision 11. Claude says only whether a

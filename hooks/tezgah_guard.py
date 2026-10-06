@@ -97,3 +97,51 @@ def safe(session_id, fn, *args, **kwargs):
             # while reporting a raise would be the failure it exists to stop.
             pass
         return None
+
+
+def _payload_session():
+    """The session id the host handed this process, best effort: the payload on
+    stdin (every hook, the opencode CLIs) or the JSON argument tezgah-capture
+    takes, else TEZGAH_SESSION. The hook never reached its own decode, so this
+    read consumes nothing anyone else will look at."""
+    import json
+    sources = []
+    try:
+        if sys.stdin is not None and not sys.stdin.isatty():
+            sources.append(sys.stdin.read())
+    except Exception:
+        pass
+    sources += sys.argv[1:]
+    for raw in sources:
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            for key in ("session_id", "sessionID", "sessionId", "conversation_id"):
+                if data.get(key):
+                    return str(data[key])
+    return os.environ.get("TEZGAH_SESSION") or "unknown-session"
+
+
+def import_failed(exc):
+    """An entry point whose core imports raised: record it and exit 0.
+
+    `safe` covers the calls, not the `from tezgah_x import ...` lines above
+    them, so a module that failed to import (a rename, a syntax error a release
+    shipped) ended the hook with a traceback - on omp that disables the gate,
+    the ledger and the status line for the session (the lessons ledger records
+    the rename that crashed every omp hook). The call fails open like every
+    other caught fault and leaves a `crash` row. When the ledger's own modules
+    (`tezgah_integrity`, or `tezgah_paths` under it) are the ones that cannot
+    import, there is no ledger to write: one stderr line is the whole trace."""
+    detail = "import: %s: %s" % (type(exc).__name__, str(exc)[:120])
+    try:
+        import tezgah_integrity
+        tezgah_integrity.note(_payload_session(), "crash", detail)
+    except Exception:
+        sys.stderr.write("tezgah: %s could not import its core (%s); this call "
+                         "ran without tezgah\n"
+                         % (os.path.basename(sys.argv[0] if sys.argv else "hook"),
+                            detail))
+    sys.exit(0)

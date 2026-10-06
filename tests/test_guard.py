@@ -109,6 +109,99 @@ class EntryPoints(TempHome):
         self.assertIn("decision", crashes[0].get("detail", ""))
 
 
+# Run one entry point with an import forced to fail before it loads. `MOD:NAME`
+# loads the module and removes the name, so the entry's own `from MOD import
+# NAME` raises ImportError while the ledger still imports; a bare `MOD` makes
+# every import of that module raise, the shape of a module that cannot load.
+IMPORT_PROBE = (
+    "import importlib.abc, os, runpy, sys\n"
+    "hook, broken = sys.argv[1], sys.argv[2]\n"
+    "sys.path.insert(0, %r)\n"
+    "if ':' in broken:\n"
+    "    mod, name = broken.split(':')\n"
+    "    delattr(__import__(mod), name)\n"
+    "else:\n"
+    "    class Refuse(importlib.abc.MetaPathFinder):\n"
+    "        def find_spec(self, fullname, path=None, target=None):\n"
+    "            if fullname == broken:\n"
+    "                raise ImportError('forced: ' + fullname)\n"
+    "    sys.meta_path.insert(0, Refuse())\n"
+    "sys.argv = [hook] + sys.argv[3:]\n"
+    "runpy.run_path(hook, run_name='__main__')\n" % support.HOOKS)
+
+
+class ImportGuard(TempHome):
+    """Every entry point whose core imports sat outside `safe()`: a module that
+    cannot import costs the call, never a traceback, and leaves a trace."""
+
+    def entries(self, root):
+        """(name, script, extra argv, payload, the name the entry imports first)."""
+        bin_ = os.path.join(support.REPO, "bin")
+        sid = {"session_id": "imp", "cwd": root}
+        return [
+            ("projects-stop", support.STOP_HOOK, [], sid, "tezgah_integrity:stop_reason"),
+            ("projects-pretooluse", support.PRETOOLUSE, [], sid, "tezgah_gate:decision"),
+            ("projects-posttooluse", support.POSTTOOLUSE, [], sid,
+             "tezgah_context:GRAPH_TOOL_MARK"),
+            ("projects-auto-init", support.AUTO_INIT, [], sid,
+             "tezgah_context:context_for"),
+            ("codex", support.CODEX_HOOK, [], sid, "tezgah_context:TOOL_USE_MEASURES"),
+            ("cursor", support.CURSOR_HOOK, [], sid, "tezgah_context:command_text"),
+            ("omp", support.OMP_HOOK, [], sid, "tezgah_context:color_default"),
+            ("statusline", support.STATUSLINE, [], sid, "tezgah_context:GRAPH_TOOL_MARK"),
+            ("tezgah-gate", os.path.join(bin_, "tezgah-gate"), ["check"], sid,
+             "tezgah_gate:decision"),
+            ("tezgah-context", os.path.join(bin_, "tezgah-context"),
+             ["session_start", root], sid, "tezgah_context:context_for"),
+            ("tezgah-capture", os.path.join(bin_, "tezgah-capture"),
+             [json.dumps(dict(sid, tool="Edit", input={"file_path": "a.py"}))], None,
+             "tezgah_snapshot:capture"),
+        ]
+
+    def probe(self, script, broken, argv, payload, root):
+        import subprocess
+        return subprocess.run(
+            [sys.executable, "-c", IMPORT_PROBE, script, broken] + argv,
+            input="" if payload is None else json.dumps(payload),
+            capture_output=True, text=True, env=self.env([self.roots]), cwd=root,
+            timeout=60)
+
+    def rows(self):
+        rows = []
+        for path in glob.glob(os.path.join(self.home, ".cache", "tezgah",
+                                           "evidence", "*.jsonl")):
+            with open(path) as fh:
+                rows += [json.loads(line) for line in fh if line.strip()]
+        return rows
+
+    def test_a_failed_import_exits_0_and_leaves_a_crash_row(self):
+        root = self.make_repo()
+        entries = self.entries(root)
+        self.assertEqual(len(entries), 11)
+        for name, script, argv, payload, broken in entries:
+            with self.subTest(entry=name):
+                proc = self.probe(script, broken, argv, payload, root)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                self.assertNotIn("deny", proc.stdout)
+                crashes = [r for r in self.rows() if r.get("kind") == "crash"
+                           and broken.split(":")[1] in r.get("detail", "")]
+                self.assertTrue(crashes, "%s left no crash row" % name)
+                self.assertTrue(crashes[-1]["detail"].startswith("import: ImportError"))
+
+    def test_an_unimportable_ledger_leaves_one_stderr_line_and_no_row(self):
+        root = self.make_repo()
+        for module in ("tezgah_integrity", "tezgah_paths"):
+            for name, script, argv, payload, _broken in self.entries(root):
+                with self.subTest(entry=name, module=module):
+                    proc = self.probe(script, module, argv, payload, root)
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertNotIn("Traceback", proc.stderr)
+                    self.assertIn("could not import its core", proc.stderr)
+                    self.assertIn("forced: %s" % module, proc.stderr)
+        self.assertEqual(self.rows(), [])
+
+
 class DebugLog(TempHome):
     """TEZGAH_DEBUG (audit L-11, GAP-10): one line per hook process naming the
     host, the script, each guarded core call with its outcome and the elapsed

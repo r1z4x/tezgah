@@ -1367,6 +1367,46 @@ class ChangedFilesNotice(unittest.TestCase):
         self.assertIn(path, out)
 
 
+class HarnessDrift(unittest.TestCase):
+    """A session start that found tezgah's hook entries drifted leaves a mark
+    (hooks/tezgah_attest.py::run). A claim made in that session carries it as an
+    annotation; the mark never refuses a turn the rule would let through."""
+
+    def setUp(self):
+        import tezgah_attest as ta
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        self.addCleanup(setattr, ta, "drift_mark", ta.drift_mark)
+        mark = os.path.join(self.dir, "drift")
+        ta.drift_mark = lambda session: mark
+        with open(mark, "w") as fh:
+            fh.write("codex PreToolUse entry removed\n")
+
+    def claims(self):
+        return [r for r in ti.events("s") if r["kind"] == "claim"]
+
+    def test_a_licensed_claim_is_annotated_and_still_allowed(self):
+        ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False, out_bytes=42)
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+        row = self.claims()[-1]
+        self.assertEqual(row["detail"], "ok")
+        self.assertEqual(row["harness"], "drifted: codex PreToolUse entry removed")
+
+    def test_the_annotation_never_tells_the_model_to_reinstall(self):
+        ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False, out_bytes=42)
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIsNone(reason)
+        text = json.dumps(self.claims())
+        for word in ("reinstall", "--install", "tezgah-setup", "re-run"):
+            self.assertNotIn(word, text)
+
+    def test_a_reply_with_no_claim_gets_no_row_and_no_block(self):
+        self.assertIsNone(ti.stop_reason("Bir sonraki adim ne olsun?", "s"))
+        self.assertEqual(self.claims(), [])
+
+
 class StaleEvidence(unittest.TestCase):
     """P1: a passing check licenses a claim only when it is newer than the newest
     write the gate saw change the tree.

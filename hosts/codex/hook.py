@@ -24,16 +24,20 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import (  # noqa: E402
-    TOOL_USE_MEASURES, command_text, context_for, health_lines, record,
-    shell_kind)
-from tezgah_gate import decision  # noqa: E402
-from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, changed_files_notice, note_tool, ran_nothing,
-    report_bytes, stop_reason)
-from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
-from tezgah_untrusted import marks  # noqa: E402
+from tezgah_guard import import_failed, safe  # noqa: E402
+try:
+    import tezgah_attest  # noqa: E402
+    from tezgah_context import (  # noqa: E402
+        TOOL_USE_MEASURES, command_text, context_for, health_lines, record,
+        shell_kind)
+    from tezgah_gate import decision  # noqa: E402
+    from tezgah_integrity import (  # noqa: E402
+        SUBAGENT_CHANNEL, changed_files_notice, note_tool, ran_nothing,
+        report_bytes, stop_reason)
+    from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
+    from tezgah_untrusted import marks  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 # How many times one stop chain may be refused (hooks/projects-stop.py names the
 # same constant): one, deliberately; raising it is owner decision 11.
@@ -154,6 +158,8 @@ def main():
     event = payload.get("hook_event_name") or "SessionStart"
     cwd = payload.get("cwd") or os.getcwd()
     session_id = payload.get("session_id")
+    if event == "SessionStart":
+        safe(session_id, tezgah_attest.run, "codex", session_id, cwd)
 
     if event == "PreToolUse":
         reason = safe(session_id, gate_reason, payload, cwd, session_id)

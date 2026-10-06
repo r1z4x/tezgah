@@ -227,6 +227,46 @@ class Upgrade(Base):
         self.assertEqual(again.returncode, 0, again.stdout)
         self.assertTrue(self.current(prefix, "0.1.1"))
 
+    def test_gh_on_path_checks_the_build_provenance(self):
+        log = os.path.join(self.tmp, "gh-argv")
+        gh = os.path.join(self.tmp, "fake-gh")
+        with open(gh, "w") as fh:
+            fh.write("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %s\n" % log)
+        os.chmod(gh, 0o755)
+        dist = self.dist("0.3.0")
+        done = self.run_script("upgrade.sh", "--version", "0.3.0", "--prefix",
+                               os.path.join(self.tmp, "prefix-gh"),
+                               env={"TEZGAH_DIST": dist, "TEZGAH_GH": gh})
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("provenance verified", done.stdout)
+        with open(log) as fh:
+            argv = fh.read().split()
+        self.assertEqual(argv[:2], ["attestation", "verify"])
+        self.assertTrue(argv[2].endswith("tezgah-0.3.0.tar.gz"), argv)
+        self.assertEqual(argv[3:], ["--repo", "r1z4x/tezgah"])
+
+    def test_a_failed_gh_check_is_said_and_the_checksum_stays_the_gate(self):
+        gh = os.path.join(self.tmp, "failing-gh")
+        with open(gh, "w") as fh:
+            fh.write("#!/bin/sh\necho 'no attestations found' >&2\nexit 1\n")
+        os.chmod(gh, 0o755)
+        dist = self.dist("0.3.1")
+        done = self.run_script("upgrade.sh", "--version", "0.3.1", "--prefix",
+                               os.path.join(self.tmp, "prefix-gh-fail"),
+                               env={"TEZGAH_DIST": dist, "TEZGAH_GH": gh})
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("provenance not verified", done.stdout)
+        self.assertIn("no attestations found", done.stdout)
+
+    def test_no_gh_prints_a_plain_provenance_not_checked_line(self):
+        dist = self.dist("0.3.2")
+        done = self.run_script("upgrade.sh", "--version", "0.3.2", "--prefix",
+                               os.path.join(self.tmp, "prefix-no-gh"),
+                               env={"TEZGAH_DIST": dist,
+                                    "TEZGAH_GH": os.path.join(self.tmp, "no-such-gh")})
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("provenance not checked: gh is not on PATH", done.stdout)
+
     def test_install_sh_runs_the_installer_from_the_flipped_tree(self):
         """install.sh: upgrade.sh, then the installer the flip made current."""
         prefix = os.path.join(self.tmp, "prefix-install")

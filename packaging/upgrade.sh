@@ -12,11 +12,13 @@
 # Callers: packaging/install.sh (a first install) and `tezgah-setup --upgrade`.
 # Neither re-implements the fetch, the checksum or the flip.
 #
-# Needs: sh, curl, tar, and sha256sum or shasum. No python.
+# Needs: sh, curl, tar, and sha256sum or shasum. No python. Uses `gh` when it
+# is on PATH to check the release's build provenance; without it, says so.
 # Env: TEZGAH_PREFIX, XDG_DATA_HOME, TEZGAH_VERSION, TEZGAH_REPO, TEZGAH_DIST
 #      (a directory holding tezgah-<V>.tar.gz + .sha256 - what build.sh --out
 #      writes; it swaps the release URL for that directory, one code path, and
-#      is how upgrade.sh is exercised without a published release).
+#      is how upgrade.sh is exercised without a published release), TEZGAH_GH
+#      (the gh to run for the provenance check; default `gh` on PATH).
 set -eu
 
 REPO=${TEZGAH_REPO:-r1z4x/tezgah}
@@ -93,6 +95,24 @@ got=$(sha256_of "$work/$name")
 [ -n "$want" ] || die "$name.sha256 carries no digest"
 [ "$want" = "$got" ] || die "checksum mismatch for $name: recorded $want, downloaded $got"
 echo "ok      verified $name ($got)"
+
+# The .sha256 comes from the same place as the tarball, so it proves the
+# download is whole, not where it was built. The release workflow attests the
+# tarball's build provenance (actions/attest-build-provenance); `gh` can check
+# that binding when it is installed. It is not a dependency, so its absence -
+# or a gh that cannot answer (signed out, offline) - is said plainly and the
+# upgrade goes on: the checksum above stays the gate. TEZGAH_GH names the gh to
+# run (tests point it at a stand-in, or at nothing).
+gh=${TEZGAH_GH:-gh}
+if command -v "$gh" >/dev/null 2>&1; then
+    if gh_out=$("$gh" attestation verify "$work/$name" --repo "$REPO" 2>&1); then
+        echo "ok      provenance verified: $name was built by $REPO's release workflow"
+    else
+        echo "WARN    provenance not verified: gh attestation verify $name --repo $REPO said: $(printf '%s\n' "$gh_out" | tail -n 1)"
+    fi
+else
+    echo "note    provenance not checked: gh is not on PATH (check by hand: gh attestation verify $name --repo $REPO)"
+fi
 
 mkdir -p "$PREFIX" || die "cannot create $PREFIX"
 dest=$PREFIX/$VERSION

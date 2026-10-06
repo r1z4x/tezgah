@@ -15,6 +15,9 @@ A ledger [row](#row) of kind `after_block`: the [Stop rule](#stop-rule)'s record
 ### always-on
 The part of the contract every session pays for - the invariants plus the one-line [pointer](#pointer) - built by `always_on_core()` (`hooks/tezgah_context.py::always_on_core`) out of [CORE](#core) with the [conditional rules](#conditional-rule) removed; it is not the whole contract, whose long tail is the `tezgah-contract` [skill](#skill) ([contract](contract.md)).
 
+### attestation
+The per-session check of tezgah's own hook entries against the install record. `run()` (`hooks/tezgah_attest.py::run`) reads each host's entries. It compares them with the `hook:<host>:<entry>` lines in `contract.sha256` (`bin/tezgah-setup::record_hooks`). It writes one `attest` [row](#row) and sets or clears the `drift` [mark](#mark). Not integrity: whoever can edit a hook can edit the record. A clean row is evidence, not proof.
+
 ### budget
 The byte ceiling one injected event may spend: `CONTEXT_BUDGET` per event with `DEFAULT_BUDGET` behind it (`hooks/tezgah_context.py:1339-1341`), enforced by `budgeted()` (`hooks/tezgah_context.py::budgeted`), which gives up blocks lowest value first along `DROP_ORDER` (`hooks/tezgah_context.py::DROP_ORDER`), shrinking a block in `SHRINK` (the per-turn relevant lessons, to their first lesson) before it drops it (`hooks/tezgah_context.py::SHRINK`); bytes, never tokens, because the module has no tokenizer (`hooks/tezgah_context.py:1337-1338`). Not the [metadata band](#metadata-band), which is the installer's measurement of the same text rather than a runtime bound.
 
@@ -38,6 +41,9 @@ A refusal the gate returns and records: `_deny()` writes a `deny` row carrying t
 
 ### digest
 The identity of one tool call, `call_id()` = `sha1(tool.lower() + " " + canonical(args))[:12]` (`hooks/tezgah_integrity.py::call_id`); both the gate and the post-tool hook compute it here, so a [row](#row) and the call it belongs to agree. Not a session id.
+
+### enforcement capability
+What one host can do with one rule surface: the gate, the Stop rule or a subagent. Four words name it. `gate`: it can refuse. `observe`: it records and never refuses. `partial`: only part of the surface fires. `unavailable`: the host has no event for it. `unverified` marks a cell no driver here can show the host obeying ([hosts](hosts.md#enforcement-capability)). Not an [observable measure](#observable-measure), a status mark a surface can see, and not a mark [state](#state).
 
 <a id="ledger"></a>
 ### evidence ledger

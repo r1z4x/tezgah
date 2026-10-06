@@ -1789,6 +1789,21 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(injected, self.builder("user_prompt", {"prompt": prompt}))
         self.assertNotIn("**Spec before building.**", injected)
 
+    def test_the_first_message_of_a_session_writes_one_attest_row(self):
+        # opencode has no session start: the first message runs the attestation
+        # once, detached, through oncePerSession - a second message adds none
+        import time
+        self.context_bin()
+        self.message("ilk istek")
+        self.message("ikinci istek")
+        deadline = time.time() + 20
+        while time.time() < deadline and "attest" not in self.kinds():
+            time.sleep(0.2)
+        time.sleep(1)  # room for a second, wrongly spawned writer to land
+        attest = [r for r in self.ledger() if r["kind"] == "attest"]
+        self.assertEqual(len(attest), 1, self.ledger())
+        self.assertEqual(attest[0]["host"], "opencode")
+
     def test_a_prompt_pays_the_delta_of_what_moved_since_the_last_turn(self):
         # The builder's per-turn state delta is keyed on the session: it compares
         # the stamp that session's previous turn wrote with the state now. With
@@ -1816,13 +1831,17 @@ class OpenCodePlugin(TempHome):
         # session as if it were this turn's. A re-send of the same submission is
         # the same turn (hooks/tezgah_integrity.note_turn), and a different
         # prompt is a new one.
+        # the first message also spawns the session's attestation, detached, so
+        # its `attest` row lands whenever it lands: only turn markers count here
+        def turns():
+            return [k for k in self.kinds() if k == "turn"]
         self.context_bin()
         self.message("selam")
-        self.assertEqual(self.kinds(), ["turn"], self.ledger())
+        self.assertEqual(turns(), ["turn"], self.ledger())
         self.message("başka bir istek")
-        self.assertEqual(self.kinds(), ["turn", "turn"], self.ledger())
+        self.assertEqual(turns(), ["turn", "turn"], self.ledger())
         self.message("başka bir istek")
-        self.assertEqual(self.kinds(), ["turn", "turn"], self.ledger())
+        self.assertEqual(turns(), ["turn", "turn"], self.ledger())
 
     def test_a_missing_builder_injects_nothing(self):
         # Every path fails open: a host without ~/.config/tezgah/bin still sends

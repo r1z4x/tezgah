@@ -28,7 +28,11 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_gate import decision  # noqa: E402
+from tezgah_guard import import_failed  # noqa: E402
+try:
+    from tezgah_gate import decision  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 
 def misuse(message):

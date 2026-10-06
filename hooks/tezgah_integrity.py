@@ -35,6 +35,7 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
+import tezgah_attest
 from tezgah_paths import _toplevel, cache_dir, off, reply_lang, root_for
 
 # A command that actually checks the change, as opposed to one that merely runs.
@@ -459,13 +460,18 @@ PERMANENT_ERROR = re.compile(
 # `empty_run` marks a check whose own output said it ran nothing (EMPTY_RUN).
 # `cause` splits a `blocked: no verify_ok` refusal by what the turn lacked: `no
 # check` (none ran) or `outcome unread` (one ran and no pass was seen).
+# `host` and `switches` are an `attest` row's: the host whose hook entries the
+# session start compared with the install record, and the kill switches present
+# (`hooks/tezgah_attest.py::run`). `harness` annotates a `claim` row made in a
+# session whose start found those entries drifted - the drift list, never a block.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
                            "tr_share", "answer_first", "child",
                            "summary_chars", "summary_hash",
                            "constraint_found", "constraint_expected", "parent", "agent",
-                           "check", "key", "block", "repo", "empty_run", "cause"))
+                           "check", "key", "block", "repo", "empty_run", "cause",
+                           "host", "switches", "harness"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -700,7 +706,7 @@ DETAIL_MAX = 200
 # DETAIL_MAX), because a host can put anything in them - `tool` is the first, and
 # the fabricated-tool path stores the host's own string. A new free-text field
 # joins this set rather than being stored raw.
-FREE_TEXT_FIELDS = frozenset(("tool", "agent", "child"))
+FREE_TEXT_FIELDS = frozenset(("tool", "agent", "child", "harness"))
 
 
 def _stored_text(value):
@@ -3655,6 +3661,12 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
             shape = dict(shape, cause=_no_pass_cause(rows))
         if subagent and agent:
             shape = dict(shape, agent=str(agent))
+        if kind == "claim":
+            # "harness drifted" rides on the claim as a record, read from the
+            # mark the session start left; it never refuses the turn
+            drifted = tezgah_attest.mark_text(session_id)
+            if drifted:
+                shape = dict(shape, harness="drifted: " + drifted)
         note(session_id, kind, detail, id=key, **shape)
     return reason
 

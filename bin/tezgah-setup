@@ -58,6 +58,7 @@ import tezgah_paths as tp  # noqa: E402
 import tezgah_policy as policy  # noqa: E402
 import tezgah_agents  # noqa: E402
 import tezgah_integrity  # noqa: E402
+import tezgah_attest as ta  # noqa: E402
 from tezgah_policy import (  # noqa: E402
     ADHD, CODEGRAPH_RULE, CODEGRAPH_STATIC, CONSULT, EXEC, NO_CONSULT,
     ORCHESTRATE, PONYTAIL, WORKFLOWS)
@@ -338,35 +339,33 @@ def recorded_shas():
     single shared hash this replaced was rewritten by opencode's per-session
     refresh, so a policy edit left CLAUDE.md, AGENTS.md and RULES.md stale while
     `--report` went green (audit M-5, INT-02)."""
-    out = {}
-    try:
-        with open(CONTRACT_SHA, encoding="utf-8") as fh:
-            for line in fh:
-                sha, _, path = line.rstrip("\n").partition("  ")
-                if path:
-                    out[path] = sha
-    except OSError:
-        pass
-    return out
+    return ta.recorded_shas(CONTRACT_SHA)
 
 
 def record_contract(path, text):
-    """Record the sha of the text just rendered into one artifact.
+    """Record the sha of the text just rendered into one artifact."""
+    record_shas({path: text})
+
+
+def record_shas(texts, drop=()):
+    """Record the sha of each {key: text} in the install record, after removing
+    every key that starts with one of `drop`.
 
     opencode spawns `--refresh` once per session, so two sessions starting
     together run this at once. A bare read-then-rewrite let the slower writer
     drop the other's line, and a reader could see the file half-truncated
     (review of audit M-5). The update is a merge done under an exclusive lock
-    on a side file - the record is re-read inside the lock, so only this one
-    line changes - and lands through a temp file and `os.replace`, so a reader
+    on a side file - the record is re-read inside the lock, so only these
+    lines change - and lands through a temp file and `os.replace`, so a reader
     never sees a partial file. Without fcntl (Windows) the lock is skipped and
     the replace alone still keeps every read whole."""
     mkdirp(tp.CONFIG_DIR)
     with open(CONTRACT_SHA + ".lock", "a", encoding="utf-8") as lock:
         if fcntl is not None:
             fcntl.flock(lock, fcntl.LOCK_EX)
-        shas = recorded_shas()
-        shas[path] = _sha(text)
+        shas = {k: v for k, v in recorded_shas().items()
+                if not k.startswith(tuple(drop))} if drop else recorded_shas()
+        shas.update((k, _sha(t)) for k, t in texts.items())
         # A fixed name, safe because the lock is held: a crash between write
         # and replace leaves one known file that the next write overwrites and
         # a full uninstall removes (GENERATED_STATE), not one stray per pid.
@@ -383,6 +382,38 @@ def stale_artifacts(hosts):
     shas = recorded_shas()
     return sorted(path for path, (text, _write) in contract_artifacts(hosts).items()
                   if shas.get(path) != _sha(text))
+
+
+def record_hooks(hosts):
+    """Record the tezgah-owned hook entries each host carries now, under
+    `hook:<host>:<entry>` keys in the same record the contract artifacts use:
+    each session start compares against these (`hooks/tezgah_attest.py::drift`).
+    A host's earlier keys go first, so an entry a release dropped is not
+    remembered as wanted."""
+    texts = {}
+    for h in hosts:
+        texts.update(ta.record_texts(h, HERE))
+    record_shas(texts, drop=[ta.KEY % (h, "") for h in hosts])
+
+
+def hook_entries(hosts):
+    """{host: {entry: text}} - the hook entries THIS tree arms, as
+    `hooks/tezgah_attest.py::registration` reads them back once written.
+    `tezgah update` asks the new tree for this (`--hook-entries`) and prints
+    what re-arming would change."""
+    out = {}
+    for h in hosts:
+        if h in ("codex", "cursor"):
+            groups = codex_hook_groups() if h == "codex" else cursor_hook_entries()
+            out[h] = ta.own_groups({"hooks": {ev: [g] for ev, g in groups.items()}})
+        elif h == "opencode":
+            src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
+            out[h] = {d: src for d in ta.OPENCODE_DIRS}
+        elif h == "omp":
+            out[h] = {"bridge": omp_bridge()}
+        else:
+            out[h] = ta.registration(h, HERE)[0] or {}
+    return out
 
 
 def link(src, dst):
@@ -1154,22 +1185,28 @@ def wire_claude_statusline():
     print("%s statusLine -> tezgah (previous kept as %s.<timestamp>.tezgah-bak)" % (OK, sp))
 
 
+def codex_hook_groups():
+    """{event: the group install_codex writes}; `hook_entries` plans from it."""
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-codex-hook"))
+    out = {}
+    for ev, matcher in CODEX_HOOK_EVENTS:
+        # PreToolUse carries a matcher on the group object, mirroring
+        # hosts/codex/hooks.json, and is what makes the policy gate blocking.
+        group = {"matcher": matcher} if matcher else {}
+        group["hooks"] = [{"type": "command", "command": cmd, "timeout": 10}]
+        out[ev] = group
+    return out
+
+
 def install_codex():
     print("\ncodex:")
-    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-codex-hook"))
     path = os.path.join(CODEX, "hooks.json")
     data = read_config(path, {"hooks": {}})
     if data is not None:
         hooks = data.setdefault("hooks", {})
-        # PreToolUse carries a matcher on the group object, mirroring
-        # hosts/codex/hooks.json, and is what makes the policy gate blocking.
-        for ev, matcher in CODEX_HOOK_EVENTS:
+        for ev, group in codex_hook_groups().items():
             arr = hooks.setdefault(ev, [])
             arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
-            group = {}
-            if matcher:
-                group["matcher"] = matcher
-            group["hooks"] = [{"type": "command", "command": cmd, "timeout": 10}]
             arr.append(group)
         write_json(path, data)
         print("%s %s" % (OK, path))
@@ -1730,9 +1767,15 @@ def install_opencode():
         restart_hint("opencode", os.path.join(OPENCODE, "opencode.json"))
 
 
+def cursor_hook_entries():
+    """{event: the entry install_cursor writes}; `hook_entries` plans from it."""
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-cursor-hook"))
+    return {ev: dict({"command": cmd}, **extra)
+            for ev, extra in CURSOR_HOOK_EVENTS.items()}
+
+
 def install_cursor():
     print("\ncursor:")
-    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-cursor-hook"))
     path = os.path.join(CURSOR, "hooks.json")
     data = read_config(path, {"version": 1, "hooks": {}})
     if data is not None:
@@ -1740,11 +1783,9 @@ def install_cursor():
         hooks = data.setdefault("hooks", {})
         # Mirrors hosts/cursor/hooks.json. Existing (Orca) entries are merged,
         # never overwritten: only tezgah entries are replaced.
-        for ev, extra in CURSOR_HOOK_EVENTS.items():
+        for ev, entry in cursor_hook_entries().items():
             arr = hooks.setdefault(ev, [])
             arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
-            entry = {"command": cmd}
-            entry.update(extra)
             arr.append(entry)
         write_json(path, data)
         print("%s %s" % (OK, path))
@@ -2209,14 +2250,10 @@ def rules_current(host):
 
 def omp_bridge():
     """The omp extension as an install writes it: the template with this tree's
-    hook path, or "" when the template is unreadable. The install and the live
-    report's byte-compare both call this one renderer."""
-    try:
-        with open(os.path.join(HERE, "hosts", "omp", "tezgah-hook.ts.in"), encoding="utf-8") as fh:
-            return fh.read().replace(
-                "@HOOK@", os.path.join(HERE, "hosts", "omp", "hook.py"))
-    except OSError:
-        return ""
+    hook path, or "" when the template is unreadable. The install, the report
+    row, the live probe and the session-start attestation all call this one
+    renderer (`hooks/tezgah_attest.py::omp_bridge`)."""
+    return ta.omp_bridge(HERE)
 
 
 def install_omp():
@@ -4141,8 +4178,25 @@ def report(hosts):
             print("  %s %s" % (OK if good else NO, label))
             if arming_miss(label, good):
                 missed.append("%s (%s)" % (h, label))
+        attestation_rows(h)
     context_budget_report()
     return missed
+
+
+def attestation_rows(host):
+    """The session-start attestation, asked here by hand: the same comparison
+    every session start writes its `attest` row from (`hooks/tezgah_attest.py::
+    drift`), against the tree the host really runs - Claude's plugin copy when
+    one is registered. Not an arming row: a drifted entry is reported, and the
+    install's exit code is left to the rows that say whether a host is armed."""
+    root = (_claude_plugin_root()[0] if host == "claude" else None) or HERE
+    found, unknown = ta.drift(host, root)
+    print("  %s hook entries match the install record (attestation)"
+          % (NO if found else OK if not unknown else " UNVERIFIED "))
+    for item in found:
+        print("         drift: %s" % item)
+    for item in unknown:
+        print("         unverified: %s" % item)
 
 
 def mcp_rows(wired, where, superseded=()):
@@ -4550,10 +4604,10 @@ def host_checks_omp():
         ("app MCP command is one executable",
          all(isinstance((servers.get(n) or {}).get("command"), str)
              for n in app_server_names() if n not in OMP_SUPERSEDED_MCP)),
-        ("session, prompt, tool and stop hooks wired",
-         all(k in hook_text for k in ("session_start", "before_agent_start",
-                                      "tool_call", "session_stop",
-                                      "setWidget", "setStatus"))),
+        # byte for byte against a fresh render, as the RULES.md row above: a
+        # keyword test passed a bridge an older tree or a hand edit left behind
+        ("session, prompt, tool and stop hooks wired (bridge matches a fresh render)",
+         bool(hook_text) and hook_text == omp_bridge()),
         # the bridge loads from `extensions:`, not from the directory it sits in
         # (see OMP_EXTENSIONS); a hook file that is not named there draws nothing
         ("hook registered in omp extensions (config.yml)",
@@ -4887,8 +4941,56 @@ def plugin_copy_current(target):
     return copy_files(target) - set(PLUGIN_ROOT_FILES) == set(files)
 
 
+# Where `sync()` builds the next copy: beside the cache, not in it, so a staging
+# tree a killed run leaves behind is never walked by `plugin_copies()` (it
+# carries the fingerprint), and on the same filesystem, so the swap is a rename.
+SYNC_STAGE_PREFIX = ".tezgah-sync-"
+
+
+def _copy_normalised(src, dst):
+    """Copy one file into a staged copy, owner-writable only: 0755 for a file
+    the tree marks executable, 0644 otherwise, whatever mode the source has. A
+    copy that inherited a world-writable checkout file (0666) carried that mode
+    into the tree Claude runs."""
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copyfile(src, dst)
+    os.chmod(dst, 0o755 if os.stat(src).st_mode & 0o100 else 0o644)
+
+
+def _swap(stage, target):
+    """Put the staged tree at `target`, carrying the target's `.git` over.
+
+    ponytail: two renames (target aside, stage in), not one atomic exchange -
+    renameat2(RENAME_EXCHANGE) is Linux-only and macOS's renamex_np is not in
+    the stdlib - so between them the copy's path is absent for a moment. Each
+    failure puts back what it moved."""
+    git, staged_git, old = (os.path.join(target, ".git"),
+                            os.path.join(stage, ".git"), stage + ".old")
+    moved = os.path.isdir(git)
+    if moved:
+        os.rename(git, staged_git)
+    try:
+        os.rename(target, old)
+    except OSError:
+        if moved:
+            os.rename(staged_git, git)
+        raise
+    try:
+        os.rename(stage, target)
+    except OSError:
+        os.rename(old, target)
+        if moved:
+            os.rename(staged_git, git)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def sync():
-    """Copy this checkout over the installed Claude plugin, which is a COPY."""
+    """Copy this checkout over the installed Claude plugin, which is a COPY.
+
+    Each copy is built in a staging tree first and swapped in (`_swap`): the
+    old delete-then-copy left a half-empty tree Claude would load when the
+    copy failed or the run was killed in between."""
     cache = os.path.join(HOME, ".claude", "plugins", "cache")
     targets = plugin_copies()
     if not targets:
@@ -4899,54 +5001,61 @@ def sync():
         print("nothing to sync from: %s lists no files (no git checkout, no %s)"
               % (HERE, MANIFEST))
         return 1
+    plugins = os.path.dirname(cache)
+    for name in os.listdir(plugins):
+        # a staging tree a killed run left: never a copy, never loaded
+        if name.startswith(SYNC_STAGE_PREFIX):
+            shutil.rmtree(os.path.join(plugins, name), ignore_errors=True)
     for t in targets:
-        # A copy that contains this checkout IS this checkout, so emptying it
-        # would delete the tree being copied from (someone running the copy's own
-        # bin/tezgah-setup). The documented path never does; this says no.
+        # A copy that contains this checkout IS this checkout, so replacing it
+        # would delete the tree being copied from (someone running the copy's
+        # own bin/tezgah-setup). The documented path never does; this says no.
         real = os.path.realpath(t)
         if real == HERE or HERE.startswith(real + os.sep):
             print("%s skip %s (it holds this checkout)" % (NO, t))
             continue
-        # A copy's manifest stays when this tree has none to carry over: without
-        # it the copy is not a plugin Claude can load.
-        keep = {".git"} | (set() if os.path.isdir(os.path.join(HERE, ".claude-plugin"))
-                           else {".claude-plugin"})
-        for name in os.listdir(t):
-            if name not in keep:
-                path = os.path.join(t, name)
-                shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) \
-                    else os.remove(path)
-        for f in files:
-            src = os.path.join(HERE, f)
-            if not os.path.isfile(src):
-                # ls-files lists a path deleted in the working tree until the
-                # deletion is staged; copying it would crash the sync (measured
-                # when the README translations were reduced).
-                continue
-            dst = os.path.join(t, f)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst)
-        # The files that live at the tree root rather than in the listing: the
-        # plugin manifest is the maintainer's local, untracked file and a copy
-        # without one is not a plugin Claude can load, and `VERSION` is the
-        # release artifact's version file, which a copy made from one has to
-        # answer `--version` with. Carry each over when this checkout has it,
-        # and copy nothing when it does not (a checkout has no VERSION).
-        for rel in PLUGIN_ROOT_FILES:
-            if rel == MCP_JSON:
-                continue  # rendered below, from the selection rather than the tree's copy
-            src = os.path.join(HERE, rel)
-            if os.path.isfile(src):
-                dst = os.path.join(t, rel)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(src, dst)
-        # Claude reads the MCP config from THIS copy, so it is rendered from the
-        # selection after the copy rather than carried from the checkout, whose
-        # file answers the release-time default and would undo a disable. The
-        # copy is also the tree that will read it, so tezgah's own row names the
-        # copy's bin/tezgah-mcp - the one path that exists on this machine.
-        write_mcp_json(os.path.join(t, MCP_JSON), root=t)
+        stage = tempfile.mkdtemp(prefix=SYNC_STAGE_PREFIX, dir=plugins)
+        try:
+            # A copy's manifest stays when this tree has none to carry over:
+            # without it the copy is not a plugin Claude can load.
+            manifest = os.path.join(t, ".claude-plugin")
+            if not os.path.isdir(os.path.join(HERE, ".claude-plugin")) \
+                    and os.path.isdir(manifest):
+                shutil.copytree(manifest, os.path.join(stage, ".claude-plugin"))
+            for f in files:
+                src = os.path.join(HERE, f)
+                if not os.path.isfile(src):
+                    # ls-files lists a path deleted in the working tree until
+                    # the deletion is staged; copying it would crash the sync
+                    # (measured when the README translations were reduced).
+                    continue
+                _copy_normalised(src, os.path.join(stage, f))
+            # The files that live at the tree root rather than in the listing:
+            # the plugin manifest is the maintainer's local, untracked file and
+            # a copy without one is not a plugin Claude can load, and `VERSION`
+            # is the release artifact's version file, which a copy made from one
+            # has to answer `--version` with. Carry each over when this checkout
+            # has it, and copy nothing when it does not (a checkout has no
+            # VERSION).
+            for rel in PLUGIN_ROOT_FILES:
+                if rel == MCP_JSON:
+                    continue  # rendered below, from the selection
+                src = os.path.join(HERE, rel)
+                if os.path.isfile(src):
+                    _copy_normalised(src, os.path.join(stage, rel))
+            # Claude reads the MCP config from THIS copy, so it is rendered from
+            # the selection rather than carried from the checkout, whose file
+            # answers the release-time default and would undo a disable. The
+            # copy is also the tree that will read it, so tezgah's own row
+            # names the copy's bin/tezgah-mcp - the one path that exists here.
+            write_mcp_json(os.path.join(stage, MCP_JSON), root=t)
+            _swap(stage, t)
+        except (OSError, shutil.Error) as exc:
+            shutil.rmtree(stage, ignore_errors=True)
+            print("%s %s left as it was: the staged copy failed (%s)" % (NO, t, exc))
+            continue
         print("%s synced %s (%d files)" % (OK, t, len(files)))
+    record_hooks(["claude"])
     print("\nrestart Claude Code: hooks are read once per session.")
     return 0
 
@@ -5174,6 +5283,8 @@ def upgrade(version, dry_run):
         print("%s no %s - this tree carries no packaging/ layer, so it cannot "
               "upgrade itself" % (NO, UPGRADE))
         return 1
+    import tezgah_update
+    old = tezgah_update.installed_entries(hosts)
     proc = subprocess.run(cmd)
     if proc.returncode != 0:
         print("%s %s exited %d; tezgah was not re-armed"
@@ -5193,6 +5304,10 @@ def upgrade(version, dry_run):
     if roots:
         argv += ["--roots", os.pathsep.join(roots)]
     print()
+    if not tezgah_update.confirm_rearm(old, launcher):
+        print("%s fetched, not re-armed; re-arm later with `%s`"
+              % (NO, " ".join(argv)))
+        return 1
     return subprocess.run(argv).returncode
 
 
@@ -5238,6 +5353,7 @@ def install_all(hosts, new_roots, deps_off, dry_run, redetect):
     for h in hosts:
         INSTALLERS[h]()
     refresh_plugin_copy(hosts)
+    record_hooks(hosts)
     print()
     if deps_off:
         print("(deps skipped; run `tezgah-setup --deps` to install orx, and "
@@ -5276,6 +5392,9 @@ def main(argv):
     ap.add_argument("--uninstall", action="store_true")
     ap.add_argument("--adopt", action="store_true")
     ap.add_argument("--sync", action="store_true")
+    ap.add_argument("--hook-entries", action="store_true",
+                    help="print the hook entries this tree arms, per armed host, "
+                         "as JSON (`tezgah update` diffs them before re-arming)")
     ap.add_argument("--status", nargs="?", const=os.getcwd())
     ap.add_argument("--agents", nargs="?", const=os.getcwd(),
                     help="regenerate this repo's subagent set (default: cwd)")
@@ -5372,6 +5491,10 @@ def main(argv):
 
     if args.sync:
         return sync()
+    if args.hook_entries:
+        hosts = tp.config().get("hosts") or ALL_HOSTS
+        print(json.dumps(hook_entries(hosts), indent=1, sort_keys=True))
+        return 0
     if args.write_mcp_json:
         return write_mcp_json()
     if args.features:

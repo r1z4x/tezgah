@@ -33,7 +33,8 @@ the password of URL userinfo (`scheme://user:pass@`) and of `-u user:pass`, and 
 family lose theirs (`:580-624`; audit L-6, which found each of those stored verbatim). The optional fields are exactly `LEDGER_FIELDS`
 (`hooks/tezgah_integrity.py::LEDGER_FIELDS`) — `id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`, `tool`,
 `target`, plus the reply-shape names `lines`, `chars`, `items`, `longest_list`, `tr_share`, `answer_first` and the compaction
-row's `summary_chars`, `summary_hash`, `constraint_found`, `constraint_expected` — and
+row's `summary_chars`, `summary_hash`, `constraint_found`, `constraint_expected`, the `attest`
+row's `host` and `switches` and a `claim` row's `harness` — and
 a key outside that set is dropped, a `None` value left out, because every reader treats a missing key
 as `None` (`:784-786`). `tool` is the call's own name (`Bash`, `Write`, `mcp__codegen__status`),
 written by `note_tool` (`hooks/tezgah_integrity.py::note_tool`) because `classify` folds the name into
@@ -80,6 +81,8 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py::_capture_one`, `:277-280` | `hooks/tezgah_integrity.py::_snapshot_hash`; no counter |
 | `compact` | `hooks/tezgah_integrity.py::note_compaction`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py::remember_compaction`) | `hooks/tezgah_integrity.py::_counts` (what `counters` folds with) |
 | `lesson` | `hooks/tezgah_context.py::note_lesson`, one row per lesson the budget left in a session block or a per-turn block, with its 8-hex `key` and `block` (`session` or `turn`), inside the host's `safe()` like the rest of the prompt path | no counter; `hooks/tezgah_context.py::NOT_TOOL_HOOK` keeps it out of `hooks/tezgah_context.py::_ledger_since`, so a session of lesson rows still reads as a gate that never ran |
+| `attest` | `hooks/tezgah_attest.py::run`, once per session start: Claude and dsh (`hooks/projects-auto-init.py::main`), Codex, Cursor and omp from their session-start events, opencode at the first message through `oncePerSession` (`bin/tezgah-context::main`). `detail` is `ok`, `drifted: <entries>` (an entry added, removed or changed since install, a hook file any user can write, a stale omp bridge, a changed entry script on a release install) or `unverified: <why>`; `host` names the host, `switches` the kill switches present | the `drift` status mark and the `harness` field of the session's later `claim` rows, read from the mark file (`hooks/tezgah_attest.py::mark_text`) - an annotation, never a Stop block; `NOT_TOOL_HOOK` lists it, so a session start after a compaction does not read as a gate that ran |
+| `crash` | `hooks/tezgah_guard.py::safe` for a core call that raised, and `hooks/tezgah_guard.py::import_failed` for an entry point whose core imports raised (`detail` `import: <class>: <message>`). When `tezgah_integrity` or `tezgah_paths` is the module that failed there is no ledger to write: one stderr line instead | `NOT_TOOL_HOOK` lists it; no counter |
 
 **`compact` is what a compaction kept, from the record.** When the host hands the PostCompact
 payload the text the model is about to receive — Claude's `compact_summary` — the shared path

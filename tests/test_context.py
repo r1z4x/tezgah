@@ -1700,6 +1700,28 @@ class GateLiveness(ChildCall):
         self.claude_tools(3)
         self.assertIn("tezgah gate inactive", self.prompt())
 
+    def test_an_attest_row_after_a_compact_is_not_proof(self):
+        # SessionStart fires again after a compaction and writes its attest
+        # row there; a row from the session start says nothing about the gate
+        self.prompt()
+        self.child("import json, tezgah_integrity as ti\n"
+                   "ti.note('g1', 'compact', 'auto')\n"
+                   "ti.note('g1', 'attest', 'ok', host='claude')\n"
+                   "print('null')\n")
+        self.claude_tools(3)
+        self.assertIn("tezgah gate inactive", self.prompt())
+        self.assertIn("gate", [s["key"] for s in self.segments()])
+
+    def test_a_drift_mark_draws_the_drift_segment(self):
+        self.child("import json, os, tezgah_attest as ta\n"
+                   "p = ta.drift_mark('g1')\n"
+                   "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+                   "open(p, 'w').write('codex PreToolUse entry removed')\n"
+                   "print('null')\n")
+        drift = [s for s in self.segments() if s["key"] == "drift"]
+        self.assertEqual(drift, [{"key": "drift", "state": "off", "glyph": "\u2717",
+                                  "text": "drift", "group": 0}])
+
     def test_a_tool_row_in_the_fallback_ledger_counts(self):
         # Each hook resolves cache_dir() in its own process: a tool hook that
         # could not write ~/.cache leaves its rows under the temp fallback, and

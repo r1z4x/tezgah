@@ -11,9 +11,13 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from tezgah_context import context_for, record  # noqa: E402
-from tezgah_guard import safe  # noqa: E402
-from tezgah_paths import HOST_DIRS  # noqa: E402
+from tezgah_guard import import_failed, safe  # noqa: E402
+try:
+    import tezgah_attest  # noqa: E402
+    from tezgah_context import context_for, record  # noqa: E402
+    from tezgah_paths import HOST_DIRS  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 EVENTS = {
     "SessionStart": "session_start",
@@ -71,6 +75,14 @@ def main():
         # tezgah wires, and dsh (which runs it too) has no transcript to derive
         # the kind from, so the store is the only channel its line has.
         safe(payload.get("session_id"), record, payload.get("session_id"), "orch")
+    if event == "SessionStart":
+        # Claude and dsh run this one script; Claude's manifest declares
+        # TEZGAH_CORE_IN_FILE on SessionStart and dsh's does not, so the flag
+        # names whose entries to attest. ponytail: a Claude manifest edited to
+        # drop the flag is attested as dsh - and still reads as drift there.
+        sid = payload.get("session_id")
+        host = "claude" if os.environ.get("TEZGAH_CORE_IN_FILE") == "1" else "dsh"
+        safe(sid, tezgah_attest.run, host, sid, cwd)
     text = safe(payload.get("session_id"), context_for,
                 EVENTS.get(event, "session_start"), cwd, payload,
                 # the brief is a subagent's own text, never the file's; every

@@ -8,6 +8,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Every session attests tezgah's own hook entries.** The installer now
+  records each host's tezgah-owned hook entries in `contract.sha256`, one line
+  per entry. On a release install it also records the scripts they run. Each
+  session start compares the entries on disk with that record. opencode does
+  it at its first message. The session gets one `attest` row: `ok`,
+  `drifted: <entries>` or `unverified: <why>`. A drifted row names the entry.
+  It also names a hook file any user can write and a stale omp bridge. The row
+  lists the kill switches present. A drifted session shows a `drift` status
+  mark, and its claim rows carry the drift in `harness`. Drift never blocks a
+  reply. `--report` prints the same comparison per host.
+- **`tezgah update` shows the hook change.** It prints each tezgah hook entry
+  the new release adds, removes or changes. That comes before the re-arm. On
+  a terminal it waits for a yes. A piped update goes on (decision 12).
+  `--upgrade` does the same. The new tree answers through
+  `tezgah-setup --hook-entries`.
+- **`upgrade.sh` checks build provenance when `gh` is there.** It runs
+  `gh attestation verify` on the tarball against the release workflow's
+  attestation. Without `gh` it prints `provenance not checked`, and a `gh`
+  that cannot answer is a warning. The checksum stays the gate.
+- **`docs/hosts.md` states each host's enforcement capability.** One table
+  covers the gate, the Stop rule and subagents per host, in gate, observe,
+  partial and unavailable. A cell no driver can probe says unverified.
 - **`tezgah-gate replay` measures the gate against its own history.** It
   replays this machine's real ledgers through the unmodified dry-run gate and
   the Stop rule. It runs in a sandbox HOME, with the clock frozen at each call.
@@ -179,6 +201,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A hook whose core cannot import fails open and leaves a trace.** Eleven
+  entry points imported the core outside `safe()`. A rename or a broken
+  module ended them with a traceback, and on omp that disabled the gate for
+  the session. They now exit 0 and write a `crash` row. When the ledger's own
+  modules are the ones that fail, they write one stderr line instead.
+- **`--sync` no longer leaves a half-empty plugin copy.** It used to delete
+  the copy, then copy into it. It now builds each copy in a staging tree beside
+  the plugin cache and swaps it in, keeping the copy's `.git`. Every copied
+  file is 0644, or 0755 when executable, whatever mode the checkout has.
+- **The omp report row compares the bridge byte for byte.** It checked six
+  handler names, so a stale or edited bridge passed. It now compares the
+  bridge with a fresh render.
 - **A malformed `~/.config/tezgah/config.json` is no longer rewritten.**
   `--install` read it as empty and wrote its defaults over the user's roots.
   It now refuses the file, names it, leaves its bytes alone and exits 1.

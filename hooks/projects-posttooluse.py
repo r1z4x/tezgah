@@ -19,13 +19,16 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from tezgah_context import (GRAPH_TOOL_MARK, record, shell_kind,  # noqa: E402
-                            skill_read_kind)
-from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, note_tool, ran_nothing, report_bytes, untrusted_source)
-from tezgah_paths import root_for  # noqa: E402
-from tezgah_untrusted import marks  # noqa: E402
+from tezgah_guard import import_failed, safe  # noqa: E402
+try:
+    from tezgah_context import (GRAPH_TOOL_MARK, record, shell_kind,  # noqa: E402
+                                skill_read_kind)
+    from tezgah_integrity import (  # noqa: E402
+        SUBAGENT_CHANNEL, note_tool, ran_nothing, report_bytes, untrusted_source)
+    from tezgah_paths import root_for  # noqa: E402
+    from tezgah_untrusted import marks  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 # The tool-use kinds this hook can see, for the status line's used marks. Claude
 # reads them from its transcript and ignores this store, but dsh runs this same

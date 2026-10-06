@@ -10,8 +10,11 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from tezgah_gate import decision  # noqa: E402
-from tezgah_guard import safe  # noqa: E402
+from tezgah_guard import import_failed, safe  # noqa: E402
+try:
+    from tezgah_gate import decision  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 
 def main():

@@ -51,14 +51,19 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import (  # noqa: E402
-    color_default, command_text, context_for, health_segments, record,
-    render_tiers, shell_kind, skill_read_kind)
-from tezgah_gate import decision  # noqa: E402
-from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, note, note_tool, stop_reason, untrusted_label, untrusted_source)
-from tezgah_paths import off, root_for  # noqa: E402
+from tezgah_guard import import_failed, safe  # noqa: E402
+try:
+    import tezgah_attest  # noqa: E402
+    from tezgah_context import (  # noqa: E402
+        color_default, command_text, context_for, health_segments, record,
+        render_tiers, shell_kind, skill_read_kind)
+    from tezgah_gate import decision  # noqa: E402
+    from tezgah_integrity import (  # noqa: E402
+        SUBAGENT_CHANNEL, note, note_tool, stop_reason, untrusted_label,
+        untrusted_source)
+    from tezgah_paths import off, root_for  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 # How many times one stop chain may be refused (hooks/projects-stop.py names the
 # same constant): one, deliberately; raising it is owner decision 11. omp has no
@@ -150,6 +155,8 @@ def handle(payload):
         # line at omp's user agent dir.
         out = {}
         kind = "subagent_start" if payload.get("subagent") else "session_start"
+        if not payload.get("subagent"):
+            safe(session_id, tezgah_attest.run, "omp", session_id, cwd)
         if payload.get("subagent") and payload.get("parent"):
             # the child's ledger opens with its parent: the worker's checks land
             # here while the route that sent it is in the parent's ledger, and

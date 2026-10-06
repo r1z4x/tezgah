@@ -246,36 +246,98 @@ class Channels(unittest.TestCase):
                          ["brew", "upgrade", "r1z4x/tezgah/tezgah"])
 
     def run_update(self, here, codes=(0, 0), prefix="", dry_run=False,
-                   npm_root="", which=lambda name: "/bin/" + name, fail=False):
-        calls, upgrades = [], []
+                   npm_root="", which=lambda name: "/bin/" + name, fail=False,
+                   old=None, new=None, tty=False, answer=None):
+        """(exit code, the runs, the upgrades, stdout). `old` is the hook
+        entries on disk before the fetch, `new` what the new tree's
+        `--hook-entries` lists; `answer` is what a terminal user types."""
+        import io
+        calls, upgrades, asked = [], [], []
+        self.printed_before = []
+        out = io.StringIO()
 
         def run(argv, **kwargs):
             if argv[1:] == ["root", "-g"]:
                 return subprocess.CompletedProcess(argv, 0, stdout=npm_root + "\n")
+            if argv[-1] == "--hook-entries":
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout=json.dumps(new if new is not None else {}))
             if fail:
                 raise FileNotFoundError(argv[0])
             calls.append(argv)
+            self.printed_before.append(out.getvalue())
             return subprocess.CompletedProcess(argv, codes[len(calls) - 1])
 
         def upgrade(version, dry):
             upgrades.append((version, dry))
             return 0
 
+        def ask(prompt):
+            asked.append(prompt)
+            if answer is None:
+                raise AssertionError("asked on a non-terminal: %r" % prompt)
+            return answer
+
         from unittest import mock
         # the recorded install, not this machine's: hosts come from config.json
-        with open(os.devnull, "w") as quiet, \
-                mock.patch.object(tu.tp, "config", lambda: {"hosts": ["codex"]}):
-            old, sys.stdout = sys.stdout, quiet
+        with mock.patch.object(tu.tp, "config", lambda: {"hosts": ["codex"]}), \
+                mock.patch.object(tu, "installed_entries",
+                                  lambda hosts: old if old is not None else {}):
+            saved, sys.stdout = sys.stdout, out
             try:
-                code = tu.update(here, prefix, upgrade, dry_run, run=run, which=which)
+                code = tu.update(here, prefix, upgrade, dry_run, run=run, which=which,
+                                 tty=tty, ask=ask)
             finally:
-                sys.stdout = old
-        return code, calls, upgrades
+                sys.stdout = saved
+        self.asked = asked
+        return code, calls, upgrades, out.getvalue()
+
+    # a release that adds one hook entry: Stop was armed, PreToolUse is new
+    OLD = {"codex": {"Stop": '[{"hooks": ["stop"]}]'}}
+    NEW = {"codex": {"Stop": '[{"hooks": ["stop"]}]',
+                     "PreToolUse": '[{"hooks": ["gate"]}]'}}
+
+    def test_an_added_hook_entry_is_printed_before_the_re_arm_runs(self):
+        clone = self.tree("src", "tezgah", git=True)
+        code, calls, _, out = self.run_update(clone, old=self.OLD, new=self.NEW)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(calls), 2)
+        change = "codex: re-arming adds the PreToolUse entry"
+        self.assertIn(change, out)
+        self.assertNotIn(change, self.printed_before[0])   # not before the fetch
+        self.assertIn(change, self.printed_before[1])      # before the re-arm
+        self.assertEqual(self.asked, [])                   # a pipe never waits
+
+    def test_a_terminal_waits_for_yes_and_a_no_re_arms_nothing(self):
+        clone = self.tree("src", "tezgah", git=True)
+        code, calls, _, out = self.run_update(clone, old=self.OLD, new=self.NEW,
+                                              tty=True, answer="n")
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 1, "only the fetch ran")
+        self.assertEqual(len(self.asked), 1)
+        self.assertIn("not re-armed", out)
+        code, calls, _, _ = self.run_update(clone, old=self.OLD, new=self.NEW,
+                                            tty=True, answer="y")
+        self.assertEqual((code, len(calls)), (0, 2))
+
+    def test_unchanged_entries_say_so_and_never_ask(self):
+        clone = self.tree("src", "tezgah", git=True)
+        code, calls, _, out = self.run_update(clone, old=self.OLD, new=self.OLD,
+                                              tty=True)
+        self.assertEqual((code, len(calls)), (0, 2))
+        self.assertIn("hook entries: unchanged", out)
+
+    def test_a_changed_entry_prints_its_diff(self):
+        lines = tu.hook_change({"codex": {"Stop": "a\nb"}},
+                               {"codex": {"Stop": "a\nc"}})
+        self.assertEqual(lines[0], "  codex: re-arming changes the Stop entry")
+        self.assertIn("    -b", lines)
+        self.assertIn("    +c", lines)
 
     def test_npm_fetches_then_re_arms_the_global_tree(self):
         root = os.path.join(self.root, "lib", "node_modules")
         pkg = self.tree("lib", "node_modules", "@r1z4x", "tezgah")
-        code, calls, _ = self.run_update(pkg, npm_root=root)
+        code, calls, _, _ = self.run_update(pkg, npm_root=root)
         self.assertEqual(code, 0)
         self.assertEqual(calls[0], ["/bin/npm", "install", "-g", "@r1z4x/tezgah@latest"])
         self.assertEqual(calls[1][1:4], [os.path.join(pkg, "bin", "tezgah-setup"),
@@ -286,13 +348,13 @@ class Channels(unittest.TestCase):
         # package, so that is the tree the hosts are re-armed from
         root = os.path.join(self.root, "global", "node_modules")
         npx = self.tree("npx", "abc", "node_modules", "@r1z4x", "tezgah")
-        _, calls, _ = self.run_update(npx, npm_root=root)
+        _, calls, _, _ = self.run_update(npx, npm_root=root)
         self.assertEqual(calls[1][1], os.path.join(root, "@r1z4x", "tezgah", "bin",
                                                    "tezgah-setup"))
 
     def test_a_failed_fetch_re_arms_nothing(self):
         clone = self.tree("src", "tezgah", git=True)
-        code, calls, _ = self.run_update(clone, codes=(1,))
+        code, calls, _, _ = self.run_update(clone, codes=(1,))
         self.assertEqual(code, 1)
         self.assertEqual(calls, [["/bin/git", "-C", clone, "pull", "--ff-only"]])
 
@@ -308,7 +370,7 @@ class Channels(unittest.TestCase):
 
     def test_a_release_prefix_goes_through_the_installers_own_upgrade(self):
         clone = self.tree("p", "0.1.1")
-        code, calls, upgrades = self.run_update(clone, prefix="/p", dry_run=True)
+        code, calls, upgrades, _ = self.run_update(clone, prefix="/p", dry_run=True)
         self.assertEqual((code, calls, upgrades), (0, [], [("", True)]))
 
     def test_an_unknown_tree_refuses(self):

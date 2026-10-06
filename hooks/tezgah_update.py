@@ -254,7 +254,66 @@ def rearm_command(setup, cfg):
     return argv
 
 
-def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None):
+def installed_entries(hosts):
+    """{host: {entry: text}} - the tezgah-owned hook entries on disk now, read
+    before the fetch moves the tree (`hooks/tezgah_attest.py::registration`)."""
+    import tezgah_attest
+    return {h: tezgah_attest.registration(h)[0] or {} for h in hosts}
+
+
+def hook_change(old, new):
+    """The lines that name each hook entry re-arming adds, removes or changes,
+    per host, with a unified diff of a changed entry; [] when nothing moves."""
+    import difflib
+    lines = []
+    for host in sorted(set(old) | set(new)):
+        before, after = old.get(host) or {}, new.get(host) or {}
+        for name in sorted(set(before) | set(after)):
+            if before.get(name) == after.get(name):
+                continue
+            verb = ("adds" if name not in before else "removes" if name not in after
+                    else "changes")
+            lines.append("  %s: re-arming %s the %s entry" % (host, verb, name))
+            if verb == "changes":
+                lines += ["    " + ln.rstrip("\n") for ln in difflib.unified_diff(
+                    before[name].splitlines(), after[name].splitlines(),
+                    "installed", "new release", lineterm="", n=1)]
+    return lines
+
+
+def confirm_rearm(old, setup, run=subprocess.run, tty=None, ask=input):
+    """Print what re-arming from `setup` changes in the hook entries and say
+    whether to go on (decision 12): the change is printed on every update; a
+    yes is waited for only when stdin is a terminal and something changes, so a
+    piped or scheduled update keeps working unattended. A tree that cannot list
+    its entries (a release older than `--hook-entries`) is re-armed as before,
+    and the line says the change was not shown."""
+    try:
+        proc = run([sys.executable, setup, "--hook-entries"],
+                   capture_output=True, text=True)
+        new = json.loads(proc.stdout) if proc.returncode == 0 else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        new = None
+    if not isinstance(new, dict):
+        print("  hook entries: the new tree cannot list them, so the change is "
+              "not shown")
+        return True
+    lines = hook_change(old, {h: new.get(h) or {} for h in old})
+    print("  hook entries: %s" % ("re-arming changes these:" if lines
+                                  else "unchanged"))
+    for line in lines:
+        print(line)
+    if not lines or not (sys.stdin.isatty() if tty is None else tty):
+        return True
+    try:
+        return ask("  re-arm with these hook entries? [y/N] ").strip().lower() \
+            in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None,
+           tty=None, ask=input):
     """Move this install to the newest release and re-arm it; the exit code.
 
     `upgrade` is bin/tezgah-setup's own release-prefix path (fetch, verify,
@@ -262,7 +321,9 @@ def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None)
     already has. Every other channel prints its two commands before running
     them, and `dry_run` stops after the printing. The channel's tool is
     resolved through PATH first (`shutil.which` honours PATHEXT, so Windows'
-    `npm.cmd` is found), so a missing one is a message and not a traceback."""
+    `npm.cmd` is found), so a missing one is a message and not a traceback.
+    Between the two, the change in tezgah's hook entries is printed and, on a
+    terminal, confirmed (`confirm_rearm`)."""
     import shutil
     which = which or shutil.which
     kind = channel(here, prefix)
@@ -280,7 +341,8 @@ def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None)
         return 127
     fetch = [tool] + fetch[1:]
     npm_root = npm_global_root(tool, run) if kind == "npm" else ""
-    rearm = rearm_command(launcher(kind, here, npm_root), tp.config())
+    cfg = tp.config()
+    rearm = rearm_command(launcher(kind, here, npm_root), cfg)
     print("update (%s): %s" % (kind, " ".join(fetch)))
     if npm_root and not (os.path.realpath(here) + os.sep).startswith(
             os.path.realpath(npm_root) + os.sep):
@@ -290,7 +352,12 @@ def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None)
     if dry_run:
         print("  --dry-run: nothing fetched, nothing re-armed")
         return 0
+    old = installed_entries(cfg.get("hosts") or [])
     for step, argv in (("fetch", fetch), ("re-arm", rearm)):
+        if step == "re-arm" and not confirm_rearm(old, rearm[1], run, tty, ask):
+            print("tezgah update: fetched, not re-armed; re-arm later with `%s`"
+                  % " ".join(rearm))
+            return 1
         try:
             code = run(argv).returncode
         except OSError as exc:
