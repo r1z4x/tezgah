@@ -75,10 +75,10 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `turn` | `note_turn` `hooks/tezgah_integrity.py:1176-1199`, from the prompt path | `_turn_start` `hooks/tezgah_integrity.py:1034-1046`, scoping every turn rule; `_claim_key` `hooks/tezgah_integrity.py:3171-3187` |
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `note_tool` `hooks/tezgah_integrity.py:2697-2827`, the call's own name in `tool`, on opencode the plugin writes these same kinds and the same field (`hosts/opencode/plugins/tezgah.js:759-817`) | the Stop rule's `worked` set `:3629`; `counters.steps` `:1554-1555`; `last_verify`/`partial_state`; the `--trend` tool histogram |
 | `external`, `unknown` | `note_tool` `hooks/tezgah_integrity.py:2697-2827` | the taint notice, via `source`; the `--trend` tool histogram; nothing counts them as work |
-| `began` | the gate's allow path for a write or shell call `hooks/tezgah_gate.py:1972-1987`; on opencode the plugin's before-hook when the core was not asked (`hosts/opencode/plugins/tezgah.js:2246-2262`) | `unanswered` `hooks/tezgah_integrity.py:2682-2694`, behind a claim in the Stop rule and in `counters.unanswered` |
+| `began` | the gate's allow path for a write or shell call `hooks/tezgah_gate.py:2177-2192`; on opencode the plugin's before-hook when the core was not asked (`hosts/opencode/plugins/tezgah.js:2246-2262`) | `unanswered` `hooks/tezgah_integrity.py:2682-2694`, behind a claim in the Stop rule and in `counters.unanswered` |
 | `claim` | `stop_reason` `hooks/tezgah_integrity.py:3390-3456` | `counters` `hooks/tezgah_integrity.py:1457-1493` |
 | `after_block` | `stop_reason(..., record_only=True)` `hooks/tezgah_integrity.py:3390-3456`, on the reply after this rule's own block (`stop_hook_active` in a turn holding a `blocked:` claim row) on Claude, Codex and omp; `detail` is `would block: <class>`, `ok` or `no claim` | nothing yet: a record for the after-block observation window, not a claim and not a second `shape` row, so `counters` counts it neither as a claim nor as a reply; `NOT_TOOL_HOOK` lists it |
-| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1754-1769`, first-nudge `hooks/tezgah_gate.py:1945` | `counters` `hooks/tezgah_integrity.py:1457-1493` |
+| `deny`, `nudge` | the [gate](gate.md)'s `_deny` `hooks/tezgah_gate.py:1959-1974`, first-nudge `hooks/tezgah_gate.py:2150` | `counters` `hooks/tezgah_integrity.py:1457-1493` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py:198-200`, `:277-280` | `_snapshot_hash` `hooks/tezgah_integrity.py:2572-2585`; no counter |
 | `compact` | `note_compaction` `hooks/tezgah_integrity.py:1200-1232`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py:1712-1728`) | `_counts` `hooks/tezgah_integrity.py:1549-1695` (what `counters` folds with) |
 | `lesson` | `note_lesson` `hooks/tezgah_context.py:988-991`, one row per lesson the budget left in a session block or a per-turn block, with its 8-hex `key` and `block` (`session` or `turn`), inside the host's `safe()` like the rest of the prompt path | no counter; `NOT_TOOL_HOOK` `hooks/tezgah_context.py:1563-1565` keeps it out of `_ledger_since` `hooks/tezgah_context.py:1576-1612`, so a session of lesson rows still reads as a gate that never ran |
@@ -311,7 +311,7 @@ command (`_failed_check` `hooks/tezgah_integrity.py:3457-3471`) and tells the mo
 line, or fix it and re-run.
 
 **The escape hatches, and the deny that answers each.** The gate refuses these before they run, under
-the same `verify-off` switch (`hooks/tezgah_gate.py:1819-1834`), as rule `shortcut`:
+the same `verify-off` switch (`hooks/tezgah_gate.py:2024-2039`), as rule `shortcut`:
 
 - `--no-verify` on a git/commit/push-style command (`NO_VERIFY` `:159`, `GITISH` `:160`) —
   `shortcut_command` `hooks/tezgah_integrity.py:2064-2074`.

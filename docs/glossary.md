@@ -19,7 +19,7 @@ The part of the contract every session pays for - the invariants plus the one-li
 The byte ceiling one injected event may spend: `CONTEXT_BUDGET` per event with `DEFAULT_BUDGET` behind it (`hooks/tezgah_context.py:1339-1341`), enforced by `budgeted()` (`hooks/tezgah_context.py:1422-1463`), which gives up blocks lowest value first along `DROP_ORDER` (`hooks/tezgah_context.py:1360-1363`), shrinking a block in `SHRINK` (the per-turn relevant lessons, to their first lesson) before it drops it (`hooks/tezgah_context.py:1380`); bytes, never tokens, because the module has no tokenizer (`hooks/tezgah_context.py:1337-1338`). Not the [metadata band](#metadata-band), which is the installer's measurement of the same text rather than a runtime bound.
 
 ### capture
-The pre-write copy the gate takes of every file a write is about to change, `capture()` (`hooks/tezgah_snapshot.py:275`), called on the gate's allow path (`hooks/tezgah_gate.py:1988-1999`) and capped at `CAP` snapshots and `MAX_BYTES` per file (`hooks/tezgah_snapshot.py:51-52`); a file too large or unreadable is left uncaptured and writes no row, so nothing claims a copy that is not there. Not a transaction: the copy is bytes on disk, not a rollback that runs itself.
+The pre-write copy the gate takes of every file a write is about to change, `capture()` (`hooks/tezgah_snapshot.py:275`), called on the gate's allow path (`hooks/tezgah_gate.py:2193-2204`) and capped at `CAP` snapshots and `MAX_BYTES` per file (`hooks/tezgah_snapshot.py:51-52`); a file too large or unreadable is left uncaptured and writes no row, so nothing claims a copy that is not there. Not a transaction: the copy is bytes on disk, not a rollback that runs itself.
 
 ### claim
 A ledger [row](#row) recording the [Stop rule](#stop-rule)'s verdict on one reply, `detail` being `ok` or `blocked: <reason class>`, written by `stop_reason()` (`hooks/tezgah_integrity.py:3390-3456`, row at `:3440`). Not a deny: nothing ran, the turn simply may not end.
@@ -34,7 +34,7 @@ The whole working document, `CONTRACT` as the join of every block (`hooks/tezgah
 The single string holding the whole always-on contract, one bold-labelled paragraph per [rule](#rule) (`hooks/tezgah_policy.py:595-810`), filtered against [per-repo marks](#per-repo-mark) and [kill switches](#kill-switch) by `core_split()` (`hooks/tezgah_context.py:1226-1243`). Not [contract](#contract), the on-demand join of every block.
 
 ### deny
-A refusal the gate returns and records: `_deny()` writes a `deny` row carrying the rule name and the first 80 characters of the reason (`hooks/tezgah_gate.py:1754-1769`). Not the reason text itself - the adapter renders the reason into its own envelope ([hosts](hosts.md)).
+A refusal the gate returns and records: `_deny()` writes a `deny` row carrying the rule name and the first 80 characters of the reason (`hooks/tezgah_gate.py:1959-1974`). Not the reason text itself - the adapter renders the reason into its own envelope ([hosts](hosts.md)).
 
 ### digest
 The identity of one tool call, `call_id()` = `sha1(tool.lower() + " " + canonical(args))[:12]` (`hooks/tezgah_integrity.py:514-539`); both the gate and the post-tool hook compute it here, so a [row](#row) and the call it belongs to agree. Not a session id.
@@ -47,7 +47,7 @@ One JSONL file per session recording what ran, `<cache>/evidence/<slug>.jsonl` (
 The count of [claim](#claim) rows a stop refused, `false_completion` in `counters()`, read against `claims` so the rate is meaningful (`hooks/tezgah_integrity.py:1619-1640`, `:1430-1431`). Not the count of [denies](#deny): a deny is the gate refusing a call, a false completion is the Stop rule refusing the end of a turn.
 
 ### gate
-The pre-tool refusal layer, `decision()` (`hooks/tezgah_gate.py:1770-2001`), which runs only inside a [root](#root) (`:1783-1785`) and returns a reason or nothing ([gate](gate.md)). Not the [Stop rule](#stop-rule), which runs after the reply.
+The pre-tool refusal layer, `decision()` (`hooks/tezgah_gate.py:1975-2206`), which runs only inside a [root](#root) (`:1783-1785`) and returns a reason or nothing ([gate](gate.md)). Not the [Stop rule](#stop-rule), which runs after the reply.
 
 ### group
 The partition a status [mark](#mark) carries so a renderer separates the marks the same way: `_GROUP` maps each key to an index and `render_line()` joins groups with `  ·  ` (`hooks/tezgah_context.py:2378-2379`, `hooks/tezgah_context.py:2591-2599`). Not a [state](#state).
@@ -86,7 +86,7 @@ The one-time hint that sends a first identifier-shaped search to the code graph,
 A used-mark a surface is able to see at all, so it can say "armed, not used yet" without inventing it: `health_segments(observable=...)` (`hooks/tezgah_context.py:2522-2523`) with the five tool-use measures in `TOOL_USE_MEASURES` (`hooks/tezgah_context.py:2465`), a measure outside the set rendering as `info` rather than `ready`. Which host can see a skill read is [hosts](hosts.md)'s.
 
 ### once-only
-A mark consumed by its own first use, so the thing it protects happens once: the grep [nudge](#nudge) is written before the deny so later greps pass (`hooks/tezgah_gate.py:1946-1947`). Not a licence for the session: the identical call passes on the retry.
+A mark consumed by its own first use, so the thing it protects happens once: the grep [nudge](#nudge) is written before the deny so later greps pass (`hooks/tezgah_gate.py:2151-2152`). Not a licence for the session: the identical call passes on the retry.
 
 ### per-repo mark
 An opt-out file in the repo tree - `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons`, `.no-taste` - collected by `repo_marks()` walking up to the enclosing root (`hooks/tezgah_context.py:2249-2262`). Not a [kill switch](#kill-switch): a mark travels with the repo, a switch with the machine.
@@ -116,7 +116,7 @@ Putting a [snapshot](#snapshot)'s bytes back, `restore()` (`hooks/tezgah_snapsho
 A directory tezgah is armed over, from `TEZGAH_ROOTS`, the config file or `~/Projects` (`hooks/tezgah_paths.py:8-14`), resolved by `roots()` longest first (`:186-201`) and looked up per path by `root_for()` (`hooks/tezgah_paths.py:214-235`); a linked `git worktree` outside every root is inside when its main checkout is, and answers its own top level (`worktree_top`, `hooks/tezgah_paths.py:264-279`). Not a repository: one root may contain many repositories.
 
 ### root boundary
-The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:1786-1788`), the context builder returns nothing (`hooks/tezgah_context.py:1742-1743`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:2530-2538`). Not a repository boundary.
+The edge of a root: outside every root the gate returns nothing (`hooks/tezgah_gate.py:1991-1993`), the context builder returns nothing (`hooks/tezgah_context.py:1742-1743`) and the per-repo extras are omitted from the status line (`hooks/tezgah_context.py:2530-2538`). Not a repository boundary.
 
 ### row
 One line of an [evidence ledger](#evidence-ledger): `{"kind","ts","detail"}` plus whatever the writer knew of `LEDGER_FIELDS` (`id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`, `tool`), written by `note_path()` (`hooks/tezgah_integrity.py:767-791`, `:718-766`) with `detail` redacted and cut to `DETAIL_MAX` (`hooks/tezgah_integrity.py:651-657`). A missing key means the writer did not know it, never null. `tool` is the call's own name where the host reports one, which is what makes a firing histogram possible: `classify` folds the name into `run`/`edit`, so a row that predates the field carries none.

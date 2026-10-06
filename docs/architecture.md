@@ -28,7 +28,7 @@ nothing about a host's event names or output envelope.
 |---|---|---|
 | `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `context_for` `hooks/tezgah_context.py:1731-1992` |
 | `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `CORE` `hooks/tezgah_policy.py:595-810`, `CONDITIONAL_KEYS` `hooks/tezgah_policy.py:816` |
-| `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:2-84`, `decision` `hooks/tezgah_gate.py:1770-2001` |
+| `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:2-84`, `decision` `hooks/tezgah_gate.py:1975-2206` |
 | `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-24`, `note_tool` `hooks/tezgah_integrity.py:2697-2827`, `stop_reason` `hooks/tezgah_integrity.py:3390-3456` |
 | `tezgah_guard.py` | the one catch around an entry point's call into the core, so a crash costs an envelope rather than a session, and the `crash` ledger row that keeps it countable | `hooks/tezgah_guard.py:2-25`, `safe` `:71` |
 | `tezgah_paths.py` | where tezgah is armed: [roots](glossary.md#root) and the linked worktrees of a repository under one, kill switches, the config dir, and the writable cache dir - the fallback resolved on use rather than at import, so a gated call does not pay for `tempfile`, `shutil` or `sqlite3` | `hooks/tezgah_paths.py:2-14`, `cache_dir` `hooks/tezgah_paths.py:161-181`, `fallback_cache` `hooks/tezgah_paths.py:146-160` |
@@ -193,7 +193,7 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
   `hooks/tezgah_paths.py:264-279`), and answers its own top level so every path
   stays under the base `root_for` returns (`hooks/tezgah_paths.py:202-221`);
   `context_for` returns `None` (`hooks/tezgah_context.py:1742-1743`), the gate only acts
-  inside one (`hooks/tezgah_gate.py:1786-1788`), and the status line is the single
+  inside one (`hooks/tezgah_gate.py:1991-1993`), and the status line is the single
   deliberate exception, because a globally loaded rules file must still show that
   it is armed (`hosts/omp/hook.py:39-41`).
 - **No cross-host drift.** A host shares the core, never a copy of it. Adding a

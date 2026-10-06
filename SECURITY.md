@@ -27,7 +27,9 @@ an adversarial agent, and it does not claim to be one.
 - **What is protected, and how.** The gate's `control` rule
   (`hooks/tezgah_gate.py`, `docs/gate.md`) refuses a write tool, and the shell
   shapes it reads (a redirect, `touch`, `rm`, `mv`, `cp`, `chmod`, `tee`,
-  `sed -i`, `bash -c`, ...), on:
+  `sed -i`, `cp -t`, `curl -o`, `tar -C`, `unzip -d`, `git config
+  core.hooksPath`, with `cd`, `if`/`for`/`!`, `eval` and `bash -c` read
+  through), on the path as written and through a link, on:
   - the kill switches and opt-in markers (`hooks/tezgah_paths.py` `SWITCHES`,
     under `~/.config/tezgah` and the legacy `~/.claude`) and all of
     `~/.config/tezgah`;
@@ -35,10 +37,14 @@ an adversarial agent, and it does not claim to be one.
     cache (`evidence/`, `sessions/`, `switches/`, `gate-inactive/`,
     `workspace-index.json`);
   - the hook wiring: each host's hook registration file (in a shared file such
-    as `~/.claude/settings.json`, only the entries that are tezgah's), the
-    installed hook tree and the Claude plugin copy;
-  - a repository's `.no-*` marks, its `.git/hooks`, and a delete, chmod or
-    move of `.husky`;
+    as `~/.claude/settings.json`, only the entries that are tezgah's and
+    `disableAllHooks`; in Codex's `config.toml`, every `[hooks...]` trust
+    entry), the installed hook tree and the Claude plugin copy;
+  - a repository's `.no-*` marks (the `REPO_MARKS` names, under a root), the
+    session checkout's `.git/hooks`, and a delete, chmod that takes a
+    permission away, or move of `.husky`;
+  - a delete or move of a directory that holds any of the above
+    (`rm -rf ~/.cache`, `mv .git /tmp/x`);
   - a forced `git add` of a `.tezgah/` path, and a delete or move under
     `.tezgah/plans/open/` (a `--cached` removal is plan-sync's and passes);
   - the CLIs that change that state: `tezgah-gate decide`, `tezgah-capture`,
@@ -64,6 +70,12 @@ an adversarial agent, and it does not claim to be one.
     by name, and an interpreter can still import the core and write the row.
   - `find -delete`, `xargs`, and a path built from variables the gate does not
     expand (anything but `~`, `$HOME` and the XDG variables).
+  - A glob or brace in a directory component (`rm -rf ~/.config/tez?ah`), and a
+    link the same command line creates and then writes through.
+  - `tezgah-setup --uninstall`, the user's own command, and any CLI the gate
+    has not listed: the rule holds the names it holds.
+  - An archive extracted, or a tree copied, into a directory without naming
+    the protected path (`cd ~/.config/tezgah && unzip x.zip`, `cp -r h .git/`).
 - **The same uid ceiling.** The agent runs as the user, with the user's file
   permissions. Nothing tezgah writes is out of its reach at the filesystem
   level; the gate is the only barrier, and it is a policy check, not a

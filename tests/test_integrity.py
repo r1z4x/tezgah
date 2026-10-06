@@ -2095,6 +2095,30 @@ class CommittedBoundary(unittest.TestCase):
         self.assertEqual([r["detail"] for r in ti.events("s")],
                          ["ls", "pwd", "whoami"])
 
+    def test_a_unicode_line_separator_inside_a_row_is_one_row(self):
+        # opencode's JSON.stringify leaves U+2028/U+2029 raw inside a string,
+        # and `str.splitlines` split the row on them: an honest row read as two
+        # damaged ones and the Stop rule blocked an honest turn
+        detail = "a\u2028b\u2029c\x85d"
+        ti.note("s", "run", "ls")
+        with open(self.path, "ab") as fh:  # raw, the way opencode writes it
+            fh.write(json.dumps({"kind": "run", "detail": detail, "v": 2},
+                                ensure_ascii=False).encode("utf-8") + b"\n")
+        for _ in range(2):  # the second read sees any damage row the first wrote
+            self.assertEqual([(r["kind"], r["detail"]) for r in ti.events("s")],
+                             [("run", "ls"), ("run", detail)])
+        self.assertEqual(ti.events("s", tail=1)[0]["detail"], detail)
+
+    def test_a_line_that_is_not_utf_8_counts_as_damage(self):
+        # the strict read raised, and the guard then failed the Stop rule open
+        ti.note("s", "turn", "", key="t1")
+        with open(self.path, "ab") as fh:
+            fh.write(b'{"kind": "verify_ok", "detail": "\xff\xfe"}\n')
+        rows = ti.events("s")
+        self.assertEqual(rows[-1]["kind"], ti.DAMAGE_KIND)
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("Evidence tampered", reason or "")
+
     def test_the_next_append_repairs_the_torn_tail_instead_of_burying_it(self):
         # left in place, the fragment is terminated by the row written after it
         # and the two become one line no reader can parse - the file would hold

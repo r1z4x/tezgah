@@ -10,7 +10,9 @@ import os
 import shutil
 import sys
 import tempfile
+import subprocess
 import unittest
+from unittest import mock
 
 import support
 
@@ -45,7 +47,11 @@ class ControlPlane(unittest.TestCase):
         self.home = os.path.realpath(os.path.expanduser("~"))
         self.repo = os.path.realpath(tempfile.mkdtemp(
             dir=self._root(), prefix="control-"))
+        subprocess.run(["git", "init", "-q", self.repo], check=True,
+                       env=dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull,
+                                GIT_CONFIG_SYSTEM=os.devnull))
         self.addCleanup(shutil.rmtree, self.repo, True)
+        os.makedirs(tp.CONFIG_DIR, exist_ok=True)
 
     def _root(self):
         root = os.path.join(self.home, "Projects")
@@ -116,6 +122,75 @@ class ControlPlane(unittest.TestCase):
             with self.subTest(command=command):
                 self.refused("Bash", {"command": command})
 
+    def test_a_cd_and_compound_syntax_do_not_hide_the_target(self):
+        for command in ("cd ~/.config/tezgah && touch verify-off",
+                        "cd ~/.config && touch tezgah/verify-off",
+                        "cd ~/.cache/tezgah; echo {} >> evidence/x.jsonl",
+                        "if [ 1 = 1 ]; then touch ~/.config/tezgah/verify-off; fi",
+                        "for f in a b; do touch ~/.config/tezgah/verify-off; done",
+                        "while true; do rm ~/.config/tezgah/verify-off; done",
+                        "! touch ~/.config/tezgah/verify-off",
+                        "eval 'touch ~/.config/tezgah/verify-off'",
+                        "eval touch ~/.config/tezgah/verify-off",
+                        "bash -lc 'touch ~/.config/tezgah/verify-off'",
+                        "bash -ec 'touch ~/.config/tezgah/verify-off'",
+                        "sh -ec 'rm ~/.config/tezgah/verify-off'",
+                        "zsh -xc 'rm ~/.config/tezgah/verify-off'",
+                        "cd .git/hooks && rm pre-commit",
+                        "{ cd ~/.config/tezgah; rm verify-off; }"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+
+    def test_a_write_through_a_link_and_a_directory_above_the_state(self):
+        link = os.path.join(self.repo, "lnk")
+        os.symlink(os.path.join(tp.CONFIG_DIR, "verify-off"), link)
+        self.addCleanup(os.remove, link)
+        os.makedirs(os.path.join(self.repo, ".git", "hooks"), exist_ok=True)
+        os.makedirs(os.path.join(self.repo, ".tezgah", "plans", "open"),
+                    exist_ok=True)
+        for tool, inp in (("Bash", {"command": "touch lnk"}),
+                          ("Write", {"file_path": link, "content": ""}),
+                          ("Bash", {"command": "chmod -x .husky/pre-commit"})):
+            with self.subTest(tool=tool, inp=inp):
+                self.refused(tool, inp)
+        for command in ("rm -rf ~/.config",
+                        "rm -rf ~/.cache",
+                        "mv ~/.cache/tezgah /tmp/x",
+                        "rm -rf .git",
+                        "mv .git /tmp/x",
+                        "rm -rf .tezgah",
+                        "mv .tezgah/plans /tmp/x",
+                        "cp -t ~/.config/tezgah /dev/null",
+                        "cp --target-directory=$HOME/.config/tezgah /dev/null",
+                        "curl -so ~/.config/tezgah/verify-off http://x",
+                        "curl --output ~/.config/tezgah/verify-off http://x",
+                        "curl --output=$HOME/.config/tezgah/verify-off http://x",
+                        "curl -o$HOME/.config/tezgah/verify-off http://x",
+                        "wget -O ~/.config/tezgah/verify-off http://x",
+                        "dd of=~/.config/tezgah/verify-off",
+                        "printf x | tar -C ~/.config/tezgah -xf -",
+                        "tar xf /tmp/x.tar --directory=$HOME/.config/tezgah",
+                        "unzip -d ~/.config/tezgah /tmp/x.zip",
+                        "git config core.hooksPath /tmp/h",
+                        "git config set core.hooksPath /tmp/h",
+                        "git config --global core.hooksPath /tmp/h",
+                        "git config --unset core.hooksPath",
+                        "git config unset core.hooksPath"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+        # reads, and writes that touch no protected state
+        elsewhere = os.path.realpath(tempfile.mkdtemp(prefix="clone-"))
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        for command in ("tar -C ~/.config/tezgah -czf /tmp/x.tgz .",
+                        "git config --get core.hooksPath",
+                        "git config get core.hooksPath",
+                        "git config core.hooksPath",
+                        "git -C %s config core.hooksPath .githooks" % elsewhere,
+                        "unzip -d /tmp/out /tmp/x.zip",
+                        "curl -o /tmp/out http://x"):
+            with self.subTest(command=command):
+                self.assertIsNone(self.decide("Bash", {"command": command}))
+
     def test_tezgah_owned_keys_of_a_shared_settings_file_are_refused(self):
         settings = os.path.join(self.home, ".claude", "settings.json")
         os.makedirs(os.path.dirname(settings), exist_ok=True)
@@ -128,8 +203,76 @@ class ControlPlane(unittest.TestCase):
                               "old_string": '"command": "python3',
                               "new_string": '"command": "true; python3'})
         self.refused("Write", {"file_path": settings, "content": '{"theme": "dark"}'})
+        # the one key that disarms every Claude hook at once
+        self.refused("Edit", {"file_path": settings, "old_string": '"theme": "dark"',
+                              "new_string": '"theme": "light",\n'
+                                            '  "disableAllHooks": true'})
+        project = os.path.join(self.repo, ".claude", "settings.json")
+        os.makedirs(os.path.dirname(project), exist_ok=True)
+        with open(project, "w") as fh:
+            json.dump({"permissions": {"allow": ["Bash(ls:*)"]}}, fh, indent=2)
+        self.refused("Edit", {"file_path": project,
+                              "old_string": '"Bash(ls:*)"\n    ]\n  }\n}',
+                              "new_string": '"Bash(ls:*)"\n    ]\n  },\n'
+                                            '  "disableAllHooks": true\n}'})
+        self.assertIsNone(self.decide("Edit", {
+            "file_path": project, "old_string": '"Bash(ls:*)"',
+            "new_string": '"Bash(git status:*)"'}))
+        # any change of its value, in the local file too
+        local = os.path.join(self.repo, ".claude", "settings.local.json")
+        with open(local, "w") as fh:
+            json.dump({"disableAllHooks": False}, fh, indent=2)
+        self.refused("Edit", {"file_path": local, "old_string": "false",
+                              "new_string": "true"})
+        self.refused("Write", {"file_path": local, "content": "{}"})
+
+    def test_the_users_own_hook_beside_tezgahs_is_theirs(self):
+        # one matcher group holding tezgah's hook and the user's: the user's
+        # entry is theirs to edit, tezgah's and the group's matcher are not
+        settings = os.path.join(self.repo, ".claude", "settings.json")
+        os.makedirs(os.path.dirname(settings), exist_ok=True)
+        with open(settings, "w") as fh:
+            json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+                {"type": "command", "command": "python3 ~/.tezgah/tezgah-hook.py"},
+                {"type": "command", "command": "./lint.sh"}]}]}}, fh, indent=2)
+        self.assertIsNone(self.decide("Edit", {
+            "file_path": settings, "old_string": "./lint.sh",
+            "new_string": "./lint.sh --fast"}))
+        self.refused("Edit", {"file_path": settings,
+                              "old_string": "python3 ~/.tezgah/tezgah-hook.py",
+                              "new_string": "true"})
+        self.refused("Edit", {"file_path": settings, "old_string": '"Bash"',
+                              "new_string": '"Read"'})
+
+    def test_the_codex_trust_entries_are_shared_not_owned(self):
+        # codex records the hook trust as one `[hooks.state."<hooks.json>:
+        # <event>:<group>:<hook>"]` table with a `trusted_hash` (the shape
+        # bin/tezgah-setup's `_codex_hooks_trusted` reads), and which entry is
+        # tezgah's is a hash this side cannot compute, so the hooks sections
+        # count as a whole and anything else in the file is the user's
+        # CODEX_HOME may name the user's real codex home: never write there
+        codex = os.path.realpath(tempfile.mkdtemp(dir=self.home, prefix="codex-"))
+        self.addCleanup(shutil.rmtree, codex, True)
+        patch = mock.patch.dict(tp.HOST_DIRS, {"codex": codex})
+        patch.start()
+        self.addCleanup(patch.stop)
+        path = os.path.join(codex, "config.toml")
+        hooks = os.path.join(codex, "hooks.json")
+        text = ('model = "gpt-5"\n\n[hooks.state."%s:pre_tool_use:0:0"]\n'
+                'trusted_hash = "sha256:00"\n' % hooks)
+        with open(path, "w") as fh:
+            fh.write(text)
+        self.refused("Edit", {"file_path": path, "old_string": "sha256:00",
+                              "new_string": "sha256:11"})
+        self.refused("Write", {"file_path": path, "content": 'model = "gpt-5"\n'})
+        self.assertIsNone(self.decide("Edit", {
+            "file_path": path, "old_string": '"gpt-5"', "new_string": '"o4"'}))
+        self.assertIsNone(self.decide("Write", {
+            "file_path": path, "content": text.replace("gpt-5", "o4")}))
 
     def test_legitimate_shapes_still_pass(self):
+        clone = os.path.realpath(tempfile.mkdtemp(prefix="clone-"))
+        self.addCleanup(shutil.rmtree, clone, True)
         settings = os.path.join(self.home, ".claude", "settings.json")
         os.makedirs(os.path.dirname(settings), exist_ok=True)
         with open(settings, "w") as fh:
@@ -148,7 +291,18 @@ class ControlPlane(unittest.TestCase):
                 ("Bash", {"command": "git add .tezgah/x"}),
                 ("Bash", {"command": "tezgah-pony"}),
                 ("Bash", {"command": "tezgah-gate check < p.json"}),
-                ("Bash", {"command": "echo 'npx lint-staged' > .husky/pre-commit"})):
+                ("Bash", {"command": "echo 'npx lint-staged' > .husky/pre-commit"}),
+                ("Bash", {"command": "chmod +x .husky/pre-commit"}),
+                ("Bash", {"command": "ls .git/hooks"}),
+                ("Bash", {"command": "cat .git/hooks/pre-commit.sample"}),
+                ("Bash", {"command": "touch /tmp/.no-color"}),
+                ("Bash", {"command": "touch .no-color"}),
+                ("Bash", {"command": "mkdir -p build && touch build/.no-sandbox"}),
+                ("Bash", {"command": "cd /tmp && rm -rf fixture/.git/hooks"}),
+                ("Write", {"file_path": os.path.join(clone, ".git", "hooks",
+                                                     "pre-commit"),
+                           "content": "#!/bin/sh\n"}),
+                ("Bash", {"command": "rm -rf %s/.git" % clone})):
             with self.subTest(inp=inp):
                 self.assertIsNone(self.decide(tool, inp))
         # a directory made in a reading phase: neither this rule's nor the

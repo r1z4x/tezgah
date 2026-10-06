@@ -852,7 +852,31 @@ def _tail_lines(path, n):
     # `keepends`: whether the last line was terminated is what `_parse` reads to
     # tell a torn tail from a committed record, and splitting it away here would
     # leave every line looking unterminated.
-    return data.decode("utf-8", "replace").splitlines(keepends=True)[-n:]
+    return _lines(data)[-n:]
+
+
+def _lines(data):
+    """A ledger's bytes as text lines, ends kept, split on b"\\n" alone.
+
+    `str.splitlines` also splits on U+2028, U+2029 and U+0085, which a JSON
+    writer may leave raw inside a string (opencode's JSON.stringify does), so an
+    honest row read as two damaged ones. A line that is not UTF-8 becomes a
+    marker no JSON reader parses, so `_parse` names it as damage; decoding the
+    whole file strictly raised instead, and the Stop rule failed open."""
+    parts = data.split(b"\n")
+    out = []
+    for i, part in enumerate(parts):
+        if i < len(parts) - 1:
+            part += b"\n"
+        elif not part:
+            break
+        try:
+            out.append(part.decode("utf-8"))
+        except UnicodeDecodeError:
+            out.append("\x00not utf-8 %s%s" % (
+                hashlib.sha1(part).hexdigest()[:12],
+                "\n" if part.endswith(b"\n") else ""))
+    return out
 
 
 # The kind a damaged ledger line is recorded under: one row per damaged line,
@@ -942,8 +966,8 @@ def events_path(path, tail=None):
     if tail:
         return _parse(_tail_lines(path, tail), path)
     try:
-        with open(path, encoding="utf-8") as fh:
-            return _parse(fh.readlines(), path)
+        with open(path, "rb") as fh:
+            return _parse(_lines(fh.read()), path)
     except OSError:
         return []
 
@@ -993,8 +1017,8 @@ def turn_rows(session_id, turns=False, agent=None):
     whole turn, its subagents' work included - that work is the parent's turn."""
     path = _path(session_id)
     try:
-        with open(path, encoding="utf-8") as fh:
-            lines = fh.readlines()
+        with open(path, "rb") as fh:
+            lines = _lines(fh.read())
     except OSError:
         return ([], 0) if turns else []
     rows = _parse(lines[_turn_line(lines):], path)

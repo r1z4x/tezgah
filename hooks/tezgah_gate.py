@@ -88,14 +88,14 @@ import re
 import shlex
 
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
-                              GIT_WRAPPER, STEP_KINDS, WRITE_TOOLS,
-                              _blank_heredocs, _shell_segments, _turn_start,
+                              GIT_WRAPPER, HOOKS_KEY, STEP_KINDS, WRITE_TOOLS,
+                              _blank_heredocs, _turn_start, _unquoted_backticks,
                               call_id, cut, events, heredoc_bodies, mask, note,
                               prior_calls, shortcut_command, shortcut_edit,
                               turn_rows, verify_command)
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
-                          SWITCHES, cache_dir, fallback_cache, off, root_for,
-                          roots)
+                          REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
+                          linked_main, off, root_for, roots)
 
 try:  # The ordering rule's two readers (the newest check's state, folded the way
     # the Stop rule folds it, and the command of that check for the refusal), and
@@ -1458,25 +1458,34 @@ CONTROL_PROGRAMS = frozenset(("touch", "rm", "rmdir", "unlink", "shred",
                               "truncate", "chmod", "chown", "chgrp", "mv",
                               "mkdir", "tee", "cp", "ln", "install", "rsync",
                               "dd", "sed", "perl"))
-CONTROL_COPIERS = frozenset(("cp", "ln", "install", "rsync"))
-# The programs that remove, disable or move a file: a repository's husky hooks
-# and the open plans are refused for these, and are ordinary files for a write -
-# husky's own setup writes `.husky/pre-commit` with a redirect.
+CONTROL_COPIERS = frozenset(("cp", "mv", "ln", "install", "rsync"))
+# The programs that remove, disable or move a path. A directory that holds
+# protected state, a repository's husky hooks and the open plans are refused for
+# these only: husky's own setup writes `.husky/pre-commit` with a redirect.
 CONTROL_REMOVERS = frozenset(("rm", "rmdir", "unlink", "shred", "truncate",
                               "chmod", "chown", "chgrp", "mv"))
+# Options whose value is a write target (`cp -t dir`, `curl -o file`).
+_INTO = ("-t", "--target-directory")
+OPTION_TARGETS = {"cp": _INTO, "mv": _INTO, "ln": _INTO, "install": _INTO,
+                  "curl": ("-o", "--output", "--output-dir"),
+                  "wget": ("-O", "--output-document"), "unzip": ("-d",)}
 INTERPRETERS = frozenset(("python", "python3", "sh", "bash", "zsh", "dash"))
 SHELL_NAMES = frozenset(("sh", "bash", "zsh", "dash", "ksh"))
+# Words that open a compound command: the command after one is read as if it
+# were not there (`if touch x; then`, `! rm x`, `do touch x`). `[`/`]` are not
+# here: the test command is skipped in `_program`, so the command after it in
+# an `if` line is read.
+SHELL_KEYWORDS = frozenset(("if", "then", "elif", "else", "do", "while",
+                            "until", "!", "{", "time"))
+SHELL_OPS = re.compile(r"^[;&|()<>]+$")
 # The cache subtrees whose rows the rules read: the evidence ledger, the session
 # store, the switch baseline (tezgah_context.disarmed) and the gate mark.
 CONTROL_CACHE = ("evidence", "sessions", "switches", "gate-inactive",
                  "workspace-index.json")
 # Top-level keys tezgah writes into Claude's settings (bin/tezgah-setup
-# wire_claude_statusline, wire_claude_attribution); any other key or entry is
-# tezgah's only when it names tezgah.
-CLAUDE_OWNED = ("statusLine", "attribution")
-# A redirection operator on the masked text (so a quoted `>` is not one); the
-# target is read off the unmasked text at the same offset.
-REDIRECT_OP = re.compile(r"(?<![<>&\d])(?:\d*|&)>>?\|?(?!&)")
+# wire_claude_statusline, wire_claude_attribution), and the one that turns every
+# hook off at once; any other key or entry is tezgah's only when it names tezgah.
+CLAUDE_OWNED = ("statusLine", "attribution", "disableAllHooks")
 PATCH_DELETE = re.compile(r"(?m)^\*\*\* Delete File: (\S.*?)\s*$")
 
 
@@ -1488,6 +1497,13 @@ def _real(path, cwd):
     path = os.path.expandvars(os.path.expanduser(str(path)))
     parent, name = os.path.split(os.path.normpath(os.path.join(cwd or os.sep, path)))
     return os.path.join(os.path.realpath(parent), name)
+
+
+def _full(path, cwd):
+    """`path` with every link resolved, the last component's too: a write
+    through a link lands on what it points at."""
+    path = os.path.expandvars(os.path.expanduser(str(path)))
+    return os.path.realpath(os.path.join(cwd or os.sep, path))
 
 
 def _under(path, root):
@@ -1509,17 +1525,51 @@ def _install_trees(cwd):
     return trees
 
 
+def _tops(cwd):
+    """The checkouts the session works in: the nearest `.git`-holding ancestor
+    of `cwd`, and the main checkout when that is a linked worktree (its hooks
+    live there). A clone elsewhere is not one of them."""
+    out, here = [], os.path.realpath(cwd or os.sep)
+    while True:
+        if os.path.exists(os.path.join(here, ".git")):
+            out.append(here)
+            break
+        if os.path.dirname(here) == here:
+            break
+        here = os.path.dirname(here)
+    main = linked_main(cwd) if cwd else None
+    return out + ([os.path.realpath(main)] if main else [])
+
+
+def _held(origin):
+    """The protected paths a remove or move of a directory holding one takes
+    with it: tezgah's configuration, the switches that exist, the cache state,
+    the install trees, and the session checkout's git hooks and open plans."""
+    out = [os.path.realpath(CONFIG_DIR)]
+    out += [p for d in OFF_DIRS for p in (os.path.join(os.path.realpath(d), n)
+                                          for n in SWITCHES) if os.path.exists(p)]
+    out += [os.path.join(c, d) for c in {os.path.realpath(CACHE),
+                                        os.path.realpath(fallback_cache())}
+            for d in CONTROL_CACHE]
+    out += _install_trees(origin)
+    for top in _tops(origin):
+        out += [os.path.join(top, ".git", "hooks"),
+                os.path.join(top, ".tezgah", "plans", "open")]
+    return out
+
+
 def _registration(real):
-    """'shared' for a JSON file tezgah writes entries into beside the user's,
+    """'shared' for a file tezgah writes entries into beside the user's,
     'owned' for a hook file that is wholly tezgah's, else None."""
     claude = HOST_DIRS["claude"]
-    name, parent = os.path.basename(real), os.path.dirname(real)
+    name = os.path.basename(real)
     shared = (os.path.join(HOST_DIRS["codex"], "hooks.json"),
+              os.path.join(HOST_DIRS["codex"], "config.toml"),
               os.path.join(HOST_DIRS["cursor"], "hooks.json"),
               os.path.join(claude, "plugins", "installed_plugins.json"),
               os.path.join(claude, "plugins", "known_marketplaces.json"))
     if (name in ("settings.json", "settings.local.json")
-            and os.path.basename(parent) == ".claude") \
+            and ".claude" in real.split(os.sep)) \
             or real in {_real(p, None) for p in shared}:
         return "shared"
     owned = [os.path.join(HOST_DIRS["opencode"], d, "tezgah.js")
@@ -1533,15 +1583,8 @@ def _registration(real):
     return None
 
 
-def control_target(path, cwd, remove=False):
-    """What `path` is in tezgah's control plane, or None.
-
-    `remove` is a delete, chmod or move: a repository's husky hooks and the
-    open plans are protected only from those (a write may add a husky hook; the
-    active plan's text is the task rule's). A shared registration file
-    (`_registration`) comes back as its own real path, for the caller to judge
-    by key: an edit of a key that is not tezgah's is the user's business."""
-    real = _real(path, cwd)
+def _target_label(real, remove, origin):
+    """`control_target` for one spelling of the path."""
     name, parent = os.path.basename(real), os.path.dirname(real)
     if name in SWITCHES and parent in {os.path.realpath(d) for d in OFF_DIRS}:
         return "a kill switch (`%s`)" % name
@@ -1550,25 +1593,63 @@ def control_target(path, cwd, remove=False):
     for cache in {os.path.realpath(CACHE), os.path.realpath(fallback_cache())}:
         if any(_under(real, os.path.join(cache, d)) for d in CONTROL_CACHE):
             return "tezgah's evidence ledger or session state"
-    if name.startswith(".no-"):
+    if name in REPO_MARKS and root_for(parent):
         return "a repository opt-out mark (`%s`)" % name
     kind = _registration(real)
     if kind == "shared":
         return real
-    if kind or any(_under(real, tree) for tree in _install_trees(cwd)):
+    if kind or any(_under(real, tree) for tree in _install_trees(origin)):
         return "tezgah's hook wiring"
-    parts = real.split(os.sep)
-    if any(parts[i:i + 2] == [".git", "hooks"] for i in range(len(parts))) \
-            or remove and ".husky" in parts:
+    if not name.endswith(".sample") and any(
+            _under(real, os.path.join(top, ".git", "hooks")) for top in _tops(origin)):
+        return "the repository's git hooks"
+    if remove and ".husky" in real.split(os.sep):
         return "the repository's git hooks"
     if remove and "%s.tezgah%splans%sopen%s" % ((os.sep,) * 4) in real + os.sep:
         return "an open plan"
     return None
 
 
+def control_target(path, cwd, remove=False, origin=None):
+    """What `path` is in tezgah's control plane, or None.
+
+    `remove` is a delete, chmod or move: a directory that holds protected state
+    (`_held`), a repository's husky hooks and the open plans are protected only
+    from those. `origin` is the session's own directory (the checkout whose git
+    hooks count), `cwd` the one a `cd` in the line moved to. The path is judged
+    as spelled and with every link resolved. A shared registration file comes
+    back as its own real path, for the caller to judge by key: an edit of a key
+    that is not tezgah's is the user's business."""
+    origin = origin or cwd
+    real = _real(path, cwd)
+    for spelling in dict.fromkeys((real, _full(path, cwd))):
+        label = _target_label(spelling, remove, origin)
+        if label:
+            return label
+    if remove and any(_under(held, real) for held in _held(origin)):
+        return "a directory that holds tezgah's control state"
+    return None
+
+
+def _names_tezgah(value):
+    return "tezgah" in json.dumps(value, sort_keys=True).lower()
+
+
+def _project(node):
+    """`node` with every list cut to its items that name tezgah: a matcher group
+    that holds tezgah's hook and the user's keeps the group's own fields and
+    tezgah's entry, so the user's entry beside it is theirs to edit."""
+    if isinstance(node, dict):
+        return {k: _project(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_project(v) for v in node if _names_tezgah(v)]
+    return node
+
+
 def _owned(node, path=()):
     """The tezgah-owned entries of a parsed JSON document, position-free: the
-    CLAUDE_OWNED top-level keys, and any key, list item or value naming tezgah."""
+    CLAUDE_OWNED top-level keys, any key naming tezgah, and each list item that
+    names tezgah, projected (`_project`)."""
     def dump(value):
         return json.dumps(value, sort_keys=True)
     if isinstance(node, dict):
@@ -1580,8 +1661,23 @@ def _owned(node, path=()):
                 out += _owned(value, path + (key,))
         return out
     if isinstance(node, list):
-        return [(path, dump(v)) for v in node if "tezgah" in dump(v).lower()]
+        return [(path, dump(_project(v))) for v in node if _names_tezgah(v)]
     return [(path, dump(node))] if "tezgah" in dump(node).lower() else []
+
+
+def _toml_owned(text):
+    """The lines of a Codex config.toml that arm hooks: every `[hooks...]`
+    section (the trust entries live under `[hooks.state]`), the `codex_hooks`
+    feature and any line naming tezgah. ponytail: which trust entry is
+    tezgah's is a hash codex computes, so all of them count."""
+    out, keep = [], False
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            keep = stripped.lstrip("[").startswith("hooks")
+        if keep or "tezgah" in line.lower() or re.match(r"\s*codex_hooks\s*=", line):
+            out.append(stripped)
+    return sorted(out)
 
 
 def _parsed(text):
@@ -1622,26 +1718,69 @@ def _shared_change(real, inp):
     after = _after_text(inp, current)
     if after is None:
         return True
+    if real.endswith(".toml"):
+        return _toml_owned(current) != _toml_owned(after)
     return sorted(_owned(_parsed(current))) != sorted(_owned(_parsed(after)))
 
 
-def _first_word(text):
-    """The first shell word of `text`, quotes removed, or ""."""
+def _shell_label(label):
+    """A label for the deny text; a shared file is named with why a shell write
+    to it is refused whole."""
+    if not os.path.isabs(label):
+        return label
+    return ("%s, which holds tezgah's hook wiring. A shell write is not read "
+            "key by key, so it is refused whole; an edit that leaves tezgah's "
+            "entries as they are is not" % label)
+
+
+def _unquote(word):
     try:
-        lex = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>")
-        lex.whitespace_split = True
-        return next(iter(lex), "")
+        return "".join(shlex.split(word))
     except ValueError:
-        return text.split()[0] if text.split() else ""
+        return word.strip("'\"")
+
+
+def _shell_words(command):
+    """The line as (word, operator?) pairs with quotes kept on each word, so a
+    quoted `>` stays data: shlex in non-posix mode, heredoc bodies blanked, an
+    unquoted backtick read as `;`, a continued line joined and every line ended
+    by `;` - the way `_shell_segments` reads a line, minus dropping redirects. A
+    line shlex cannot read is read roughly rather than dropped."""
+    text = _unquoted_backticks(
+        _blank_heredocs(str(command or "")).replace("\\\n", " "))
+    out = []
+    for line in re.split(r"\r\n|\r|\n", text):
+        try:
+            lex = shlex.shlex(line, posix=False, punctuation_chars=";&|()<>")
+            lex.whitespace_split = True
+            lex.commenters = ""
+            words = list(lex)
+        except ValueError:
+            words = re.findall(r"[;&|()<>]+|[^\s;&|()<>]+", line)
+        for word in words:
+            if word.startswith("#"):
+                break  # bash: a comment starts a word
+            out.append((word, bool(SHELL_OPS.match(word))))
+        out.append((";", True))
+    return out
 
 
 def _program(words):
     """(program basename without `.py`, its arguments) for one simple command,
-    past env assignments, the wrappers and an interpreter running a script."""
+    past compound keywords, env assignments, the wrappers and an interpreter
+    running a script."""
     i = 0
-    while i < len(words) and (ENV_WORD.match(words[i]) or words[i] in GIT_WRAPPER):
+    while i < len(words) and (ENV_WORD.match(words[i]) or words[i] in GIT_WRAPPER
+                              or words[i] in SHELL_KEYWORDS):
         i += 2 if words[i] == "timeout" else 1
     words = words[i:]
+    if words and words[0] == "[":
+        # the test command: its operands are not a program, and the command
+        # after the `]` is (`if [ -d x ]; then touch y; fi`)
+        close = words.index("]") if "]" in words else len(words)
+        words = words[close + 1:]
+    if not words:
+        return "", []
     if len(words) > 1 and os.path.basename(words[0]) in INTERPRETERS \
             and not words[1].startswith("-"):
         words = words[1:]
@@ -1651,10 +1790,37 @@ def _program(words):
     return (name[:-3] if name.endswith(".py") else name), words[1:]
 
 
-def _git_change(args, cwd):
+def _option_values(args, opts):
+    """The values `args` gives the options in `opts`: `-o v`, `--output=v`, a
+    short option closing a cluster (`-xzf v`) and one with its value attached
+    (`-ov`)."""
+    out = []
+    for i, arg in enumerate(args):
+        for opt in opts:
+            if opt.startswith("--") and arg.startswith(opt + "="):
+                out.append(arg[len(opt) + 1:])
+            elif (arg == opt or not opt.startswith("--") and re.fullmatch(
+                    r"-[A-Za-z]*" + re.escape(opt[1:]), arg)) and i + 1 < len(args):
+                out.append(args[i + 1])
+            elif not opt.startswith("--") and arg.startswith(opt) and len(arg) > 2:
+                out.append(arg[2:])
+    return out
+
+
+def _chmod_removes(args):
+    """True when a chmod mode can take a permission away (`-x`, `a=r`, `644`)."""
+    mode = next((a for a in args if not a.startswith("-") or re.fullmatch(
+        r"-[rwxXst]+", a)), "")
+    if re.fullmatch(r"[0-7]{3,4}", mode):
+        return not int(mode[-3]) & 1
+    return "-" in mode or "=" in mode and "x" not in mode.split("=", 1)[1]
+
+
+def _git_change(args, cwd, origin):
     """The control-plane label for a `git` command's own change, or None: a
-    forced add of a `.tezgah/` path, or an `rm`/`mv` of an open plan that is not
-    `--cached` (plan-sync records a move with `git -C .tezgah rm -q --cached`)."""
+    forced add of a `.tezgah/` path, an `rm`/`mv` of protected state that is not
+    `--cached` (plan-sync records a move with `git -C .tezgah rm -q --cached`),
+    or a `core.hooksPath` that is set or unset rather than read."""
     i, where = 0, cwd
     while i < len(args) and args[i].startswith("-"):
         if args[i] == "-C" and i + 1 < len(args):
@@ -1670,17 +1836,34 @@ def _git_change(args, cwd):
             return "a private `.tezgah/` path forced into the project's history"
     if sub in ("rm", "mv") and "--cached" not in rest:
         for path in paths:
-            if control_target(path, where, remove=True) == "an open plan":
-                return "an open plan"
+            label = control_target(path, where, remove=True, origin=origin)
+            if label:
+                return _shell_label(label)
+    if sub == "config" and HOOKS_KEY in (a.lower() for a in rest):
+        head = rest[:rest.index("--")] if "--" in rest else rest
+        positional = [a for a in head if not a.startswith("-")]
+        if any(a.startswith(("--get", "--list")) or a == "-l" for a in head) \
+                or positional[:1] in (["get"], ["list"]):
+            return None
+        # the session's own checkout, or every repository at once
+        mine = any(a in ("--global", "--system") for a in head) or any(
+            _under(os.path.realpath(where), top) for top in _tops(origin))
+        if mine and (len(positional) > 1 or any(a.startswith("--unset") for a in head)):
+            return "the repository's git hooks"
     return None
 
 
-def _command_change(words, cwd, depth=0):
+def _command_change(words, cwd, depth, origin):
     """The control-plane label one simple command changes, or None."""
     program, args = _program(words)
-    if program in SHELL_NAMES and "-c" in args and depth < 3:
-        script = args[args.index("-c") + 1:args.index("-c") + 2]
-        return script and shell_control(script[0], cwd, depth + 1)
+    if program == "eval" and depth < 3:
+        return shell_control(" ".join(args), cwd, depth + 1, origin)
+    if program in SHELL_NAMES and depth < 3:
+        # `-c`, or any flag cluster holding it (`-lc`, `-ec`)
+        at = next((k for k, a in enumerate(args)
+                   if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)), None)
+        if at is not None and at + 1 < len(args):
+            return shell_control(args[at + 1], cwd, depth + 1, origin)
     if program in CONTROL_CLIS:
         verbs = CONTROL_CLIS[program]
         positional = [a for a in args if not a.startswith("-")]
@@ -1689,49 +1872,81 @@ def _command_change(words, cwd, depth=0):
             return "tezgah's control state through one of its own CLIs"
         return None
     if program == "git":
-        return _git_change(args, cwd)
-    if program not in CONTROL_PROGRAMS:
-        return None
-    if program in ("sed", "perl") and not any(
-            re.match(r"-[A-Za-z]*i", a) for a in args):
-        return None
-    if program == "dd":
-        targets = [a[3:] for a in args if a.startswith("of=")]
-    else:
-        targets = [a for a in args if not a.startswith("-")]
-        if program in CONTROL_COPIERS:
-            targets = targets[-1:]
-    for target in targets:
-        label = control_target(target, cwd, remove=program in CONTROL_REMOVERS)
+        return _git_change(args, cwd, origin)
+    checks = [(v, False) for v in _option_values(args, OPTION_TARGETS.get(program, ()))]
+    if program == "tar":
+        if any(a in ("--extract", "--get") or re.fullmatch(r"-?[A-Za-z]*x[A-Za-z]*", a)
+               for a in args[:1] + [a for a in args if a.startswith("-")]):
+            checks += [(v, False) for v in _option_values(args, ("-C", "--directory"))]
+        checks += [(v, False) for v in _option_values(args, ("-f", "--file"))]
+    if program in CONTROL_PROGRAMS and not (program in ("sed", "perl") and not any(
+            re.match(r"-[A-Za-z]*i", a) for a in args)):
+        remove = program in CONTROL_REMOVERS and (
+            program != "chmod" or _chmod_removes(args))
+        if program == "dd":
+            checks += [(a[3:], False) for a in args if a.startswith("of=")]
+        else:
+            targets = [a for a in args if not a.startswith("-")]
+            if program in CONTROL_COPIERS and targets:
+                checks += [(t, remove) for t in targets[:-1]] if program == "mv" else []
+                targets, remove = targets[-1:], False
+            checks += [(t, remove) for t in targets]
+    for target, remove in checks:
+        label = control_target(target, cwd, remove=remove, origin=origin)
         if label:
-            return "tezgah's hook wiring" if os.path.isabs(label) else label
+            return _shell_label(label)
     return None
 
 
-def shell_control(command, cwd, depth=0):
+def shell_control(command, cwd, depth=0, origin=None):
     """The control-plane label a shell command changes, or None.
 
-    CONTROL_WRITE in the plan's words, read rather than matched: the redirect
-    targets of the line, and the arguments of each simple command whose program
-    changes a path (CONTROL_PROGRAMS) or whose CLI changes tezgah's state
-    (CONTROL_CLIS), each expanded the way the shell would (`~`, `$HOME`, the XDG
-    variables). A quoted word is a word and not a command, so a grep or a commit
-    message that names a switch is not one. SHELL_WRITE is not widened for
-    this: it feeds the task phase rule and the JS mirror, and `touch` there
-    would refuse every `touch` in a reading phase.
+    CONTROL_WRITE in the plan's words, read rather than matched, one simple
+    command at a time and in order: a `cd` (or `pushd`) moves the directory the
+    words after it resolve against; a redirect's target, the arguments of a
+    program that changes a path (CONTROL_PROGRAMS, OPTION_TARGETS, `tar`) and a
+    CLI that changes tezgah's state (CONTROL_CLIS) are judged, each expanded the
+    way the shell would (`~`, `$HOME`, the XDG variables). Compound keywords
+    (`if`, `do`, `!`) are read past, and `eval` and `bash -c` (any flag cluster
+    holding `c`) are opened. A quoted word is a word and not a command, so a
+    grep or a commit message that names a switch is not one. SHELL_WRITE is not
+    widened for this: it feeds the task phase rule and the JS mirror.
     ponytail: an interpreter (`python3 -c "open(...)"`), `find -delete`,
-    `xargs` and a path assembled at run time are not read; SECURITY.md names
-    them as the residual routes."""
-    command = str(command or "")
-    raw = _blank_heredocs(command)
-    masked = mask(command)
-    for match in REDIRECT_OP.finditer(masked):
-        target = _first_word(raw[match.end():])
-        label = target and control_target(target, cwd)
-        if label:
-            return "tezgah's hook wiring" if os.path.isabs(label) else label
-    for words in _shell_segments(command):
-        label = _command_change(words, cwd, depth)
+    `xargs`, a glob or brace in a directory, a link made earlier in the same
+    line and a path assembled at run time are not read; SECURITY.md names them
+    as the residual routes."""
+    origin = origin or cwd
+    where, words, pending = cwd, [], None
+    for word, is_op in _shell_words(command):
+        if pending:
+            judged, pending = pending, None
+            if not is_op:
+                target = _unquote(word)
+                if judged == ">" and not (target.isdigit() or target == "-"):
+                    label = control_target(target, where, origin=origin)
+                    if label:
+                        return _shell_label(label)
+                continue
+        if is_op and ("<" in word or ">" in word):
+            if words and words[-1].isdigit():
+                words.pop()  # the descriptor before `2>`
+            pending = ">" if ">" in word else "<"
+            continue
+        if not is_op:
+            words.append(word)
+            continue
+        plain = [_unquote(w) for w in words]
+        words = []
+        # `[`/`]` are left to `_program: the test command is skipped there, so
+        # the command after it in an `if` line is read
+        while plain and plain[0] in SHELL_KEYWORDS:
+            plain = plain[1:]
+        if plain and plain[0] in ("cd", "pushd"):
+            dest = [a for a in plain[1:] if not a.startswith("-") or a == "-"]
+            if not dest or dest[0] != "-":
+                where = _full(dest[0] if dest else "~", where)
+            continue
+        label = plain and _command_change(plain, where, depth, origin)
         if label:
             return label
     return None

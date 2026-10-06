@@ -14,6 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mark or `.git/hooks`. It
   refuses a delete or move of `.husky` or of an open plan. It refuses a
   forced `git add` of a `.tezgah/` path, and the CLIs that change that state.
+  Claude's `disableAllHooks` and Codex's hook trust entries count as wiring.
+  The rule follows a `cd`, `if`/`for`/`!`, `eval` and `bash -lc`. It refuses a
+  write through a link and a delete of a directory that holds this state.
   Only `pretooluse-off` removes the rule, and the refusal names no command.
   All 12 tamper probes of the deep analysis passed the gate before. Now the
   gate refuses all 12. ADR 010 freezes new gate rules, and ADR 004 makes this
