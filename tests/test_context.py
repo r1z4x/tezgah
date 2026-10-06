@@ -852,15 +852,26 @@ class KillSwitchEnforcement(TempHome):
     REMINDER_SWITCHES = {
         "exec": "exec-mode.off", "integrity": "verify-off",
         "adhd": ".no-adhd", "ponytail": ".no-ponytail",
-        "lessons": ".no-lessons"}
+        "lessons": ".no-lessons", "consult": "consult-off"}
 
     def test_the_reminder_leaves_the_conditional_rules_to_their_armed_turn(self):
-        # spec, graph, consult and research ride the turn whose prompt arms
-        # them; a clause restating them on every turn was paid twice
+        # spec, graph and research ride the turn whose prompt arms them; a
+        # clause restating them on every turn was paid twice. Consult keeps its
+        # short clause: a terse irreversible turn ("push it to main", "prod
+        # veritabanını sil") arms nothing and no gate enforces the rule
         out = self.prompt(self.make_repo(), "x")
-        for gone in ("checkable spec", "codegraph callers", "consult before",
-                     "orx/OpenResearch"):
+        for gone in ("checkable spec", "codegraph callers", "orx/OpenResearch"):
             self.assertNotIn(gone, out)
+        self.assertIn("consult before irreversible calls", out)
+        for terse in ("push it to main", "prod veritabanını sil",
+                      "force push the branch"):
+            self.assertNotIn("consult", self.tc_classify(terse), terse)
+
+    @staticmethod
+    def tc_classify(prompt):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        return tc.classify_prompt(prompt)
 
     @staticmethod
     def clause_marker(clause):

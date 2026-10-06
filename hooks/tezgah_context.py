@@ -365,14 +365,16 @@ CORE_RULES = (
 # PROMPT_REMINDER with its whitespace collapsed. A kill switch drops its clause
 # here as it drops its paragraph from CORE; a test pins every clause to the
 # reminder text, so an edit there fails loudly instead of leaving the clause in.
-# The conditional rules (spec, graph, consult, research) have no clause: their
-# paragraph rides the turn whose prompt arms it, so a clause restated them on
-# every other turn too.
+# Spec, graph and research have no clause: their paragraph rides the turn whose
+# prompt arms it, so a clause restated them on every other turn too. Consult
+# keeps its short clause, because a terse irreversible ask ("push it to main",
+# "prod veritabanını sil") arms no paragraph and no gate enforces the rule.
 REMINDER_CLAUSES = (
     ("exec", "{REPLY_SHORT}, BLUF, "),
     ("adhd", "answer first - no recap, no closer, at most five ranked items; "),
     ("ponytail", "code minimal per ponytail (code first, <=3 note lines); "),
     ("lessons", ".tezgah/lessons.md lines are standing constraints; "),
+    ("consult", "consult before irreversible calls; "),
     ("integrity", re.compile(r'done/tested claims need observed evidence -> .*?'
                              r'unverified "done"; ')),
 )
@@ -1408,9 +1410,10 @@ def session_of(payload):
 # as a feeling. Measured on 2026-10-06 in a one-commit fixture repo (temp HOME,
 # no lessons or plans, codegraph, orx and consult absent so their availability
 # lines ride along): the always-on core is 9160 B, session_start 10066 B,
-# post_compact 9754 B, the subagent brief 4263 B and subagent_start 5152 B; a
-# user_prompt that arms all five conditional rules is 7468 B on its first turn
-# and 1466 B on a repeat (`armed_again`). The 12000 B session budgets still sit
+# post_compact 9754 B, the subagent brief 4263 B and subagent_start 5122-5152 B
+# (the temp path rides it); a user_prompt that arms all five conditional rules
+# is 7503 B on its first turn and 1501 B on a repeat (`armed_again`). The
+# 12000 B session budgets still sit
 # above their text with lessons and plans riding; the user_prompt budget is
 # below a first all-five turn on purpose - an armed paragraph is never dropped,
 # so that turn gives up the droppable blocks and says so, and every later turn
@@ -1751,31 +1754,83 @@ POINTER_NEEDLE = "tezgah-contract"
 CONSTRAINT_SHAPES = re.compile(
     r"(?i)\b(?:(?:do not|don'?t|never)\s+(?:touch|modify|edit|change|delete|"
     r"remove|rename|push|commit|merge|deploy|publish|release)\s+"
-    r"(?:(?:the|any|my|this|that|to)\s+)?(?P<obj>[\w./@~-]+)"
+    r"(?:(?:the|any|my|this|that|to|a|an)\s+)?[`\"“]?"
+    r"(?P<obj>[\w~@/-](?:[\w./@~-]*[\w@~/-])?)"
     r"|ask\s+(?:me\s+)?(?:first\s+)?before\s+(?P<ask>\w+)"
     r"|(?P<tr>[\w./@~-]+?)(?:'\w+)?\s+(?:sakın\s+)?dokunma(?:yın|yınız)?\b"
     r"(?!\s+(?:hedef|alan|olay|duyar)\w*)"
     r"|(?:bana\s+)?sormadan\s+(?P<trask>\w+)\s+(?:etme|yapma)\w*)")
-CONSTRAINT_CHARS = 80
+# Pasted material is not the user's constraint: a shape that starts inside a
+# quoted span, inline code, a fenced block or a `>` quote line is skipped (a
+# quoted object after an unquoted shape stays the user's), and a prompt
+# longer than CONSTRAINT_PROMPT_MAX is not read at all. The bound is the 99th
+# percentile of 1,452 real prompts (12,120 chars); every longer prompt in that
+# set was a pasted log, transcript or generated brief, and one 388k-char agent
+# log alone matched six clauses of another agent's reasoning. ponytail: a long
+# prompt the user did write loses its constraints - the cost of a length rule.
+CONSTRAINT_PROMPT_MAX = 12000
+QUOTED = re.compile(r"```.*?```|`[^`\n]*`|\"[^\"\n]{0,200}\"|“[^”\n]{0,200}”"
+                    r"|^\s*>.*$", re.S | re.M)
+SENTENCE_END = re.compile(r"[.!?;:](?=\s|$)|\n")
+NEEDLE_STOP = frozenset("while in on at without until unless and or for to with "
+                        "before after from into of but ve veya ile".split())
+QUOTE_MARKS = re.compile(r"[`\"“”]")
+NEEDLE_WORDS = 3
+CONSTRAINT_CHARS = 120
 CONSTRAINTS_MAX = 5
 
 
 def user_constraints(prompt):
-    """The constraint clauses a prompt issues, redacted and cut, in order. A
-    clause is the matched span only - the stamp keeps it, never the prompt."""
-    return [cut(redact(m.group(0).strip()), CONSTRAINT_CHARS)
-            for m in CONSTRAINT_SHAPES.finditer(prompt or "")]
+    """The constraint clauses a prompt issues, redacted and cut, in order and
+    once each. A clause runs from the shape to the end of its sentence - from the
+    sentence's start for the Turkish forms, whose object comes first. The stamp
+    keeps the clause, never the prompt."""
+    text = prompt or ""
+    if len(text) > CONSTRAINT_PROMPT_MAX:
+        return []
+    quoted = [q.span() for q in QUOTED.finditer(text)]
+    out = []
+    for m in CONSTRAINT_SHAPES.finditer(text):
+        if any(a <= m.start() < b for a, b in quoted):
+            continue
+        start = (max((e.end() for e in SENTENCE_END.finditer(text, 0, m.start())),
+                     default=0) if m.group("tr") else m.start())
+        end = SENTENCE_END.search(text, m.end())
+        clause = " ".join(text[start:end.start() if end else len(text)].split())
+        clause = cut(redact(clause.strip("-*• ")), CONSTRAINT_CHARS)
+        if clause not in out:
+            out.append(clause)
+    return out
 
 
 def constraint_needle(clause):
-    """The fragment of a constraint clause a summary keeps when it kept the
-    constraint: its object, cut at a Turkish case suffix (`hooks.json'a`). A
-    summary paraphrases the verb ("asked not to modify") but names the object."""
+    """The fragment of a constraint a summary keeps when it kept the constraint:
+    the object phrase - up to NEEDLE_WORDS words, stopped at a preposition, a
+    conjunction or a closing mark - with quote marks dropped and a Turkish case
+    suffix cut (`config'e`). A summary paraphrases the verb ("asked not to
+    modify") but names the object."""
     m = CONSTRAINT_SHAPES.search(clause)
     if not m:
         return clause
-    word = next(g for g in m.groups() if g)
-    return word.split("'")[0].rstrip(".")
+
+    def phrase(words):
+        kept = []
+        for word in words:
+            bare = QUOTE_MARKS.sub("", word).strip(",;:)(")
+            if not bare or bare.lower() in NEEDLE_STOP or not re.search(r"\w", bare):
+                break
+            kept.append(bare)
+            if len(kept) == NEEDLE_WORDS or bare != word:
+                break
+        return kept
+    if m.group("obj"):
+        needle = " ".join(phrase(clause[m.start("obj"):].split()))
+    elif m.group("tr"):
+        before = phrase(reversed(clause[:m.end("tr")].split()))
+        needle = " ".join(reversed(before)).split("'")[0]
+    else:
+        needle = m.group("ask") or m.group("trask")
+    return needle or clause
 
 
 def constraint_lines(root, session_id=None):

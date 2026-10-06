@@ -101,14 +101,19 @@ A user constraint is the clause a prompt states it in: "don't touch
 hooks.json", "ask before pushing", "README'ye dokunma", "bana sormadan push
 etme". A closed set of imperative shapes matches it (`CONSTRAINT_SHAPES`,
 `hooks/tezgah_context.py::CONSTRAINT_SHAPES`, read by `user_constraints`,
-`hooks/tezgah_context.py::user_constraints`). The turn stamp keeps the matched
-clause, redacted and cut to 80 characters, and never the prompt. It keeps the
-five newest. `post_compact` and `session_start` restate them as one block
+`hooks/tezgah_context.py::user_constraints`). The turn stamp keeps the clause
+from the shape to its sentence's end, redacted and cut to 120 characters, and
+never the prompt. It keeps the five newest. A shape that starts inside quotes,
+inline code, a fenced block or a `>` line does not count. A quoted object after
+a plain "don't touch" does. The recogniser skips a prompt over 12,000
+characters (`CONSTRAINT_PROMPT_MAX`, `hooks/tezgah_context.py::CONSTRAINT_PROMPT_MAX`).
+Pasted material is not the user's constraint. `post_compact` and `session_start`
+restate the clauses as one block
 (`pinned_block`, `hooks/tezgah_context.py::pinned_block`). The compaction count
-looks for each clause's object, the word a paraphrasing summary keeps
+looks for each clause's object phrase, the words a paraphrasing summary keeps
 (`constraint_needle`, `hooks/tezgah_context.py::constraint_needle`). The shapes are
 precise rather than complete. `tests/constraint-fixtures.md` lists the real
-prompts they were measured on and the known false positives.
+prompts the shapes ran on, the misses and the known false positives.
 
 One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
@@ -198,9 +203,10 @@ rule keeps a pointer line in the always-on text (`tests/test_context.py::ArmingC
 `PROMPT_REMINDER` is the compact restatement of the invariants. It stays
 inside the `<harness-reminder>` envelope the hosts and
 tests look for (`hooks/tezgah_policy.py::PROMPT_REMINDER`), with its `{PONY_LEVEL}` slot naming a non-default ponytail level
-(`hooks/tezgah_context.py::_pony_level_line`). It names no conditional rule.
-Spec, graph, consult and research reach a turn through their armed paragraph.
-A clause that restated them on every turn paid for them twice. The session-start text ends with the pointer
+(`hooks/tezgah_context.py::_pony_level_line`). It names three conditional rules
+nowhere: spec, graph and research reach a turn through their armed paragraph.
+Consult keeps its short clause. A terse irreversible ask ("push it to main")
+arms no paragraph, and no gate enforces the rule. The session-start text ends with the pointer
 telling the model to load `tezgah-contract` for the deep detail
 (`hooks/tezgah_context.py::context_for`), whose two appendixes apply only on a machine
 missing the code graph or every consult option (`hooks/tezgah_policy.py:511-531`).
@@ -302,9 +308,9 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 Each event has a byte budget: `session_start` and `post_compact` 12000,
 `user_prompt` 6000, `subagent_start` 5500, anything else 12000
 (`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
-sizes sit beside it. A fixture repo builds 10066 B at `session_start` and 5152 B
-at `subagent_start`. A `user_prompt` that arms all five conditional rules for the
-first time builds 7468 B. That is over its budget on purpose: an armed paragraph
+sizes sit beside it. A fixture repo builds 10066 B at `session_start` and about
+5150 B at `subagent_start`. A `user_prompt` that arms all five conditional rules
+for the first time builds 7503 B. That is over its budget on purpose: an armed paragraph
 is never dropped, and every later match in the session pays one line. The
 budget is a byte count, not a token estimate.
 

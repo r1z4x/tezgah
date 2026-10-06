@@ -868,7 +868,8 @@ no recap, no closer, at most five ranked items; code minimal per ponytail
 (code first, <=3 note lines); deliver the whole ask - no cheaper
 stand-in, no silent scope cut, no partial reported as done, ask before dropping
 any item; no placating openers ("haklısın"), own a mistake in one line;
-.tezgah/lessons.md lines are standing constraints; done/tested claims need observed
+.tezgah/lessons.md lines are standing constraints; consult before irreversible
+calls; done/tested claims need observed
 evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
 test skip) and the Stop hook on Claude/Codex/Cursor/omp blocks an unverified "done"; no
 AI/model attribution in any persisted or published artifact. Full

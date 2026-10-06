@@ -103,12 +103,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the same session gets one line that names the rule. The research line keeps
   its open-lines fact. A compaction brings the full paragraph back. So does a
   match 20 turns after the last full showing, for Cursor and dsh. The per-turn
-  reminder no longer restates spec, graph, consult or research. Those rules
-  reach a turn through their own paragraph. The `user_prompt` budget now drops
-  the skill hint before the task phase, the delta and the pointer. A replay of
-  1,452 real prompts from 85 local sessions ran through `context_for` in a
-  fixture repo. Injected bytes per session fell from 35,938 B to 27,676 B
-  (-23.0%). Per turn they fell from 1,514 B to 1,031 B. The Stop-shape and
+  reminder no longer restates spec, graph or research. Those rules reach a turn
+  through their own paragraph. It keeps the short consult clause, because a
+  terse irreversible ask arms nothing. The `user_prompt` budget now drops the
+  skill hint before the task phase, the delta and the pointer. A replay of
+  1,452 uncut real prompts from 85 local sessions ran through `context_for` in
+  a fixture repo. Injected bytes per session fell from 37,387 B to 28,928 B
+  (-22.6%). Per turn they fell from 1,599 B to 1,104 B. The Stop-shape and
   claim-rate comparison needs a 2-week window and has no result yet.
 - **The subagent brief keeps each rule's operative sentence.** The brief kept
   only each rule's first sentence. A delegate lost "inter-agent reports stay
@@ -116,11 +117,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sentences of three rules, cut from CORE's own text. The brief grows from
   4,120 B to 4,263 B. The `subagent_start` budget moves from 5,000 B to 5,500 B.
 - **User constraints survive compaction.** A prompt clause like "don't touch
-  hooks.json" or "README'ye dokunma" now rides the turn stamp. The stamp holds
-  that clause, never the prompt. The post-compact and session-start blocks
-  restate it. The compaction row counts its object in `constraint_found`. The
-  recogniser flagged 6 of the 1,452 real prompts, all real constraints.
-  `tests/constraint-fixtures.md` lists the rows and the known false positives.
+  hooks.json" or "README'ye dokunma" now rides the turn stamp, to its
+  sentence's end. The stamp holds that clause, never the prompt. A clause that
+  starts inside quotes or code does not count. The recogniser skips a prompt
+  over 12,000 characters: pasted material is not the user's constraint.
+  A quoted object after a plain "don't touch" still counts. The post-compact and
+  session-start blocks restate the clause. The compaction row counts its object
+  phrase in `constraint_found`. On the 1,452 uncut real prompts the recogniser
+  pinned 7 clauses in 6 prompts, all real constraints. Before these bounds it
+  pinned 17 in 11 prompts, 6 of them from one pasted 387,905-char agent log.
+  `tests/constraint-fixtures.md` lists the rows, the misses and the known false
+  positives.
 - **Generic arming stems carry a qualifier now.** Ten code-sense asks no
   longer arm product, spec or research. Examples: "add a feature flag",
   "segment fault", "tabloya sütun ekle (sql)", "bu fonksiyonu sadeleştir". Every

@@ -20,7 +20,8 @@ sys.path.insert(0, support.HOOKS)
 import tezgah_context as tc  # noqa: E402
 
 FIXTURE = os.path.join(support.TESTS, "constraint-fixtures.md")
-ROW = re.compile(r"^- (constraint|none|missed|false-positive) \((?:real|hand)\): (.+)$")
+ROW = re.compile(r"^- (constraint|none|missed|false-positive) "
+                 r"\((real|hand|pasted)\): (.+?)(?: => (.+) \| (.+))?$")
 
 
 def fixture_rows():
@@ -29,28 +30,41 @@ def fixture_rows():
 
 
 class Recogniser(unittest.TestCase):
-    def test_every_fixture_row_gets_its_label(self):
+    def test_every_fixture_row_gets_its_label_its_pin_and_its_needle(self):
         rows = fixture_rows()
-        self.assertGreaterEqual(len(rows), 20)
-        for label, text in rows:
-            flagged = bool(tc.user_constraints(text))
-            self.assertEqual(flagged, label in ("constraint", "false-positive"),
-                             "%s: %s" % (label, text))
+        self.assertGreaterEqual(len(rows), 25)
+        for label, _source, text, pin, needle in rows:
+            got = tc.user_constraints(text)
+            if label in ("constraint", "false-positive"):
+                # the whole sentence the shape sits in, not the matched span:
+                # "Do not remove necessary" was a pin that named nothing
+                self.assertEqual(got, [pin], text)
+                self.assertEqual(tc.constraint_needle(got[0]), needle, text)
+            else:
+                self.assertEqual(got, [], "%s: %s" % (label, text))
 
     def test_the_false_positives_are_the_listed_ones(self):
         # every non-constraint the recogniser pins is named in the fixture, so a
         # pattern change cannot add one silently
-        flagged = [text for label, text in fixture_rows()
-                   if label != "constraint" and tc.user_constraints(text)]
-        self.assertEqual(flagged, [text for label, text in fixture_rows()
-                                   if label == "false-positive"])
+        flagged = [text for label, _s, text, _p, _n in fixture_rows()
+                   if label in ("none", "missed") and tc.user_constraints(text)]
+        self.assertEqual(flagged, [])
 
-    def test_the_needle_is_the_object(self):
-        for clause, needle in (("don't touch hooks/hooks.json", "hooks/hooks.json"),
-                               ("README'ye dokunma", "README"),
-                               ("ask before pushing", "pushing"),
-                               ("bana sormadan push etme", "push")):
-            self.assertEqual(tc.constraint_needle(clause), needle, clause)
+    def test_pasted_material_is_not_the_users_constraint(self):
+        # a pasted log's sentences are false positives one by one; the length
+        # bound keeps them out of a real prompt: one 387,905-char agent log
+        # held six of them, which filled the stamp
+        pasted = [text for _l, source, text, _p, _n in fixture_rows()
+                  if source == "pasted"]
+        self.assertGreaterEqual(len(pasted), 3)
+        log = "\n".join(pasted) + "\n" + "x" * tc.CONSTRAINT_PROMPT_MAX
+        self.assertEqual(tc.user_constraints(log), [])
+        # a quoted, inline-code or fenced constraint is quoted material too
+        for quoted in ('he wrote "do not modify tracked files" there',
+                       "the brief says `don't touch hooks.json`",
+                       "```\nBaşka repoya ve ~/.config'e dokunma.\n```",
+                       "> never push to main\nship it"):
+            self.assertEqual(tc.user_constraints(quoted), [], quoted)
 
 
 class PinnedAcrossCompaction(TempHome):
@@ -79,9 +93,10 @@ class PinnedAcrossCompaction(TempHome):
     def test_a_constraint_is_a_needle_and_the_compaction_counts_it(self):
         prompt = "fix the parser, and don't touch hooks/hooks.json while at it"
         self.call("user_prompt", {"session_id": "k1", "prompt": prompt})
-        # the stamp keeps the clause, never the prompt around it
+        # the stamp keeps the clause to its sentence's end, never the prompt
+        # around it
         self.assertEqual(self.stamp("k1")["constraints"],
-                         ["don't touch hooks/hooks.json"])
+                         ["don't touch hooks/hooks.json while at it"])
         self.assertNotIn("fix the parser", json.dumps(self.stamp("k1")))
         out, rows = self.call("post_compact", {
             "session_id": "k1", "trigger": "auto",
