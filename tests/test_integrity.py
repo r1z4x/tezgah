@@ -1395,6 +1395,14 @@ class WriteRowPath(unittest.TestCase):
                     os.path.realpath(repo), "out.txt"))
         ti.note_tool("s", "Bash", {"command": "ls"}, failed=False, cwd=repo)
         self.assertNotIn("target", ti.events("s")[-1])
+        # a temp file or a device is the session's scratch, not shared work: a
+        # common name (`/tmp/x`, `/tmp/diff.txt`) would collide across sessions
+        for command in ("ls > /tmp/x", "git diff > /tmp/diff.txt",
+                        "echo x > /dev/stderr"):
+            with self.subTest(command=command):
+                ti.note_tool("s", "Bash", {"command": command}, failed=False,
+                             cwd=repo)
+                self.assertNotIn("target", ti.events("s")[-1])
 
     def test_every_dialect_records_the_path_the_call_wrote(self):
         # One fixture per dialect: the four spellings a host puts a write's

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
@@ -876,6 +877,8 @@ class Gate(TempHome):
             reason = self.decide("Bash", {"command": command})
             self.assertIn("Credential", reason or "", command)
         for command in ("git add .env.example", "git add .env.sample",
+                        "git add .env.template", "git add .env.dist",
+                        "git add .env.defaults",
                         "git add -A", "git add src/env.py", "cat .env"):
             self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
@@ -947,6 +950,45 @@ class Gate(TempHome):
         self.assertIn("Credential", self.decide("Write", {
             "file_path": "src/config.py",
             "content": line + 'B = "%s"\n' % self.TOKENS[1]}) or "")
+
+    def test_an_edit_is_judged_on_the_file_it_leaves(self):
+        # review of plan 057: an Edit's baseline was its old_string alone, so a
+        # token the file already carried elsewhere was refused again when the
+        # edit repeated it; the file on disk is the baseline for every dialect
+        os.makedirs(os.path.join(self.repo, "src"), exist_ok=True)
+        with open(os.path.join(self.repo, "src", "config.py"), "w") as fh:
+            fh.write('API = "%s"\nTIMEOUT = 5\n' % self.TOKENS[0])
+        for tool, inp in self.routes('B = "%s"\n' % self.TOKENS[0])[1:3]:
+            self.assertIsNone(self.decide(tool, inp), tool)
+        for tool, inp in self.routes('B = "%s"\n' % self.TOKENS[1])[1:3]:
+            self.assertIn("Credential", self.decide(tool, inp) or "", tool)
+
+    # documented placeholders, assembled so no file carries one whole
+    PLACEHOLDERS = ("AKIA" + "IOSFODNN7EXAMPLE", "AKIA" + "EXAMPLEEXAMPLEEX",
+                    "sk_test_" + "X" * 24, "ghp_" + "x" * 36,
+                    "sk_test_" + "4eC39HqLyjWDarjtT1zdp7dc")
+
+    def test_a_documented_placeholder_passes_on_every_route(self):
+        # review of plan 057: an AWS docs key, a repeated-character stand-in and
+        # Stripe's published test key could be written on no route
+        for token in self.PLACEHOLDERS:
+            for tool, inp in self.routes('API = "%s"\n' % token):
+                self.assertIsNone(self.decide(tool, inp), (tool, token))
+
+    def test_a_fixture_or_template_may_carry_a_token(self):
+        # a template's or a test fixture's token is there to be read, not used;
+        # the same token in any other file is still refused
+        line = "GITHUB_TOKEN=%s\n" % self.TOKENS[0]
+        for path in (".env.example", ".env.sample", ".env.template", ".env.dist",
+                     ".env.defaults", "config/app.example",
+                     "tests/fixtures/auth.env", "tests/unit/fixtures/a.json"):
+            self.assertIsNone(self.decide(
+                "Write", {"file_path": path, "content": line}), path)
+            self.assertIsNone(self.decide("Bash", {
+                "command": "cat > %s <<'EOF'\n%sEOF" % (path, line)}), path)
+        for path in (".env", "src/fixtures.py", "app/settings.example.py"):
+            self.assertIn("Credential", self.decide(
+                "Write", {"file_path": path, "content": line}) or "", path)
 
     def test_a_quoted_heredoc_marker_hides_nothing_from_the_gate(self):
         # review R1: `<<'X'` inside a quoted string or a comment is not a
@@ -1063,6 +1105,24 @@ class Gate(TempHome):
             reason = self.decide(tool, inp, session_id="mine")
             self.assertIn("Concurrent write", reason or "", inp)
         self.assertIsNone(self.decide("Bash", {"command": "printf y > src/b.py"},
+                                      session_id="mine"))
+
+    def test_a_scratch_file_is_no_shared_work(self):
+        # review of plan 057: shell rows carried scratch targets, so two
+        # sessions writing a common temp name (`/tmp/x`) refused each other
+        for command in ("ls > /tmp/x", "git diff > /tmp/diff.txt"):
+            out, proc = run_json(
+                [support.PROBE_INTEGRITY],
+                {"fn": "note_tool", "session": "other", "tool": "Bash",
+                 "input": {"command": command}, "cwd": self.repo},
+                env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.seed_write("other", "/tmp/x")
+        for command in ("jq . a > /tmp/x", "git diff > /tmp/diff.txt"):
+            self.assertIsNone(self.decide("Bash", {"command": command},
+                                          session_id="mine"), command)
+        self.assertIsNone(self.decide("Write", {"file_path": "/tmp/x",
+                                                "content": "y"},
                                       session_id="mine"))
 
     # ---- snapshot: the bytes a write is about to change --------------------
@@ -1695,6 +1755,25 @@ class TaskGate(TempHome):
                         "pytest -q > /dev/null 2>&1", "sed -i '' 's/a/b/' src/x.py"):
             self.assertIsNone(self.decide({"command": command}, tool="Bash"),
                               command)
+
+    def test_a_write_to_scratch_meets_no_allowlist(self):
+        # review of plan 057: holding a shell redirect to the allowlist refused
+        # the session's own output - `pytest > /tmp/x.log`, the piped-check
+        # rule's own remedy. A temp file or a device is scratch, not the task's
+        # work, on every route; a repo path, build output included, and a path
+        # outside the repo that is not scratch stay held as for a Write.
+        self.plan(phase="implementation", allowed=("app/**",))
+        self.envv["TMPDIR"] = tempfile.gettempdir()
+        for command in ("echo x > /tmp/y", "pytest -q > /tmp/pytest.log 2>&1",
+                        "make 2>&1 | tee /tmp/build.log", "echo x > $TMPDIR/y",
+                        'echo x > "$TMPDIR/y"', "echo x > /dev/stderr"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
+        self.assertIsNone(self.write_path("/tmp/commit-msg.txt"))
+        for command in ("python3 -m pytest > build/log.txt",
+                        "echo x >> ../outside.py"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("outside the paths", reason or "", command)
 
     def test_a_shell_write_into_the_record_is_refused(self):
         # the record's other file route: a redirect or `tee` into it moves the

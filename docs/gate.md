@@ -132,7 +132,9 @@ Off: `lang-off`, the rule's own switch (`hooks/tezgah_gate.py::decision`), and `
 
 Trigger: another session recorded a write of this call's file inside `RACE_WINDOW_MIN = 10` minutes (`hooks/tezgah_gate.py::RACE_WINDOW_MIN`). The call's files are
 its path field, its `apply_patch` headers, or a shell redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`, `hooks/tezgah_gate.py::race_reason`).
-The reader counts an `edit` row and a shell `run` row that carries a `target` (`hooks/tezgah_integrity.py::writers_elsewhere`). Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
+The reader counts an `edit` row and a shell `run` row that carries a `target` (`hooks/tezgah_integrity.py::writers_elsewhere`).
+Scratch is skipped: a temp file or a device (`hooks/tezgah_integrity.py::scratch_target`). A `run` row that writes only scratch carries no `target`.
+Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
 `hooks/tezgah_gate.py::RACE_DENY`). Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py::RACE_REFUSE`) — a notice would not close a silent overwrite — and it lifts only by time.
 
 ### Task — the user's own phase and path allowlist
@@ -142,7 +144,8 @@ Trigger: a write tool, or a shell command that writes a file, while an active ta
 against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target outside it (`hooks/tezgah_gate.py::TASK_SCOPE_DENY`) — a write tool's path, and a shell command's redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`); and the record itself is refused twice over — a write whose target IS it, by a write tool or a shell redirect/`tee`
 (`hooks/tezgah_gate.py::TASK_RECORD_DENY`) and a shell command that would change it through the CLI, named by its basename with or without `.py` (`hooks/tezgah_gate.py::TASK_UNLOCK_DENY`, matched on the masked text by `hooks/tezgah_gate.py::TASK_CHANGE`). Told:
 none of them names the command that lifts it, on purpose — with the unlock printed, an armed arm removed or disabled the gate in 25 of 25 runs and obeyed it in none
-(`hooks/tezgah_gate.py:732-734`) — so each names the phase or the allowlist as the user's to change. Standing: only the record changing lifts it. Off: `task-off`
+(`hooks/tezgah_gate.py:732-734`) — so each names the phase or the allowlist as the user's to change. Standing: only the record changing lifts it.
+Scratch meets no allowlist: a temp file or a device, such as `pytest > /tmp/check.log` (`hooks/tezgah_gate.py::task_reason`). Build output inside the repo stays held. Off: `task-off`
 (`hooks/tezgah_gate.py::decision`). It fails open wherever the question cannot be answered: no active task, no readable record; the record is written by `bin/tezgah-task` and
 never by the agent, so this rule refuses on a decision the user made rather than one the gate inferred.
 
@@ -166,12 +169,14 @@ Three triggers, one per shape a credential takes on its way into a file (`hooks/
   `Authorization: Bearer` header, or a `name=value` assignment for `api_key`/`token`/`secret`/`password`/...) and a sink (`hooks/tezgah_gate.py::SECRET_SINK` — `>`/`>>`,
   `| tee`, a curl `--trace`, or `git add`). Told: record the name, length or a fingerprint instead, and pass the value through the tool's environment (`hooks/tezgah_gate.py::SECRET_DENY`).
 - **A credential file staged.** A `git add` that names a credential file (`hooks/tezgah_snapshot.py::SECRET_FILE`: `.env`, `.env.local`, a key, `id_rsa`, `credentials.json`).
-  The command is read word by word (`hooks/tezgah_gate.py::_secret_add`). `.env.example` and `.env.sample` carry names without values and pass (`hooks/tezgah_gate.py::SECRET_TEMPLATES`).
+  The command is read word by word (`hooks/tezgah_gate.py::_secret_add`). `.env.example`, `.env.sample`, `.env.template`, `.env.dist` and `.env.defaults` carry names without values and pass (`hooks/tezgah_gate.py::SECRET_TEMPLATES`).
   The rule does not read `git add -A` or `git add .` (`hooks/tezgah_gate.py::SECRET_ADD_DENY`).
 - **The text a write lands.** The text holds a token with a known credential prefix. It is read on every route: a write tool in every dialect, an `apply_patch` file by file, a heredoc body.
   The prefixes are the redactor's families (`hooks/tezgah_integrity.py::SECRET_PREFIXED`: `ghp_`, `github_pat_`, `sk-live-`, `xox?-`, `AKIA`, `AIza`, `glpat-`, `npm_`).
   An `sk`/`pk`/`rk` token counts only with its qualifier (`sk-live-`, `pk_test_`, `sk-proj-`). The redactor's bare branch also matches identifiers such as `pk_users_organization_id`.
-  A token the replaced text already carried does not count (`hooks/tezgah_gate.py::SECRET_EDIT_DENY`). This trigger does not read `name=value`.
+  A token the file already carried does not count: the baseline is the replaced text plus the file on disk (`hooks/tezgah_gate.py::secret_edit`). This trigger does not read `name=value`.
+  A template or test-fixture file may carry a token (`hooks/tezgah_gate.py::SECRET_FIXTURE`: `*.example`, `tests/**/fixtures/**`, and the templates above).
+  A documentation placeholder passes: a token that says `example`, one whose body is one repeated character, and a published docs key (`hooks/tezgah_gate.py::SECRET_PUBLISHED`).
   In a file's text, `password = os.environ[...]` is a program that reads its credential. A Write, an Edit, a patch and a heredoc that land it all pass.
 
 Standing, no escape hatch, and outside `verify-off`.

@@ -89,6 +89,7 @@ Rules, all only inside a tezgah root:
      one of the files it protects.
 Adapters translate the returned reason into their own permission envelope.
 """
+import hashlib
 import json
 import os
 import re
@@ -100,8 +101,8 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               _blank_heredocs, _shell_segments, _turn_start,
                               _unquoted_backticks, call_id, cut, events,
                               heredoc_bodies, mask, note, prior_calls,
-                              shortcut_command, shortcut_edit, turn_rows,
-                              verify_command, write_texts)
+                              scratch_target, shortcut_command, shortcut_edit,
+                              turn_rows, verify_command, write_texts)
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -268,7 +269,18 @@ SECRET_EDIT_DENY = (
 # carry names without values are the carve-out.
 # ponytail: only a file the command names is read - `git add -A` or `git add .`
 # staging an untracked `.env` is the .gitignore's to stop, not this rule's.
-SECRET_TEMPLATES = (".env.example", ".env.sample")
+SECRET_TEMPLATES = (".env.example", ".env.sample", ".env.template", ".env.dist",
+                    ".env.defaults")
+# A token in these files is there to be read, not used: a template (the names
+# above, `*.example`) or a test fixture (`tests/**/fixtures/**`).
+SECRET_FIXTURE = re.compile(r"(?:^|/)tests?/(?:.+/)?fixtures/|\.example$", re.I)
+# Documentation placeholders: a token that says it is an example (AWS's
+# `AKIAIOSFODNN7EXAMPLE`), one whose body is a single repeated character
+# (`ghp_xxxx...`), and the published keys docs print, held as sha256 digests so
+# no file in the tree carries one whole: Stripe's documentation test secret key.
+# ponytail: a published key is listed by hand, one per report.
+SECRET_PUBLISHED = frozenset((
+    "2cafc0970149a84f3b9e62eaf169f36f59907a3b3e31f7b82e68c69cd27f7326",))
 SECRET_ADD_DENY = (
     "Credential file add denied: `git add %s` stages a credential file, so every "
     "value in it lands in the repository's history. Keep it out of git (list it "
@@ -666,24 +678,43 @@ def _secret_add(command):
     return None
 
 
+def _placeholder(token):
+    """True for a documentation stand-in rather than a credential."""
+    if "example" in token.lower():
+        return True
+    body = re.split(r"[-_]", token)[-1]
+    if body == token:          # AKIA/ASIA/AIza: the prefix carries no separator
+        body = token[4:]
+    if len(set(body)) <= 1:
+        return True
+    return hashlib.sha256(token.encode()).hexdigest() in SECRET_PUBLISHED
+
+
 def secret_edit(inp, cwd=None):
-    """A deny reason when a write lands a prefixed credential token the text it
-    replaces did not already carry, else None. Every write dialect is read, an
-    apply_patch file by file (tezgah_integrity.write_texts); the heredoc body a
-    shell command writes arrives here in the same `{file_path, content}` shape.
-    A whole-file write is compared with the file on disk, resolved against the
-    call's cwd, so rewriting a fixture that already holds a key is not a new
-    one; the disk is read only when the new text carries a token at all."""
+    """A deny reason when a write lands a prefixed credential token the file did
+    not already carry, else None. Every write dialect is read, an apply_patch
+    file by file (tezgah_integrity.write_texts); the heredoc body a shell
+    command writes arrives here in the same `{file_path, content}` shape. The
+    baseline is the text the call replaces plus the file on disk, resolved
+    against the call's cwd, so an edit that repeats a key the file already holds
+    is not a new one; the disk is read only when the new text carries a token.
+    A template or fixture file and a documentation placeholder are exempt
+    (SECRET_FIXTURE, _placeholder)."""
     for path, old, new in write_texts(inp):
-        fresh = set(SECRET_PREFIXED.findall(new))
-        if fresh and old is None and path:
+        fresh = {t for t in SECRET_PREFIXED.findall(new) if not _placeholder(t)}
+        name = path.replace(os.sep, "/")
+        if not fresh or (SECRET_FIXTURE.search(name)
+                         or os.path.basename(name).lower() in SECRET_TEMPLATES):
+            continue
+        disk = ""
+        if path:
             try:
                 with open(os.path.join(cwd or os.getcwd(), path),
                           encoding="utf-8") as fh:
-                    old = fh.read()
+                    disk = fh.read()
             except (OSError, UnicodeDecodeError):
-                old = ""
-        if fresh - set(SECRET_PREFIXED.findall(old or "")):
+                disk = ""
+        if fresh - set(SECRET_PREFIXED.findall((old or "") + "\n" + disk)):
             return SECRET_EDIT_DENY
     return None
 
@@ -747,7 +778,9 @@ def write_paths(inp):
     write have to agree on one answer: the gate hands these paths to `capture`
     before the call, and `tezgah_integrity._post_write` reads the same list after
     it to hash the after-state. Raw strings, unresolved - each caller resolves
-    them against its own directory. ponytail: a target that is a positional
+    them against its own directory - except that a shell target's `$VAR` and
+    `~` are expanded as the shell would (`> $TMPDIR/x` is not a file named
+    `$TMPDIR` under the cwd). ponytail: a target that is a positional
     argument (`cp`, `mv`, `sed -i`, `patch`, `git apply`) is not read off the
     command at all; which argument of those is the target is a per-program
     question, and the measured route is the redirect."""
@@ -761,7 +794,7 @@ def write_paths(inp):
     if paths:
         return paths
     target = shell_target(inp.get("command") or inp.get("cmd") or "")
-    return [target] if target else []
+    return [os.path.expanduser(os.path.expandvars(target))] if target else []
 
 
 def race_reason(inp, session_id, cwd=None):
@@ -782,8 +815,8 @@ def race_reason(inp, session_id, cwd=None):
         # this guard read the scheme as a relative path. Only the harness's own
         # channels are skipped - a `file://`, `s3://` or editor URI can name a
         # real target two sessions both write, and stays guarded.
-        if URI_CHANNEL.match(path):
-            continue
+        if URI_CHANNEL.match(path) or scratch_target(path, cwd):
+            continue    # a temp file or a device is no one's shared work
         others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN, cwd=cwd)
         if others:
             return RACE_DENY % (", ".join(str(s) for s in others[:3]),
@@ -937,8 +970,11 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     ones write_paths already extracts, so an apply_patch body is checked hunk by
     hunk like every other write rule's here. A path that resolves outside the
     repo root is refused by `relative` before any pattern is tried - a `**`
-    allowlist must not reach out of the repo - and the refusal names the file as
-    the call spelled it, because the agent has to recognize its own argument."""
+    allowlist must not reach out of the repo - unless it is the session's own
+    scratch (`scratch_target`: a temp file, a device), which is no task's work;
+    build output inside the repo is a repo path and stays held. The refusal
+    names the file as the call spelled it, because the agent has to recognize
+    its own argument."""
     task = _task(cwd, base, task)
     if not task:
         return None
@@ -949,6 +985,8 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     if not patterns:
         return None
     for path in write_paths(inp):
+        if scratch_target(path, cwd):
+            continue
         rel = tezgah_task.relative(path, cwd, base)
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
             return TASK_SCOPE_DENY % (path, task["id"], ", ".join(patterns))
@@ -2170,8 +2208,10 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     # guards, so a colliding write is counted as this rule and not as a repeat of
     # one. A shell command that writes a file through a redirect or `tee` is a
     # write here too: the rules below read its target from `write_paths`, the
-    # reader `capture` and the PostToolUse row already share.
-    writes = t in WRITE_TOOLS or (t in BASH_TOOLS and bool(write_paths(inp)))
+    # reader `capture` and the PostToolUse row already share - unless all it
+    # writes is its own scratch (`scratch_target`), such as a `> /tmp/check.log`.
+    writes = t in WRITE_TOOLS or (t in BASH_TOOLS and any(
+        not scratch_target(p, cwd) for p in write_paths(inp)))
     if writes and RACE_REFUSE:
         reason = race_reason(inp, session_id, cwd)
         if reason:

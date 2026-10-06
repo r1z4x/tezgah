@@ -1194,6 +1194,30 @@ def _abs_target(path, cwd):
     return os.path.realpath(path)
 
 
+def scratch_target(path, cwd=None):
+    """True when a written `path` is the session's own scratch, not shared work:
+    a device (`/dev/stderr`) or a file under the system temp dir (`$TMPDIR`,
+    else the OS's) or /tmp. Two sessions writing `/tmp/x` are not racing on
+    anyone's work, and `pytest > /tmp/check.log` is the piped-check rule's own
+    remedy, so the race and task rules and a `run` row's `target` leave these
+    alone. A path inside `cwd` is never scratch: a checkout that itself lives
+    in a temp dir keeps its files. ponytail: /var/tmp is not a root - the test
+    fixtures live there precisely so they are not scratch (tests/support.py)."""
+    real = _abs_target(path, cwd)
+    if not real:
+        return False
+    if real.startswith("/dev/"):
+        return True
+    import tempfile  # deferred: the gate imports this module on every call
+    here = os.path.realpath(cwd or os.getcwd())
+    if real == here or real.startswith(here + os.sep):
+        return False
+    for root in {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}:
+        if real.startswith(root + os.sep):
+            return True
+    return False
+
+
 def writers_elsewhere(path, session_id, minutes=10, cwd=None):
     """The other sessions that recorded a write of `path` in the last `minutes`,
     newest first, as ledger ids.
@@ -3174,9 +3198,11 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         # (`writers_elsewhere`): `detail` is the host's own spelling, relative to
         # a cwd the row does not carry (audit CHAT-03 / M-6). A shell `run` row
         # carries it when the command redirects or tees into a file, so a
-        # sibling's shell write is seen like its edit; one that writes nothing
-        # carries none.
-        fields["target"] = _abs_target((_written_paths(inp) or [""])[0], cwd)
+        # sibling's shell write is seen like its edit; one that writes nothing,
+        # or writes only its own scratch (`scratch_target`), carries none.
+        written = (_written_paths(inp) or [""])[0]
+        if not (kind == "run" and scratch_target(written, cwd)):
+            fields["target"] = _abs_target(written, cwd)
     if kind.startswith("verify"):
         fields["repo"] = _check_repo(cmd, cwd, inp)
         fields["empty_run"] = True if empty_run else None

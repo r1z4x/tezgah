@@ -29,7 +29,10 @@ NODE = shutil.which("node")
 # assembled at runtime: see the corpus's own `placeholders`
 FILL = {"{GHP}": "ghp_" + "A1b2C3d4" * 5,
         "{SKLIVE}": "sk-live-" + "a1B2c3D4" * 3,
-        "{SKIP}": "@pytest.mark." + "skip"}
+        "{SKIP}": "@pytest.mark." + "skip",
+        "{AKIAEX}": "AKIA" + "IOSFODNN7EXAMPLE",
+        "{GHPX}": "ghp_" + "x" * 36,
+        "{STRIPE}": "sk_test_" + "4eC39HqLyjWDarjtT1zdp7dc"}
 # opencode's own spelling of the fields its tools carry
 CAMEL = {"file_path": "filePath", "old_string": "oldString",
          "new_string": "newString"}

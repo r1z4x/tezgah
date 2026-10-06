@@ -1504,15 +1504,17 @@ class OpenCodePlugin(TempHome):
     def test_a_shell_write_row_carries_the_absolute_real_target(self):
         # plan 057 (a)5: the same field on a `run` row that redirects or tees
         # into a file, as hooks/tezgah_integrity.note_tool writes it; a command
-        # that writes nothing carries none
+        # that writes nothing, or only its own scratch, carries none
         self.after("bash", {"command": "echo x > out.txt"}, exit=0)
         self.after("bash", {"command": "printf x | tee log.txt"}, exit=0)
         self.after("bash", {"command": "ls"}, exit=0)
+        self.after("bash", {"command": "git diff > /tmp/diff.txt"}, exit=0)
+        self.after("bash", {"command": "echo x > /dev/stderr"}, exit=0)
         rows = self.ledger()
-        self.assertEqual([r["kind"] for r in rows], ["run"] * 3)
+        self.assertEqual([r["kind"] for r in rows], ["run"] * 5)
         self.assertEqual([r.get("target") for r in rows],
                          [ti._abs_target("out.txt", self.repo),
-                          ti._abs_target("log.txt", self.repo), None])
+                          ti._abs_target("log.txt", self.repo), None, None, None])
 
     def test_a_tool_name_no_rule_knows_records_an_unknown_row(self):
         # A fabricated call (or a tool this host added) used to leave no line at

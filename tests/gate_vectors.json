@@ -3,7 +3,10 @@
   "placeholders": {
     "{GHP}": "a ghp_ token, assembled at runtime so no file in the tree carries one whole",
     "{SKLIVE}": "an sk-live- token, assembled the same way",
-    "{SKIP}": "the pytest skip marker, assembled because the shortcut rule refuses a tests/ file that adds it"
+    "{SKIP}": "the pytest skip marker, assembled because the shortcut rule refuses a tests/ file that adds it",
+    "{AKIAEX}": "AWS's documented example access key id",
+    "{GHPX}": "a ghp_ token whose body is one repeated character",
+    "{STRIPE}": "Stripe's published documentation test key"
   },
   "hosts": {
     "core": {"tools": {"Write": "Write", "Edit": "Edit", "apply_patch": "apply_patch",
@@ -71,6 +74,20 @@
      "input": {"command": "cat > src/models.py <<'EOF'\nORDER = \"pk_users_organization_id\"\nBRANCH = \"sk-telemetry-dashboard-refactor\"\nEOF"}},
     {"id": "ident-shell-redirect", "tool": "Bash", "expect": null,
      "input": {"command": "echo sk-telemetry-dashboard-refactor pk_users_organization_id >> notes.txt"}},
+
+    {"id": "placeholder-write", "tool": "Write", "expect": null,
+     "input": {"file_path": "README.md", "content": "AWS_ACCESS_KEY_ID={AKIAEX}\n"}},
+    {"id": "placeholder-patch", "tool": "apply_patch", "expect": null,
+     "input": {"patch": "*** Begin Patch\n*** Update File: docs/setup.md\n@@\n-TOKEN\n+export GITHUB_TOKEN={GHPX}\n*** End Patch"}},
+    {"id": "placeholder-new-str", "tool": "str_replace_editor", "expect": null,
+     "input": {"command": "str_replace", "path": "README.md", "old_str": "KEY\n",
+               "new_str": "stripe.api_key = \"{STRIPE}\"\n"}},
+    {"id": "placeholder-heredoc", "tool": "Bash", "expect": null,
+     "input": {"command": "cat > docs/setup.md <<'EOF'\nexport GITHUB_TOKEN={GHPX}\nEOF"}},
+    {"id": "template-write", "tool": "Write", "expect": null,
+     "input": {"file_path": ".env.example", "content": "GITHUB_TOKEN={GHP}\n"}},
+    {"id": "template-heredoc", "tool": "Bash", "expect": null,
+     "input": {"command": "cat > tests/fixtures/auth.env <<'EOF'\nGITHUB_TOKEN={GHP}\nEOF"}},
 
     {"id": "git-add-env", "tool": "Bash", "expect": "Credential",
      "input": {"command": "git add .env"}},
