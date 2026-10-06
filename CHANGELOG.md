@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The neuter matrix mutates the Stop rule.** `tests/neuter_matrix.py`
+  generates one mutant per Stop-class return site in `_shape_block` and
+  `_evidence_block`, 12 sites over the 10 classes. Hand-written rows add the
+  guards around them: the pass predicate, the empty-run read, the pipe
+  guard and the "doğrulanmadı" clear. The lost call, the bookkeeping and
+  idle-turn fallbacks, the refusal row and the `other repo` cause are rows
+  too. The run adds the omp and after-block Stop test modules.
 - **`tezgah-gate replay` measures the gate against its own history.** It
   replays this machine's real ledgers through the unmodified dry-run gate and
   the Stop rule. It runs in a sandbox HOME, with the clock frozen at each call.
