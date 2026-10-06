@@ -644,6 +644,7 @@ tests/e2e_omp_statusline.py
 tests/e2e_packaged_install.py
 tests/e2e_plan_flow.py
 tests/e2e_tezgah_mcp.py
+tests/fuzz_shell.py
 tests/impacted.py
 tests/neuter_matrix.py
 tests/routing-fixtures.md
@@ -676,6 +677,7 @@ tests/test_dsh_launcher.py
 tests/test_dsh_statusline.py
 tests/test_embed.py
 tests/test_encoding.py
+tests/test_fuzz_shell.py
 tests/test_gate.py
 tests/test_graph_verbs.py
 tests/test_graph_workflows.py

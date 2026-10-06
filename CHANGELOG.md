@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Real bash now checks the shell readers.** `tests/fuzz_shell.py`
+  draws seeded lines from the hand vectors' grammar. It runs each in `bash`
+  with a stub per program word and prints each class where `shell_programs` or
+  `mask` disagrees. `tests/test_fuzz_shell.py` runs a small sample per suite
+  run and fails if `mask` blanks a program bash ran.
 - **Concluding or closing a research line seals it.** `conclude` and `close`
   write `state.json` `order_seal`. It holds, per experiment, the sha256 of
   `protocol.md` and `results.jsonl`, and no order verdict. Every `check`
