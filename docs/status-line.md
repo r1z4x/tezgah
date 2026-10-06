@@ -228,6 +228,7 @@ tezgah-status /path/to/repo <id> --json      # segments: key/state/glyph/text/gr
 tezgah-status /path/to/repo <id> --counters  # the evidence ledger's counters
 tezgah-status --legend                       # what each mark means
 tezgah-status --rule-yield                   # live gate rules that stopped firing
+tezgah-status --enforcers                    # what enforces each always-on rule
 ```
 
 The session id is the second positional argument or `TEZGAH_SESSION`; without it
@@ -271,6 +272,13 @@ fires over at least `MIN_EXPOSURE` (300) real ledgers is marked
 `retire-candidate`, one with 0 fires over fewer `low-exposure`, so a rule a day
 old is not read as dead. It always exits 0 and prints the corpus it read;
 `--json` prints the whole fold.
+
+`--enforcers` reports on the rule layer, not on a session. It prints one row
+per always-on CORE rule with the gate rules, Stop classes and shape flags that
+enforce it. A rule with none shows the prose-only record that says why
+([contract.md](contract.md#which-mechanism-enforces-each-always-on-rule)). It
+always exits 0, and `--json` prints the rows, the enforcers tied to no rule and
+the failures.
 
 ## A mark must not claim what it cannot see
 

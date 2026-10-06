@@ -188,6 +188,37 @@ applied, and it also returns the names of the switches that fired.
 - **Session scope: the user's repo, not tezgah.** The session never maintains tezgah itself; a missing capability is one line plus the documented fallback.
 - **Kill switches.** The switch list itself, so a session can tell the user how to disarm a rule it is asked to ignore; pinned against the shipped skill by `tests/test_skills.py::SkillStandards`.
 
+## Which mechanism enforces each always-on rule
+
+`tezgah-status --enforcers` prints one row per always-on rule. A row names the
+gate rules (`gate:`), Stop classes (`stop:`) and report-only shape flags
+(`flag:`) that enforce the rule, or says `none`. The rows come from the bold
+heads of `CORE`. The links come from the code
+(`bin/tezgah-docs::enforcer_links`). An enforcer links to a rule when its name
+is the rule's `CORE_RULES` key. It also links when a switch guards it and that
+switch's branch of `hooks/tezgah_context.py::switches` drops the rule's
+paragraph. A Stop class with no switch of its own rides the Stop hook's
+`verify-off`. The code cannot state four links, so
+`bin/tezgah-docs::HAND_LINKS` writes them. They are `explorer` for graph-first,
+`retry` for loop discipline, `placating opener` for the Deliver rule, and the
+shape flags for the output-shape rule. The report also lists the enforcers tied
+to no always-on rule, such as `task`, `secret` and `plan`.
+
+A rule with no enforcer is prose-only, and the table below records why.
+`bin/tezgah-docs --citations` and `tests/test_enforcers.py` fail on a rule
+with neither an enforcer nor a row. They also fail on a row for a rule that
+something enforces.
+
+| rule | decision |
+|---|---|
+| ponytail | no decision |
+| spec | no decision |
+| lessons | Owner decision ADR 010 (2026-10-05): a tainted lesson costs a row, never a refusal. |
+| consult | The owner removed the consent rule on 2026-09-26 ([gate.md](gate.md#what-the-gate-deliberately-does-not-catch)). The per-turn reminder carries the clause instead. |
+| research | Owner decision ADR 010 (2026-10-05): no new research rule until plan 062 reports. |
+| product | Owner decision ADR 010 (2026-10-05): no new research rule until plan 062 reports. The product rule is the research route. |
+| scope | no decision |
+
 ## Arming the conditional paragraphs, and the per-turn reminder
 
 `PROMPT_HINTS` (`hooks/tezgah_context.py::PROMPT_HINTS`) is one compiled pattern per key

@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`tezgah-status --enforcers` shows what enforces each always-on rule.**
+  Each CORE rule gets one row. The row names the gate rules, Stop classes and
+  report-only shape flags the code links to it. A rule with none shows its
+  prose-only record from `docs/contract.md`. The report always exits 0.
+  `bin/tezgah-docs --citations` and `tests/test_enforcers.py` fail on a rule
+  that has neither.
 - **Real bash now checks the shell readers.** `tests/fuzz_shell.py`
   draws seeded lines from the hand vectors' grammar. It runs each in `bash`
   with a stub per program word and prints each class where `shell_programs` or
