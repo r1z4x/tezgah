@@ -118,7 +118,11 @@ _SUITE_HOME = tempfile.TemporaryDirectory(prefix="tezgah-suite-home-", dir=FIXTU
 os.environ["HOME"] = _SUITE_HOME.name
 # an in-process install must not reach the developer's real `claude` either
 os.environ["TEZGAH_CLAUDE_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-claude")
-for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME"):
+# A host dir or XDG base the developer exported points at their real config:
+# with CODEX_HOME set, a test that wrote and removed `<CODEX_HOME>/config.toml`
+# deleted the developer's own Codex config (2026-10-06).
+for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+              "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA"):
     os.environ.pop(_name, None)
 
 
