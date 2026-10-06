@@ -354,6 +354,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The `control` rule refuses fewer harmless calls.** A replay of real
+  ledgers found 19 refusals. 13 of them were false.
+  A multi-line `python3 -c '...'` is now one word, not lines of commands, so a
+  switch path, a `>=` or `tezgah-capture` in the script is data. So is the
+  body of a `python3 - <<PY` heredoc when bash expands nothing in it. A write
+  under the install checkout's own `.tezgah/` is not hook wiring. A Claude
+  `settings.json` counts in `~/.claude` or under a root, not in a temp
+  fixture. A shell's script (`bash -c`, `bash <<EOF`) is still read.
 - **opencode keeps one snapshot per write and one nudge per session.**
   The core captures a write it answers through `tezgah-gate decide`.
   The plugin now captures only a call the core did not answer.
