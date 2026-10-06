@@ -1223,7 +1223,7 @@ def drift_reason(tool, inp, cwd, session_id):
     reason string is the only channel), so the notice arrives as a refusal whose
     reason is the re-statement, and the mark is written here - before the deny -
     so the identical call passes on the next attempt."""
-    if off("reminder-off") or not effectful(str(tool or "").lower(), inp or {}):
+    if off("reminder-off") or not effectful(tool, inp or {}):
         return None
     if not session_id:
         return None
@@ -1239,16 +1239,18 @@ def drift_reason(tool, inp, cwd, session_id):
     return DRIFT_DENY % (steps, DRIFT_STEPS, drift_text(cwd, session_id))
 
 
-def effectful(t, inp):
+def effectful(tool, inp):
     """True when this call is one the constraints are about: a write tool, a
     git/gh command that lands an artifact, or an MCP effect
-    (`tezgah_integrity.mcp_class`). A read changes nothing, so the notice spent
-    on it would be spent where no rule applies."""
+    (`tezgah_integrity.mcp_class`, which reads the name as the host matcher does,
+    case-sensitive). A read changes nothing, so the notice spent on it would be
+    spent where no rule applies."""
+    t = str(tool or "").lower()
     if t in WRITE_TOOLS:
         return True
     if t in BASH_TOOLS:
         return bool(WRITE_CMD.search(mask(str(inp.get("command") or ""))))
-    return mcp_class(t) is not None
+    return mcp_class(tool) is not None
 
 
 # --- plan required: work that spans files on main has no plan ----------------
@@ -2154,7 +2156,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     # refuses or asks by itself - and the payload is read through the bounded
     # walk (mcp_text). The credential half reads vendor token shapes only
     # (MCP_TOKEN), never the shell's name=value shape.
-    verb = mcp_class(t)
+    verb = mcp_class(tool)
     if verb in ("write", "publish"):
         text = mcp_text(inp)
         if verb == "write" and not off("verify-off"):

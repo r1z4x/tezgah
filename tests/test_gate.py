@@ -1156,6 +1156,14 @@ class Gate(TempHome):
                 ("mcp__github__get_commit", {"q": self.TOKEN})):
             self.assertIsNone(self.decide(tool, inp), tool)
 
+    def test_a_read_word_does_not_let_a_token_through_an_mcp_write(self):
+        for tool in ("mcp__x__read_and_write_file", "mcp__github__get_or_create_issue",
+                     "mcp__x__list_and_delete", "mcp__search__create_issue",
+                     "mcp__fetch_server__write_file"):
+            reason = self.decide(tool, {"body": self.TOKEN})
+            self.assertIsNotNone(reason, tool)
+            self.assertIn("Credential", reason)
+
     def test_an_identifier_shaped_like_a_key_prefix_is_not_an_mcp_credential(self):
         # A key, a branch and a slug that start with sk/pk/rk pass `gh` and
         # Write; on MCP they must pass too. Vendor shapes are what refuses.

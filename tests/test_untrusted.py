@@ -251,7 +251,29 @@ class PostToolUseProvenance(TempHome):
             self.assertFalse(tu.effectful(tool), tool)
             self.assertIsNone(ti.mcp_class(tool), tool)
 
-    def test_a_run_of_mcp_effects_wears_one_notice_per_read(self):
+    def test_a_read_word_never_hides_an_effect_in_the_tool_part(self):
+        import tezgah_untrusted as tu
+        # A read verb leads its own clause only; the server segment never decides
+        # (`search`, `fetch_server`), and omp's `mcp__srv_tool` has no server
+        # boundary, so there an effect verb anywhere wins.
+        for tool in ("mcp__x__read_and_write_file", "mcp__github__get_or_create_issue",
+                     "mcp__x__list_and_delete", "mcp__search__create_issue",
+                     "mcp__fetch_server__write_file", "mcp__fetch_server_write_file",
+                     "mcp__github_get_commit"):
+            self.assertTrue(tu.effectful(tool), tool)
+            self.assertIsNotNone(ti.mcp_class(tool), tool)
+
+    def test_the_mcp_class_is_case_sensitive_like_the_host_matcher(self):
+        import tezgah_untrusted as tu
+        # the host matchers (JS RegExp, no flag) never select `Create`, so the
+        # gate must not class it either: both sides read the same names
+        for tool in ("mcp__x__Create_issue", "MCP__x__create_issue"):
+            self.assertIsNone(ti.mcp_class(tool), tool)
+            self.assertFalse(tu.effectful(tool), tool)
+
+    def test_a_run_of_mcp_effects_wears_one_notice_per_untrusted_channel(self):
+        # One notice per untrusted channel: the web read is noticed on the first
+        # MCP effect, the MCP results on the first non-MCP effect after them.
         # Each MCP row re-arms the `mcp` channel, so without the guard every
         # click after the first carried the notice. The web read is noticed on
         # the first MCP effect; the MCP results after it carry their label only.

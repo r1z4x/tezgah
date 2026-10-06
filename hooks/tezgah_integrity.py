@@ -2712,10 +2712,14 @@ MCP_TOOL = re.compile(r"^mcp__", re.I)
 # (docs/gate.md). `write` lands file content (shortcut, attribution, secret),
 # `publish` lands text on a service under the workspace's name (attribution,
 # secret), `act` changes state and carries no artifact text (drift and taint
-# only). Matched per word of the name, so Claude/dsh/Codex
-# `mcp__<server>__<tool>` and omp `mcp__<server>_<tool>` read the same. The first
-# verb word decides, and a read verb there (MCP_READS) makes the call a read:
-# `get_commit` names what it reads, not what it does.
+# only). Read off the tool part of the name, case-sensitive like the host
+# matchers: Claude/dsh/Codex `mcp__<server>__<tool>` after the last `__`, split
+# into clauses on `and`/`or`; a clause led by a read verb (MCP_READS) is a read
+# (`get_commit` names what it reads), and an effect verb in any other clause
+# decides (`get_or_create_issue` creates). omp's `mcp__<server>_<tool>` has no
+# server boundary, so there an effect verb anywhere decides and no read word
+# overrides it: a server word can make a read an effect, never hide an effect.
+# Several classes: the first in MCP_VERBS order wins.
 # ponytail: a verb missing here (a server's own word for "send") reads as a read:
 # it costs that tool the content rules, never a call. The host matchers that
 # spawn the gate for these names (hooks/hooks.json, hosts/dsh/hooks.json, omp's
@@ -2749,15 +2753,23 @@ MCP_WALK_NODES = 4096
 def mcp_class(tool):
     """The verb class (`write`, `publish`, `act`) of an MCP tool, or None for a
     read and for every tool that is not an MCP one."""
-    name = str(tool or "").strip().lower()
-    if not MCP_TOOL.match(name):
+    name = str(tool or "").strip()
+    if not name.startswith("mcp__"):
         return None
-    for word in re.split(r"[^a-z0-9]+", name[5:]):
-        if word in MCP_READS:
-            return None
-        for cls, verbs in MCP_VERBS:
-            if word in verbs:
-                return cls
+    _, boundary, part = name[5:].rpartition("__")
+    words = re.split(r"[^A-Za-z0-9]+", part)
+    if boundary:
+        clauses, clause = [], []
+        for word in words + ["or"]:
+            if word in ("and", "or"):
+                clauses.append(clause)
+                clause = []
+            elif word:
+                clause.append(word)
+        words = [w for c in clauses if c and c[0] not in MCP_READS for w in c]
+    for cls, verbs in MCP_VERBS:
+        if verbs.intersection(words):
+            return cls
     return None
 
 

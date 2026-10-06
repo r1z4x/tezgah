@@ -2513,6 +2513,17 @@ class PowershellMatcher(SetupBase):
                              "mcp__github__get_file", "mcp__github__updated_at"):
                     self.assertFalse(any(self.selects(m, tool) for m in matchers),
                                      tool)
+                # parity: the gate classes a name only if the host spawns it
+                for tool in ("mcp__x__Create_issue", "mcp__x__create_issue",
+                             "mcp__github__get_or_create_issue",
+                             "mcp__fetch_server_write_file", "mcp__github__get_commit",
+                             "mcp__github__get_file", "MCP__x__create_issue"):
+                    if ti.mcp_class(tool) is not None:
+                        self.assertTrue(any(self.selects(m, tool)
+                                            for m in matchers), tool)
+                self.assertIsNone(ti.mcp_class("mcp__x__Create_issue"))
+                self.assertFalse(any(self.selects(m, "mcp__x__Create_issue")
+                                     for m in matchers))
         with open(os.path.join(REPO, "hosts", "omp", "tezgah-hook.ts.in")) as fh:
             self.assertIn("const MCP_EFFECT = /%s/;" % want, fh.read())
 

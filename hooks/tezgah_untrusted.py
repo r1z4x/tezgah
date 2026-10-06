@@ -40,8 +40,8 @@ EFFECTFUL = frozenset(BASH_TOOLS + WRITE_TOOLS)
 
 def effectful(tool):
     """True when this call is one the model's effects leave through."""
-    name = str(tool or "").strip().lower()
-    return name in EFFECTFUL or mcp_class(name) is not None
+    name = str(tool or "").strip()
+    return name.lower() in EFFECTFUL or mcp_class(name) is not None
 
 
 def turn_channel(session_id, agent=None):

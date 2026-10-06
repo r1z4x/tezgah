@@ -46,8 +46,10 @@ change; the two halves of that rule are `hooks/tezgah_integrity.py`'s and are de
 ## MCP — a server's effect tool
 
 An MCP effect tool reaches `decision` on every host that can route it ([hosts.md](hosts.md)). No rule refuses it for what it is.
-Its verb class only picks which existing content rules read its payload. The first verb word of the tool's name decides the class
-(`hooks/tezgah_integrity.py::mcp_class`, `hooks/tezgah_integrity.py::MCP_VERBS`). A read verb there (`get`, `list`, `search`, ...) makes the call a read.
+Its verb class only picks which existing content rules read its payload. An effect verb in the tool part of the name decides the class, case-sensitive
+like the host matcher (`hooks/tezgah_integrity.py::mcp_class`, `hooks/tezgah_integrity.py::MCP_VERBS`). The tool part is what follows the last `__`.
+A clause of it that a read verb leads (`get_commit`) is a read. An effect verb in another clause still decides (`get_or_create_issue`).
+omp's `mcp__<server>_<tool>` has no server boundary, so there an effect verb anywhere decides.
 A `write` call such as `write_file` meets the shortcut, attribution and secret rules.
 A `publish` call such as `send_message` meets attribution and secret. An `act` call such as `click` meets none of them.
 Every class counts as an effect for the drift re-statement (`hooks/tezgah_gate.py::effectful`) and the taint notice
