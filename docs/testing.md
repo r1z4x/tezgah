@@ -109,13 +109,13 @@ on top of that support layer.
 **Unit tests over a module.** `tests/test_paths.py:15-16` imports
 `hooks/tezgah_paths.py` directly and drives it in-process; where a temp HOME must
 matter it patches the module's own constants with
-`unittest.mock.patch.multiple` (`test_paths.py:134-137`). Reach for this only for
+`unittest.mock.patch.multiple` (`tests/test_paths.py::ConcurrentProbe`). Reach for this only for
 pure logic or for concurrency, which a subprocess cannot express.
 
 **Subprocess tests with a temp HOME.** The default. `TempHome` gives the test a
 fresh `home` and a `roots` dir, `env()`, `make_repo()`, `config()` and `touch()`
-(`TempHome`, `support.py:120-151`); the hook or CLI is then run with `run`
-(`support.py:83-88`) or `run_json` (`support.py:91-94`). `tests/test_codex_hook.py:9-16` is the smallest example.
+(`TempHome`, `tests/support.py::TempHome`); the hook or CLI is then run with `run`
+(`tests/support.py::run`) or `run_json` (`tests/support.py::run_json`). `tests/test_codex_hook.py::CodexHook` is the smallest example.
 
 **Probes.** `tests/_probe_*.py` are tiny scripts that call one function of a
 shared module and print its result as JSON, so the call happens in a process
@@ -141,21 +141,21 @@ defines a `TestCase`.
 
 **End-to-end scripts.** `tests/e2e_*.py` are not collected either
 (`e2e_omp_statusline.py:13-18`) and are run by hand. They exit 0 on `PASS` or
-`SKIP` and 1 only on a real failure (`e2e_dsh_statusline.py:137-140`).
+`SKIP` and 1 only on a real failure (`tests/e2e_dsh_statusline.py::main`).
 
 | Script | Needs | Prints `SKIP` when |
 |---|---|---|
 | `e2e_analyze_wiring.py` | node (`npx`) (`:39-40`) | npx is absent; a server that cannot start is a skip, or a failure under `TEZGAH_E2E_STRICT=1` (`:10-12`) |
 | `e2e_analyze_web.py` | `TEZGAH_E2E_APPS=1`, npx, a Playwright browser build (`:9-13`) | the opt-in env var, npx, the server start or the browser build is missing |
 | `e2e_analyze_mobile.py` | `TEZGAH_E2E_APPS=1`, npx, a booted simulator or emulator (`:9-14`) | the same, or no running device |
-| `e2e_dsh_statusline.py` | the `dsh` binary, Playwright, a Chromium build, a persisted session (`:90-138`) | any of them is missing (`:93`, `:97`, `:108`, `:118`) |
+| `e2e_dsh_statusline.py` | the `dsh` binary, Playwright, a Chromium build, a persisted session (`:90-138`) | any of them is missing (`tests/e2e_dsh_statusline.py::run`) |
 | `e2e_omp_statusline.py` | the `omp` binary and the extension `tezgah-setup` installs, plus a pty (`:101-108`) | either is missing (`:103-107`) |
 | `e2e_docker_cycle.py` | a running Docker daemon; the image is `python:3.12-slim` unless `TEZGAH_E2E_DOCKER_IMAGE` says otherwise (`:27-28`) | docker or its daemon is missing (`:53-60`) |
 
 `SKIP` is the designed answer, not a hideout: these scripts test that a wire or a
 render works, and a missing prerequisite says nothing about the repository. Two
 are opt-in behind `TEZGAH_E2E_APPS=1` because they do real work, so they never run
-by surprise (`e2e_analyze_web.py:33-35`), and the omp script starts the TUI with
+by surprise (`tests/e2e_analyze_web.py::main`), and the omp script starts the TUI with
 no prompt, so the run costs no model call (`e2e_omp_statusline.py:2-4`).
 
 ## The rules a new test must satisfy
@@ -173,7 +173,7 @@ it is now red is the failure mode these pins exist to catch.
 reads a file to check a copy of an implementation, or that asserts an internal
 call was forwarded, dies at the first refactor. Where text is asserted it is
 output the user or a host sees. The suite's own comments say the rule twice:
-pin the behaviour, not one phrasing of it (`test_skills.py:79-81`), and pin a
+pin the behaviour, not one phrasing of it (`tests/test_skills.py::SkillStandards.test_the_bootstrap_completes_a_partial_tree_and_never_clobbers_it`), and pin a
 rule on a synthetic input, not only on the shipped pair
 (`test_setup.py:539-542`).
 
@@ -182,10 +182,10 @@ rule on a synthetic input, not only on the shipped pair
 no `TEZGAH_SESSION` (`support.py:109-117`); `base_env` also points `TEZGAH_CODEGRAPH_BIN` and `TEZGAH_ORX_BIN`
 at paths that do not exist and sets `TEZGAH_CONSULT_CLIS` empty, so the
 machine's own graph binary, orx and agent CLIs cannot leak into an assertion
-(`support.py:49-58`). The installer suite sets
-`TEZGAH_NO_DEPS=1` so `--install` fetches nothing (`test_setup.py:57-59`). No test
+(`tests/support.py::base_env`). The installer suite sets
+`TEZGAH_NO_DEPS=1` so `--install` fetches nothing (`tests/test_setup.py::SetupBase.setUp`). No test
 reaches the network: where a provider is needed it is a loopback stub
-(`test_providers.py:106-108`, `test_consult_arena.py:72`).
+(`tests/test_providers.py::Trickle.__init__`, `tests/test_consult_arena.py::ArenaCase.setUp`).
 
 **Run inside the default discovery.** A new test is `tests/test_<thing>.py`, a
 `unittest.TestCase`, and passes under
@@ -221,7 +221,7 @@ and `self.env()`, assert on its JSON output:
 **For a CLI.** Run it with a temp environment and assert on its stdout or on the
 tree it left. A `bin/` CLI is run as a subprocess with `sys.executable` and an
 explicit environment (`test_setup.py:78-85`); `SetupBase` in
-`test_setup.py:41-95` is the worked example for `bin/tezgah-setup` (fake host
+`tests/test_setup.py::SetupBase` is the worked example for `bin/tezgah-setup` (fake host
 dirs, `TEZGAH_NO_DEPS=1`, stdin always a pipe so the wizard cannot block on a
 real terminal). For a plain CLI,
 `run([support.STATUSLINE], {"cwd": repo}, env=self.envv)` is enough

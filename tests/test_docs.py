@@ -95,13 +95,15 @@ class DocsLayer(unittest.TestCase):
 
     def test_every_page_states_what_it_documents_and_cites_the_code(self):
         # A page without `## Source of truth` cannot be re-verified after a
-        # change; a page without a single `path:line` is prose nobody can check.
+        # change; a page without a single citation - `path::symbol` or
+        # `path:line` - is prose nobody can check.
         for page in index()["pages"]:
             with self.subTest(page=page["path"]):
                 text = read(os.path.join(support.REPO, page["path"]))
                 self.assertIn("## Source of truth", text)
-                self.assertRegex(text, r"[\w./-]+\.(?:py|js|ts|tsx|json|toml|yml|md):\d",
-                                 "no path:line citation")
+                self.assertRegex(
+                    text, r"(?:bin/[\w.-]+|[\w./-]+\.(?:py|js|ts|tsx|json|toml|yml|md))"
+                          r"(?::\d|::[A-Za-z_])", "no path::symbol or path:line citation")
 
     def anchors(self, text):
         """Every anchor a page carries: the slug of each heading, plus any
@@ -173,16 +175,18 @@ class DocsLayer(unittest.TestCase):
                          [("bin/tezgah-setup", "843", "845")])
 
     def test_every_citation_points_into_a_file_that_has_that_line(self):
-        # A page's promise is `path:line`: the claim is checkable. This is the
-        # half a script can check - the file is there and the line is inside it -
-        # and it is deliberately not more than that: whether the line still shows
-        # the thing the sentence names is a judgement an audit makes, not a
-        # regex, and a test that guessed at it would fail on rewording rather
-        # than on drift.
+        # A page's promise is a citation: the claim is checkable. For `path:line`
+        # this is the half a script can check - the file is there and the line is
+        # inside it - and it is deliberately not more than that: whether the line
+        # still shows the thing the sentence names is a judgement an audit makes,
+        # not a regex, and a test that guessed at it would fail on rewording
+        # rather than on drift. A `path::symbol` has no line to bound; its name is
+        # resolved by `bin/tezgah-docs --citations` (`CitationAudit` below).
         for page in index()["pages"]:
             text = read(os.path.join(support.REPO, page["path"]))
             cites = self.BOUNDED.findall(text)
-            self.assertTrue(cites, "%s cites no file" % page["path"])
+            self.assertTrue(cites or re.search(r"`[\w./-]+::[A-Za-z_]", text),
+                            "%s cites no file" % page["path"])
             for path, start, end in cites:
                 if path.startswith(".tezgah/plans/"):
                     # The plan layer is deliberately local: `.gitignore` keeps
@@ -434,6 +438,52 @@ class CitationAudit(unittest.TestCase):
                             "not https://example.com:443 nor nothing/here.py:3\n"})
         self.assertEqual((judged, invisible), (0, 2))
         self.assertEqual(unjudged, {"docs/page.md": 2})
+
+    def test_a_symbol_anchor_is_judged_by_ast_and_a_missing_one_is_flagged(self):
+        # `path::Class.method` carries no line number, so an edit above the
+        # symbol cannot shift it; what can go wrong is the name, and the AST of
+        # the cited file is what answers it.
+        _, flagged, judged, unjudged, _ = self.audit({
+            "hooks/k.py": ("\n\nclass K:\n    def m(self):\n        def inner():\n"
+                           "            pass\n\n\nLIMIT = 3\n"),
+            "docs/page.md": ("`bin/tool::first`, `hooks/k.py::K.m`, "
+                             "`hooks/k.py::K.m.inner`, `hooks/k.py::LIMIT`, "
+                             "`k.py::K`, `hooks/k.py::m`.\n"
+                             "Gone: `bin/tool::third`, `hooks/k.py::K.n`, "
+                             "`hooks/nope.py::K`.\n")})
+        self.assertEqual(judged, 9)
+        self.assertEqual(sum(unjudged.values()), 0)
+        self.assertEqual([(f[0], f[1]) for f in flagged],
+                         [("docs/page.md:2", "`bin/tool::third`"),
+                          ("docs/page.md:2", "`hooks/k.py::K.n`"),
+                          ("docs/page.md:2", "`hooks/nope.py::K`")])
+
+    def test_a_function_local_def_does_not_stand_in_for_a_gone_symbol(self):
+        # The dotless fallback is for a test pin naming a method of its
+        # TestCase; a def local to a function is not a name a page can cite, so
+        # a deleted top-level `_frozen` must not pass on a same-named helper.
+        _, flagged, judged, _, _ = self.audit({
+            "hooks/m.py": ("def migrate():\n    def _frozen():\n        pass\n\n\n"
+                           "class T:\n    def test_x(self):\n        pass\n"),
+            "docs/page.md": "`hooks/m.py::_frozen` and `hooks/m.py::test_x`.\n"})
+        self.assertEqual(judged, 2)
+        self.assertEqual([f[1] for f in flagged], ["`hooks/m.py::_frozen`"])
+
+    def test_a_symbol_anchor_in_a_comment_is_judged(self):
+        _, flagged, judged, _, _ = self.audit({"hooks/y.py": (
+            "# see `bin/tool::second` and `bin/tool::gone`\n"
+            "PAGE = \"`bin/tool::also_gone`\"\n")})
+        self.assertEqual(judged, 2)
+        self.assertEqual([(f[0], f[1]) for f in flagged],
+                         [("hooks/y.py:1", "`bin/tool::gone`")])
+
+    def test_a_symbol_anchor_does_not_move_when_lines_are_inserted_above_it(self):
+        tool = "\n" * 5 + self.TOOL
+        _, flagged, judged, _, _ = self.audit({
+            "bin/tool": tool,
+            "docs/page.md": "`bin/tool::second`, and `second` (`bin/tool:8-9`).\n"})
+        self.assertEqual(judged, 2)
+        self.assertEqual([f[1] for f in flagged], ["`bin/tool:8-9`"])
 
     def test_a_count_that_moved_either_way_is_drift(self):
         # Over: a new unjudged citation. Under: one was fixed, and a baseline

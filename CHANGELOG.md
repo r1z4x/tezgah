@@ -51,6 +51,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Docs cite Python code by symbol.** A citation into Python code is now
+  `path::name` or `path::Class.method`, not `path:line`. Moving lines no longer
+  shifts it. `bin/tezgah-docs --citations` reads the cited file's AST and fails
+  on a name it does not define. 961 docs citations moved to the new form. The
+  rest kept `path:line`: no single enclosing symbol, a non-Python target, or a
+  stale line nobody has re-anchored yet. They stay under the unjudged ratchet.
+- **The rule ledger drops its `since` column.** A history rewrite left no
+  record of the first commit that carries each rule. The provenance table in
+  `docs/gate.md` now has `rule`, `incident`, `evidence` and `pin`.
+
 - **The lessons ranking ignores words that name no lesson.** English and
   Turkish function words no longer rank a line. On a ledger of ten or more
   lines, neither does a word found in more than half of them. "update the

@@ -37,13 +37,13 @@ subscription, so no edit in this checkout changes it:
 
 | AHE component | This repository |
 |---|---|
-| system prompt | owned - `hooks/tezgah_policy.py:595` (`CORE`), injected by `hooks/tezgah_context.py:1246` (`core_for`) |
+| system prompt | owned - `hooks/tezgah_policy.py::CORE`, injected by `hooks/tezgah_context.py::core_for` |
 | tool descriptions | not-owned - each MCP server authors its own schema and this layer mounts it (`bin/tezgah-setup`); no text here reaches a model as a tool description |
-| tool implementations | not-owned - the tool body runs inside the host CLI and this layer only refuses a call before it (`hooks/tezgah_gate.py:1599`) |
+| tool implementations | not-owned - the tool body runs inside the host CLI and this layer only refuses a call before it (`hooks/tezgah_gate.py::decision`) |
 | middleware | not-owned - the host's own agent loop; this layer subscribes to the host's hook events and never sits in the loop |
 | skills | owned - `skills/<name>/SKILL.md`, symlinked into each host's skill directory by `bin/tezgah-setup` |
-| sub-agents | owned - `hooks/tezgah_agents.py:678` (`sync_root`) renders the per-host briefs |
-| long-term memory | owned - `.tezgah/lessons.md`, read by `hooks/tezgah_context.py:944` (`lessons`) at session start and `hooks/tezgah_context.py:994` (`relevant_lessons`) per turn, plus `.tezgah/plans/` in the repository |
+| sub-agents | owned - `hooks/tezgah_agents.py::sync_root` renders the per-host briefs |
+| long-term memory | owned - `.tezgah/lessons.md`, read by `hooks/tezgah_context.py::lessons` at session start and `hooks/tezgah_context.py::relevant_lessons` per turn, plus `.tezgah/plans/` in the repository |
 
 The claim this table makes checkable is the one that was an argument before it:
 AHE's ablation localizes the gain to tools, middleware and long-term memory, not

@@ -7,18 +7,18 @@ research task to OpenResearch instead of ad-hoc scripting. Read this page before
 you start a line, before you change what `check` refuses, and when a session
 reported a result you have to re-verify. The workspace and the checks live in
 `hooks/tezgah_research.py`; the session-facing rule is `RESEARCH`
-(`hooks/tezgah_policy.py:359-424`) and the tool is `bin/tezgah-research`.
+(`hooks/tezgah_policy.py::RESEARCH`) and the tool is `bin/tezgah-research`.
 
 The layer exists because a claim is only auditable if the repository holds the
 prediction it was tested against. `protocol.md` is committed **before** the run
 and `results.jsonl` after it, and `check` asks git whether that order holds - a
 protocol written once the numbers are in is not a prediction
-(`_check_protocol_order`, `tezgah_research.py:2554`). Three things the same
+(`_check_protocol_order`, `hooks/tezgah_research.py::_check_protocol_order`). Three things the same
 file answers that nothing read until now are read too: what the protocol
 predicts and what would falsify it (`_check_protocol`,
-`tezgah_research.py:2280`), what a concluded line's report does *not*
-show (`_check_report`, `tezgah_research.py:2820`), and which claim a later
-claim replaced (`_check_supersedes`, `tezgah_research.py:1868`).
+`hooks/tezgah_research.py::_check_protocol`), what a concluded line's report does *not*
+show (`_check_report`, `hooks/tezgah_research.py::_check_report`), and which claim a later
+claim replaced (`_check_supersedes`, `hooks/tezgah_research.py::_check_supersedes`).
 `predictions.jsonl` is the other half of the same idea and the one a refinement
 loop needs: one row per proposed harness-text change, bound to the `commit` the
 change landed in rather than to the session that proposed it, so the round after
@@ -28,8 +28,8 @@ it can falsify the prediction instead of remembering it.
 
 A line is a directory under `.tezgah/research/`, and the layout is plans': a line
 in flight sits in `open/<slug>/`, and a line that concluded or was closed as a
-limit moves to `done/<slug>/` (`move_line` `hooks/tezgah_research.py:394`). One
-resolver answers where a line is (`line_dir` `hooks/tezgah_research.py:341`), and
+limit moves to `done/<slug>/` (`hooks/tezgah_research.py::move_line`). One
+resolver answers where a line is (`hooks/tezgah_research.py::line_dir`), and
 every reader uses it: `slugs`, `status`, the session note, the checker. A
 workspace from before the split still holds flat `research/<slug>/` directories -
 the resolver falls back to them, `status` says the workspace needs
@@ -53,7 +53,7 @@ judge the answer:
 - `close --limit "<what is left>" --ack "<what the user said>"` is the way out
   when a criterion is `not-met`: `check` refuses a conclusion over an unjudged or
   unmet criterion without an acknowledgement, and `status` keeps listing such a
-  line as unanswered (`unanswered` `hooks/tezgah_research.py:4595`).
+  line as unanswered (`hooks/tezgah_research.py::unanswered`).
 
 The reason: 4 of 11 sampled lines in this workspace concluded with the ask
 unanswered and 0 of 416 claims cited any part of it (measured 2026-10-01), because
@@ -62,7 +62,7 @@ nothing recorded the ask and `close --limit` accepted any string.
 ## Rule versions
 
 `state.json` `rules` is the line's format version. `init` writes `RULES`, the
-newest set (`hooks/tezgah_research.py:144`). Each set keeps its own gate. Rules 2
+newest set (`hooks/tezgah_research.py::RULES`). Each set keeps its own gate. Rules 2
 are the standards rules. Rules 3 add the ask contract. Rules 4 add the protocol
 sections below. A bump never weakens an older set.
 
@@ -113,9 +113,9 @@ Older lines keep the word rule.
 
 | Path | Holds |
 |---|---|
-| `state.json` | the question, the phase (`bootstrap`/`inner`/`outer`/`concluded`), the direction, the locked evaluation and its optional second gate (`capability_tolerance`, `counter_metric`), the session events (`PHASES`, `hooks/tezgah_research.py:106`), `rules` (the rule set `init` opened it under, `RULES`), `deliverable` (`kind`, `path`, `ask`, `min_variants`), `supersedes` for a new version of an older line, and `closed` once `close` records a deliberate limit. The phase is the author's declaration; `derived_phase` (`tezgah_research.py:3695`) reads the *other* authority beside it from the line's own artifacts, and the checker names the two disagreeing |
+| `state.json` | the question, the phase (`bootstrap`/`inner`/`outer`/`concluded`), the direction, the locked evaluation and its optional second gate (`capability_tolerance`, `counter_metric`), the session events (`PHASES`, `hooks/tezgah_research.py::PHASES`), `rules` (the rule set `init` opened it under, `RULES`), `deliverable` (`kind`, `path`, `ask`, `min_variants`), `supersedes` for a new version of an older line, and `closed` once `close` records a deliberate limit. The phase is the author's declaration; `derived_phase` (`hooks/tezgah_research.py::derived_phase`) reads the *other* authority beside it from the line's own artifacts, and the checker names the two disagreeing |
 | `log.md` | the decision log, newest last: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
-| `findings.md` | the four sections every line answers, named by `FINDINGS_SECTIONS` (`hooks/tezgah_research.py:116`) |
+| `findings.md` | the four sections every line answers, named by `FINDINGS_SECTIONS` (`hooks/tezgah_research.py::FINDINGS_SECTIONS`) |
 | `claims.jsonl` | one JSON object per row: `statement`, `falsification`, `proof`, `provenance`, `status`, `kind`, `scope` (what the claim's numbers were measured on, which may not be wider than the rows it rests on), and `supersedes` when the row replaces an earlier claim |
 | `predictions.jsonl` | one JSON object per row: `commit` (a 40-character sha the row is bound to), `claim` (an id the line holds, or empty when the prediction stands alone), `metric`, `value_before`, `value_after`, `falsifier`, `components` (the keys of the components the change touches, read from `hooks/tezgah_components.py`), and `granted_by` when a human granted what the frozen paths below forbid |
 | `experiments/<hypothesis>/protocol.md` | what the change is, what it predicts, what result would falsify it, why - committed before the run |
@@ -129,12 +129,12 @@ Older lines keep the word rule.
 | `to_human/review.json` | the six-dimension review by a `reviewer` other than the `producer`, owed once a report exists |
 
 `init` writes the first four plus the three directories and never overwrites a
-file that exists (`init`, `tezgah_research.py:4628`); `predictions.jsonl` is not
+file that exists (`init`, `hooks/tezgah_research.py::init`); `predictions.jsonl` is not
 one of them, because a file that exists without a row is a line that looks like
 it predicted something - it appears with the first `predict` the line records,
 and `check` reads an absent one as no rows rather than as a missing file. A slug
 is lowercase letters, digits and dashes (`valid_slug`,
-`tezgah_research.py:408`), because it is the directory name `check`, `status` and
+`hooks/tezgah_research.py::valid_slug`), because it is the directory name `check`, `status` and
 `claim` look for.
 
 ## One open line at a time
@@ -182,25 +182,25 @@ stated in the rule's own comment.
 
 `bin/tezgah-research` is the only writer and the only reader of the workspace;
 the check a session runs from the shell is the same function the session note
-calls (`check_line`, `tezgah_research.py:3616`).
+calls (`check_line`, `hooks/tezgah_research.py::check_line`).
 
 | Command | What it does | Exit |
 |---|---|---|
 | `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
-| `tezgah-research check [<slug>] [--json] [--strict] [--orx]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `tezgah_research.py:4055`) | 0 clean, 1 a line failed a rule or names no line |
-| `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `tezgah_research.py:4009`) | 0 |
-| `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py:4033-4054`) | 0, 2 misuse |
+| `tezgah-research check [<slug>] [--json] [--strict] [--orx]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`) | 0 clean, 1 a line failed a rule or names no line |
+| `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `hooks/tezgah_research.py::summary`) | 0 |
+| `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py::across`) | 0, 2 misuse |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
-| `tezgah-research predict <slug>` | reads one prediction row from stdin and either appends it under the same lock or refuses it with one reason per problem; a row whose `commit` git cannot place is appended with the warning printed, which is the fail-open `check` uses, and a row written now has to name at least one component the manifest defines (`append_prediction`, `tezgah_research.py:4891`) | 0, 1 refused, 2 misuse |
-| `tezgah-research components [--json]` | the per-component report: one bucket per component the manifest defines, in the manifest's own order, then any key a row names that the manifest does not, each holding the prediction rows that name it and each row's state, and last the rows that name no component; it prints the number of components and rows it read (`component_report`, `tezgah_research.py:5055`) | 0, 2 misuse |
-| `tezgah-research migrate <slug> [--dry-run]` | derives the fields a line written before these rules cannot carry, prints what it derived and what it could not, and is idempotent (`migrate`, `tezgah_research.py:4123`) | 0, 2 misuse |
-| `tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "..."] [--scope real\|fixture\|derived] [--fixture "<what was generated>"]` | keeps the receipt: runs `orx logs <runId>`, writes `raw/<runId>.log`, appends the results row `{"source": "orx:<runId>", ...}` and the scope and fixture description the filer states (`source_run`, `tezgah_research.py:4408`). A `--scope fixture` filed without `--fixture` still writes the row and prints the field it still owes, so the tool is never the thing that makes its own checker warn silently; a given `--fixture` that is empty is misuse | 0, 1 nothing filed, 2 without orx |
+| `tezgah-research predict <slug>` | reads one prediction row from stdin and either appends it under the same lock or refuses it with one reason per problem; a row whose `commit` git cannot place is appended with the warning printed, which is the fail-open `check` uses, and a row written now has to name at least one component the manifest defines (`append_prediction`, `hooks/tezgah_research.py::append_prediction`) | 0, 1 refused, 2 misuse |
+| `tezgah-research components [--json]` | the per-component report: one bucket per component the manifest defines, in the manifest's own order, then any key a row names that the manifest does not, each holding the prediction rows that name it and each row's state, and last the rows that name no component; it prints the number of components and rows it read (`component_report`, `hooks/tezgah_research.py::component_report`) | 0, 2 misuse |
+| `tezgah-research migrate <slug> [--dry-run]` | derives the fields a line written before these rules cannot carry, prints what it derived and what it could not, and is idempotent (`migrate`, `hooks/tezgah_research.py::migrate`) | 0, 2 misuse |
+| `tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "..."] [--scope real\|fixture\|derived] [--fixture "<what was generated>"]` | keeps the receipt: runs `orx logs <runId>`, writes `raw/<runId>.log`, appends the results row `{"source": "orx:<runId>", ...}` and the scope and fixture description the filer states (`source_run`, `hooks/tezgah_research.py::source_run`). A `--scope fixture` filed without `--fixture` still writes the row and prints the field it still owes, so the tool is never the thing that makes its own checker warn silently; a given `--fixture` that is empty is misuse | 0, 1 nothing filed, 2 without orx |
 | `tezgah-research compare <slug> <decision>` | reads one variants x criteria cell from stdin and appends it to `decisions/<decision>/comparison.jsonl` under the lock, or refuses it by the rule `check` applies (`append_comparison` and `comparison_problems`, `hooks/tezgah_research.py`); it notes when `criteria.json` is not committed yet | 0, 1 refused, 2 misuse |
 | `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md` (`close_line`) | 0, 1 unreadable state, 2 misuse |
 
 Exit code 2 is always misuse, so a caller can tell it from a line that fails the
-checks (`misuse`, `bin/tezgah-research:84`). `check` asks nothing at all - no
+checks (`misuse`, `bin/tezgah-research::misuse`). `check` asks nothing at all - no
 network, no model - so its answer is reproducible on a machine with no
 credential; only `--orx` asks the one question that leaves the machine.
 
@@ -211,9 +211,9 @@ and it needs them as two commits. Whether they are is a question about the two
 files, not about the line's directory: an ignore rule can cover the directory
 while the pair is tracked, and a directory that is tracked says nothing about the
 results inside it. `_check_tracking`
-(`tezgah_research.py:2413`) therefore probes each experiment's
+(`hooks/tezgah_research.py::_check_tracking`) therefore probes each experiment's
 `protocol.md` and `results.jsonl` with `_ignored`
-(`tezgah_research.py:551`) - the plain question *can `git add` stage
+(`hooks/tezgah_research.py::_ignored`) - the plain question *can `git add` stage
 this?*, which git's `check-ignore` answers as no for a path the index already
 holds - and reports the pair that is ignored.
 
@@ -244,7 +244,7 @@ is placed only in the project's history.
 
 ### What the order rule accepts
 
-`_check_protocol_order` (`tezgah_research.py:2554`) accepts one of two proofs.
+`_check_protocol_order` (`hooks/tezgah_research.py::_check_protocol_order`) accepts one of two proofs.
 
 **(A) the add-before-add rule.** The commit that added `protocol.md` must be a
 *strict* ancestor, in HEAD's lineage, of the commit that added `results.jsonl` -
@@ -311,14 +311,14 @@ can tell a proven order from a re-rooted one.
 
 **What history a row counts in.** Each comparison stays inside one repository's
 history: the project's commits in the project's, the private `.tezgah`
-repository's in its own (`is_ancestor`, `tezgah_research.py:871`). A project
+repository's in its own (`is_ancestor`, `hooks/tezgah_research.py::is_ancestor`). A project
 commit and a private-repository commit are two unrelated histories whose shas
 alone order nothing - the guess that any project commit precedes any private one
 was removed, and a pair the graph cannot order is reported as undecided, never
 passed; the one cross-history order kept is the import exception in (A). A
 prediction's `commit` is placed in the project's history, and the bridge
 extends that history back past the rewrite when `git merge-base --is-ancestor
-<commit> <anchor_sha>` holds (`_bridged_commit`, `tezgah_research.py:913`); a
+<commit> <anchor_sha>` holds (`_bridged_commit`, `hooks/tezgah_research.py::_bridged_commit`); a
 commit reachable only from an unrelated tag, such as a benchmark pin, is not
 placed and stays refused. Neither rule has a waiver.
 
@@ -339,7 +339,7 @@ are missing:
 A candidate then has to pass both gates - inside the tolerance **and** an
 improvement on the counter-metric - and the survivors are compared against each
 other on the Pareto frontier instead of by the sign of a single number
-(`_check_evaluation`, `tezgah_research.py:1215`, and the two paragraphs the skill
+(`_check_evaluation`, `hooks/tezgah_research.py::_check_evaluation`, and the two paragraphs the skill
 carries where a session reads the loop).
 
 The rule exists for two failures this layer has already paid for. **A candidate
@@ -368,37 +368,37 @@ what a session mid-flight must not have, so the default stays `warn`.
 
 Refused:
 
-- a required file missing (`STATE_FILES`, `hooks/tezgah_research.py:117`), a
+- a required file missing (`STATE_FILES`, `hooks/tezgah_research.py::STATE_FILES`), a
   `state.json` that does not parse, no question, or a `phase`/`direction` outside
-  its enum (`_check_state`, `tezgah_research.py:1139`);
+  its enum (`_check_state`, `hooks/tezgah_research.py::_check_state`);
 - `evaluation.metric`, `evaluation.baseline` or `evaluation.locked_at` empty
   once `phase != "bootstrap"` - a criterion chosen after seeing the results is not
-  a criterion (`_check_evaluation`, `tezgah_research.py:1215`) - or an
+  a criterion (`_check_evaluation`, `hooks/tezgah_research.py::_check_evaluation`) - or an
   `environment` that is not the object it is optional as, or a
   `capability_tolerance`/`counter_metric` that is present and names nothing - an
   empty string, a blank one, or a value of the wrong type. The two-gate pair is
   refused in that state only: an absent key is a line that locks one metric, which
   is the ordinary shape and every line in this tree, so nothing here fires on the
-  absence (`_check_evaluation`, `tezgah_research.py:1215`);
+  absence (`_check_evaluation`, `hooks/tezgah_research.py::_check_evaluation`);
 - a `sessions[]` entry that is not an object, one whose `date` is empty, or one
-  whose `tag` is outside `PROVENANCE` (`hooks/tezgah_research.py:108`): an
+  whose `tag` is outside `PROVENANCE` (`hooks/tezgah_research.py::PROVENANCE`): an
   untagged inference reads as the user's word. The older `{date, events: [...]}`
   shape carries the tag on each event, and each of those is checked the same way;
 - a `findings.md` that does not answer all four sections
-  (`_check_findings`, `tezgah_research.py:1356`);
+  (`_check_findings`, `hooks/tezgah_research.py::_check_findings`);
 - a claim that states nothing, carries no falsification criterion
-  (`_check_claims`, `tezgah_research.py:1763`) or cites no proof; a proof
+  (`_check_claims`, `hooks/tezgah_research.py::_check_claims`) or cites no proof; a proof
   naming no artifact at all, whatever the kind; a `kind` outside `KINDS`; an
   `evidence` claim naming nothing the line produced, a `literature` claim citing
   no note under `literature/`, a `derivation` token the line does not hold
-  (`_check_proof`, `tezgah_research.py:1947`); a token the line never
-  produced (`_resolves`, `tezgah_research.py:1465`); a `provenance` or
+  (`_check_proof`, `hooks/tezgah_research.py::_check_proof`); a token the line never
+  produced (`_resolves`, `hooks/tezgah_research.py::_resolves`); a `provenance` or
   `status` outside its enum;
 - a claim whose `supersedes` is neither a claim id nor a list of them, or that
   names an id no claim in the line carries
-  (`_check_supersedes`, `tezgah_research.py:1868`): a relation to nothing is
+  (`_check_supersedes`, `hooks/tezgah_research.py::_check_supersedes`): a relation to nothing is
   the same as none, and the write path refuses it too
-  (`_supersedes`, `tezgah_research.py:1895`);
+  (`_supersedes`, `hooks/tezgah_research.py::_supersedes`);
 - a prediction row that names no `commit` or a `commit` that is not a
   40-character sha, one whose `commit` is not an ancestor of HEAD, one whose
   `metric` or `value_before` carries no number to move, one with no `falsifier`,
@@ -406,11 +406,11 @@ Refused:
   is not a non-empty list of keys the manifest defines - a key nothing defines
   cannot attribute the change to a component, which is what the field is for, and
   the write path refuses both of those the same way
-  (`prediction_problems`, `tezgah_research.py:4750`); a row whose commit changed
+  (`prediction_problems`, `hooks/tezgah_research.py::prediction_problems`); a row whose commit changed
   a **frozen** path is refused unless it carries a human `granted_by`, and the
   frozen set is one module-level tuple, `FROZEN_PATHS`
-  (`hooks/tezgah_research.py:4704-4710`), read only through `_frozen`
-  (`tezgah_research.py:4714`) so the write path and the checker cannot drift
+  (`hooks/tezgah_research.py::FROZEN_PATHS`), read only through `_frozen`
+  (`hooks/tezgah_research.py::_frozen`) so the write path and the checker cannot drift
   apart: `hooks/tezgah_gate.py` and `hooks/tezgah_integrity.py` (the verifier and
   the ledger's write path), `hooks/tezgah_research.py` (this module - the
   machinery that decides the rule, which the loop it judges may not edit), any
@@ -419,29 +419,29 @@ Refused:
 - an `orx:<runId>` proof token with no `raw/<runId>.log` under the line or the
   repository;
 - an experiment with no `protocol.md`, results with no `analysis.md`
-  (`_check_experiments`, `tezgah_research.py:2235`), or a git history in
+  (`_check_experiments`, `hooks/tezgah_research.py::_check_experiments`), or a git history in
   which `protocol.md` entered after `results.jsonl`, entered in the same commit,
   or changed after the run;
 - a `results.jsonl` line that does not parse or is not an object, a row whose
   `source` is present and blank, or a `fixture`-scoped row whose `fixture`
   description is present and empty or not a string - the row claims the field and
-  names nothing (`_check_rows`, `tezgah_research.py:2456`);
+  names nothing (`_check_rows`, `hooks/tezgah_research.py::_check_rows`);
 - a row or a claim whose `scope` is present and outside `SCOPES` (`real`,
   `fixture`, `derived`) - a label nothing shares is a label no reader can weigh -
   or a claim that declares `real` over rows that all record `fixture`: the field is
   what the producer saw, and a claim may not claim a wider one than its evidence
-  (`_check_claim_scope`, `tezgah_research.py:1603`); the write path refuses the
-  same two (`claim_problems`, `tezgah_research.py:2073`);
+  (`_check_claim_scope`, `hooks/tezgah_research.py::_check_claim_scope`); the write path refuses the
+  same two (`claim_problems`, `hooks/tezgah_research.py::claim_problems`);
 - `literature/` holding notes and no `INDEX.jsonl` at all, an INDEX line that
   does not parse or is not an object, an INDEX row naming no note or naming a
   file `literature/` does not hold, a `class` outside `formal`/`grey`, or a note
-  the index does not name (`_check_literature`, `tezgah_research.py:2634`;
-  `_read_index`, `tezgah_research.py:2678`);
+  the index does not name (`_check_literature`, `hooks/tezgah_research.py::_check_literature`;
+  `_read_index`, `hooks/tezgah_research.py::_read_index`);
 - a `review.json` that does not parse, carries no `dimensions` or `findings`, a
   dimension missing or outside 1-5, a `severity` outside
   `critical`/`major`/`minor`/`suggestion`, a finding targeting no file or quoting
   nothing, or a finding whose `quote` does not occur verbatim in its `target`
-  (`_check_review`, `tezgah_research.py:2743`).
+  (`_check_review`, `hooks/tezgah_research.py::_check_review`).
 
 Warned, and refused under `--strict` - each is the honest state of an artifact
 this layer cannot decide on, not a defect:
@@ -450,24 +450,24 @@ this layer cannot decide on, not a defect:
   a probe run against a generated repository and a measurement of the running
   system read identically once the run is over - so this is reported once per file
   with the count, and `--strict` refuses it (`_check_rows`,
-  `tezgah_research.py:2456`). The same class as a row written before `source` did:
+  `hooks/tezgah_research.py::_check_rows`). The same class as a row written before `source` did:
   the fix is the producer's to write, and every rule here only names it;
 - a row that declares `scope: fixture` and does not say what was generated: the
   scope names the class and the field beside it names the input, so a row written
   before this one warns with the count and `--strict` refuses it - a class a reader
   cannot size is not an input they can weigh (`_check_rows`,
-  `tezgah_research.py:2456`);
+  `hooks/tezgah_research.py::_check_rows`);
 - a claim resting on a fixture row that declares no scope of its own
-  (`_check_claim_scope`, `tezgah_research.py:1603`), because a reader of the claim
+  (`_check_claim_scope`, `hooks/tezgah_research.py::_check_claim_scope`), because a reader of the claim
   alone takes a generated input for the running system; declaring `fixture` is the
   whole fix;
 - a claim that declares `real` over rows that mix one fixture row with real ones
-  (`_check_claim_scope`, `tezgah_research.py:1603`), naming the experiment(s) the
+  (`_check_claim_scope`, `hooks/tezgah_research.py::_check_claim_scope`), naming the experiment(s) the
   fixture rows are in: the all-fixture case is the refusal above, and under-declaring
   is the safe direction here because the declaration is a warning to the reader, so
   a mixed claim that says `real` hides the half that is not the running system;
 - a number a claim asserts that the artifacts its proof names do not contain
-  (`_check_claim_numbers`, `tezgah_research.py:1653`): 80 of this repository's own 82
+  (`_check_claim_numbers`, `hooks/tezgah_research.py::_check_claim_numbers`): 80 of this repository's own 82
   numeric claims are fully contained under this reader, so a refusal would refuse the
   one or two that are not wrong - a proportion computed in the sentence, a count
   restated in words - and what the warning buys is the number and the artifact,
@@ -483,9 +483,9 @@ this layer cannot decide on, not a defect:
   number - a claim's `10` is contained by an artifact holding `10000` - so the
   warning is a consistency check and not a proof that the number was measured;
 - a concluded line's `report.md` carrying a fixture-scoped claim and never saying
-  `fixture` anywhere in it (`_check_report`, `tezgah_research.py:2820`);
+  `fixture` anywhere in it (`_check_report`, `hooks/tezgah_research.py::_check_report`);
 - a prediction whose `commit` git cannot place against HEAD, or whose commit git
-  cannot read at all (`commit_paths`, `tezgah_research.py:4730`): the row may name
+  cannot read at all (`commit_paths`, `hooks/tezgah_research.py::commit_paths`): the row may name
   a real change in a shallow clone or a repository git cannot read here, so the
   question is unverified rather than answered - the same class as a pair the
   order rule cannot order - and `--strict` is what refuses it. The write path
@@ -493,7 +493,7 @@ this layer cannot decide on, not a defect:
   the checker only warns about would be the stricter of two judges that have to
   agree;
 - a prediction row that carries no `components` at all
-  (`prediction_problems`, `tezgah_research.py:4750`): every row in this
+  (`prediction_problems`, `hooks/tezgah_research.py::prediction_problems`): every row in this
   repository predates the field, and which component an old change touched cannot
   be recovered from the row afterwards, so the class is the warn one and
   `--strict` refuses it. The asymmetry is the only one the field has and it is
@@ -503,7 +503,7 @@ this layer cannot decide on, not a defect:
 - a pair the order rule compares that no repository can commit, so the
   protocol order will never be decidable for it; the message names the
   `git -C .tezgah add -f <path>` or `tezgah-research commit` that fixes it (`_check_tracking`,
-  `tezgah_research.py:2413`);
+  `hooks/tezgah_research.py::_check_tracking`);
 - a `protocol.md` that answers neither what it predicts nor what would falsify it
   - the marker is a prediction word and a falsifier word anywhere in the file,
   read as prose and not by shape, and a sentence that *disclaims* one ("this file
@@ -511,21 +511,21 @@ this layer cannot decide on, not a defect:
   the two questions it could not find. Three of this repository's own protocols
   are briefs for a read-only agent and carry no prediction by design, which is why
   the class is the warn one (`_check_protocol`,
-  `tezgah_research.py:2280`; `_protocol_answers`,
-  `tezgah_research.py:2265`);
+  `hooks/tezgah_research.py::_check_protocol`; `_protocol_answers`,
+  `hooks/tezgah_research.py::_protocol_answers`);
 - a concluded line's `to_human/report.md` that names no limit anywhere, or is not
   written at all - there is no report in which to state what the evidence does not
-  show (`_check_report`, `tezgah_research.py:2820`; the marker is the
+  show (`_check_report`, `hooks/tezgah_research.py::_check_report`; the marker is the
   phrase a limit is stated with - "does not show", "did not look at",
   "limitation", "non-goal", "open question", "unmeasured" - and a heading and a
-  sentence count alike, `REPORT_LIMITS`, `hooks/tezgah_research.py:219`);
+  sentence count alike, `REPORT_LIMITS`, `hooks/tezgah_research.py::REPORT_LIMITS`);
 - a `## Patterns` bullet in `findings.md` naming no source - `[Cnn]`, a
   `literature/...` path or an `orx:<id>` (`_check_patterns`,
-  `tezgah_research.py:1388`);
+  `hooks/tezgah_research.py::_check_patterns`);
 - a claim with no `kind` at all, the pre-migration state `migrate` closes;
 - a claim that supersedes another: the relation is reported naming both ids, so a
   reader who opens the older claim alone is told the line has replaced it
-  (`_check_supersedes`, `tezgah_research.py:1868`);
+  (`_check_supersedes`, `hooks/tezgah_research.py::_check_supersedes`);
 - an `evidence` claim whose experiment's `results.jsonl` is missing or holds no
   row;
 - a `results.jsonl` row with no `source` key at all: the rows written before the
@@ -533,27 +533,27 @@ this layer cannot decide on, not a defect:
   the fabrication the rule exists to catch;
 - a `grey` source with no `quality` note, an INDEX row verified by fewer than two
   records, or an INDEX row recording no `id`, `source` or `inclusion`
-  (`_index_fields`, `tezgah_research.py:2715`);
+  (`_index_fields`, `hooks/tezgah_research.py::_index_fields`);
 - `review.json` missing on a line whose `phase` is `concluded` - a review is a
   judgement, so no migration can write one for the lines that concluded before
   the rule existed.
 
 One warn is **not** promoted by `--strict`, and it is the only one: a `phase`
 declared in `state.json` behind the phase the line's own artifacts show
-(`_check_derived_phase`, `tezgah_research.py:3722`). The field is the author's
+(`_check_derived_phase`, `hooks/tezgah_research.py::_check_derived_phase`). The field is the author's
 declared intent and `_check_report` and `_check_review` read it, so a derivation
 simpler than that judgement must never fail a line the field says is fine. What
 it does say is the "two authorities" defect this module names in its own source:
 a field maintained by hand beside artifacts that are not, where a line whose
 protocols, results, claims, findings, report and review are all written can still
 report `inner` and no reader is told. `derived_phase`
-(`tezgah_research.py:3695`) walks the artifacts the line already holds, in
+(`hooks/tezgah_research.py::derived_phase`) walks the artifacts the line already holds, in
 `PHASES` vocabulary, and takes the furthest rung that holds: the question alone is
 `bootstrap`; something run is `inner` - an experiment with a protocol and at
 least one committed `results.jsonl` row (`_measured`,
-`tezgah_research.py:3674`), or a claim recorded; the results folded back into
+`hooks/tezgah_research.py::_measured`), or a claim recorded; the results folded back into
 `findings.md` are `outer`, read as content under one of its four sections
-(`_findings_written`, `tezgah_research.py:3665`); and the two artifacts a
+(`_findings_written`, `hooks/tezgah_research.py::_findings_written`); and the two artifacts a
 concluded line owes, `to_human/report.md` and `to_human/review.json`, are
 `concluded`. What each rung *is* is not decided here - whether a protocol answers
 its two questions, or a review carries six scored dimensions, stays
@@ -570,17 +570,17 @@ leaves it alone.
 
 ## The write path and the checker stay in step
 
-`claim_problems` (`tezgah_research.py:2073`) applies exactly the rules
+`claim_problems` (`hooks/tezgah_research.py::claim_problems`) applies exactly the rules
 `check` applies to a row, so the writer can never refuse a claim the checker
 would accept: a statement, a falsification criterion, a proof naming an artifact
 with a `kind`, a `provenance` in `PROVENANCE`, a `status` in `STATUSES`, every
 cited path resolving under the line or the repository, and a `supersedes` id the
 line holds - the ids already in `claims.jsonl`, read by `_claim_ids`
-(`tezgah_research.py:1917`). The append itself takes an exclusive `flock`
-with a 1 s bound (`_locked`, `tezgah_research.py:2157`), because two
+(`hooks/tezgah_research.py::_claim_ids`). The append itself takes an exclusive `flock`
+with a 1 s bound (`_locked`, `hooks/tezgah_research.py::_locked`), because two
 sessions recording a claim at once is normal and a torn line is not. **The lock is
 taken before the judgement, and the ids it judges are read from the descriptor the
-lock is held on** (`_claim_ids`'s `handle` argument, `tezgah_research.py:1917`):
+lock is held on** (`_claim_ids`'s `handle` argument, `hooks/tezgah_research.py::_claim_ids`):
 judging a relation and then locking lets another session land the very id the check
 had just found absent, so the writer refuses a claim the committed file accepts and
 its proof describes an instant its append does not commit to. Three rules
@@ -593,10 +593,10 @@ refuses it on both. A refusal never leaves an empty `claims.jsonl` behind: the l
 decides when it has claims, and an empty file reads as "no claims recorded yet"
 where an absent one reads as a missed requirement.
 
-`prediction_problems` (`tezgah_research.py:4750`) is the same arrangement for the
+`prediction_problems` (`hooks/tezgah_research.py::prediction_problems`) is the same arrangement for the
 prediction rows and the single place the two readings of that rule meet: `check`
 calls it for each row of `predictions.jsonl` (`_check_predictions`,
-`tezgah_research.py:4865`) and `predict` calls it inside the append lock, so a
+`hooks/tezgah_research.py::_check_predictions`) and `predict` calls it inside the append lock, so a
 row's verdict is one function's and the writer cannot be stricter than the
 checker. The two asymmetries are deliberate and named: `check_line`'s `git=False`,
 which is what the session note pays for, skips the commit half, so the shape rules
@@ -605,25 +605,25 @@ is what refuses a row being written now that names no `components` - a row that 
 already in the file is the warning class above. The append takes the same
 exclusive `flock` with the 1 s bound and the same committed-size repair the claim
 path uses, and `_locked` now takes the name of the file it refuses
-(`tezgah_research.py:2157`).
+(`hooks/tezgah_research.py::_locked`).
 
 The row writer is the third site of the same order (`_append_row`,
-`tezgah_research.py:4499`): it takes the lock, then judges the row with
-`row_problems` (`tezgah_research.py:4464`) - exactly the hard refusals `_check_rows`
+`hooks/tezgah_research.py::_append_row`): it takes the lock, then judges the row with
+`row_problems` (`hooks/tezgah_research.py::row_problems`) - exactly the hard refusals `_check_rows`
 applies to a row's own shape (an object, a non-empty `source`, a `scope` in
 `SCOPES`, a non-empty `fixture` description), and deliberately not the warn class a
 pre-rule row is in, because a writer stricter than the checker refuses what the
 checker only reports.
 
 **An append starts at the committed boundary.** `committed_size`
-(`hooks/tezgah_integrity.py:681-706`) is the offset just past the last `\n` in a file,
-and `truncate_to_committed` (`hooks/tezgah_integrity.py:707-717`) cuts a descriptor
+(`hooks/tezgah_integrity.py::committed_size`) is the offset just past the last `\n` in a file,
+and `truncate_to_committed` (`hooks/tezgah_integrity.py::truncate_to_committed`) cuts a descriptor
 back to it; all three writers truncate first and write after
-(`append_claim`, `tezgah_research.py:2176`; `_append_row`; `append_prediction`,
-`tezgah_research.py:4891`). A fragment a killed writer left behind - no newline
+(`append_claim`, `hooks/tezgah_research.py::append_claim`; `_append_row`; `append_prediction`,
+`hooks/tezgah_research.py::append_prediction`). A fragment a killed writer left behind - no newline
 ever terminated it - is then neither read as a record nor appended beside as one.
 Every JSONL reader here stops at the same boundary (`_committed_text`,
-`tezgah_research.py:1503`; `_rows`, `tezgah_research.py:1528`), so a reader and a
+`hooks/tezgah_research.py::_committed_text`; `_rows`, `hooks/tezgah_research.py::_rows`), so a reader and a
 writer agree about where the records end; a record that *did* terminate and does
 not parse is still refused, because the boundary hides the tail and not the file.
 Before this, the claim writer terminated the fragment instead and the research
@@ -631,13 +631,13 @@ reader read to the last byte, so one kill during one append refused a line for
 good while the ledger reader skipped the identical damage.
 
 `kind` is what the proof has to be, and it decides what the proof must name -
-`KINDS`, `hooks/tezgah_research.py:123`: an `evidence` claim has to name an
+`KINDS`, `hooks/tezgah_research.py::KINDS`: an `evidence` claim has to name an
 artifact of the line itself (a repository file is not the run it rests on), and
 the experiment it names has to carry rows; a `literature` claim has to cite a
 note under `literature/`; a `code` claim resolves anywhere in the repository; a
 `derivation` claim resolves inside the line. `migrate` derives the kind per claim
 from the proof's own tokens, with the same literature test the rule applies
-(`derive_kind`, `tezgah_research.py:2050`), and reports what it could not
+(`derive_kind`, `hooks/tezgah_research.py::derive_kind`), and reports what it could not
 derive rather than inventing a value.
 
 ## The per-component report
@@ -648,41 +648,41 @@ name it and their state. The manifest it groups by is
 `hooks/tezgah_components.py` - the one definition of what a component is, whose
 `keys()` the rules read and whose `COMPONENTS` the report reads for the labels -
 and it is imported inside the call that needs it (`_components`,
-`tezgah_research.py:4982`), so the path a session pays for at import time never
+`hooks/tezgah_research.py::_components`), so the path a session pays for at import time never
 loads it.
 
 The state of a row is read, never guessed (`_prediction_state`,
-`tezgah_research.py:5019`): `falsified` when the `claim` the row names is
+`hooks/tezgah_research.py::_prediction_state`): `falsified` when the `claim` the row names is
 `refuted` in the line's own `claims.jsonl`, because the line's own rows are the
 only record of a verdict; `unmeasured` when `value_after` is empty, which is the
 round that has not run; `held` when it is filled, which is the number that came
 back. A row whose `claim` the line does not hold decides nothing - the filled
 `value_after` is not a verdict - so it stays `unmeasured` and the report prints
-why, beside the row. `PREDICTION_STATES` (`hooks/tezgah_research.py:4946-4948`) is
+why, beside the row. `PREDICTION_STATES` (`hooks/tezgah_research.py::PREDICTION_STATES`) is
 that vocabulary, and the headers count it.
 
 It is a **report, not a gate**: it exits 0 whatever the rows look like, because
 the refusals belong to `check` and a second judge with a different verdict is the
 disagreement this module exists to avoid. What it prints first - the number of
 components and of rows it read (`components_text`,
-`tezgah_research.py:5089`) - is what tells an empty manifest from a line that has
+`hooks/tezgah_research.py::components_text`) - is what tells an empty manifest from a line that has
 predicted nothing, and a key the manifest does not define is reported as a bucket
 of its own rather than dropped, so a hand-written row is visible.
 
 ## `migrate`: what the artifacts already hold
 
 Three derivations and nothing else (`migrate`,
-`tezgah_research.py:4123`): each claim's `kind` from the files its proof
+`hooks/tezgah_research.py::migrate`): each claim's `kind` from the files its proof
 names, each results row's `source` from the fields the row carries, and the
 `literature/INDEX.jsonl` rows from the notes.
 
 A row written before the `source` rule says where it came from in a field of its
-own, and `_migrate_rows` (`tezgah_research.py:4174`) reads exactly those:
+own, and `_migrate_rows` (`hooks/tezgah_research.py::_migrate_rows`) reads exactly those:
 `log` or `raw` is the receipt itself and is taken as written, `run` or `id` is
 the run the row came out of and is prefixed with the field it came from, so a
 reader can tell a run id from a row id (`ROW_SOURCE_FIELDS`,
-`hooks/tezgah_research.py:230`; `_row_source`,
-`tezgah_research.py:4154`). A row that carries none of the four is reported
+`hooks/tezgah_research.py::ROW_SOURCE_FIELDS`; `_row_source`,
+`hooks/tezgah_research.py::_row_source`). A row that carries none of the four is reported
 and left alone: a source invented for someone else's measurement is the
 fabrication the rule exists to catch. Both JSONL files are rewritten under the
 same exclusive lock `claim` appends under, and the run is idempotent.
@@ -697,23 +697,23 @@ supply stays unscoped, and `check` names it by count.
 
 The rule, conditionally: the prompt classifier arms `research` on a research
 question - the hints are the words a reader would use, not the tool's name
-(`PROMPT_HINTS`, `hooks/tezgah_context.py:90-300`) - and the armed paragraph is
-`RESEARCH` (`hooks/tezgah_policy.py:359-424`), which names `{RESEARCH_BIN}` (the
+(`PROMPT_HINTS`, `hooks/tezgah_context.py::PROMPT_HINTS`) - and the armed paragraph is
+`RESEARCH` (`hooks/tezgah_policy.py::RESEARCH`), which names `{RESEARCH_BIN}` (the
 installed `bin/tezgah-research`) and the `orx` manual step.
 
 The note, when orx is absent or a line is broken: a session is told that `orx` is
 not installed and to fall back to a host subagent rather than improvise the
-protocol (`context_for`, `hooks/tezgah_context.py:1689-1950`), and at session start and
+protocol (`context_for`, `hooks/tezgah_context.py::context_for`), and at session start and
 after a compaction a line with structural problems is named with its first error
 and the advice to run `check` before reporting a result (the note
-`research_broken` in `context_for`, `hooks/tezgah_context.py:1689-1950`).
+`research_broken` in `context_for`, `hooks/tezgah_context.py::context_for`).
 
 The mark: `research` in the status line. It is armed when `research-off` is
 absent and the research tooling is present (`health_segments`,
-`hooks/tezgah_context.py:2427-2498`) and turns used when a shell command really ran
+`hooks/tezgah_context.py::health_segments`) and turns used when a shell command really ran
 the layer - `orx` or `tezgah-research`
 in a command position, classified by the shared tokenizer
-(`shell_kind`, `hooks/tezgah_context.py:2041-2064`), so a command that merely mentions
+(`shell_kind`, `hooks/tezgah_context.py::shell_kind`), so a command that merely mentions
 either name marks nothing. That is the same reader every host's status segment
 uses ([status line](status-line.md)).
 
@@ -722,7 +722,7 @@ uses ([status line](status-line.md)).
 `research-off` is the kill switch: with it armed the `RESEARCH` paragraph is
 dropped, the session note is not built, and the mark reads `off` rather than
 armed. It removes the rule, not just the mark - the diff is in `core_split`,
-`hooks/tezgah_context.py:1226-1243` ([kill switch](glossary.md#kill-switch)).
+`hooks/tezgah_context.py::core_split` ([kill switch](glossary.md#kill-switch)).
 
 ## Source of truth
 

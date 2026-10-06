@@ -6,58 +6,46 @@
     "unjudged": 1
   },
   "docs/architecture.md": {
-    "unjudged": 83
+    "unjudged": 41
   },
   "docs/contract.md": {
-    "unjudged": 71
-  },
-  "docs/environment.md": {
-    "unjudged": 52
-  },
-  "docs/evidence.md": {
-    "unjudged": 107
-  },
-  "docs/feature-audit.md": {
-    "unjudged": 4
-  },
-  "docs/gate.md": {
-    "unjudged": 94
-  },
-  "docs/glossary.md": {
-    "unjudged": 91
-  },
-  "docs/hosts.md": {
-    "unjudged": 121
-  },
-  "docs/judge.md": {
-    "unjudged": 7
-  },
-  "docs/layers.md": {
     "unjudged": 20
   },
-  "docs/models.md": {
-    "unjudged": 4
-  },
-  "docs/operations.md": {
-    "unjudged": 142
-  },
-  "docs/research.md": {
+  "docs/environment.md": {
     "unjudged": 12
   },
+  "docs/evidence.md": {
+    "unjudged": 51
+  },
+  "docs/feature-audit.md": {
+    "unjudged": 3
+  },
+  "docs/gate.md": {
+    "unjudged": 51
+  },
+  "docs/glossary.md": {
+    "unjudged": 29
+  },
+  "docs/hosts.md": {
+    "unjudged": 96
+  },
+  "docs/layers.md": {
+    "unjudged": 16
+  },
+  "docs/operations.md": {
+    "unjudged": 102
+  },
   "docs/skills.md": {
-    "unjudged": 50
+    "unjudged": 31
   },
   "docs/status-line.md": {
-    "unjudged": 67
+    "unjudged": 47
   },
   "docs/testing.md": {
-    "unjudged": 76
+    "unjudged": 61
   },
   "docs/vision.md": {
-    "unjudged": 5
-  },
-  "hooks/tezgah_components.py": {
-    "unjudged": 1
+    "unjudged": 2
   },
   "hooks/tezgah_gate.py": {
     "unjudged": 1

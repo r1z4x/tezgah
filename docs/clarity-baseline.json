@@ -6,8 +6,8 @@
     "semicolons": 0
   },
   "docs/README.md": {
-    "long_sentences": 7,
-    "passive": 8,
+    "long_sentences": 6,
+    "passive": 7,
     "replace_words": 1,
     "semicolons": 4
   },
@@ -42,10 +42,10 @@
     "semicolons": 11
   },
   "docs/gate.md": {
-    "long_sentences": 69,
-    "passive": 33,
+    "long_sentences": 67,
+    "passive": 32,
     "replace_words": 1,
-    "semicolons": 48
+    "semicolons": 47
   },
   "docs/glossary.md": {
     "long_sentences": 51,
@@ -96,7 +96,7 @@
     "semicolons": 14
   },
   "docs/status-line.md": {
-    "long_sentences": 45,
+    "long_sentences": 44,
     "passive": 19,
     "replace_words": 0,
     "semicolons": 26
@@ -108,7 +108,7 @@
     "semicolons": 11
   },
   "docs/vision.md": {
-    "long_sentences": 10,
+    "long_sentences": 9,
     "passive": 7,
     "replace_words": 1,
     "semicolons": 12
