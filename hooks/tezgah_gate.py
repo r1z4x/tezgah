@@ -96,9 +96,10 @@ import re
 import shlex
 
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
-                              GIT_WRAPPER, HOOKS_KEY, PATCH_FILE,
-                              SECRET_PREFIXED, STEP_KINDS, WRITE_TOOLS,
-                              _blank_heredocs, _shell_segments, _turn_start,
+                              GIT_WRAPPER, HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
+                              PLAIN_TAIL, SECRET_PREFIXED, STEP_KINDS,
+                              WRITE_TOOLS, _blank_heredocs, _heredocs,
+                              _shell_lines, _shell_segments, _turn_start,
                               _unquoted_backticks, call_id, cut, events,
                               heredoc_bodies, mask, mcp_class, mcp_text, note,
                               prior_calls, scratch_target, shortcut_command,
@@ -1728,7 +1729,9 @@ def _held(origin):
 
 def _registration(real):
     """'shared' for a file tezgah writes entries into beside the user's,
-    'owned' for a hook file that is wholly tezgah's, else None."""
+    'owned' for a hook file that is wholly tezgah's, else None. A Claude
+    `settings*.json` counts in the user's own `~/.claude` or in a project under
+    a root, not in a fixture under /tmp or another temp HOME."""
     claude = HOST_DIRS["claude"]
     name = os.path.basename(real)
     shared = (os.path.join(HOST_DIRS["codex"], "hooks.json"),
@@ -1737,7 +1740,9 @@ def _registration(real):
               os.path.join(claude, "plugins", "installed_plugins.json"),
               os.path.join(claude, "plugins", "known_marketplaces.json"))
     if (name in ("settings.json", "settings.local.json")
-            and ".claude" in real.split(os.sep)) \
+            and ".claude" in real.split(os.sep)
+            and (os.path.dirname(real) == os.path.realpath(claude)
+                 or root_for(real))) \
             or real in {_real(p, None) for p in shared}:
         return "shared"
     owned = [os.path.join(HOST_DIRS["opencode"], d, "tezgah.js")
@@ -1766,7 +1771,10 @@ def _target_label(real, remove, origin):
     kind = _registration(real)
     if kind == "shared":
         return real
-    if kind or any(_under(real, tree) for tree in _install_trees(origin)):
+    # an install tree's own `.tezgah/` is the private workspace of a checkout
+    # used as the install, not code the hooks run
+    if kind or any(_under(real, tree) and not _under(real, os.path.join(tree, ".tezgah"))
+                   for tree in _install_trees(origin)):
         return "tezgah's hook wiring"
     if not name.endswith(".sample") and any(
             _under(real, os.path.join(top, ".git", "hooks")) for top in _tops(origin)):
@@ -1908,16 +1916,81 @@ def _unquote(word):
         return word.strip("'\"")
 
 
+# An escaped `"`, `'` or `\` outside single quotes, as one private-use character
+# each while shlex reads the line: shlex's non-posix mode knows no escape, so
+# `"a \"b\" c"` ended its word at the `\"`.
+_ESCAPES = {'\\"': "\ue000", "\\'": "\ue001", "\\\\": "\ue002"}
+_UNESCAPE = str.maketrans({v: k for k, v in _ESCAPES.items()})
+
+
+def _hide_escapes(line):
+    out, quote, i = [], None, 0
+    while i < len(line):
+        pair = line[i:i + 2]
+        if quote != "'" and pair in _ESCAPES:
+            out.append(_ESCAPES[pair])
+            i += 2
+            continue
+        if quote and line[i] == quote:
+            quote = None
+        elif not quote and line[i] in "'\"":
+            quote = line[i]
+        out.append(line[i])
+        i += 1
+    return "".join(out)
+
+
+def _blank_script_heredocs(text):
+    """`text` with the body of each heredoc fed to a non-shell interpreter
+    (`python3 - <<PY`) blanked even when its tag is unquoted, length and
+    newlines kept: that body is the interpreter's script, data to this rule
+    (SECURITY.md's interpreter residual). Only when bash would expand nothing
+    in it - no `$` and no backtick in the body - and nothing on the operator's
+    line before it opens a context (`HEREDOC_RISK`) or follows it on its line
+    (`PLAIN_TAIL`, and no quote there); a body handed to a shell stays
+    commands. The consumer is the last simple command before the operator,
+    read by a plain split, so a quote or a backslash before the operator on
+    its line, or a continued line above it, keeps the body visible: `bash -s
+    \\| python3 <<EOF` and `bash -s "x | python3 " <<EOF` hand it to bash. Its
+    word must be the bare interpreter name - no path, no env assignment - and
+    nothing earlier in the call may define a function or alias of that name
+    (`python3(){ bash; }`, `alias python3=bash`)."""
+    out = list(text)
+    for start, stop, _tag, _quoted, body, term, safe in _heredocs(text):
+        line = text.rfind("\n", 0, start) + 1
+        head = re.split(r"[;&|(]", text[line:start])[-1].split()
+        name = re.escape(head[0]) if head else ""
+        tail = PLAIN_TAIL.match(text, stop).end()
+        end = text.find("\n", stop)
+        if (safe or not term or not head
+                or head[0] not in INTERPRETERS - SHELL_NAMES
+                or re.search(r"[$`]", text[body:term[0]])
+                or re.search(r"[\\'\"]", text[line:start])
+                or re.search(r"['\"]", text[stop:end if end >= 0 else len(text)])
+                or re.search(r"\balias\b|\bfunction\s+%s\b|\b%s\s*\(\s*\)"
+                             % (name, name), text[:start])
+                or text[max(0, line - 2):line] == "\\\n"
+                or HEREDOC_RISK.search(text, line, start)
+                or tail < len(text) and text[tail] != "\n"):
+            continue
+        for k in range(body, term[0]):
+            if out[k] != "\n":
+                out[k] = " "
+    return "".join(out)
+
+
 def _shell_words(command):
     """The line as (word, operator?) pairs with quotes kept on each word, so a
     quoted `>` stays data: shlex in non-posix mode, heredoc bodies blanked, an
-    unquoted backtick read as `;`, a continued line joined and every line ended
-    by `;` - the way `_shell_segments` reads a line, minus dropping redirects. A
-    line shlex cannot read is read roughly rather than dropped."""
-    text = _unquoted_backticks(
-        _blank_heredocs(str(command or "")).replace("\\\n", " "))
+    unquoted backtick read as `;`, a continued line joined and every command
+    line ended by `;` - the way `_shell_segments` reads a line, minus dropping
+    redirects. A newline inside quotes does not end a line (`_shell_lines`), so
+    a multi-line `python3 -c '...'` is one word, not lines of commands. A line
+    shlex cannot read is read roughly rather than dropped."""
+    text = _unquoted_backticks(_blank_heredocs(_blank_script_heredocs(
+        str(command or ""))).replace("\\\n", " "))
     out = []
-    for line in re.split(r"\r\n|\r|\n", text):
+    for line in map(_hide_escapes, _shell_lines(text)):
         try:
             lex = shlex.shlex(line, posix=False, punctuation_chars=";&|()<>")
             lex.whitespace_split = True
@@ -1928,7 +2001,7 @@ def _shell_words(command):
         for word in words:
             if word.startswith("#"):
                 break  # bash: a comment starts a word
-            out.append((word, bool(SHELL_OPS.match(word))))
+            out.append((word.translate(_UNESCAPE), bool(SHELL_OPS.match(word))))
         out.append((";", True))
     return out
 
@@ -2122,6 +2195,21 @@ def shell_control(command, cwd, depth=0, origin=None):
         label = plain and _command_change(plain, where, depth, origin)
         if label:
             return label
+    # bash runs the `$( )` and backtick substitutions of an unquoted-tag
+    # heredoc body, whatever the consumer and whatever quotes the body holds,
+    # and the line reader above sees them as data (blanked or quoted)
+    text = str(command or "")
+    if "<<" in text and depth < 3:
+        from tezgah_context import _substitutions
+        for h in _heredocs(text):
+            if h[3]:
+                continue
+            for a, b in _substitutions(text, h[4], h[5][0] if h[5] else len(text)):
+                inner = text[a + (2 if text[a] == "$" else 1):b - 1]
+                for base in dict.fromkeys((cwd, where)):
+                    label = shell_control(inner, base, depth + 1, origin)
+                    if label:
+                        return label
     return None
 
 

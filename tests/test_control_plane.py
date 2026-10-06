@@ -341,6 +341,133 @@ class ControlPlane(unittest.TestCase):
                      "---\n\nBody.\n")
         self.assertIsNone(self.decide("Bash", {"command": "mkdir -p src/new"}))
 
+    def test_an_interpreters_script_is_data_and_a_shells_is_not(self):
+        # plan 050's replay of the real ledgers (2026-10-07), rows 9-16: a
+        # multi-line `python3 -c` was read line by line, so a probe list naming
+        # a switch, a `>=` in the script (row 10, after a `cd` into the
+        # evidence cache that writes nothing) or `'tezgah-capture'` in a regex
+        # (row 13) read as commands. A python heredoc body is the same data.
+        for command in (
+                # row 14 (class 1): a double-quoted script with `\"` inside
+                'python3 -B -c "\nimport tezgah_gate as g\n'
+                "cmds=['touch ~/.config/tezgah/verify-off',"
+                "': > ~/.config/tezgah/verify-off',"
+                "'python3 -c \\\"open(\\'/x/.config/tezgah/verify-off\\',\\'w\\')\\\"']\n"
+                'for c in cmds: print(bool(g.SHELL_WRITE.search(c)), repr(c))\n"',
+                # row 12 (class 1): a single-quoted script
+                "cd hooks && sed -n 1,2p tezgah_gate.py; python3 -c '\n"
+                "import tezgah_gate as G\n"
+                'for c in ["touch ~/.config/tezgah/pretooluse-off",'
+                '"mkdir -p ~/.config/tezgah && : > ~/.config/tezgah/verify-off"]:\n'
+                '    print(repr(c), G.write_paths({"command": c}))\n\'',
+                # class 1: a python heredoc whose tag is not quoted
+                "python3 - <<PY\nfor c in ['touch ~/.config/tezgah/verify-off']:\n"
+                "    print(open('a').read() > '~/.config/tezgah/verify-off')\nPY",
+                # row 10 (class 2)
+                "cd ~/.cache/tezgah/evidence && python3 -B -c '\n"
+                "import glob\nfor f in glob.glob(\"*.jsonl\"):\n"
+                "    d = open(f).read()\n    if len(d)>=200: continue\n'",
+                # row 13 (class 3)
+                "cd .tezgah && python3 -c \"\nimport re\n"
+                "s=open('analysis/review-014.json').read()\n"
+                "for m in re.finditer('tezgah-capture', s):\n"
+                "    print(s[max(0,m.start()-500):m.end()+300])\n\" | head -40"):
+            with self.subTest(command=command):
+                self.assertIsNone(self.decide("Bash", {"command": command}))
+        # class 4: a closed plan is not an open one (passed before the replay
+        # fix too; row 3 was refused by its trailing `git mv` of an open plan)
+        done = os.path.join(self.repo, ".tezgah", "plans", "done", "030-x.md")
+        for tool, inp in (("Edit", {"file_path": done, "old_string": "- [ ]",
+                                    "new_string": "- [x]"}),
+                          ("Write", {"file_path": done, "content": "x"}),
+                          ("Bash", {"command": "sed -i '' s/a/b/ " + done})):
+            with self.subTest(tool=tool, inp=inp):
+                self.assertIsNone(self.decide(tool, inp))
+        # a shell's script, a substitution, a command after the script, a
+        # heredoc whose `<<` is not one and a quoted command word still count
+        for command in ("bash -c '\ncd /tmp\ntouch ~/.config/tezgah/verify-off\n'",
+                        'sh -c "\necho hi\nrm ~/.config/tezgah/verify-off\n"',
+                        "bash <<EOF\ntouch ~/.config/tezgah/verify-off\nEOF",
+                        'python3 -c "\nprint(1)\n$(touch ~/.config/tezgah/verify-off)\n"',
+                        "python3 -c 'x=1\nprint(x)'\ntouch ~/.config/tezgah/verify-off",
+                        "python3 - <<PY\nprint(1)\nPY\ntouch ~/.config/tezgah/verify-off",
+                        "python3 - <<PY; touch ~/.config/tezgah/verify-off\nprint(1)\nPY",
+                        "python3 $((1<<PY))\ntouch ~/.config/tezgah/verify-off\nPY",
+                        'git commit -m "a \\"b\\"" && touch ~/.config/tezgah/verify-off',
+                        "echo \"it\\'s\" > ~/.config/tezgah/verify-off",
+                        "cd ~/.cache/tezgah/evidence && python3 -c 'print(1)' > out.txt",
+                        "'tezgah-capture' '{}'",
+                        "mv .tezgah/plans/open/041-x.md .tezgah/plans/done/",
+                        "git -C .tezgah mv plans/open/040-x.md plans/done/040-x.md"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+        # a heredoc whose consumer is a shell, though a plain split of its line
+        # names python: an escaped or quoted separator, a continued line
+        touch, hooks = "touch ~/.config/tezgah/verify-off", "rm -rf .git/hooks"
+        for head, body in (("bash -s x \\| python3 <<EOF", touch),
+                           ("bash -s x\\|python3 <<EOF", hooks),
+                           ("bash -s -- \\; python3 - <<EOF", touch),
+                           ("bash -s \\& python3 <<EOF", hooks),
+                           ("bash -s \\( python3 <<EOF", touch),
+                           ('bash -s "x | python3 " <<EOF', hooks),
+                           ('sh -s "a ; python3 " <<EOF', touch),
+                           ("zsh -s 'x | python ' <<EOF", hooks),
+                           ("bash -s \\\npython3 - <<EOF", touch),
+                           ("bash -s \\\n  python3 <<EOF", hooks)):
+            with self.subTest(head=head, body=body):
+                self.refused("Bash", {"command": "%s\n%s\nEOF" % (head, body)})
+        # bash runs the `$( )` and backtick substitutions of an unquoted-tag
+        # body, whatever the consumer and whatever quotes the body holds
+        for command in ("python3 - <<EOF\nprint('$(%s)')\nEOF" % touch,
+                        "python3 - <<EOF\nprint('`%s`')\nEOF" % hooks,
+                        "cat <<EOF > /tmp/x\n'$(%s)'\nEOF" % touch,
+                        "python3 - <<EOF\nx = \"$(%s)\"" % hooks):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+        # a quoted tag's body expands nothing: data
+        self.assertIsNone(self.decide("Bash", {
+            "command": "python3 - <<'EOF'\nprint('$(%s)')\nEOF" % touch}))
+        # the body is python's only when the consumer is plainly python: not a
+        # tail that hands python other code, a function or alias of that name,
+        # a path to some other binary, or a changed environment
+        for head in ("python3 <<EOF -c \"import os;os.execlp('bash','bash')\"",
+                     "python3(){ bash; }; python3 - <<EOF",
+                     "python3() { bash; }\npython3 - <<EOF",
+                     "function python3 { bash; }\npython3 - <<EOF",
+                     "cp /bin/bash ./python3 && ./python3 - <<EOF",
+                     "PATH=/tmp/evil python3 - <<EOF",
+                     "alias python3=bash\npython3 - <<EOF"):
+            with self.subTest(head=head):
+                self.refused("Bash", {"command": "%s\n%s\nEOF" % (head, touch)})
+
+    def test_a_fixture_and_the_install_trees_workspace_are_not_wiring(self):
+        # plan 050 replay rows 4/6/7: a plan in the private `.tezgah/` of the
+        # checkout the hooks run from, written from another project; rows
+        # 17/18: a Claude settings fixture under a temp HOME outside every root
+        plan = os.path.join(support.REPO, ".tezgah", "plans", "open", "040-x.md")
+        fixture = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="r050-")),
+                               "home", ".claude", "settings.json")
+        self.addCleanup(shutil.rmtree, os.path.dirname(os.path.dirname(
+            os.path.dirname(fixture))), True)
+        body = '{"hooks": {"PreToolUse": [{"hooks": [{"command": "/x/tezgah/h.py"}]}]}}'
+        for tool, inp in (("Write", {"file_path": plan, "content": "x"}),
+                          ("Edit", {"file_path": plan, "old_string": "a",
+                                    "new_string": "b"}),
+                          ("Write", {"file_path": fixture, "content": body}),
+                          ("Bash", {"command": "mkdir -p %s && cat > %s <<'EOF'\n%s\nEOF"
+                                    % (os.path.dirname(fixture), fixture, body)})):
+            with self.subTest(tool=tool, inp=inp):
+                self.assertIsNone(tg.control_reason(tool.lower(), inp, self.repo))
+        # the hooks beside that workspace, its open plan's removal, the user's
+        # own settings and a project's under a root stay refused
+        for command in ("rm %s" % plan,
+                        "echo x > %s" % os.path.join(support.REPO, "hooks", "x.py"),
+                        "printf x >> ~/.claude/settings.json",
+                        "printf x >> ~/.claude/settings.local.json",
+                        "printf x >> .claude/settings.json"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+
     def test_a_checkout_of_tezgah_is_editable_from_inside_it(self):
         # the tree the hooks run from is protected from a session elsewhere, and
         # is the work itself for a session inside it
