@@ -5,7 +5,9 @@
 .DESCRIPTION
   Fetches one release version, checks its SHA256 against the release's .sha256,
   unpacks it under <Prefix>\<Version> and points <Prefix>\current at it, then
-  runs the installer from that tree (bin\tezgah-setup --install).
+  runs the installer from that tree (bin\tezgah-setup --install --prefix
+  <Prefix>). `-NoInstall` stops after the flip: `tezgah-setup --upgrade` runs
+  this script that way and re-arms the hosts itself.
 
   It assumes no `sh`, no `python3` and no symlinks:
 
@@ -32,7 +34,8 @@
 param(
     [string]$Version,
     [string]$Prefix,
-    [string]$Repo = 'r1z4x/tezgah'
+    [string]$Repo = 'r1z4x/tezgah',
+    [switch]$NoInstall
 )
 
 $ErrorActionPreference = 'Stop'
@@ -140,19 +143,23 @@ try {
     if ($old) { Write-Output "ok      current -> $Version (was $old, still installed)" }
     else { Write-Output "ok      current -> $Version" }
 
-    $setup = Join-Path $current 'bin\tezgah-setup'
-    $py = $null
-    foreach ($cand in @('py', 'python', 'python3')) {
-        if (Get-Command $cand -ErrorAction SilentlyContinue) { $py = $cand; break }
-    }
-    if (-not $py) { throw "tezgah: no python on PATH (py, python or python3) to run $setup" }
-    if ($py -eq 'py') { & py -3 $setup --install } else { & $py $setup --install }
-    # No `exit` here: under the documented `irm ... | iex` this script runs in
-    # the caller's own session, and `exit` closed the user's PowerShell window
-    # with the install output in it (audit L-10, ENV-05). A failure is thrown
-    # instead, and $LASTEXITCODE keeps the installer's code for the caller.
-    if ($LASTEXITCODE) {
-        throw "tezgah: tezgah-setup --install exited $LASTEXITCODE - read its output above"
+    if (-not $NoInstall) {
+        $setup = Join-Path $current 'bin\tezgah-setup'
+        $py = $null
+        foreach ($cand in @('py', 'python', 'python3')) {
+            if (Get-Command $cand -ErrorAction SilentlyContinue) { $py = $cand; break }
+        }
+        if (-not $py) { throw "tezgah: no python on PATH (py, python or python3) to run $setup" }
+        # The prefix goes along: the installer records it, and `update` and
+        # `--uninstall` act on the recorded prefix, not on a POSIX default.
+        if ($py -eq 'py') { & py -3 $setup --install --prefix $Prefix } else { & $py $setup --install --prefix $Prefix }
+        # No `exit` here: under the documented `irm ... | iex` this script runs in
+        # the caller's own session, and `exit` closed the user's PowerShell window
+        # with the install output in it (audit L-10, ENV-05). A failure is thrown
+        # instead, and $LASTEXITCODE keeps the installer's code for the caller.
+        if ($LASTEXITCODE) {
+            throw "tezgah: tezgah-setup --install exited $LASTEXITCODE - read its output above"
+        }
     }
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue

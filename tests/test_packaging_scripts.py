@@ -13,6 +13,7 @@ replaced tree stays on disk for a rollback.
 """
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -286,6 +287,22 @@ class Upgrade(Base):
                                env={"TEZGAH_DIST": self.dist("0.2.0")})
         self.assertEqual(done.returncode, 0, done.stdout)
         self.assertIn("installed --install --reply-lang en", done.stdout)
+
+
+class InstallPs1(unittest.TestCase):
+    """packaging/install.ps1 read as text: there is no pwsh on the POSIX dev
+    host, so the windows-latest CI leg is what runs it."""
+
+    def test_the_prefix_reaches_the_installer_and_no_install_skips_it(self):
+        with open(os.path.join(PACKAGING, "install.ps1")) as fh:
+            src = fh.read()
+        self.assertIn("[switch]$NoInstall", src)
+        self.assertIn("if (-not $NoInstall) {", src)
+        # every place the installer is started from the flipped tree
+        calls = re.findall(r"\$setup --install[^}]*", src)
+        self.assertEqual(len(calls), 2, calls)
+        for call in calls:
+            self.assertEqual(call.strip(), "$setup --install --prefix $Prefix")
 
 
 if __name__ == "__main__":
