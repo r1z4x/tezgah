@@ -1643,9 +1643,12 @@ const MCP_TOOL = /^mcp__/i
 const SUBAGENT_TOOLS = new Set(["task", "agent", "spawn_agent", "subagent"])
 // Matched on the masked text so that quoting curl in a commit message is not a
 // read, and only at a command position so that `grep -n curl hooks/` is not one
-// either. ponytail: `sudo curl` and a program reached through a variable are
-// missed rather than matched by accident, as the Python pattern is.
-const NETWORK_READ = /(?:^|[|;&(])\s*(?:curl|wget|gh\s+api)\b/im
+// either. `gh issue view`, `gh pr view`, `git clone` and a `sudo` (with its own
+// flags) in front of any of them count, as in the Python pattern; a program
+// reached through a variable and `sudo -u root curl` are missed rather than
+// matched by accident, as the Python pattern is.
+const NETWORK_READ =
+  /(?:^|[|;&(])\s*(?:sudo(?:\s+-\S+)*\s+)?(?:curl|wget|gh\s+(?:api|issue\s+view|pr\s+view)|git\s+clone)\b/im
 const TIER_PROGRAMS = ["consult", "codegen"]
 const TIER_CALL = /\b(?:consult|codegen)\b([^|;&<>()\n]*)/gi
 // The invocation that reaches a model is the one with an argument: `consult

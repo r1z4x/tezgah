@@ -99,7 +99,17 @@ class PostToolUseProvenance(TempHome):
                  ("web_fetch", {"url": "https://x"}, "a web result"),
                  ("web_search", {"query": "x"}, "a web result"),
                  ("mcp__github__get_file", {"path": "x"}, "an MCP server"),
-                 ("Bash", {"command": "curl -s https://x"}, "a network read")]
+                 ("Bash", {"command": "curl -s https://x"}, "a network read"),
+                 # the forms security-06 found unlabelled: an issue or PR body
+                 # is third-party text, a clone is a third party's tree, and
+                 # `sudo` in front of a read does not make it the user's
+                 ("Bash", {"command": "gh issue view 12"}, "a network read"),
+                 ("Bash", {"command": "gh pr view 3 --comments"}, "a network read"),
+                 ("Bash", {"command": "cd /tmp && git clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": "sudo curl -s https://x"}, "a network read"),
+                 ("Bash", {"command": "sudo -E wget -q https://x"},
+                  "a network read")]
         for i, (tool, inp, channel) in enumerate(cases):
             with self.subTest(tool=tool):
                 text = self.line(tool, inp, session="s-label-%d" % i)
@@ -117,6 +127,10 @@ class PostToolUseProvenance(TempHome):
         cases = [("Bash", {"command": "pytest -q"}),
                  ("Bash", {"command": 'git commit -m "curl is not a read"'}),
                  ("Bash", {"command": "grep -n curl hooks/"}),
+                 ("Bash", {"command": "gh issue create -t x -b y"}),
+                 ("Bash", {"command": 'git commit -m "git clone and gh pr view"'}),
+                 ("Bash", {"command": "git log --grep clone"}),
+                 ("Bash", {"command": "sudo rm -f /tmp/x"}),
                  ("Edit", {"file_path": "/tmp/x.py"}),
                  ("Grep", {"pattern": "curl"})]
         for i, (tool, inp) in enumerate(cases):

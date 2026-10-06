@@ -308,6 +308,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **omp marks the first effect after an untrusted read.** Its post-tool hook
+  now calls the shared `marks`. The effect's row carries the inherited channel.
+  The taint notice rides the result. A subagent's report keeps its label, though
+  the bridge never sends the report's body.
+- **tezgah labels more shell reads as network reads.** These now count:
+  `gh issue view`, `gh pr view`, `git clone`, and a read behind `sudo`. Every
+  host and the opencode plugin read them the same way. Nothing new gets refused.
 - **The masker and the status reader drop three misreads.** An escaped `\$'` no longer
   opens an ANSI-C string. A quote left open blanks only what follows it, and an
   apostrophe in a heredoc body opens no quote. A quoted newline, a comment, a

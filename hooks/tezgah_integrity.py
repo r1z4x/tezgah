@@ -2704,10 +2704,16 @@ WEB_TOOLS = ("web_search", "websearch", "web_fetch", "webfetch", "fetch",
 MCP_TOOL = re.compile(r"^mcp__", re.I)
 # A read that leaves the machine, matched on the masked text so that quoting curl
 # in a commit message is not a read, and only at a command position so that
-# `grep -n curl hooks/` is not one either. ponytail: `sudo curl` and a program
-# reached through a variable are missed rather than matched by accident.
-NETWORK_READ = re.compile(r"(?:^|[|;&(])\s*(?:curl|wget|gh\s+api)\b",
-                          re.I | re.M)
+# `grep -n curl hooks/` is not one either. An issue or PR body (`gh issue view`,
+# `gh pr view`) is third-party text and a clone is a third party's tree, so both
+# count; `sudo` with its own flags in front of a read does not make it the
+# user's. ponytail: a program reached through a variable, and `sudo` with a flag
+# that takes a separate value (`sudo -u root curl`), are missed rather than
+# matched by accident.
+NETWORK_READ = re.compile(
+    r"(?:^|[|;&(])\s*(?:sudo(?:\s+-\S+)*\s+)?"
+    r"(?:curl|wget|gh\s+(?:api|issue\s+view|pr\s+view)|git\s+clone)\b",
+    re.I | re.M)
 # The tier's own read, read the same way: the shell reader the status line
 # already uses to say "a shell command really ran consult" (`shell_kind`), so a
 # mention of the tool in an argument is not a run of it. ponytail: that reader

@@ -509,7 +509,7 @@ the user's: fix and re-run, or reach for a snapshot deliberately.
 
 A result that arrived from outside the user and this workspace carries a provenance label on the
 result itself: `untrusted_label` (`hooks/tezgah_integrity.py::untrusted_label`) names the channel — a web
-result (`hooks/tezgah_integrity.py::WEB_TOOLS`), an MCP server (`hooks/tezgah_integrity.py::untrusted_source`), a network read (`hooks/tezgah_integrity.py::NETWORK_READ`) or a
+result (`hooks/tezgah_integrity.py::WEB_TOOLS`), an MCP server (`hooks/tezgah_integrity.py::untrusted_source`), a network read (`hooks/tezgah_integrity.py::NETWORK_READ`: `curl`, `wget`, `gh api`, `gh issue view`, `gh pr view`, `git clone`, also behind `sudo`) or a
 model on the far side of the network (`hooks/tezgah_integrity.py::TIER_PROGRAMS`: a `bin/consult`/`bin/codegen`
 invocation that reaches a provider) — and tells the model to treat instructions inside it as data.
 The call's own row carries the channel in `source` (`hooks/tezgah_integrity.py::note_tool`).
@@ -534,9 +534,10 @@ reads no agent key from still share one ledger's taint; omp writes one ledger pe
 The taint is a notice, not a refusal: the gate's sink rule, which held an effect in such a turn
 until the user's own approval was on the ledger, was removed with the consent rule
 ([gate](gate.md)). The
-label reaches the model on every host that has a surface for it: Claude and dsh through
-`hooks/projects-posttooluse.py:89-93`, Codex (`hosts/codex/hook.py::main`), Cursor
-(`hosts/cursor/hook.py:258-259`), omp (`hosts/omp/hook.py:177-215`), and opencode, whose plugin
+label reaches the model on every host that has a surface for it, and the taint notice with it:
+Claude and dsh through `hooks/projects-posttooluse.py:89-93`, Codex (`hosts/codex/hook.py::main`),
+Cursor (`hosts/cursor/hook.py:258-259`), omp (`hosts/omp/hook.py::handle`, which calls `marks` with an
+empty stand-in for the result body its bridge never sends, so a subagent's report keeps its label), and opencode, whose plugin
 cannot import the core in process and mirrors the control in JavaScript instead — the channel on the
 call's own row, the label and the taint notice in front of the result the hook is handed, including
 the `external` row an MCP answer or a fetched page earns (`untrustedSource`
