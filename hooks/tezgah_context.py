@@ -2274,7 +2274,12 @@ def _index_mark(cwd, base):
         if p == base:
             break
         p = os.path.dirname(p)
-    from tezgah_gate import index_slug  # lazy: keep hook import cost minimal
+    try:
+        from tezgah_gate import index_slug  # lazy: keep hook import cost minimal
+    except Exception:
+        # the gate module cannot load: the comparison cannot be made, and the
+        # line must still draw - it is where the `crash` mark says so
+        return "?"
     slug = index_slug(cwd, base)
     if not slug:
         return "✗"

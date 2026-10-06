@@ -231,6 +231,39 @@ class ImportGuard(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("core import failed", proc.stdout)
 
+    def test_a_dead_gate_shows_as_a_crash_mark_on_the_status_line(self):
+        # A copy of the tree whose tezgah_gate.py does not parse: the gate hook
+        # fails open and marks the session, and the status line - which reaches
+        # tezgah_gate through the index mark - must still draw, with `crash`.
+        import shutil
+        import subprocess
+        tree = os.path.join(self.home, "tree")
+        shutil.copytree(support.HOOKS, os.path.join(tree, "hooks"),
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copy2(support.STATUSLINE, os.path.join(tree, "statusline.py"))
+        with open(os.path.join(tree, "hooks", "tezgah_gate.py"), "a") as fh:
+            fh.write("\ndef broken(:\n")
+        root = self.make_repo()
+        os.makedirs(os.path.join(root, ".git"))
+        # a graph binary, so the status line really asks the index mark
+        env = dict(self.env([self.roots]), TEZGAH_CODEGRAPH_BIN=sys.executable)
+        env.pop("PYTHONPATH", None)
+
+        def run(script, payload):
+            return subprocess.run([sys.executable, script], input=json.dumps(payload),
+                                  capture_output=True, text=True, env=env, cwd=root,
+                                  timeout=60)
+        hook = run(os.path.join(tree, "hooks", "projects-pretooluse.py"),
+                   {"cwd": root, "tool_name": "Bash", "session_id": "dead",
+                    "tool_input": {"command": "git commit --no-verify -m x"}})
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertIn("could not import its core", hook.stderr)
+        line = run(os.path.join(tree, "statusline.py"),
+                   {"cwd": root, "session_id": "dead"})
+        self.assertEqual(line.returncode, 0, line.stderr)
+        self.assertNotIn("Traceback", line.stderr)
+        self.assertIn("crash", line.stdout)
+
     def test_a_broken_attestation_module_never_costs_the_gate(self):
         # tezgah_attest is imported only inside the attest call (under safe):
         # a module that cannot load must leave every PreToolUse deny standing
