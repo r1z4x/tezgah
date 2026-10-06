@@ -33,9 +33,8 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_guard import import_failed  # noqa: E402
+from tezgah_guard import attest_session, import_failed  # noqa: E402
 try:
-    import tezgah_attest  # noqa: E402
     from tezgah_context import context_for, shell_kind  # noqa: E402
 except Exception as exc:
     import_failed(exc)
@@ -69,7 +68,7 @@ def main():
             sys.stderr.write("tezgah-context: attest needs HOST SESSION [DIR]\n")
             return 2
         cwd = os.path.realpath(args[3]) if len(args) > 3 else os.getcwd()
-        tezgah_attest.run(args[1], args[2], cwd)
+        attest_session(args[1], args[2], cwd)
         return 0
     if event == "kind":
         # The used-tool kind of one shell command. A host whose plugin is in

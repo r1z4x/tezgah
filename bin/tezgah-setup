@@ -4963,9 +4963,12 @@ def _swap(stage, target):
     ponytail: two renames (target aside, stage in), not one atomic exchange -
     renameat2(RENAME_EXCHANGE) is Linux-only and macOS's renamex_np is not in
     the stdlib - so between them the copy's path is absent for a moment. Each
-    failure puts back what it moved."""
+    failure puts back what it moved; a kill in between is put back by the next
+    sync (`_recover_sync`), from the target path written beside the stage."""
     git, staged_git, old = (os.path.join(target, ".git"),
                             os.path.join(stage, ".git"), stage + ".old")
+    with open(stage + ".target", "w", encoding="utf-8") as fh:
+        fh.write(target)
     moved = os.path.isdir(git)
     if moved:
         os.rename(git, staged_git)
@@ -4983,6 +4986,46 @@ def _swap(stage, target):
             os.rename(staged_git, git)
         raise
     shutil.rmtree(old, ignore_errors=True)
+    os.remove(stage + ".target")
+
+
+def _recover_sync(plugins):
+    """Undo what a sync killed mid-swap left beside the cache, then sweep it.
+
+    `<stage>.target` names the copy a swap was replacing. A copy moved aside
+    (`<stage>.old`) with nothing at its path is moved back; a `.git` the swap
+    had already carried into the stage goes back to the copy that lacks one.
+    Only then is the staging debris removed - a sweep before this deleted the
+    only copy, `.git` included."""
+    if not os.path.isdir(plugins):
+        return
+    names = sorted(os.listdir(plugins))
+    for name in names:
+        if not (name.startswith(SYNC_STAGE_PREFIX) and name.endswith(".target")):
+            continue
+        base = os.path.join(plugins, name[:-len(".target")])
+        try:
+            with open(base + ".target", encoding="utf-8") as fh:
+                target = fh.read().strip()
+            if target and not os.path.exists(target) and os.path.isdir(base + ".old"):
+                os.rename(base + ".old", target)
+                print("%s restored %s (a sync was stopped mid-swap)" % (OK, target))
+            if target and os.path.isdir(os.path.join(base, ".git")) \
+                    and os.path.isdir(target) \
+                    and not os.path.exists(os.path.join(target, ".git")):
+                os.rename(os.path.join(base, ".git"), os.path.join(target, ".git"))
+        except OSError as exc:
+            print("%s could not restore from %s (%s); left in place" % (NO, base, exc))
+            continue
+    for name in sorted(os.listdir(plugins)):
+        # a staging tree a killed run left, once nothing in it is a copy's last
+        # bytes: never a copy, never loaded
+        if name.startswith(SYNC_STAGE_PREFIX):
+            path = os.path.join(plugins, name)
+            if os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                os.remove(path)
 
 
 def sync():
@@ -4990,8 +5033,10 @@ def sync():
 
     Each copy is built in a staging tree first and swapped in (`_swap`): the
     old delete-then-copy left a half-empty tree Claude would load when the
-    copy failed or the run was killed in between."""
+    copy failed or the run was killed in between. 1 when any copy failed."""
     cache = os.path.join(HOME, ".claude", "plugins", "cache")
+    plugins = os.path.dirname(cache)
+    _recover_sync(plugins)
     targets = plugin_copies()
     if not targets:
         print("no installed tezgah found under %s (nothing to sync)" % cache)
@@ -5001,11 +5046,7 @@ def sync():
         print("nothing to sync from: %s lists no files (no git checkout, no %s)"
               % (HERE, MANIFEST))
         return 1
-    plugins = os.path.dirname(cache)
-    for name in os.listdir(plugins):
-        # a staging tree a killed run left: never a copy, never loaded
-        if name.startswith(SYNC_STAGE_PREFIX):
-            shutil.rmtree(os.path.join(plugins, name), ignore_errors=True)
+    failed = False
     for t in targets:
         # A copy that contains this checkout IS this checkout, so replacing it
         # would delete the tree being copied from (someone running the copy's
@@ -5052,12 +5093,15 @@ def sync():
             _swap(stage, t)
         except (OSError, shutil.Error) as exc:
             shutil.rmtree(stage, ignore_errors=True)
+            if os.path.exists(stage + ".target"):
+                os.remove(stage + ".target")
             print("%s %s left as it was: the staged copy failed (%s)" % (NO, t, exc))
+            failed = True
             continue
         print("%s synced %s (%d files)" % (OK, t, len(files)))
     record_hooks(["claude"])
     print("\nrestart Claude Code: hooks are read once per session.")
-    return 0
+    return 1 if failed else 0
 
 
 def refresh_plugin_copy(hosts):
@@ -5305,8 +5349,8 @@ def upgrade(version, dry_run):
         argv += ["--roots", os.pathsep.join(roots)]
     print()
     if not tezgah_update.confirm_rearm(old, launcher):
-        print("%s fetched, not re-armed; re-arm later with `%s`"
-              % (NO, " ".join(argv)))
+        print("%s fetched, not re-armed: %s. Re-arm later with `%s`"
+              % (NO, tezgah_update.NOT_REARMED["prefix"], " ".join(argv)))
         return 1
     return subprocess.run(argv).returncode
 

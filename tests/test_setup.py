@@ -1146,6 +1146,68 @@ class PluginCopy(SetupBase):
         self.assertTrue(self.current(root))
         self.assertEqual(self.read_text(marker), "ref: refs/heads/main\n")
 
+    # The kill lands between the two renames: the copy is moved aside, the
+    # stage (holding the copy's .git) is not yet in its place.
+    MID_SWAP_PROBE = (
+        "import importlib.machinery, importlib.util, os, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "real = os.rename\n"
+        "def rename(src, dst):\n"
+        "    if os.path.basename(src).startswith(m.SYNC_STAGE_PREFIX) \\\n"
+        "            and not src.endswith('.git') and dst == sys.argv[2]:\n"
+        "        raise KeyboardInterrupt('killed mid-swap')\n"
+        "    return real(src, dst)\n"
+        "m.os.rename = rename\n"
+        "try:\n"
+        "    m.sync()\n"
+        "except KeyboardInterrupt:\n"
+        "    pass\n"
+    )
+
+    def test_a_sync_killed_mid_swap_is_restored_with_its_git(self):
+        root = self.synced_copy()
+        marker = os.path.join(root, ".git", "HEAD")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as fh:
+            fh.write("ref: refs/heads/main\n")
+        out = subprocess.run([sys.executable, "-c", self.MID_SWAP_PROBE, SETUP, root],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertFalse(os.path.exists(root), "the kill did not land mid-swap")
+        proc = self.setup("--sync")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("restored %s" % root, proc.stdout)
+        self.assertTrue(self.current(root))
+        self.assertEqual(self.read_text(marker), "ref: refs/heads/main\n")
+        plugins = self.path(".claude", "plugins")
+        self.assertEqual([n for n in os.listdir(plugins)
+                          if n.startswith(".tezgah-sync-")], [])
+
+    FAILING_COPY_PROBE = (
+        "import importlib.machinery, importlib.util, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "def full(src, dst):\n"
+        "    raise OSError(28, 'No space left on device')\n"
+        "m._copy_normalised = full\n"
+        "sys.exit(m.sync())\n"
+    )
+
+    def test_a_failed_copy_makes_sync_exit_non_zero(self):
+        root = self.synced_copy()
+        out = subprocess.run([sys.executable, "-c", self.FAILING_COPY_PROBE, SETUP],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        self.assertIn("left as it was", out.stdout)
+        self.assertTrue(self.current(root))
+
     def test_every_synced_file_is_owner_writable_only(self):
         # a source file the checkout left world-writable (0666) is copied 0644,
         # and an executable one 0755: the copy is what Claude runs

@@ -316,6 +316,8 @@ class Channels(unittest.TestCase):
         self.assertEqual(len(calls), 1, "only the fetch ran")
         self.assertEqual(len(self.asked), 1)
         self.assertIn("not re-armed", out)
+        # what a no leaves is said for the channel: a checkout is pulled in place
+        self.assertIn(tu.NOT_REARMED["git"], out)
         code, calls, _, _ = self.run_update(clone, old=self.OLD, new=self.NEW,
                                             tty=True, answer="y")
         self.assertEqual((code, len(calls)), (0, 2))
@@ -333,6 +335,31 @@ class Channels(unittest.TestCase):
         self.assertEqual(lines[0], "  codex: re-arming changes the Stop entry")
         self.assertIn("    -b", lines)
         self.assertIn("    +c", lines)
+
+    def test_two_identical_releases_at_their_own_paths_are_unchanged(self):
+        # every release lives at its own versioned path; the omp bridge and the
+        # opencode link name it, so a byte compare showed a change between two
+        # identical releases and a terminal's Enter (= no) left nothing re-armed
+        def entries(root):
+            return {"omp": {"bridge": 'spawn("%s/hosts/omp/hook.py")' % root},
+                    "opencode": {"plugins": root + "/hosts/opencode/plugins/tezgah.js"},
+                    "codex": {"Stop": '[{"command": "\\"python3\\" '
+                                      '\\"/h/.config/tezgah/bin/tezgah-codex-hook\\""}]'}}
+        old = entries("/opt/homebrew/Cellar/tezgah/0.1.1/libexec")
+        new = entries("/opt/homebrew/Cellar/tezgah/0.1.2/libexec")
+        self.assertEqual(tu.hook_change(old, new), [])
+        clone = self.tree("src", "tezgah", git=True)
+        code, calls, _, out = self.run_update(clone, old=old, new=new, tty=True)
+        self.assertEqual((code, len(calls)), (0, 2))
+        self.assertEqual(self.asked, [])
+        self.assertIn("hook entries: unchanged", out)
+        # a real change under a moved root still shows
+        new["omp"]["bridge"] += "\n// new handler"
+        self.assertEqual(tu.hook_change(old, new)[0],
+                         "  omp: re-arming changes the bridge entry")
+
+    def test_every_channel_says_what_a_no_leaves(self):
+        self.assertEqual(set(tu.NOT_REARMED), {"git", "npm", "brew", "prefix"})
 
     def test_npm_fetches_then_re_arms_the_global_tree(self):
         root = os.path.join(self.root, "lib", "node_modules")

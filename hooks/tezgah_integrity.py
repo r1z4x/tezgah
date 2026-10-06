@@ -35,7 +35,6 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
-import tezgah_attest
 from tezgah_paths import _toplevel, cache_dir, off, reply_lang, root_for
 
 # A command that actually checks the change, as opposed to one that merely runs.
@@ -3663,8 +3662,13 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
             shape = dict(shape, agent=str(agent))
         if kind == "claim":
             # "harness drifted" rides on the claim as a record, read from the
-            # mark the session start left; it never refuses the turn
-            drifted = tezgah_attest.mark_text(session_id)
+            # mark the session start left; it never refuses the turn. Imported
+            # here: a broken attestation module costs the note, not the rule.
+            try:
+                import tezgah_attest
+                drifted = tezgah_attest.mark_text(session_id)
+            except Exception:
+                drifted = ""
             if drifted:
                 shape = dict(shape, harness="drifted: " + drifted)
         note(session_id, kind, detail, id=key, **shape)

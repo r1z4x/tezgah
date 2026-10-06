@@ -201,15 +201,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **A hook whose core cannot import fails open and leaves a trace.** Eleven
-  entry points imported the core outside `safe()`. A rename or a broken
-  module ended them with a traceback, and on omp that disabled the gate for
-  the session. They now exit 0 and write a `crash` row. When the ledger's own
-  modules are the ones that fail, they write one stderr line instead.
+- **A hook whose core cannot import fails open and says so.** Eleven entry
+  points imported the core outside `safe()`. A rename or a broken module ended
+  them with a traceback, and on omp that disabled the gate for the session.
+  They now exit 0, print one stderr line and write a `crash` row. The status
+  line shows a `crash` mark for that session. `tezgah-gate check` exits 3, so
+  the MCP `gate_check` no longer reads a dead gate as a pass.
+- **The disarmed-gate mark no longer counts PostToolUse rows.** A PostToolUse
+  hook keeps writing while a broken PreToolUse lets every call through. Only a
+  row from the gate now proves it ran, over write and shell calls.
 - **`--sync` no longer leaves a half-empty plugin copy.** It used to delete
   the copy, then copy into it. It now builds each copy in a staging tree beside
-  the plugin cache and swaps it in, keeping the copy's `.git`. Every copied
-  file is 0644, or 0755 when executable, whatever mode the checkout has.
+  the plugin cache and swaps it in, keeping the copy's `.git`. A sync stopped
+  mid-swap is put back by the next one, `.git` included. A failed copy makes
+  `--sync` exit 1. Every copied file is 0644, or 0755 when executable.
 - **The omp report row compares the bridge byte for byte.** It checked six
   handler names, so a stale or edited bridge passed. It now compares the
   bridge with a fresh render.

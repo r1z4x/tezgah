@@ -261,13 +261,40 @@ def installed_entries(hosts):
     return {h: tezgah_attest.registration(h)[0] or {} for h in hosts}
 
 
+# An absolute path up to a tree's `hosts/` or `hooks/` dir: the tree root, which
+# names the release (`.../Cellar/tezgah/<version>/libexec`, `<prefix>/<version>`)
+# and so differs between two releases whose hook entries are the same.
+TREE_ROOT = re.compile(r"/[^\s\"'`]*?(?=/(?:hosts|hooks)/)")
+
+# What answering no leaves, per channel: the fetch has run, only the hook
+# registration waits. Printed with the refusal, so the user knows what is live.
+NOT_REARMED = {
+    "git": "the checkout is pulled; the hooks already run its new code from "
+           "the same path, and only the entries above stay as they were",
+    "npm": "the global package is replaced in place; the hooks already run its "
+           "new code, and only the entries above stay as they were",
+    "brew": "the new keg sits beside the old one; hooks wired to the old keg's "
+            "path keep running the old code until you re-arm (a `brew cleanup` "
+            "that removes the old keg leaves them pointing at nothing)",
+    "prefix": "`current` points at the new tree; hooks wired through it run the "
+              "new code, and only the entries above stay as they were",
+}
+
+
+def _same_tree(text):
+    return TREE_ROOT.sub("<tree>", text or "")
+
+
 def hook_change(old, new):
     """The lines that name each hook entry re-arming adds, removes or changes,
-    per host, with a unified diff of a changed entry; [] when nothing moves."""
+    per host, with a unified diff of a changed entry; [] when nothing moves.
+    The tree root is compared as `<tree>`: every release lives at its own path,
+    and a path that moved with the release is not a hook change."""
     import difflib
     lines = []
     for host in sorted(set(old) | set(new)):
-        before, after = old.get(host) or {}, new.get(host) or {}
+        before = {k: _same_tree(v) for k, v in (old.get(host) or {}).items()}
+        after = {k: _same_tree(v) for k, v in (new.get(host) or {}).items()}
         for name in sorted(set(before) | set(after)):
             if before.get(name) == after.get(name):
                 continue
@@ -355,8 +382,8 @@ def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None,
     old = installed_entries(cfg.get("hosts") or [])
     for step, argv in (("fetch", fetch), ("re-arm", rearm)):
         if step == "re-arm" and not confirm_rearm(old, rearm[1], run, tty, ask):
-            print("tezgah update: fetched, not re-armed; re-arm later with `%s`"
-                  % " ".join(rearm))
+            print("tezgah update: fetched, not re-armed: %s. Re-arm later with `%s`"
+                  % (NOT_REARMED[kind], " ".join(rearm)))
             return 1
         try:
             code = run(argv).returncode

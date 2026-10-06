@@ -1661,12 +1661,35 @@ class GateLiveness(ChildCall):
         self.prompt()
         self.claude_tools(3)
         self.prompt()                      # disarmed: the mark is written
-        self.child("import json, tezgah_integrity as ti\n"
-                   "ti.note_tool('g1', 'Bash', {'command': 'ls'})\n"
-                   "print('null')\n")
+        self.child("import json, tezgah_gate as tg\n"
+                   "tg.decision('Bash', {'command': 'ls'}, %r, 'g1')\n"
+                   "print('null')\n" % self.repo)
         out = self.prompt()
         self.assertNotIn("tezgah gate inactive", out)
         self.assertNotIn("gate", [s["key"] for s in self.segments()])
+
+    def test_post_tool_use_rows_are_not_proof(self):
+        # a PostToolUse hook keeps writing its rows while a broken PreToolUse
+        # hook lets every call through: they say the host ran the call, not
+        # that the gate saw it
+        self.prompt()
+        self.child("import json, tezgah_integrity as ti\n"
+                   "[ti.note_tool('g1', 'Bash', {'command': 'ls'}) for _ in range(3)]\n"
+                   "ti.note_tool('g1', 'Edit', {'file_path': 'a.py'})\n"
+                   "print('null')\n")
+        self.claude_tools(3)
+        self.assertIn("tezgah gate inactive", self.prompt())
+        self.assertIn("gate", [s["key"] for s in self.segments()])
+
+    def test_an_import_crash_mark_draws_the_crash_segment(self):
+        self.child("import json, os, tezgah_guard as g\n"
+                   "p = g.import_crash_mark('g1')\n"
+                   "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+                   "open(p, 'w').write('import: SyntaxError: x')\n"
+                   "print('null')\n")
+        crash = [s for s in self.segments() if s["key"] == "crash"]
+        self.assertEqual(crash, [{"key": "crash", "state": "off", "glyph": "\u2717",
+                                  "text": "crash", "group": 0}])
 
     def test_calls_the_gate_denied_are_proof_the_gate_ran(self):
         # Review S3: a deny row carries no `tool` field, and a session whose
@@ -1714,7 +1737,7 @@ class GateLiveness(ChildCall):
 
     def test_a_drift_mark_draws_the_drift_segment(self):
         self.child("import json, os, tezgah_attest as ta\n"
-                   "p = ta.drift_mark('g1')\n"
+                   "p = ta.drift_mark('g1', 'codex')\n"
                    "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
                    "open(p, 'w').write('codex PreToolUse entry removed')\n"
                    "print('null')\n")
@@ -1731,7 +1754,7 @@ class GateLiveness(ChildCall):
         self.child("import json, os, tezgah_integrity as ti\n"
                    "p = os.path.join(%r, 'evidence', ti._slug('g1') + '.jsonl')\n"
                    "os.makedirs(os.path.dirname(p))\n"
-                   "ti.note_path(p, 'run', 'ls')\n"
+                   "ti.note_path(p, 'began', 'ls')\n"
                    "print('null')\n" % fallback)
         self.claude_tools(3)
         out = self.child(

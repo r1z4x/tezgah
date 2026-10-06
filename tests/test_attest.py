@@ -59,8 +59,8 @@ class AttestBase(TempHome):
             rows = [json.loads(line) for line in fh if line.strip()]
         attest = [r for r in rows if r["kind"] == "attest"]
         self.assertEqual(len(attest), 1, rows)
-        mark = os.path.join(self.home, ".cache", "tezgah", "harness-drift",
-                            hashlib.sha256(session.encode()).hexdigest()[:16])
+        mark = os.path.join(self.home, ".cache", "tezgah", "harness-drift", "%s.%s" % (
+            hashlib.sha256(session.encode()).hexdigest()[:16], host))
         text = ""
         if os.path.exists(mark):
             with open(mark) as fh:
@@ -159,6 +159,22 @@ class Attest(AttestBase):
                            env=self.envv, cwd=self.repo)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("drift", proc.stdout)
+
+    def test_a_clean_host_does_not_clear_another_hosts_mark(self):
+        # the mark is keyed by (session, host): a clean attest of one host under
+        # the same session id must leave the drifted host's mark standing
+        self.install(["codex", "cursor"])
+        os.chmod(os.path.join(self.home, ".codex", "hooks.json"), 0o666)
+        self.assert_drift("codex", "x1", "mode 0666")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(support.REPO, "bin", "tezgah-context"),
+             "attest", "cursor", "x1", self.repo],
+            capture_output=True, text=True, env=self.envv, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        check = subprocess.run(
+            [sys.executable, "-c", "import tezgah_attest as ta; print(ta.mark_text('x1'))"],
+            capture_output=True, text=True, env=self.envv, timeout=60)
+        self.assertIn("mode 0666", check.stdout, check.stderr)
 
 
 @unittest.skipUnless(shutil.which("sh") and shutil.which("tar"), "build.sh needs sh and tar")

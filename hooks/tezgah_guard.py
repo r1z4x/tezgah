@@ -124,24 +124,51 @@ def _payload_session():
     return os.environ.get("TEZGAH_SESSION") or "unknown-session"
 
 
-def import_failed(exc):
-    """An entry point whose core imports raised: record it and exit 0.
+def attest_session(host, session_id, cwd):
+    """The session-start attestation (`tezgah_attest.run`), imported only here
+    and only when called: a broken attestation module then costs the `attest`
+    row inside `safe()`, never the import of a hook that also gates."""
+    import tezgah_attest
+    return tezgah_attest.run(host, session_id, cwd)
+
+
+def import_crash_mark(session_id):
+    """The mark an import failure leaves for the status line, one per session.
+    Built here from stdlib alone (the same `~/.cache/tezgah` as
+    `tezgah_paths.CACHE`), because the module that failed may be tezgah_paths."""
+    import hashlib
+    return os.path.join(os.path.expanduser("~"), ".cache", "tezgah", "import-crash",
+                        hashlib.sha256(str(session_id).encode()).hexdigest()[:16])
+
+
+def import_failed(exc, code=0):
+    """An entry point whose core imports raised: say so and exit `code`.
 
     `safe` covers the calls, not the `from tezgah_x import ...` lines above
     them, so a module that failed to import (a rename, a syntax error a release
     shipped) ended the hook with a traceback - on omp that disables the gate,
     the ledger and the status line for the session (the lessons ledger records
-    the rename that crashed every omp hook). The call fails open like every
-    other caught fault and leaves a `crash` row. When the ledger's own modules
-    (`tezgah_integrity`, or `tezgah_paths` under it) are the ones that cannot
-    import, there is no ledger to write: one stderr line is the whole trace."""
+    the rename that crashed every omp hook). A hook fails open (`code` 0) like
+    every other caught fault, so the dead core must be visible elsewhere: one
+    stderr line always, a `crash` row when the ledger's own modules still
+    import, and a mark the status line draws (`import_crash_mark`). A CLI a
+    person or a tool asks for a verdict (`tezgah-gate check`) passes a non-zero
+    `code`: an empty answer from it would read as a pass."""
     detail = "import: %s: %s" % (type(exc).__name__, str(exc)[:120])
+    sys.stderr.write("tezgah: %s could not import its core (%s); this call ran "
+                     "without tezgah\n"
+                     % (os.path.basename(sys.argv[0] if sys.argv else "hook"), detail))
+    session = _payload_session()
+    try:
+        mark = import_crash_mark(session)
+        os.makedirs(os.path.dirname(mark), exist_ok=True)
+        with open(mark, "w", encoding="utf-8") as fh:
+            fh.write(detail + "\n")
+    except Exception:
+        pass
     try:
         import tezgah_integrity
-        tezgah_integrity.note(_payload_session(), "crash", detail)
+        tezgah_integrity.note(session, "crash", detail)
     except Exception:
-        sys.stderr.write("tezgah: %s could not import its core (%s); this call "
-                         "ran without tezgah\n"
-                         % (os.path.basename(sys.argv[0] if sys.argv else "hook"),
-                            detail))
-    sys.exit(0)
+        pass
+    sys.exit(code)

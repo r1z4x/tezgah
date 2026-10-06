@@ -28,6 +28,9 @@ try:
                                 health_segments, render_line, shell_kind,
                                 skill_read_kind, used as used_kinds)
 except Exception as exc:
+    # the status line is the one surface the user always sees: say the core is
+    # down there, rather than drawing nothing
+    print("tezgah \u2717 core import failed (%s)" % type(exc).__name__)
     import_failed(exc)
 
 HOME = os.path.expanduser("~")

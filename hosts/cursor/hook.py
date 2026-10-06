@@ -43,9 +43,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_guard import import_failed, safe  # noqa: E402
+from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
 try:
-    import tezgah_attest  # noqa: E402
     from tezgah_context import (  # noqa: E402
         command_text, context_for, record, shell_kind, slug, under)
     from tezgah_gate import decision, explored  # noqa: E402
@@ -277,7 +276,7 @@ def dispatch(payload):
     quiet = off("reminder-off")
 
     if event == "sessionStart":
-        safe(session_id, tezgah_attest.run, "cursor", session_id, cwd)
+        safe(session_id, attest_session, "cursor", session_id, cwd)
         text = context_for("session_start", cwd, payload)
         out = {"additional_context": text} if text else {}
     elif event == "postToolUse":

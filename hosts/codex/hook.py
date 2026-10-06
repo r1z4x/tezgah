@@ -24,9 +24,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_guard import import_failed, safe  # noqa: E402
+from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
 try:
-    import tezgah_attest  # noqa: E402
     from tezgah_context import (  # noqa: E402
         TOOL_USE_MEASURES, command_text, context_for, health_lines, record,
         shell_kind)
@@ -159,7 +158,7 @@ def main():
     cwd = payload.get("cwd") or os.getcwd()
     session_id = payload.get("session_id")
     if event == "SessionStart":
-        safe(session_id, tezgah_attest.run, "codex", session_id, cwd)
+        safe(session_id, attest_session, "codex", session_id, cwd)
 
     if event == "PreToolUse":
         reason = safe(session_id, gate_reason, payload, cwd, session_id)

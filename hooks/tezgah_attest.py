@@ -193,21 +193,29 @@ def drift(host, root=ROOT, shas=None):
     return found, unknown
 
 
-def drift_mark(session_id):
-    """The mark a drifted session start leaves: its text is the drift list."""
-    return os.path.join(tp.cache_dir(), "harness-drift",
-                        hashlib.sha256(str(session_id).encode()).hexdigest()[:16])
+def drift_mark(session_id, host):
+    """The mark one host's drifted session start leaves; its text is the drift
+    list. Keyed by session AND host: two hosts can share a session id (a
+    `tezgah-context attest` run by hand, a host whose ids collide), and a clean
+    start on one must not clear the other's mark."""
+    return os.path.join(tp.cache_dir(), "harness-drift", "%s.%s" % (
+        hashlib.sha256(str(session_id).encode()).hexdigest()[:16], host))
 
 
 def mark_text(session_id):
-    """The drift list this session's start recorded, or ""."""
+    """The drift lists this session's starts recorded, every host's, or ""."""
     if not session_id:
         return ""
-    try:
-        with open(drift_mark(session_id), encoding="utf-8") as fh:
-            return fh.read().strip()
-    except OSError:
-        return ""
+    texts = []
+    for host in CODE_TARGETS:
+        try:
+            with open(drift_mark(session_id, host), encoding="utf-8") as fh:
+                text = fh.read().strip()
+        except OSError:
+            continue
+        if text and text not in texts:
+            texts.append(text)
+    return "; ".join(texts)
 
 
 def switches():
@@ -233,7 +241,7 @@ def run(host, session_id, cwd=None):
     import tezgah_integrity
     tezgah_integrity.note(session_id, "attest", detail, host=host,
                           switches=",".join(switches()) or None)
-    mark = drift_mark(session_id)
+    mark = drift_mark(session_id, host)
     try:
         if found:
             os.makedirs(os.path.dirname(mark), exist_ok=True)

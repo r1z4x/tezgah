@@ -14,6 +14,7 @@ is indistinguishable from a rule that never fired, which is the reason the gate
 records every refusal it makes (hooks/tezgah_gate._deny).
 """
 import glob
+import hashlib
 import json
 import os
 import sys
@@ -174,20 +175,31 @@ class ImportGuard(TempHome):
                 rows += [json.loads(line) for line in fh if line.strip()]
         return rows
 
-    def test_a_failed_import_exits_0_and_leaves_a_crash_row(self):
+    def expected_code(self, name):
+        # `tezgah-gate check` is asked for a verdict: an empty answer with exit
+        # 0 read as a pass from a gate that is not there. Every hook fails open.
+        return 3 if name == "tezgah-gate" else 0
+
+    def test_a_failed_import_fails_open_and_leaves_a_crash_row_and_a_line(self):
         root = self.make_repo()
         entries = self.entries(root)
         self.assertEqual(len(entries), 11)
         for name, script, argv, payload, broken in entries:
             with self.subTest(entry=name):
                 proc = self.probe(script, broken, argv, payload, root)
-                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.returncode, self.expected_code(name), proc.stderr)
                 self.assertNotIn("Traceback", proc.stderr)
                 self.assertNotIn("deny", proc.stdout)
+                # the stderr line is written whether or not the row is
+                self.assertIn("could not import its core", proc.stderr)
                 crashes = [r for r in self.rows() if r.get("kind") == "crash"
                            and broken.split(":")[1] in r.get("detail", "")]
                 self.assertTrue(crashes, "%s left no crash row" % name)
                 self.assertTrue(crashes[-1]["detail"].startswith("import: ImportError"))
+                # and the status line's mark for the session
+                mark = os.path.join(self.home, ".cache", "tezgah", "import-crash",
+                                    hashlib.sha256(b"imp").hexdigest()[:16])
+                self.assertTrue(os.path.exists(mark), name)
 
     def test_an_unimportable_ledger_leaves_one_stderr_line_and_no_row(self):
         root = self.make_repo()
@@ -195,11 +207,61 @@ class ImportGuard(TempHome):
             for name, script, argv, payload, _broken in self.entries(root):
                 with self.subTest(entry=name, module=module):
                     proc = self.probe(script, module, argv, payload, root)
-                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertEqual(proc.returncode, self.expected_code(name),
+                                     proc.stderr)
                     self.assertNotIn("Traceback", proc.stderr)
                     self.assertIn("could not import its core", proc.stderr)
                     self.assertIn("forced: %s" % module, proc.stderr)
         self.assertEqual(self.rows(), [])
+
+    def test_gate_decide_fails_open_while_check_says_it_cannot_answer(self):
+        root = self.make_repo()
+        gate = os.path.join(support.REPO, "bin", "tezgah-gate")
+        call = {"tool": "Bash", "input": {"command": "git commit --no-verify -m x"},
+                "cwd": root, "session_id": "imp"}
+        check = self.probe(gate, "tezgah_gate", ["check"], call, root)
+        decide = self.probe(gate, "tezgah_gate", ["decide"], call, root)
+        self.assertEqual(check.returncode, 3, check.stderr)
+        self.assertEqual(decide.returncode, 0, decide.stderr)
+        self.assertIn("could not import its core", check.stderr)
+
+    def test_the_status_line_says_the_core_is_down(self):
+        root = self.make_repo()
+        proc = self.probe(support.STATUSLINE, "tezgah_context", [], {"cwd": root}, root)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("core import failed", proc.stdout)
+
+    def test_a_broken_attestation_module_never_costs_the_gate(self):
+        # tezgah_attest is imported only inside the attest call (under safe):
+        # a module that cannot load must leave every PreToolUse deny standing
+        root = self.make_repo()
+        deny = "git commit --no-verify -m x"
+        rows = [
+            (support.PRETOOLUSE, {"cwd": root, "tool_name": "Bash", "session_id": "a1",
+                                  "tool_input": {"command": deny}}),
+            (support.CODEX_HOOK, {"hook_event_name": "PreToolUse", "cwd": root,
+                                  "tool_name": "Bash", "session_id": "a1",
+                                  "tool_input": {"command": deny}}),
+            (support.CURSOR_HOOK, {"hook_event_name": "preToolUse", "cwd": root,
+                                   "tool_name": "Shell", "conversation_id": "a1",
+                                   "tool_input": {"command": deny}}),
+            (support.OMP_HOOK, {"event": "pre_tool_use", "cwd": root, "tool": "bash",
+                                "input": {"command": deny}, "session_id": "a1"}),
+        ]
+        for script, payload in rows:
+            with self.subTest(hook=script):
+                proc = self.probe(script, "tezgah_attest", [], payload, root)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("deny", proc.stdout)
+        for script, payload in (
+                (support.AUTO_INIT, {"hook_event_name": "SessionStart", "cwd": root,
+                                     "session_id": "a1"}),
+                (support.CODEX_HOOK, {"hook_event_name": "SessionStart", "cwd": root,
+                                      "session_id": "a1"})):
+            with self.subTest(start=script):
+                proc = self.probe(script, "tezgah_attest", [], payload, root)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
 
 
 class DebugLog(TempHome):

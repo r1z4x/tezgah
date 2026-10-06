@@ -20,7 +20,9 @@ dry run against a live session id used to write refusal rows into that
 session's counters (audit CHAT-07 / L-14b).
 
 Exit codes: 0 whether the call passes or is refused - the reason is the output,
-not the status - and 2 for misuse.
+not the status - 2 for misuse, and 3 from `check` when the gate's core cannot
+be imported: an empty answer there would read as a pass (`decide`, opencode's
+hook path, fails open with 0 like every hook).
 """
 import json
 import os
@@ -32,7 +34,10 @@ from tezgah_guard import import_failed  # noqa: E402
 try:
     from tezgah_gate import decision  # noqa: E402
 except Exception as exc:
-    import_failed(exc)
+    # `check` is asked for a verdict (by a person, or the MCP `gate_check`
+    # tool): an empty answer with exit 0 reads as a pass from a gate that is
+    # not there. `decide` is opencode's hook path and fails open like the rest.
+    import_failed(exc, 3 if sys.argv[1:2] == ["check"] else 0)
 
 
 def misuse(message):

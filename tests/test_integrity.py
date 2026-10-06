@@ -1380,12 +1380,28 @@ class HarnessDrift(unittest.TestCase):
         ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
         self.addCleanup(setattr, ta, "drift_mark", ta.drift_mark)
         mark = os.path.join(self.dir, "drift")
-        ta.drift_mark = lambda session: mark
+        ta.drift_mark = lambda session, host: (mark if host == "codex"
+                                               else mark + "-" + host)
         with open(mark, "w") as fh:
             fh.write("codex PreToolUse entry removed\n")
 
     def claims(self):
         return [r for r in ti.events("s") if r["kind"] == "claim"]
+
+    def test_a_broken_attestation_module_costs_the_note_not_the_rule(self):
+        # sys.modules[name] = None makes `import name` raise ImportError, the
+        # shape of a module that cannot load; the rule must still judge
+        import sys as _sys
+        saved = _sys.modules.get("tezgah_attest")
+        _sys.modules["tezgah_attest"] = None
+        try:
+            ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False,
+                         out_bytes=42)
+            self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+        finally:
+            _sys.modules["tezgah_attest"] = saved
+        self.assertEqual(self.claims()[-1]["detail"], "ok")
+        self.assertNotIn("harness", self.claims()[-1])
 
     def test_a_licensed_claim_is_annotated_and_still_allowed(self):
         ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False, out_bytes=42)

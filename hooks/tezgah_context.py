@@ -15,11 +15,11 @@ import subprocess
 import sys
 import time
 
-import tezgah_attest
 import tezgah_embed
 import tezgah_research
-from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
-                              last_check, note, note_compaction, note_turn,
+from tezgah_guard import import_crash_mark
+from tezgah_integrity import (STEP_KINDS, _path as _ledger_path, changed_files,
+                              cut, last_check, note, note_compaction, note_turn,
                               scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            REPLY_LANG_TEXT, open_lines_note, pony_level_line)
@@ -1502,21 +1502,22 @@ SCRATCH_CHARS = 120
 # What the prompt hook can observe is the host's own transcript (Claude and
 # Codex hand `transcript_path` to every hook) and this session's ledger: gated
 # tool calls in the transcript since the session's first turn marker, and not
-# one row from the tool hooks over the same span, is a gate that is not
-# running. Only a bounded tail of the transcript is read, the ledger is scanned
-# as bytes, and a session whose transcript holds no tool call never fires.
+# one row from the gate over the same span, is a gate that is not running. Only
+# a bounded tail of the transcript is read, the ledger is scanned as bytes, and
+# a session whose transcript holds no tool call never fires.
 GATE_TAIL = 262144
 GATE_MIN_CALLS = 3
-# The tool names whose calls the PostToolUse hooks record: Claude's matcher
-# (hooks/hooks.json) and Codex's shell, the one tool its PostToolUse is known to
-# fire for. A tool no hook records (Read, Grep) is not counted, so its absence
-# from the ledger is never read as a disarmed gate.
+# The tool names whose every allowed call leaves a PreToolUse row (`began`,
+# tezgah_gate.decision's write and shell branch) and every refused one a `deny`:
+# Claude's write and shell tools and Codex's `exec_command`/`apply_patch`. A
+# tool the gate may pass without a row (Read, Grep, Task, WebFetch, an MCP
+# call) is not counted, so its absence from the ledger is never read as a
+# disarmed gate.
 GATED_TOOLS = re.compile(r"(?i)^(?:bash|powershell|pwsh|edit|write|multiedit|"
-                         r"notebookedit|webfetch|websearch|agent|task|"
-                         r"exec_command|shell|mcp__.+)$")
+                         r"notebookedit|exec_command|shell|apply_patch)$")
 GATE_INACTIVE = (
     "tezgah gate inactive on this host: %d gated tool call(s) since this "
-    "session's first turn and not one row from the tool hooks, so the shortcut "
+    "session's first turn and not one row from the gate, so the shortcut "
     "denials and the Stop check are not running. Say so before claiming a check "
     "passed, and ask the user to run `tezgah-setup --report`.")
 
@@ -1573,15 +1574,18 @@ def _transcript_calls(path, since):
 # after_block and shape rows, the subagent-end hook's subagent_end row,
 # compaction, the subagent mark (SubagentStart writes it too), the guard's
 # crash row (any hook) and the session start's attest row. Every other kind -
-# deny, nudge, drift, run, edit, verify*, ... - can only come from PreToolUse
-# or PostToolUse, so one is proof the gate ran.
-# Excluding, not listing: a kind the tool hooks gain later still counts. A row
+# deny, nudge, began, snapshot, ... - can only come from a tool hook.
+# Excluding, not listing: a kind the gate gains later still counts. A row
 # from `deny` carries no `tool` field, and a session whose every gated call the
 # gate refused read as disarmed (review S3).
 NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"refusal",
                            b"after_block", b"subagent_end",
                            b"shape", b"compact", b"orch", b"crash", b"route",
                            b"spawned", b"lesson", b"attest"))
+# The rows PostToolUse writes (`note_tool`): they prove the host ran the call,
+# not that the gate saw it - a PostToolUse hook keeps writing them while a
+# broken PreToolUse hook lets every call through - so they are no proof either.
+POST_TOOL_ROWS = frozenset(k.encode() for k in STEP_KINDS + ("external", "unknown"))
 
 
 def _ledger_lines(path):
@@ -1609,6 +1613,7 @@ def _ledger_since(session_id):
     def tool_row(raw, since):
         k, t = kind.search(raw), stamp.search(raw)
         return bool(k and k.group(1) not in NOT_TOOL_HOOK
+                    and k.group(1) not in POST_TOOL_ROWS
                     and t and int(t.group(1)) >= since)
     for raw in lines:
         if b'"turn"' not in raw:
@@ -2497,9 +2502,21 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
     # Shown when this session's start found tezgah's own hook entries changed
     # since install (hooks/tezgah_attest.py::run): the line says the harness
     # drifted and nothing more; what drifted is in the session's attest row.
-    if session_id and os.path.exists(tezgah_attest.drift_mark(session_id)):
+    # Imported here, not at the top: a broken attestation module costs this
+    # mark, never the gate that imports this module.
+    try:
+        import tezgah_attest
+        drifted = bool(session_id and tezgah_attest.mark_text(session_id))
+    except Exception:
+        drifted = False
+    if drifted:
         segs.append({"key": "drift", "state": "off", "glyph": GLYPHS["off"],
                      "text": "drift", "group": 0})
+    # A hook of this session could not import its core (tezgah_guard.
+    # import_failed): it failed open, so what it guards did not run.
+    if session_id and os.path.exists(import_crash_mark(session_id)):
+        segs.append({"key": "crash", "state": "off", "glyph": GLYPHS["off"],
+                     "text": "crash", "group": 0})
     for name, on, meas in flags:
         if not on:
             state = "off"

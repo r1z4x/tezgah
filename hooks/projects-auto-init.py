@@ -11,9 +11,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from tezgah_guard import import_failed, safe  # noqa: E402
+from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
 try:
-    import tezgah_attest  # noqa: E402
     from tezgah_context import context_for, record  # noqa: E402
     from tezgah_paths import HOST_DIRS  # noqa: E402
 except Exception as exc:
@@ -82,7 +81,7 @@ def main():
         # drop the flag is attested as dsh - and still reads as drift there.
         sid = payload.get("session_id")
         host = "claude" if os.environ.get("TEZGAH_CORE_IN_FILE") == "1" else "dsh"
-        safe(sid, tezgah_attest.run, host, sid, cwd)
+        safe(sid, attest_session, host, sid, cwd)
     text = safe(payload.get("session_id"), context_for,
                 EVENTS.get(event, "session_start"), cwd, payload,
                 # the brief is a subagent's own text, never the file's; every
