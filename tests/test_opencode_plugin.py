@@ -382,6 +382,14 @@ class OpenCodePlugin(TempHome):
                 self.assertTrue(ti.shortcut_command(line)
                                 or tg.secret_command(line), line)
                 self.denied(self.before("bash", {"command": line}))
+        # a quote left open hides only what follows it, and an apostrophe in a
+        # heredoc body opens no quote (review of plan 054)
+        for line in ("curl https://x.io; HUSKY=0 git commit -m x\necho 'oops",
+                     "curl https://x.io; pytest || true\necho 'oops",
+                     "cat <<EOF\ndon't\nEOF\ngit commit --no-verify -m x",
+                     "cat <<EOF\ndon't\nEOF\nHUSKY=0 git commit -m x; echo 'y'"):
+            self.assertIsNotNone(ti.shortcut_command(line), line)
+            self.denied(self.before("bash", {"command": line}))
 
     def test_the_reviews_hook_skip_shapes_match_the_python_gate(self):
         # review F4 (`-S`/`-u` take no separate word), F10 (bash options before
@@ -1239,7 +1247,15 @@ class OpenCodePlugin(TempHome):
                  ("pytest -q > log; tail log", "verify"),
                  ("echo $(pytest -q)", "verify"),
                  ("pytest -q && echo ok", "verify_ok"),
-                 ("cd x && pytest -q", "verify_ok"))
+                 ("cd x && pytest -q", "verify_ok"),
+                 # review of plan 054: quoted newlines, comments, a heredoc
+                 # body and `exit $?` leave the status with the check
+                 ('pytest -q && echo "a\nb"', "verify_ok"),
+                 ("pytest -k 'a\nb' && echo done", "verify_ok"),
+                 ("pytest -q; # trailing", "verify_ok"),
+                 ("pytest -q\n# comment", "verify_ok"),
+                 ("pytest -q <<EOF\nx\nEOF", "verify_ok"),
+                 ("pytest -q; exit $?", "verify_ok"))
         for i, (command, kind) in enumerate(cases):
             self.assertEqual(ti.status_hidden(command), kind == "verify", command)
             session = "status%d" % i

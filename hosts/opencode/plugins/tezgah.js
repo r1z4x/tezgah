@@ -318,6 +318,60 @@ function forShlex(text) {
   return out
 }
 
+// 1 for each character of a heredoc body or its terminator line
+// (hooks/tezgah_integrity._heredoc_bytes): data, never a quote or a comment
+function heredocBytes(text) {
+  const out = new Uint8Array(text.length)
+  if (text.includes("<<")) {
+    for (const h of heredocs(text)) out.fill(1, h[4], h[5] ? h[5][1] : text.length)
+  }
+  return out
+}
+
+// The newlines that end a command (hooks/tezgah_integrity._shell_lines): none
+// inside quotes, each one in a heredoc body, every one inside a double-quoted
+// `$( )`/backtick; a comment dropped to its line end; a quote left open goes
+// back to a split at every newline from its line on.
+function shellLines(text) {
+  const body = heredocBytes(text)
+  let lines = [], cur = "", quote = null, start = true, i = 0, opened = 0, runs = false
+  let dollar = false  // the character before i was a `$` bash read unescaped
+  const n = text.length
+  while (i < n) {
+    const ch = text[i]
+    if (body[i] || ((!quote || runs) && (ch === "\r" || ch === "\n"))) {
+      if (ch === "\r" || ch === "\n") {
+        lines.push(cur)
+        cur = ""; quote = null; start = true; runs = false; dollar = false
+        i += text.slice(i, i + 2) === "\r\n" ? 2 : 1
+      } else { cur += ch; i += 1 }
+      continue
+    }
+    if (quote) {
+      if (ch === "\\" && quote !== "'" && i + 1 < n) {
+        cur += text.slice(i, i + 2); i += 2; continue
+      }
+      if (ch === quote[quote.length - 1]) { quote = null; runs = false }
+      else if (quote === '"' && (ch === "`" || text.startsWith("$(", i))) runs = true
+    } else if (ch === "\\" && i + 1 < n) {
+      cur += text.slice(i, i + 2); i += 2; start = false; dollar = false; continue
+    } else if (ch === "#" && start) {
+      while (i < n && text[i] !== "\r" && text[i] !== "\n") i += 1
+      continue
+    } else if (ch === "'" || ch === '"') {
+      quote = ch === "'" && dollar ? "$'" : ch
+      opened = lines.length
+    }
+    start = !quote && (/\s/.test(ch) || ";&|()<>".includes(ch))
+    dollar = !quote && ch === "$"
+    cur += ch
+    i += 1
+  }
+  lines.push(cur)
+  if (quote) lines = lines.slice(0, opened).concat(lines.slice(opened).join("\n").split(/\r\n|\r|\n/))
+  return lines
+}
+
 // The line's simple commands with the separator that ended each, as
 // hooks/tezgah_integrity._shell_commands reads them: heredoc bodies blanked, a
 // continued line joined, each line read by shellWords - or, when it cannot read
@@ -326,15 +380,14 @@ function forShlex(text) {
 // it goes on after its close with a `$()` word in its place.
 function shellCommands(cmd) {
   const out = []
-  const text = forShlex(blankHeredocs(String(cmd || "")).replace(/\\\n/g, " "))
-  for (const line of text.split(/\r\n|\r|\n/)) {
+  const text = blankHeredocs(String(cmd || "")).replace(/\\\n/g, "  ")
+  for (const line of shellLines(text).map(forShlex)) {
     const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
     // a redirection is not an argument and not a command: its words (the fd
     // before, the `&` of `2>&1`/`&>`, the target after) are dropped
     let cur = [], subs = [], afterRedir = false
     for (let i = 0; i < words.length; i++) {
       const word = words[i]
-      if (word.startsWith("#") && cur.length) break  // bash: a comment starts a word
       if (word === "&" && i + 1 < words.length && REDIRECTION.test(words[i + 1])) continue
       if (REDIRECTION.test(word)) {
         if (cur.length && /^\d+$/.test(cur[cur.length - 1])) cur.pop()
@@ -387,14 +440,22 @@ const OWNING_SEP = /^[()]*(?:&&|\|&?)[()]*$/
 // True when the line's exit status is not its check's
 // (hooks/tezgah_integrity.status_hidden): a pipe owns it unless the line opens
 // with `set -o pipefail` and has no `||`, or a command after the check does -
-// a `;`, a newline or a trailing `&`
+// a `;`, a newline or a trailing `&` - unless that command is `exit $?`. A
+// heredoc body and its terminator are data.
 function statusHidden(cmd) {
   if (cmd.includes("|") && (cmd.includes("||") ||
       !/^\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\s*(?:;|&&|\n)/.test(cmd))) return true
-  const cmds = shellCommands(cmd)
+  const body = heredocBytes(cmd)
+  const cmds = shellCommands(cmd.split("").map((ch, k) =>
+    body[k] && ch !== "\n" ? " " : ch).join(""))
   for (let i = 0; i < cmds.length; i++) {
     if (!verifyCommand(cmds[i][0].map(quoteWord).join(" "))) continue
-    if (cmds.slice(i, -1).some((c) => !OWNING_SEP.test(c[1]))) return true
+    for (let k = i; k < cmds.length - 1; k++) {
+      if (OWNING_SEP.test(cmds[k][1])) continue
+      const next = cmds[k + 1][0].join(" ")
+      if (next === "exit $?" || next === "exit") break
+      return true
+    }
   }
   return cmds.length > 0 && cmds[cmds.length - 1][1].includes("&")
 }
@@ -684,35 +745,39 @@ function maskSource(text) {
 }
 
 // A shell line with quotes, comments and heredoc bodies blanked as bash reads
-// them (hooks/tezgah_integrity.mask): `'...'` takes no escape, `$'...'` and
-// `"..."` do, a `\` outside quotes escapes one character, and `#` is a comment
-// only at the start of a word. A quote left open keeps the source reading.
+// them (hooks/tezgah_integrity.mask): `'...'` takes no escape, `$'...'` (an
+// unescaped `$` only) and `"..."` do, a `\` outside quotes escapes one
+// character, `#` is a comment only at the start of a word, a heredoc body is
+// data, and a quote left open blanks from itself to the end.
 function maskText(raw) {
   const text = blankHeredocs(String(raw || ""))
+  const body = heredocBytes(text)
   const out = text.split("")
   const n = text.length
-  let i = 0, start = true
+  let i = 0, start = true, prev = ""
   while (i < n) {
     const ch = text[i]
     let end
-    if (ch === "\\") { i += 2; start = false; continue }
+    if (body[i]) { i += 1; start = true; prev = ""; continue }
+    if (ch === "\\") { i += 2; start = false; prev = ""; continue }
     if (ch === "'" || ch === '"') {
-      const escapes = ch === '"' || text[i - 1] === "$"
+      const escapes = ch === '"' || prev === "$"
       end = i + 1
       while (end < n && text[end] !== ch) end += escapes && text[end] === "\\" ? 2 : 1
-      if (end >= n) return maskSource(text)
-      end += 1
+      end = Math.min(end + 1, n)
     } else if (ch === "#" && start) {
       end = text.indexOf("\n", i)
       if (end < 0) end = n
     } else {
       start = /\s/.test(ch) || ";&|()<>".includes(ch)
+      prev = ch
       i += 1
       continue
     }
     for (let k = i; k < end; k++) if (out[k] !== "\n") out[k] = " "
     i = end
     start = false
+    prev = ""
   }
   return out.join("")
 }

@@ -125,7 +125,9 @@ ACCEPTED_REFUSALS = (
 GATE01_WRAPS = ("curl -s https://example.com/health; %s",
                 "echo a#b; %s",
                 "ls src/*.py; %s; ls lib/*/",
-                "echo 'x\\'; %s; echo '\\'")
+                "echo 'x\\'; %s; echo '\\'",
+                # an escaped `\$` is a literal dollar, so `'x\'` is no ANSI-C string
+                "echo \\$'x\\'; %s; echo '\\'")
 
 
 def bash():
