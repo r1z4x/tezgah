@@ -105,9 +105,7 @@ SLOTS = {
                  "any": ("anthropic/claude-opus-5.5", "high")},
 }
 AGENT_SLOT = {"tezgah-cheap": "cheap", "tezgah-standard": "standard",
-              "tezgah-frontier": "frontier", "tezgah-explorer": "explore",
-              "tezgah-reviewer": "frontier", "tezgah-researcher": "frontier",
-              "tezgah-verifier": "cheap"}
+              "tezgah-frontier": "frontier", "tezgah-reviewer": "frontier"}
 # The OpenRouter id of every model the table names, with its list price per 1M
 # tokens (input, output) on READ_ON, so `refresh` can say what moved.
 SNAPSHOT = {"anthropic/claude-opus-5.5": (4.0, 20.0),

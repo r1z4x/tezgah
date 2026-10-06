@@ -38,7 +38,9 @@ shared config, contract hash and the CLI symlinks every host shell can call
 (`bin/tezgah-setup:440-489`).
 
 - **claude** - `install_claude` (`bin/tezgah-setup::install_claude`): `~/.claude/statusline.py`,
-  `~/.claude/workflows/{graph-map,graph-review,graph-impact}.js`, the
+  no `~/.claude/workflows` links (the plugin's own `workflows/` serves the graph
+  workflows, and install removes tezgah's old links there and any dangling
+  `cbm-*.js` one, `sweep_claude_workflows`), the
   `~/.claude/bin/{consult,codegen,tezgah-render-table}` links, two keys in
   `~/.claude/settings.json` - `statusLine` (`bin/tezgah-setup:529-581`) and the attribution
   off-switch (`bin/tezgah-setup:508-528`) - and the always-on block in

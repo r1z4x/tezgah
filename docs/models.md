@@ -30,10 +30,10 @@ cheap trajectory on a frontier model was the most expensive option measured
 
 | slot | agents | anthropic | zai (omp's own provider) | openai | any (OpenRouter id) |
 |---|---|---|---|---|
-| cheap | tezgah-cheap, tezgah-verifier | Opus 5.5 @low | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | GLM-5.3 Flash |
-| explore | tezgah-explorer | Opus 5.5 @medium | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | DeepSeek V4.1 Flash |
+| cheap | tezgah-cheap | Opus 5.5 @low | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | GLM-5.3 Flash |
+| explore | omp's bundled `scout` | Opus 5.5 @medium | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | DeepSeek V4.1 Flash |
 | standard | tezgah-standard | Opus 5.5 @medium | `zai/glm-5.3` | GPT-6.1 Sol @high | GPT-6.1 Sol @high |
-| frontier | tezgah-frontier, tezgah-reviewer, tezgah-researcher | Opus 5.5 @high | `zai/glm-5.3` | GPT-6 Astra @high | Opus 5.5 @high |
+| frontier | tezgah-frontier, tezgah-reviewer | Opus 5.5 @high | `zai/glm-5.3` | GPT-6 Astra @high | Opus 5.5 @high |
 
 Why these, briefly. Inside the Anthropic family the lever is effort, not model:
 Opus 5.5 and Sonnet 5.5 read cache at the same $0.20 per 1M tokens, and on

@@ -92,6 +92,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rewrites that file. The same pass reads all ten Stop classes by AST. It also checks the
   gate's rule order and switches, the judge's callers and the kill-switch names.
   `tests/neuter_matrix.py` generates one mutant per gate rule.
+- **`tezgah-setup --write-plugin-agents`.** The plugin's `agents/tezgah-reviewer.md`
+  is now rendered from the same role body the per-repo reviewer gets. A test
+  fails until the flag has run after a body change.
 
 ### Changed
 
@@ -145,12 +148,55 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A question is not a claim on a turn with no work.** "Testler geçti mi?",
   "is it done?" and "not tested yet" no longer trigger the no-work claim
   check. "Tamamlandı, push edeyim mi?" still does.
+- **tezgah teaches `codegraph affected` as what it is.** codegraph 1.6.0 says
+  it "finds test files affected by changed source files". Every copy taught it
+  as the blast radius of a ref. Now the contract, the reminder and the skills
+  say it. The role bodies and the graph workflows say it too. The blast radius
+  is `git diff` plus `codegraph impact <symbol>` per changed symbol.
+  `git diff --name-only <ref> | codegraph affected --stdin` picks the tests.
+  A reviewer with no shell (Claude, opencode) gets the changed files from its
+  caller and runs the MCP `codegraph_impact` tool per symbol.
+- **ToolSearch loads both codegraph MCP names.** A plugin install names the
+  tools `mcp__plugin_tezgah_codegraph__*`, a checkout's own server
+  `mcp__codegraph__*`. The select lines name both.
+- **tezgah retires three unused roles.** It no longer generates
+  `tezgah-explorer`, `tezgah-verifier` or `tezgah-researcher`. A session start
+  sweeps their managed files from the repo agent dirs. `--install` sweeps them
+  from omp's agent dir. The plugin's hand-kept `agents/tezgah-explorer.md` is
+  gone. Steering names none of them.
+- **`agents-off` removes the generated agents.** It used to stop generation and
+  leave the old files for every host to keep loading. The next session start
+  sweeps the repo agent dirs. The next `--install` sweeps omp's user-level
+  agents, and it removes only names tezgah ever generated.
+- **A repo's `.no-graph` hides the reviewer from steering**, also on omp, where
+  the agent file is user-level.
+- **Claude reads the graph workflows from the plugin only.** `--install` no
+  longer links `~/.claude/workflows/*.js`, so each workflow loads once. It
+  removes tezgah's old links there and any dangling `cbm-*.js` link. The
+  report row now checks that no such link is left.
+- **The `ai-research` feature row is gone.** It switched nothing. A
+  `config.json` that still names it loads and installs as before.
 
 ### Fixed
 
 - **A malformed `~/.config/tezgah/config.json` is no longer rewritten.**
   `--install` read it as empty and wrote its defaults over the user's roots.
   It now refuses the file, names it, leaves its bytes alone and exits 1.
+- **The graph workflows report a failed agent as unknown.** `graph-review` said
+  "all four dimensions came back clean" when every dimension failed. It listed
+  a finding as refuted when both refuters failed. `graph-impact` dropped a
+  failed planner and turned a failed sweep into "no blind spots". Each script
+  now names every failure in an `unknown` list. A finding no refuter answered
+  stays unverified. A stub runtime (`tests/_workflow_harness.mjs`) tests both.
+- **`graph-impact` parses again.** It had one closing parenthesis too many, so
+  Claude's runtime could not load it at all.
+- **The status line marks graph use on a plugin install.** It tested only
+  `mcp__codegraph__`. It now shares the PostToolUse store's test.
+- **tezgah records a Claude skill load.** The plugin's PostToolUse matcher
+  carries `Skill`, and so does dsh's manifest, which mirrors it. The hook writes
+  `skill:<name>` (or the pony/adhd mark). The skill-fitness report then counts
+  Claude sessions. Nobody has checked that Claude fires PostToolUse for the
+  Skill tool.
 - **A host config the installer cannot parse is left alone.** Seven install
   steps read a host's JSON config and then rewrote it. They cover Codex and
   Cursor `hooks.json`, opencode's `opencode.json` and `tui.json`, Cursor's

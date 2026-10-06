@@ -28,7 +28,7 @@ import tezgah_apps as ta  # noqa: E402  (the module under test)
 # config.json stores, so a rename is a migration and this list is where it
 # shows up.
 MCP_IDS = ("mcp-playwright", "mcp-mobile-mcp", "mcp-chrome-devtools")
-PLAIN_IDS = ("ai-research", "orx")
+PLAIN_IDS = ("orx",)
 # Opt-in, serverless: the embedding models a --enable fetches and converts.
 EMBED_IDS = ("embed-mrl", "embed-m2v")
 ALL_IDS = MCP_IDS + PLAIN_IDS + EMBED_IDS
@@ -124,10 +124,17 @@ class DeclaredDefaults(unittest.TestCase):
         self.assertEqual(len(ta.MCP_IDS), 3)
 
     def test_the_plain_ids_are_in_the_default_selection(self):
-        # The mechanism is not MCP-only, and both of these were on before it:
-        # the payload ships in the package, orx is installed by --install.
+        # The mechanism is not MCP-only, and orx was on before it: --install
+        # installs it.
         for ident in PLAIN_IDS:
             self.assertIn(ident, ta.selected_ids(None), ident)
+
+    def test_a_config_naming_the_retired_ai_research_row_still_loads(self):
+        # The row did nothing (the payload ships in the package either way) and
+        # is gone; a config.json an older release wrote still names it, and an
+        # unknown id is dropped, never raised on.
+        self.assertNotIn("ai-research", ta.IDS)
+        self.assertEqual(ta.selected_ids(["ai-research", "orx"]), ("orx",))
 
 
 class Selection(unittest.TestCase):
@@ -218,16 +225,6 @@ class Probes(unittest.TestCase):
                                  os.path.join(d, "chromium-9999"))
             self.assertNotEqual(ta._playwright_browsers(),
                                 os.path.join(d, "chromium-9999"))
-
-    def test_a_payload_that_is_not_there_reads_as_unmet(self):
-        # The probe answers about the plugin that is running, so an empty plugin
-        # root has to read as unmet - and it has to ask through the path seam,
-        # not through a path copied in here, which is what the patch proves.
-        with tempfile.TemporaryDirectory() as d:
-            with mock.patch.object(ta, "_tp", lambda attr: (lambda: d)):
-                self.assertIsNone(ta._probe_ai_research())
-                open(os.path.join(d, "SKILL.md"), "w").close()
-                self.assertEqual(ta._probe_ai_research(), d)
 
 
 class HotPath(unittest.TestCase):

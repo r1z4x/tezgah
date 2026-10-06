@@ -380,10 +380,6 @@ class Wiring(unittest.TestCase):
         self.assertIn(path, rendered)
         self.assertIn("index/<stage>.md", rendered)
 
-    def test_the_researcher_agent_carries_the_same_path(self):
-        body = self.agents._researcher_body("claude")
-        self.assertIn(self.context.ai_research_dir(), body)
-
 
 if __name__ == "__main__":
     unittest.main()

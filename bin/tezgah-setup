@@ -13,6 +13,7 @@
   tezgah-setup --adopt                 move the predecessor wiring aside
   tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
   tezgah-setup --write-manifest        release: regenerate the tracked MANIFEST from git
+  tezgah-setup --write-plugin-agents   release: re-render the plugin's agents/ from the role source
   tezgah-setup --status [PATH]         print the armed/used checklist
   tezgah-setup --agents [PATH]         regenerate this repo's subagent set
   tezgah-setup --deps [--dry-run]      install missing optional tools only
@@ -963,11 +964,28 @@ def statusline_wired():
     return "statusline.py" in json.dumps(sl)
 
 
+def sweep_claude_workflows():
+    """Remove tezgah's `~/.claude/workflows` links, and dangling `cbm-*.js` ones.
+
+    The plugin's own `workflows/` directory serves the graph workflows, so a
+    link here loaded each of them twice. A predecessor harness left `cbm-*.js`
+    links whose targets are gone; adopt()'s cbm sweep covers hook scripts only.
+    A live `cbm-*.js` link or any other file is the user's and stays."""
+    d = os.path.join(CLAUDE, "workflows")
+    for w in WORKFLOW_FILES:
+        unlink_tezgah(os.path.join(d, w))
+    for name in (os.listdir(d) if os.path.isdir(d) else []):
+        path = os.path.join(d, name)
+        if (name.startswith("cbm-") and name.endswith(".js")
+                and os.path.islink(path) and not os.path.exists(path)):
+            os.unlink(path)
+            print("%s removed dangling %s" % (OK, path))
+
+
 def install_claude():
     print("\nclaude:")
     print(link(os.path.join(HERE, "statusline.py"), os.path.join(CLAUDE, "statusline.py")))
-    for w in WORKFLOW_FILES:
-        print(link(os.path.join(HERE, "workflows", w), os.path.join(CLAUDE, "workflows", w)))
+    sweep_claude_workflows()
     for b in ("consult", "codegen", "tezgah-render-table"):
         src = (os.path.join(HERE, "bin", b) if b != "tezgah-render-table"
                else os.path.join(HERE, "skills", "plan-add", "render_table.py"))
@@ -2208,10 +2226,24 @@ def install_omp():
     for s in SKILLS:
         print(link(os.path.join(HERE, "skills", s),
                    os.path.join(OMP_AGENT, "skills", s)))
-    for name, text in tezgah_agents.omp_user_agents().items():
-        path = os.path.join(OMP_AGENT, "agents", name)
+    wanted = tezgah_agents.omp_user_agents()
+    agents_dir = os.path.join(OMP_AGENT, "agents")
+    for name, text in wanted.items():
+        path = os.path.join(agents_dir, name)
         if write_if_changed(path, text):
             print("%s %s" % (OK, path))
+    # omp's files carry no MARKER (render_md_omp), so ownership is the name: a
+    # role tezgah ever generated (OWNED_NAMES) that is no longer wanted - retired,
+    # capability gone, or `agents-off` - stops being loaded. A user's own
+    # `tezgah-*.md` is not on that list and stays.
+    owned = {n + ".md" for n in tezgah_agents.OWNED_NAMES}
+    for name in (os.listdir(agents_dir) if os.path.isdir(agents_dir) else []):
+        if name in owned and name not in wanted:
+            try:
+                os.remove(os.path.join(agents_dir, name))
+                print("%s removed %s" % (OK, os.path.join(agents_dir, name)))
+            except OSError:
+                pass
     hook = omp_bridge()
     if hook:
         hook_dst = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
@@ -3096,7 +3128,7 @@ def verify_uninstall(hosts, full):
         claim("omp subagents gone",
               [os.path.join(agents, n) for n in
                (os.listdir(agents) if os.path.isdir(agents) else [])
-               if n.startswith("tezgah-") and n.endswith(".md")])
+               if n[:-len(".md")] in tezgah_agents.OWNED_NAMES and n.endswith(".md")])
         clean("omp mcp.json unwired", [os.path.join(OMP_AGENT, "mcp.json")])
         claim("omp skills unlinked",
               [os.path.join(OMP_AGENT, "skills", s) for s in SKILLS
@@ -3217,8 +3249,7 @@ def unwire_opencode_config():
 def uninstall_claude():
     print("\nclaude:")
     unlink_tezgah(os.path.join(CLAUDE, "statusline.py"))
-    for w in WORKFLOW_FILES:
-        unlink_tezgah(os.path.join(CLAUDE, "workflows", w))
+    sweep_claude_workflows()
     for b in ("consult", "codegen", "tezgah-render-table"):
         unlink_tezgah(os.path.join(CLAUDE, "bin", b))
     unwire_claude_settings()
@@ -3318,7 +3349,7 @@ def uninstall_omp():
     agents_dir = os.path.join(OMP_AGENT, "agents")
     if os.path.isdir(agents_dir):
         for name in os.listdir(agents_dir):
-            if name.startswith("tezgah-") and name.endswith(".md"):
+            if name.endswith(".md") and name[:-len(".md")] in tezgah_agents.OWNED_NAMES:
                 os.remove(os.path.join(agents_dir, name))
                 print("%s removed %s" % (OK, os.path.join(agents_dir, name)))
     hook = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
@@ -4169,9 +4200,9 @@ def host_checks_claude():
         ("statusline wired (link or copy)",
          is_tezgah_entry(os.path.join(CLAUDE, "statusline.py"))),
         ("statusLine in settings.json", statusline_wired()),
-        ("workflows in ~/.claude/workflows",
-         all(is_tezgah_entry(os.path.join(CLAUDE, "workflows", w))
-             for w in WORKFLOW_FILES)),
+        ("workflows served by the plugin (no link in ~/.claude/workflows)",
+         not any(is_tezgah_entry(os.path.join(CLAUDE, "workflows", w))
+                 for w in WORKFLOW_FILES)),
         ("bin on ~/.claude/bin",
          all(is_tezgah_entry(os.path.join(CLAUDE, "bin", b))
              for b in ("consult", "codegen", "tezgah-render-table"))),
@@ -4502,7 +4533,7 @@ def host_checks_omp():
     servers = mcp.get("mcpServers") or {}
     agents_dir = os.path.join(OMP_AGENT, "agents")
     agents = ([n for n in os.listdir(agents_dir)
-               if n.startswith("tezgah-") and n.endswith(".md")]
+               if n.endswith(".md") and n[:-len(".md")] in tezgah_agents.OWNED_NAMES]
               if os.path.isdir(agents_dir) else [])
     rows = [
         # the byte comparison covers the two marker rows that stood here
@@ -4670,6 +4701,24 @@ def write_manifest():
     with open(os.path.join(HERE, MANIFEST), "w", encoding="utf-8") as fh:
         fh.write("".join(f + "\n" for f in files))
     print("%s %s (%d paths)" % (OK, MANIFEST, len(files)))
+    return 0
+
+
+def write_plugin_agents():
+    """Re-render the plugin's tracked `agents/*.md` from tezgah_agents' role
+    bodies, the source the per-repo agents are generated from. A plain write,
+    not write_if_changed: a tracked file needs no `.tezgah-bak` beside it."""
+    for name, text in tezgah_agents.plugin_agents().items():
+        path = os.path.join(HERE, "agents", name)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                if fh.read() == text:
+                    continue
+        except OSError:
+            pass
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        print("%s %s" % (OK, path))
     return 0
 
 
@@ -5232,6 +5281,8 @@ def main(argv):
                     help="regenerate this repo's subagent set (default: cwd)")
     ap.add_argument("--write-manifest", action="store_true",
                     help="release: regenerate the tracked MANIFEST from git")
+    ap.add_argument("--write-plugin-agents", action="store_true",
+                    help="release: re-render the plugin's agents/ from the role source")
     ap.add_argument("--deps", action="store_true")
     ap.add_argument("--mcp-schemas", action="store_true",
                     help="measure the MCP tool-schema band by asking each server")
@@ -5335,6 +5386,8 @@ def main(argv):
         return 0
     if args.write_manifest:
         return write_manifest()
+    if args.write_plugin_agents:
+        return write_plugin_agents()
     if args.status:
         print(tezgah_context.health_lines(os.path.realpath(expand(args.status))))
         # The install-health half of this report, from the same function the

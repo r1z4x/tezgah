@@ -121,17 +121,17 @@ research lines with a written flip; everything else keeps one fresh reviewer
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py::CORE_RULES`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**{REPLY_LANG}, BLUF.**` :632, `**Ponytail (minimal code).**` :640, `**Output shape:
-ADHD-friendly.**` :651, `**Deliver the whole ask; never the shortcut.**` :665,
-`**Integrity: evidence, or "doğrulanmadı".**` :679, `**Loop discipline.**` :695,
-`**Spec before building.**` :704 *(conditional)*, `**Lessons ledger: stop
-repeating mistakes.**` :718, `**Code discovery: graph first.**` :726
-*(conditional)*, `**Consult before irreversible.**` :735 *(conditional)*,
-`**Research: route it to OpenResearch.**` :751 *(conditional)*, `**Product
-analysis: five axes, one evidence class per finding.**` :767 *(conditional)*,
-`**No AI attribution, ever, on any host.**` :800, `**Identifiers and messages
-stay English.**` :810, `**Session scope: the user's repo, not tezgah.**` :816,
-`**Kill switches:**` :832. The first label renders as `**Turkish, BLUF.**` under
+`**{REPLY_LANG}, BLUF.**` :637, `**Ponytail (minimal code).**` :645, `**Output shape:
+ADHD-friendly.**` :656, `**Deliver the whole ask; never the shortcut.**` :670,
+`**Integrity: evidence, or "doğrulanmadı".**` :684, `**Loop discipline.**` :700,
+`**Spec before building.**` :709 *(conditional)*, `**Lessons ledger: stop
+repeating mistakes.**` :723, `**Code discovery: graph first.**` :731
+*(conditional)*, `**Consult before irreversible.**` :740 *(conditional)*,
+`**Research: route it to OpenResearch.**` :756 *(conditional)*, `**Product
+analysis: five axes, one evidence class per finding.**` :772 *(conditional)*,
+`**No AI attribution, ever, on any host.**` :805, `**Identifiers and messages
+stay English.**` :815, `**Session scope: the user's repo, not tezgah.**` :821,
+`**Kill switches:**` :837. The first label renders as `**Turkish, BLUF.**` under
 the default `reply_lang`.
 
 `always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the five
@@ -275,9 +275,9 @@ The skill may hold more than the contract. Two rules live only in the skill
 today. The graph rule says an empty caller list is not proof that a change is
 safe. The gate section adds evidence adequacy: a check counts only if it can
 fail on the claim it backs. `ContractParity` reads one way, from the
-contract to the skill, so these extra rules pass it. The generated explorer and
-reviewer briefs carry the same caller-list floor (`hooks/tezgah_agents.py`),
-and `tests/test_agents.py` asserts it on every host.
+contract to the skill, so these extra rules pass it. The generated reviewer
+brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
+`tests/test_agents.py` asserts it on every host.
 
 ## When the injected text grows too large
 

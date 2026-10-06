@@ -341,7 +341,7 @@ REMINDER_CLAUSES = (
              "standard, never guess; "),
     ("lessons", ".tezgah/lessons.md lines are standing constraints; "),
     ("graph", '"who calls X"/"what breaks" -> `codegraph callers` / '
-              "`codegraph affected`, not grep alone; "),
+              "`codegraph impact`, not grep alone; "),
     ("consult", "consult before irreversible calls; "),
     ("research", "research -> orx/OpenResearch, not ad-hoc; "),
     ("integrity", re.compile(r'done/tested claims need observed evidence -> .*?'
@@ -419,6 +419,14 @@ SKILL_MARKS = {"ponytail": "pony", "i-have-adhd": "adhd"}
 # it back (`skill_fitness`).
 SKILL_KIND = "skill:"
 READ_TOOL_NAMES = ("read", "read_file", "readfile", "view_file")
+# Claude loads a skill through its Skill tool (`{"skill": "<name>"}`, a plugin
+# skill as `tezgah:<name>`), never through a read of the file.
+SKILL_TOOL_NAME = "skill"
+# codegraph's MCP tools arrive namespaced - `mcp__codegraph__<tool>` from a
+# checkout's own server, `mcp__plugin_tezgah_codegraph__<tool>` from the plugin -
+# so the server name is what identifies a graph call, whatever the tool is. One
+# constant for the PostToolUse store and Claude's status line.
+GRAPH_TOOL_MARK = "codegraph"
 
 _SKILLS = {}
 
@@ -471,7 +479,13 @@ def skill_read_kind(tool, inp):
     its legend are exactly what they were, while `skill_fitness` can say which
     skills a session actually opened. The name has to be a shipped skill (a
     directory under `skills/` with a SKILL.md): `skill://other` earns nothing, as
-    it always did."""
+    it always did. Claude's Skill tool call is the same load and earns the same
+    kind."""
+    if str(tool or "").strip().lower() == SKILL_TOOL_NAME:
+        name = str(inp.get("skill") or "").split(":")[-1] if isinstance(inp, dict) else ""
+        if name in SKILL_MARKS:
+            return SKILL_MARKS[name]
+        return SKILL_KIND + name if name and name in shipped_skills() else None
     if str(tool or "").strip().lower() not in READ_TOOL_NAMES:
         return None
     path = ""

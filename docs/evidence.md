@@ -396,6 +396,13 @@ opencode's plugin, which classifies in process because that host has no Python h
 (`hosts/opencode/plugins/tezgah.js:1900-1945`, its catalogue the host's own installed skill dir
 (`dirname(CONFIG)/opencode/skills`), which `tezgah-setup` fills with every shipped skill).
 
+Claude loads a skill through its `Skill` tool, never a read, so a Claude load used to leave no row.
+The same function now maps a `Skill` call to the same kind. The call carries
+`{"skill": "<name>"}`, and a plugin skill arrives as `tezgah:<name>`. The plugin's PostToolUse
+matcher carries `Skill` (`hooks/hooks.json`), and `projects-posttooluse.py`'s `used_kind` records
+it. Nobody has checked that Claude fires PostToolUse for the Skill tool. `tests/test_context.py`
+proves the hook side only.
+
 **The fitness report.** `tezgah-status --skill-fitness` prints, per shipped skill, how many of the
 recorded sessions opened it, and names the ones none did: a skill is a dependency that has to keep
 earning the context lines it costs, and accretion is invisible from reading the skill itself. It is a

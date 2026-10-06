@@ -181,11 +181,55 @@ class Omp(HostModels):
         # no tools: a tier worker edits, so it gets every tool the session has
         self.assertNotIn("\ntools:", "\n" + head)
 
-    def test_the_explorer_keeps_its_tool_list(self):
+    def test_the_reviewer_keeps_its_tool_list(self):
         self.install("omp")
-        head = self.read("tezgah-explorer.md").split("\n---\n", 1)[0]
+        head = self.read("tezgah-reviewer.md").split("\n---\n", 1)[0]
         self.assertIn("\ntools:", "\n" + head)
         self.assertIn("  - read", head)
+
+    def test_install_sweeps_the_retired_roles_and_keeps_the_users_files(self):
+        # omp's files carry no MARKER, so only names tezgah ever generated are
+        # its own: a retired role must stop being loaded after the next install,
+        # and a user's own `tezgah-*.md` must survive it
+        os.makedirs(self.agents(), exist_ok=True)
+        for name in ("tezgah-explorer.md", "tezgah-verifier.md",
+                     "tezgah-researcher.md", "my-agent.md", "tezgah-mine.md"):
+            with open(os.path.join(self.agents(), name), "w") as fh:
+                fh.write("---\nname: x\n---\nx\n")
+        self.install("omp")
+        names = sorted(os.listdir(self.agents()))
+        for gone in ("tezgah-explorer.md", "tezgah-verifier.md", "tezgah-researcher.md"):
+            self.assertNotIn(gone, names)
+        self.assertIn("my-agent.md", names)
+        self.assertIn("tezgah-mine.md", names)
+        self.assertIn("tezgah-cheap.md", names)
+
+    def test_agents_off_removes_the_omp_user_agents(self):
+        self.install("omp")
+        self.assertIn("tezgah-cheap.md", os.listdir(self.agents()))
+        switch = os.path.join(self.home, ".config", "tezgah", "agents-off")
+        os.makedirs(os.path.dirname(switch), exist_ok=True)
+        open(switch, "w").close()
+        self.install("omp")
+        self.assertEqual([], [n for n in os.listdir(self.agents())
+                              if n.startswith("tezgah-")])
+
+    def test_uninstall_keeps_a_users_own_tezgah_named_agent(self):
+        # omp's files carry no MARKER, so the uninstall, its verify claim and the
+        # report rows own only the names tezgah generated, not the prefix
+        self.install("omp")
+        mine = os.path.join(self.agents(), "tezgah-mine.md")
+        with open(mine, "w") as fh:
+            fh.write("---\nname: mine\n---\nx\n")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(support.REPO, "bin", "tezgah-setup"),
+             "--uninstall", "--hosts", "omp"],
+            capture_output=True, text=True, cwd=self.home, input="", timeout=120,
+            env=self.env(extra={"TEZGAH_NO_DEPS": "1",
+                                "TEZGAH_OMP_BIN": self.pathless()}))
+        self.assertTrue(os.path.isfile(mine), proc.stdout + proc.stderr)
+        self.assertNotIn("tezgah-cheap.md", os.listdir(self.agents()))
+        self.assertNotIn("tezgah-mine.md", proc.stdout)
 
     def test_the_orchestrator_can_delegate(self):
         self.install("omp")
