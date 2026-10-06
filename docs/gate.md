@@ -58,15 +58,15 @@ it first after the root check (`decision` `hooks/tezgah_gate.py:2009-2013`). The
 | What | Paths | Refused for |
 |---|---|---|
 | kill switches and opt-in markers | every name in `SWITCHES` (`hooks/tezgah_paths.py:63`) under `~/.config/tezgah` or `~/.claude` | any write |
-| tezgah's configuration | all of `~/.config/tezgah` (`config.json`, `bin/`, `ponytail.level`, ...) | any write |
-| evidence and session state | the cache's `evidence/`, `sessions/`, `switches/`, `gate-inactive/` and `workspace-index.json`, in the global cache and the temp fallback (`CONTROL_CACHE` `hooks/tezgah_gate.py:1483-1484`) | any write |
-| hook wiring | the opencode plugin file, the omp hook, the Claude plugin copy, the install prefix, and the tree the hooks run from unless the session works inside it (`_registration` `hooks/tezgah_gate.py:1561-1583`, `_install_trees` `hooks/tezgah_gate.py:1513-1525`) | any write |
-| shared registration files | `.claude/settings.json` and `settings.local.json`, `~/.claude/plugins/installed_plugins.json` and `known_marketplaces.json`, Codex's and Cursor's `hooks.json`, Codex's `config.toml` | a shell write; a write tool only when it changes an entry that is tezgah's - `statusLine`, `attribution`, `disableAllHooks`, a key or item naming tezgah (the user's own hook beside tezgah's in one matcher group stays theirs), or any `[hooks...]` line of `config.toml`, where the trust entries live (`_shared_change` `hooks/tezgah_gate.py:1711-1723`) |
+| tezgah's configuration | all of `~/.config/tezgah` (`config.json`, `bin/`, `ponytail.level`, the `hook:<host>:...` rows of `contract.sha256`, ...) | any write |
+| evidence and session state | the cache's `evidence/`, `sessions/`, `switches/`, `gate-inactive/`, `harness-drift/`, `import-crash/` and `workspace-index.json`, in the global cache and the temp fallback (`hooks/tezgah_gate.py::CONTROL_CACHE`) | any write |
+| hook wiring | the opencode plugin file, the omp hook, the Claude plugin copy, the install prefix, and the tree the hooks run from unless the session works inside it (`hooks/tezgah_gate.py::_registration`, `hooks/tezgah_gate.py::_install_trees`) | any write |
+| shared registration files | `.claude/settings.json` and `settings.local.json`, `~/.claude/plugins/installed_plugins.json` and `known_marketplaces.json`, Codex's and Cursor's `hooks.json`, Codex's `config.toml` | a shell write; a write tool only when it changes an entry that is tezgah's - `statusLine`, `attribution`, `disableAllHooks`, a key or item naming tezgah (the user's own hook beside tezgah's in one matcher group stays theirs), or any `[hooks...]` line of `config.toml`, where the trust entries live (`hooks/tezgah_gate.py::_shared_change`) |
 | repository marks and hooks | a `REPO_MARKS` name under a root, the session checkout's `.git/hooks` (a `.sample` file and a clone elsewhere pass), `git config core.hooksPath` set or unset there or `--global` | any write |
 | | `.husky`, `.tezgah/plans/open/` | a delete, a chmod that takes a permission away, or a move; `git rm --cached` passes (plan-sync's move) |
 | | a directory holding any protected path (`rm -rf ~/.cache`, `mv .git /tmp/x`) | a delete or move |
 | history | `git add -f` or `--force` of a `.tezgah/` path (`_git_change` `hooks/tezgah_gate.py::_git_change`) | always |
-| the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, by basename with or without `.py` (`CONTROL_CLIS` `hooks/tezgah_gate.py:1452-1453`) | always |
+| the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, `tezgah-context attest`, by basename with or without `.py` (`hooks/tezgah_gate.py::CONTROL_CLIS`) | always |
 
 The rule reads the shell word by word, one simple command at a time (`shell_control` `hooks/tezgah_gate.py::shell_control`). It reads each redirect target.
 It reads the arguments of `touch`, `rm`, `rmdir`, `unlink`, `mv`, `chmod`, `mkdir`, `tee`, `truncate`, the copiers' destination and `sed -i`/`perl -i`.

@@ -118,6 +118,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   agent's own attempts.
 - **`SECURITY.md` states the threat model.** It names a cooperative but
   fallible agent, the state the gate guards and how, and the residual routes.
+- **The control rule also guards the attestation state.** It refuses a
+  change to the `harness-drift/` and `import-crash/` status marks and a
+  `tezgah-context attest` run. The `hook:<host>:...` rows of `contract.sha256`
+  were already covered as tezgah's configuration, and a test now pins them.
 
 - **Opt-in taste capture, and a miner for the corrections already on disk.**
   Arm it with `~/.config/tezgah/taste-on`. A repository with a `.tezgah/`

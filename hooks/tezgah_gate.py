@@ -1446,11 +1446,13 @@ CONTROL_DENY = (
 # The CLIs that change control state, by basename with or without `.py`, and the
 # first argument that makes a call a change: None is any call, "" any argument.
 # `tezgah-gate decide` writes a genuine `began` row with `check=1`; the capture
-# CLI writes snapshot rows; pony and adhd write CONFIG_DIR. The task CLI is not
-# here: it is the task rule's (TASK_CHANGE), which `task-off` removes, and that
-# switch is one of the files this rule protects.
+# CLI writes snapshot rows; pony and adhd write CONFIG_DIR; `tezgah-context
+# attest` re-attests a session, and a clean result clears its drift mark. The
+# task CLI is not here: it is the task rule's (TASK_CHANGE), which `task-off`
+# removes, and that switch is one of the files this rule protects.
 CONTROL_CLIS = {"tezgah-gate": ("decide",), "tezgah-capture": "",
-                "tezgah-pony": "", "tezgah-adhd": ("on", "off")}
+                "tezgah-pony": "", "tezgah-adhd": ("on", "off"),
+                "tezgah-context": ("attest",)}
 # Programs that change a path named in their arguments. Every positional is a
 # target, except for the copiers, whose last one is (`cp switch /tmp` reads it).
 # `sed`/`perl` count only with an in-place flag.
@@ -1479,9 +1481,12 @@ SHELL_KEYWORDS = frozenset(("if", "then", "elif", "else", "do", "while",
                             "until", "!", "{", "time"))
 SHELL_OPS = re.compile(r"^[;&|()<>]+$")
 # The cache subtrees whose rows the rules read: the evidence ledger, the session
-# store, the switch baseline (tezgah_context.disarmed) and the gate mark.
+# store, the switch baseline (tezgah_context.disarmed), the gate mark, and the
+# marks the status line reads for a drifted hook entry
+# (tezgah_attest.drift_mark) and a core that failed to import
+# (tezgah_guard.import_crash_mark).
 CONTROL_CACHE = ("evidence", "sessions", "switches", "gate-inactive",
-                 "workspace-index.json")
+                 "harness-drift", "import-crash", "workspace-index.json")
 # Top-level keys tezgah writes into Claude's settings (bin/tezgah-setup
 # wire_claude_statusline, wire_claude_attribution), and the one that turns every
 # hook off at once; any other key or entry is tezgah's only when it names tezgah.

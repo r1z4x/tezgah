@@ -33,8 +33,9 @@ an adversarial agent, and it does not claim to be one.
   - the kill switches and opt-in markers (`hooks/tezgah_paths.py` `SWITCHES`,
     under `~/.config/tezgah` and the legacy `~/.claude`) and all of
     `~/.config/tezgah`;
-  - the evidence ledger, the session store and the switch baseline in the
-    cache (`evidence/`, `sessions/`, `switches/`, `gate-inactive/`,
+  - the evidence ledger, the session store, the switch baseline and the
+    status marks in the cache (`evidence/`, `sessions/`, `switches/`,
+    `gate-inactive/`, `harness-drift/`, `import-crash/`,
     `workspace-index.json`);
   - the hook wiring: each host's hook registration file (in a shared file such
     as `~/.claude/settings.json`, only the entries that are tezgah's and
@@ -48,8 +49,8 @@ an adversarial agent, and it does not claim to be one.
   - a forced `git add` of a `.tezgah/` path, and a delete or move under
     `.tezgah/plans/open/` (a `--cached` removal is plan-sync's and passes);
   - the CLIs that change that state: `tezgah-gate decide`, `tezgah-capture`,
-    `tezgah-pony <level>`, `tezgah-adhd on|off`. The task CLI is the task
-    rule's.
+    `tezgah-pony <level>`, `tezgah-adhd on|off`, `tezgah-context attest`.
+    The task CLI is the task rule's.
 
   Only `pretooluse-off` removes the rule, and it is one of the protected
   files. The refusal names no command. A ledger line that is not a row is

@@ -122,6 +122,28 @@ class ControlPlane(unittest.TestCase):
             with self.subTest(command=command):
                 self.refused("Bash", {"command": command})
 
+    def test_the_attestation_state_is_control_plane(self):
+        # plan 059's state: a drift mark the next clean start clears, the
+        # import-crash mark, the `hook:<host>:...` rows install records in
+        # contract.sha256, and the CLI that re-attests a session by hand
+        import tezgah_attest as ta
+        import tezgah_guard as tgd
+        paths = (ta.drift_mark("s1", "claude"), tgd.import_crash_mark("s1"),
+                 ta.CONTRACT_SHA)
+        for path in paths:
+            for tool, inp in (("Write", {"file_path": path, "content": "x"}),
+                              ("Edit", {"file_path": path, "old_string": "a",
+                                        "new_string": "b"})):
+                with self.subTest(tool=tool, path=path):
+                    self.refused(tool, inp)
+        for command in ("rm -rf ~/.cache/tezgah/harness-drift",
+                        "rm ~/.cache/tezgah/import-crash/abc",
+                        "echo 'hook:claude:x 0' >> ~/.config/tezgah/contract.sha256",
+                        "tezgah-context attest claude s1",
+                        "python3 bin/tezgah-context attest claude s1"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+
     def test_a_cd_and_compound_syntax_do_not_hide_the_target(self):
         for command in ("cd ~/.config/tezgah && touch verify-off",
                         "cd ~/.config && touch tezgah/verify-off",
