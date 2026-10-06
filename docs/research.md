@@ -183,7 +183,7 @@ stated in the rule's own comment.
 
 `bin/tezgah-research` is the only writer and the only reader of the workspace;
 the check a session runs from the shell is the same function the session note
-calls (`check_line`, `hooks/tezgah_research.py::check_line`).
+calls for a line not under `done/` (`check_line`, `hooks/tezgah_research.py::check_line`).
 
 | Command | What it does | Exit |
 |---|---|---|
@@ -347,8 +347,12 @@ it.
 
 `check_line` verifies the hashes on every run, with or without git (`_check_seal`,
 `hooks/tezgah_research.py::_check_seal`). An edited, removed or added experiment
-fails the line. So the session note (`failing`) sees an edit after the
-conclusion too. The ceiling: the seal sits in the line's own `state.json`.
+fails the line. The session note (`failing`, `hooks/tezgah_research.py::failing`)
+checks a line under `done/` by these hashes alone, not by `check_line`. So it
+sees an edit after the conclusion, and the line's other findings stay with
+`check`. A line under `done/` without a seal adds nothing to the note. On a
+copy of this repository's workspace (34 lines, 33 under `done/`) the note took
+0.014 s instead of 0.67 s. The ceiling: the seal sits in the line's own `state.json`.
 Whoever edits `results.jsonl` can recompute the seal there too. It catches an
 edit, not a forger.
 
@@ -781,7 +785,8 @@ not installed and to fall back to a host subagent rather than improvise the
 protocol (`context_for`, `hooks/tezgah_context.py::context_for`), and at session start and
 after a compaction a line with structural problems is named with its first error
 and the advice to run `check` before reporting a result (the note
-`research_broken` in `context_for`, `hooks/tezgah_context.py::context_for`).
+`research_broken` in `context_for`, `hooks/tezgah_context.py::context_for`). A
+line under `done/` reaches the note only through its seal hashes.
 
 The mark: `research` in the status line. It is armed when `research-off` is
 absent and the research tooling is present (`health_segments`,

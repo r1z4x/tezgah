@@ -3789,11 +3789,17 @@ def check(repo, slug=None, git=True, strict=False):
 
 def failing(repo, git=False):
     """(slug, error) pairs, for a one-line session note. Structural only by
-    default: the session context must not pay for git history."""
+    default: the session context must not pay for git history. A line under
+    `done/` is verified by its order seal's hashes alone (`_check_seal`), not
+    re-checked: its other findings stay with `check`, and an unsealed one adds
+    nothing (plan 058 part 4)."""
     rows = []
-    for slug, report in check(repo, git=git).items():
-        for err in report["errors"]:
-            rows.append((slug, err))
+    for slug in slugs(repo):
+        if sealed(repo, slug):
+            errors = _check_seal(line_dir(repo, slug))[0]
+        else:
+            errors = check_line(repo, slug, git=git)[0]
+        rows.extend((slug, err) for err in errors)
     return rows
 
 

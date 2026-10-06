@@ -173,6 +173,22 @@ class Mutation(SealCase):
         self.assertFalse(hit("sealed", tr.check(repo)["q"]["errors"]))
         self.assertFalse(hit("sealed", [err for _slug, err in tr.failing(repo)]))
 
+    def test_the_note_hashes_a_done_line_and_checks_an_open_one(self):
+        """Plan 058 part 4: the session note verifies a line under done/ by its
+        seal hashes alone, not by a full `check_line`, so a sealed line's other
+        findings stay with `check` and the note keeps its cost budget."""
+        repo = self.sealed_line()
+        os.remove(os.path.join(tr.line_dir(repo, "q"), "findings.md"))
+        self.line(repo, slug="o")
+        os.remove(os.path.join(tr.line_dir(repo, "o"), "findings.md"))
+        self.assertTrue(hit("findings.md is missing", tr.check(repo)["q"]["errors"]))
+        rows = tr.failing(repo)
+        self.assertEqual(sorted({slug for slug, _err in rows}), ["o"], rows)
+        d = os.path.join(tr.line_dir(repo, "q"), "experiments", "h1")
+        self.append_line(os.path.join(d, "results.jsonl"), {"run": 2, "p95": 0.1})
+        self.assertTrue(hit("experiment h1: results.jsonl changed after the line "
+                            "was sealed", [e for s, e in tr.failing(repo) if s == "q"]))
+
 
 class HistoryLost(SealCase):
     """ADR 009: the lines concluded before seals existed take a `history-lost`

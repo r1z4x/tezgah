@@ -195,6 +195,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The research session note hashes a line under `done/`.** `failing()` runs
+  `_check_seal` on a concluded or closed line instead of the full `check_line`.
+  An edit after the seal still reaches the note. The line's other findings stay
+  with `check`, and its no-slug run does not change. On a copy of this
+  repository's workspace the note took 0.014 s instead of 0.67 s.
 - **The piped-check remedy is one sentence.** `PIPED_REMEDY` in
   `hooks/tezgah_integrity.py` holds it. The refusal, the always-on core, its
   hookless copy, the contract skill and `docs/gate.md` quote it word for word.
