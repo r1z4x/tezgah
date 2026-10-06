@@ -94,7 +94,8 @@ opencode plugin's ports (`maskText`, `shellPrograms`, through node and
 answers differently from the core. `tests/test_fuzz_shell.py` runs 60 lines
 in the normal suite and fails if `mask` or its port blanks a program bash ran,
 or if a port disagrees with the core; `TEZGAH_FUZZ_LINES=10000` widens the
-sample.
+sample. `--strict` exits 1 on any class; CI runs it weekly under bash 5.x on
+20000 lines, core and `--js` (`fuzz-shell` in `.github/workflows/neuter.yml`).
 
 ### Gate latency
 

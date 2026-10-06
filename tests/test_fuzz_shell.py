@@ -7,9 +7,12 @@ program reader's open classes are printed, not asserted (plan 054). The same
 sample read by the opencode plugin's ports (`--js`, through node) must blank
 nothing bash ran and must answer exactly as the core does on every line.
 """
+import contextlib
+import io
 import os
 import shutil
 import unittest
+from collections import Counter
 
 import fuzz_shell
 
@@ -39,6 +42,26 @@ class FuzzShell(unittest.TestCase):
                              {"p0", "c1", "p1"})
         finally:
             oracle.close()
+
+
+class Strict(unittest.TestCase):
+    """`--strict` is what the weekly bash-5 leg runs (neuter.yml): any
+    disagreement class fails it; without the flag the classes only print."""
+
+    def exit_code(self, classes, *argv):
+        real = fuzz_shell.run
+        fuzz_shell.run = lambda *a: (Counter(classes), 0,
+                                     {k: "p0" for k in classes})
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return fuzz_shell.main(["--lines", "1", *argv])
+        finally:
+            fuzz_shell.run = real
+
+    def test_a_disagreement_fails_only_under_strict(self):
+        self.assertEqual(self.exit_code({"programs: hidden p0": 1}, "--strict"), 1)
+        self.assertEqual(self.exit_code({"programs: hidden p0": 1}), 0)
+        self.assertEqual(self.exit_code({}, "--strict"), 0)
 
 
 if __name__ == "__main__":

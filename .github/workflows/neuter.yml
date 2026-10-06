@@ -27,3 +27,28 @@ jobs:
           node-version: "20"
       - name: Every anti-shortcut guard is load-bearing
         run: TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py
+
+  # The shell readers against bash 5.x (macOS ships 3.2, where the fuzzer was
+  # first run): any disagreement class, core or opencode port, fails the leg.
+  fuzz-shell:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "20"
+      - name: The runner's bash is 5.x
+        run: bash -c '[ "${BASH_VERSINFO[0]}" -ge 5 ]'
+      - name: Core readers agree with bash 5
+        run: python3 tests/fuzz_shell.py --seed 1 --lines 20000 --strict
+      - name: The opencode ports agree with bash 5
+        if: ${{ !cancelled() }}
+        run: python3 tests/fuzz_shell.py --seed 1 --lines 20000 --js --strict

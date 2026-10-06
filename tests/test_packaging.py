@@ -292,6 +292,15 @@ class ReleaseWaitsForCi(unittest.TestCase):
         # cannot fail: it was presented as a check it never was
         self.assertNotIn("--acceptance --strict", self.workflow("ci.yml"))
 
+    def test_the_weekly_bash5_fuzz_leg_fails_on_any_class(self):
+        # plan 054: the fuzzer was only ever run under macOS bash 3.2
+        block = self.jobs(self.workflow("neuter.yml")).get("fuzz-shell", "")
+        self.assertRegex(block, r"(?m)^    runs-on: ubuntu-")
+        self.assertIn('"${BASH_VERSINFO[0]}" -ge 5', block)
+        for leg in ("", " --js"):
+            self.assertIn("python3 tests/fuzz_shell.py --seed 1 --lines 20000"
+                          "%s --strict\n" % leg, block)
+
 
 if __name__ == "__main__":
     unittest.main()

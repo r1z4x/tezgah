@@ -210,6 +210,8 @@ def main(argv=None):
     ap.add_argument("--lines", type=int, default=10000)
     ap.add_argument("--js", action="store_true",
                     help="read with the opencode plugin's ports (needs node)")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit 1 on any disagreement class (the CI leg)")
     args = ap.parse_args(argv)
     classes, invalid, examples = run(args.seed, args.lines, args.js)
     print("bash %s, seed %d, %d lines, %d invalid, reader %s"
@@ -218,7 +220,7 @@ def main(argv=None):
     for key, n in classes.most_common():
         print("%6d  (%.1f per 10^4)  %s\n        e.g. %r"
               % (n, n * 1e4 / args.lines, key, examples[key]))
-    return 0
+    return 1 if args.strict and classes else 0
 
 
 if __name__ == "__main__":

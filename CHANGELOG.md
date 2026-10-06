@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The shell-reader fuzzer runs weekly under bash 5.x.** A `fuzz-shell` job
+  in `.github/workflows/neuter.yml` runs `tests/fuzz_shell.py` on the ubuntu
+  runner's bash 5, seed 1, 20000 lines. It reads the lines once with the core
+  readers and once with the opencode plugin's ports (`--js`). The new
+  `--strict` flag makes any disagreement class exit 1, so the job fails on it.
 - **`tezgah-status --enforcers` shows what enforces each always-on rule.**
   Each CORE rule gets one row. The row names the gate rules and Stop classes
   that refuse on the rule, with the switches and conditions that guard each.
