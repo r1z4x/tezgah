@@ -527,6 +527,54 @@ class ShortcutEdit(unittest.TestCase):
             old_string="def t():\n    assert x == 1",
             new_string="def t():\n    pass"))
 
+    def test_every_write_dialect_is_read_like_new_string(self):
+        # evidence-04: the rule read old/new_string, content and edits[] only, so
+        # a skip landed through apply_patch's `patch`, str_replace_editor's
+        # `new_str` or its `file_text` passed while `new_string` refused it. Each
+        # body is held to the verdict `new_string` gets: the skip refused, and
+        # the shapes this rule does not read yet (`assert True`, a conftest
+        # `collect_ignore`; plan 065) passed on every route alike.
+        skip = "@pytest.mark." + "skip"
+        cases = (("tests/test_zz.py", skip + "\ndef test_x():\n    assert f()",
+                  True),
+                 ("tests/test_zz.py", "def test_x():\n    assert True", False),
+                 ("tests/conftest.py", "collect_ignore = ['test_slow.py']",
+                  False))
+        for path, body, refused in cases:
+            plus = "".join("+%s\n" % line for line in body.split("\n"))
+            dialects = {
+                "new_string": {"file_path": path, "old_string": "x = 1",
+                               "new_string": body},
+                "new_str": {"path": path, "old_str": "x = 1", "new_str": body},
+                "file_text": {"path": path, "file_text": body},
+                "patch update": {"patch": "*** Begin Patch\n*** Update File: "
+                                 "%s\n@@\n-x = 1\n%s*** End Patch" % (path, plus)},
+                "patch add": {"patch": "*** Begin Patch\n*** Add File: %s\n%s"
+                              "*** End Patch" % (path, plus)},
+            }
+            for name, payload in dialects.items():
+                with self.subTest(path=path, body=body[:20], dialect=name):
+                    self.assertEqual(ti.shortcut_edit(payload) is not None,
+                                     refused)
+
+    def test_a_patch_is_read_file_by_file(self):
+        # the test-path gate is per file: a skip in a patch's non-test file is
+        # not a disabled test, the same skip in its test file is, and a skip the
+        # same hunk removes and re-adds is not a new one
+        skip = "@pytest.mark." + "skip"
+
+        def patch(*files):
+            return {"patch": "*** Begin Patch\n" + "".join(
+                "*** Update File: %s\n@@\n%s" % pair for pair in files)
+                + "*** End Patch"}
+        self.assertIsNone(ti.shortcut_edit(patch(
+            ("src/a.py", "+%s\n" % skip), ("tests/test_a.py", "-a\n+b\n"))))
+        self.assertIsNotNone(ti.shortcut_edit(patch(
+            ("src/a.py", "+b\n"), ("tests/test_a.py", "+%s\n" % skip))))
+        self.assertIsNone(ti.shortcut_edit(patch(
+            ("tests/test_a.py", "-%s\n-def t(): pass\n+%s\n+def u(): pass\n"
+             % (skip, skip)))))
+
 
 class LedgerTail(unittest.TestCase):
     """events(tail=...) and prior_calls read only the end of the ledger.
@@ -1054,6 +1102,18 @@ class WritersElsewhere(unittest.TestCase):
         self.assertEqual(ti._parse(['{"kind": "run"}\n', "[1, 2]"]),
                          [{"kind": "run"}])
 
+    def test_a_shell_write_row_is_a_writer(self):
+        # plan 057 (a)5: a shell `run` row that wrote a file carries `target`,
+        # so a sibling's redirect into the file counts like its edit would; a
+        # run row with no target (a command that wrote nothing) names no file
+        now = int(time.time())
+        self.write("shell", [{"kind": "run", "ts": now,
+                              "detail": "echo x > /repo/x.py",
+                              "target": ti._abs_target("/repo/x.py", "/")}])
+        self.write("quiet", [{"kind": "run", "ts": now, "detail": "ls"}])
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"),
+                         [ti._slug("shell")])
+
     def test_another_file_is_not_reported(self):
         self.write("other", [self.edit("/repo/x.py")])
         self.assertEqual(ti.writers_elsewhere("/repo/y.py", "mine"), [])
@@ -1318,6 +1378,23 @@ class WriteRowPath(unittest.TestCase):
         self.assertEqual(row["detail"], "README.md")
         self.assertEqual(row["target"],
                          os.path.join(os.path.realpath(repo), "README.md"))
+
+    def test_a_shell_write_records_its_absolute_real_target(self):
+        # plan 057 (a)5: the race guard counts rows with a target, so a shell
+        # `run` row that redirects into a file carries one like an edit row; a
+        # command that writes no file carries none
+        repo = os.path.join(self.dir, "repo")
+        os.makedirs(repo)
+        for command in ("echo x > out.txt", "printf x | tee out.txt"):
+            with self.subTest(command=command):
+                ti.note_tool("s", "Bash", {"command": command}, failed=False,
+                             cwd=repo)
+                row = ti.events("s")[-1]
+                self.assertEqual(row["kind"], "run")
+                self.assertEqual(row["target"], os.path.join(
+                    os.path.realpath(repo), "out.txt"))
+        ti.note_tool("s", "Bash", {"command": "ls"}, failed=False, cwd=repo)
+        self.assertNotIn("target", ti.events("s")[-1])
 
     def test_every_dialect_records_the_path_the_call_wrote(self):
         # One fixture per dialect: the four spellings a host puts a write's

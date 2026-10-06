@@ -53,7 +53,7 @@ of each rule's first deny site. A rule's section names every `off(...)` switch t
 ### Control — tezgah's own control plane
 
 Trigger: a write tool or a shell command that changes a file the other rules rest on (`control_reason` `hooks/tezgah_gate.py::control_reason`). `decision` checks
-it first after the root check (`decision` `hooks/tezgah_gate.py:2009-2013`). The protected set (`control_target` `hooks/tezgah_gate.py::control_target`):
+it first after the root check (`decision` `hooks/tezgah_gate.py::decision`). The protected set (`control_target` `hooks/tezgah_gate.py::control_target`):
 
 | What | Paths | Refused for |
 |---|---|---|
@@ -74,7 +74,7 @@ It reads the value of `cp -t`, `curl -o`, `wget -O`, `tar -C` on extraction and 
 variables first. It follows a `cd` within the line and reads past `if`/`then`/`do`/`!`/`{`. It opens `eval` and `bash -c`, and any flag cluster holding
 `c` is `-c`. A path counts as written and with its last link resolved. A quoted word is a word, so a grep or a commit message that names a switch passes. `SHELL_WRITE` stays as it was: it feeds the
 task phase rule and the opencode mirror. The task CLI stays the task rule's (below), so `task-off` still removes all of that rule. Told: what the call would
-change, and that the user changes it in their own terminal (`CONTROL_DENY` `hooks/tezgah_gate.py:1442-1445`). The text names no command. Standing. No switch
+change, and that the user changes it in their own terminal (`CONTROL_DENY` `hooks/tezgah_gate.py::CONTROL_DENY`). The text names no command. Standing. No switch
 but `pretooluse-off` removes the rule, and that switch is a protected file. The rule cannot tell a change the user asked for from one the agent chose. It
 refuses both inside the session, and it never sees the user's own terminal.
 
@@ -90,7 +90,8 @@ Trigger, shell: `--no-verify`, or `SKIP=`/`HUSKY_SKIP_HOOKS=`/`HUSKY=0`, next to
 (`hooks/tezgah_integrity.py:2102-2112`, `hooks/tezgah_integrity.py::NO_VERIFY`, `hooks/tezgah_integrity.py::SKIP_ENV`, `hooks/tezgah_integrity.py::NEUTER`, `hooks/tezgah_integrity.py::GITISH`).
 These shell predicates read the line through `mask()` (`hooks/tezgah_integrity.py::mask`), which blanks quotes and comments the way bash reads them. A URL's `//`, a word's `#`, a `/* */` glob pair and `'x\'` are words there, so they do not hide the command after them. The word reader takes a `$'...'` as one word and a `$( )` or backtick body as a command of its own (`hooks/tezgah_integrity.py::_for_shlex`). Trigger, edit/write: a skip marker newly
 introduced into a test file — the path must match `tests?/`, `test_*`, `*_test`, `*.test.*` (`hooks/tezgah_integrity.py::TEST_PATH`), the marker must survive `mask_source()` so one
-inside a string or comment does not count, and `_added` compares against the file's own text on disk for a `Write` (`hooks/tezgah_integrity.py::_added`, `hooks/tezgah_integrity.py::SKIP_TEST`). Told:
+inside a string or comment does not count, and `_added` compares against the file's own text on disk for a `Write` (`hooks/tezgah_integrity.py::_added`, `hooks/tezgah_integrity.py::SKIP_TEST`). Every write dialect is read
+through one reader (`hooks/tezgah_integrity.py::write_texts`, over `hooks/tezgah_taste.py::edit_text`): `new_string`/`newString`, `new_str`, `content`/`file_text`, `edits[]` and an `apply_patch` body, which is split per `*** Update File:`/`*** Add File:` header so the test-path gate and the count run per file (`hooks/tezgah_integrity.py::PATCH_FILE`). Told:
 the texts at `hooks/tezgah_integrity.py::shortcut_edit` — run the checks, or say the test is failing; ask the user first if the skip is intended. Standing, with one switch:
 `verify-off` removes this check (`hooks/tezgah_gate.py::decision`). The shell is a write route like any other, and the one E7c measured an
 armed session taking once the write tools were refused: a heredoc that writes a skip into a test file meets the same predicate, run over the body the
@@ -129,15 +130,16 @@ Off: `lang-off`, the rule's own switch (`hooks/tezgah_gate.py::decision`), and `
 
 ### Race — another session wrote this file minutes ago
 
-Trigger: a write tool whose path, or `apply_patch` header, another session recorded a write of inside `RACE_WINDOW_MIN = 10` minutes (`hooks/tezgah_gate.py::RACE_WINDOW_MIN`, `race_reason`
-`hooks/tezgah_gate.py::race_reason`, reader `hooks/tezgah_integrity.py::writers_elsewhere`). Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
+Trigger: another session recorded a write of this call's file inside `RACE_WINDOW_MIN = 10` minutes (`hooks/tezgah_gate.py::RACE_WINDOW_MIN`). The call's files are
+its path field, its `apply_patch` headers, or a shell redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`, `hooks/tezgah_gate.py::race_reason`).
+The reader counts an `edit` row and a shell `run` row that carries a `target` (`hooks/tezgah_integrity.py::writers_elsewhere`). Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
 `hooks/tezgah_gate.py::RACE_DENY`). Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py::RACE_REFUSE`) — a notice would not close a silent overwrite — and it lifts only by time.
 
 ### Task — the user's own phase and path allowlist
 
 Trigger: a write tool, or a shell command that writes a file, while an active task is set — a plan file under `.tezgah/plans/open` whose frontmatter carries a valid
 `phase` (`tezgah_task.active`). The phase refuses a write in a reading phase (`hooks/tezgah_gate.py::TASK_PHASE_DENY`) and a shell command that writes one (`hooks/tezgah_gate.py::TASK_SHELL_DENY`,
-against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target outside it (`hooks/tezgah_gate.py::TASK_SCOPE_DENY`); and the record itself is refused twice over — a write whose target IS it
+against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target outside it (`hooks/tezgah_gate.py::TASK_SCOPE_DENY`) — a write tool's path, and a shell command's redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`); and the record itself is refused twice over — a write whose target IS it, by a write tool or a shell redirect/`tee`
 (`hooks/tezgah_gate.py::TASK_RECORD_DENY`) and a shell command that would change it through the CLI, named by its basename with or without `.py` (`hooks/tezgah_gate.py::TASK_UNLOCK_DENY`, matched on the masked text by `hooks/tezgah_gate.py::TASK_CHANGE`). Told:
 none of them names the command that lifts it, on purpose — with the unlock printed, an armed arm removed or disabled the gate in 25 of 25 runs and obeyed it in none
 (`hooks/tezgah_gate.py:732-734`) — so each names the phase or the allowlist as the user's to change. Standing: only the record changing lifts it. Off: `task-off`
@@ -158,11 +160,21 @@ Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target r
 
 ### Secret — a credential on its way into a file
 
-Trigger: one simple command (split on `&&`, `||`, `;`, newline — `hooks/tezgah_gate.py::SEGMENT`) carrying both a token (`hooks/tezgah_gate.py::SECRET_TOKEN` — an
-`Authorization: Bearer` header, or a `name=value` assignment for `api_key`/`token`/`secret`/`password`/...) and a sink (`hooks/tezgah_gate.py::SECRET_SINK` — `>`/`>>`,
-`| tee`, a curl `--trace`, or `git add`); `hooks/tezgah_gate.py::secret_command`. Told: record the name, length or a fingerprint instead, and pass the value through the
-tool's environment (`hooks/tezgah_gate.py::SECRET_DENY`). Standing, no escape hatch. The shell's own write route is the third twin: a credential inside a heredoc body
-is refused from the body (`hooks/tezgah_gate.py::decision`), because `mask()` blanks that body and the text-level scan above cannot see it.
+Three triggers, one per shape a credential takes on its way into a file (`hooks/tezgah_gate.py::secret_command`, `hooks/tezgah_gate.py::secret_edit`, read at `hooks/tezgah_gate.py::decision`):
+
+- **Shell text.** One simple command (split on `&&`, `||`, `;`, newline — `hooks/tezgah_gate.py::SEGMENT`) carrying both a token (`hooks/tezgah_gate.py::SECRET_TOKEN` — an
+  `Authorization: Bearer` header, or a `name=value` assignment for `api_key`/`token`/`secret`/`password`/...) and a sink (`hooks/tezgah_gate.py::SECRET_SINK` — `>`/`>>`,
+  `| tee`, a curl `--trace`, or `git add`). Told: record the name, length or a fingerprint instead, and pass the value through the tool's environment (`hooks/tezgah_gate.py::SECRET_DENY`).
+- **A credential file staged.** A `git add` that names a credential file (`hooks/tezgah_snapshot.py::SECRET_FILE`: `.env`, `.env.local`, a key, `id_rsa`, `credentials.json`).
+  The command is read word by word (`hooks/tezgah_gate.py::_secret_add`). `.env.example` and `.env.sample` carry names without values and pass (`hooks/tezgah_gate.py::SECRET_TEMPLATES`).
+  The rule does not read `git add -A` or `git add .` (`hooks/tezgah_gate.py::SECRET_ADD_DENY`).
+- **The text a write lands.** The text holds a token with a known credential prefix. It is read on every route: a write tool in every dialect, an `apply_patch` file by file, a heredoc body.
+  The prefixes are the redactor's families (`hooks/tezgah_integrity.py::SECRET_PREFIXED`: `ghp_`, `github_pat_`, `sk-live-`, `xox?-`, `AKIA`, `AIza`, `glpat-`, `npm_`).
+  An `sk`/`pk`/`rk` token counts only with its qualifier (`sk-live-`, `pk_test_`, `sk-proj-`). The redactor's bare branch also matches identifiers such as `pk_users_organization_id`.
+  A token the replaced text already carried does not count (`hooks/tezgah_gate.py::SECRET_EDIT_DENY`). This trigger does not read `name=value`.
+  In a file's text, `password = os.environ[...]` is a program that reads its credential. A Write, an Edit, a patch and a heredoc that land it all pass.
+
+Standing, no escape hatch, and outside `verify-off`.
 
 ### Plan — a turn's third product file on `main`
 
@@ -343,6 +355,10 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
    `tests/test_claude_adapters.py:96-110` and the codex/cursor/omp hook tests.
 4. Mirror the rule in `hosts/opencode/plugins/tezgah.js` and extend `tests/test_opencode_plugin.py` with its cases; that suite is where the two halves are
    compared and where a shared-vocabulary drift fails.
+5. Add the rule's vectors to the shared corpus `tests/gate_vectors.json`. Its `owner` field says who keeps it. Write one call per route the rule reads, with the
+   verdict the core gives it. `tests/test_gate_vectors.py` sends each vector through every host's own entry point, under the tool name that host uses.
+   A host gets the call only when its own matcher routes that name (`hooks/hooks.json`, `hosts/dsh/hooks.json`, `hosts/codex/hooks.json`, `hosts/cursor/hooks.json`,
+   omp's `GATED` list). A cell that disagrees with the core fails the suite. The corpus may name it a ceiling, with the plan that closes it. A ceiling that agrees fails too.
 
 ## Source of truth
 

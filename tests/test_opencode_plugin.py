@@ -1045,10 +1045,15 @@ class OpenCodePlugin(TempHome):
 
     def test_a_heredoc_that_writes_a_credential_is_refused(self):
         # maskText blanks heredoc bodies, so the text-level scan cannot see a key
-        # that sits in one; the body is what the rule reads
+        # that sits in one; the body is what the rule reads, for the prefixed
+        # token families a write tool's content is read for (plan 057 (a)2), so
+        # a program reading its credential from the environment passes
         error = self.denied(self.before("bash", {"command":
-            "cat > .env <<'EOF'\nOPENROUTER_API_KEY=sk-live-abc123\nEOF"}))
+            "cat > .env <<'EOF'\nOPENROUTER_API_KEY=sk-live-%s\nEOF"
+            % ("a1B2c3D4" * 3)}))
         self.assertIn("Credential write denied", error)
+        self.allowed(self.before("bash", {"command":
+            "cat > src/db.py <<'EOF'\npassword = os.environ['DB_PASSWORD']\nEOF"}))
 
     def test_the_shell_route_keeps_the_tool_rule_s_own_gates(self):
         # a marker outside a test file disables nothing, and a quoted `>` is not
@@ -1495,6 +1500,19 @@ class OpenCodePlugin(TempHome):
         self.assertEqual([r["target"] for r in rows],
                          [ti._abs_target("src/a.py", self.repo),
                           ti._abs_target("new/b.py", self.repo)])
+
+    def test_a_shell_write_row_carries_the_absolute_real_target(self):
+        # plan 057 (a)5: the same field on a `run` row that redirects or tees
+        # into a file, as hooks/tezgah_integrity.note_tool writes it; a command
+        # that writes nothing carries none
+        self.after("bash", {"command": "echo x > out.txt"}, exit=0)
+        self.after("bash", {"command": "printf x | tee log.txt"}, exit=0)
+        self.after("bash", {"command": "ls"}, exit=0)
+        rows = self.ledger()
+        self.assertEqual([r["kind"] for r in rows], ["run"] * 3)
+        self.assertEqual([r.get("target") for r in rows],
+                         [ti._abs_target("out.txt", self.repo),
+                          ti._abs_target("log.txt", self.repo), None])
 
     def test_a_tool_name_no_rule_knows_records_an_unknown_row(self):
         # A fabricated call (or a tool this host added) used to leave no line at

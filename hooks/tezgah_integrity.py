@@ -657,8 +657,7 @@ SECRET_MYSQL = re.compile(
 # The prefixed token families, matched by their own shape wherever they appear:
 # an assignment through a name the list above does not know (`GITHUB_TOKEN=`)
 # still carries the value's shape, which is what identifies it.
-SECRET_TOKEN = re.compile(
-    r"(?i)\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)?[-_]?[A-Za-z0-9_\-]{16,}"
+_TOKEN_FAMILIES = (
     r"|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}"
     r"|\bgithub_pat_[A-Za-z0-9_]{20,}"
     r"|\bxox[baprs]-[A-Za-z0-9-]{10,}"
@@ -666,6 +665,17 @@ SECRET_TOKEN = re.compile(
     r"|\bAIza[0-9A-Za-z_\-]{30,}"
     r"|\bglpat-[A-Za-z0-9_\-]{20,}"
     r"|\bnpm_[A-Za-z0-9]{30,}")
+SECRET_TOKEN = re.compile(
+    r"(?i)\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)?[-_]?[A-Za-z0-9_\-]{16,}"
+    + _TOKEN_FAMILIES)
+# The same families for a rule that refuses (tezgah_gate.secret_edit), where the
+# redactor's bare `sk-`/`pk_`/`rk_` branch above is an identifier as often as a
+# key (`pk_users_organization_id`, `sk-telemetry-dashboard-refactor`): there an
+# `sk`/`pk`/`rk` token counts only with its qualifier (`sk-live-`, `pk_test_`,
+# `sk-proj-`, `sk-ant-`). Over-redacting costs a log line; over-refusing a write.
+SECRET_PREFIXED = re.compile(
+    r"(?i)\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)[-_][A-Za-z0-9_\-]{16,}"
+    + _TOKEN_FAMILIES)
 # the two-token form with no name in front of it (`-H 'Bearer ...'`)
 SECRET_BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+/=]{8,}")
 # Applied in this order, each with the count of leading groups it keeps: a named
@@ -1210,9 +1220,10 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None):
     the other ledgers has learned nothing, and must stay silent rather than act
     on a guess.
 
-    ponytail: only `edit` rows count, so a sibling that wrote the same file
-    through a shell redirect (`sed -i`, `>`) is invisible here - its row records
-    a command, not a path."""
+    ponytail: a shell write counts only through the target its `run` row
+    carries (a redirect or `tee`, `tezgah_gate.write_paths`): a sibling that
+    wrote the file through a positional target (`sed -i`, `cp`) is invisible
+    here - its row records a command, not a path."""
     want = _abs_target(path, cwd)
     if not want:
         return []
@@ -1237,7 +1248,7 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None):
             continue
         newest = None
         for row in _foreign_rows(entry.path, WRITE_TAIL):
-            if row.get("kind") != "edit":
+            if row.get("kind") not in ("edit", "run"):
                 continue
             ts = row.get("ts")
             if not isinstance(ts, (int, float)) or now - ts > window:
@@ -2609,40 +2620,67 @@ def _added(new, old):
     return out
 
 
+# An apply_patch body's per-file headers: the text under each one is that file's
+# hunk, so a rule that asks which file a line lands in reads it per header. The
+# gate's `write_paths` reads the same headers for the paths alone.
+PATCH_FILE = re.compile(r"(?m)^\*\*\* (?:Update|Add|Delete) File: (\S.*?)\s*$")
+
+
+def write_texts(inp):
+    """`(path, old, new)` for each file a write call lands text in.
+
+    The text comes from tezgah_taste.edit_text, the one reader of every host's
+    dialect (`new_string`/`newString`/`new_str`, `content`/`file_text`/`text`,
+    `patch`, `edits[]`). An apply_patch body is split per `*** Update File:` /
+    `*** Add File:` header, with the hunk's `+` lines as `new` and its `-` lines
+    as `old`, so each rule judges the file a line really lands in. `old` is None
+    for a whole-file write: the caller decides whether to read the disk.
+    Imported inside the call because tezgah_taste imports this module."""
+    if not isinstance(inp, dict):
+        return []
+    import tezgah_taste
+    old, new = tezgah_taste.edit_text(inp)
+    path = str(inp.get("file_path") or inp.get("filePath") or inp.get("path")
+               or inp.get("notebook_path") or "")
+    if new is None:
+        return []
+    heads = list(PATCH_FILE.finditer(new)) if new is inp.get("patch") else []
+    if not heads:
+        return [(path, old, new)]
+    out = []
+    for i, m in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(new)
+        lines = new[m.end():end].split("\n")
+        out.append((m.group(1),
+                    "\n".join(x[1:] for x in lines if x.startswith("-")),
+                    "\n".join(x[1:] for x in lines if x.startswith("+"))))
+    return out
+
+
 def shortcut_edit(inp):
     """A deny reason when an edit/Write adds a test-skip marker, else None.
 
     Three gates keep it on the contract's target - a test disabled so a failure
     disappears: the write has to be a test file, the marker has to be outside
     strings and comments, and it has to be newly introduced (a skip already in
-    the file is not this call's doing). Reads the file from disk for a Write so
-    the existing content is the baseline."""
-    old = str(inp.get("old_string") or inp.get("oldString") or "")
-    new = str(inp.get("new_string") or inp.get("newString")
-              or inp.get("content") or "")
-    if not new:
-        edits = inp.get("edits")
-        if isinstance(edits, list):
-            old = " ".join(str(e.get("old_string", "")) for e in edits
-                           if isinstance(e, dict))
-            new = " ".join(str(e.get("new_string", "")) for e in edits
-                           if isinstance(e, dict))
-    path = str(inp.get("file_path") or inp.get("filePath")
-               or inp.get("path") or "")
-    if not TEST_PATH.search(path):
-        return None
-    if old == "" and path and not inp.get("old_string"):
-        try:
-            with open(path, encoding="utf-8") as fh:
-                old = fh.read()
-        except OSError:
-            old = ""
-    added = _added(mask_source(new), mask_source(old))
-    if added:
-        return ("Test disable denied: this change adds %s. Making a failing test "
-                "disappear is not a fix - fix the code or say the test is failing. "
-                "If the skip is genuinely intended, ask the user first."
-                % ", ".join(sorted(set(added))))
+    the file is not this call's doing). Every write dialect is read
+    (`write_texts`), an apply_patch file by file. Reads the file from disk for a
+    whole-file write so the existing content is the baseline."""
+    for path, old, new in write_texts(inp):
+        if not TEST_PATH.search(path):
+            continue
+        if old is None:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    old = fh.read()
+            except OSError:
+                old = ""
+        added = _added(mask_source(new), mask_source(old))
+        if added:
+            return ("Test disable denied: this change adds %s. Making a failing "
+                    "test disappear is not a fix - fix the code or say the test "
+                    "is failing. If the skip is genuinely intended, ask the user "
+                    "first." % ", ".join(sorted(set(added))))
     return None
 
 
@@ -3131,10 +3169,13 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         # the change, or a check redirecting its own output would put the two at
         # one position and refuse the turn that ran it.
         fields.update(_post_write(session_id, inp, cwd))
-    if kind == "edit":
+    if kind in ("edit", "run"):
         # the file as one absolute real path, for the cross-session write guard
         # (`writers_elsewhere`): `detail` is the host's own spelling, relative to
-        # a cwd the row does not carry (audit CHAT-03 / M-6)
+        # a cwd the row does not carry (audit CHAT-03 / M-6). A shell `run` row
+        # carries it when the command redirects or tees into a file, so a
+        # sibling's shell write is seen like its edit; one that writes nothing
+        # carries none.
         fields["target"] = _abs_target((_written_paths(inp) or [""])[0], cwd)
     if kind.startswith("verify"):
         fields["repo"] = _check_repo(cmd, cwd, inp)

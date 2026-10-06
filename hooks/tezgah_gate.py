@@ -16,13 +16,18 @@ Rules, all only inside a tezgah root:
      session is refused whatever its outcomes were (`retry`). Both read
      hooks/tezgah_integrity.prior_calls and both are under the `verify-off` kill
      switch the integrity rule shares.
-  5. a command that would write a credential into a file (a redirect, `tee`,
-     `git add` or a curl trace next to a `name=value` / bearer token) is
-     refused (secret).
+  5. a credential on its way into a file is refused (secret): a shell command
+     whose own text carries a `name=value` / bearer token next to a sink (a
+     redirect, `tee`, `git add` or a curl trace), a `git add` that names a
+     credential file (`.env`, a key file; `.env.example` and `.env.sample` are
+     templates), and any write - a write tool in every dialect, an apply_patch
+     file by file, a heredoc body - that lands a token with a known credential
+     prefix (`ghp_`, `sk-live-`, ...) the replaced text did not carry.
   6. a write to a file another session wrote inside RACE_WINDOW_MIN is refused
      (`race`), naming the other session and the file, because the failure it
      closes - one session overwriting another's work from a stale read - leaves
-     no trace in either transcript.
+     no trace in either transcript. A shell command's redirect or `tee` target
+     is a write here, and in the task rule below, like a write tool's path.
   7. when the current user turn has run past DRIFT_STEPS work rows, the next
      effectful call gets the standing constraints re-stated once (`drift`), in
      the gate's reason string, which is the only channel a PreToolUse hook has.
@@ -66,11 +71,13 @@ Rules, all only inside a tezgah root:
      every claim the run was meant to carry. The refusal names both ways out -
      output to a file that is then read, or a `set -o pipefail;` prefix, which
      integrity reads as decisive. It rides the `verify-off` switch.
-     The three rules that read the text a write tool would land - the shell half
-     of the shortcut rule, of the attribution rule above and of the credential
-     rule below - read the body a heredoc writes as well (shell_write_body). The
-     write tools and the shell are disjoint sets, so that route was refused by
-     nothing, and it is the one E7c measured an armed session taking.
+     The three rules that read the text a write lands - the shortcut rule, the
+     attribution rule above and the credential rule's prefixed-token half -
+     read it on every write route: a write tool in every dialect (an
+     apply_patch file by file) and the body a heredoc writes
+     (shell_write_body). The write tools and the shell are disjoint sets, so
+     the heredoc route was refused by nothing, and it is the one E7c measured
+     an armed session taking.
  11. a write, delete, move or chmod of tezgah's own control plane is refused
      (`control`): a kill switch or opt-in marker (tezgah_paths.SWITCHES under
      OFF_DIRS), ~/.config/tezgah, the evidence ledger and the session state in
@@ -88,11 +95,13 @@ import re
 import shlex
 
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
-                              GIT_WRAPPER, HOOKS_KEY, STEP_KINDS, WRITE_TOOLS,
-                              _blank_heredocs, _turn_start, _unquoted_backticks,
-                              call_id, cut, events, heredoc_bodies, mask, note,
-                              prior_calls, shortcut_command, shortcut_edit,
-                              turn_rows, verify_command)
+                              GIT_WRAPPER, HOOKS_KEY, PATCH_FILE,
+                              SECRET_PREFIXED, STEP_KINDS, WRITE_TOOLS,
+                              _blank_heredocs, _shell_segments, _turn_start,
+                              _unquoted_backticks, call_id, cut, events,
+                              heredoc_bodies, mask, note, prior_calls,
+                              shortcut_command, shortcut_edit, turn_rows,
+                              verify_command, write_texts)
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -120,6 +129,12 @@ try:  # The bytes a write is about to change. The snapshot module is newer than
     from tezgah_snapshot import capture
 except ImportError:  # pragma: no cover - only where the module has not landed
     capture = None
+
+try:  # The credential-file names, the secret rule's `git add` half: lost with
+    # the snapshot module, never the session.
+    from tezgah_snapshot import SECRET_FILE
+except ImportError:  # pragma: no cover - only where the module has not landed
+    SECRET_FILE = None
 
 try:  # The piped-check rule's reader: newer than some integrity modules, and a
     # missing name costs the rule, never the session.
@@ -197,7 +212,9 @@ WRITE_CMD = re.compile(
     re.I)
 
 # --- secret: a credential on its way into a file ----------------------------
-# Only the two shapes the contract names: a bearer header, or a `name=value`
+# The shell half (a command's own text next to a sink; the text a write lands is
+# read below, SECRET_EDIT_DENY): only the two shapes the contract names: a
+# bearer header, or a `name=value`
 # assignment. A trailing quote is allowed because the value is usually quoted,
 # and `:` is NOT a separator here - `{"api_key": "x"}` is a JSON field in a
 # program's text, while `token=$TOKEN` and `api_key=...` are a credential being
@@ -232,6 +249,31 @@ SECRET_DENY = (
     "name, length or a fingerprint instead of its value, pass it through the "
     "tool's own environment, or let the tool read it from there rather than "
     "writing it out.")
+# The text a write lands - a write tool's content, a patch's added lines, a
+# heredoc's body - is read for the redactor's prefixed token families
+# (tezgah_integrity.SECRET_PREFIXED: `ghp_`, `sk-live-`, `AKIA`, ..., without
+# the redactor's bare `sk-`/`pk_` branch), never for the
+# name=value shape above: in a file's text `password = os.environ[...]` is a
+# program reading its credential, and name=value matched 99 of 655 tracked text
+# files where the prefixed families matched 4, all fixtures (REPORT.md:5853, not
+# re-measured here). Only a token the call brings counts: one already in the
+# replaced text is not this call's doing.
+SECRET_EDIT_DENY = (
+    "Credential write denied: this write lands a token with a known credential "
+    "prefix (`ghp_`, `sk-live-`, `AKIA`, ...) in a file. Record the credential's "
+    "name, length or a fingerprint instead of its value, or have the program read "
+    "it from its environment at run time.")
+# `git add` of a credential file puts every value in it into history. The names
+# are the snapshot store's (tezgah_snapshot.SECRET_FILE); the templates that
+# carry names without values are the carve-out.
+# ponytail: only a file the command names is read - `git add -A` or `git add .`
+# staging an untracked `.env` is the .gitignore's to stop, not this rule's.
+SECRET_TEMPLATES = (".env.example", ".env.sample")
+SECRET_ADD_DENY = (
+    "Credential file add denied: `git add %s` stages a credential file, so every "
+    "value in it lands in the repository's history. Keep it out of git (list it "
+    "in .gitignore) and commit a `.env.example` that carries the names without "
+    "the values.")
 
 EXPLORE_DENY = (
     "A grep-only explorer subagent is not allowed in this tree: it greps by "
@@ -585,8 +627,12 @@ def secret_command(command):
 
     Reading an env var or running a tool with a key in its env is the normal work
     this must not touch, so a token only counts next to a write sink, and a sink
-    only carries the text of its own simple command."""
+    only carries the text of its own simple command. A `git add` that names a
+    credential file is refused whatever its text holds (`_secret_add`)."""
     c = str(command or "")
+    added = _secret_add(c)
+    if added:
+        return SECRET_ADD_DENY % added
     if not c or not SECRET_TOKEN.search(c):
         return None
     masked = mask(c)
@@ -596,6 +642,49 @@ def secret_command(command):
                 and SECRET_SINK.search(masked[start:end])):
             return SECRET_DENY
         start = end
+    return None
+
+
+def _secret_add(command):
+    """The credential file a `git add` in this command names, or None."""
+    if SECRET_FILE is None or "add" not in command:
+        return None
+    for words in _shell_segments(command):
+        program, args = _program(words)
+        if program != "git":
+            continue
+        i = 0
+        while i < len(args) and args[i].startswith("-"):
+            i += 2 if args[i] in GIT_VALUE_OPTS else 1
+        if args[i:i + 1] != ["add"]:
+            continue
+        for arg in args[i + 1:]:
+            name = os.path.basename(arg.rstrip("/"))
+            if (not arg.startswith("-") and SECRET_FILE.match(name)
+                    and name.lower() not in SECRET_TEMPLATES):
+                return arg
+    return None
+
+
+def secret_edit(inp, cwd=None):
+    """A deny reason when a write lands a prefixed credential token the text it
+    replaces did not already carry, else None. Every write dialect is read, an
+    apply_patch file by file (tezgah_integrity.write_texts); the heredoc body a
+    shell command writes arrives here in the same `{file_path, content}` shape.
+    A whole-file write is compared with the file on disk, resolved against the
+    call's cwd, so rewriting a fixture that already holds a key is not a new
+    one; the disk is read only when the new text carries a token at all."""
+    for path, old, new in write_texts(inp):
+        fresh = set(SECRET_PREFIXED.findall(new))
+        if fresh and old is None and path:
+            try:
+                with open(os.path.join(cwd or os.getcwd(), path),
+                          encoding="utf-8") as fh:
+                    old = fh.read()
+            except (OSError, UnicodeDecodeError):
+                old = ""
+        if fresh - set(SECRET_PREFIXED.findall(old or "")):
+            return SECRET_EDIT_DENY
     return None
 
 
@@ -626,12 +715,12 @@ RACE_DENY = (
     "the file and re-apply your change to what is on disk now; if both sessions "
     "are editing it, say so and let one of them own the file rather than "
     "overwriting the other's work.")
-# The file a write call names, per host dialect, plus the apply_patch headers for
-# the dialect whose paths live in the body. The race guard resolves each against
-# the call's cwd to an absolute real path and compares it with the `target` the
-# PostToolUse writer stored the same way (tezgah_integrity._abs_target): the raw
-# spelling matched `README.md` in one repository against `README.md` in another
-# (audit CHAT-03 / M-6).
+# The file a write call names, per host dialect, plus the apply_patch headers
+# (tezgah_integrity.PATCH_FILE) for the dialect whose paths live in the body.
+# The race guard resolves each against the call's cwd to an absolute real path
+# and compares it with the `target` the PostToolUse writer stored the same way
+# (tezgah_integrity._abs_target): the raw spelling matched `README.md` in one
+# repository against `README.md` in another (audit CHAT-03 / M-6).
 # The harness's internal channels: a write to one of these is a message or a
 # tool device, never a file on disk. Deliberately a list, not `scheme://`: a
 # file reached through a URI scheme is still a file two sessions can race on.
@@ -639,7 +728,6 @@ URI_CHANNEL = re.compile(
     r"^(?:agent|xd|local|artifact|proc|skill|mcp|omp|issue|pr|history|ssh|cfg)://",
     re.I)
 WRITE_PATH = ("file_path", "filePath", "path", "notebook_path")
-PATCH_FILE = re.compile(r"(?m)^\*\*\* (?:Update|Add|Delete) File: (\S.*?)\s*$")
 # The write-tool name a shell write's target is handed to `capture` under. capture
 # takes a write tool's own path field and no shell tool name, and the row it
 # writes carries neither - so one file the shell command changes gets the same
@@ -806,9 +894,12 @@ def task_shell_reason(inp, cwd, base, task=_UNRESOLVED):
     The route to the hole the phase rule closes, and the one E7b measured: with
     the write tools refused, the armed arm wrote the target with a heredoc
     redirect in 3 of 25 runs. A phase that excludes writes has to exclude them
-    however they are made. The allowlist is not consulted here - a shell line's
-    targets are not read (see SHELL_WRITE), so the reading phases are the whole
-    requirement, and the same fail-open holds: no record, no requirement."""
+    however they are made, so this reads the whole SHELL_WRITE table - the
+    copiers and in-place editors whose target is a positional argument too. The
+    allowlist is not consulted here: `decision` hands a shell command's redirect
+    and `tee` targets (write_paths) to task_reason and task_record_reason like a
+    write tool's path, while a positional target is not read at all (see
+    write_paths), and the same fail-open holds: no record, no requirement."""
     task = _task(cwd, base, task)
     if not task or task["phase"] in tezgah_task.WRITE_PHASES:
         return None
@@ -988,13 +1079,14 @@ def workspace_reason(inp, cwd, base):
 
 # --- the shell's write body: three write-tool rules reached through a heredoc -
 # What this closes (the route E7c measured): SKIP_TEST, ATTRIB_LINE and the
-# credential scan are attached to WRITE_TOOLS, which is disjoint from BASH_TOOLS,
-# so a heredoc that wrote a test skip, an attribution line or a key into a file
-# was refused by nothing - and E7c watched the armed arm take exactly that route
-# once the write tools were refused (3 of 25 runs wrote the target with `cat >
-# app/api.py <<'EOF'`). Each of the three now also reads the body a shell command
-# writes, and the body is the RAW text because mask() blanks heredoc bodies by
-# design: a command that merely names a rule must not be denied.
+# prefixed-token credential scan (secret_edit) read the text a write tool lands,
+# and the write tools are disjoint from BASH_TOOLS, so a heredoc that wrote a
+# test skip, an attribution line or a key into a file was refused by nothing -
+# and E7c watched the armed arm take exactly that route once the write tools
+# were refused (3 of 25 runs wrote the target with `cat > app/api.py <<'EOF'`).
+# Each of the three now also reads the body a shell command writes, and the body
+# is the RAW text because mask() blanks heredoc bodies by design: a command that
+# merely names a rule must not be denied.
 #
 # The shape test is the task rule's own SHELL_WRITE, read off the masked text, so
 # a quoted `>` is not a redirect; the bodies come from the raw text under it, one
@@ -2076,8 +2168,11 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     # Concurrent write: another session wrote one of this call's files inside
     # RACE_WINDOW_MIN (the constant carries why it refuses). Ahead of the repeat
     # guards, so a colliding write is counted as this rule and not as a repeat of
-    # one.
-    if t in WRITE_TOOLS and RACE_REFUSE:
+    # one. A shell command that writes a file through a redirect or `tee` is a
+    # write here too: the rules below read its target from `write_paths`, the
+    # reader `capture` and the PostToolUse row already share.
+    writes = t in WRITE_TOOLS or (t in BASH_TOOLS and bool(write_paths(inp)))
+    if writes and RACE_REFUSE:
         reason = race_reason(inp, session_id, cwd)
         if reason:
             return _deny(session_id, "race", reason, tool, inp, base)
@@ -2093,7 +2188,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
         task = _UNRESOLVED
         if tezgah_task is not None and t in WRITE_TOOLS + BASH_TOOLS:
             task = tezgah_task.active(cwd, base)
-        if t in WRITE_TOOLS:
+        if writes:
             reason = task_record_reason(inp, cwd, base, task)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
@@ -2104,7 +2199,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
             reason = task_shell_reason(inp, cwd, base, task)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
-        if t in WRITE_TOOLS:
+        if writes:
             reason = task_reason(inp, cwd, base, task)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
@@ -2124,15 +2219,18 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
             return _deny(session_id, "workspace", reason, tool, inp, base)
     # A credential on its way into a file. No escape hatch: the deny text
     # names the rephrase (a name, a length, a fingerprint), so the write can
-    # be replaced rather than repeated. The body a heredoc writes is read
-    # here too: mask() blanks it, so the text-level scan above cannot see a
-    # key that sits in it.
+    # be replaced rather than repeated. The shell's own text is read for the
+    # name=value and bearer shapes next to a sink; the text a write lands - a
+    # write tool's content, or the body a heredoc writes, which mask() blanks -
+    # for the prefixed token families (see SECRET_EDIT_DENY for why the two
+    # differ), so a Write and a heredoc landing the same text agree.
     if t in BASH_TOOLS:
         reason = secret_command(inp.get("command"))
         if reason:
             return _deny(session_id, "secret", reason, tool, inp, base)
-        if shell_body and SECRET_TOKEN.search(shell_body["content"]):
-            return _deny(session_id, "secret", SECRET_DENY, tool, inp, base)
+    body = inp if t in WRITE_TOOLS else shell_body
+    if body and secret_edit(body, cwd):
+        return _deny(session_id, "secret", SECRET_EDIT_DENY, tool, inp, base)
     # Plan required: the turn's third product file while the checkout is on
     # main/master (see plan_reason). Below the task, workspace and secret rules,
     # because each names a more specific fault in the same write, and above the

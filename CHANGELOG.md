@@ -308,6 +308,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **One credential rule on every write route.** It refuses a `ghp_`,
+  `sk-live-` or `AKIA` token in a Write, an Edit, a patch and a heredoc. All
+  four pass
+  `password = os.environ[...]`. The `name=value` shape now counts only next to
+  a shell sink. The gate refuses `git add .env` and passes `.env.example`.
+  An identifier such as `pk_users_organization_id` passes: a bare `sk-`, `pk_`
+  or `rk_` counts only with its qualifier (`sk-live-`).
+- **The skip rule reads every write dialect.** A test skip that arrived through
+  `patch`, `new_str` or `file_text` used to pass. The rule now reads an
+  `apply_patch` file by file, so a skip in its non-test file still passes.
+- **A shell redirect or `tee` meets the race and task rules.** The gate refuses
+  a shell write into the task record or outside its allowlist. A shell `run`
+  row that writes a file now carries `target`, on Python and on opencode. Two
+  sessions that write one file through the shell now collide like two edits.
+- **One corpus holds every host to the core.** `tests/gate_vectors.json` sends
+  each vector through every host's own entry point and matcher. At the base
+  commit 44 cells disagreed with the core. Now none does, outside one named
+  opencode ceiling.
 - **The masker and the status reader drop three misreads.** An escaped `\$'` no longer
   opens an ANSI-C string. A quote left open blanks only what follows it, and an
   apostrophe in a heredoc body opens no quote. A quoted newline, a comment, a

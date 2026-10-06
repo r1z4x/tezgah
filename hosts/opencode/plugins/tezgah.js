@@ -1115,6 +1115,12 @@ const REDACT_MYSQL =
 const REDACT_BEARER = /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/gi
 const REDACT_TOKEN =
   /\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)?[-_]?[A-Za-z0-9_\-]{16,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{30,}|\bglpat-[A-Za-z0-9_\-]{20,}|\bnpm_[A-Za-z0-9]{30,}/gi
+// The same families for the refusal a heredoc body meets
+// (hooks/tezgah_integrity.SECRET_PREFIXED): an `sk`/`pk`/`rk` token counts only
+// with its qualifier, since the bare branch above matches identifiers like
+// `pk_users_organization_id`.
+const PREFIXED_TOKEN =
+  /\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)[-_][A-Za-z0-9_\-]{16,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{30,}|\bglpat-[A-Za-z0-9_\-]{20,}|\bnpm_[A-Za-z0-9]{30,}/i
 
 function redact(text) {
   const mark = (value) => MARKED + value.length + "]"
@@ -1219,8 +1225,10 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   }
   // the write's file as one absolute real path, the field the Python race
   // guard compares (hooks/tezgah_integrity._abs_target): `detail` is the host's
-  // spelling, relative to a cwd the row does not carry (audit CHAT-03 / M-6)
-  if (kind === "edit") {
+  // spelling, relative to a cwd the row does not carry (audit CHAT-03 / M-6).
+  // A shell `run` row that redirects or tees into a file carries it too, so a
+  // sibling's shell write is seen like its edit (hooks/tezgah_integrity.note_tool).
+  if (kind === "edit" || kind === "run") {
     const target = absTarget(writtenPath(args), cwd)
     if (target) row.target = target
   }
@@ -1535,9 +1543,11 @@ async function shellRules(tool, args, sessionID, base, dir) {
     return reason
   }
   // The body a heredoc writes: maskText blanks it, so the text-level scan above
-  // cannot see a key that sits in it (hooks/tezgah_gate.shell_write_body).
+  // cannot see a key that sits in it (hooks/tezgah_gate.shell_write_body). It is
+  // a file's text, so it is read for the prefixed token families a write tool's
+  // content is (hooks/tezgah_gate.secret_edit), never for name=value.
   const body = shellWriteBody(cmd, dir)
-  if (body && SECRET_TOKEN.test(body.content)) {
+  if (body && PREFIXED_TOKEN.test(body.content)) {
     await noteDeny(sessionID, "secret", SECRET_DENY, tool, args, base)
     return SECRET_DENY
   }

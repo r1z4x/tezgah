@@ -39,9 +39,10 @@ a key outside that set is dropped, a `None` value left out, because every reader
 as `None` (`:784-786`). `tool` is the call's own name (`Bash`, `Write`, `mcp__codegen__status`),
 written by `note_tool` (`hooks/tezgah_integrity.py::note_tool`) because `classify` folds the name into
 a kind and drops it; it is what `_counts`' tool histogram counts and what the retirement report on
-`tezgah-status --counters --trend` prints. `target` is on every `edit` row: the written path as an
-absolute real path, resolved against the call's cwd (`_abs_target`, written by `note_tool` and by
-opencode's plugin through `absTarget`). `detail` keeps the path as the call spelled it, so
+`tezgah-status --counters --trend` prints. `target` is on every `edit` row, and on a shell `run` row
+whose command writes a file through a redirect or `tee` (`hooks/tezgah_gate.py::write_paths`): the
+written path as an absolute real path, resolved against the call's cwd (`_abs_target`, written by
+`note_tool` and by opencode's plugin through `absTarget`). `detail` keeps the path as the call spelled it, so
 `README.md` in two repositories was one file to the concurrent-write guard; `writers_elsewhere`
 now compares `target`, and a row without one (written before the field landed) is ignored by that
 guard rather than matched by its spelling (audit M-6). Both writers write `tool` — `note_tool`, and opencode's
