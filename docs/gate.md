@@ -13,13 +13,20 @@ One function decides every refusal: `decision(tool, inp, cwd, session_id)` retur
 Each host's pre-tool hook calls it and wraps the string in that host's own deny envelope — opencode's is its `tool.execute.before`, which throws
 `new Error(deny)`; a `None` prints no envelope at all.
 
-A host that is not Python reaches the same function through `bin/tezgah-gate`, which has two verbs
-(`decision(..., record=...)`). `decide` is the live gate: it records what `decision` records - the
+A host that is not Python reaches the same function through `bin/tezgah-gate`. Two of its verbs
+answer one call (`decision(..., record=...)`). `decide` is the live gate: it records what `decision` records - the
 deny, drift and nudge rows and the pre-write snapshot - and it is the verb opencode's plugin calls,
 because the once-per-turn drift refusal depends on the recorded row. `check` is a true dry run: the
 same answer with nothing written anywhere, and it is what a person and the MCP `tezgah_gate_check`
 tool ask. Before 2026-10-02 `check` recorded too, so a dry run against a live session id wrote
 refusal rows into that session's counters (audit L-14b, CHAT-07).
+
+The third verb, `replay`, answers no call. It measures the gate. It replays the real ledgers
+through the unmodified dry run in a sandbox HOME. Per stratum, it prints how often the replayed
+verdict equals the recorded one. `replay --sheet` draws a blind label sample, and `replay --report`
+reads the labels into per-rule false-block rates. It changes no gate behaviour, and everything it
+writes stays under `~/.cache/tezgah/replay`. The corpus, the exclusions and the metrics are in
+[evidence.md](evidence.md#the-replay-corpus).
 
 | Host | Adapter | Refusal envelope |
 |---|---|---|

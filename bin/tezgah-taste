@@ -28,6 +28,7 @@ judge's provider (`hooks/tezgah_judge.py` names it); with no credential or
 Exit codes: 0 done, 2 misuse or no judge.
 """
 import argparse
+import datetime
 import glob
 import json
 import os
@@ -108,8 +109,29 @@ def claude_cwd(path):
     return ""
 
 
-def walk_omp(path):
-    """('user', text) and ('write',) in transcript order."""
+def omp_args(args):
+    """A tool call's arguments as the gate saw them: omp adds an intent key `i`
+    to every call the hook payload does not carry, so it is dropped before the
+    arguments are hashed into a `call_id`."""
+    return {k: v for k, v in (args or {}).items() if k != "i"} \
+        if isinstance(args, dict) else {}
+
+
+def stamp(row):
+    """A transcript row's ISO timestamp as epoch seconds, or None."""
+    when = row.get("timestamp")
+    if not isinstance(when, str):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(when.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def walk_omp(path, calls=False):
+    """('user', text) and ('write',) in transcript order. With `calls`, also
+    ('call', name, args, ts) per tool call (omp's `i` key dropped) and
+    ('reply', text, ts) per assistant message that carries text."""
     for row in rows_of(path):
         m = row.get("message")
         if not isinstance(m, dict):
@@ -119,9 +141,19 @@ def walk_omp(path):
         elif (m.get("role") == "toolResult" and m.get("toolName") in WRITE_TOOLS["omp"]
               and not m.get("isError")):
             yield ("write",)
+        elif calls and m.get("role") == "assistant" and isinstance(m.get("content"), list):
+            ts = stamp(row)
+            for part in m["content"]:
+                if isinstance(part, dict) and part.get("type") == "toolCall":
+                    yield ("call", part.get("name"), omp_args(part.get("arguments")), ts)
+            text = text_of(m["content"])
+            if text.strip():
+                yield ("reply", text, ts)
 
 
-def walk_claude(path):
+def walk_claude(path, calls=False):
+    """walk_omp's events for a Claude transcript; `calls` adds ('call', name,
+    input, ts) per tool_use and ('reply', text, ts) per assistant text."""
     pending = {}
     for row in rows_of(path):
         m = row.get("message")
@@ -129,9 +161,15 @@ def walk_claude(path):
             continue
         content = m.get("content")
         if row.get("type") == "assistant" and isinstance(content, list):
+            ts = stamp(row)
             for part in content:
                 if isinstance(part, dict) and part.get("type") == "tool_use":
                     pending[part.get("id")] = part.get("name")
+                    if calls:
+                        inp = part.get("input")
+                        yield ("call", part.get("name"), inp if isinstance(inp, dict) else {}, ts)
+            if calls and text_of(content).strip():
+                yield ("reply", text_of(content), ts)
         elif row.get("type") == "user":
             results = [p for p in content if isinstance(p, dict)
                        and p.get("type") == "tool_result"] if isinstance(content, list) else []
@@ -154,12 +192,31 @@ HOSTS = {
 }
 
 
-def sessions(host, root):
+def sessions(host, root, nested=False):
+    """(path, cwd) of each session file whose cwd is under `root`. Top-level
+    files only - the frozen `mine` definition - unless `nested`, which adds the
+    subagent files below them (omp `<session>/<agent>.jsonl` at any depth,
+    Claude `<session>/subagents/*.jsonl`)."""
     base, cwd_of, _walk = HOSTS[host]
-    for path in sorted(glob.glob(os.path.join(base(), "*", "*.jsonl"))):
+    pattern = ("**", "*.jsonl") if nested else ("*", "*.jsonl")
+    for path in sorted(glob.glob(os.path.join(base(), *pattern), recursive=nested)):
         cwd = cwd_of(path)
         if cwd.startswith(root + os.sep) and ".runs" not in cwd.split(os.sep):
             yield path, cwd
+
+
+def session_id(host, path):
+    """The session id the host hands its hooks - the id the ledger file is
+    named after (`tezgah_integrity._slug`) - and, for omp, the parent session
+    file a subagent names. Claude subagent files carry the parent's id."""
+    for i, row in enumerate(rows_of(path)):
+        if host == "omp" and row.get("type") == "session":
+            return row.get("id"), row.get("parentSession")
+        if host == "claude" and isinstance(row.get("sessionId"), str):
+            return row["sessionId"], None
+        if host == "omp" and i > 3:
+            break
+    return None, None
 
 
 def repo_of(cwd, root):

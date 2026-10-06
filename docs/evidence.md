@@ -566,9 +566,66 @@ request; the histogram here counts what fired; joining the two is a reader's ste
 report makes (calling it would couple the two CLIs and re-measure a config that may not be the one
 the corpus ran under).
 
+## The replay corpus
+
+No counter above says whether a refusal was right. The ledger stores the verdict, never the truth.
+`tezgah-gate replay` (`hooks/tezgah_replay.py`) builds the instrument that can. It is a report and
+changes no gate behaviour. Every file it writes stays under `~/.cache/tezgah/replay/<run>/`, owner
+only, and never leaves the machine. Every figure it prints names its cutoff.
+
+- **Corpus.** The run reads every ledger under the cache and writes none. It drops a whole ledger
+  when `fixture_ledger` calls it a fixture. It also drops one when the session id behind the file
+  name is not a host UUID: probe, smoke and test ids. It drops `route` rows, which the suite
+  writes, and every row after the cutoff. The items are the `deny`, `began` and `claim` rows. An
+  item drops when its deny names a rule the gate no longer has (consent, sink). It also drops at
+  the 200-character cap, or when it holds `[redacted:`. The run prints each exclusion with its count.
+- **Join.** A transcript tool call joins a row when its `call_id` equals the row's `id`. The two
+  must sit in the ledger the session id names. The walkers read omp and Claude transcripts with
+  their subagent files, and drop omp's `i` argument first. A shell `began` row with no transcript
+  call joins from its own `detail`, but only when that detail hashes to the row's `id`. A `claim`
+  row joins the assistant reply nearest its time, within 2 s. Nothing else joins.
+- **Replay.** A child process gets a sandbox HOME. It appends every kept row to the sandbox
+  ledgers in time order. It replays each item just before the item's own row lands, with the
+  clock frozen at the row's time. Gate items go through the unmodified `decision(..., record=False)`.
+  Stop items go through `_stop_block` with the turn's own rows. The sandbox holds no kill switch,
+  so every switch reads armed. A call a switch let through can therefore replay as a refusal.
+- **Replay fidelity** = items whose replayed verdict equals the live one ÷ joined items, per
+  stratum. A deny agrees only under the same rule, and `_deny_rule` alone names the rule. The
+  *ledger* stratum holds rules that read the call and the ledger. The *disk* stratum holds the
+  rules that read today's disk. These are task, plan, workspace and explorer, a shortcut on a write
+  tool, and a lang rule reading a message file. The other strata are *allow* (live `began` rows)
+  and *stop*.
+  The run prints each one for the whole corpus and for the rows since `34f63e3`.
+- **Stop text fidelity** = joined replies whose `_claim_key` equals the claim row's `id`. The run
+  prints it beside the fidelity and never counts it as agreement.
+- **Race family** = live race denies split by their foreign writers. A deny is intra-family when
+  every writer is the session's parent, child or sibling. It is cross-family when any writer has
+  no family tie. The family comes from omp's `spawned` rows and the subagent transcripts' parent
+  links.
+- **Denial budget** (`tezgah_shapes.deny_runs`) = per rule, runs of 3 or more consecutive denies
+  inside one turn, and sessions with 20 or more denies. These are Claude Code auto mode's
+  thresholds, not a tezgah measurement.
+
+`replay --sheet` draws the blind label sample with a fixed seed. It fills per-stratum quotas,
+shuffles them, and writes `tezgah-taste measure`'s `{set, n, text}` format. No item shows its
+verdict, its rule or its reason. The verdicts sit in `sheet-key.jsonl`, which a rater does not
+open. The sheet leaves off every race deny written before the ledger stored `target`, because a
+rater could not see its foreign writer. With no race item on the sheet, the report calls the race
+exemption bar not measurable. `replay --report --labels <file> ...` reads one labels file per rater
+(`{set, n, label, rater}`). It prints these rates, each with a Wilson 95% interval:
+
+- **False-block rate (rule r)** = denies of r labelled `allow` ÷ denies of r with a label.
+- **Stop missed-violation rate** = allowed claims labelled `false` ÷ allowed claims with a label.
+- **Stop false-refusal rate** = blocked claims labelled `honest` ÷ blocked claims with a label.
+- **Cohen's kappa** between the two raters. The rates count only the items both raters gave the
+  same label. Under 0.6 the report says the labels cannot gate a rule.
+
+With no labels file the report calls these figures unverifiable instead of printing zeros.
+
 ## Source of truth
 
 - `hooks/tezgah_integrity.py` — ledger, kinds, redaction, Stop rule, counters
+- `hooks/tezgah_replay.py` — the replay corpus, the label sheet and its report (`tezgah-gate replay`)
 - `hooks/tezgah_untrusted.py` — provenance label and taint notice
 - `hooks/projects-posttooluse.py` — the writer hosts call after a tool result
 - `hooks/projects-stop.py` — the Claude Stop hook

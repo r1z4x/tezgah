@@ -116,6 +116,46 @@ class Mine(support.TempHome):
         self.assertEqual(self.run_cli("mine", "--stats", "--host", "omp", "--root", other),
                          "omp: sessions=0 writes=0 prompts_after_write=0\n")
 
+    def test_nested_subagent_files_and_tool_inputs_are_walked(self):
+        # plan 055 part 1a-1b: the replay corpus joins transcript tool inputs to
+        # ledger rows by call_id, so it walks nested subagent files and drops
+        # omp's `i` key, which the hook payload the gate hashed never carried
+        import importlib.machinery
+        import importlib.util
+        from unittest import mock
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_integrity as ti
+        loader = importlib.machinery.SourceFileLoader("taste_under_test", CLI)
+        spec = importlib.util.spec_from_loader("taste_under_test", loader)
+        taste = importlib.util.module_from_spec(spec)
+        loader.exec_module(taste)
+        sessions = os.path.join(self.home, ".omp", "agent", "sessions", "-app-")
+        nested = os.path.join(sessions, "s1", "deeper", "worker.jsonl")
+        args = {"path": "a.py", "content": "x = 1\n"}
+        jsonl(nested, [
+            {"type": "title"},
+            '{"type":"session","id":"w1","cwd":%s,"parentSession":"s1"}'
+            % json.dumps(self.app),
+            {"type": "message", "timestamp": "2026-10-05T10:00:00.000Z",
+             "message": {"role": "assistant", "content": [
+                 {"type": "text", "text": "writing it"},
+                 {"type": "toolCall", "id": "c1", "name": "write",
+                  "arguments": dict(args, i="Writing the file")}]}}])
+        with mock.patch.dict(os.environ, {"HOME": self.home}):
+            top = [p for p, _ in taste.sessions("omp", self.roots)]
+            every = [p for p, _ in taste.sessions("omp", self.roots, nested=True)]
+        self.assertNotIn(nested, top)
+        self.assertIn(nested, every)
+        self.assertIn(os.path.join(sessions, "s1", "sub.jsonl"), every)
+        self.assertEqual(taste.session_id("omp", nested), ("w1", "s1"))
+        events = list(taste.walk_omp(nested, calls=True))
+        calls = [e for e in events if e[0] == "call"]
+        self.assertEqual(calls, [("call", "write", args, 1791194400.0)])
+        self.assertEqual(ti.call_id(calls[0][1], calls[0][2]), ti.call_id("write", args))
+        self.assertIn(("reply", "writing it", 1791194400.0), events)
+        # without `calls` the walk is the frozen `mine` stream
+        self.assertEqual(list(taste.walk_omp(nested)), [])
+
 
 class Labeller(BaseHTTPRequestHandler):
     """The evaluation endpoint: a prompt with PREF is a preference, BROKEN a
