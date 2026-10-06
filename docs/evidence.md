@@ -321,9 +321,9 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    tooling.
 
 Classes 5–10 also exist as a past-time temporal spec (`hooks/tezgah_stopspec.py::FORMULAS`,
-plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. One pass over the
-rows decides each formula (`hooks/tezgah_stopspec.py::value`), and the order above is its
-decision list (`ORDER`). The spec runs in shadow. `stop_reason` asks it after the imperative
+plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. Each formula is
+compiled to a one-pass monitor over the rows (`hooks/tezgah_stopspec.py::compile_table`), and the
+order above is its decision list (`ORDER`). The spec runs in shadow. `stop_reason` asks it after the imperative
 fold, inside its own `try`, and writes one `stop_spec` row per reply. The row says `agree`,
 `disagree` or `error`, and the verdict stays the imperative one. Both folds share one selector,
 `_stop_block`, through its `fold` argument. It picks the rows, runs the lost-began path and
