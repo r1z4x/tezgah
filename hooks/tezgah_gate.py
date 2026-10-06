@@ -82,6 +82,7 @@ Rules, all only inside a tezgah root:
      one of the files it protects.
 Adapters translate the returned reason into their own permission envelope.
 """
+import hashlib
 import json
 import os
 import re
@@ -453,17 +454,22 @@ def index_slug(cwd, base):
     return None
 
 
+def nudge_mark(session_id):
+    """The once-per-session mark: sha1(id)[:16], the key opencode's oncePerSession writes."""
+    return os.path.join(cache_dir(), "nudged", hashlib.sha1(
+        (session_id or "nosession").encode("utf-8")).hexdigest()[:16])
+
+
 def first_nudge(session_id):
     """Consume the once-per-session nudge. False when already spent/unwritable.
 
     The mark lands in cache_dir(), so a sandboxed host (dsh) still gets the
     one-shot nudge instead of the write failing open."""
-    d = os.path.join(cache_dir(), "nudged")
-    mark = os.path.join(d, session_id or "nosession")
+    mark = nudge_mark(session_id)
     if os.path.exists(mark):
         return False
     try:
-        os.makedirs(d, exist_ok=True)
+        os.makedirs(os.path.dirname(mark), exist_ok=True)
         open(mark, "w", encoding="utf-8").close()  # consume BEFORE denying: later greps pass
         return True
     except OSError:
@@ -2284,11 +2290,8 @@ def _dry_decision(tool, inp, cwd, session_id, agent=None):
     g = globals()
     saved = {name: g[name] for name in ("note", "first_nudge", "capture")}
 
-    def unspent(sid):
-        return not os.path.exists(
-            os.path.join(cache_dir(), "nudged", sid or "nosession"))
-
-    g.update(note=lambda *a, **k: None, first_nudge=unspent, capture=None)
+    g.update(note=lambda *a, **k: None, capture=None,
+             first_nudge=lambda sid: not os.path.exists(nudge_mark(sid)))
     try:
         return decision(tool, inp, cwd, session_id, agent=agent)
     finally:
