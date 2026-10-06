@@ -199,8 +199,8 @@ calls (`check_line`, `hooks/tezgah_research.py::check_line`).
 | `tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "..."] [--scope real\|fixture\|derived] [--fixture "<what was generated>"]` | keeps the receipt: runs `orx logs <runId>`, writes `raw/<runId>.log`, appends the results row `{"source": "orx:<runId>", ...}` and the scope and fixture description the filer states (`source_run`, `hooks/tezgah_research.py::source_run`). A `--scope fixture` filed without `--fixture` still writes the row and prints the field it still owes, so the tool is never the thing that makes its own checker warn silently; a given `--fixture` that is empty is misuse | 0, 1 nothing filed, 2 without orx |
 | `tezgah-research compare <slug> <decision>` | reads one variants x criteria cell from stdin and appends it to `decisions/<decision>/comparison.jsonl` under the lock, or refuses it by the rule `check` applies (`append_comparison` and `comparison_problems`, `hooks/tezgah_research.py`); it notes when `criteria.json` is not committed yet | 0, 1 refused, 2 misuse |
 | `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md`, and seals it (`close_line`) | 0, 1 unreadable state, 2 misuse |
-| `tezgah-research seal <slug> --history-lost --ack "<owner decision>"` | seals a line under `done/` that was concluded before seals existed, with the `history-lost` verdict for every experiment whose order no longer checks (`retro_seal`, `hooks/tezgah_research.py::retro_seal`) | 0, 1 refused, 2 misuse |
-| `tezgah-research import <checkout> [<slug>]` | brings a line - or every line this checkout lacks - from another checkout's `.tezgah` repository with its history (`import_line`, `hooks/tezgah_research.py::import_line`) | 0, 1 refused, 2 misuse |
+| `tezgah-research seal <slug> --history-lost --ack "<owner decision>"` | seals a line under `done/` that was concluded before seals existed, with the `history-lost` verdict for every experiment whose order the lost history left undecidable; refuses a line with a real order violation or nothing lost (`retro_seal`, `hooks/tezgah_research.py::retro_seal`) | 0, 1 refused, 2 misuse |
+| `tezgah-research import <checkout> [<slug>] [--allow-open "<reason>"]` | brings a line - or every line this checkout lacks - from another checkout's `.tezgah` repository with its history; an open line arrives beside open ones only with `--allow-open` (`import_line`, `hooks/tezgah_research.py::import_line`) | 0, 1 refused, 2 misuse |
 
 Exit code 2 is always misuse, so a caller can tell it from a line that fails the
 checks (`misuse`, `bin/tezgah-research::misuse`). `check` asks nothing at all - no
@@ -336,32 +336,38 @@ the shortcut deliberate, not impossible. `source --run` checks only that
 `hooks/tezgah_research.py::source_run`).
 
 A history can also go missing. The 2026-10-04 re-root left most concluded
-lines' commits unresolvable. Re-deriving their order from git then reports the
-lost history, not a defect in the research. So `conclude` and `close` **seal**
-the line (`order_seal`, `hooks/tezgah_research.py::order_seal`). The seal is
+lines' commits unresolvable. So `conclude` and `close` **seal** the line
+(`order_seal`, `hooks/tezgah_research.py::order_seal`). The seal is
 `state.json` `order_seal`. Per experiment it holds the sha256 of `protocol.md`
-and of `results.jsonl`. It also holds the verdict `_check_protocol_order` gave
-at that moment: `ordered`, `refused`, `undecided`, or `unrun` with no results.
-The add commits sit beside them as information only.
+and of `results.jsonl`, with the add commits beside them as information only.
+It stores no order verdict. While both blobs still hash as sealed, `check`
+re-derives the order from git. So a line closed before its results reached a
+commit keeps no "not committed yet" answer: committing them afterwards settles
+it.
 
 `check_line` verifies the hashes on every run, with or without git (`_check_seal`,
 `hooks/tezgah_research.py::_check_seal`). An edited, removed or added experiment
 fails the line. So the session note (`failing`) sees an edit after the
-conclusion too. An intact experiment's order is the sealed verdict, in the class
-the re-derivation gave it (`_sealed_order`,
-`hooks/tezgah_research.py::_sealed_order`). Git answers no order question for it
-again. The ceiling: the seal sits in the line's own `state.json`. Whoever edits
-`results.jsonl` can recompute the seal there too. It catches an edit, not a
-forger.
+conclusion too. The ceiling: the seal sits in the line's own `state.json`.
+Whoever edits `results.jsonl` can recompute the seal there too. It catches an
+edit, not a forger.
 
 A line concluded before seals existed carries none. The owner's verdict for
 those lines (ADR 009) is `history-lost`. `tezgah-research seal <slug>
 --history-lost --ack "<the owner's decision>"` writes it (`retro_seal`,
-`hooks/tezgah_research.py::retro_seal`). An experiment whose order still checks
-keeps `ordered`. Every other one gets `history-lost`, and `finding` keeps what
-the check said. `check` then warns about it and names the ack, and `--strict`
-refuses it. The command takes only a line under `done/`, only once, only with an
-ack.
+`hooks/tezgah_research.py::retro_seal`). It covers only an order the lost
+history left undecidable (`LOST_HISTORY`,
+`hooks/tezgah_research.py::LOST_HISTORY`). That is git that cannot answer, a
+pair split across two histories, or versions git cannot place. Such an
+experiment gets
+`history-lost`, and `finding` keeps what the check said. `check` then warns
+about it and names the ack (`_sealed_order`,
+`hooks/tezgah_research.py::_sealed_order`), and `--strict` refuses it. An
+experiment whose order still checks stays re-derived. The command refuses a
+line with a real violation and prints the finding, which stays an error. A real
+violation is one commit that added both files, a protocol added or changed after
+the run, or a file with no commit yet. It also refuses a line with nothing lost.
+The command takes only a line under `done/`, only once, only with an ack.
 
 ### Moving a line between checkouts
 
@@ -374,10 +380,15 @@ its history instead (`import_line`). It fetches the other checkout's repository
 from its disk path. It merges that history as a second parent with
 `--allow-unrelated-histories -s ours`. It then takes only the imported lines'
 paths from it. The source's commits order the pair here, and none of its other
-lines arrive. A workspace with no commit yet takes the source's HEAD as its
-first parent. `import` refuses a plain copy: a line the source never committed,
-or a source with no `.tezgah` repository. It also refuses a slug this checkout
-already holds. A private remote for `.tezgah` stays the owner's call, and
+lines arrive. A workspace with no commit yet first gets an empty root commit.
+The same merge follows, so the source's history is never its first parent.
+`import` refuses a plain copy: a line the source never committed, or a source
+with no `.tezgah` repository. It also refuses a slug this checkout already
+holds, and a landing path that exists as something other than a line directory.
+A line arriving from the source's `open/` is a new open line here, so `init`'s
+rule applies. While another line here is still open, `import` refuses it unless
+`--allow-open "<reason>"` says why. The reason lands in the line's `log.md` in
+the import commit. A private remote for `.tezgah` stays the owner's call, and
 `import` needs none.
 
 ## Two gates, when one locked metric is not enough

@@ -2234,9 +2234,8 @@ def append_claim(repo, slug, claim):
 
 def _check_experiments(repo, base, errors, warnings, git, strict, notes, intact=None):
     """`intact` maps an experiment the line's order seal holds, with both files
-    still hashing as sealed, to its seal row: its order is the sealed verdict
-    (`_sealed_order`) instead of a re-derivation from a history a re-root can
-    lose."""
+    still hashing as sealed, to its seal row. Its order is re-derived from git
+    like any other, unless the owner sealed it `history-lost` (`_sealed_order`)."""
     intact = intact or {}
     exps = os.path.join(base, "experiments")
     try:
@@ -2261,7 +2260,7 @@ def _check_experiments(repo, base, errors, warnings, git, strict, notes, intact=
         if not os.path.isfile(os.path.join(d, "analysis.md")):
             errors.append("experiment %s has results but no analysis.md" % h)
         _check_rows(results, "experiment %s" % h, errors, warnings, strict)
-        if git and h in intact:
+        if git and intact.get(h, {}).get("order") == HISTORY_LOST:
             _sealed_order(h, intact[h], errors, warnings, strict)
         elif git:
             _check_protocol_order(repo, h, proto, results, errors, warnings, strict,
@@ -3800,18 +3799,30 @@ def failing(repo, git=False):
 
 # --- the order seal ----------------------------------------------------------
 # A concluded or closed line carries `state.json` `order_seal`: per experiment,
-# the sha256 of its `protocol.md` and `results.jsonl` (`_digest`) and the order
-# verdict `_check_protocol_order` gave when the line was sealed. The hashes are
-# the durable proof; the commit shas beside them are informational only, because
-# a re-root (2026-10-04) loses them. `check_line` verifies the hashes on every
-# run, git or not, so a session note (`failing`) sees a post-conclusion edit, and
-# reads an intact experiment's order from the seal instead of re-deriving it.
+# the sha256 of its `protocol.md` and `results.jsonl` (`_digest`), with the add
+# commits beside them as information only. The seal stores no order verdict:
+# while both blobs still hash as sealed, `check_line` re-derives the order from
+# git, so a line closed before its results were committed is not frozen with a
+# "not committed yet" answer - committing them afterwards settles it. The hashes
+# are verified on every run, git or not, so a session note (`failing`) sees a
+# post-conclusion edit. The one stored verdict is the owner's `history-lost`
+# (`retro_seal`), for an order the lost history left undecidable.
 # Named `order_seal` because `sealed()` already means "the line sits under done/".
 # ponytail: the seal lives in the line's own state.json, so an agent that edits
 # `results.jsonl` can recompute it there too; it catches an edit, not a forger -
 # a seal outside the line's reach (a signed or remote record) is the ceiling.
 SEAL = "order_seal"
 HISTORY_LOST = "history-lost"
+
+# The order findings a lost history produces and no commit can repair: git
+# cannot be asked, the pair sits in two histories neither of which holds both,
+# or git cannot place one version against the other. A refusal of a recorded
+# order - one commit adding both, a protocol added or changed after the run -
+# and a file not committed yet are not in this class: `retro_seal` refuses them.
+LOST_HISTORY = ("git could not be asked about the order",
+                "were added in different histories and neither holds both",
+                "git could not order the protocol against the results",
+                "git cannot tell whether protocol.md changed after the run")
 
 
 def _seal_files(base):
@@ -3837,28 +3848,16 @@ def _last_add(repo, path):
     return next((sha for sha in reversed(list(adds.values())) if sha), None)
 
 
-def _seal_rows(repo, base, history_lost=False):
-    """{experiment: seal row} for every experiment holding a protocol.md. `order`
-    is the verdict `_check_protocol_order` gives now - `ordered`, `refused`,
-    `undecided` - or `unrun` with no results; with `history_lost`, a refused or
-    undecided order becomes `history-lost`, keeping what the check said in
-    `finding`."""
+def _seal_rows(repo, base):
+    """{experiment: seal row}: the blob hashes of every experiment holding a
+    protocol.md, and the add commits of a run one, informational only."""
     out = {}
     for h, (proto, results) in _seal_files(base).items():
         row = {"protocol": _digest(proto),
                "results": _digest(results) if results else None}
-        if results is None:
-            row["order"] = "unrun"
-        else:
-            errs, warns = [], []
-            _check_protocol_order(repo, h, proto, results, errs, warns, False, [])
-            row["order"] = "refused" if errs else "undecided" if warns else "ordered"
-            if errs or warns:
-                row["finding"] = (errs or warns)[0]
+        if results:
             row["commits"] = {"protocol": _last_add(repo, proto),
                               "results": _last_add(repo, results)}
-        if history_lost and row["order"] in ("refused", "undecided"):
-            row["order"] = HISTORY_LOST
         out[h] = row
     return out
 
@@ -3898,32 +3897,17 @@ def _check_seal(base):
 
 
 def _sealed_order(h, row, errors, warnings, strict):
-    """The order verdict an intact sealed experiment carries, in the class the
-    re-derivation would have given it: a refusal stays an error, an undecided
-    order a warning (an error under `--strict`), and `history-lost` - an order
-    the owner recorded as unprovable because the commits were lost - a warning
-    that says so (an error under `--strict`)."""
-    order = row.get("order")
-    if order == "refused":
-        errors.append(row.get("finding") or "experiment %s: the sealed order is "
-                      "refused" % h)
-    elif order == "undecided":
-        _soft(errors, warnings, strict, row.get("finding") or
-              "experiment %s: the sealed order is undecided" % h)
-    elif order == HISTORY_LOST:
-        _soft(errors, warnings, strict,
-              "experiment %s: the protocol order is not provable - the history that "
-              "held it was lost, and the line was sealed with that verdict (%s%s)"
-              % (h, row.get("date"), "; ack: %s" % row["ack"] if row.get("ack") else ""))
+    """The owner's `history-lost` verdict on an intact sealed experiment: a
+    warning that names it, an error under `--strict`."""
+    _soft(errors, warnings, strict,
+          "experiment %s: the protocol order is not provable - the history that "
+          "held it was lost, and the line was sealed with that verdict (%s%s)"
+          % (h, row.get("date"), "; ack: %s" % row["ack"] if row.get("ack") else ""))
 
 
-def order_seal(repo, base, date="", history_lost=False, ack=""):
+def order_seal(repo, base, date=""):
     """The `order_seal` record for the line at `base`, as of now."""
-    record = {"date": date, "verdict": HISTORY_LOST if history_lost else "sealed",
-              "experiments": _seal_rows(repo, base, history_lost)}
-    if ack:
-        record["ack"] = ack
-    return record
+    return {"date": date, "verdict": "sealed", "experiments": _seal_rows(repo, base)}
 
 
 def retro_seal(repo, slug, ack, date=""):
@@ -3931,7 +3915,10 @@ def retro_seal(repo, slug, ack, date=""):
     `history-lost` verdict (ADR 009). Only a line under `done/` that carries no
     seal yet, and only with `ack` naming the owner's decision: the verdict says
     the order can no longer be proven, which is the owner's call, not a session's.
-    An experiment whose order still checks keeps `ordered`."""
+    Refused, with the findings printed, when an experiment's order fails for a
+    reason outside `LOST_HISTORY` - a real violation stays an error - and when
+    nothing is lost. An experiment whose order still checks keeps no verdict and
+    is re-derived like any sealed one."""
     if not sealed(repo, slug):
         return None, ("%s is not under research/done/: only a concluded or closed "
                       "line is retro-sealed" % slug)
@@ -3945,7 +3932,22 @@ def retro_seal(repo, slug, ack, date=""):
     if isinstance(state.get(SEAL), dict):
         return None, "%s already carries an order seal (%s)" % (
             slug, state[SEAL].get("verdict"))
-    record = order_seal(repo, base, date, history_lost=True, ack=ack)
+    record = dict(order_seal(repo, base, date), verdict=HISTORY_LOST, ack=ack)
+    real = []
+    for h, (proto, results) in _seal_files(base).items():
+        if not results:
+            continue
+        errs, warns = [], []
+        _check_protocol_order(repo, h, proto, results, errs, warns, False, [])
+        found = errs + warns
+        real += [f for f in found if not any(m in f for m in LOST_HISTORY)]
+        if found:
+            record["experiments"][h].update(order=HISTORY_LOST, finding=found[0])
+    if real:
+        return None, ("not a lost history - these order findings stay as they are: "
+                      + "; ".join(real))
+    if not any(r.get("order") for r in record["experiments"].values()):
+        return None, "every experiment's order still checks: nothing to seal as lost"
     state[SEAL] = record
     try:
         with open(path, "w", encoding="utf-8") as fh:
@@ -3970,7 +3972,7 @@ def _committed_lines(top, rev):
     return out
 
 
-def import_line(repo, source, slug=None):
+def import_line(repo, source, slug=None, allow_open=None, date=""):
     """(imported slugs, problem): bring research lines from another checkout's
     private `.tezgah` repository into this one with their history.
 
@@ -3980,11 +3982,17 @@ def import_line(repo, source, slug=None):
     sit in this HEAD's lineage and nothing else of the source's tree arrives.
     That is the two-parent shape that kept two lines' order proofs; the
     single-parent copy that lost one is refused: a line the source never
-    committed has no history to bring. A workspace with no commit yet (a fresh
-    checkout) takes the source's HEAD as its first parent instead, and the import
-    commit keeps only the imported lines. With no `slug`, every committed source
-    line this checkout lacks is imported. Works with no remote: the source is
-    read from its own disk path."""
+    committed has no history to bring. A workspace with no commit yet gets an
+    empty root commit of its own first, so the source's history is never its
+    first parent. With no `slug`, every committed source line this checkout
+    lacks is imported. Works with no remote: the source is read from its own
+    disk path.
+
+    A line arriving from the source's `research/open/` is a new open line here,
+    so `init`'s one-open-line rule applies: refused while another line is open
+    (or several open lines arrive at once) unless `allow_open` gives the reason,
+    which lands in the line's `log.md` (`note_open`) inside the import commit;
+    and refused beside an open line `check` refuses (`broken_open_lines`)."""
     ws, src = tp.workspace(repo), tp.workspace(source)
     if os.path.realpath(src) == os.path.realpath(ws):
         return [], "%s is this checkout's own workspace" % src
@@ -3994,6 +4002,8 @@ def import_line(repo, source, slug=None):
                     "order proof" % src)
     if not os.path.isdir(os.path.join(ws, ".git")):
         return [], "%s has no repository of its own yet" % ws
+    if allow_open is not None and not str(allow_open).strip():
+        return [], "--allow-open needs the reason the line is worth opening"
     fresh = _unborn(ws)
     staged, _err = _git_out(ws, "ls-files") if fresh else \
         _git_out(ws, "diff", "--cached", "--name-only")
@@ -4020,21 +4030,48 @@ def import_line(repo, source, slug=None):
     if clash:
         return [], ("this checkout already holds %s; remove that copy first - "
                     "import brings the history a copy lacks" % ", ".join(clash))
+    blocked = [lines[s] for s in wanted if os.path.lexists(os.path.join(ws, lines[s]))]
+    if blocked:
+        return [], ("%s exists here and is not a line directory; move it away "
+                    "before the import lands there" % ", ".join(blocked))
     if not wanted:
         return [], None
-    first = (("update-ref", "HEAD", rev) if fresh else
-             ("merge", "-q", "--no-ff", "--no-commit", "--allow-unrelated-histories",
-              "-s", "ours", rev))
-    steps = (first,
-             ("checkout", rev, "--") + tuple(lines[s] for s in wanted),
-             ("commit", "-q", "-m", "research: import %s from %s"
-              % (", ".join(wanted), source)))
-    for args in steps:
-        done = tp.ws_git(repo, *args)
+    arriving = [s for s in wanted if lines[s].startswith("research/%s/" % OPEN)]
+    unfinished = open_lines(repo) if arriving else []
+    if (unfinished or len(arriving) > 1) and allow_open is None:
+        return [], ("%s would open beside unfinished line(s) %s; say why with "
+                    "--allow-open \"<reason>\"" % (
+                        ", ".join(arriving),
+                        "; ".join("%s (%s)" % (n, "; ".join(r)) for n, r in unfinished)
+                        or ", ".join(arriving)))
+    broken = broken_open_lines(repo) if unfinished else []
+    if broken:
+        return [], ("--allow-open does not open a line beside an open line check "
+                    "refuses: %s" % ", ".join(n for n, _e in broken))
+    if fresh:
+        done = tp.ws_git(repo, "commit", "-q", "--allow-empty", "-m",
+                         "research: workspace root")
         if done.returncode:
-            tp.ws_git(repo, *(("update-ref", "-d", "HEAD") if fresh
-                              else ("merge", "--abort")))
-            return [], "git %s failed: %s" % (args[0], (done.stderr or done.stdout).strip())
+            return [], "git commit failed: %s" % (done.stderr or done.stdout).strip()
+    notes = [] if allow_open is None or not arriving else [
+        ("add", "--") + tuple("%s/log.md" % lines[s] for s in arriving)]
+    steps = [("merge", "-q", "--no-ff", "--no-commit", "--allow-unrelated-histories",
+              "-s", "ours", rev),
+             ("checkout", rev, "--") + tuple(lines[s] for s in wanted)] + notes + [
+             ("commit", "-q", "-m", "research: import %s from %s"
+              % (", ".join(wanted), source))]
+    for args in steps:
+        problem = None
+        if args[0] == "add":
+            problem = "; ".join(p for p in (note_open(repo, s, allow_open, date)
+                                            for s in arriving) if p) or None
+        done = None if problem else tp.ws_git(repo, *args)
+        if problem or done.returncode:
+            tp.ws_git(repo, "merge", "--abort")
+            if fresh:
+                tp.ws_git(repo, "update-ref", "-d", "HEAD")
+            return [], problem or "git %s failed: %s" % (
+                args[0], (done.stderr or done.stdout).strip())
     return wanted, None
 
 

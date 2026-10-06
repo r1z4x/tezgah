@@ -10,6 +10,7 @@ Every workspace is a throwaway git repository under a temp HOME.
 """
 import json
 import os
+import shutil
 import sys
 import unittest
 
@@ -61,35 +62,49 @@ class SealCase(Workspace):
 
 
 class Agreement(SealCase):
-    def test_the_seal_verdict_is_the_check_s_verdict_on_every_shape(self):
-        expected = {"ordered": "ordered", "both": "refused", "after": "refused",
-                    "uncommitted": "undecided"}
-        for how, order in expected.items():
+    def test_a_sealed_line_s_order_is_the_check_s_order_on_every_shape(self):
+        """The seal holds blob hashes and no verdict: while the blobs are intact
+        the order is re-derived from git, so a done line reads exactly what the
+        open line read."""
+        for how in ("ordered", "both", "after", "uncommitted", "unrun"):
             with self.subTest(how=how):
                 repo = self.repo(how)
                 self.line(repo)
                 self.shape(repo, how)
-                errors, warnings = self.check_order(repo)
+                errors, warnings = self.check_order(repo) if how != "unrun" \
+                    else ([], [])
                 left, problem = tr.close_line(repo, "q", "fixture", "2026-10-06")
                 self.assertIsNone(problem)
                 seal = self.seal(repo)
-                self.assertEqual(seal["verdict"], "sealed")
-                self.assertEqual(seal["date"], "2026-10-06")
+                self.assertEqual((seal["verdict"], seal["date"]),
+                                 ("sealed", "2026-10-06"))
                 row = seal["experiments"]["h1"]
-                self.assertEqual(row["order"], order)
-                self.assertEqual(row.get("finding"), (errors or warnings or [None])[0])
+                self.assertNotIn("order", row)
                 d = self.exp_dir(repo)
                 self.assertEqual(row["protocol"],
                                  tr._digest(os.path.join(d, "protocol.md")))
-                self.assertEqual(row["results"],
-                                 tr._digest(os.path.join(d, "results.jsonl")))
-                # the done line's check reads the sealed verdict, in the class the
-                # re-derivation gave it on the open line
+                results = os.path.join(d, "results.jsonl")
+                self.assertEqual(row["results"], tr._digest(results)
+                                 if os.path.isfile(results) else None)
                 found_e, found_w = tr.check_line(repo, "q")
                 for message in errors:
                     self.assertIn(message, found_e)
                 for message in warnings:
                     self.assertIn(message, found_w)
+
+    def test_close_then_commit_leaves_no_order_finding(self):
+        """A seal made while the results were still uncommitted freezes no
+        transient verdict: committing them afterwards clears the warning."""
+        repo = self.repo()
+        self.line(repo)
+        self.shape(repo, "uncommitted")
+        self.assertTrue(hit("not committed yet", self.check_order(repo)[1]))
+        tr.close_line(repo, "q", "fixture", "2026-10-06")
+        self.commit(repo, "results", when=AFTER)
+        errors, warnings = tr.check_line(repo, "q")
+        self.assertFalse(hit("not committed", errors + warnings), warnings)
+        self.assertFalse(hit("protocol", [e for e in errors if "order" in e]))
+        self.assertFalse(hit("sealed", errors), errors)
 
     def test_an_ordered_seal_records_the_commits_as_information(self):
         repo = self.repo()
@@ -100,14 +115,6 @@ class Agreement(SealCase):
         self.assertRegex(commits["protocol"], "^[0-9a-f]{40}$")
         self.assertRegex(commits["results"], "^[0-9a-f]{40}$")
         self.assertNotEqual(commits["protocol"], commits["results"])
-
-    def test_an_experiment_with_no_run_is_sealed_unrun(self):
-        repo = self.repo()
-        self.line(repo)
-        self.shape(repo, "unrun")
-        tr.close_line(repo, "q", "fixture", "2026-10-06")
-        row = self.seal(repo)["experiments"]["h1"]
-        self.assertEqual((row["order"], row["results"]), ("unrun", None))
 
     def test_conclude_seals_the_line_too(self):
         repo = self.repo()
@@ -120,7 +127,7 @@ class Agreement(SealCase):
         problems, _state = tr.conclude_line(repo, "q", "2026-10-06")
         self.assertEqual(problems, [])
         self.assertTrue(tr.sealed(repo, "q"))
-        self.assertEqual(self.seal(repo)["experiments"]["h1"]["order"], "ordered")
+        self.assertIn("h1", self.seal(repo)["experiments"])
 
 
 class Mutation(SealCase):
@@ -157,7 +164,6 @@ class Mutation(SealCase):
         self.protocol(repo, h="h2")
         self.assertTrue(hit("experiment h2 was added after the line was sealed",
                             [err for _slug, err in tr.failing(repo)]))
-        import shutil
         shutil.rmtree(os.path.join(tr.line_dir(repo, "q"), "experiments", "h1"))
         self.assertTrue(hit("experiment h1 was removed after the line was sealed",
                             tr.check(repo)["q"]["errors"]))
@@ -170,38 +176,57 @@ class Mutation(SealCase):
 
 class HistoryLost(SealCase):
     """ADR 009: the lines concluded before seals existed take a `history-lost`
-    verdict - built here, applied to a real workspace only by the owner."""
+    verdict - built here, applied to a real workspace only by the owner. Only an
+    order the lost history left undecidable takes it; a real violation stays."""
 
-    def pre_seal_line(self, how="both"):
-        """A line under done/ with no seal: the shape of the 33 existing lines."""
-        repo = self.repo()
-        self.line(repo)
-        self.shape(repo, how)
-        self.protocol(repo, h="h2")
-        self.commit(repo, "protocol h2", when=BEFORE)
-        self.results(repo, h="h2")
-        self.commit(repo, "results h2", when=AFTER)
-        tr.close_line(repo, "q", "fixture", "2026-10-01")
+    LOST = "added in different histories"
+
+    def ws_commit(self, repo, *paths, when=BEFORE):
+        ws = os.path.join(repo, ".tezgah")
+        self.git(ws, "add", "-f", *[os.path.relpath(p, ws) for p in paths])
+        self.git(ws, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", "ws", when=when)
+
+    def unseal(self, repo):
         path = os.path.join(tr.line_dir(repo, "q"), "state.json")
         state = json.loads(read(path))
         del state[tr.SEAL]
         self.write(path, json.dumps(state))
+
+    def pre_seal_line(self):
+        """A line under done/ with no seal: h1's protocol is committed only in the
+        project and its results only in the private repository (the history
+        that ordered them is gone), h2 is ordered in the private repository."""
+        repo = self.repo()
+        self.line(repo)
+        shutil.rmtree(os.path.join(repo, ".tezgah", ".git"))
+        self.protocol(repo)
+        self.commit(repo, "protocol, in the project", when=BEFORE)
+        self.git(os.path.join(repo, ".tezgah"), "init", "-q")
+        d1 = self.results(repo, analysis=False)
+        self.ws_commit(repo, os.path.join(d1, "results.jsonl"), when=AFTER)
+        d2 = self.protocol(repo, h="h2")
+        self.ws_commit(repo, os.path.join(d2, "protocol.md"))
+        self.results(repo, h="h2", analysis=False)
+        self.ws_commit(repo, os.path.join(d2, "results.jsonl"), when=AFTER)
+        tr.close_line(repo, "q", "fixture", "2026-10-01")
+        self.unseal(repo)
         return repo
 
     def test_the_verdict_replaces_the_lost_order_and_keeps_what_was_found(self):
         repo = self.pre_seal_line()
         before = tr.check_line(repo, "q")[0]
-        self.assertTrue(hit(BOTH_TOGETHER, before), before)
+        self.assertTrue(hit(self.LOST, before), before)
         record, problem = tr.retro_seal(repo, "q", ACK, "2026-10-06")
         self.assertIsNone(problem)
         self.assertEqual((record["verdict"], record["ack"]), (tr.HISTORY_LOST, ACK))
         rows = record["experiments"]
         self.assertEqual(rows["h1"]["order"], tr.HISTORY_LOST)
-        self.assertIn(BOTH_TOGETHER, rows["h1"]["finding"])
-        # an order that still checks is not written off
-        self.assertEqual(rows["h2"]["order"], "ordered")
+        self.assertIn(self.LOST, rows["h1"]["finding"])
+        # an order that still checks is not written off: it stays re-derived
+        self.assertNotIn("order", rows["h2"])
         errors, warnings = tr.check_line(repo, "q")
-        self.assertFalse(hit(BOTH_TOGETHER, errors), errors)
+        self.assertFalse(hit(self.LOST, errors), errors)
         self.assertTrue(hit("experiment h1: the protocol order is not provable - the "
                             "history that held it was lost", warnings), warnings)
         self.assertTrue(hit(ACK, warnings))
@@ -209,6 +234,29 @@ class HistoryLost(SealCase):
         self.assertTrue(hit("history that held it was lost", strict), strict)
         self.assertIn("sealed: history lost", read(
             os.path.join(tr.line_dir(repo, "q"), "log.md")))
+
+    def test_a_real_violation_is_refused_and_stays_an_error(self):
+        repo = self.repo()
+        self.line(repo)
+        self.shape(repo, "both")
+        tr.close_line(repo, "q", "fixture", "2026-10-01")
+        self.unseal(repo)
+        record, problem = tr.retro_seal(repo, "q", ACK)
+        self.assertIsNone(record)
+        self.assertIn(BOTH_TOGETHER, problem)
+        self.assertNotIn(tr.SEAL, tr.line_state(repo, "q"))
+        self.assertTrue(hit(BOTH_TOGETHER, tr.check_line(repo, "q")[0]))
+        proc = self.cli(repo, "seal", "q", "--history-lost", "--ack", ACK)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn(BOTH_TOGETHER, proc.stdout)
+
+    def test_a_line_whose_order_still_checks_has_nothing_lost(self):
+        repo = self.repo()
+        self.line(repo)
+        self.shape(repo, "ordered")
+        tr.close_line(repo, "q", "fixture", "2026-10-01")
+        self.unseal(repo)
+        self.assertIn("nothing to seal as lost", tr.retro_seal(repo, "q", ACK)[1])
 
     def test_it_is_refused_without_an_ack_on_an_open_line_and_twice(self):
         repo = self.pre_seal_line()

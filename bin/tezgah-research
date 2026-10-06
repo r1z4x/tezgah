@@ -17,7 +17,8 @@
   tezgah-research close <slug> --limit "<reason>"  conclude a line as a deliberate limit
   tezgah-research seal <slug> --history-lost --ack "<owner decision>"
                                                    seal a line concluded before seals existed
-  tezgah-research import <checkout> [<slug>]      bring lines from another checkout, with history
+  tezgah-research import <checkout> [<slug>] [--allow-open "<why>"]
+                                                   bring lines from another checkout, with history
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
@@ -659,7 +660,7 @@ def cmd_seal(args):
         print("FAIL %s: %s" % (slug, problem))
         return 1
     rows = record["experiments"]
-    lost = sorted(h for h, row in rows.items() if row["order"] == tr.HISTORY_LOST)
+    lost = sorted(h for h, row in rows.items() if row.get("order") == tr.HISTORY_LOST)
     print("sealed %s: %d experiment(s), history lost for %s"
           % (slug, len(rows), ", ".join(lost) or "none"))
     return 0
@@ -668,10 +669,18 @@ def cmd_seal(args):
 def cmd_import(args):
     """Bring lines from another checkout's `.tezgah` repository with their
     history; a plain copy is refused."""
-    if len(args) not in (1, 2) or any(a.startswith("-") for a in args):
-        return misuse("import <checkout> [<slug>]")
-    source = os.path.abspath(args[0])
-    slug = args[1] if len(args) == 2 else None
+    usage = 'import <checkout> [<slug>] [--allow-open "<reason>"]'
+    rest, allow = list(args), None
+    if "--allow-open" in rest:
+        i = rest.index("--allow-open")
+        if i + 1 >= len(rest) or not rest[i + 1].strip():
+            return misuse("--allow-open needs the reason the line is worth opening")
+        allow = rest[i + 1]
+        rest = rest[:i] + rest[i + 2:]
+    if len(rest) not in (1, 2) or any(a.startswith("-") for a in rest):
+        return misuse(usage)
+    source = os.path.abspath(rest[0])
+    slug = rest[1] if len(rest) == 2 else None
     if slug is not None and not tr.valid_slug(slug):
         return misuse("not a research line name: %r" % slug)
     repo = repo_root(os.getcwd())
@@ -679,7 +688,8 @@ def cmd_import(args):
         print("import refused: %s is not a git work tree (or .tezgah could not be "
               "set up)" % repo)
         return 1
-    imported, problem = tr.import_line(repo, source, slug)
+    imported, problem = tr.import_line(repo, source, slug, allow,
+                                       time.strftime("%Y-%m-%d"))
     if problem:
         print("FAIL import: %s" % problem)
         return 1

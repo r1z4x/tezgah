@@ -10,17 +10,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Concluding or closing a research line seals it.** `conclude` and `close`
   write `state.json` `order_seal`. It holds, per experiment, the sha256 of
-  `protocol.md` and `results.jsonl` and the order verdict the check gave then.
-  Every `check` verifies the hashes, with or without git, so the session note
-  reports an edit after the seal. An intact experiment's order comes from the
-  seal, not from a history a re-root can lose. `tezgah-research seal <slug>
+  `protocol.md` and `results.jsonl`, and no order verdict. Every `check`
+  verifies the hashes, with or without git, so the session note reports an
+  edit after the seal. While the hashes hold, `check` re-derives the order, so
+  results committed after the close still count. `tezgah-research seal <slug>
   --history-lost --ack "<decision>"` gives the owner's `history-lost` verdict
-  to a line concluded before seals (ADR 009).
+  to a line concluded before seals (ADR 009). It covers only an order the lost
+  history left undecidable. A real violation stays an error.
 - **`tezgah-research import <checkout> [<slug>]` moves a line with its
   history.** It fetches the other checkout's `.tezgah` repository from disk.
   It merges that history as a second parent and takes only the imported lines.
   It refuses a plain copy, because a copy loses the order proof. It needs no
-  remote.
+  remote. An open line arrives beside open ones only with `--allow-open`.
 - **The MCP tool `tezgah_research_check` takes a `slug`.** The server checks it
   as a line name. It passes the slug after `--`, so `tezgah-research` never
   reads it as a flag.

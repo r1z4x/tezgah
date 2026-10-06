@@ -507,8 +507,8 @@ question without it, and `check` refuses a line sharing another's
 
 A line that cannot finish is closed on purpose: `tezgah-research close <slug>
 --limit "<what is left and why>"` concludes it, writes the reasons it was still open
-into `state.json` `closed` and `log.md`, seals its experiments' hashes and order
-verdicts (`order_seal`), and stops it counting as open; `conclude` seals the same
+into `state.json` `closed` and `log.md`, seals its experiments' file hashes
+(`order_seal`), and stops it counting as open; `conclude` seals the same
 way, and an edit after the seal fails `check`. `init --allow-open` is refused
 while an open line has `check` errors. A line moves to another checkout with
 `import`, never as a copy: a copy loses the order proof.

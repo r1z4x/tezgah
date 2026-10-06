@@ -28,10 +28,12 @@ def order_errors(errors):
 
 class Import(Workspace):
     def source(self):
-        """A checkout holding a strict-clean line `q`, committed protocol first,
-        and an unrelated line `other` that an import of `q` must not bring."""
+        """A checkout holding `q`, strict-clean and closed into done/ (committed
+        protocol first), and an open line `other` an import of `q` must not
+        bring."""
         src = self.repo("src")
         self.clean(src)
+        self.assertIsNone(tr.close_line(src, "q", "fixture", "2026-10-06")[1])
         self.line(src, "other", question="an unrelated question")
         self.commit(src, "rest", when="2021-07-07T00:00:00+0000")
         self.assertEqual(tr.check_line(src, "q", strict=True)[0], [])
@@ -63,11 +65,45 @@ class Import(Workspace):
         self.assertEqual(tr.import_line(dst, src, "q"), (["q"], None))
         self.assertEqual(tr.slugs(dst), ["q"])
         self.assertEqual(order_errors(tr.check_line(dst, "q", strict=True)[0]), [])
+        # an empty root of its own is the first parent, never the source's HEAD
+        ws = os.path.join(dst, ".tezgah")
+        first, second = self.git(ws, "log", "-1", "--format=%P").split()
+        self.assertEqual(self.git(ws, "log", "-1", "--format=%P", first).strip(), "")
+        self.assertEqual(self.git(ws, "ls-tree", first), "")
+        self.assertEqual(second, self.git(os.path.join(src, ".tezgah"),
+                                          "rev-parse", "HEAD").strip())
+
+    def test_an_open_line_is_imported_beside_open_ones_only_with_a_reason(self):
+        src, dst = self.source(), self.target()
+        imported, problem = tr.import_line(dst, src, "other")
+        self.assertEqual(imported, [])
+        self.assertIn("mine", problem)
+        self.assertIn("--allow-open", problem)
+        self.assertEqual(tr.slugs(dst), ["mine"])
+        proc = self.cli(dst, "import", src, "other")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        proc = self.cli(dst, "import", src, "other", "--allow-open", "needed here")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        log = os.path.join(tr.line_dir(dst, "other"), "log.md")
+        with open(log) as fh:
+            self.assertIn("opened with --allow-open: needed here", fh.read())
+        ws = os.path.join(dst, ".tezgah")
+        self.assertEqual(self.git(ws, "status", "--porcelain", "--", "research"), "")
 
     def test_no_slug_imports_every_line_this_checkout_lacks(self):
         src, dst = self.source(), self.target()
-        self.assertEqual(tr.import_line(dst, src), (["other", "q"], None))
+        self.assertIn("--allow-open", tr.import_line(dst, src)[1])
+        self.assertEqual(tr.import_line(dst, src, allow_open="both wanted"),
+                         (["other", "q"], None))
         self.assertEqual(tr.import_line(dst, src), ([], None))
+
+    def test_a_landing_path_that_is_not_a_directory_is_refused(self):
+        src, dst = self.source(), self.target()
+        self.write(os.path.join(tr.root(dst), "done", "q"), "a file\n")
+        imported, problem = tr.import_line(dst, src, "q")
+        self.assertEqual(imported, [])
+        self.assertIn("research/done/q", problem)
+        self.assertIn("not a line directory", problem)
 
     def test_a_plain_copy_is_refused(self):
         src, dst = self.source(), self.target()
