@@ -25,6 +25,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The MCP tool `tezgah_research_check` takes a `slug`.** The server checks it
   as a line name. It passes the slug after `--`, so `tezgah-research` never
   reads it as a flag.
+- **The neuter matrix mutates the Stop rule.** `tests/neuter_matrix.py`
+  generates one mutant per Stop-class return site. The sites sit in
+  `_stop_block`, `_shape_block` and `_evidence_block`: 13 over 11 classes. Hand-written rows add the
+  guards around them: the pass predicate, the empty-run read, the pipe
+  guard and the "doğrulanmadı" clear. The lost call, the bookkeeping and
+  idle-turn fallbacks, the refusal row and the `other repo` cause are rows
+  too. The run adds the omp and after-block Stop test modules.
 - **`tezgah-gate replay` measures the gate against its own history.** It
   replays this machine's real ledgers through the unmodified dry-run gate and
   the Stop rule. It runs in a sandbox HOME, with the clock frozen at each call.

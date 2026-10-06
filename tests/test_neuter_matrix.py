@@ -1,4 +1,5 @@
-"""tests/neuter_matrix.py's generated half: one mutant per gate rule.
+"""tests/neuter_matrix.py's generated halves: one mutant per gate rule and one
+per Stop-class return site.
 
 The weekly matrix (`.github/workflows/neuter.yml`) is too slow for the suite, so
 this module checks only the generator: the rows come from the same AST reader
@@ -13,6 +14,7 @@ import neuter_matrix
 import support
 
 GATE = os.path.join(support.REPO, "hooks", "tezgah_gate.py")
+STOP = os.path.join(support.REPO, "hooks", "tezgah_integrity.py")
 
 
 def gate_text():
@@ -48,6 +50,37 @@ class GeneratedGateMutants(unittest.TestCase):
         row = next(r for r in neuter_matrix.gate_mutants(text) if r[0] == "gate-task")
         _mutated, error = row[2]("\n" + text)
         self.assertIn("task", error)
+
+
+class GeneratedStopMutants(unittest.TestCase):
+    CLASS = re.compile(r'return \("([a-z_ ]+)",')
+
+    def setUp(self):
+        with open(STOP, encoding="utf-8") as fh:
+            self.text = fh.read()
+
+    def test_every_stop_class_has_a_mutant(self):
+        rows = neuter_matrix.stop_mutants(self.text)
+        self.assertEqual(len({r[0] for r in rows}), len(rows))
+        named = {re.search(r"`([^`]+)`", r[3]).group(1) for r in rows}
+        self.assertEqual(named, neuter_matrix.docs_module().stop_triggers())
+
+    def test_each_row_reverts_one_return_site_and_no_other(self):
+        before = self.CLASS.findall(self.text)
+        for name, _file, apply, _guard in neuter_matrix.stop_mutants(self.text):
+            with self.subTest(mutant=name):
+                mutated, error = apply(self.text)
+                self.assertIsNone(error)
+                ast.parse(mutated, filename=STOP)
+                self.assertEqual(len(mutated.splitlines()), len(self.text.splitlines()))
+                self.assertEqual(len(self.CLASS.findall(mutated)), len(before) - 1)
+
+    def test_every_hand_row_applies_to_its_file(self):
+        for name, path, apply, _guard in neuter_matrix.MUTANTS:
+            with self.subTest(mutant=name):
+                with open(os.path.join(support.REPO, path), encoding="utf-8") as fh:
+                    _mutated, error = apply(fh.read())
+                self.assertIsNone(error)
 
 
 if __name__ == "__main__":

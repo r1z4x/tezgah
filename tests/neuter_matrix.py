@@ -24,8 +24,18 @@ let the call fall through to the rules below it - the closest thing to the rule
 being reverted. Returning None from `decision` there instead would skip every
 later rule too and kill the mutant for the wrong reason. The span, not a text
 anchor, is the address because one rule repeats the same `_deny` line (task four
-times, shortcut and attribution three). ponytail: the integrity half below is
-still hand-written; a guard added there is covered only once a row names it."""
+times, shortcut and attribution three).
+
+The Stop half is generated the same way: one `stop-<class>` mutant per `return
+("<class>", ...)` site of `_stop_block`, `_shape_block` and `_evidence_block`
+(the functions `stop_triggers` reads; `_stop_block` returns one class itself,
+`evidence tampered`), turned into `pass`, so the turn falls through to the branches below it. A class
+returned at two sites (`no ui_ok`, `no verify_ok`) gets a mutant per site. The
+guards around those classes - the pass predicate, the empty-run read, the
+"doğrulanmadı" clear, the lost call, the bookkeeping and session fallbacks, the
+refusal row - are hand-written rows below. ponytail: the hand-written rows cover
+a guard only once a row names it."""
+import ast
 import concurrent.futures
 import importlib.machinery
 import importlib.util
@@ -40,7 +50,10 @@ INTEGRITY = "hooks/tezgah_integrity.py"
 GATE = "hooks/tezgah_gate.py"
 PLUGIN = "hosts/opencode/plugins/tezgah.js"
 MODULES = ("test_integrity.py", "test_gate.py", "test_opencode_plugin.py",
-           "test_cursor_hook.py", "test_codex_hook.py", "test_control_plane.py")
+           "test_cursor_hook.py", "test_codex_hook.py", "test_control_plane.py",
+           "test_omp_hook.py", "test_stop_after_block.py")
+# the functions whose `return ("<class>", ...)` sites are the Stop classes
+STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_block")
 
 
 def anchored(anchor, replacement):
@@ -53,15 +66,16 @@ def anchored(anchor, replacement):
     return apply
 
 
-def spanned(rule, spans):
-    """An edit that turns each (first, last) line span - a `return _deny` of
-    `rule` - into `pass` at its indentation, keeping the file's line count."""
+def spanned(marker, spans):
+    """An edit that turns each (first, last) line span - a return whose first
+    line holds `marker` - into `pass` at its indentation, keeping the file's
+    line count."""
     def apply(text):
         lines = text.splitlines(keepends=True)
         for first, last in spans:
             line = lines[first - 1] if first <= len(lines) else ""
-            if '_deny(session_id, "%s"' % rule not in line:
-                return None, "line %d no longer holds a `%s` deny site" % (first, rule)
+            if marker not in line:
+                return None, "line %d no longer holds `%s`" % (first, marker)
             lines[first - 1] = line[:len(line) - len(line.lstrip())] + "pass\n"
             for i in range(first, last):
                 lines[i] = "\n"
@@ -98,6 +112,45 @@ MUTANTS = (
     ("js-hooks-path", PLUGIN,
      anchored("function hooksRedirect(cmd) {\n", "function hooksRedirect(cmd) {\n  return false\n"),
      "the opencode mirror of the hooksPath rule"),
+    # the Stop guards around the generated `stop-<class>` rows
+    ("passing-check", INTEGRITY,
+     anchored("    if entry.get(\"kind\") != \"verify_ok\" or entry.get(\"empty_run\"):\n",
+              "    return entry.get(\"kind\") == \"verify_ok\"\n"
+              "    if entry.get(\"kind\") != \"verify_ok\" or entry.get(\"empty_run\"):\n"),
+     "a verify_ok row counted as a pass with no exit, output or pipe check"),
+    ("empty-run-row", INTEGRITY,
+     anchored("    if entry.get(\"kind\") != \"verify_ok\" or entry.get(\"empty_run\"):\n",
+              "    if entry.get(\"kind\") != \"verify_ok\":\n"),
+     "a pass whose output said it ran nothing (`empty_run`)"),
+    ("empty-run-read", INTEGRITY,
+     anchored("def ran_nothing(result):\n", "def ran_nothing(result):\n    return False\n"),
+     "the empty-run read of a check's output (`ran_nothing`)"),
+    ("pipe-pass", INTEGRITY,
+     anchored("    return not pipe_hides_status(entry.get(\"detail\"))\n",
+              "    return True\n"),
+     "a pass whose status a pipe owns"),
+    ("negated", INTEGRITY,
+     anchored("    if NEGATED.search(t):\n        return (None, None)\n",
+              "    if False and NEGATED.search(t):\n        return (None, None)\n"),
+     "the \"doğrulanmadı\" clear of the claim branches"),
+    ("lost-began", INTEGRITY,
+     anchored("    if lost:\n", "    if False and lost:\n"),
+     "a claim resting on a check whose result never arrived"),
+    ("bookkeeping", INTEGRITY,
+     anchored("def _bookkeeping_turn(rows):\n",
+              "def _bookkeeping_turn(rows):\n"
+              "    return any(str(r.get(\"kind\")) in WORK_KINDS for r in rows)\n"),
+     "work after a pass excused as bookkeeping"),
+    ("idle-claim", INTEGRITY,
+     anchored("            if refused[0]:\n                return refused\n",
+              "            if False:\n                return refused\n"),
+     "a claim in an idle turn judged against the session before it"),
+    ("refusal-row", INTEGRITY,
+     anchored("                else \"refusal\")\n", "                else \"claim\")\n"),
+     "a blocked reply that claimed nothing recorded as a refusal"),
+    ("other-repo-cause", INTEGRITY,
+     anchored("        return \"other repo\"\n", "        return \"no check\"\n"),
+     "the `other repo` cause on a no verify_ok row"),
 )
 
 
@@ -116,8 +169,34 @@ def gate_mutants(text):
     spans = {}
     for rule, first, last, _switches, _tools in docs_module().rule_sites(text):
         spans.setdefault(rule, []).append((first, last))
-    return [("gate-" + rule, GATE, spanned(rule, where), "the gate's `%s` rule" % rule)
+    return [("gate-" + rule, GATE, spanned('_deny(session_id, "%s"' % rule, where),
+             "the gate's `%s` rule" % rule)
             for rule, where in spans.items()]
+
+
+def stop_mutants(text):
+    """One (id, file, edit, guard) row per `return ("<class>", ...)` site of
+    STOP_FUNCS in `text`, numbered when a class has more than one site."""
+    sites = []
+    for node in ast.walk(ast.parse(text)):
+        if not (isinstance(node, ast.FunctionDef) and node.name in STOP_FUNCS):
+            continue
+        for sub in ast.walk(node):
+            value = sub.value if isinstance(sub, ast.Return) else None
+            if isinstance(value, ast.Tuple) and value.elts \
+                    and isinstance(value.elts[0], ast.Constant) \
+                    and isinstance(value.elts[0].value, str):
+                sites.append((value.elts[0].value, sub.lineno, sub.end_lineno))
+    sites.sort(key=lambda site: site[1])
+    rows = []
+    for cls, first, last in sites:
+        same = [s for s in sites if s[0] == cls]
+        name = "stop-" + cls.replace(" ", "-").replace("_", "-")
+        if len(same) > 1:
+            name += "-%d" % (same.index((cls, first, last)) + 1)
+        rows.append((name, INTEGRITY, spanned('return ("%s"' % cls, [(first, last)]),
+                     "the Stop class `%s` (line %d)" % (cls, first)))
+    return rows
 
 
 def run(name, edit, work):
@@ -141,7 +220,8 @@ def run(name, edit, work):
     for module in MODULES:
         proc = subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", module],
-            cwd=tree, env=env, capture_output=True, text=True)
+            cwd=tree, env=env, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL)  # a hook test reading an inherited tty hangs
         lines = [x for x in proc.stderr.splitlines() if x.strip()]
         last = "%s: %s" % (module, lines[-1] if lines else "")
         if proc.returncode:
@@ -154,9 +234,11 @@ def main():
     if not shutil.which("git"):
         print("SKIP: git is missing")
         return 1 if strict else 0
-    head = subprocess.run(["git", "-C", HERE, "show", "HEAD:" + GATE],
-                          capture_output=True, text=True, check=True).stdout
-    mutants = MUTANTS + tuple(gate_mutants(head))
+    def head(path):
+        return subprocess.run(["git", "-C", HERE, "show", "HEAD:" + path],
+                              capture_output=True, text=True, check=True).stdout
+    mutants = MUTANTS + tuple(gate_mutants(head(GATE))) \
+        + tuple(stop_mutants(head(INTEGRITY)))
     rows = [m for m in mutants if m[1] != PLUGIN or shutil.which("node")]
     skipped = [m[0] for m in mutants if m not in rows]
     work = tempfile.mkdtemp(prefix="tezgah-neuter-")
@@ -173,15 +255,15 @@ def main():
     survivors = 0
     for (name, status, last), mutant in zip(results, rows):
         if status == 2 and last.startswith("edit:"):
-            print("FAIL %-16s %s" % (name, last))
+            print("FAIL %-24s %s" % (name, last))
             survivors += 1
         elif status:
-            print("ok   %-16s killed (%s)" % (name, last))
+            print("ok   %-24s killed (%s)" % (name, last))
         else:
-            print("FAIL %-16s survived: no test notices %s" % (name, mutant[3]))
+            print("FAIL %-24s survived: no test notices %s" % (name, mutant[3]))
             survivors += 1
     for name in skipped:
-        print("SKIP %-16s node is missing" % name)
+        print("SKIP %-24s node is missing" % name)
     print("%d mutant(s), %d killed, %d failed, %d skipped" % (
         len(mutants), len(rows) - survivors, survivors, len(skipped)))
     return 1 if survivors or (strict and skipped) else 0

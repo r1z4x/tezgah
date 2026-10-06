@@ -91,7 +91,12 @@ test notices, and an unmutated control that fails voids the run. The script
 generates the gate half: one `gate-<rule>` mutant per rule `decision` refuses with.
 It reads HEAD with the AST reader of the `--citations` rule check. Each mutant turns
 every `return _deny(...)` of its rule into `pass` at its line span.
-The integrity half is still hand-written (`MUTANTS`), so a new guard there needs a row.
+The script generates the Stop half too. Each `return ("<class>", ...)` site of
+`_stop_block`, `_shape_block` and `_evidence_block` gets one `stop-<class>` mutant. Hand-written
+rows cover the guards around those classes: the pass predicate, the empty-run
+read and the "doğrulanmadı" clear. The lost call, the bookkeeping and idle-turn
+fallbacks and the refusal row have rows too. The shortcut half is still
+hand-written (`MUTANTS`), so a new guard there needs a row.
 
 The plan report (`render_table.py --acceptance --strict`) is not in CI: it reads
 the gitignored `.tezgah/`, so on a runner it reads nothing and cannot fail. Run
