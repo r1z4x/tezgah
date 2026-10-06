@@ -2461,7 +2461,7 @@ class PowershellMatcher(SetupBase):
     that the PreToolUse side does not is recorded in the ledger and never
     refused, which is the state this class exists to keep out. The spellings
     are the hosts': `PowerShell` on the Claude-family wire and `pwsh` for dsh's
-    own tool package (`tests/test_dsh_hooks.py:107-110`)."""
+    own tool package (`tests/test_dsh_hooks.py::DshToolVocabulary`)."""
 
     # Claude's matcher dialect, which the dsh bridge implements: a pattern made
     # only of these characters is a list of exact names, anything else an

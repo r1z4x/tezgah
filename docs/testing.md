@@ -19,7 +19,7 @@ request (`CONTRIBUTING.md:14-20`).
 
 | Check | What it catches that the other two do not |
 |---|---|
-| `compileall` | A syntax error in any `.py` under `hooks/` and `hosts/`, plus `statusline.py`, without running a line of it and with no environment set up. The `bin/` CLIs are Python sources with no `.py` suffix, so only running one compiles it (`test_setup.py:83`). |
+| `compileall` | A syntax error in any `.py` under `hooks/` and `hosts/`, plus `statusline.py`, without running a line of it and with no environment set up. The `bin/` CLIs are Python sources with no `.py` suffix, so only running one compiles it (`test_setup.py::SetupBase.setup`). |
 | `unittest` | Behaviour: what a hook answers, what the [gate](glossary.md#gate) denies, what reaches the [ledger](glossary.md#ledger), what a status line renders. |
 | `ruff` | Lint only, with the rule set pinned in `pyproject.toml:12-14` (`E4`, `E7`, `E9`, `F`; `E501` ignored). The pin exists because newer ruff releases ship a broader default and would otherwise change `ruff check .` in CI (`pyproject.toml:10-11`). One pre-existing script is exempted per-file in `pyproject.toml:19-20`. |
 
@@ -140,7 +140,7 @@ into the test process would answer about the developer's real machine.
 A probe is invoked through `support.run`/`run_json` with its path constant
 (`support.PROBE_PATHS`, `support.PROBE_CONTEXT`, ... in `support.py:19-23`), e.g.
 `run_json([support.PROBE_CONTEXT], {"fn": "health_lines", "cwd": repo},
-env=self.env())` (`test_context.py:82-84`). Nothing in `tests/_probe_*.py` is
+env=self.env())` (`test_context.py::HealthLines.test_armed_but_unused_checklist`). Nothing in `tests/_probe_*.py` is
 collected: the name does not match discovery's `test*.py` pattern and no probe
 defines a `TestCase`.
 
@@ -168,9 +168,9 @@ no prompt, so the run costs no model call (`e2e_omp_statusline.py:2-4`).
 **It must fail on a plausible bug.** Where the repo turns a behaviour into a
 string, the pin *is* the contract: the exact status segment
 (`test_statusline.py:8-17`, compared at `:37-43`), a `tezgah-setup --status` row
-label (`test_setup.py:1114-1120`), the opencode router line a skill's trigger
-reaches (`test_setup.py:589-609`), the kill-switch labels whose deletion must
-fail the test rather than silently disarm a rule (`test_context.py:439-441`). An
+label (`test_setup.py::StatusNamesTheHostListGap`), the opencode router line a skill's trigger
+reaches (`test_setup.py::SkillRouterTriggers.test_core_skill_lines_carry_their_trigger`), the kill-switch labels whose deletion must
+fail the test rather than silently disarm a rule (`test_context.py::KillSwitchEnforcement`). An
 intentional change updates the pin in the same commit; deleting the test because
 it is now red is the failure mode these pins exist to catch.
 
@@ -180,7 +180,7 @@ call was forwarded, dies at the first refactor. Where text is asserted it is
 output the user or a host sees. The suite's own comments say the rule twice:
 pin the behaviour, not one phrasing of it (`tests/test_skills.py::SkillStandards.test_the_bootstrap_completes_a_partial_tree_and_never_clobbers_it`), and pin a
 rule on a synthetic input, not only on the shipped pair
-(`test_setup.py:539-542`).
+(`test_setup.py::SkillTriggerLine`).
 
 **Stay deterministic and isolated.** A temp HOME is the mechanism
 (`support.py:3-5`), and importing `support` gives the test process one too, with
@@ -221,16 +221,16 @@ and `self.env()`, assert on its JSON output:
 4. `self.assertEqual(proc.returncode, 0, proc.stderr)` first, then assert the field you changed.
    Which host lives where: `support.py:24-33` (`CODEX_HOOK`, `CURSOR_HOOK`, `OMP_HOOK`, `STATUSLINE`).
 5. Reading back what the hook wrote? Use the ledger probe, not the file path
-   (`test_codex_hook.py:82-86` uses `support.PROBE_INTEGRITY` with `{"fn": "kinds"}`).
+   (`test_codex_hook.py::CodexEvidence.kinds` uses `support.PROBE_INTEGRITY` with `{"fn": "kinds"}`).
 
 **For a CLI.** Run it with a temp environment and assert on its stdout or on the
 tree it left. A `bin/` CLI is run as a subprocess with `sys.executable` and an
-explicit environment (`test_setup.py:78-85`); `SetupBase` in
+explicit environment (`test_setup.py::SetupBase.setup`); `SetupBase` in
 `tests/test_setup.py::SetupBase` is the worked example for `bin/tezgah-setup` (fake host
 dirs, `TEZGAH_NO_DEPS=1`, stdin always a pipe so the wizard cannot block on a
 real terminal). For a plain CLI,
 `run([support.STATUSLINE], {"cwd": repo}, env=self.envv)` is enough
-(`test_statusline.py:37-39`).
+(`test_statusline.py::Statusline.test_claude_mode_segment`).
 
 **For a status-line change.**
 
@@ -240,9 +240,9 @@ real terminal). For a plain CLI,
    in-roots and off-roots constants - and re-run
    `python3 -m unittest discover -s tests -p 'test_statusline.py'`.
 3. If the colour or the state changed, extend the `NO_COLOR` / `TEZGAH_STATUS_COLOR`
-   cases (`test_statusline.py:118-134`) rather than adding a new file.
+   cases (`test_statusline.py::Statusline.test_status_color_env_off_strips_ansi`) rather than adding a new file.
 4. The shared builder is covered through the context probe
-   (`test_context.py:82-84`, `:86-96`); a mark that flips on an event belongs there.
+   (`test_context.py::HealthLines`); a mark that flips on an event belongs there.
 5. Only the drawing is left to the real surface, and that is
    `e2e_omp_statusline.py` / `e2e_dsh_statusline.py`, run by hand.
 

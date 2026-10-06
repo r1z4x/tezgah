@@ -239,6 +239,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on a name it does not define. 961 docs citations moved to the new form. The
   rest kept `path:line`: no single enclosing symbol, a non-Python target, or a
   stale line nobody has re-anchored yet. They stay under the unjudged ratchet.
+  A later pass read each stale line inside one symbol against the code. It
+  moved 109 more to the symbol that holds the cited thing, and re-anchored 8
+  that point at a module comment or a module-level line.
 - **The rule ledger drops its `since` column.** A history rewrite left no
   record of the first commit that carries each rule. The provenance table in
   `docs/gate.md` now has `rule`, `incident`, `evidence` and `pin`.

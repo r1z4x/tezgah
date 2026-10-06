@@ -6,46 +6,46 @@
     "unjudged": 1
   },
   "docs/architecture.md": {
-    "unjudged": 41
+    "unjudged": 33
   },
   "docs/contract.md": {
-    "unjudged": 16
+    "unjudged": 8
   },
   "docs/environment.md": {
-    "unjudged": 11
+    "unjudged": 10
   },
   "docs/evidence.md": {
-    "unjudged": 49
+    "unjudged": 41
   },
   "docs/feature-audit.md": {
-    "unjudged": 3
+    "unjudged": 2
   },
   "docs/gate.md": {
-    "unjudged": 51
+    "unjudged": 44
   },
   "docs/glossary.md": {
-    "unjudged": 27
+    "unjudged": 23
   },
   "docs/hosts.md": {
-    "unjudged": 95
+    "unjudged": 85
   },
   "docs/layers.md": {
     "unjudged": 16
   },
   "docs/operations.md": {
-    "unjudged": 96
+    "unjudged": 57
   },
   "docs/skills.md": {
-    "unjudged": 31
+    "unjudged": 23
   },
   "docs/status-line.md": {
-    "unjudged": 47
+    "unjudged": 46
   },
   "docs/testing.md": {
-    "unjudged": 61
+    "unjudged": 49
   },
   "docs/vision.md": {
-    "unjudged": 2
+    "unjudged": 1
   },
   "hooks/tezgah_gate.py": {
     "unjudged": 1
@@ -58,8 +58,5 @@
   },
   "tests/test_encoding.py": {
     "unjudged": 5
-  },
-  "tests/test_setup.py": {
-    "unjudged": 1
   }
 }
