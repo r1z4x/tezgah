@@ -44,7 +44,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_NO_EXCLUDE` | `hooks/tezgah_agents.py::ensure_exclude` | unset | `1` stops tezgah adding its generated-agent dirs to the repository's `.git/info/exclude`. |
 | `CODEX_HOME` | `hooks/tezgah_paths.py::HOST_DIRS` | `~/.codex` | The Codex home tezgah installs into and checks; the same variable Codex itself reads. |
 | `DSH_HOME` | `hooks/tezgah_paths.py::HOST_DIRS`, `bin/tezgah-dsh`, `bin/tezgah-dsh.cmd` | `~/.dsh` | The dsh home tezgah installs into, and where `tezgah-dsh` looks for the CLI. |
-| `TEZGAH_OPENCODE_DATA` | `bin/tezgah-setup:98`, `bin/tezgah-doctor` | `~/.local/share/opencode` | opencode's data dir: its session database for `tezgah-doctor` and the installer. |
+| `TEZGAH_OPENCODE_DATA` | `bin/tezgah-setup::OPENCODE_DATA`, `bin/tezgah-doctor` | `~/.local/share/opencode` | opencode's data dir: its session database for `tezgah-doctor` and the installer. |
 
 ## Which binary runs
 
@@ -100,7 +100,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_STATUS_COLOR` | `hooks/tezgah_context.py::color_default`, `hosts/omp/tezgah-hook.ts.in` | unset | `0` is the same opt-out as `NO_COLOR`, for tezgah alone. |
 | `TEZGAH_STATUS_ANIMATE` | `hosts/omp/tezgah-hook.ts.in:65` | unset (animated) | `0` keeps omp's status colours and drops the motion. |
 | `TEZGAH_STATUS_HOST` | `statusline.py::HOST` | `claude` | `cursor` renders for Cursor (the same as `--cursor`). |
-| `TEZGAH_STATUS_LEGEND` | `statusline.py:120` | unset | `1` prints the mark legend under the line. |
+| `TEZGAH_STATUS_LEGEND` | `statusline.py:127` | unset | `1` prints the mark legend under the line. |
 
 ## Set by tezgah or the host, not by a user
 

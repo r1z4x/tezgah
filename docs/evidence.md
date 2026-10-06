@@ -115,7 +115,7 @@ or a call a policy denied before it ran — rather than reporting anything the t
 carries no `exit` and no `fail_class` (`note_tool()`, `hooks/tezgah_integrity.py::note_tool`, the fields
 `hooks/tezgah_integrity.py::note_tool`). It counts as a step, because the model did issue the call and the turn's work has to
 show; it is not a failed check, so `_partial_state`, `last_verify`, the error rate and `prior_calls`'
-attempts (`hooks/tezgah_integrity.py:1047-1055`) all read it as a stopped call rather than a rejection.
+attempts (`hooks/tezgah_integrity.py::prior_calls`) all read it as a stopped call rather than a rejection.
 
 **`began` opens a call.** The gate writes it when it
 lets a write or shell call through, with the call's `id`. The PostToolUse row of the same call carries
@@ -227,9 +227,9 @@ the work that produced it is the work that has to be redone.
 ## The Stop rule, end to end
 
 The checker is `_stop_block` (`hooks/tezgah_integrity.py::_stop_block`), reached through `stop_reason`
-(`hooks/tezgah_integrity.py::stop_reason`). Four hosts block on it — Claude (`hooks/projects-stop.py:41-49`), Codex
-(`hosts/codex/hook.py:189-194`), Cursor (`hosts/cursor/hook.py:356-361`), omp
-(`hosts/omp/hook.py:217-221`) — all with `{"decision": "block", "reason": …}`, all inert outside a
+(`hooks/tezgah_integrity.py::stop_reason`). Four hosts block on it — Claude (`hooks/projects-stop.py::main`), Codex
+(`hosts/codex/hook.py::main`), Cursor (`hosts/cursor/hook.py::dispatch`), omp
+(`hosts/omp/hook.py::handle`) — all with `{"decision": "block", "reason": …}`, all inert outside a
 [root](glossary.md#root) and under the `verify-off` [kill switch](glossary.md#kill-switch)
 (`hooks/projects-stop.py::main`). On Claude, Codex and omp the rule judges the reply after a block
 (`stop_hook_active`) once more, in record-only mode. That reply writes one `after_block` row and
@@ -388,7 +388,7 @@ and the kinds are the used-tool marks [status-line.md](status-line.md) lights up
 `research`, `judge`), plus one kind per shipped skill a read opened. It is separate from the
 [ledger](glossary.md#ledger) because it is display state, not
 evidence: nothing refuses a call on it, a kind that is not one of tezgah's is not written at all
-(`hooks/tezgah_context.py:2090-2091`), and the reader wants a set of kinds rather than an ordered,
+(`hooks/tezgah_context.py::record`), and the reader wants a set of kinds rather than an ordered,
 turn-scoped history. The ledger pays a redaction scan and a lock per row; a mark needs neither. The
 one mark that is also evidence is `orch`: `record()` writes it as an `orch` row in the session's
 ledger too (`hooks/tezgah_context.py::record`), because a subagent event reaches no other ledger
@@ -535,8 +535,8 @@ The taint is a notice, not a refusal: the gate's sink rule, which held an effect
 until the user's own approval was on the ledger, was removed with the consent rule
 ([gate](gate.md)). The
 label reaches the model on every host that has a surface for it: Claude and dsh through
-`hooks/projects-posttooluse.py:89-93`, Codex (`hosts/codex/hook.py::main`), Cursor
-(`hosts/cursor/hook.py:258-259`), omp (`hosts/omp/hook.py:177-215`), and opencode, whose plugin
+`hooks/projects-posttooluse.py::main`, Codex (`hosts/codex/hook.py::main`), Cursor
+(`hosts/cursor/hook.py:258-259`), omp (`hosts/omp/hook.py::handle`), and opencode, whose plugin
 cannot import the core in process and mirrors the control in JavaScript instead — the channel on the
 call's own row, the label and the taint notice in front of the result the hook is handed, including
 the `external` row an MCP answer or a fetched page earns (`untrustedSource`

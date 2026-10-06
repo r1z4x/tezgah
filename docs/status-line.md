@@ -157,7 +157,7 @@ Writers: the shared PostToolUse hook `hooks/projects-posttooluse.py` — `graph`
 an MCP tool name, else the shell tokenizer's answer, which counts a tool only when
 the command really ran it (34-38,84) and is the one writer that can earn `judge`
 (a run of `bin/tezgah-triage` or `bin/tezgah-docs`, `shell_kind`, `hooks/tezgah_context.py::shell_kind`)
-— plus `hooks/projects-auto-init.py:48`
+— plus `hooks/projects-auto-init.py::main`
 (`orch` on subagent start), `hosts/codex/hook.py::main`,
 hosts/cursor/hook.py:231,257,263,279,287,303, hosts/opencode/plugins/tezgah.js:1813-1820,
 hosts/opencode/plugins/tezgah.js:2309, hosts/omp/hook.py:177. Both Claude (hooks/hooks.json) and dsh
@@ -228,6 +228,7 @@ tezgah-status /path/to/repo <id> --json      # segments: key/state/glyph/text/gr
 tezgah-status /path/to/repo <id> --counters  # the evidence ledger's counters
 tezgah-status --legend                       # what each mark means
 tezgah-status --rule-yield                   # live gate rules that stopped firing
+tezgah-status --enforcers                    # what enforces each always-on rule
 ```
 
 The session id is the second positional argument or `TEZGAH_SESSION`; without it
@@ -271,6 +272,15 @@ fires over at least `MIN_EXPOSURE` (300) real ledgers is marked
 `retire-candidate`, one with 0 fires over fewer `low-exposure`, so a rule a day
 old is not read as dead. It always exits 0 and prints the corpus it read;
 `--json` prints the whole fold.
+
+`--enforcers` reports on the rule layer, not on a session. It prints one row
+per always-on CORE rule. The row names the gate rules and Stop classes that
+refuse on the rule, each with its guards. It also names the shape flags that
+only record it. The row's status
+is `enforced`, `partial`, `records` or `prose-only`, with the record that says
+why ([contract.md](contract.md#which-mechanism-enforces-each-always-on-rule)).
+It always exits 0, and `--json` prints the rows, the enforcers tied to no rule
+and the failures.
 
 ## A mark must not claim what it cannot see
 

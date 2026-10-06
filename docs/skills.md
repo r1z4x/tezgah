@@ -89,8 +89,8 @@ which is why the installer counts that metadata as an always-on cost
 definition of "a tezgah skill": the router, the per-host linking, the uninstall
 and the context budget all read it. Each install function links those
 directories into the host's own skill directory - Codex
-([bin/tezgah-setup:601-631]), opencode (`bin/tezgah-setup:1058-1059`), Cursor (`bin/tezgah-setup:1154-1155`), dsh
-(`bin/tezgah-setup:1310-1311`), omp (`bin/tezgah-setup:1374-1376`). Claude is the exception: it installs from a
+(`bin/tezgah-setup::install_codex`), opencode (`bin/tezgah-setup::install_opencode`), Cursor (`bin/tezgah-setup::install_cursor`), dsh
+(`bin/tezgah-setup::install_dsh`), omp (`bin/tezgah-setup::install_omp`). Claude is the exception: it installs from a
 plugin, so the skills arrive in the COPY at
 `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` that `--sync` refreshes
 and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
@@ -100,7 +100,7 @@ and `--install` re-refreshes when it is stale ([bin/tezgah-setup:20-23],
 The install report checks the file, not the link. `skills_linked()` requires
 every name in `SKILLS` to resolve to a readable `SKILL.md` under the host
 directory (`skills_linked()`, `bin/tezgah-setup::skills_linked`), and it is used for every host row
-([bin/tezgah-setup:3306-3307], `bin/tezgah-setup:3395`, `bin/tezgah-setup::host_checks_cursor`, `bin/tezgah-setup::host_checks_dsh`, `bin/tezgah-setup::host_checks_omp`). It was
+(`bin/tezgah-setup::host_checks_codex`, `bin/tezgah-setup::host_checks_opencode`, `bin/tezgah-setup::host_checks_cursor`, `bin/tezgah-setup::host_checks_dsh`, `bin/tezgah-setup::host_checks_omp`). It was
 `islink()` once, and a link to nothing is a link: a name whose `SKILL.md` was
 never written reported as linked on every host at once while no host could read
 it (`tests/test_skills.py::SkillStandards`).
@@ -196,7 +196,7 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
 3. Expect `tests/test_skills.py::SkillStandards` to fail if the two disagree, and
-   `tests/test_setup.py:590-610` to fail if the generated router line lost its
+   `tests/test_setup.py::SkillRouterTriggers.test_core_skill_lines_carry_their_trigger` to fail if the generated router line lost its
    trigger words. Re-run `--install` (or opencode's `--refresh`,
    [bin/tezgah-setup:806-810]) so the written routers pick the skill up.
 4. Add a row to `tests/routing-fixtures.md`: situation, the skill, and the word

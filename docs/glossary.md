@@ -104,7 +104,7 @@ A piece of work spanning sessions, one markdown file with frontmatter under `<re
 The status table in `.tezgah/plans/README.md` (`.tezgah/plans/README.md:3`), owned by the `plan-status` skill (`skills/plan-status/SKILL.md:1`) and among the first blocks the [budget](#budget) gives up because it lives on disk (`hooks/tezgah_context.py:1342-1344`). Not the injected list of open plans.
 
 ### plugin copy
-Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup::plugin_copies`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup:3969-4028`, `bin/tezgah-setup:3721`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
+Claude's own copy of this checkout under `~/.claude/plugins/cache`, from which its hooks and skills actually run, found by `plugin_copies()` (`bin/tezgah-setup::plugin_copies`) and refreshed by `sync()` against the fingerprint file (`bin/tezgah-setup::sync`, `bin/tezgah-setup::PLUGIN_FINGERPRINT`). Not the checkout: a stale copy lags HEAD until `tezgah-setup --sync`.
 
 ### pointer
 The one-line always-on stand-in for the [conditional rules](#conditional-rule), naming each so a host without a per-turn hook still knows the rule exists, `POINTERS` (`hooks/tezgah_policy.py::POINTERS`). Not a rule.
@@ -152,7 +152,7 @@ A file under `commands/` wired only through the Claude plugin channel and named 
 The stored pre-write bytes of one file plus its manifest, created by [capture](#capture) and read only by [rollback](#rollback) (`hooks/tezgah_snapshot.py:2-17`), the capture also writing a `snapshot` row whose `detail` is the file's realpath and whose `hash` is its pre-write sha256 (`hooks/tezgah_snapshot.py::_capture_one`). Not a checkpoint of the session, only of the files a write was about to change.
 
 ### source
-The ledger field naming the untrusted channel a result came through - `web`, `mcp`, `network` or `tier` - set only when there was one (`hooks/tezgah_integrity.py:2427-2429`, `hooks/tezgah_integrity.py::untrusted_source`), a missing `source` meaning the user or this workspace, which is what every reader assumes. Not a record of what the content said.
+The ledger field naming the untrusted channel a result came through - `web`, `mcp`, `network` or `tier` - set only when there was one (`hooks/tezgah_integrity.py::note_tool`, `hooks/tezgah_integrity.py::untrusted_source`), a missing `source` meaning the user or this workspace, which is what every reader assumes. Not a record of what the content said.
 
 ### state
 The value of one status [mark](#mark): `on`, `ready`, `off` or `info` (`hooks/tezgah_context.py::health_segments`), drawn as `✓ ○ ✗` or nothing by `GLYPHS` (`hooks/tezgah_context.py::GLYPHS`) and mapped to a colour by `COLORS` (`hooks/tezgah_context.py::COLORS`), with `off` winning over the observable test because a kill switch is visible everywhere ([status-line](status-line.md)). Not a glyph, which is only how the state is drawn.
@@ -164,7 +164,7 @@ One of the row kinds that count as a step of work - `run`, `edit`, `verify`, `ve
 The end-of-turn refusal, `stop_reason()` (`hooks/tezgah_integrity.py::stop_reason`), run by the Stop hooks of Claude, Codex, Cursor and omp (`hooks/projects-stop.py::main`, `hosts/codex/hook.py::main`, `hosts/cursor/hook.py::dispatch`, `hosts/omp/hook.py::handle`): it blocks on a placating opener or a banned sign-off on the last prose line, on a completion claim the newest check does not support, on a check that passed before the newest write the gate saw change the tree, or on a turn that recorded work with no passing check (`_stop_block()`, `hooks/tezgah_integrity.py::_stop_block`), and an explicit "doğrulanmadı" clears it. A claim in a turn with no work is judged against the whole session, and a read-only or VCS-bookkeeping turn after a pass on an unchanged tree is exempt ([evidence](evidence.md#the-stop-rule-end-to-end)). Not the [gate](#gate), which runs before a call ([evidence](evidence.md)).
 
 ### surface
-A place a host can show tezgah's output - a status line, a TUI widget, a `systemMessage` - and therefore the reason the same [marks](#mark) render differently per host (`hooks/tezgah_context.py::health_segments`, `hooks/tezgah_context.py:2551-2559`); each host's surfaces are [hosts](hosts.md)'s. Not the host itself.
+A place a host can show tezgah's output - a status line, a TUI widget, a `systemMessage` - and therefore the reason the same [marks](#mark) render differently per host (`hooks/tezgah_context.py::health_segments`, `hooks/tezgah_context.py::render_line`); each host's surfaces are [hosts](hosts.md)'s. Not the host itself.
 
 ### taint
 The state of a turn that has read content tezgah cannot vouch for and not yet marked an effect, `turn_channel()` (`hooks/tezgah_untrusted.py::turn_channel`) plus the line the model reads on the next effect, `taint_notice()` (`hooks/tezgah_untrusted.py::taint_notice`). A state, not a verdict: whether the content caused the write is not observable.

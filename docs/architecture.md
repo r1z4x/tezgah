@@ -111,14 +111,14 @@ One session, in order. Each step names the file that handles the event on Claude
    [operations.md](operations.md#opt-in-embedding-relevance); each once per
    session, remembered in the turn stamp and forgotten at a compaction),
    and the stale-index notice (`hooks/tezgah_context.py::index_notice`).
-3. **PreToolUse** — `hooks/projects-pretooluse.py:24` calls `decision` and emits
+3. **PreToolUse** — `hooks/projects-pretooluse.py::main` calls `decision` and emits
    the deny envelope (`hooks/projects-pretooluse.py::main`). The gate is the same
-   object on every host: `hosts/omp/hook.py::handle`, `hosts/codex/hook.py:108`.
-4. **PostToolUse** — `hooks/projects-posttooluse.py:64` writes the evidence row
+   object on every host: `hosts/omp/hook.py::handle`, `hosts/codex/hook.py::gate_reason`.
+4. **PostToolUse** — `hooks/projects-posttooluse.py::main` writes the evidence row
    through `note_tool` (`hooks/projects-posttooluse.py::main`), records the used
-   kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py:94`),
+   kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py::main`),
    and attaches the untrusted-content label when the result came from outside.
-5. **Stop** — `hooks/projects-stop.py:41` calls `stop_reason`, which reads the
+5. **Stop** — `hooks/projects-stop.py::main` calls `stop_reason`, which reads the
    ledger and can refuse the turn (`hooks/tezgah_integrity.py::stop_reason`). omp and
    Codex reach the same function from their own Stop events
    (`hosts/omp/hook.py::handle`).
@@ -142,7 +142,7 @@ managed `RULES.md` already holds it (`bin/tezgah-setup:1919-1981`), so its sessi
 passes `with_core=False` and injects only the live state
 (`hosts/omp/hook.py::handle`, `hooks/tezgah_context.py::context_for`). opencode's
 always-on file is written from the same policy by the installer
-(`bin/tezgah-setup:1142-1147`). The
+(`bin/tezgah-setup::opencode_contract`). The
 sum of every block is bounded per event, and when the bound is crossed the
 lowest-value blocks are dropped in a fixed order rather than the rules
 (`hooks/tezgah_context.py::DROP_ORDER`, `hooks/tezgah_context.py::budgeted`).
@@ -156,7 +156,7 @@ lowest-value blocks are dropped in a fixed order rather than the rules
 | Snapshot store | `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py::_store`) | `capture` on the write path (`hooks/tezgah_snapshot.py::capture`) | the pre-write bytes; the rollback source |
 | Turn stamp | `<cache dir>/turns/<session>.json` (`hooks/tezgah_context.py::_stamp_path`) | `write_stamp` (`hooks/tezgah_context.py::write_stamp`) | the comparison behind the one-line delta, nothing else |
 | Installed config dir | `~/.config/tezgah` (`hooks/tezgah_paths.py:19-23`) | the installer and the user | which roots are armed, which kill switches are on |
-| Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup:4063`) | `tezgah-setup --sync` (`bin/tezgah-setup:4061-4120`) | what Claude Code actually executes — a copy, never this checkout |
+| Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup::plugin_copies`) | `tezgah-setup --sync` (`bin/tezgah-setup:4061-4120`) | what Claude Code actually executes — a copy, never this checkout |
 
 The cache dir is resolved once per process and falls back to a temp dir on a
 sandboxed host, so one session's state never splits across two files
@@ -188,7 +188,7 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
   `crash` row rather than letting the exception out: a fault costs one envelope,
   and on omp - where the bridge turns a crash or one 10 s timeout into a
   session-wide disable - it is what keeps the gate, the ledger and the status
-  line armed (`hooks/tezgah_guard.py:23-42`, `hooks/projects-pretooluse.py:27`).
+  line armed (`hooks/tezgah_guard.py:23-42`, `hooks/projects-pretooluse.py::main`).
   A host that cannot call the core in process gets the same rule in its own
   language: opencode's plugin runs every awaited core CLI through one `collect`
   helper with a 10 s deadline (`SPAWN_DEADLINE_MS`,

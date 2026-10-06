@@ -74,7 +74,7 @@ with a verdict per criterion; a criterion that is `not-met` is a result, but it 
 recorded, and an unanswered line stays visible in `status` instead of disappearing
 into `done/`. Lines live under `research/open/` and `research/done/`, the way plans do, resolved
 by one reader (`hooks/tezgah_research.py:341`); an unmet criterion keeps a line
-listed as unanswered (`hooks/tezgah_research.py:4591`).
+listed as unanswered (`hooks/tezgah_research.py::unanswered`).
 
 ## What is measured to know this works
 

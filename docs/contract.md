@@ -163,14 +163,14 @@ per-repo design contract `bin/tezgah-design` checks a UI change against (the one
 pointer with no conditional paragraph behind it, because the Stop rule's `no
 ui_ok` class is what asks for the check). That is
 what a host with no prompt-time hook writes into a static file: opencode's
-`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup:846-850`) and omp's
+`~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup::OPENCODE_CONTRACT`) and omp's
 managed `RULES.md` (`bin/tezgah-setup:1370-1372`). Claude gets it from the
 managed block in `~/.claude/CLAUDE.md` (its global memory file, and the reason
 its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 `output-styles/tezgah.md` where a build loads plugin output styles
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
-hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py:248`). `core_for()`
+hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py::dispatch`). `core_for()`
 (`hooks/tezgah_context.py::core_for`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
@@ -187,6 +187,54 @@ applied, and it also returns the names of the switches that fired.
 - **Identifiers and messages stay English.** A branch, a plan slug, a commit subject, a PR or issue title is in the repository - often a public one - from the moment it exists, so the gate refuses one that is not English - any non-ASCII letter, or a Turkish word from a curated list - and names the English to write instead (`hooks/tezgah_policy.py::CORE`, [gate.md](gate.md#language-an-identifier-or-message-that-is-not-english)). The word list behind it is a heuristic, not a language detector, and the rule says so where it refuses.
 - **Session scope: the user's repo, not tezgah.** The session never maintains tezgah itself; a missing capability is one line plus the documented fallback.
 - **Kill switches.** The switch list itself, so a session can tell the user how to disarm a rule it is asked to ignore; pinned against the shipped skill by `tests/test_skills.py::SkillStandards`.
+
+## Which mechanism enforces each always-on rule
+
+`tezgah-status --enforcers` prints one row per always-on rule. A row names the
+gate rules (`gate:`) and Stop classes (`stop:`) that refuse on the rule. It
+also names the shape flags (`flag:`) that only record it, or says `none`. The
+rows come from the bold heads of `CORE`. The links come from the code
+(`bin/tezgah-docs::enforcer_links`). An enforcer links to a rule when its name
+is the rule's `CORE_RULES` key. It also links when a switch guards it and that
+switch's branch of `hooks/tezgah_context.py::switches` drops the rule's
+paragraph. A Stop class with no switch of its own rides the Stop hook's
+`verify-off`. The code cannot state four links, so
+`bin/tezgah-docs::HAND_LINKS` writes them. They are `explorer` for graph-first,
+`retry` for loop discipline, `placating opener` for the Deliver rule, and the
+shape flags for the output-shape rule. The report also lists the enforcers tied
+to no always-on rule, such as `task`, `secret` and `plan`.
+
+Each enforcer shows its guards in brackets: the switches and environment
+conditions of the `if` tests around it (`bin/tezgah-docs::_guarded_returns`).
+The switch a whole hook reads first, `pretooluse-off` or the Stop hook's
+`verify-off`, is not shown. A row's status is one of four:
+
+- `enforced`: at least one refusing enforcer stays armed while the rule's text
+  is in force.
+- `partial`: every refusing enforcer has a guard that can remove it while the
+  text stays, or the table below names a part nothing covers.
+- `records`: only shape flags, which refuse nothing.
+- `prose-only`: no enforcer at all.
+
+The table below records why a rule is prose-only, and which part of a partial
+rule no enforcer covers. `bin/tezgah-docs --citations` and
+`tests/test_enforcers.py` fail on a prose-only or records-only rule with no
+row, and on a row naming no rule. A coverage row exists only where someone
+reviewed the gap, so `enforced` says a refusal exists, not that it covers every
+sentence of the rule.
+
+| rule | decision |
+|---|---|
+| exec | Only the reply language is refused, and only under `reply_lang` `tr`. Answer-first (BLUF) has no mechanism. |
+| fidelity | Only the placating opener is refused, and only while the output-shape switches are on. Delivering the whole ask has no mechanism. |
+| loop | Only an identical repeat is refused, under `verify-off`. Re-running a check that already passed is not refused. |
+| ponytail | no decision |
+| spec | no decision |
+| lessons | Owner decision ADR 010 (2026-10-05): a tainted lesson costs a row, never a refusal. |
+| consult | The owner removed the consent rule on 2026-09-26 ([gate.md](gate.md#what-the-gate-deliberately-does-not-catch)). The per-turn reminder carries the clause instead. |
+| research | Owner decision ADR 010 (2026-10-05): no new research rule until plan 062 reports. |
+| product | Owner decision ADR 010 (2026-10-05): no new research rule until plan 062 reports. The product rule is the research route. |
+| scope | no decision |
 
 ## Arming the conditional paragraphs, and the per-turn reminder
 
@@ -209,7 +257,7 @@ Consult keeps its short clause. A terse irreversible ask ("push it to main")
 arms no paragraph, and no gate enforces the rule. The session-start text ends with the pointer
 telling the model to load `tezgah-contract` for the deep detail
 (`hooks/tezgah_context.py::context_for`), whose two appendixes apply only on a machine
-missing the code graph or every consult option (`hooks/tezgah_policy.py:511-531`).
+missing the code graph or every consult option (`hooks/tezgah_policy.py::NO_GRAPH`, `hooks/tezgah_policy.py::NO_CONSULT`).
 
 ## How a rule is disarmed
 
@@ -231,13 +279,13 @@ happens in `core_split()`.
 | `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py::context_for` returns `None` |
 | `judge-off` | the judgement seam: the snapshot triage, the docs page fallback and the skill hint | `hooks/tezgah_judge.py::available` — `available()` is asked before any call, so an armed switch makes no request at all |
 | `triage-off` | the snapshot triage alone (`bin/tezgah-triage`), leaving the docs fallback and the skill hint armed | `bin/tezgah-triage::off_reason` — `off_reason()` answers this switch before the seam's, so the analyze-app loop reads the tree instead of paying for a judgement |
-| `docs-judge-off` | the docs page fallback alone (`bin/tezgah-docs`), leaving the triage and the skill hint armed | `bin/tezgah-docs:706` — `off()` answers this switch first, so a query the index cannot place is ranked by shared words instead (`ranked`), and exits 1 only when no page shares one |
+| `docs-judge-off` | the docs page fallback alone (`bin/tezgah-docs`), leaving the triage and the skill hint armed | `bin/tezgah-docs::off` — `off()` answers this switch first, so a query the index cannot place is ranked by shared words instead (`ranked`), and exits 1 only when no page shares one |
 | `lang-off` | `**Identifiers and messages stay English.**` | `hooks/tezgah_context.py::switches` drops the paragraph; the gate's own check reads the same switch (`hooks/tezgah_gate.py::decision`) |
 | `pretooluse-off` | the gate's denials, not a rule | [gate.md](gate.md) |
 | `.no-ponytail` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py::switches` |
 | `.no-adhd` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py::switches` |
 | `.no-graph` | `**Code discovery: graph first.**` | `hooks/tezgah_context.py::switches` |
-| `.no-lessons` | `**Lessons ledger: stop repeating mistakes.**` | `hooks/tezgah_context.py::switches`, and neither the session's lessons block (`hooks/tezgah_context.py:1914-1918`) nor the per-turn one (`relevant_lessons`) is injected |
+| `.no-lessons` | `**Lessons ledger: stop repeating mistakes.**` | `hooks/tezgah_context.py::switches`, and neither the session's lessons block (`hooks/tezgah_context.py::lessons`) nor the per-turn one (`relevant_lessons`) is injected |
 
 The last four are per-repo [marks](glossary.md#per-repo-mark), read by
 `repo_marks()`, walking up to the enclosing [root](glossary.md#root)
@@ -258,7 +306,7 @@ they survive every other switch being off.
    (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`), a pattern to `PROMPT_HINTS`
    (`hooks/tezgah_context.py::PROMPT_HINTS`) and a line to `POINTERS`
    (`hooks/tezgah_policy.py::POINTERS`); the two halves are asserted together
-   (`tests/test_context.py:2398-2405`).
+   (`tests/test_context.py::ArmingConformance`).
 3. Put the paragraph in `CORE` with its bold label and add the `(key, label)`
    pair to `CORE_RULES` (`hooks/tezgah_context.py::CORE_RULES`). The label is the
    contract: `core_split()` matches paragraphs by it and `subagent_core()` builds
@@ -281,7 +329,7 @@ they survive every other switch being off.
 
 | Copy A | Copy B | Test that fails when only one changed |
 |---|---|---|
-| `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py:2517` |
+| `CORE`, via `always_on_core()` | `output-styles/tezgah.md` (Claude's hookless duplicate) | `tests/test_context.py::OutputStyleMirrorsCore` |
 | the long-form blocks of `hooks/tezgah_policy.py` (`EXEC`, `CONSULT`, …) | `skills/tezgah-contract/SKILL.md` | `tests/test_setup.py::ContractParity` |
 
 Drift between the source and what a host reads is caught on the rendered side:
@@ -290,7 +338,7 @@ artifact (the managed blocks of `CLAUDE.md`, `AGENTS.md`, `RULES.md`, and
 opencode's contract and skill routers), and `--report` compares each artifact's
 bytes with a fresh render. That notices that the text a session gets changed;
 `ContractParity` is what notices that only one of the pair above changed, which
-is the drift that actually happens (`tests/test_setup.py:1298-1312`).
+is the drift that actually happens (`tests/test_setup.py::ContractParity`).
 `tezgah-setup --refresh` re-renders every armed host's artifact, not only
 opencode's, and drops the paragraph of any global kill switch that is on
 (`refresh_contract`, `bin/tezgah-setup::refresh_contract`).

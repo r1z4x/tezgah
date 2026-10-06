@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`tezgah-status --enforcers` shows what enforces each always-on rule.**
+  Each CORE rule gets one row. The row names the gate rules and Stop classes
+  that refuse on the rule, with the switches and conditions that guard each.
+  It also names the shape flags that only record it. A rule reads `partial` when
+  every refusal can vanish while its text stays, or when `docs/contract.md`
+  names a part nothing covers. The report always exits 0.
+  `bin/tezgah-docs --citations` and `tests/test_enforcers.py` fail on a rule
+  that nothing refuses on and that has no row in `docs/contract.md`.
 - **Real bash now checks the shell readers.** `tests/fuzz_shell.py`
   draws seeded lines from the hand vectors' grammar. It runs each in `bash`
   with a stub per program word and prints each class where `shell_programs` or
@@ -244,6 +252,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on a name it does not define. 961 docs citations moved to the new form. The
   rest kept `path:line`: no single enclosing symbol, a non-Python target, or a
   stale line nobody has re-anchored yet. They stay under the unjudged ratchet.
+  A later pass read each stale line inside one symbol against the code. After
+  it, 109 more citations name a symbol (`--citations`: 1081 judged before, 1190
+  after, 0 outside). Eight that point at a module comment or a module-level
+  line were re-anchored as `path:line`.
 - **The rule ledger drops its `since` column.** A history rewrite left no
   record of the first commit that carries each rule. The provenance table in
   `docs/gate.md` now has `rule`, `incident`, `evidence` and `pin`.
