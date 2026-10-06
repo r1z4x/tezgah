@@ -425,8 +425,8 @@ class Unfinished(Workspace):
         or any cited file that is reorganised - must not leave the older row
         refusing for ever: that would make the correction impossible to land, and
         it is how closing a plan broke every line that had cited it. The
-        superseded row is reported, the row that supersedes it is checked in
-        full."""
+        relation is reported once, by the row that supersedes it; the row that
+        supersedes it is checked in full."""
         repo = self.repo()
         base = self.line(repo)
         self.write(os.path.join(base, "to_human", "report.md"), "# report\n")
@@ -435,8 +435,9 @@ class Unfinished(Workspace):
                     dict(CLAIM, id="c2", supersedes="c1",
                          proof="to_human/report.md"))
         self.assertEqual(self.errors(repo), [])
-        self.assertTrue(hit("c1 is superseded, so its proof is the historical",
-                            tr.check(repo, "q")["q"]["warnings"]))
+        self.assertEqual(named(tr.check(repo, "q")["q"]["warnings"], "c1"),
+                         ["claim c2 supersedes c1: a reader who opens c1 alone "
+                          "reads the statement this line has since replaced"])
         # and the row that supersedes it is still held to its own proof
         self.claims(repo,
                     dict(CLAIM, id="c3", supersedes="c2",
@@ -2642,6 +2643,24 @@ class ClaimScopes(Workspace):
         self.assertTrue(hit("asserts 1 number(s)", warnings), warnings)
         self.assertTrue(hit("0.4", warnings), warnings)
         self.assertFalse(hit("2026", warnings), warnings)
+
+    def test_a_path_line_citation_is_not_a_number_it_asserts(self):
+        """A file name, a colon and a line number name where a figure was read,
+        and the line number is not a measurement; a number beside it still is.
+        The citations are joined at run time so the docs citation audit does not
+        read them as citations of its own."""
+        cite = ":".join
+        repo = self.repo()
+        self.fixture_line(repo)
+        self.claims(repo, dict(CLAIM, scope="fixture",
+                               proof="experiments/h1/results.jsonl",
+                               statement="p95 was 0.9, read at %s and %s"
+                                         % (cite(["src/app.py", "2625-2627"]),
+                                            cite(["notes.md", "12"]))))
+        self.assertFalse(hit("asserts", self.warnings(repo)), self.warnings(repo))
+        self.assertEqual(tr._numbers("cut to 0.4 (%s, ratio 3.5:1)"
+                                     % cite(["x.py", "265"])),
+                         ["0.4", "3.5", "1"])
 
     def test_a_bare_filename_proof_is_read_for_the_numbers_it_holds(self):
         """The rule reads the artifacts the proof rule resolves, so a proof naming a
@@ -5746,6 +5765,35 @@ class AskContract(Workspace):
         self.assertEqual(moved, {"oldopen": "open", "olddone": "done"})
         self.assertEqual(tr.migrate_layout(self.repo_path), [], "idempotent")
         self.assertEqual(tr.slugs(self.repo_path), ["olddone", "oldopen", "q"])
+
+
+class SerialTwins(Workspace):
+    """Two lines share a deliverable when it is one file, not one spelling: each
+    line's own `to_human/report.md` is its own work (the hallucination-guardrails
+    false positive), and one repository file named by both lines is the same."""
+
+    def deliver_at(self, repo, slug, path):
+        base = self.line(repo, slug, question="question of %s" % slug)
+        state = json.loads(read(os.path.join(base, "state.json")))
+        state["deliverable"] = {"kind": "finding", "path": path}
+        self.write(os.path.join(base, "state.json"), json.dumps(state))
+        return base
+
+    def test_each_line_s_own_report_is_not_a_shared_deliverable(self):
+        repo = self.repo()
+        for slug in ("a", "b"):
+            base = self.deliver_at(repo, slug, "to_human/report.md")
+            self.write(os.path.join(base, "to_human", "report.md"), "# %s\n" % slug)
+        state = tr.line_state(repo, "b")
+        self.assertEqual(tr.serial_twins(repo, "b", state), [])
+        self.assertFalse(hit("shares its deliverable", self.warnings(repo, "b")))
+
+    def test_one_repository_file_named_by_two_lines_is_shared(self):
+        repo = self.repo()
+        self.write(os.path.join(repo, "docs", "design.md"), "# design\n")
+        self.deliver_at(repo, "a", "docs/design.md")
+        self.deliver_at(repo, "b", "docs/../docs/design.md")
+        self.assertEqual(tr.serial_twins(repo, "b", tr.line_state(repo, "b")), ["a"])
 
 
 if __name__ == "__main__":

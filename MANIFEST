@@ -710,6 +710,8 @@ tests/test_rank.py
 tests/test_replay.py
 tests/test_reply_lang.py
 tests/test_research.py
+tests/test_research_import.py
+tests/test_research_seal.py
 tests/test_setup.py
 tests/test_shapes.py
 tests/test_skill_pick.py

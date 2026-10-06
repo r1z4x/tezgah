@@ -8,6 +8,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Concluding or closing a research line seals it.** `conclude` and `close`
+  write `state.json` `order_seal`. It holds, per experiment, the sha256 of
+  `protocol.md` and `results.jsonl`, and no order verdict. Every `check`
+  verifies the hashes, with or without git, so the session note reports an
+  edit after the seal. While the hashes hold, `check` re-derives the order, so
+  results committed after the close still count. `tezgah-research seal <slug>
+  --history-lost --ack "<decision>"` gives the owner's `history-lost` verdict
+  to a line concluded before seals (ADR 009). It covers only an order the lost
+  history left undecidable. A real violation stays an error.
+- **`tezgah-research import <checkout> [<slug>]` moves a line with its
+  history.** It fetches the other checkout's `.tezgah` repository from disk.
+  It merges that history as a second parent and takes only the imported lines.
+  It refuses a plain copy, because a copy loses the order proof. It needs no
+  remote. An open line arrives beside open ones only with `--allow-open`.
+- **The MCP tool `tezgah_research_check` takes a `slug`.** The server checks it
+  as a line name. It passes the slug after `--`, so `tezgah-research` never
+  reads it as a flag.
 - **`tezgah-gate replay` measures the gate against its own history.** It
   replays this machine's real ledgers through the unmodified dry-run gate and
   the Stop rule. It runs in a sandbox HOME, with the clock frozen at each call.
@@ -168,7 +185,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   binds its subtree.
 - **opencode compaction passes the session id.** The builder then forgets the
   lessons and armed paragraphs that session saw. The plugin used to send `{}`.
-
+- **Research predictions and the per-component report stay frozen.** They keep
+  working as documented and take no new rule, field or command (ADR 009).
+- **`check` reports a superseded claim once.** Only the row that supersedes it
+  warns, naming both ids. The superseded row no longer warns a second time.
 - **Docs cite Python code by symbol.** A citation into Python code is now
   `path::name` or `path::Class.method`, not `path:line`. Moving lines no longer
   shifts it. `bin/tezgah-docs --citations` reads the cited file's AST and fails
@@ -250,6 +270,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Two lines each delivering their own `to_human/report.md` are no longer
+  serial twins.** `serial_twins` compares the resolved file, not the spelling.
+- **A claim's `path:line` citation is not a number.** The containment rule
+  lifts it off the statement, like a date.
+- **The research skill's `init` example carries `--ask`.** Without it, `init`
+  refused the command. The skill also says `source` does not check for a commit
+  of the protocol. The order rule proves commit order, not run order.
 - **A malformed `~/.config/tezgah/config.json` is no longer rewritten.**
   `--install` read it as empty and wrote its defaults over the user's roots.
   It now refuses the file, names it, leaves its bytes alone and exits 1.

@@ -255,6 +255,11 @@ NUMBER = re.compile(r"(?<![A-Za-z0-9])\d+(?:\.\d+)?(?![A-Za-z])")
 # calendar is dropped before the tokeniser sees the sentence.
 ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
+# A `path:line` citation (a file name, a colon and a line or a range) names a
+# place in a file, not a measurement: its line number is lifted off with the
+# date, so a claim citing where it read a figure is not warned about the line.
+PATH_LINE = re.compile(r"[\w./-]*\.[A-Za-z]\w*:\d+(?:[-+,]\d+)*")
+
 # A thousands separator is a rendering and not a different number, so the
 # containment rule compares without one: a claim stating 20480 against an artifact
 # holding `20,480` is the same measurement. Every other comma is left alone, and the
@@ -263,8 +268,9 @@ THOUSANDS = re.compile(r",(\d{3})(?!\d)")
 
 
 def _numbers(text):
-    """The numbers a claim's statement asserts, with the dates it names removed."""
-    return NUMBER.findall(ISO_DATE.sub(" ", text))
+    """The numbers a claim's statement asserts, with the dates and the `path:line`
+    citations it names removed."""
+    return NUMBER.findall(ISO_DATE.sub(" ", PATH_LINE.sub(" ", text)))
 
 
 def _comparable(text):
@@ -1807,12 +1813,10 @@ def _check_claims(base, errors, warnings, roots=(), strict=False):
             errors.append("claim %s carries no falsification criterion" % cid)
         if not claim.get("proof"):
             errors.append("claim %s cites no evidence" % cid)
-        elif cid in superseded:
-            _soft(errors, warnings, strict,
-                  "claim %s is superseded, so its proof is the historical row's "
-                  "and is not re-resolved; the row that supersedes it carries the "
-                  "current proof" % cid)
-        else:
+        elif cid not in superseded:
+            # a superseded row's proof is the historical one and is not
+            # re-resolved; the relation is reported once, by the row that
+            # supersedes it, naming both ids (`_check_supersedes`)
             for token in _cited(claim["proof"]):
                 if not _resolves(token, (base,) + tuple(roots)):
                     errors.append("claim %s cites %s, which is not in this line"
@@ -2228,7 +2232,11 @@ def append_claim(repo, slug, claim):
     return claim.get("id"), []
 
 
-def _check_experiments(repo, base, errors, warnings, git, strict, notes):
+def _check_experiments(repo, base, errors, warnings, git, strict, notes, intact=None):
+    """`intact` maps an experiment the line's order seal holds, with both files
+    still hashing as sealed, to its seal row. Its order is re-derived from git
+    like any other, unless the owner sealed it `history-lost` (`_sealed_order`)."""
+    intact = intact or {}
     exps = os.path.join(base, "experiments")
     try:
         names = sorted(os.listdir(exps))
@@ -2252,7 +2260,9 @@ def _check_experiments(repo, base, errors, warnings, git, strict, notes):
         if not os.path.isfile(os.path.join(d, "analysis.md")):
             errors.append("experiment %s has results but no analysis.md" % h)
         _check_rows(results, "experiment %s" % h, errors, warnings, strict)
-        if git:
+        if git and intact.get(h, {}).get("order") == HISTORY_LOST:
+            _sealed_order(h, intact[h], errors, warnings, strict)
+        elif git:
             _check_protocol_order(repo, h, proto, results, errors, warnings, strict,
                                   notes)
     return out
@@ -3452,19 +3462,29 @@ def _deliverable_path(state):
     return (deliverable.get("path") if isinstance(deliverable, dict) else None) or None
 
 
+def _deliverable_file(repo, base, state):
+    """The deliverable as one file: the realpath `_artifact_path` resolves it to
+    (line-relative first, then repository-relative), else the declared path as
+    written. Two lines each delivering their own `to_human/report.md` name two
+    files, not one piece of work."""
+    path = _deliverable_path(state)
+    found = _artifact_path(path, base, repo) if path else None
+    return os.path.realpath(found) if found else path
+
+
 def serial_twins(repo, slug, state):
-    """The other lines sharing this one's deliverable path or its question: the
+    """The other lines sharing this one's deliverable file or its question: the
     serial versions of one piece of work, which are compared, not replaced."""
-    def key(st):
-        return (_deliverable_path(st),
+    def key(name, st):
+        return (_deliverable_file(repo, line_dir(repo, name), st),
                 " ".join(str(st.get("question", "")).lower().split()))
 
-    mine = key(state)
+    mine = key(slug, state)
     out = []
     for other in slugs(repo):
         if other == slug:
             continue
-        theirs = key(_state(line_dir(repo, other)))
+        theirs = key(other, _state(line_dir(repo, other)))
         if (mine[0] and mine[0] == theirs[0]) or (mine[1] and mine[1] == theirs[1]):
             out.append(other)
     return out
@@ -3487,7 +3507,7 @@ def _check_serial(repo, slug, base, state, errors, warnings, strict):
                   "(a variants.jsonl row with \"line\": %s): the old version is "
                   "compared, not silently replaced" % (old, json.dumps(old)))
     mine = (str(state.get("created", "")), slug)
-    path = _deliverable_path(state)
+    path = _deliverable_file(repo, base, state)
     for twin in serial_twins(repo, slug, state):
         theirs = _state(line_dir(repo, twin))
         if twin == old or theirs.get("supersedes") == slug:
@@ -3495,7 +3515,8 @@ def _check_serial(repo, slug, base, state, errors, warnings, strict):
         if (str(theirs.get("created", "")), twin) < mine:
             # one deliverable path is one piece of work; one question may be two
             # lines on purpose, which only a reader can tell
-            same = bool(path) and path == _deliverable_path(theirs)
+            same = bool(path) and path == _deliverable_file(
+                repo, line_dir(repo, twin), theirs)
             _soft(errors, warnings, strict or (hard and same),
                   "shares its %s with line %s and does not supersede it: open it "
                   "with `init --supersedes %s` and compare %s's deliverable as a "
@@ -3635,7 +3656,9 @@ def check_line(repo, slug, git=True, strict=False, notes=None):
     _check_findings(base, errors, warnings, strict)
     _check_claims(base, errors, warnings, roots=(repo,), strict=strict)
     _check_predictions(repo, base, errors, warnings, strict, git, notes)
-    _check_experiments(repo, base, errors, warnings, git, strict, notes)
+    seal_errors, intact = _check_seal(base)
+    errors.extend(seal_errors)
+    _check_experiments(repo, base, errors, warnings, git, strict, notes, intact)
     _check_literature(base, errors, warnings, strict)
     phase = _phase(base)
     _check_review(base, phase, errors, warnings, strict)
@@ -3774,6 +3797,284 @@ def failing(repo, git=False):
     return rows
 
 
+# --- the order seal ----------------------------------------------------------
+# A concluded or closed line carries `state.json` `order_seal`: per experiment,
+# the sha256 of its `protocol.md` and `results.jsonl` (`_digest`), with the add
+# commits beside them as information only. The seal stores no order verdict:
+# while both blobs still hash as sealed, `check_line` re-derives the order from
+# git, so a line closed before its results were committed is not frozen with a
+# "not committed yet" answer - committing them afterwards settles it. The hashes
+# are verified on every run, git or not, so a session note (`failing`) sees a
+# post-conclusion edit. The one stored verdict is the owner's `history-lost`
+# (`retro_seal`), for an order the lost history left undecidable.
+# Named `order_seal` because `sealed()` already means "the line sits under done/".
+# ponytail: the seal lives in the line's own state.json, so an agent that edits
+# `results.jsonl` can recompute it there too; it catches an edit, not a forger -
+# a seal outside the line's reach (a signed or remote record) is the ceiling.
+SEAL = "order_seal"
+HISTORY_LOST = "history-lost"
+
+# The order findings a lost history produces and no commit can repair: git
+# cannot be asked, the pair sits in two histories neither of which holds both,
+# or git cannot place one version against the other. A refusal of a recorded
+# order - one commit adding both, a protocol added or changed after the run -
+# and a file not committed yet are not in this class: `retro_seal` refuses them.
+LOST_HISTORY = ("git could not be asked about the order",
+                "were added in different histories and neither holds both",
+                "git could not order the protocol against the results",
+                "git cannot tell whether protocol.md changed after the run")
+
+
+def _seal_files(base):
+    """{experiment: (protocol path, results path or None)} for every experiment
+    holding a protocol.md - the set a seal covers."""
+    exps = os.path.join(base, "experiments")
+    try:
+        names = sorted(os.listdir(exps))
+    except OSError:
+        return {}
+    out = {}
+    for h in names:
+        proto = os.path.join(exps, h, "protocol.md")
+        results = os.path.join(exps, h, "results.jsonl")
+        if not h.startswith(".") and os.path.isfile(proto):
+            out[h] = (proto, results if os.path.isfile(results) else None)
+    return out
+
+
+def _last_add(repo, path):
+    """The newest history's oldest add of `path`, informational in a seal."""
+    adds, _err = _oldest_adds(repo, path)
+    return next((sha for sha in reversed(list(adds.values())) if sha), None)
+
+
+def _seal_rows(repo, base):
+    """{experiment: seal row}: the blob hashes of every experiment holding a
+    protocol.md, and the add commits of a run one, informational only."""
+    out = {}
+    for h, (proto, results) in _seal_files(base).items():
+        row = {"protocol": _digest(proto),
+               "results": _digest(results) if results else None}
+        if results:
+            row["commits"] = {"protocol": _last_add(repo, proto),
+                              "results": _last_add(repo, results)}
+        out[h] = row
+    return out
+
+
+def _check_seal(base):
+    """(errors, {experiment: intact seal row}) for a line carrying an order seal.
+
+    Hashing only, no git: an experiment whose protocol.md or results.jsonl no
+    longer hashes as sealed, one the seal holds that is gone, and one added after
+    the seal are refused. An unsealed line answers ([], {})."""
+    seal = _state(base).get(SEAL)
+    if not isinstance(seal, dict) or not isinstance(seal.get("experiments"), dict):
+        return [], {}
+    rows, errors, intact = seal["experiments"], [], {}
+    now = _seal_files(base)
+    when = seal.get("date") or "undated"
+    for h in sorted(set(rows) | set(now)):
+        row = rows.get(h)
+        if not isinstance(row, dict):
+            errors.append("experiment %s was added after the line was sealed (%s)"
+                          % (h, when))
+            continue
+        if h not in now:
+            errors.append("experiment %s was removed after the line was sealed (%s)"
+                          % (h, when))
+            continue
+        changed = [name for key, name, path in zip(
+            ("protocol", "results"), ("protocol.md", "results.jsonl"), now[h])
+            if row.get(key) != (_digest(path) if path else None)]
+        if changed:
+            errors.append("experiment %s: %s changed after the line was sealed (%s) - "
+                          "a sealed line's plan and run are its record"
+                          % (h, " and ".join(changed), when))
+        else:
+            intact[h] = dict(row, date=when, ack=seal.get("ack"))
+    return errors, intact
+
+
+def _sealed_order(h, row, errors, warnings, strict):
+    """The owner's `history-lost` verdict on an intact sealed experiment: a
+    warning that names it, an error under `--strict`."""
+    _soft(errors, warnings, strict,
+          "experiment %s: the protocol order is not provable - the history that "
+          "held it was lost, and the line was sealed with that verdict (%s%s)"
+          % (h, row.get("date"), "; ack: %s" % row["ack"] if row.get("ack") else ""))
+
+
+def order_seal(repo, base, date=""):
+    """The `order_seal` record for the line at `base`, as of now."""
+    return {"date": date, "verdict": "sealed", "experiments": _seal_rows(repo, base)}
+
+
+def retro_seal(repo, slug, ack, date=""):
+    """(record, problem): seal a line concluded before the seal existed with the
+    `history-lost` verdict (ADR 009). Only a line under `done/` that carries no
+    seal yet, and only with `ack` naming the owner's decision: the verdict says
+    the order can no longer be proven, which is the owner's call, not a session's.
+    Refused, with the findings printed, when an experiment's order fails for a
+    reason outside `LOST_HISTORY` - a real violation stays an error - and when
+    nothing is lost. An experiment whose order still checks keeps no verdict and
+    is re-derived like any sealed one."""
+    if not sealed(repo, slug):
+        return None, ("%s is not under research/done/: only a concluded or closed "
+                      "line is retro-sealed" % slug)
+    if not str(ack or "").strip():
+        return None, "a history-lost seal needs --ack \"<the owner's decision>\""
+    base = line_dir(repo, slug)
+    path = os.path.join(base, "state.json")
+    state, exc = _read_json(path)
+    if exc or not isinstance(state, dict):
+        return None, "state.json does not parse (%s)" % (exc or "not an object")
+    if isinstance(state.get(SEAL), dict):
+        return None, "%s already carries an order seal (%s)" % (
+            slug, state[SEAL].get("verdict"))
+    record = dict(order_seal(repo, base, date), verdict=HISTORY_LOST, ack=ack)
+    real = []
+    for h, (proto, results) in _seal_files(base).items():
+        if not results:
+            continue
+        errs, warns = [], []
+        _check_protocol_order(repo, h, proto, results, errs, warns, False, [])
+        found = errs + warns
+        real += [f for f in found if not any(m in f for m in LOST_HISTORY)]
+        if found:
+            record["experiments"][h].update(order=HISTORY_LOST, finding=found[0])
+    if real:
+        return None, ("not a lost history - these order findings stay as they are: "
+                      + "; ".join(real))
+    if not any(r.get("order") for r in record["experiments"].values()):
+        return None, "every experiment's order still checks: nothing to seal as lost"
+    state[SEAL] = record
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(state, indent=2) + "\n")
+        with open(os.path.join(base, "log.md"), "a", encoding="utf-8") as fh:
+            fh.write("- %s sealed: history lost (ack: %s)\n" % (date, ack))
+    except OSError as exc:
+        return None, str(exc)
+    return record, None
+
+
+def _committed_lines(top, rev):
+    """{slug: path in the repository} for the lines commit `rev` of the
+    repository at `top` holds, in `line_dir`'s precedence: open/, done/, flat."""
+    out = {}
+    for folder in ("research/open", "research/done", "research"):
+        names, err = _git_out(top, "ls-tree", "-d", "--name-only",
+                              "%s:%s" % (rev, folder))
+        for name in ([] if err else names.splitlines()):
+            if valid_slug(name) and not (folder == "research" and name in (OPEN, DONE)):
+                out.setdefault(name, "%s/%s" % (folder, name))
+    return out
+
+
+def import_line(repo, source, slug=None, allow_open=None, date=""):
+    """(imported slugs, problem): bring research lines from another checkout's
+    private `.tezgah` repository into this one with their history.
+
+    The source's HEAD is fetched and merged as a second parent
+    (`--allow-unrelated-histories -s ours`), and only the imported lines' paths
+    are taken from it, so their commits - the protocol-before-results order -
+    sit in this HEAD's lineage and nothing else of the source's tree arrives.
+    That is the two-parent shape that kept two lines' order proofs; the
+    single-parent copy that lost one is refused: a line the source never
+    committed has no history to bring. A workspace with no commit yet gets an
+    empty root commit of its own first, so the source's history is never its
+    first parent. With no `slug`, every committed source line this checkout
+    lacks is imported. Works with no remote: the source is read from its own
+    disk path.
+
+    A line arriving from the source's `research/open/` is a new open line here,
+    so `init`'s one-open-line rule applies: refused while another line is open
+    (or several open lines arrive at once) unless `allow_open` gives the reason,
+    which lands in the line's `log.md` (`note_open`) inside the import commit;
+    and refused beside an open line `check` refuses (`broken_open_lines`)."""
+    ws, src = tp.workspace(repo), tp.workspace(source)
+    if os.path.realpath(src) == os.path.realpath(ws):
+        return [], "%s is this checkout's own workspace" % src
+    if not os.path.isdir(os.path.join(src, ".git")) or _unborn(src):
+        return [], ("%s holds no committed .tezgah repository; import merges "
+                    "history and refuses a plain copy, which would lose the "
+                    "order proof" % src)
+    if not os.path.isdir(os.path.join(ws, ".git")):
+        return [], "%s has no repository of its own yet" % ws
+    if allow_open is not None and not str(allow_open).strip():
+        return [], "--allow-open needs the reason the line is worth opening"
+    fresh = _unborn(ws)
+    staged, _err = _git_out(ws, "ls-files") if fresh else \
+        _git_out(ws, "diff", "--cached", "--name-only")
+    if staged.strip():
+        return [], ("%s has staged changes; commit or unstage them before an "
+                    "import commits" % ws)
+    try:
+        done = tp.ws_git(repo, "fetch", "-q", "--no-tags", src, "HEAD")
+    except OSError as exc:
+        return [], str(exc)
+    if done.returncode:
+        return [], "fetch failed: %s" % done.stderr.strip()
+    rev, err = _git_out(ws, "rev-parse", "FETCH_HEAD")
+    if err:
+        return [], err
+    rev = rev.strip()
+    lines, here = _committed_lines(ws, rev), slugs(repo)
+    if slug is not None and slug not in lines:
+        return [], ("%s is not committed in %s, so it has no history to import; "
+                    "commit it there (`tezgah-research commit`) - a plain copy is "
+                    "refused because it loses the order proof" % (slug, src))
+    wanted = [slug] if slug is not None else sorted(s for s in lines if s not in here)
+    clash = [s for s in wanted if s in here]
+    if clash:
+        return [], ("this checkout already holds %s; remove that copy first - "
+                    "import brings the history a copy lacks" % ", ".join(clash))
+    blocked = [lines[s] for s in wanted if os.path.lexists(os.path.join(ws, lines[s]))]
+    if blocked:
+        return [], ("%s exists here and is not a line directory; move it away "
+                    "before the import lands there" % ", ".join(blocked))
+    if not wanted:
+        return [], None
+    arriving = [s for s in wanted if lines[s].startswith("research/%s/" % OPEN)]
+    unfinished = open_lines(repo) if arriving else []
+    if (unfinished or len(arriving) > 1) and allow_open is None:
+        return [], ("%s would open beside unfinished line(s) %s; say why with "
+                    "--allow-open \"<reason>\"" % (
+                        ", ".join(arriving),
+                        "; ".join("%s (%s)" % (n, "; ".join(r)) for n, r in unfinished)
+                        or ", ".join(arriving)))
+    broken = broken_open_lines(repo) if unfinished else []
+    if broken:
+        return [], ("--allow-open does not open a line beside an open line check "
+                    "refuses: %s" % ", ".join(n for n, _e in broken))
+    if fresh:
+        done = tp.ws_git(repo, "commit", "-q", "--allow-empty", "-m",
+                         "research: workspace root")
+        if done.returncode:
+            return [], "git commit failed: %s" % (done.stderr or done.stdout).strip()
+    notes = [] if allow_open is None or not arriving else [
+        ("add", "--") + tuple("%s/log.md" % lines[s] for s in arriving)]
+    steps = [("merge", "-q", "--no-ff", "--no-commit", "--allow-unrelated-histories",
+              "-s", "ours", rev),
+             ("checkout", rev, "--") + tuple(lines[s] for s in wanted)] + notes + [
+             ("commit", "-q", "-m", "research: import %s from %s"
+              % (", ".join(wanted), source))]
+    for args in steps:
+        problem = None
+        if args[0] == "add":
+            problem = "; ".join(p for p in (note_open(repo, s, allow_open, date)
+                                            for s in arriving) if p) or None
+        done = None if problem else tp.ws_git(repo, *args)
+        if problem or done.returncode:
+            tp.ws_git(repo, "merge", "--abort")
+            if fresh:
+                tp.ws_git(repo, "update-ref", "-d", "HEAD")
+            return [], problem or "git %s failed: %s" % (
+                args[0], (done.stderr or done.stdout).strip())
+    return wanted, None
+
+
 def _open_reasons(base):
     """The reasons one line is unfinished; [] when every artifact says it is done.
 
@@ -3887,8 +4188,9 @@ def close_line(repo, slug, limit, date="", ack=""):
     """(reasons left, problem): conclude `slug` as a deliberate limit. The open
     reasons at the moment of closing are written into `state.json` `closed` and
     into `log.md`, so the limit says exactly what was left and why, and the line
-    stops counting as open. Nothing else is rewritten: its errors, if any, still
-    show in `check`."""
+    stops counting as open. The line is sealed (`order_seal`) with its
+    experiments' hashes and order verdicts. Nothing else is rewritten: its
+    errors, if any, still show in `check`."""
     base = line_dir(repo, slug)
     path = os.path.join(base, "state.json")
     state, exc = _read_json(path)
@@ -3908,6 +4210,7 @@ def close_line(repo, slug, limit, date="", ack=""):
     if ack:
         closed["ack"] = ack
     state.update(phase="concluded", direction="conclude", closed=closed)
+    state[SEAL] = order_seal(repo, base, date)
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(state, indent=2) + "\n")
@@ -3940,7 +4243,7 @@ def conclude_line(repo, slug, date=""):
     every success criterion names a verdict with an evidence pointer, and the
     line then moves to `done/`. A criterion left `not-met` is allowed - a
     negative result is a result - but it is recorded, and `status` keeps listing
-    the line as unanswered."""
+    the line as unanswered. Concluding seals the line (`order_seal`)."""
     base = line_dir(repo, slug)
     path = os.path.join(base, "state.json")
     state, exc = _read_json(path)
@@ -3962,6 +4265,7 @@ def conclude_line(repo, slug, date=""):
     if problems:
         return problems, None
     state.update(phase="concluded", direction="conclude")
+    state[SEAL] = order_seal(repo, base, date)
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(state, indent=2) + "\n")
@@ -4689,6 +4993,12 @@ def note_open(repo, slug, reason, date=""):
 # line root, appended under the lock the claim path uses, judged inside it and
 # repaired to the file's committed size like it, refused with one reason per
 # problem.
+#
+# Frozen (ADR 009): predictions and the per-component report below keep working
+# as they are and get no new rule, field or command. ponytail: the layer is the
+# maintainer's own workflow and its use was never measured, so it is held at
+# this size; a measured use is what would reopen it, and deleting it is the
+# other way out (decided against, not deferred).
 #
 # The paths a prediction may not reach without a human `granted_by`. One tuple,
 # and `_frozen` is its only reader, so the write path and the checker cannot

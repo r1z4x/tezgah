@@ -28,7 +28,7 @@ PROPERTIES = {
     "tezgah_gate_check": {"command", "path"},
     "tezgah_features": set(),
     "tezgah_consult": {"question", "use"},
-    "tezgah_research_check": {"path"},
+    "tezgah_research_check": {"path", "slug"},
 }
 
 # name -> (the program run, its argv after the program). The program is pinned
@@ -248,8 +248,9 @@ class Calls(McpTest):
             "tezgah_features": ({}, None, here),
             "tezgah_consult": ({"question": "mcp consult question",
                                 "use": "cli:codex"}, None, here),
-            # tezgah-research check is repo-scoped, so the path is its cwd
-            "tezgah_research_check": ({"path": asked}, None, asked),
+            # tezgah-research check is repo-scoped, so the path is its cwd; the
+            # slug follows `--`, so it is never read as a flag
+            "tezgah_research_check": ({"path": asked, "slug": "line-a"}, None, asked),
         }
 
     def test_every_tool_runs_its_own_command_with_every_property_it_declares(self):
@@ -258,6 +259,8 @@ class Calls(McpTest):
             program, argv = DELEGATE[name]
             expected = argv if argv is not None else next(
                 v for v in args.values())
+            if name == "tezgah_research_check":
+                expected = "check -- %s" % args["slug"]
             if name in SEPARATED:
                 expected = "-- " + expected
             log = "\n".join(self.log(self.call(srv, name, args)))
@@ -375,6 +378,21 @@ class Calls(McpTest):
         log = "\n".join(self.log(self.call(srv, "tezgah_status",
                                            {"path": self.asked})))
         self.assertIn("args: -- %s" % self.asked, log)
+        self.assertEqual(srv.close(), 0)
+
+    def test_a_research_slug_that_is_a_flag_or_no_line_name_is_refused(self):
+        # the slug goes into the tezgah-research argv after `--`, and is refused
+        # outright when it is not a name `valid_slug` accepts
+        srv = self.server()
+        for slug in ("--strict", "-x", "../up", "Line"):
+            error = srv.error_of(srv.request(
+                "tools/call", {"name": "tezgah_research_check",
+                               "arguments": {"slug": slug}}))
+            self.assertEqual(error["code"], -32602, slug)
+            self.assertIn("research line name", error["message"])
+        log = "\n".join(self.log(self.call(srv, "tezgah_research_check",
+                                           {"slug": "line-a"})))
+        self.assertIn("args: check -- line-a", log)
         self.assertEqual(srv.close(), 0)
 
 
