@@ -172,7 +172,8 @@ refused while any open line has `check` errors (`broken_open_lines`): a hatch pa
 broken lines is how they stayed broken. What is left of a line that will not be
 finished is recorded with `tezgah-research close <slug> --limit "<reason>"`
 (`close_line`), which concludes it and writes the reasons it was still open into
-`state.json` `closed` and `log.md`; its `check` errors stay visible. The
+`state.json` `closed` and `log.md` and seals it ("the order seal", below);
+its `check` errors stay visible. The
 prompt-time note reads a line's `state.json`, its experiment directory and its
 review, never `claims.jsonl`, so a line open *only* because of a live claim is
 named by `init` and not by the note; that split is the note's cost budget and is
@@ -188,7 +189,7 @@ calls (`check_line`, `hooks/tezgah_research.py::check_line`).
 |---|---|---|
 | `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
-| `tezgah-research check [<slug>] [--json] [--strict] [--orx]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`) | 0 clean, 1 a line failed a rule or names no line |
+| `tezgah-research check [<slug>] [--json] [--strict] [--orx] [-- <slug>]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`); a slug after `--` is never read as a flag, which is how the MCP tool `tezgah_research_check` passes its validated `slug` | 0 clean, 1 a line failed a rule or names no line |
 | `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `hooks/tezgah_research.py::summary`) | 0 |
 | `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py::across`) | 0, 2 misuse |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
@@ -197,7 +198,9 @@ calls (`check_line`, `hooks/tezgah_research.py::check_line`).
 | `tezgah-research migrate <slug> [--dry-run]` | derives the fields a line written before these rules cannot carry, prints what it derived and what it could not, and is idempotent (`migrate`, `hooks/tezgah_research.py::migrate`) | 0, 2 misuse |
 | `tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "..."] [--scope real\|fixture\|derived] [--fixture "<what was generated>"]` | keeps the receipt: runs `orx logs <runId>`, writes `raw/<runId>.log`, appends the results row `{"source": "orx:<runId>", ...}` and the scope and fixture description the filer states (`source_run`, `hooks/tezgah_research.py::source_run`). A `--scope fixture` filed without `--fixture` still writes the row and prints the field it still owes, so the tool is never the thing that makes its own checker warn silently; a given `--fixture` that is empty is misuse | 0, 1 nothing filed, 2 without orx |
 | `tezgah-research compare <slug> <decision>` | reads one variants x criteria cell from stdin and appends it to `decisions/<decision>/comparison.jsonl` under the lock, or refuses it by the rule `check` applies (`append_comparison` and `comparison_problems`, `hooks/tezgah_research.py`); it notes when `criteria.json` is not committed yet | 0, 1 refused, 2 misuse |
-| `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md` (`close_line`) | 0, 1 unreadable state, 2 misuse |
+| `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md`, and seals it (`close_line`) | 0, 1 unreadable state, 2 misuse |
+| `tezgah-research seal <slug> --history-lost --ack "<owner decision>"` | seals a line under `done/` that was concluded before seals existed, with the `history-lost` verdict for every experiment whose order no longer checks (`retro_seal`, `hooks/tezgah_research.py::retro_seal`) | 0, 1 refused, 2 misuse |
+| `tezgah-research import <checkout> [<slug>]` | brings a line - or every line this checkout lacks - from another checkout's `.tezgah` repository with its history (`import_line`, `hooks/tezgah_research.py::import_line`) | 0, 1 refused, 2 misuse |
 
 Exit code 2 is always misuse, so a caller can tell it from a line that fails the
 checks (`misuse`, `bin/tezgah-research::misuse`). `check` asks nothing at all - no
@@ -321,6 +324,61 @@ extends that history back past the rewrite when `git merge-base --is-ancestor
 <commit> <anchor_sha>` holds (`_bridged_commit`, `hooks/tezgah_research.py::_bridged_commit`); a
 commit reachable only from an unrelated tag, such as a benchmark pin, is not
 placed and stays refused. Neither rule has a waiver.
+
+### What the order proves, and the order seal
+
+Protocol-before-results proves **commit order, not run order**. Git records that
+the protocol entered the history before the results did. It records nothing
+about when the run itself happened. A session can run first, commit the
+protocol, and hold the results back until after: the rule passes that. It makes
+the shortcut deliberate, not impossible. `source --run` checks only that
+`protocol.md` exists on disk, not that a commit holds it (`source_run`,
+`hooks/tezgah_research.py::source_run`).
+
+A history can also go missing. The 2026-10-04 re-root left most concluded
+lines' commits unresolvable. Re-deriving their order from git then reports the
+lost history, not a defect in the research. So `conclude` and `close` **seal**
+the line (`order_seal`, `hooks/tezgah_research.py::order_seal`). The seal is
+`state.json` `order_seal`. Per experiment it holds the sha256 of `protocol.md`
+and of `results.jsonl`. It also holds the verdict `_check_protocol_order` gave
+at that moment: `ordered`, `refused`, `undecided`, or `unrun` with no results.
+The add commits sit beside them as information only.
+
+`check_line` verifies the hashes on every run, with or without git (`_check_seal`,
+`hooks/tezgah_research.py::_check_seal`). An edited, removed or added experiment
+fails the line. So the session note (`failing`) sees an edit after the
+conclusion too. An intact experiment's order is the sealed verdict, in the class
+the re-derivation gave it (`_sealed_order`,
+`hooks/tezgah_research.py::_sealed_order`). Git answers no order question for it
+again. The ceiling: the seal sits in the line's own `state.json`. Whoever edits
+`results.jsonl` can recompute the seal there too. It catches an edit, not a
+forger.
+
+A line concluded before seals existed carries none. The owner's verdict for
+those lines (ADR 009) is `history-lost`. `tezgah-research seal <slug>
+--history-lost --ack "<the owner's decision>"` writes it (`retro_seal`,
+`hooks/tezgah_research.py::retro_seal`). An experiment whose order still checks
+keeps `ordered`. Every other one gets `history-lost`, and `finding` keeps what
+the check said. `check` then warns about it and names the ack, and `--strict`
+refuses it. The command takes only a line under `done/`, only once, only with an
+ack.
+
+### Moving a line between checkouts
+
+Each checkout keeps its own `.tezgah` repository, and that repository has no
+remote. One directory on one disk holds the only copy of a line's order proof.
+A **copy** of a line, committed in another checkout, lands protocol and results
+in one commit. The copy destroys the proof: `check` refuses it as "one commit
+added both". `tezgah-research import <checkout> [<slug>]` moves the line with
+its history instead (`import_line`). It fetches the other checkout's repository
+from its disk path. It merges that history as a second parent with
+`--allow-unrelated-histories -s ours`. It then takes only the imported lines'
+paths from it. The source's commits order the pair here, and none of its other
+lines arrive. A workspace with no commit yet takes the source's HEAD as its
+first parent. `import` refuses a plain copy: a line the source never committed,
+or a source with no `.tezgah` repository. It also refuses a slug this checkout
+already holds. A private remote for `.tezgah` stays the owner's call, and
+`import` needs none.
 
 ## Two gates, when one locked metric is not enough
 
@@ -479,7 +537,9 @@ this layer cannot decide on, not a defect:
   `4,2`, `2,1`, `1,2`; a bare filename, which the reader resolves with the same token
   set the proof rule does instead of passing the claim against nothing; and a number
   past the per-file reading window, which is streamed for in chunks rather than
-  called missing. What it can never decide is a token found inside a longer
+  called missing. A `path:line` citation reads through like a date: its line
+  number names a place in a file, not a measurement. What it can never decide
+  is a token found inside a longer
   number - a claim's `10` is contained by an artifact holding `10000` - so the
   warning is a consistency check and not a proof that the number was measured;
 - a concluded line's `report.md` carrying a fixture-scoped claim and never saying
@@ -668,6 +728,10 @@ components and of rows it read (`components_text`,
 `hooks/tezgah_research.py::components_text`) - is what tells an empty manifest from a line that has
 predicted nothing, and a key the manifest does not define is reported as a bucket
 of its own rather than dropped, so a hand-written row is visible.
+
+Predictions and this report are **frozen** (ADR 009). They keep working as
+documented and take no new rule, field or command. Nobody measured their use,
+so the layer stays at this size. A measured use is what would reopen it.
 
 ## `migrate`: what the artifacts already hold
 

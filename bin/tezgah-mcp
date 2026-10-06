@@ -71,9 +71,23 @@ def tool_consult(args):
 
 
 def tool_research_check(args):
-    """`tezgah-research check`: the line's citations, in the repo asked about."""
-    path = args.get("path")
-    return [tp.tool("tezgah-research"), "check"], None, path or None
+    """`tezgah-research check`: the line's citations, in the repo asked about;
+    with `slug`, that one line, after `--` so it can never be read as a flag."""
+    path, slug = args.get("path"), args.get("slug")
+    return ([tp.tool("tezgah-research"), "check"] + (["--", slug] if slug else []),
+            None, path or None)
+
+
+def refuse_research_check(args):
+    """The refusal for a `slug` that is not a research line name (`valid_slug`:
+    lowercase letters, digits and dashes, never a leading dash)."""
+    slug = args.get("slug")
+    if slug is None:
+        return None
+    import tezgah_research as tr  # deferred: only this tool reads it
+    return None if tr.valid_slug(slug) else (
+        "property 'slug' must be a research line name (lowercase letters, digits, "
+        "dashes)")
 
 
 # The surface. `properties` is both the schema and the list `arguments` is
@@ -132,9 +146,12 @@ SPECS = (
                     "from `tezgah-research check`.",
      "delegate": "tezgah-research check",
      "run": tool_research_check,
+     "refuse": refuse_research_check,
      "properties": {
          "path": ("string", "The repository to check; defaults to the "
-                            "server's own working directory.")}},
+                            "server's own working directory."),
+         "slug": ("string", "One research line to check; every line when "
+                            "omitted.")}},
 )
 
 
