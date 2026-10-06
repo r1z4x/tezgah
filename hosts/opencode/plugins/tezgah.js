@@ -1115,6 +1115,37 @@ const REDACT_MYSQL =
 const REDACT_BEARER = /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/gi
 const REDACT_TOKEN =
   /\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)?[-_]?[A-Za-z0-9_\-]{16,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{30,}|\bglpat-[A-Za-z0-9_\-]{20,}|\bnpm_[A-Za-z0-9]{30,}/gi
+// The same families for the refusal a heredoc body meets
+// (hooks/tezgah_integrity.SECRET_PREFIXED): an `sk`/`pk`/`rk` token counts only
+// with its qualifier, since the bare branch above matches identifiers like
+// `pk_users_organization_id`.
+const PREFIXED_TOKEN =
+  /\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)[-_][A-Za-z0-9_\-]{16,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{30,}|\bglpat-[A-Za-z0-9_\-]{20,}|\bnpm_[A-Za-z0-9]{30,}/gi
+// A template or fixture file and a documentation placeholder are exempt, as in
+// hooks/tezgah_gate.secret_edit (SECRET_FIXTURE, SECRET_TEMPLATES, _placeholder).
+const SECRET_FIXTURE = /(?:^|\/)tests?\/(?:.+\/)?fixtures\/|\.example$/i
+const SECRET_TEMPLATES = new Set([".env.example", ".env.sample", ".env.template",
+  ".env.dist", ".env.defaults"])
+const SECRET_PUBLISHED = new Set([
+  "2cafc0970149a84f3b9e62eaf169f36f59907a3b3e31f7b82e68c69cd27f7326"])
+
+function placeholder(token) {
+  if (token.toLowerCase().includes("example")) return true
+  let body = token.split(/[-_]/).pop()
+  if (body === token) body = token.slice(4)
+  if (new Set(body).size <= 1) return true
+  return SECRET_PUBLISHED.has(createHash("sha256").update(token).digest("hex"))
+}
+
+// ponytail: the file on disk is not read as a baseline here, as the Python
+// half does; plan 057 (d) hands this check to the core.
+function landsSecret(body) {
+  const name = String(body.filePath || "").replaceAll("\\", "/")
+  if (SECRET_FIXTURE.test(name) || SECRET_TEMPLATES.has(basename(name).toLowerCase())) {
+    return false
+  }
+  return [...body.content.matchAll(PREFIXED_TOKEN)].some((m) => !placeholder(m[0]))
+}
 
 function redact(text) {
   const mark = (value) => MARKED + value.length + "]"
@@ -1219,10 +1250,13 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   }
   // the write's file as one absolute real path, the field the Python race
   // guard compares (hooks/tezgah_integrity._abs_target): `detail` is the host's
-  // spelling, relative to a cwd the row does not carry (audit CHAT-03 / M-6)
-  if (kind === "edit") {
+  // spelling, relative to a cwd the row does not carry (audit CHAT-03 / M-6).
+  // A shell `run` row that redirects or tees into a file carries it too, so a
+  // sibling's shell write is seen like its edit (hooks/tezgah_integrity.note_tool);
+  // one that writes only its own scratch (a temp file, a device) carries none.
+  if (kind === "edit" || kind === "run") {
     const target = absTarget(writtenPath(args), cwd)
-    if (target) row.target = target
+    if (target && !(kind === "run" && scratchTarget(target, cwd))) row.target = target
   }
   await appendRow(sessionID, row)
   // The opt-in taste capture: on the Python hosts note_tool calls
@@ -1276,6 +1310,17 @@ function absTarget(path, cwd) {
       head = parent
     }
   }
+}
+
+// A resolved target that is the session's own scratch: a device, or a file under
+// the system temp dir or /tmp but not inside the cwd
+// (hooks/tezgah_integrity.scratch_target).
+function scratchTarget(target, cwd) {
+  if (target.startsWith("/dev/")) return true
+  const here = absTarget(cwd || process.cwd(), "/")
+  if (target === here || target.startsWith(here + "/")) return false
+  return [absTarget(tmpdir(), "/"), absTarget("/tmp", "/")].some(
+    (root) => target.startsWith(root + "/"))
 }
 
 // sha256 of a file's bytes, the digest the Python half records
@@ -1535,9 +1580,11 @@ async function shellRules(tool, args, sessionID, base, dir) {
     return reason
   }
   // The body a heredoc writes: maskText blanks it, so the text-level scan above
-  // cannot see a key that sits in it (hooks/tezgah_gate.shell_write_body).
+  // cannot see a key that sits in it (hooks/tezgah_gate.shell_write_body). It is
+  // a file's text, so it is read for the prefixed token families a write tool's
+  // content is (hooks/tezgah_gate.secret_edit), never for name=value.
   const body = shellWriteBody(cmd, dir)
-  if (body && SECRET_TOKEN.test(body.content)) {
+  if (body && landsSecret(body)) {
     await noteDeny(sessionID, "secret", SECRET_DENY, tool, args, base)
     return SECRET_DENY
   }

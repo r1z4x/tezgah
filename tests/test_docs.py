@@ -300,7 +300,11 @@ class Inventories(unittest.TestCase):
         by_rule = {s[0]: s for s in sites}
         self.assertEqual(by_rule["lang"][3], ("lang-off",))
         self.assertEqual(by_rule["explorer"][3], ())
-        self.assertIn("BASH_TOOLS", by_rule["secret"][4])
+        secret = [s for s in sites if s[0] == "secret"]
+        self.assertIn("BASH_TOOLS", secret[0][4])
+        # plan 057 (a)1: the text a write lands is read on every route, a write
+        # tool's as well as a heredoc's, so that site has no shell guard
+        self.assertNotIn("BASH_TOOLS", secret[-1][4])
         self.assertLess(by_rule["drift"][1], by_rule["drift"][2] + 1)
 
     def test_a_deny_site_in_a_handler_or_a_case_is_read(self):

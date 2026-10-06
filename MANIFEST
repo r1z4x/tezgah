@@ -648,6 +648,7 @@ tests/e2e_packaged_install.py
 tests/e2e_plan_flow.py
 tests/e2e_tezgah_mcp.py
 tests/fuzz_shell.py
+tests/gate_vectors.json
 tests/impacted.py
 tests/neuter_matrix.py
 tests/routing-fixtures.md
@@ -684,6 +685,7 @@ tests/test_encoding.py
 tests/test_enforcers.py
 tests/test_fuzz_shell.py
 tests/test_gate.py
+tests/test_gate_vectors.py
 tests/test_graph_verbs.py
 tests/test_graph_workflows.py
 tests/test_guard.py
