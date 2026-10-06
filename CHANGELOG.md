@@ -308,6 +308,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The update chip reaches installs on the retired 0.2.0-0.32.0 line.** A
+  re-root on 2026-10-04 restarted the numbering at 0.1.1.
+  npm last served 0.32.0 before it. `newer()` compared 0.30.0 higher than every
+  0.1.x release, so those installs never saw the chip. One constant,
+  `hooks/tezgah_update.py::RETIRED`, now holds the retired range. The check
+  offers the public release to an install inside it, and the chip adds
+  `(line reset)`.
+
 - **The masker and the status reader drop three misreads.** An escaped `\$'` no longer
   opens an ANSI-C string. A quote left open blanks only what follows it, and an
   apostrophe in a heredoc body opens no quote. A quoted newline, a comment, a
