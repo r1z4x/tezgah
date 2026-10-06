@@ -415,6 +415,20 @@ class PipedCheck(unittest.TestCase):
         self.assertFalse(ti.pipe_hides_status("set -o pipefail; pytest | tail"))
         self.assertFalse(ti.pipe_hides_status("pytest -q"))
 
+    def test_a_check_owns_the_status_only_when_nothing_after_it_answers(self):
+        # a `;`, a newline or a trailing `&` hands the line's status to what
+        # follows the check (plan 054 slice 0, gate-02)
+        for c in ("pytest; echo done", "pytest; echo EXIT=$?", "pytest &",
+                  "pytest > log; tail log", "pytest -q\necho done",
+                  "(pytest); echo x", "pytest; ruff check ."):
+            self.assertTrue(ti.status_hidden(c), c)
+        for c in ("pytest && echo ok", "cd x && pytest", "cd x; pytest",
+                  "set -o pipefail; pytest | tee log", "pytest;",
+                  "pytest > /tmp/x.log 2>&1", "set -euo pipefail\npytest -q | tail -3",
+                  "ruff check . && pytest", "git commit -m 'pytest; echo x'"):
+            self.assertFalse(ti.status_hidden(c), c)
+        self.assertTrue(ti.status_hidden("pytest | tee log"))
+
 
 class ShortcutEdit(unittest.TestCase):
     TEST = {"file_path": "tests/test_x.py"}
@@ -1981,10 +1995,11 @@ class DesignContractEvidence(unittest.TestCase):
     def test_a_design_check_on_a_later_line_of_the_call_is_a_check(self):
         # a call is often multi-line; the readers matched `^` and `[|;&(]`, so
         # the same checker on the call's own second line was invisible to the
-        # floor while `VERIFY` read the row as a check
+        # floor while `VERIFY` read the row as a check. `&&` keeps pytest's
+        # status the line's: a bare newline would hand it to the second line
         self.edit(self.component)
         self.screen_read()
-        ti.note_tool("s", "Bash", {"command": "pytest -q\n" + self.CHECK},
+        ti.note_tool("s", "Bash", {"command": "pytest -q &&\n" + self.CHECK},
                      failed=False, out_bytes=64)
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
@@ -2702,6 +2717,16 @@ class StopHook(TempHome):
         # `||` answers for the failure whatever pipefail says
         self.seed("Bash", {"command": "set -o pipefail; pytest -q | tail || echo x"})
         self.assertEqual(self.kinds(), ["verify"])
+
+    def test_a_check_followed_by_another_command_records_as_ran(self):
+        for command, kind in (("pytest -q; echo done", "verify"),
+                              ("pytest -q; echo EXIT=$?", "verify"),
+                              ("pytest -q &", "verify"),
+                              ("pytest -q > log; tail log", "verify"),
+                              ("pytest -q && echo ok", "verify_ok"),
+                              ("cd x && pytest -q", "verify_ok")):
+            self.seed("Bash", {"command": command})
+            self.assertEqual(self.kinds()[-1], kind, command)
 
     def test_a_blocked_stop_is_recorded_as_a_false_completion(self):
         self.seed("Edit", {"file_path": "x.py"})

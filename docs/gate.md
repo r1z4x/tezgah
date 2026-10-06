@@ -103,8 +103,8 @@ Trigger: a verification command (integrity's `VERIFY`) piped into a trimmer or f
 `hooks/tezgah_integrity.py::TRIMMER`). The line's exit status is the trimmer's, so the ledger can only record the check as ran, never as passed, and the Stop rule
 then refuses every claim the run was meant to carry — observed in a real omp session where 13 checks ran piped and 3 of 6 completion claims were blocked.
 Passes: a line that opens with `set -o pipefail` (`hooks/tezgah_integrity.py::PIPEFAIL`), which integrity then records as decisive
-(`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). Told: redirect the
-check to a file and read the file, or prefix `set -o pipefail;`, with the check named as it was typed. Standing, under `verify-off`
+(`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). Told: run the
+check as the line's last command with its output in a file, and read the file in a separate call. A `; tail` on the same line hands the status to `tail`. The other way out is a `set -o pipefail;` prefix. The refusal names the check as it was typed. Standing, under `verify-off`
 (`hooks/tezgah_gate.py::decision`). opencode asks the core for this rule on any shell line that pipes a check
 (`hosts/opencode/plugins/tezgah.js:2184`) and records such a line as `verify` unless it opens with pipefail (`hosts/opencode/plugins/tezgah.js:995-998`).
 

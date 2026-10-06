@@ -177,9 +177,10 @@ DESIGN_COMPONENT = re.compile(
     r"(?:^|/)(?:components?|views?|widgets?|partials?|screens?)/"
     r"|(?:^|/)(?-i:[A-Z])[A-Za-z0-9_]*\.(?:tsx|jsx|vue|svelte|swift|kt|dart)$"
     r"|\.(?:component|view|widget)\.[a-z]+$", re.I)
-# forms that make a failing check exit 0, the classic "I ran it and it was fine"
-# `; exit 0`, `; :` and a trailing `; echo` after a check do what `|| true`
-# does - the line's status stops being the check's (audit M-1)
+# the explicit swallowers that make a failing check exit 0, the classic "I ran it
+# and it was fine": `|| true`, `|| :`, `|| exit 0`, `; true`, `; :` and
+# `; exit 0` after a check (audit M-1). It is a deny; a softer `; echo done` or
+# a trailing `&` is not refused but records as ran (`status_hidden`).
 NEUTER = re.compile(
     r"\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|"
     r";\s*(?:true|:|exit\s+0)\s*(?:$|[|;&])")
@@ -2050,21 +2051,11 @@ def _unquoted_backticks(text):
     return "".join(out)
 
 
-def _shell_segments(cmd):
-    """The line's simple commands as word lists, read the way
-    `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
-    `;&|()<>` - so quotes and escapes are gone, heredoc bodies are blanked first,
-    a continued line is joined, and an unquoted backtick ends a command. A line
-    shlex cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
-
-    Two places where bash and shlex disagree, and bash wins because bash is what
-    runs the line: a `#` ends the line only at the start of a word (`x=a#b` is one
-    word, so `shlex`'s commenter is switched off and the split below drops the
-    rest of the line itself), and a redirection is neither a command nor an
-    argument - its words are dropped here, including the `&` of `2>&1`/`&>`,
-    which would otherwise end the segment in the middle of one command. A run of
-    `;&|()` still ends a command."""
-    segs = []
+def _shell_commands(cmd):
+    """`_shell_segments` with each command's separator kept: [words, sep], where
+    `sep` is the `;&|()` runs that ended it (a run after an empty command joins
+    the previous one's) plus "\\n" at a line end, "" at the end of the line."""
+    out = []
     text = _unquoted_backticks(
         _blank_heredocs(str(cmd or "")).replace("\\\n", " "))
     for line in re.split(r"\r\n|\r|\n", text):
@@ -2097,13 +2088,34 @@ def _shell_segments(cmd):
                 continue
             if word and word[0] in ";&|()":
                 if cur:
-                    segs.append(cur)
+                    out.append([cur, word])
+                elif out:
+                    out[-1][1] += word
                 cur = []
             else:
                 cur.append(word)
         if cur:
-            segs.append(cur)
-    return segs
+            out.append([cur, "\n"])
+    if out and out[-1][1] == "\n":
+        out[-1][1] = ""
+    return out
+
+
+def _shell_segments(cmd):
+    """The line's simple commands as word lists, read the way
+    `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
+    `;&|()<>` - so quotes and escapes are gone, heredoc bodies are blanked first,
+    a continued line is joined, and an unquoted backtick ends a command. A line
+    shlex cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
+
+    Two places where bash and shlex disagree, and bash wins because bash is what
+    runs the line: a `#` ends the line only at the start of a word (`x=a#b` is one
+    word, so `shlex`'s commenter is switched off and the split below drops the
+    rest of the line itself), and a redirection is neither a command nor an
+    argument - its words are dropped here, including the `&` of `2>&1`/`&>`,
+    which would otherwise end the segment in the middle of one command. A run of
+    `;&|()` still ends a command."""
+    return [words for words, _sep in _shell_commands(cmd)]
 
 
 def _names_hooks_key(setting):
@@ -2322,7 +2334,8 @@ def _shortcut_command(cmd, depth):
     if verify_command(c) and NEUTER.search(c):
         return ("Verification neutered: this check is chained with `|| true` / "
                 "`; true`, so it reports success no matter what it found. Run it "
-                "plain and read the real exit status before claiming it passed.")
+                "as the line's last command, with nothing after it but `&&`, and "
+                "read the real exit status before claiming it passed.")
     if depth < SHELL_DEPTH:
         for script in _shell_scripts(cmd):
             reason = _shortcut_command(script, depth + 1)
@@ -2349,6 +2362,32 @@ def pipe_hides_status(cmd):
     return "||" in cmd or not PIPEFAIL.match(cmd)
 
 
+# the separators after a check that keep its status the line's: `&&` stops the
+# line at a failing check, a pipe is `pipe_hides_status`'s to judge, and a
+# subshell's parentheses change nothing
+OWNING_SEP = re.compile(r"^[()]*(?:&&|\|&?)[()]*$")
+
+
+def status_hidden(cmd):
+    """True when the line's exit status is not its check's: a pipe owns it
+    (`pipe_hides_status`), or a command after the check does - the check is
+    followed by `;` or a newline and more commands, or is sent to the background
+    with `&`. `pytest; echo done` exits 0 whatever pytest found, so it records as
+    ran; `pytest && echo ok`, `cd x; pytest` and `pytest > log` keep the check's
+    status. Read with `_shell_commands`, each command re-quoted for
+    `verify_command`. ponytail: `set -e` is not read, so `set -e; pytest; echo
+    done` records as ran - a lost credit, never an invented one."""
+    if pipe_hides_status(cmd):
+        return True
+    cmds = _shell_commands(cmd)
+    for i, (words, _sep) in enumerate(cmds):
+        if not verify_command(shlex.join(words)):
+            continue
+        if any(not OWNING_SEP.match(sep) for _w, sep in cmds[i:-1]):
+            return True
+    return bool(cmds) and "&" in cmds[-1][1]
+
+
 def piped_check(cmd):
     """A deny reason when a check is piped into a trimmer or filter (`pytest |
     tail`), else None. The line's status is the trimmer's, so the ledger can only
@@ -2370,10 +2409,12 @@ def piped_check(cmd):
                 trim = m.group(1).split()[0]
                 return ("Piped check denied: `%s` is piped into `%s`, so the "
                         "line's exit status is `%s`'s and the check is recorded as "
-                        "ran, never as passed. Write the output to a file and read "
-                        "the file (`%s > /tmp/check.log 2>&1`, then read "
-                        "/tmp/check.log), or open the line with `set -o pipefail;` "
-                        "so the pipe keeps the check's status."
+                        "ran, never as passed. Keep the check the line's last "
+                        "command and send its output to a file (`%s > "
+                        "/tmp/check.log 2>&1`), then read /tmp/check.log in a "
+                        "separate call - `; tail` on the same line hands the "
+                        "status to `tail` - or open the line with `set -o "
+                        "pipefail;` so the pipe keeps the check's status."
                         % (check, trim, trim, check))
             if not check and verify_command(part):
                 check = raw[pos:pos + len(part)].strip()
@@ -2820,7 +2861,9 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     same holds for a check run through a pipe: the status belongs to the pipe's
     last stage, so `pytest | tail` records as a check that ran, whatever the
     host reported for the line - unless the line opens with `set -o pipefail`,
-    which hands the status back to the check (`pipe_hides_status`).
+    which hands the status back to the check. A check followed by `;` and more
+    commands, or sent to the background with `&`, records as ran the same way:
+    `pytest; echo done` exits 0 whatever pytest found (`status_hidden`).
 
     `interrupted=True` is the third outcome, and it is not a weaker failure: the
     host said the call was STOPPED - a user's cancel, a call a policy denied
@@ -2852,7 +2895,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     kind = classify(tool, inp)
     if kind == "verify":
-        if failed is None or pipe_hides_status(cmd) or (empty_run and not failed):
+        if failed is None or status_hidden(cmd) or (empty_run and not failed):
             kind = "verify"
         else:
             kind = "verify_fail" if failed else "verify_ok"
@@ -3055,14 +3098,15 @@ def passing_check(entry):
     A `verify_ok` is support only when the host reported exit 0, the tool
     returned something (an exit-0-but-empty result is the classic silent
     failure), its own output did not say it ran nothing (`empty_run`) and no
-    pipe owns the status - `pytest | tail` proves nothing about pytest, `set -o
-    pipefail; pytest | tail` does (`pipe_hides_status`). Everything else is a
+    pipe or a later command owns the status - `pytest | tail` and `pytest; echo
+    done` prove nothing about pytest, `set -o pipefail; pytest | tail` and
+    `pytest && echo ok` do (`status_hidden`). Everything else is a
     check that ran with an outcome nobody saw."""
     if entry.get("kind") != "verify_ok" or entry.get("empty_run"):
         return False
     if entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
-    return not pipe_hides_status(entry.get("detail"))
+    return not status_hidden(entry.get("detail"))
 
 
 def _changed_write(row):

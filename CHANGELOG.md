@@ -303,6 +303,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A check whose status the line does not keep is no longer a pass.** These
+  lines record as ran: `pytest; echo done`, `pytest; echo EXIT=$?`, `pytest &`,
+  `pytest > log; tail log`. Each exits 0 whatever pytest found.
+  `pytest && echo ok`, `cd x && pytest` and a `set -o pipefail;` pipe still
+  pass (`status_hidden`). The NEUTER comment now names only what it denies.
+  The piped and neutered remedies name the shape that keeps the status.
 - **Two lines each delivering their own `to_human/report.md` are no longer
   serial twins.** `serial_twins` compares the resolved file, not the spelling.
 - **A claim's `path:line` citation is not a number.** The containment rule

@@ -749,8 +749,9 @@ function shortcutCommand(cmd, depth = 0) {
       "and commit without it."
   if (verifyCommand(c) && NEUTER.test(c))
     return "Verification neutered: this check is chained with `|| true` / " +
-      "`; true`, so it reports success no matter what it found. Run it plain " +
-      "and read the real exit status."
+      "`; true`, so it reports success no matter what it found. Run it as the " +
+      "line's last command, with nothing after it but `&&`, and read the real " +
+      "exit status."
   if (depth < SHELL_DEPTH) {
     for (const script of shellScripts(cmd)) {
       const reason = shortcutCommand(script, depth + 1)
