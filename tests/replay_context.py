@@ -11,10 +11,12 @@ hosts deliver it: `session_start` (the core lives in the host's file on both,
 so `with_core=False`), one `user_prompt` per user prompt that is not a harness
 injection, and at each compaction omp's `post_compact` or Claude's
 `session_start` with `source=compact`. Each revision is exported with
-`git archive` and runs in its own throwaway HOME against one empty project
-under `TEZGAH_ROOTS`, with no codegraph and no provider key, so the two
-revisions see the same state and only their hook text differs. The bytes are
-the UTF-8 length of every block `context_for` returns.
+`git archive` to `<scratch>/base/tree` or `<scratch>/head/tree` - two paths of
+one length, because the plugin path is part of the injected text - and runs in
+its own throwaway HOME against one empty project under `TEZGAH_ROOTS`, with no
+codegraph and no provider key, so the two revisions see the same state and only
+their hook text differs. The bytes are the UTF-8 length of every block
+`context_for` returns.
 
 Prints n sessions and, per revision, the median, p90 and total bytes per
 session, then head/base ratios. Exit 0 done, 2 misuse.
@@ -155,6 +157,11 @@ def export(rev, dest):
 
 
 def compare(sessions, base_hooks, head_hooks, scratch):
+    # PLUGIN_ROOT is part of the research and consult text, so a longer path
+    # on one side would read as injected bytes the hook text never added.
+    if len(base_hooks) != len(head_hooks):
+        raise SystemExit("replay: hooks paths differ in length: %r %r"
+                         % (base_hooks, head_hooks))
     before = replay(base_hooks, sessions, scratch)
     after = replay(head_hooks, sessions, scratch)
     b, a = stats(before), stats(after)
@@ -182,8 +189,10 @@ def main(argv):
         return 2
     scratch = tempfile.mkdtemp(prefix="tezgah-replay-")
     try:
-        result = compare(sessions, export(args.base, os.path.join(scratch, "base")),
-                         export(args.head, os.path.join(scratch, "head")), scratch)
+        result = compare(sessions,
+                         export(args.base, os.path.join(scratch, "base", "tree")),
+                         export(args.head, os.path.join(scratch, "head", "tree")),
+                         scratch)
     finally:
         shutil.rmtree(scratch)  # created by mkdtemp above, nothing else
     result.update(base_rev=args.base, head_rev=args.head)
