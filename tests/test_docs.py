@@ -301,7 +301,9 @@ class Inventories(unittest.TestCase):
         self.assertEqual(by_rule["lang"][3], ("lang-off",))
         self.assertEqual(by_rule["explorer"][3], ())
         secret = [s for s in sites if s[0] == "secret"]
-        self.assertIn("BASH_TOOLS", secret[0][4])
+        # the shell-text site is guarded by BASH_TOOLS; the MCP content site
+        # (plan 057 (c)) now comes first in decision(), so read by guard, not position
+        self.assertTrue(any("BASH_TOOLS" in s[4] for s in secret), secret)
         # plan 057 (a)1: the text a write lands is read on every route, a write
         # tool's as well as a heredoc's, so that site has no shell guard
         self.assertNotIn("BASH_TOOLS", secret[-1][4])
