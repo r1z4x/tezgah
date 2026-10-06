@@ -30,7 +30,7 @@ writes stays under `~/.cache/tezgah/replay`. The corpus, the exclusions and the 
 
 | Host | Adapter | Refusal envelope |
 |---|---|---|
-| claude, dsh | `hooks/projects-pretooluse.py::main` (`hosts/dsh/hooks.json:13`) | `hookSpecificOutput.permissionDecision: "deny"` |
+| claude, dsh | `hooks/projects-pretooluse.py::main` (`hosts/dsh/hooks.json:13-14`) | `hookSpecificOutput.permissionDecision: "deny"` |
 | codex, cursor, omp | `hosts/codex/hook.py::main`, `hosts/cursor/hook.py::dispatch`, `hosts/omp/hook.py::handle` | that host's own envelope — [hosts.md](hosts.md) |
 | opencode | `hosts/opencode/plugins/tezgah.js:2117` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:2257` |
 
@@ -42,6 +42,23 @@ redirect or `tee` - the same shape the task phase rule reads, `write_paths` retu
 way (`hooks/tezgah_gate.py::decision`, `hooks/tezgah_gate.py::write_paths`, `hooks/tezgah_gate.py::shell_target`). Without it the after-state alone
 cannot tell a redirect that wrote the file from one that wrote what was already there, and the freshness half of the Stop rule would read every redirect as a
 change; the two halves of that rule are `hooks/tezgah_integrity.py`'s and are described in [evidence.md](evidence.md).
+
+## MCP — a server's effect tool
+
+An MCP effect tool reaches `decision` on every host that can route it ([hosts.md](hosts.md)). No rule refuses it for what it is.
+Its verb class only picks which existing content rules read its payload. An effect verb in the tool part of the name decides the class, case-sensitive
+like the host matcher (`hooks/tezgah_integrity.py::mcp_class`, `hooks/tezgah_integrity.py::MCP_VERBS`). The tool part is what follows the last `__`.
+A clause of it that a read verb leads (`get_commit`) is a read. An effect verb in another clause still decides (`get_or_create_issue`).
+omp's `mcp__<server>_<tool>` has no server boundary, so there an effect verb anywhere decides.
+A `write` call such as `write_file` meets the shortcut, attribution and secret rules.
+A `publish` call such as `send_message` meets attribution and secret. An `act` call such as `click` meets none of them.
+Every class counts as an effect for the drift re-statement (`hooks/tezgah_gate.py::effectful`) and the taint notice
+(`hooks/tezgah_untrusted.py::effectful`). So an `act` call can now draw the drift re-statement, once per long turn.
+The gate reads the payload through a bounded walk (`hooks/tezgah_integrity.py::mcp_text`).
+An unbounded read of an unbounded payload runs past the 5 s hook budget, and a late hook refuses nothing (audit H-3).
+On Claude, dsh and omp the host matcher names the effect verbs only, so a read-only MCP call spawns no hook.
+A temp-HOME fixture measured the cost: 200 spawns per case, on a loaded machine.
+The Claude hook took p95 135 ms on a 300-byte MCP write and 222 ms on a 1 MB one. A plain `Bash` call took 101 ms.
 
 ## The rules, in the order `decision` checks them
 
@@ -95,7 +112,7 @@ the texts at `hooks/tezgah_integrity.py::shortcut_edit` — run the checks, or s
 `verify-off` removes this check (`hooks/tezgah_gate.py::decision`). The shell is a write route like any other, and the one E7c measured an
 armed session taking once the write tools were refused: a heredoc that writes a skip into a test file meets the same predicate, run over the body the
 command would land (`hooks/tezgah_gate.py::shell_write_body`, read at `hooks/tezgah_gate.py::decision` — the body is the raw text, because `mask()` blanks
-heredoc bodies by design).
+heredoc bodies by design). An MCP `write` call meets the same predicate over its payload text ([MCP](#mcp-a-servers-effect-tool)).
 
 ### Piped — a check whose status a trimmer owns
 
@@ -117,7 +134,7 @@ Trigger, shell: a write command (`hooks/tezgah_gate.py::WRITE_CMD` — `git comm
 containing a line that *starts* with a credit (`hooks/tezgah_gate.py::ATTRIB_LINE`). Told: remove it and re-run; naming a tool in order to use it is fine, crediting it
 as author is not (`hooks/tezgah_gate.py::ATTRIB_DENY`). Standing. The line anchor is why prose that merely names the banned forms passes (`hooks/tezgah_gate.py::_CREDIT`).
 The same twin as the shortcut rule's: a credit a heredoc writes into a file is refused from the body (`hooks/tezgah_gate.py::decision`), and no command has to be
-a `git`/`gh` write for it to be this rule's.
+a `git`/`gh` write for it to be this rule's. An MCP `write` or `publish` call meets `ATTRIB_LINE` over its payload text ([MCP](#mcp-a-servers-effect-tool)).
 
 ### Language — an identifier or message that is not English
 
@@ -163,6 +180,9 @@ Trigger: one simple command (split on `&&`, `||`, `;`, newline — `hooks/tezgah
 `| tee`, a curl `--trace`, or `git add`); `hooks/tezgah_gate.py::secret_command`. Told: record the name, length or a fingerprint instead, and pass the value through the
 tool's environment (`hooks/tezgah_gate.py::SECRET_DENY`). Standing, no escape hatch. The shell's own write route is the third twin: a credential inside a heredoc body
 is refused from the body (`hooks/tezgah_gate.py::decision`), because `mask()` blanks that body and the text-level scan above cannot see it.
+The gate refuses an MCP `write` or `publish` payload that carries a vendor token such as `ghp_` or `sk_live_` (`hooks/tezgah_gate.py::MCP_TOKEN`).
+A bare `sk-`, `pk_` or `rk_` prefix does not count there, because identifiers and branch names carry it (`hooks/tezgah_gate.py::MCP_SECRET_DENY`).
+Neither does the `name=value` shape, which a program's own text matches.
 
 ### Plan — a turn's third product file on `main`
 
@@ -213,7 +233,7 @@ Once-only: the mark in `cache_dir()/nudged/<session>` is written *before* the re
 ### Drift — a long turn loses the rules it started with
 
 Trigger: 25 work rows (`hooks/tezgah_gate.py::DRIFT_STEPS`) in the current user turn and an effectful call — a write tool, or a git/gh artifact command (`effectful`
-`hooks/tezgah_gate.py::effectful`). Told: the standing constraints re-stated, or the delta since the turn began; "re-issue this call unchanged and carry on" (`hooks/tezgah_gate.py::DRIFT_DENY`,
+`hooks/tezgah_gate.py::effectful`). An MCP call of any verb class counts as an effectful call too. Told: the standing constraints re-stated, or the delta since the turn began; "re-issue this call unchanged and carry on" (`hooks/tezgah_gate.py::DRIFT_DENY`,
 `hooks/tezgah_gate.py::drift_reason`). A refusal, last in `decision` after every other rule, and its only delivery: no host's PostToolUse side carries it, and opencode gets it from the core through `bin/tezgah-gate` on its write path. Once per turn: the `drift` mark is written *before* the refusal, so the identical call passes on the next attempt, and the count behind it is the turn's own — a bounded read (`hooks/tezgah_gate.py::DRIFT_TAIL`) falls back to the turn's own start (`hooks/tezgah_integrity.py::turn_rows`) when the turn outgrew the window. Governed by `reminder-off`, not `verify-off` (`hooks/tezgah_gate.py::drift_reason`).
 
 ## What the gate deliberately does not catch
@@ -231,6 +251,8 @@ Read this before filing a security-ish issue; each is a decision, not an oversig
 - A foreign `apply_patch` write: the PostToolUse writer records no path for that row (`hooks/tezgah_gate.py::write_paths`); and a second session that spells the path differently
   escapes the rule, because the ledger keeps no `cwd` (`hooks/tezgah_gate.py:604-606`).
 - Which rule the user meant when a turn drifts: "a guess about intent wearing a check's clothes" (`hooks/tezgah_gate.py::drift_reason`).
+- The MCP walk stops at 64 KiB of text, 8 levels or 4096 values (`hooks/tezgah_integrity.py::MCP_WALK_MAX`). Text past the cap goes unread.
+  A tool name with no verb from `MCP_VERBS` counts as a read. Both cost that call the content rules, never a refusal.
 - A skip already in the file, or one inside a string (a test *about* the rule), is not a disable (`hooks/tezgah_integrity.py::_added`).
 - A `core.hooksPath` redirect behind an alias or a variable: `git -c core.hooksPath=/tmp/h -c alias.c=commit c` and `K=core.hooksPath; GIT_CONFIG_KEY_0=$K ...` set the directory and commit without the words `commit`/`push` or the literal key, so the word reader (`hooks/tezgah_integrity.py::_hooks_redirect`) does not see them. Same class as `bash -c '<line>'`, which the program-position reader also does not open: a shell feature that hides the command is out of scope rather than half-read. A command substitution inside double quotes (`"$(git config core.hooksPath /dev/null)"` beside a commit) is the same class, and the reader's docstring says so (`hooks/tezgah_integrity.py::_unquoted_backticks`).
 - The content of a shell write that is not a heredoc: `echo "Co-Authored-By: x" > f` puts the credit inside a quoted string that no line-start anchor can see,

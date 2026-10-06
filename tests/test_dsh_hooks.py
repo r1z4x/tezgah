@@ -160,6 +160,12 @@ class DshToolVocabulary(unittest.TestCase):
                 self.assertFalse(any(selects(m, tool)
                                      for m in self.matchers("PostToolUse")), tool)
 
+    def test_pre_tool_use_selects_dsh_mcp_tools(self):
+        # dsh-mcp-client names a server's tool `mcp__<server>__<tool>`; without
+        # a PreToolUse group for it, a server's write never meets the gate.
+        self.assertTrue(any(selects(m, "mcp__github__create_issue")
+                            for m in self.matchers("PreToolUse")))
+
 
 class DshLedger(TempHome):
     """The manifest's own command, run the way the bridge runs it: the string

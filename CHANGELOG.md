@@ -16,6 +16,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   names a part nothing covers. The report always exits 0.
   `bin/tezgah-docs --citations` and `tests/test_enforcers.py` fail on a rule
   that nothing refuses on and that has no row in `docs/contract.md`.
+- **An MCP effect now meets the gate's content rules**. Claude, dsh and omp
+  spawn the gate for an MCP tool whose name carries an effect verb, so a
+  read-only MCP call costs nothing. Cursor's `beforeMCPExecution` asks the
+  gate. An effect verb in the tool's name picks the rules, case-sensitive like
+  the host matcher. A clause led by a read verb (`get_commit`) is a read. A
+  `write` meets shortcut, attribution and secret. A `publish` meets attribution
+  and secret. No class refuses by itself. The secret half reads vendor token
+  shapes only. The payload walk stops at 64 KiB. An MCP effect also counts for
+  the taint notice, one notice per untrusted channel, and for the drift
+  re-statement. So an MCP `act` such as a click can now draw that re-statement
+  once per long turn.
 - **Real bash now checks the shell readers.** `tests/fuzz_shell.py`
   draws seeded lines from the hand vectors' grammar. It runs each in `bash`
   with a stub per program word and prints each class where `shell_programs` or

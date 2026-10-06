@@ -288,7 +288,7 @@ class Inventories(unittest.TestCase):
 
     def test_every_deny_site_of_decision_is_read_with_its_guards(self):
         sites = docs_module().rule_sites()
-        self.assertEqual(len(sites), 24)
+        self.assertEqual(len(sites), 27)  # 3 of them the MCP content rules'
         order = []
         for site in sites:
             if site[0] not in order:

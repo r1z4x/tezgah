@@ -2488,6 +2488,45 @@ class PowershellMatcher(SetupBase):
                         "%s: PreToolUse never runs the gate for %s"
                         % (path, tool))
 
+    def test_the_mcp_effect_matchers_are_built_from_the_verb_classes(self):
+        # Plan 019: the literal group stays a list of exact names (a regex
+        # character in it would turn every name into an unanchored pattern, so
+        # `Edit` would select `NotebookEdit`'s neighbours and `task` every
+        # `*task*`). An MCP effect reaches the gate through a group of its own,
+        # spelled from tezgah_integrity.MCP_VERBS so a read-only MCP call (a
+        # code-graph query) spawns no hook. The same pattern is omp's
+        # MCP_EFFECT. No lookahead: the pattern runs under JS and Python alike.
+        import tezgah_integrity as ti
+        verbs = sorted(set().union(*(words for _, words in ti.MCP_VERBS)))
+        want = (r"^mcp__(?:.*[^A-Za-z0-9])?(?:%s)(?:[^A-Za-z0-9].*)?$"
+                % "|".join(verbs))
+        for path in ("hooks/hooks.json", "hosts/dsh/hooks.json"):
+            with self.subTest(path=path):
+                matchers = self.pretool_matchers(path)
+                self.assertRegex(matchers[0], self.LITERAL)
+                self.assertEqual(matchers[1:], [want])
+                for tool in ("mcp__github__create_issue", "mcp__fs_write_file",
+                             "mcp__mobile_mcp_mobile_click_on_screen"):
+                    self.assertTrue(any(self.selects(m, tool) for m in matchers),
+                                    tool)
+                for tool in ("Read", "mcp__codegraph_explore",
+                             "mcp__github__get_file", "mcp__github__updated_at"):
+                    self.assertFalse(any(self.selects(m, tool) for m in matchers),
+                                     tool)
+                # parity: the gate classes a name only if the host spawns it
+                for tool in ("mcp__x__Create_issue", "mcp__x__create_issue",
+                             "mcp__github__get_or_create_issue",
+                             "mcp__fetch_server_write_file", "mcp__github__get_commit",
+                             "mcp__github__get_file", "MCP__x__create_issue"):
+                    if ti.mcp_class(tool) is not None:
+                        self.assertTrue(any(self.selects(m, tool)
+                                            for m in matchers), tool)
+                self.assertIsNone(ti.mcp_class("mcp__x__Create_issue"))
+                self.assertFalse(any(self.selects(m, "mcp__x__Create_issue")
+                                     for m in matchers))
+        with open(os.path.join(REPO, "hosts", "omp", "tezgah-hook.ts.in")) as fh:
+            self.assertIn("const MCP_EFFECT = /%s/;" % want, fh.read())
+
     def test_the_written_omp_hook_gates_the_shell_name(self):
         self.env["TEZGAH_CODEGRAPH_BIN"] = sys.executable  # as OmpHost.install does
         proc = self.setup("--install", "--hosts", "omp")

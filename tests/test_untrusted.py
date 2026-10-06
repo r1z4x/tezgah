@@ -274,6 +274,78 @@ class PostToolUseProvenance(TempHome):
         self.assertIn("an MCP server", text)
         self.assertNotIn("already read", text)
 
+    def test_an_mcp_effect_after_a_web_read_is_noticed_and_labelled(self):
+        # security-06: an MCP effect (an issue opened, a file written by a
+        # server) is an effect like a write tool's, so the turn's web read is
+        # noticed on it; its own result still came from the server, so it keeps
+        # the label and its row the `mcp` channel, which spends the web read.
+        self.post("WebFetch", {"url": "https://x"})
+        text = self.line("mcp__github__create_issue", {"title": "t"})
+        self.assertIn("already read a web result", text)
+        self.assertIn("this result came from an MCP server", text)
+        self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
+                         [("external", "web"), ("external", "mcp")])
+
+    def test_the_mcp_effect_class_is_the_shared_definition(self):
+        import tezgah_untrusted as tu
+        for tool in ("mcp__github__create_issue", "mcp__fs_write_file",
+                     "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"):
+            self.assertTrue(tu.effectful(tool), tool)
+            self.assertIsNotNone(ti.mcp_class(tool), tool)
+        for tool in ("mcp__github__get_file", "mcp__codegraph_explore",
+                     "mcp__github__get_commit", "mcp__github__get_workflow_run",
+                     "mcp__mobile_mcp_mobile_list_elements_on_screen"):
+            self.assertFalse(tu.effectful(tool), tool)
+            self.assertIsNone(ti.mcp_class(tool), tool)
+
+    def test_a_read_word_never_hides_an_effect_in_the_tool_part(self):
+        import tezgah_untrusted as tu
+        # A read verb leads its own clause only; the server segment never decides
+        # (`search`, `fetch_server`), and omp's `mcp__srv_tool` has no server
+        # boundary, so there an effect verb anywhere wins.
+        for tool in ("mcp__x__read_and_write_file", "mcp__github__get_or_create_issue",
+                     "mcp__x__list_and_delete", "mcp__search__create_issue",
+                     "mcp__fetch_server__write_file", "mcp__fetch_server_write_file",
+                     "mcp__github_get_commit"):
+            self.assertTrue(tu.effectful(tool), tool)
+            self.assertIsNotNone(ti.mcp_class(tool), tool)
+
+    def test_the_mcp_class_is_case_sensitive_like_the_host_matcher(self):
+        import tezgah_untrusted as tu
+        # the host matchers (JS RegExp, no flag) never select `Create`, so the
+        # gate must not class it either: both sides read the same names
+        for tool in ("mcp__x__Create_issue", "MCP__x__create_issue"):
+            self.assertIsNone(ti.mcp_class(tool), tool)
+            self.assertFalse(tu.effectful(tool), tool)
+
+    def test_a_run_of_mcp_effects_wears_one_notice_per_untrusted_channel(self):
+        # One notice per untrusted channel: the web read is noticed on the first
+        # MCP effect, the MCP results on the first non-MCP effect after them.
+        # Each MCP row re-arms the `mcp` channel, so without the guard every
+        # click after the first carried the notice. The web read is noticed on
+        # the first MCP effect; the MCP results after it carry their label only.
+        self.post("WebFetch", {"url": "https://x"})
+        click = "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"
+        self.assertIn("already read a web result", self.line(click, {"x": 1}))
+        for tool in (click, click, click, "mcp__github__create_issue"):
+            text = self.line(tool, {"x": 1})
+            self.assertNotIn("already read", text)
+            self.assertIn("an MCP server", text)
+        # the MCP results are a read of their own: the first non-MCP effect after
+        # them is noticed once, as it was before an MCP call counted as an effect
+        self.assertIn("already read an MCP server",
+                      self.line("Bash", {"command": "make"}))
+        self.assertEqual(self.line("Bash", {"command": "make"}), "")
+
+    def test_four_mobile_clicks_after_an_mcp_read_carry_no_notice(self):
+        # the reported flood: a screen read, then four clicks, each noticed
+        self.line("mcp__mobile_mcp_mobile_list_elements_on_screen", {})
+        click = "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"
+        for _ in range(4):
+            text = self.line(click, {"x": 1})
+            self.assertNotIn("already read", text)
+            self.assertIn("an MCP server", text)
+
     def test_a_stale_turn_s_read_is_not_this_turn_s(self):
         # The turn marker bounds the read, so a page the *previous* turn fetched
         # and never spent is not this turn's: inheriting it would hold this

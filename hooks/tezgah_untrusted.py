@@ -25,23 +25,23 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_integrity import (  # noqa: E402
-    BASH_TOOLS, SUBAGENT_CHANNEL, UNTRUSTED_CHANNEL, WRITE_TOOLS, subagent_read,
-    turn_rows, untrusted_label, untrusted_source)
+    BASH_TOOLS, SUBAGENT_CHANNEL, UNTRUSTED_CHANNEL, WRITE_TOOLS, mcp_class,
+    subagent_read, turn_rows, untrusted_label, untrusted_source)
 
 # The calls an action leaves through: one that writes, moves or runs something.
 # A read is not tainted by an earlier read - the taxonomy asks a host to mark the
 # sink side. `turn_rows` is imported because it is the ledger's one turn-scoped
 # read: where a user turn begins is `_turn_start`'s definition there, and a
-# second copy here would be a second definition.
-# ponytail: an MCP call that effects (a message sent, a click, a merge) is in
-# neither list, so it is not marked; the lists are the shared vocabulary's, and
-# widening them here would be this module's own definition of "writes".
+# second copy here would be a second definition. An MCP effect (a message sent,
+# a click, a merge) is one by the shared verb class (`mcp_class`), the same
+# definition the gate's drift re-statement reads.
 EFFECTFUL = frozenset(BASH_TOOLS + WRITE_TOOLS)
 
 
 def effectful(tool):
     """True when this call is one the model's effects leave through."""
-    return str(tool or "").strip().lower() in EFFECTFUL
+    name = str(tool or "").strip()
+    return name.lower() in EFFECTFUL or mcp_class(name) is not None
 
 
 def turn_channel(session_id, agent=None):
@@ -97,6 +97,16 @@ def marks(tool, inp, session_id, result=None, agent=None):
     own = untrusted_source(tool, inp)
     if own == SUBAGENT_CHANNEL and not subagent_read(result):
         own = None
+    # An MCP effect is both: its result came from the server (the label, and
+    # the `mcp` channel on its `external` row, which takes the inherited one's
+    # place in turn_channel) and it is an effect made in the turn (the notice).
+    # Every MCP row re-arms the `mcp` channel, so an MCP effect after an MCP
+    # read would wear the notice on each click of a run; its label already
+    # says the same, so only another channel (a web read) earns the notice.
     inherited = turn_channel(session_id, agent) if (
-        not own and effectful(tool)) else None
-    return own or inherited, untrusted_label(own) or taint_notice(inherited)
+        own in (None, "mcp") and effectful(tool)) else None
+    if own == "mcp" and inherited == "mcp":
+        inherited = None
+    line = "\n".join(t for t in (untrusted_label(own), taint_notice(inherited))
+                     if t)
+    return own or inherited, line or None

@@ -90,9 +90,10 @@ import shlex
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               GIT_WRAPPER, HOOKS_KEY, STEP_KINDS, WRITE_TOOLS,
                               _blank_heredocs, _turn_start, _unquoted_backticks,
-                              call_id, cut, events, heredoc_bodies, mask, note,
-                              prior_calls, shortcut_command, shortcut_edit,
-                              turn_rows, verify_command)
+                              call_id, cut, events, heredoc_bodies, mask,
+                              mcp_class, mcp_text, note, prior_calls,
+                              shortcut_command, shortcut_edit, turn_rows,
+                              verify_command)
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -232,6 +233,30 @@ SECRET_DENY = (
     "name, length or a fingerprint instead of its value, pass it through the "
     "tool's own environment, or let the tool read it from there rather than "
     "writing it out.")
+
+# the MCP half of the rule (see `decision`): the same advice, for a server write
+MCP_SECRET_DENY = (
+    "Credential write denied: this MCP call would land a credential (a prefixed "
+    "token such as `ghp_...` or `sk-...`) in what the server writes or posts. "
+    "Record the credential's name, length or a fingerprint instead of its value, "
+    "or let the server read it from its own environment.")
+
+# The credential shapes the MCP half reads: vendor tokens only, case-sensitive.
+# The redactor's families (tezgah_integrity.SECRET_TOKEN) also take any
+# `sk|pk|rk` + 16 characters, which is what an identifier or a branch name looks
+# like (`pk_users_organization_id`, `sk-telemetry-dashboard-refactor`) - right for
+# a redactor, which loses nothing by blanking one, wrong for a refusal.
+MCP_TOKEN = re.compile(
+    r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}"
+    r"|\bsk-(?:proj|ant)-[A-Za-z0-9_\-]{16,}"
+    r"|\bsk-[A-Za-z0-9]{32,}"
+    r"|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}"
+    r"|\bgithub_pat_[A-Za-z0-9_]{20,}"
+    r"|\bxox[baprs]-[A-Za-z0-9-]{10,}"
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
+    r"|\bAIza[0-9A-Za-z_\-]{30,}"
+    r"|\bglpat-[A-Za-z0-9_\-]{20,}"
+    r"|\bnpm_[A-Za-z0-9]{30,}")
 
 EXPLORE_DENY = (
     "A grep-only explorer subagent is not allowed in this tree: it greps by "
@@ -1198,7 +1223,7 @@ def drift_reason(tool, inp, cwd, session_id):
     reason string is the only channel), so the notice arrives as a refusal whose
     reason is the re-statement, and the mark is written here - before the deny -
     so the identical call passes on the next attempt."""
-    if off("reminder-off") or not effectful(str(tool or "").lower(), inp or {}):
+    if off("reminder-off") or not effectful(tool, inp or {}):
         return None
     if not session_id:
         return None
@@ -1214,15 +1239,18 @@ def drift_reason(tool, inp, cwd, session_id):
     return DRIFT_DENY % (steps, DRIFT_STEPS, drift_text(cwd, session_id))
 
 
-def effectful(t, inp):
-    """True when this call is one the constraints are about: a write tool, or a
-    git/gh command that lands an artifact. A read changes nothing, so the notice
-    spent on it would be spent where no rule applies."""
+def effectful(tool, inp):
+    """True when this call is one the constraints are about: a write tool, a
+    git/gh command that lands an artifact, or an MCP effect
+    (`tezgah_integrity.mcp_class`, which reads the name as the host matcher does,
+    case-sensitive). A read changes nothing, so the notice spent on it would be
+    spent where no rule applies."""
+    t = str(tool or "").lower()
     if t in WRITE_TOOLS:
         return True
     if t in BASH_TOOLS:
         return bool(WRITE_CMD.search(mask(str(inp.get("command") or ""))))
-    return False
+    return mcp_class(tool) is not None
 
 
 # --- plan required: work that spans files on main has no plan ----------------
@@ -2122,6 +2150,24 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
         reason = workspace_reason(inp, cwd, base)
         if reason:
             return _deny(session_id, "workspace", reason, tool, inp, base)
+    # MCP: a server's effect tool lands text the way a write tool or a `gh`
+    # write does, so its payload meets the same content rules. The verb class
+    # (tezgah_integrity.MCP_VERBS) only picks which rules read it - it never
+    # refuses or asks by itself - and the payload is read through the bounded
+    # walk (mcp_text). The credential half reads vendor token shapes only
+    # (MCP_TOKEN), never the shell's name=value shape.
+    verb = mcp_class(tool)
+    if verb in ("write", "publish"):
+        text = mcp_text(inp)
+        if verb == "write" and not off("verify-off"):
+            reason = shortcut_edit({"file_path": (write_paths(inp) or [""])[0],
+                                    "content": text})
+            if reason:
+                return _deny(session_id, "shortcut", reason, tool, inp, base)
+        if ATTRIB_LINE.search(text):
+            return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
+        if MCP_TOKEN.search(text):
+            return _deny(session_id, "secret", MCP_SECRET_DENY, tool, inp, base)
     # A credential on its way into a file. No escape hatch: the deny text
     # names the rephrase (a name, a length, a fingerprint), so the write can
     # be replaced rather than repeated. The body a heredoc writes is read
