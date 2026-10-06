@@ -6,46 +6,43 @@
     "unjudged": 1
   },
   "docs/architecture.md": {
-    "unjudged": 33
+    "unjudged": 25
   },
   "docs/contract.md": {
-    "unjudged": 8
+    "unjudged": 5
   },
   "docs/environment.md": {
-    "unjudged": 10
+    "unjudged": 8
   },
   "docs/evidence.md": {
-    "unjudged": 40
+    "unjudged": 18
   },
   "docs/feature-audit.md": {
     "unjudged": 2
   },
   "docs/gate.md": {
-    "unjudged": 44
+    "unjudged": 41
   },
   "docs/glossary.md": {
-    "unjudged": 22
+    "unjudged": 12
   },
   "docs/hosts.md": {
-    "unjudged": 85
+    "unjudged": 62
   },
   "docs/layers.md": {
-    "unjudged": 16
+    "unjudged": 14
   },
   "docs/operations.md": {
-    "unjudged": 57
+    "unjudged": 21
   },
   "docs/skills.md": {
-    "unjudged": 23
+    "unjudged": 7
   },
   "docs/status-line.md": {
-    "unjudged": 46
+    "unjudged": 9
   },
   "docs/testing.md": {
-    "unjudged": 49
-  },
-  "docs/vision.md": {
-    "unjudged": 1
+    "unjudged": 42
   },
   "hooks/tezgah_gate.py": {
     "unjudged": 1
