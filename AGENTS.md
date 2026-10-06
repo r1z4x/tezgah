@@ -107,11 +107,13 @@ revision's exported `hooks/` (`git archive <rev> hooks | tar -x -C /tmp/base`).
 
 `python3 tests/replay_context.py [--base REV] [--head REV] [--json]` replays the
 prompts of the top-level omp and Claude transcripts `bin/tezgah-taste mine`
-reads (read-only) through `tezgah_context.context_for` on two exported
-revisions, each in a throwaway HOME against one empty project, and prints n
-sessions, median/p90/total injected bytes per session per revision and the
-head/base ratios. No model call; `tests/test_replay_context.py` runs it on a
-seeded two-session fixture.
+reads (read-only) through `tezgah_context.context_for` on two revisions, each
+exported to a path of the same length (`<scratch>/base/tree`,
+`<scratch>/head/tree`: the plugin path is part of the injected text) and run in
+a throwaway HOME against one empty project. It prints n sessions,
+median/p90/total injected bytes per session per revision and the head/base
+ratios. No model call; `tests/test_replay_context.py` runs it on a seeded
+two-session fixture.
 
 ### App-analysis MCP, end to end
 

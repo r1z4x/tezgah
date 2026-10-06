@@ -76,6 +76,10 @@ class Replay(unittest.TestCase):
         self.assertEqual(got["base"], got["head"])
         self.assertEqual(got["ratio"], {"median": 1.0, "p90": 1.0, "total": 1.0})
 
+    def test_hooks_paths_of_unequal_length_are_refused(self):
+        with self.assertRaises(SystemExit):
+            rc.compare(self.sessions, HOOKS, HOOKS + "x", self.home)
+
     def test_stats(self):
         self.assertEqual(rc.stats([5, 1, 3, 2]), {"median": 2.5, "p90": 5, "total": 11})
         self.assertEqual(rc.stats(list(range(1, 11)))["p90"], 9)
