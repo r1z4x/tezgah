@@ -308,6 +308,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The masker and the status reader drop three misreads.** An escaped `\$'` no longer
+  opens an ANSI-C string. A quote left open blanks only what follows it, and an
+  apostrophe in a heredoc body opens no quote. A quoted newline, a comment, a
+  heredoc body and `exit $?` after a check no longer take the check's status.
+  The opencode plugin reads all of these the same way.
 - **The word reader follows bash on three shapes.** A `$'it\'s'` is one
   word, so the line after it no longer falls to the
   rough read. The words after a `$( )` or backtick close stay that command's

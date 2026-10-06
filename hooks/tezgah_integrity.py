@@ -2030,41 +2030,55 @@ def mask_source(text):
                         _blank_heredocs(str(text or "")))
 
 
+def _heredoc_bytes(text):
+    """1 for each character of a heredoc body or its terminator line: data, so
+    a reader that follows quotes opens none there (an apostrophe in a body is
+    not a quote), and a newline there always ends a line."""
+    out = bytearray(len(text))
+    if "<<" in text:
+        for h in _heredocs(text):
+            end = h[5][1] if h[5] else len(text)
+            out[h[4]:end] = b"\x01" * (end - h[4])
+    return out
+
+
 def mask(text):
     """A shell line with quoted strings, comments and heredoc bodies blanked,
     length and newlines kept, read the way bash reads it: `'...'` takes no
-    escape, `$'...'` and `"..."` do, a `\\` outside quotes escapes one
-    character, and `#` starts a comment only at the start of a word. So
-    `https://x`, `a#b`, `src/*.py ... lib/*/` and `'x\\'` are words, not a
-    comment or an open string that blanks the command after them (gate-01). A
-    quote left open is a line this reader cannot tell: it keeps the source
-    reading (`mask_source`), the answer it had before."""
+    escape, `$'...'` (an unescaped `$` only) and `"..."` do, a `\\` outside
+    quotes escapes one character, and `#` starts a comment only at the start of
+    a word. So `https://x`, `a#b`, `src/*.py ... lib/*/`, `'x\\'` and `\\$'x\\'`
+    are words, not a comment or an open string that blanks the command after
+    them (gate-01). A quote left open blanks from itself to the end - bash runs
+    nothing after it - and keeps the reading before it."""
     text = _blank_heredocs(str(text or ""))
-    out, i, n, start = list(text), 0, len(text), True
+    body = _heredoc_bytes(text)
+    out, i, n, start, prev = list(text), 0, len(text), True, ""
     while i < n:
         ch = text[i]
+        if body[i]:
+            i, start, prev = i + 1, True, ""
+            continue
         if ch == "\\":
-            i, start = i + 2, False
+            i, start, prev = i + 2, False, ""
             continue
         if ch in "'\"":
-            escapes = ch == '"' or text[i - 1:i] == "$"
+            escapes = ch == '"' or prev == "$"
             end = i + 1
             while end < n and text[end] != ch:
                 end += 2 if escapes and text[end] == "\\" else 1
-            if end >= n:
-                return mask_source(text)
-            end += 1
+            end = min(end + 1, n)
         elif ch == "#" and start:
             end = text.find("\n", i)
             end = n if end < 0 else end
         else:
-            start = ch.isspace() or ch in ";&|()<>"
+            start, prev = ch.isspace() or ch in ";&|()<>", ch
             i += 1
             continue
         for k in range(i, end):
             if out[k] != "\n":
                 out[k] = " "
-        i, start = end, False
+        i, start, prev = end, False, ""
     return "".join(out)
 
 
@@ -2125,6 +2139,57 @@ def _for_shlex(text):
     return "".join(out)
 
 
+def _shell_lines(text):
+    """`text` split at the newlines that end a command in bash: none inside
+    quotes (`'...'`, `"..."`, `$'...'`), each one in a heredoc body or its
+    terminator (`_heredoc_bytes`), and a comment - `#` at the start of a word -
+    dropped to its line end. A double-quoted string holding a `$( )` or a
+    backtick runs a command, so its newlines still split - the reading this had
+    before, which keeps that command visible. A quote left open at the end goes
+    back to a split at every newline from its line on."""
+    body = _heredoc_bytes(text)
+    lines, cur, quote, start, i, n = [], [], None, True, 0, len(text)
+    opened, runs = 0, False
+    while i < n:
+        ch = text[i]
+        if body[i] or (not quote or runs) and ch in "\r\n":
+            if ch in "\r\n":
+                lines.append("".join(cur))
+                cur, quote, start, runs = [], None, True, False
+                i += 2 if text[i:i + 2] == "\r\n" else 1
+            else:
+                cur.append(ch)
+                i += 1
+            continue
+        if quote:
+            if ch == "\\" and quote != "'" and i + 1 < n:
+                cur.append(text[i:i + 2])
+                i += 2
+                continue
+            if ch == quote[-1]:
+                quote, runs = None, False
+            elif quote == '"' and (ch == "`" or text.startswith("$(", i)):
+                runs = True
+        elif ch == "\\" and i + 1 < n:
+            cur.append(text[i:i + 2])
+            i, start = i + 2, False
+            continue
+        elif ch == "#" and start:
+            while i < n and text[i] not in "\r\n":
+                i += 1
+            continue
+        elif ch in "'\"":
+            quote = "$'" if ch == "'" and cur and cur[-1] == "$" else ch
+            opened = len(lines)
+        start = not quote and (ch.isspace() or ch in ";&|()<>")
+        cur.append(ch)
+        i += 1
+    lines.append("".join(cur))
+    if quote:
+        lines[opened:] = re.split(r"\r\n|\r|\n", "\n".join(lines[opened:]))
+    return lines
+
+
 def _shell_commands(cmd):
     """`_shell_segments` with each command's separator kept: [words, sep], where
     `sep` is the `;&|()` runs that ended it (a run after an empty command joins
@@ -2132,8 +2197,8 @@ def _shell_commands(cmd):
     A `$( )` or backtick body is a command of its own, ended by `$)`, and the
     command around it goes on after its close with a `$()` word in its place."""
     out = []
-    text = _for_shlex(_blank_heredocs(str(cmd or "")).replace("\\\n", " "))
-    for line in re.split(r"\r\n|\r|\n", text):
+    text = _blank_heredocs(str(cmd or "")).replace("\\\n", "  ")
+    for line in map(_for_shlex, _shell_lines(text)):
         try:
             lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
             lex.whitespace_split = True
@@ -2145,8 +2210,6 @@ def _shell_commands(cmd):
         while i < len(words):
             word = words[i]
             i += 1
-            if word.startswith("#") and cur:
-                break  # bash: a comment starts a word; `x=a#b` is one word
             if word == "&" and i < len(words) and REDIRECTION.match(words[i]):
                 continue  # `&>` is a redirection, not a separator
             if REDIRECTION.match(word):
@@ -2196,13 +2259,14 @@ def _shell_segments(cmd):
     """The line's simple commands as word lists, read the way
     `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
     `;&|()<>` - so quotes and escapes are gone, heredoc bodies are blanked first,
-    a continued line is joined, a `$'...'` is one word (`_for_shlex`), and a
-    `$( )` or backtick body is a command of its own (`_shell_commands`). A line
-    shlex cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
+    a continued line is joined, a newline ends a command only where bash ends
+    one (`_shell_lines`), a `$'...'` is one word (`_for_shlex`), and a `$( )` or
+    backtick body is a command of its own (`_shell_commands`). A line shlex
+    cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
 
     Two places where bash and shlex disagree, and bash wins because bash is what
     runs the line: a `#` ends the line only at the start of a word (`x=a#b` is one
-    word, so `shlex`'s commenter is switched off and the split below drops the
+    word, so `shlex`'s commenter is switched off and `_shell_lines` drops the
     rest of the line itself), and a redirection is neither a command nor an
     argument - its words are dropped here, including the `&` of `2>&1`/`&>`,
     which would otherwise end the segment in the middle of one command. A run of
@@ -2466,16 +2530,25 @@ def status_hidden(cmd):
     followed by `;` or a newline and more commands, or is sent to the background
     with `&`. `pytest; echo done` exits 0 whatever pytest found, so it records as
     ran; `pytest && echo ok`, `cd x; pytest` and `pytest > log` keep the check's
+    status. A heredoc body and its terminator are data here, and an `exit $?`
+    (or a bare `exit`) right after the check ends the line with the check's
     status. Read with `_shell_commands`, each command re-quoted for
     `verify_command`. ponytail: `set -e` is not read, so `set -e; pytest; echo
     done` records as ran - a lost credit, never an invented one."""
     if pipe_hides_status(cmd):
         return True
-    cmds = _shell_commands(cmd)
+    cmd = str(cmd or "")
+    body = _heredoc_bytes(cmd)
+    cmds = _shell_commands("".join(" " if b and ch != "\n" else ch
+                                   for ch, b in zip(cmd, body)))
     for i, (words, _sep) in enumerate(cmds):
         if not verify_command(shlex.join(words)):
             continue
-        if any(not OWNING_SEP.match(sep) for _w, sep in cmds[i:-1]):
+        for k in range(i, len(cmds) - 1):
+            if OWNING_SEP.match(cmds[k][1]):
+                continue
+            if cmds[k + 1][0] in (["exit", "$?"], ["exit"]):
+                break
             return True
     return bool(cmds) and "&" in cmds[-1][1]
 

@@ -15,6 +15,7 @@ import time
 import unittest
 from unittest import mock
 
+import bash_vectors
 import support
 from support import TempHome, run_json
 
@@ -105,12 +106,18 @@ class ShortcutCommand(unittest.TestCase):
             self.assertIsNone(ti.shortcut_command(c), c)
 
     def test_the_shell_line_is_masked_as_bash_reads_it(self):
-        # gate-01: `//`, `a#b`, a `/* */` glob pair and `'x\'` are words to
-        # bash, so the command after them stays visible to every rule
-        for wrap in ("curl -s https://example.com/health; %s", "echo a#b; %s",
-                     "ls src/*.py; %s; ls lib/*/", "echo 'x\\'; %s; echo '\\'"):
+        # gate-01: `//`, `a#b`, a `/* */` glob pair, `'x\'` and an escaped
+        # `\$'` are words to bash, so the command after them stays visible
+        for wrap in bash_vectors.GATE01_WRAPS:
             self.assertIn("HUSKY=0 git commit", ti.mask(wrap % "HUSKY=0 git commit"))
             self.assertIsNotNone(ti.shortcut_command(wrap % "pytest || true"))
+        # a quote left open hides only what comes after it, and an apostrophe in
+        # a heredoc body opens no quote (review of plan 054)
+        for c in ("curl https://x.io; HUSKY=0 git commit -m x\necho 'oops",
+                  "curl https://x.io; pytest || true\necho 'oops",
+                  "cat <<EOF\ndon't\nEOF\ngit commit --no-verify -m x",
+                  "cat <<EOF\ndon't\nEOF\nHUSKY=0 git commit -m x; echo 'y'"):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
         # quotes, `$'...'` escapes and a word-initial `#` are still blanked
         for c in ("git commit -m 'run pytest || true'",
                   'git commit -m "a \\" pytest || true"',
@@ -439,7 +446,13 @@ class PipedCheck(unittest.TestCase):
         for c in ("pytest && echo ok", "cd x && pytest", "cd x; pytest",
                   "set -o pipefail; pytest | tee log", "pytest;",
                   "pytest > /tmp/x.log 2>&1", "set -euo pipefail\npytest -q | tail -3",
-                  "ruff check . && pytest", "git commit -m 'pytest; echo x'"):
+                  "ruff check . && pytest", "git commit -m 'pytest; echo x'",
+                  # review of plan 054: quoted newlines, comments, a heredoc
+                  # body and `exit $?` leave the status with the check
+                  'pytest && echo "a\nb"', "pytest -k 'a\nb' && echo done",
+                  "pytest; # trailing", "pytest\n# comment",
+                  "pytest <<EOF\nx\nEOF", "pytest; exit $?",
+                  'pytest; exit "$?"'):
             self.assertFalse(ti.status_hidden(c), c)
         self.assertTrue(ti.status_hidden("pytest | tee log"))
 
