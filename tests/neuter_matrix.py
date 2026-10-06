@@ -220,7 +220,8 @@ def run(name, edit, work):
     for module in MODULES:
         proc = subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", module],
-            cwd=tree, env=env, capture_output=True, text=True)
+            cwd=tree, env=env, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL)  # a hook test reading an inherited tty hangs
         lines = [x for x in proc.stderr.splitlines() if x.strip()]
         last = "%s: %s" % (module, lines[-1] if lines else "")
         if proc.returncode:
