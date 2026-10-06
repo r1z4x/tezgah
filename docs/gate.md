@@ -208,7 +208,7 @@ Trigger: a `Grep` whose pattern, or a `grep`/`rg` argument (`hooks/tezgah_gate.p
 codegraph index exists (`<repo>/.codegraph/codegraph.db`; `searched_identifier`
 `hooks/tezgah_gate.py::searched_identifier`). Told: the runnable command built from the denied search (`codegraph explore <X>`, `codegraph callers <X>`, `codegraph impact <X>`), and that an omp subagent uses this CLI because omp's MCP device refuses concurrent writes
 (`hooks/tezgah_gate.py::nudge_reason`).
-Once-only: the mark in `cache_dir()/nudged/<session>` is written *before* the refusal, so re-issuing the search passes (`hooks/tezgah_gate.py::first_nudge`).
+Once-only: the mark in `cache_dir()/nudged/<sha1(session)[:16]>` is written *before* the refusal, so re-issuing the search passes (`hooks/tezgah_gate.py::first_nudge`). opencode's `oncePerSession` writes the same name (`hooks/tezgah_gate.py::nudge_mark`).
 
 ### Drift — a long turn loses the rules it started with
 

@@ -331,6 +331,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **opencode keeps one snapshot per write and one nudge per session.**
+  The core captures a write it answers through `tezgah-gate decide`.
+  The plugin now captures only a call the core did not answer.
+  Both sides name the nudge mark `sha1(session)[:16]`
+  (`hooks/tezgah_gate.py::nudge_mark`).
 - **The update chip reaches installs on the retired 0.2.0-0.32.0 line.** A
   re-root on 2026-10-04 restarted the numbering at 0.1.1.
   npm last served 0.32.0 before it. `newer()` compared 0.30.0 higher than every

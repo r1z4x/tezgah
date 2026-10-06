@@ -456,6 +456,7 @@ certificate files, `id_rsa`-style keys, `credentials.json`, `.netrc`, `.npmrc`, 
 never duplicates a secret, and `rollback` lists it as not restorable (audit L-6). Snapshot files
 are written `0600` in `0700` directories. Every host calls `capture` in process except opencode, whose
 JavaScript plugin reaches it through `bin/tezgah-capture` (`bin/tezgah-capture:1-20`).
+The core captures a call put to `tezgah-gate decide` itself, so the plugin skips it.
 
 The store is capped twice (`:33-52`): `CAP = 200` snapshots, oldest evicted by directory mtime when a
 capture crosses it (`:51`, `hooks/tezgah_snapshot.py::_evict`), and `MAX_BYTES = 2 MiB` per file, above which

@@ -1838,6 +1838,51 @@ class OpenCodePlugin(TempHome):
         self.denied(self.before("grep", {"pattern": "FooBar"}))
         self.allowed(self.before("grep", {"pattern": "FooBar"}))
 
+    def decide_cli(self, tool, args, session):
+        """The core's live answer (`decide`, which records), as the plugin asks."""
+        proc = subprocess.run(
+            ["python3", self.gate_bin(), "decide"],
+            input=json.dumps({"tool": tool, "input": args, "cwd": self.repo,
+                              "session_id": session}),
+            capture_output=True, text=True, env=self.envv, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    def test_the_nudge_mark_is_one_key_on_both_sides(self):
+        # plan 057 (d)3: the once-per-session mark is one file per session
+        # whichever side writes it - the Python gate (`first_nudge`) and this
+        # plugin (`oncePerSession`) once keyed it on the raw id and on its sha1,
+        # so a session that crossed the two was nudged twice.
+        self.make_index()
+        grep = {"pattern": "some_identifier"}
+        self.assertTrue(self.decide_cli("Grep", grep, "py-first"))
+        self.allowed(self.before("grep", grep, session="py-first"))
+        self.denied(self.before("grep", grep, session="js-first"))
+        self.assertEqual(self.gate("Grep", grep, session="js-first"), "")
+        self.assertEqual(self.decide_cli("Grep", grep, "js-first"), "")
+
+    def test_a_write_the_core_answered_is_snapshotted_once(self):
+        # plan 057 (d)4: the core's live `decide` keeps the pre-write bytes on
+        # its own allow path (hooks/tezgah_gate.decision), so a call it answered
+        # must not be captured a second time here; one it could not answer
+        # still is (test_a_write_that_is_allowed_is_snapshotted_and_a_denied_one_is_not).
+        support.linked(os.path.join(support.REPO, "bin", "tezgah-capture"),
+                       self.home)
+        self.gate_bin()
+        target = os.path.join(self.repo, "src", "a.py")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w") as fh:
+            fh.write("x = 1\n")
+        out = os.path.join(self.repo, "out.txt")
+        with open(out, "w") as fh:
+            fh.write("x\n")
+        self.allowed(self.before("edit", {"file_path": target, "old_string":
+                                          "x = 1", "new_string": "x = 2"}))
+        # a shell write the core is asked about (TASK_CLI) is the same call
+        self.allowed(self.before("bash", {"command": "tezgah-task list > out.txt"}))
+        snaps = [r["detail"] for r in self.ledger() if r["kind"] == "snapshot"]
+        self.assertEqual(snaps, [target, out], self.ledger())
+
     # ---- the shared builder (per-prompt arming + post-compact) -------------
     def builder(self, event, payload=None):
         """What bin/tezgah-context prints for an event in this test's HOME."""

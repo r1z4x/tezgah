@@ -2057,7 +2057,10 @@ function permissionToolArgs(input) {
   return { tool, args }
 }
 
-async function oncePerSession(sessionID) {  const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
+// The mark's name is hooks/tezgah_gate.nudge_mark's: sha1(id)[:16], so a session
+// nudged on either side is spent on both (test_the_nudge_mark_is_one_key_on_both_sides).
+async function oncePerSession(sessionID) {
+  const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
   const dir = join(cacheDir(), "nudged")
   const mark = join(dir, key)
   if (existsSync(mark)) return false
@@ -2204,7 +2207,9 @@ function builderText(event, directory, payload) {
 // enforces its own
 // rules unchanged - a binary that is not there must never break the tool call it
 // guards. What the silence costs is one row, never a refusal.
-async function gateReason(tool, args, dir, sessionID) {
+// `core.answered` says the core did answer: its live `decide` has then kept the
+// snapshot of an allowed write itself, and this file must not keep a second one.
+async function gateReason(tool, args, dir, sessionID, core = {}) {
   const state = {}
   const reason = await collect(
     [GATE_BIN, "decide"], { stdio: ["pipe", "pipe", "ignore"] },
@@ -2215,6 +2220,7 @@ async function gateReason(tool, args, dir, sessionID) {
       return code === 0 ? out.trim() : ""
     })
   if (state.failure) await noteDelegation(sessionID, state.failure)
+  else core.answered = true
   return reason
 }
 
@@ -2322,6 +2328,7 @@ export const Tezgah = async ({ directory }) => {
       // whether the core was asked: its live `decide` writes the call's `began`
       // row on its own allow path, so this file writes one only when it was not
       let asked = false
+      const core = {}
       try {
         if (off("pretooluse-off")) return
         const base = await rootFor(dir)
@@ -2341,7 +2348,7 @@ export const Tezgah = async ({ directory }) => {
         const line = BASH_TOOLS.has(tool) ? String(args.command || args.cmd || "") : ""
         if (line && CONTROL_CMD.test(line)) {
           asked = true
-          deny = await gateReason(tool, args, dir, sessionID)
+          deny = await gateReason(tool, args, dir, sessionID, core)
         }
         if (deny) {
           // the core's own refusal, verbatim
@@ -2363,7 +2370,7 @@ export const Tezgah = async ({ directory }) => {
           deny = shortcuts ? await shortcutEdit(args) : null
           if (!deny) {
             asked = true
-            deny = await gateReason(tool, args, dir, sessionID)
+            deny = await gateReason(tool, args, dir, sessionID, core)
           }
         } else if (shortcuts && BASH_TOOLS.has(tool)) {
           deny = shortcutCommand(args.command || args.cmd || "")
@@ -2405,7 +2412,7 @@ export const Tezgah = async ({ directory }) => {
         if (!deny && !asked && cmd && (TASK_CLI.test(cmd) || IDENT_CMD.test(cmd) ||
             (shortcuts && cmd.includes("|") && verifyCommand(cmd)))) {
           asked = true
-          deny = await gateReason(tool, args, dir, sessionID)
+          deny = await gateReason(tool, args, dir, sessionID, core)
         }
         // The credential rule, then the two repeat ceilings, then the nudge: the
         // Python gate's own order (hooks/tezgah_gate.decision), so a call another
@@ -2439,12 +2446,13 @@ export const Tezgah = async ({ directory }) => {
         }
         // Nothing refused this call, so a write is about to land: keep the bytes
         // it is about to change, which is what bin/tezgah-rollback restores by
-        // hand. A refused write changes no file, so it is captured nowhere. The
-        // Python gate keeps its snapshot at this same point, after every deny
-        // check and before the call proceeds.
-        if (!deny && WRITE_TOOLS.has(tool)) {
+        // hand. A refused write changes no file, so it is captured nowhere, and a
+        // call the core answered was captured there (hooks/tezgah_gate.decision,
+        // the same point: after every deny check, before the call proceeds), so
+        // it is captured only once.
+        if (!deny && !core.answered && WRITE_TOOLS.has(tool)) {
           await captureSnapshot(tool, args, dir, sessionID)
-        } else if (!deny && BASH_TOOLS.has(tool)) {
+        } else if (!deny && !core.answered && BASH_TOOLS.has(tool)) {
           // A shell call that writes a file (a redirect or `tee`; writtenPath)
           // takes the same pre-state a write tool's target takes: without it the
           // after-state alone cannot tell a write that landed from a no-op, and
