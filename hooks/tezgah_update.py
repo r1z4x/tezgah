@@ -105,8 +105,10 @@ def write_cache(data):
 # line at 0.1.x: npm published 0.17.0 through 0.32.0 before it (`npm view
 # @r1z4x/tezgah time`), and 0.2.0 is where the earlier, unpublished numbering is
 # taken to start. An install inside it compares higher than every public release.
-# ponytail: once the public line reaches 0.2.0 the two ranges overlap and cannot
-# be told apart; this constant has to go before that release.
+# ponytail: a version inside the range is taken as retired, so an install that
+# carries this constant is never offered a public release inside it. Removing it
+# later cannot reach the 0.1.x installs already in the field: the line after
+# 0.1.x skips to 0.33.0 or later (pinned in tests/test_update.py::Reset).
 RETIRED = ((0, 2, 0), (0, 32, 0))
 
 

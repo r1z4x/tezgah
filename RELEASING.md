@@ -9,8 +9,10 @@ itself (`.claude-plugin/plugin.json`, mirrored in
 The numbering was reset on 2026-10-04: the repository was re-rooted and the
 public line restarted at 0.1.1 after 0.32.0 (npm served 0.17.0-0.32.0 before
 it). `hooks/tezgah_update.py::RETIRED` makes the update check offer 0.1.x to an
-install still inside 0.2.0-0.32.0. The public line cannot reach 0.2.0 while
-that constant stands, so a 0.2.0 release removes it first.
+install still inside 0.2.0-0.32.0. Every install that carries the constant
+treats that range as retired, and removing it later does not reach them. So the
+next line after 0.1.x skips to 0.33.0 or later, never 0.2.0-0.32.0
+(`tests/test_update.py::Reset` fails on a shipped version inside the range).
 
 ## Cut a release
 

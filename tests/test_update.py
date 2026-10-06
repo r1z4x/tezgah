@@ -254,6 +254,15 @@ class Reset(unittest.TestCase):
         finally:
             tu.read_cache, tu.due, tu.disabled = saved
 
+    def test_the_shipped_version_stays_outside_the_retired_line(self):
+        # 0.1.x installs in the field keep RETIRED forever and never take a
+        # release inside it, so the next public line skips past RETIRED[1]
+        shipped = tezgah_context.version(manifest=False)
+        self.assertIsNotNone(tu.parse(shipped), shipped)
+        self.assertFalse(tu.retired(shipped),
+                         "%s is inside the retired %s; the 0.1.x line goes "
+                         "straight to 0.33.0 or later" % (shipped, tu.RETIRED))
+
 
 class Channels(unittest.TestCase):
     def setUp(self):
