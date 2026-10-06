@@ -279,6 +279,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it, 109 more citations name a symbol (`--citations`: 1081 judged before, 1190
   after, 0 outside). Eight that point at a module comment or a module-level
   line were re-anchored as `path:line`.
+- **Ten more docs pages cite code by symbol**. A pass read their unjudged
+  citations against the code. Now 101 of them name a symbol
+  (`--citations`: 1230 judged before, 1333 after, 0 outside). Another 83 point
+  at JavaScript, shell, markdown or a module-level line, and now carry the line
+  they describe. One sentence in `docs/gate.md` said a path spelled differently
+  escapes the concurrent-write guard. The guard compares resolved paths, so the
+  sentence now names the case it does skip: a row with no `target`.
 - **The rule ledger drops its `since` column.** A history rewrite left no
   record of the first commit that carries each rule. The provenance table in
   `docs/gate.md` now has `rule`, `incident`, `evidence` and `pin`.
