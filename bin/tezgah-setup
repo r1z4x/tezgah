@@ -3640,7 +3640,9 @@ def context_budget():
 
     Approximate and host-side only: it counts the rendered contract, the
     per-turn reminder and the skill/subagent metadata. MCP tool schemas are the
-    host's to measure and are deliberately not counted here.
+    host's to measure and are deliberately not counted here. The on-demand size
+    is the shipped `tezgah-contract` skill itself - the text a session reads -
+    not a join of the policy blocks, which drifted from it.
     """
     core = tezgah_context.render(tezgah_context.always_on_core())
     conditional = sum(
@@ -3659,7 +3661,10 @@ def context_budget():
         ("subagent metadata (%d)" % (len(tezgah_agents.ROLES) + 1), agents),
         ("conditional rules (armed by task class)", conditional),
     ]
-    return rows, len(tezgah_context.render(policy.CONTRACT))
+    with open(os.path.join(HERE, "skills", "tezgah-contract", "SKILL.md"),
+              encoding="utf-8") as fh:
+        on_demand = len(fh.read())
+    return rows, on_demand
 
 
 def mcp_tool_schemas(command, timeout=30, env=None):

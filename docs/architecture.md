@@ -27,7 +27,7 @@ nothing about a host's event names or output envelope.
 | Module | Owns | Point at |
 |---|---|---|
 | `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-6`, `hooks/tezgah_context.py::context_for` |
-| `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and `CONTRACT` (the on-demand whole) | `hooks/tezgah_policy.py:2-11`, `hooks/tezgah_policy.py::CORE`, `hooks/tezgah_policy.py::CONDITIONAL_KEYS` |
+| `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and the long-form blocks the on-demand skill mirrors | `hooks/tezgah_policy.py:2-11`, `hooks/tezgah_policy.py::CORE`, `hooks/tezgah_policy.py::CONDITIONAL_KEYS` |
 | `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:2-75`, `hooks/tezgah_gate.py::decision` |
 | `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-24`, `hooks/tezgah_integrity.py::note_tool`, `hooks/tezgah_integrity.py::stop_reason` |
 | `tezgah_guard.py` | the one catch around an entry point's call into the core, so a crash costs an envelope rather than a session, and the `crash` ledger row that keeps it countable | `hooks/tezgah_guard.py:2-25`, `hooks/tezgah_guard.py::safe` |
@@ -132,10 +132,10 @@ on `subagent_start` the payload is the short brief, not the whole CORE
 | Tier | What it is | Assembled at | Paid |
 |---|---|---|---|
 | Always-on CORE | the rules every session carries: reply language, integrity, loop discipline, attribution, scope | `hooks/tezgah_policy.py::CORE`, injected by `hooks/tezgah_context.py::core_for` | once per session |
-| Conditional paragraphs | spec, consult, research, product, graph — armed by task class, for that turn only | `hooks/tezgah_policy.py::CONDITIONAL_KEYS`, armed at `hooks/tezgah_context.py::context_for` | the turns whose prompt matches |
+| Conditional paragraphs | spec, consult, research, product, graph — armed by task class, in full once per session and one line on a later match | `hooks/tezgah_policy.py::CONDITIONAL_KEYS`, armed at `hooks/tezgah_context.py::context_for`, repeated as `hooks/tezgah_context.py::armed_again` | the first matching turn in full; again after a compaction or `ARMED_RESURFACE` turns |
 | Pointer line | one line per conditional rule, so a host that never sees the paragraph still knows the rule exists | `hooks/tezgah_policy.py::POINTERS`, appended at `hooks/tezgah_context.py::context_for` | once per session |
 | Per-turn reminder | the compact `<harness-reminder>` envelope | `hooks/tezgah_policy.py::PROMPT_REMINDER`, injected at `hooks/tezgah_context.py::context_for` | every user turn |
-| On-demand full contract | the deep detail — orchestration, codegen, the exact kill switches — as a skill, not a hook payload | `skills/tezgah-contract/SKILL.md`, whose joined text is `hooks/tezgah_policy.py::CONTRACT` | only when loaded |
+| On-demand full contract | the deep detail — orchestration, codegen, the exact kill switches — as a skill, not a hook payload | `skills/tezgah-contract/SKILL.md`, hand-kept against the long-form blocks of `hooks/tezgah_policy.py` (`tests/test_setup.py::ContractParity`) | only when loaded |
 
 A host that carries the CORE in a static file does not pay for it twice: omp's
 managed `RULES.md` already holds it (`bin/tezgah-setup:1919-1981`), so its session hook
@@ -176,6 +176,13 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
   `hooks/tezgah_policy.py`; adapters carry envelopes (`hooks/projects-auto-init.py:2-7`).
   Host-specific copies exist only where a host cannot load Python, and those are
   generated from the policy, not hand-kept (`bin/tezgah-setup::opencode_contract_text`).
+  Two hand-kept mirrors are the named exceptions, and a test pins each one to
+  the policy. `skills/tezgah-contract/SKILL.md` mirrors the long-form blocks
+  (`tests/test_setup.py::ContractParity`). The policy keeps no joined constant,
+  and the cost report measures the skill file itself
+  (`bin/tezgah-setup::context_budget`). `output-styles/tezgah.md` mirrors CORE.
+  Text derived from CORE, such as the subagent brief, is cut from it by rule
+  (`hooks/tezgah_context.py::BRIEF_SENTENCES`) and never re-written.
 - **A hook never takes a session down.** Every call an entry point makes into
   the core goes through `tezgah_guard.safe`, which returns `None` and files a
   `crash` row rather than letting the exception out: a fault costs one envelope,

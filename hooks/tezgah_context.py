@@ -19,7 +19,7 @@ import tezgah_embed
 import tezgah_research
 from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
                               last_check, note, note_compaction, note_turn,
-                              scratch_evidence)
+                              redact, scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            REPLY_LANG_TEXT, open_lines_note, pony_level_line)
 from tezgah_paths import (CACHE, ai_research_dir, cache_dir, codegraph_bin,
@@ -87,6 +87,19 @@ def _ui_ask(word):
             % (obj, word, word, obj, UI_QUALITY))
 
 
+# The Turkish surfaces a simplify ask names before its verb (Turkish puts the
+# object first): "adım akışını sadeleştir" is a UI ask, "bu fonksiyonu
+# sadeleştir" is a refactor. Each takes its case suffix through \w*.
+TR_UI_OBJECTS = (r"akış|adım|ekran|sayfa|arayüz|form|menü|buton|düğme|panel|"
+                 r"tasarım|görünüm|kart|bileşen|sekme|pencere")
+
+
+def _tr_ui_ask(word):
+    """`word` after a Turkish UI surface in the same phrase - `_ui_ask`'s
+    object-first half, for the language whose object comes first."""
+    return (r"(?:\b(?:%s)\w*[^.!?\n]{0,40}\b(?:%s))" % (TR_UI_OBJECTS, word))
+
+
 PROMPT_HINTS = (
     ("spec", r"\b(normal (user )?behaviou?r|clean ui|nicer|more intuitive|"
              r"un?professional|polish(ed)?|improve the (ui|ux)|make it (better|"
@@ -94,7 +107,10 @@ PROMPT_HINTS = (
              r"güzel görün\w*|daha iyi (ol|görün)\w*|kullanıcı dostu|"
              r"modern görün\w*|şık (ol|görün)\w*|profesyonel görün\w*|"
              r"temiz (bir )?(arayüz|görün)\w*|anlaşılır\w*|"
-             r"kullanılabilirlik\w*|basitleştir\w*|sadeleştir\w*|"
+             # simplify is qualified by the surface it is about: "bu fonksiyonu
+             # sadeleştir" is a refactor, "adım akışını sadeleştir" a UI ask
+             r"kullanılabilirlik\w*|"
+             + _tr_ui_ask(r"basitleştir\w*|sadeleştir\w*") + r"|"
              r"yeniden tasarla\w*|baştan tasarla\w*|"
              # UI work said as work. The class fired on a quality adjective
              # alone, so "refactor the components" or "the hover state is wrong"
@@ -150,7 +166,11 @@ PROMPT_HINTS = (
              r"footer|header)|sidebars?|toolbars?|modals?|dialogs?|dropdowns?|"
              r"popovers?|accordions?|tooltips?|toasts?|avatars?|"
              + _ui_ask(r"badges?") + r"|"
-             r"breadcrumbs?|pagination|tab ?bar|steppers?|spinners?|"
+             # pagination is qualified like the craft nouns above: "add
+             # pagination to the API" is an endpoint, "the data table pagination
+             # is wrong" a rendered surface
+             r"breadcrumbs?|" + _ui_ask(r"pagination") + r"|tab ?bar|steppers?|"
+             r"spinners?|"
              + _ui_ask(r"skeletons?") + r"|"
              r"disabled\w*|devre dışı\w*|pressed|active state|selected state|"
              r"empty state|boş durum\w*|breakpoints?\w*|kırılma nokta\w*|"
@@ -214,7 +234,11 @@ PROMPT_HINTS = (
                  r"lit(erature)?[ -]review|kaynak tarama\w*|referans tarama\w*|"
                  r"evaluat(e|ing) (whether|the (librar|technique|approach|tool|"
                  r"option|alternative))|(yöntem|yaklaşım|kütüphane|varyant|"
-                 r"seçenek)\w* karşılaştır\w*|measure\w*|ölçüm\w*|deneysel\w*|"
+                 r"seçenek)\w* karşılaştır\w*|"
+                 # a timing ask is not a study: "measure how long the hook
+                 # takes" is a stopwatch, "measure the effect of X" a study
+                 r"measure(?! how (?:long|fast|much time)| the (?:time|duration|"
+                 r"latency|speed|runtime))\w*|ölçüm\w*|deneysel\w*|"
                  r"deneyler\w*|makale\w*|veri (seti|kümesi)|post[ -]?mortem|"
                  r"error budget|incident (review|report)|olay sonrası (analiz|"
                  r"değerlendirme)\w*|hata bütçe\w*|is (this|that|it) (actually )?"
@@ -228,7 +252,12 @@ PROMPT_HINTS = (
     # production/productivity/productive explicitly - those are code words that
     # merely share the prefix, and matching them would arm product analysis on a
     # deploy question.
-    ("product", r"\b(ürün\w*|product(?!ion|ivity|ive)\w*|feature\w*|roadmap|"
+    # The generic stems are qualified, never dropped (decision 006): each keeps
+    # its product sense and loses the code sense a lookahead names - a feature
+    # flag, a segment fault, a tier list, writing to the screen, a SQL table, a
+    # page number - so the frozen corpus keeps its rows.
+    ("product", r"\b(ürün\w*|product(?!ion|ivity|ive)\w*|"
+                r"feature(?!s?[ -](?:flags?|toggles?|gates?|branch\w*))\w*|roadmap|"
                 r"yol harita\w*|backlog|prd|north star|kuzey yıldız\w*|jtbd|"
                 r"retention|churn|onboarding|aktivasyon\w*|cohort|funnel|"
                 r"dönüşüm\w*|conversion rate|pricing|fiyatlandır\w*|"
@@ -242,9 +271,9 @@ PROMPT_HINTS = (
                 r"activations?\b|churn(ed|ing|s)?|funnels?|cohorts?|drop-?off|"
                 r"roadmaps?|priorit(y|ies)|adoption|benimsen\w*|"
                 r"conversion (rate|funnel|drop\w*)|packaging|monetiz\w*|"
-                r"price\w*|tier\w*|positioning|value proposition|"
+                r"price\w*|tier(?!s?[ -]lists?)\w*|positioning|value proposition|"
                 r"konumlandır\w*|\bicp\b|ideal customer profile|persona\w*|"
-                r"segment\w*|segmentasyon\w*|hedef kitle\w*|"
+                r"segment(?!(?:ation)?[ -]faults?)\w*|segmentasyon\w*|hedef kitle\w*|"
                 r"(customer|user|product|problem|kullanıcı|müşteri) discovery|"
                 r"keşif (görüşme|çalışma)\w*|opportunity (tree|solution|space|"
                 r"score)|fırsat\w*|\bnps\b|net promoter|\bcsat\b|satisfaction|"
@@ -253,18 +282,21 @@ PROMPT_HINTS = (
                 r"şikayet\w*|competitor\w*|competitive (analysis|landscape|"
                 r"teardown|benchmark)\w*|rakip\w*|rekabet\w*|pazar pay\w*|"
                 r"terk oran\w*|elde tutma\w*|abonelik\w*|gelir model\w*|"
-                r"özellik\w*|sayfa\w*|"
+                r"özellik\w*|sayfa(?! numara)\w*|"
                 # A single feature said by its surface: an admin screen, a table,
                 # a filter, a form, a step flow. These armed nothing before, so a
                 # feature-level audit got a screen-level answer. The lookaheads
                 # keep the code senses out: "ekran kartı" is a GPU, "adım sayısı"
                 # is a count, "format" is not a form.
-                r"ekran(?! kart)\w*|arayüz\w*|arama kutu\w*|filtre\w*|tablo\w*|"
+                r"ekran(?! kart)(?!a\b[^.!?\n]{0,40}\b(?:yaz|bas)\w*)\w*|arayüz\w*|"
+                r"arama kutu\w*|filtre\w*|"
+                r"tablo(?![^.!?\n]{0,60}\b(?:sütun|kolon|sql|index|indeks)\w*)\w*|"
                 r"wizard|adım(?! sayı)\w*|crud|kullanıcı liste\w*|"
                 r"form(u|un|da|daki|lar|ları|unu)\w*|"
                 r"form (validation|field|error|label)|data table|step flow|"
                 r"search (dropdown|box)|form validation|user management|"
-                r"(admin|users?) (panel|screen|page|table|list))\b"),
+                r"(admin|users?) (panel|screen|page|list)|"
+                + _ui_ask(r"(?:admin|users?) table") + r")\b"),
     ("graph", r"\b(who calls|callers?|call sites?|who uses|what breaks|"
             r"blast radius|where is|where's|definition of|who invokes|"
             r"kim çağır\w*|çağrı yerleri|nerede tanımlı|nasıl bağlan\w*|"
@@ -333,17 +365,14 @@ CORE_RULES = (
 # PROMPT_REMINDER with its whitespace collapsed. A kill switch drops its clause
 # here as it drops its paragraph from CORE; a test pins every clause to the
 # reminder text, so an edit there fails loudly instead of leaving the clause in.
+# The conditional rules (spec, graph, consult, research) have no clause: their
+# paragraph rides the turn whose prompt arms it, so a clause restated them on
+# every other turn too.
 REMINDER_CLAUSES = (
     ("exec", "{REPLY_SHORT}, BLUF, "),
     ("adhd", "answer first - no recap, no closer, at most five ranked items; "),
     ("ponytail", "code minimal per ponytail (code first, <=3 note lines); "),
-    ("spec", "underspecified/quality asks -> write a checkable spec with a named "
-             "standard, never guess; "),
     ("lessons", ".tezgah/lessons.md lines are standing constraints; "),
-    ("graph", '"who calls X"/"what breaks" -> `codegraph callers` / '
-              "`codegraph impact`, not grep alone; "),
-    ("consult", "consult before irreversible calls; "),
-    ("research", "research -> orx/OpenResearch, not ad-hoc; "),
     ("integrity", re.compile(r'done/tested claims need observed evidence -> .*?'
                              r'unverified "done"; ')),
 )
@@ -1096,12 +1125,35 @@ def write_stamp(session_id, root, stamp):
         pass
 
 
-def forget_lessons(session_id):
-    """Drop the lesson keys this session was shown, keeping the rest of the
-    stamp: the next turn's delta still compares against the same state."""
+def forget_seen(session_id):
+    """Drop what this session was shown once - the lesson keys and the armed
+    paragraphs - keeping the rest of the stamp: the next turn's delta still
+    compares against the same state, and the next matching prompt pays the full
+    paragraph again, because the compacted context no longer holds it."""
     stamp = read_stamp(session_id)
-    if stamp and stamp.get("lessons_seen"):
-        write_stamp(session_id, stamp["root"], dict(stamp, lessons_seen=[]))
+    if stamp and (stamp.get("lessons_seen") or stamp.get("armed_seen")):
+        write_stamp(session_id, stamp["root"],
+                    dict(stamp, lessons_seen=[], armed_seen={}))
+
+
+# An armed paragraph is paid in full once per session and its later matches pay
+# one line (`armed_again`); compaction forgets it (`forget_seen`). Cursor and dsh
+# send no compaction signal, and a paragraph read early in a long session fades,
+# so the full text comes back on the first match this many turns after it was
+# last shown, on every host - the per-turn hook is told no host name. ponytail:
+# a fixed count, not a measured decay curve; no transcript says when a paragraph
+# stops being followed.
+ARMED_RESURFACE = 20
+
+
+def armed_again(key):
+    """The one line a matching prompt pays for a paragraph this session was
+    already shown. The research rule keeps its `{OPEN_LINES}` slot: the open
+    lines are a fact about the repo now, not rule text the session holds."""
+    label = dict(CORE_RULES)[key]
+    return ("%s Armed again: the full rule was given earlier this session and "
+            "is in the `tezgah-contract` skill.%s"
+            % (label, "{OPEN_LINES}" if key == "research" else ""))
 
 
 def state_delta(root, previous, stamp=None):
@@ -1280,14 +1332,28 @@ def always_on_core():
     return "\n\n".join(always).strip() + "\n\n" + POINTERS.strip()
 
 
+# How many opening sentences of a rule the subagent brief keeps, where the
+# operative clause is not the first one: the reply-language rule's second
+# sentence is the one a delegate acts on (subagent prompts and inter-agent
+# reports stay English), the lessons rule's first sentence only says the file
+# exists - its second is the instruction - and the session-scope rule's second
+# is its prohibition (never install, upgrade or kill anything for tezgah). A
+# count, not text: the clause itself is always cut from CORE, the one
+# definition. A sentence ends at a full stop and any whitespace, a line break
+# included.
+BRIEF_SENTENCES = {"exec": 2, "scope": 2, "lessons": 2}
+
+
 def subagent_core(core=None):
     """The invariants as a labelled brief, for a delegated agent.
 
     A subagent is a fresh context that must know every rule exists, but it does
     not need the long-form rationale the main thread pays for once: each rule
-    keeps its bold label and its opening clause, and the full text stays one hop
-    away in the `tezgah-contract` skill. The brief is built from CORE_RULES, so
-    it can neither drop a rule nor invent one, and a test asserts exactly that.
+    keeps its bold label and its opening sentences - one, or the count
+    BRIEF_SENTENCES names where the operative clause is not the first sentence -
+    and the full text stays one hop away in the `tezgah-contract` skill. The
+    brief is built from CORE_RULES and cut from CORE's own text, so it can
+    neither drop a rule nor invent one, and a test asserts exactly that.
 
     Two always-on blocks are not `CORE_RULES` paragraphs and so cannot come out
     of that loop: the on-demand-rules pointer and the kill-switch list. Both are
@@ -1308,7 +1374,8 @@ def subagent_core(core=None):
         if block is None:
             continue
         body = block.split("**", 2)[2].strip()
-        first = body.split(". ", 1)[0].strip()
+        cut_at = BRIEF_SENTENCES.get(key, 1)
+        first = ". ".join(re.split(r"\.\s+", body)[:cut_at]).strip()
         if first and not first.endswith((".", ":")):
             first += "."
         short.append("%s %s" % (label, first) if first else label)
@@ -1338,46 +1405,51 @@ def session_of(payload):
 # --- the byte budget: bloat as a measured decision ---------------------------
 # Every block below is individually capped (lessons 5, plans 3), but the sum was
 # bounded by nothing and no decision about it was recorded, so growth showed up
-# as a feeling. Each budget sits at ~1.5x the largest text that event was
-# measured to build in this repository - session_start 7830 B, post_compact
-# 7830 B, user_prompt 4004 B with all four conditional rules armed, and
-# subagent_start, which is the one budget the short form can outgrow: the brief
-# is 3837 B cut from an 8390 B core, and the fixture this file's budget test
-# builds (a lessons line and a plan line, whose paths ride the text, so a macOS
-# temp HOME makes it longer than /tmp does) measured 4523 B - so it never fires
-# on a healthy repo and always fires before a pathological one (a lessons ledger
-# that grew past its 5x200 B cap, or an armed set past its own) reaches the model.
-# The budget moves with the core, because a core rule is a rule every event that
-# carries the core pays for: held at 4000 B this rule's own 282 B dropped
-# `consult`, and held at 4400 B while the core grew 111 B it dropped `consult`
-# again - bloat paid for with a rule, which is the failure this bound exists to
-# prevent. A budget in bytes, not tokens: this file has no tokenizer and a wrong
-# estimate would be worse than a bound.
+# as a feeling. Measured on 2026-10-06 in a one-commit fixture repo (temp HOME,
+# no lessons or plans, codegraph, orx and consult absent so their availability
+# lines ride along): the always-on core is 9160 B, session_start 10066 B,
+# post_compact 9754 B, the subagent brief 4263 B and subagent_start 5152 B; a
+# user_prompt that arms all five conditional rules is 7468 B on its first turn
+# and 1466 B on a repeat (`armed_again`). The 12000 B session budgets still sit
+# above their text with lessons and plans riding; the user_prompt budget is
+# below a first all-five turn on purpose - an armed paragraph is never dropped,
+# so that turn gives up the droppable blocks and says so, and every later turn
+# of the session pays one line per paragraph instead. subagent_start is the one
+# budget the short form can outgrow, and the budget moves with the core, because
+# a core rule is a rule every event that carries the core pays for: held at
+# 4000 B this rule's own 282 B dropped `consult`, held at 4400 B a 111 B core
+# growth dropped it again, and at 5000 B the brief's operative clauses (the
+# inter-agent language and the lessons instruction, plan 056) would have - bloat
+# paid for with a rule, which is the failure this bound exists to prevent. A
+# budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
+# would be worse than a bound.
 CONTEXT_BUDGET = {"session_start": 12000, "post_compact": 12000,
-                  "subagent_start": 5000, "user_prompt": 6000}
+                  "subagent_start": 5500, "user_prompt": 6000}
 DEFAULT_BUDGET = 12000
 # The blocks in the order they are given up when the budget is exceeded, lowest
-# value first: text another surface already carries (the plan table
-# lives in the plan-status skill, the sibling checkouts in `tezgah-research
-# --all`, the lessons file is on disk - the per-turn relevant lessons with it,
-# which first shrink to their first lesson (SHRINK), and only the lessons a turn
-# still shows are marked seen, so a later turn may still carry the rest - the
-# generated-subagent note is a one-time fact), then the tooling-availability
-# lines, then the live state lines - the stale-graph glance, then the resume
+# value first: text another surface already carries (the plan table lives in the
+# plan-status skill, the sibling checkouts in `tezgah-research --all`, the
+# lessons file is on disk, the generated-subagent note is a one-time fact); the
+# per-turn skill hint - a suggestion of which skill to read first, never an
+# instruction, so it yields to the relevant lessons after it - and those lessons,
+# which first shrink to their first lesson (SHRINK); only the lessons a turn
+# still shows are marked seen, so a later turn may still carry the rest. Then
+# the tooling-availability lines, then the live state lines - the stale-graph
+# glance, then the resume
 # block, which outlives every status and availability line because it is the only
 # one that says what THIS session was doing (a `git log` and a ledger read are
 # turns the session would otherwise spend) but still yields to a rule - then the
 # scratch-path warning, which is about evidence the turn may already have claimed
 # - then the active task's phase, which outlives both because a phase is what
 # stops a refused write before it happens - then the delta, and the skill pointer
-# last. A key absent from this tuple is never dropped: the always-on core and
-# the per-turn reminder ARE the rules, and a budget that could spend them would
-# turn bloat into rule loss - which is the failure the budget exists to prevent,
-# not one it may cause.
-DROP_ORDER = ("knowledge", "worktrees", "lessons", "lessons_turn", "plans",
-              "subagents", "steer", "consult", "research", "research_broken",
-              "graph", "offnote", "orchestrate", "index", "resume", "scratch",
-              "task", "delta", "pointer")
+# last. A key absent from this tuple is never dropped: the always-on core, the
+# per-turn reminder and an armed paragraph ARE the rules, and a budget that could
+# spend them would turn bloat into rule loss - which is the failure the budget
+# exists to prevent, not one it may cause.
+DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
+              "plans", "subagents", "steer", "consult", "research",
+              "research_broken", "graph", "offnote", "orchestrate", "index",
+              "resume", "scratch", "task", "delta", "pointer")
 
 
 def _first_item(text):
@@ -1666,23 +1738,81 @@ POINTER_LINE = ("Deep orchestration, codegen, consult detail and the exact "
 POINTER_NEEDLE = "tezgah-contract"
 
 
-def constraint_lines(root):
-    """The fixed sentences tezgah injects whose survival a compaction record
-    counts, as (label, needle) pairs: the pointer line every block ends on, and
-    the active plan's id when the repo keeps an open plan.
+# A constraint the user issued in a prompt - "don't touch hooks.json", "ask
+# before pushing", "README'ye dokunma" - is the instruction a compaction summary
+# loses first, and nothing counted it. The recogniser is a closed set of
+# imperative shapes, deterministic and stdlib: a prohibition verb with its
+# object, an ask-first clause, and the Turkish `dokunma`/`sormadan` forms. It is
+# precise rather than complete - a constraint said any other way is not pinned -
+# because a pinned line is paid on every compaction, and a clause read as a
+# constraint that the user never meant is a rule the session did not get from
+# the user. tests/constraint-fixtures.md holds the real prompts it was measured
+# on, its false positives listed.
+CONSTRAINT_SHAPES = re.compile(
+    r"(?i)\b(?:(?:do not|don'?t|never)\s+(?:touch|modify|edit|change|delete|"
+    r"remove|rename|push|commit|merge|deploy|publish|release)\s+"
+    r"(?:(?:the|any|my|this|that|to)\s+)?(?P<obj>[\w./@~-]+)"
+    r"|ask\s+(?:me\s+)?(?:first\s+)?before\s+(?P<ask>\w+)"
+    r"|(?P<tr>[\w./@~-]+?)(?:'\w+)?\s+(?:sakın\s+)?dokunma(?:yın|yınız)?\b"
+    r"(?!\s+(?:hedef|alan|olay|duyar)\w*)"
+    r"|(?:bana\s+)?sormadan\s+(?P<trask>\w+)\s+(?:etme|yapma)\w*)")
+CONSTRAINT_CHARS = 80
+CONSTRAINTS_MAX = 5
 
-    Both come from the same source the block renders - `POINTER_LINE` and the
+
+def user_constraints(prompt):
+    """The constraint clauses a prompt issues, redacted and cut, in order. A
+    clause is the matched span only - the stamp keeps it, never the prompt."""
+    return [cut(redact(m.group(0).strip()), CONSTRAINT_CHARS)
+            for m in CONSTRAINT_SHAPES.finditer(prompt or "")]
+
+
+def constraint_needle(clause):
+    """The fragment of a constraint clause a summary keeps when it kept the
+    constraint: its object, cut at a Turkish case suffix (`hooks.json'a`). A
+    summary paraphrases the verb ("asked not to modify") but names the object."""
+    m = CONSTRAINT_SHAPES.search(clause)
+    if not m:
+        return clause
+    word = next(g for g in m.groups() if g)
+    return word.split("'")[0].rstrip(".")
+
+
+def constraint_lines(root, session_id=None):
+    """The fixed sentences tezgah injects whose survival a compaction record
+    counts, as (label, needle) pairs: the pointer line every block ends on, the
+    active plan's id when the repo keeps an open plan, and each constraint the
+    user issued this session (`user_constraints`, kept in the turn stamp).
+
+    All come from the same source the block renders - `POINTER_LINE`, the
     active plan's own front matter (`_plan_row`, the reader `open_plans` builds
-    its line from) - so the count cannot drift from the injected text, and each
-    needle is the fragment a summary keeps when it kept the constraint. An id is
-    short enough to hit by accident, which is why the row carries both numbers
-    and the label rather than a verdict."""
+    its line from), the stamp the pinned block is built from - so the count
+    cannot drift from the injected text, and each needle is the fragment a
+    summary keeps when it kept the constraint. An id is short enough to hit by
+    accident, which is why the row carries both numbers and the label rather
+    than a verdict."""
     out = [("pointer", POINTER_NEEDLE)]
     plan, _mine = _active_plan(root)
     row = _plan_row(plan) if plan else None
     if row and row[0]:
         out.append(("plan", row[0]))
+    out += [("user", constraint_needle(c)) for c in pinned_constraints(session_id)]
     return out
+
+
+def pinned_constraints(session_id):
+    """The user constraints this session's turn stamp holds, oldest first."""
+    got = (read_stamp(session_id) or {}).get("constraints")
+    return [c for c in got if isinstance(c, str)] if isinstance(got, list) else []
+
+
+def pinned_block(session_id):
+    """The block that carries the user's constraints across a compaction, or
+    "" when the session issued none."""
+    rows = pinned_constraints(session_id)
+    return ("User constraints issued earlier this session (still in force "
+            "unless the user lifted them):\n" + "\n".join("- " + c for c in rows)
+            if rows else "")
 
 
 def remember_compaction(cwd, root, payload):
@@ -1698,7 +1828,7 @@ def remember_compaction(cwd, root, payload):
     summary = payload.get("compact_summary")
     if not isinstance(summary, str) or not summary:
         return
-    lines = constraint_lines(root)
+    lines = constraint_lines(root, session_of(payload))
     note_compaction(session_of(payload), summary, payload.get("trigger"),
                     found=sum(1 for _label, needle in lines if needle in summary),
                     expected=len(lines), workspace=root_for(cwd))
@@ -1724,12 +1854,13 @@ def context_for(event, cwd, payload=None, with_core=True):
     # the row is written whether or not a host delivers the block this builds.
     if event == "post_compact":
         remember_compaction(cwd, root, payload)
-    # The compacted context no longer holds the lessons earlier turns were shown,
-    # so the session forgets having shown them; a host that delivers the
-    # compaction as SessionStart(source=compact) and not PostCompact is covered.
+    # The compacted context no longer holds the lessons and armed paragraphs
+    # earlier turns were shown, so the session forgets having shown them; a host
+    # that delivers the compaction as SessionStart(source=compact) and not
+    # PostCompact is covered.
     if event == "post_compact" or (event == "session_start" and isinstance(
             payload, dict) and payload.get("source") == "compact"):
-        forget_lessons(session_of(payload))
+        forget_seen(session_of(payload))
     core, disabled = core_for(cwd)
     # A disabled rule is also removed from the on-demand skill's reach, because
     # the skill is loaded separately and would otherwise re-enable it.
@@ -1764,11 +1895,25 @@ def context_for(event, cwd, payload=None, with_core=True):
         parts = [("reminder", render(prompt_reminder(dropped_switches(cwd))))]
         if gate:
             parts.append(("gate", gate))
+        # The previous turn's stamp, read before the armed paragraphs: they are
+        # paid in full once per session and the stamp says which were.
+        previous = read_stamp(session_id)
+        same = (previous or {}).get("root") == root
+        turn_no = (int((previous or {}).get("turn") or 0) if same else 0) + 1
+        armed_seen = dict((previous or {}).get("armed_seen") or {}) if same else {}
         if prompt:
             _always, conditional, _dis = core_split(cwd)
             matched = classify_prompt(prompt)
-            armed = [conditional[k] for k in CONDITIONAL_KEYS
-                     if k in conditional and k in matched]
+            armed = []
+            for k in CONDITIONAL_KEYS:
+                if k not in conditional or k not in matched:
+                    continue
+                shown = armed_seen.get(k)
+                if isinstance(shown, int) and turn_no - shown < ARMED_RESURFACE:
+                    armed.append(armed_again(k))
+                else:
+                    armed.append(conditional[k])
+                    armed_seen[k] = turn_no
             audit_classification(matched, len(prompt))
             if armed:
                 # The open-line sentence is the research rule's one per-repo
@@ -1776,7 +1921,8 @@ def context_for(event, cwd, payload=None, with_core=True):
                 # only this frame knows (`render` is given no repo, and a static
                 # host file could not carry one). Filled before `render` so the
                 # `{RESEARCH_BIN}` the note itself names is filled with it, and
-                # only here: a conditional paragraph reaches no static file.
+                # only here: a conditional paragraph reaches no static file. The
+                # one-line repeat carries it too: it is a fact, not rule text.
                 parts.append(("armed", render("\n\n".join(armed).replace(
                     "{OPEN_LINES}", open_lines_note(root)))))
         else:
@@ -1797,7 +1943,6 @@ def context_for(event, cwd, payload=None, with_core=True):
         # is behind that move - a comparison that used to end in a status glyph
         # the model never reads.
         stamp = state_stamp(root)
-        previous = read_stamp(session_id)
         delta = state_delta(root, previous, stamp)
         if delta:
             parts.append(("delta", delta))
@@ -1845,7 +1990,15 @@ def context_for(event, cwd, payload=None, with_core=True):
         for key in shown:
             if key != "provided":
                 note_lesson(session_id, key, "turn")
-        write_stamp(session_id, root, dict(stamp, lessons_seen=seen))
+        # The constraints the user issued, oldest first and capped: only the
+        # matched clauses ride the stamp, never the prompt (`user_constraints`).
+        pinned = list((previous or {}).get("constraints") or []) if same else []
+        for clause in user_constraints(prompt):
+            if clause not in pinned:
+                pinned.append(clause)
+        write_stamp(session_id, root, dict(
+            stamp, lessons_seen=seen, armed_seen=armed_seen, turn=turn_no,
+            constraints=pinned[-CONSTRAINTS_MAX:]))
         return text
 
     # session_start / post_compact / subagent_start: the compact always-on core
@@ -1901,6 +2054,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         # The live turn state, first in this region: on a compacted or resumed
         # session it is the one thing the rest of the block cannot re-derive.
         resume = resume_state(root, session_of(payload))
+        # The user's own constraints, restated where a compaction or a resume
+        # would lose them; the compaction record counts the same clauses.
+        pinned = pinned_block(session_of(payload))
+        if pinned:
+            parts.append(("constraints", pinned))
         if resume:
             parts.append(("resume", resume))
         # Asked once, and only when there is a block to judge: one index read.

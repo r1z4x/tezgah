@@ -2309,12 +2309,16 @@ export const Tezgah = async ({ directory }) => {
     // Keep the contract alive when a long session is compacted: the shared
     // builder's post-compact block, the same text Claude and Codex re-inject
     // there, so the summarizer is steered by the live rules rather than by a
-    // copy kept in this file.
+    // copy kept in this file. The session id rides along: the builder clears
+    // that session's shown lessons and armed paragraphs on compaction, and
+    // restates its pinned user constraints, all keyed on it.
     "experimental.session.compacting": async (input, output) => {
       try {
         if (!output || typeof output !== "object") return
         const context = Array.isArray(output.context) ? output.context : (output.context = [])
-        const text = await builderText("post_compact", dir, {})
+        const sessionID = String(input?.sessionID || "")
+        const text = await builderText("post_compact", dir,
+                                       sessionID ? { session_id: sessionID } : {})
         if (text) context.push(text)
       } catch {}
     },
