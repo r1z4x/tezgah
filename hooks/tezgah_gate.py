@@ -1859,11 +1859,14 @@ def _command_change(words, cwd, depth, origin):
     if program == "eval" and depth < 3:
         return shell_control(" ".join(args), cwd, depth + 1, origin)
     if program in SHELL_NAMES and depth < 3:
-        # `-c`, or any flag cluster holding it (`-lc`, `-ec`)
+        # `-c`, or any flag cluster holding it (`-lc`, `-ec`); a `--` after it
+        # ends the options and the script is the word after that
         at = next((k for k, a in enumerate(args)
                    if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)), None)
-        if at is not None and at + 1 < len(args):
-            return shell_control(args[at + 1], cwd, depth + 1, origin)
+        script = args[at + 1:] if at is not None else []
+        script = script[1:] if script[:1] == ["--"] else script
+        if script:
+            return shell_control(script[0], cwd, depth + 1, origin)
     if program in CONTROL_CLIS:
         verbs = CONTROL_CLIS[program]
         positional = [a for a in args if not a.startswith("-")]
@@ -1889,7 +1892,9 @@ def _command_change(words, cwd, depth, origin):
             targets = [a for a in args if not a.startswith("-")]
             if program in CONTROL_COPIERS and targets:
                 checks += [(t, remove) for t in targets[:-1]] if program == "mv" else []
-                targets, remove = targets[-1:], False
+                # `rsync --delete` empties the destination of what the source lacks
+                targets, remove = targets[-1:], program == "rsync" and any(
+                    a.startswith("--delete") for a in args)
             checks += [(t, remove) for t in targets]
     for target, remove in checks:
         label = control_target(target, cwd, remove=remove, origin=origin)

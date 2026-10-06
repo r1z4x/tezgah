@@ -76,6 +76,8 @@ an adversarial agent, and it does not claim to be one.
     has not listed: the rule holds the names it holds.
   - An archive extracted, or a tree copied, into a directory without naming
     the protected path (`cd ~/.config/tezgah && unzip x.zip`, `cp -r h .git/`).
+  - A script fed to a shell on stdin (`echo '…' | bash`, `bash <<< '…'`): the
+    gate opens `bash -c`, not a shell's standard input.
 - **The same uid ceiling.** The agent runs as the user, with the user's file
   permissions. Nothing tezgah writes is out of its reach at the filesystem
   level; the gate is the only barrier, and it is a policy check, not a

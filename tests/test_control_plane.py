@@ -136,6 +136,7 @@ class ControlPlane(unittest.TestCase):
                         "bash -ec 'touch ~/.config/tezgah/verify-off'",
                         "sh -ec 'rm ~/.config/tezgah/verify-off'",
                         "zsh -xc 'rm ~/.config/tezgah/verify-off'",
+                        "sh -c -- 'touch ~/.config/tezgah/verify-off'",
                         "cd .git/hooks && rm pre-commit",
                         "{ cd ~/.config/tezgah; rm verify-off; }"):
             with self.subTest(command=command):
@@ -175,7 +176,9 @@ class ControlPlane(unittest.TestCase):
                         "git config set core.hooksPath /tmp/h",
                         "git config --global core.hooksPath /tmp/h",
                         "git config --unset core.hooksPath",
-                        "git config unset core.hooksPath"):
+                        "git config unset core.hooksPath",
+                        "rsync -a --delete /tmp/empty/ ~/.config/",
+                        "rsync -a --delete-after /tmp/empty/ ~/.cache"):
             with self.subTest(command=command):
                 self.refused("Bash", {"command": command})
         # reads, and writes that touch no protected state
@@ -187,7 +190,9 @@ class ControlPlane(unittest.TestCase):
                         "git config core.hooksPath",
                         "git -C %s config core.hooksPath .githooks" % elsewhere,
                         "unzip -d /tmp/out /tmp/x.zip",
-                        "curl -o /tmp/out http://x"):
+                        "curl -o /tmp/out http://x",
+                        "rsync -a --delete /tmp/a/ /tmp/b/",
+                        "rsync -a /tmp/empty/ ~/.config/"):
             with self.subTest(command=command):
                 self.assertIsNone(self.decide("Bash", {"command": command}))
 
