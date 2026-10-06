@@ -9,7 +9,7 @@ used here are defined once in [glossary.md](glossary.md); which host gets which
 surface is [hosts.md](hosts.md).
 
 Every string is a module constant in `hooks/tezgah_policy.py`, so that every
-host says the same thing (`hooks/tezgah_policy.py:3-10`); path placeholders
+host says the same thing (`hooks/tezgah_policy.py:14-15`); path placeholders
 (`{ROOT}`, `{CONSULT_BIN}`, `{ORX_BIN}`, …) are filled at injection time by
 `render()` (`hooks/tezgah_context.py::render`).
 
@@ -31,7 +31,7 @@ answers it - TypeSafe, or the OpenRouter fallback when no TypeSafe key resolves
 skill names plus `none`, and one Noul
 asking whether the turn wants a skill at all - and the winner is appended after
 the armed paragraphs as a hint to look at first, never as an instruction to load
-(`hooks/tezgah_skill_pick.py:35-64` is the whole configuration, wired into
+(`hooks/tezgah_skill_pick.py:41-75` is the whole configuration, wired into
 `context_for` at `hooks/tezgah_context.py::context_for`). Measured cost of the line
 itself: 305-317 characters, about 78 tokens of prompt. Measured cost of the
 judgement: one call per unanswered prompt, 909-915 input tokens, 0.77-0.81 s,
@@ -135,7 +135,7 @@ the review rule: a change with an executable oracle - a checker, a gate rule, a
 parser - is reviewed by four direction-led reviewers whose every claim is built
 as a fixture and run before it counts, a tentative default measured on two
 research lines with a written flip; everything else keeps one fresh reviewer
-(`skills/tezgah-contract/SKILL.md:491-515`).
+(`skills/tezgah-contract/SKILL.md:503-527`).
 
 ## Composition order of the always-on core
 
@@ -164,13 +164,13 @@ pointer with no conditional paragraph behind it, because the Stop rule's `no
 ui_ok` class is what asks for the check). That is
 what a host with no prompt-time hook writes into a static file: opencode's
 `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup::OPENCODE_CONTRACT`) and omp's
-managed `RULES.md` (`bin/tezgah-setup:1370-1372`). Claude gets it from the
+managed `RULES.md` (`bin/tezgah-setup::STATIC_RULES`). Claude gets it from the
 managed block in `~/.claude/CLAUDE.md` (its global memory file, and the reason
 its session-start hook drops the core: `TEZGAH_CORE_IN_FILE`) and from
 `output-styles/tezgah.md` where a build loads plugin output styles
 (`output-styles/tezgah.md:11-12`); Codex gets it from the managed block in its
 global instructions file; Cursor receives the same core from its session-start
-hook (`hosts/codex/hook.py:36`, `hosts/cursor/hook.py::dispatch`). `core_for()`
+hook (`hosts/cursor/hook.py:5`, `hosts/cursor/hook.py::dispatch`). `core_for()`
 (`hooks/tezgah_context.py::core_for`) is that text with the kill-switch filtering
 applied, and it also returns the names of the switches that fired.
 
@@ -262,7 +262,7 @@ missing the code graph or every consult option (`hooks/tezgah_policy.py::NO_GRAP
 ## How a rule is disarmed
 
 A kill switch removes the rule's text, not just a status mark
-(`hooks/tezgah_context.py:1179-1243`). `off()` checks `~/.config/tezgah` and the
+(`hooks/tezgah_context.py::core_split`). `off()` checks `~/.config/tezgah` and the
 legacy `~/.claude` (`hooks/tezgah_paths.py::OFF_DIRS`, `hooks/tezgah_paths.py::off`); the drop itself
 happens in `core_split()`.
 
@@ -323,7 +323,7 @@ they survive every other switch being off.
    `OutputStyleMirrorsCore.test_body_is_the_always_on_core`
    (`tests/test_context.py::OutputStyleMirrorsCore`) and
    `ContractParity.test_every_rule_and_heading_in_the_contract_reaches_the_skill`
-   (`tests/test_setup.py:800-810`).
+   (`tests/test_setup.py::ContractParity.test_every_rule_and_heading_in_the_contract_reaches_the_skill`).
 
 ## The two copies that must stay in step
 

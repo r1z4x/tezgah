@@ -19,7 +19,7 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `TEZGAH_PREFIX` | `packaging/install.sh:24`, `packaging/upgrade.sh`, `packaging/install.ps1`, `bin/tezgah-setup:61` | `$XDG_DATA_HOME/tezgah`, else `~/.local/share/tezgah` (`%LOCALAPPDATA%\tezgah` on Windows) | Where the artifact install unpacks its versions and the `current` link; `tezgah-setup` treats it as the install prefix. |
+| `TEZGAH_PREFIX` | `packaging/install.sh:26`, `packaging/upgrade.sh`, `packaging/install.ps1`, `bin/tezgah-setup::INSTALL_PREFIX` | `$XDG_DATA_HOME/tezgah`, else `~/.local/share/tezgah` (`%LOCALAPPDATA%\tezgah` on Windows) | Where the artifact install unpacks its versions and the `current` link; `tezgah-setup` treats it as the install prefix. |
 | `TEZGAH_VERSION` | `packaging/install.sh`, `packaging/upgrade.sh`, `packaging/install.ps1`, `packaging/build.sh:70` | the newest GitHub release; `build.sh` falls back to `VERSION`/the CHANGELOG | The version to install, or the version `build.sh` stamps when `--version` is not given. |
 | `TEZGAH_REPO` | `packaging/install.sh:12`, `packaging/upgrade.sh`, `packaging/install.ps1` | `r1z4x/tezgah` | The GitHub repository releases are fetched from. |
 | `TEZGAH_UPDATE_URL` | `hooks/tezgah_update.py` | `https://github.com/<TEZGAH_REPO>/releases/latest` | Where the daily release check reads the newest tag: from the redirect, or from a JSON body's `tag_name`. Tests point it at a `file://` fixture. |
@@ -40,7 +40,7 @@ the kill switches are files, not variables, and live in
 | `XDG_CACHE_HOME` | `hooks/tezgah_apps.py::ARTIFACTS` | `~/.cache` | Parent of the app-analysis artifact dir. |
 | `TEZGAH_DEBUG` | `hooks/tezgah_guard.py` | unset | `1` makes every hook process append one line to `<cache>/debug.log` (host, script, each guarded call's outcome or exception class, elapsed ms; no prompt or tool text), created 0600 and swept by `tezgah-doctor --clean`. Off, it costs one environment read. |
 | `TEZGAH_FALLBACK_CACHE` | `hooks/tezgah_paths.py::fallback_cache` | `<tempdir>/tezgah` | The cache a sandboxed hook writes when its normal cache dir is denied; a test knob. |
-| `TEZGAH_ARTIFACTS` | `hooks/tezgah_apps.py:26` | `$XDG_CACHE_HOME/tezgah/apps` | Where `analyze-app` screenshots, traces and tree dumps land. |
+| `TEZGAH_ARTIFACTS` | `hooks/tezgah_apps.py::ARTIFACTS` | `$XDG_CACHE_HOME/tezgah/apps` | Where `analyze-app` screenshots, traces and tree dumps land. |
 | `TEZGAH_NO_EXCLUDE` | `hooks/tezgah_agents.py::ensure_exclude` | unset | `1` stops tezgah adding its generated-agent dirs to the repository's `.git/info/exclude`. |
 | `CODEX_HOME` | `hooks/tezgah_paths.py::HOST_DIRS` | `~/.codex` | The Codex home tezgah installs into and checks; the same variable Codex itself reads. |
 | `DSH_HOME` | `hooks/tezgah_paths.py::HOST_DIRS`, `bin/tezgah-dsh`, `bin/tezgah-dsh.cmd` | `~/.dsh` | The dsh home tezgah installs into, and where `tezgah-dsh` looks for the CLI. |
