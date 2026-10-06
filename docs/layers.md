@@ -37,10 +37,10 @@ Must not own the user's rules or the record of the turn. A framework supplies
 the extension points; what a session is held to is not its subject.
 
 Here tezgah plugs into those points and never supplies one: omp's extension is
-"only the bridge" (`hosts/omp/tezgah-hook.ts.in:3-6`), opencode's plugin adds
+"only the bridge" (`hosts/omp/tezgah-hook.ts.in:5-7`), opencode's plugin adds
 what its generated `instructions` files cannot carry
 (`hosts/opencode/plugins/tezgah.js:3-12`), and Codex's hook maps the host's
-events and tool names onto the shared vocabulary (`hosts/codex/hook.py:36-53`).
+events and tool names onto the shared vocabulary (`hosts/codex/hook.py::EVENTS`, `hosts/codex/hook.py::GATE_TOOLS`).
 
 ## Agent host runtime
 
@@ -57,7 +57,7 @@ runtime runs what the model asks; nothing inside it stops the model, which is
 the whole reason tezgah exists ([architecture](architecture.md)).
 
 Here the six hosts are the runtimes, one config dir per host
-(`hooks/tezgah_paths.py:68`) with one presence test (`host_installed`
+(`hooks/tezgah_paths.py::HOST_DIRS`) with one presence test (`host_installed`
 `hooks/tezgah_paths.py::host_installed`), and the adapter under `hosts/<name>/` holds the
 host's envelope and nothing else ([hosts](hosts.md)). The README's own intro
 calls dsh a harness (`README.md:27-28`) - the literature's sense, applied to a
@@ -94,14 +94,14 @@ frameworks.
 | agent framework | is it composed *from* elsewhere, or does it compose? A framework is composed from building blocks and stays a framework agent | tezgah plugs into its extension points, supplies none |
 | SDK | does it leave the iteration to its caller? A client library gives a call and stops | tezgah ships no client; it reads a host's event JSON on stdin (`hosts/codex/hook.py:1-2`) |
 | IDE plugin | is it a guest inside another program's surface? It draws and forwards and owns no task runtime | `hosts/opencode/plugins/tezgah.js:1-12` is one, and is a plugin |
-| eval harness | does it produce a score over a task set? It measures and enforces nothing | an eval scaffold is vendored as the `lm-evaluation-harness` skill body (`skills/ai-research/11-evaluation/lm-evaluation-harness/SKILL.md:11`), and this project's measurements live apart from the layer (`docs/README.md:67-68`) |
+| eval harness | does it produce a score over a task set? It measures and enforces nothing | an eval scaffold is vendored as the `lm-evaluation-harness` skill body (`skills/ai-research/11-evaluation/lm-evaluation-harness/SKILL.md:11`), and this project's measurements live apart from the layer (`docs/README.md:88-89`) |
 | orchestrator | does it split one request across many runs and merge them? A harness runs one job to a report | the `harness` skill's route table (`skills/harness/SKILL.md:2-8`) and the graph workflows (`hooks/tezgah_policy.py::WORKFLOWS`) |
 | MCP | does it only carry a call and its result? Then it is transport, not a layer with policy or evidence | the section below |
 
 ## Why tezgah is not an agent harness
 
 Under that test tezgah is not one: it holds no loop. It subscribes to a host's
-events (`hooks/hooks.json:2-26`), is handed the injected text at the host's
+events (`hooks/hooks.json:2-32`), is handed the injected text at the host's
 session-start and prompt points (`hooks/tezgah_context.py::context_for`),
 refuses a call before the host runs it (`hooks/projects-pretooluse.py::main`) and
 answers in the host's own output envelope. It has no model, no tool set and no
