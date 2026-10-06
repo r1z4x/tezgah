@@ -430,6 +430,34 @@ class PipedCheck(unittest.TestCase):
                   "git commit -m 'run pytest | tail before this'"):
             self.assertIsNone(ti.piped_check(c), c)
 
+    def test_the_remedy_is_one_sentence_quoted_by_every_copy(self):
+        # PIPED_REMEDY is the source: the refusal, the always-on core, its
+        # hookless copy, the contract skill, the gate doc and the rank fixture
+        # quote it, so none of them can drift back to `> log; tail log`
+        import tezgah_policy
+        import test_rank
+
+        def flat(text):
+            return " ".join(text.split())
+
+        def repo_file(*parts):
+            with open(os.path.join(support.REPO, *parts), encoding="utf-8") as fh:
+                return fh.read()
+
+        remedy = flat(ti.PIPED_REMEDY)
+        self.assertIn("separate call", remedy)
+        self.assertIn("set -o pipefail;", remedy)
+        for name, text in (
+                ("refusal", ti.piped_check("pytest | tail")),
+                ("policy core", tc.always_on_core()),
+                ("policy long", tezgah_policy.CORE),
+                ("output style", repo_file("output-styles", "tezgah.md")),
+                ("contract skill", repo_file("skills", "tezgah-contract",
+                                             "SKILL.md")),
+                ("gate doc", repo_file("docs", "gate.md")),
+                ("rank fixture", test_rank.LESSONS[0])):
+            self.assertIn(remedy, flat(text), name)
+
     def test_pipe_hides_status(self):
         self.assertTrue(ti.pipe_hides_status("pytest | tail"))
         self.assertTrue(ti.pipe_hides_status("set -o pipefail; pytest || true"))

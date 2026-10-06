@@ -464,7 +464,8 @@ claim is true only if the check ran in THIS session and its output was seen;
 otherwise mark it "doğrulanmadı" instead of asserting it. The gate enforces the
 mechanical half and cannot be argued with: a check made unable to fail is denied
 - `--no-verify`, an env var that skips the hooks, `pytest || true` / `; true`,
-a check piped into `tail`/`grep` (to a file and read it, or `set -o pipefail;`),
+a check piped into `tail`/`grep` (keep the check last with its output in a file,
+then read the file in a separate call, or open the line with `set -o pipefail;`),
 and a newly added skip/xfail/`.only` on a test (all in `hooks/tezgah_integrity.py`,
 enforced by `hooks/tezgah_gate.py` and the opencode plugin) - and the Stop hooks
 (`hooks/projects-stop.py` on Claude, `hosts/codex/hook.py` on Codex,

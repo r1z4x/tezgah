@@ -182,6 +182,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The piped-check remedy is one sentence.** `PIPED_REMEDY` in
+  `hooks/tezgah_integrity.py` holds it. The refusal, the always-on core, its
+  hookless copy, the contract skill and `docs/gate.md` quote it word for word.
+  A test pins every copy. It names the two shapes that keep the check's exit
+  status. One runs the check last into a file and reads the file in a separate
+  call. The other opens the line with `set -o pipefail;`.
 - **A session pays each armed rule once.** The first matching prompt gets the
   full paragraph of spec, consult, research, product or graph. A later match in
   the same session gets one line that names the rule. The research line keeps
