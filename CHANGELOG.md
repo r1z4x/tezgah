@@ -27,6 +27,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the taint notice, one notice per untrusted channel, and for the drift
   re-statement. So an MCP `act` such as a click can now draw that re-statement
   once per long turn.
+- **The Stop rule's evidence fold, declared as a temporal spec, runs in
+  shadow.** `hooks/tezgah_stopspec.py` writes classes 5-10 as seven past-time
+  formulas over ten row atoms. A one-pass monitor judges each reply that
+  leaves a claim or a refusal row. It runs beside the imperative fold and
+  leaves one `stop_spec` row: `agree`, `disagree` or `error`. The row also
+  says `fold` or `selector`: whether the shared selector reached the fold.
+  The verdict stays the imperative one, and a failing spec costs only its row.
+  `mask` keeps a per-process cache, so both folds read each ledger detail once.
+  `TEZGAH_STOPSPEC_STRICT=1` makes a disagreement fatal in the tests.
+  `tests/stop_spec_eval.py` measures the bet (plan 063). Plan 055 replays 496
+  Stop events, and the two folds agree on all of them. The bar reads only the
+  361 events that reached the fold.
 - **Real bash now checks the shell readers.** `tests/fuzz_shell.py`
   draws seeded lines from the hand vectors' grammar. It runs each in `bash`
   with a stub per program word and prints each class where `shell_programs` or

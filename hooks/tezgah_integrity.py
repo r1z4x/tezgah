@@ -22,6 +22,7 @@ NOT written - a reader derives them from the line's index and the `ts` delta, an
 writing them would buy a second file read on every tool call. Stdlib only. Every
 reader fails open so a missing or broken ledger can never wedge a session.
 """
+import functools
 import hashlib
 import itertools
 import json
@@ -2051,8 +2052,16 @@ def mask(text):
     a word. So `https://x`, `a#b`, `src/*.py ... lib/*/`, `'x\\'` and `\\$'x\\'`
     are words, not a comment or an open string that blanks the command after
     them (gate-01). A quote left open blanks from itself to the end - bash runs
-    nothing after it - and keeps the reading before it."""
-    text = _blank_heredocs(str(text or ""))
+    nothing after it - and keeps the reading before it.
+
+    Memoised per process: a pure function of the text, and one Stop asks it of
+    the same ledger details from several readers (both Stop folds, plan 063)."""
+    return _mask(str(text or ""))
+
+
+@functools.lru_cache(maxsize=4096)
+def _mask(text):
+    text = _blank_heredocs(text)
     body = _heredoc_bytes(text)
     out, i, n, start, prev = list(text), 0, len(text), True, ""
     while i < n:
@@ -3969,7 +3978,7 @@ def _shape_block(text, cwd):
     return (None, None)
 
 
-def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
+def stop_reason(text, session_id, cwd=None, record_only=False,
                 subagent=False, agent=None):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
@@ -4020,7 +4029,7 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
             and str(entry.get("detail", "")).startswith("blocked:")
             for entry in rows):
         return None
-    cls, reason = _stop_block(text, session_id, edited_hint, rows=rows, cwd=cwd,
+    cls, reason = _stop_block(text, session_id, rows=rows, cwd=cwd,
                               shape=not subagent)
     key = _claim_key(text, turns)
     # Keyed like the claim row, so Cursor's re-run of the handler on a follow-up
@@ -4046,6 +4055,18 @@ def stop_reason(text, session_id, edited_hint=None, cwd=None, record_only=False,
         detail, kind = "ok", "claim"
     else:
         return None
+    # The temporal spec's verdict, in shadow (plan 063): recorded beside this
+    # one and never read back, and only for a reply that leaves a claim or a
+    # refusal row - the population its agreement bar is read on - so a quiet
+    # allowed reply pays nothing. Its own guard, because the host wraps this
+    # whole function in `safe()` and an escaping exception would lose the refusal.
+    if not record_only:
+        try:
+            import tezgah_stopspec
+            tezgah_stopspec.shadow(cls, text, session_id, rows, cwd, True, key)
+        except Exception:
+            if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
+                raise
     if not any(entry.get("kind") == kind and entry.get("id") == key
                for entry in rows):
         if cls == "no verify_ok" and not record_only:
@@ -4267,8 +4288,7 @@ def _settled(rows):
     return not after or _bookkeeping_turn(after)
 
 
-def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
-                shape=True):
+def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     """stop_reason's decision as (reason class, block text), without the ledger
     side effect. The class names the branch that refused the turn; the text is
     what the host shows the model.
@@ -4310,7 +4330,18 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
 
     `rows` is this turn's own rows, read once by `stop_reason`: the fold is
     scoped the way `_partial_state`'s already was, and the Stop path still reads
-    the file once per turn."""
+    the file once per turn.
+
+    `fold` is the evidence fold the selector below calls, `_evidence_block` by
+    default; `tezgah_stopspec.judge` passes the temporal spec's. Under
+    `TEZGAH_STOPSPEC_STRICT` (tests) the default call also asks the spec and
+    raises on a disagreement."""
+    if fold is None:
+        verdict = _stop_block(text, session_id, rows, cwd, shape, _evidence_block)
+        if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
+            import tezgah_stopspec
+            tezgah_stopspec.check(verdict[0], text, session_id, rows, cwd, shape)
+        return verdict
     t = str(text or "")
     shaped = _shape_block(t, cwd) if shape else (None, None)
     if shaped[0]:
@@ -4322,8 +4353,6 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
     if (done or verified) and any(r.get("kind") == DAMAGE_KIND for r in rows):
         return ("evidence tampered", TAMPERED)
     ev = {str(entry.get("kind")) for entry in rows}
-    if edited_hint:
-        ev = ev | set(edited_hint)
     # The trigger is the turn's own evidence, not its words. The claim vocabulary
     # below catches a claim-shaped reply; it missed the same unfounded state
     # stated as a description ("the parser is wired up now"), which is what E2
@@ -4364,12 +4393,11 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
     if not worked and not (done or verified) and not external:
         return (None, None)
     if lost:
-        return _evidence_block(rows, worked | {BEGAN_KIND}, external)
+        return fold(rows, worked | {BEGAN_KIND}, external)
     # Two shapes the turn's own rows cannot judge, so they are judged against
     # the session's (the contract says "no successful check recorded in the
     # session"). Read only for these two, so every other turn still pays for
-    # its own rows alone; a host hint (Cursor's edited files) is turn work the
-    # ledger does not hold, so it keeps the turn fold. Both ask the same fold
+    # its own rows alone. Both ask the same fold
     # this turn is judged by (`_evidence_block`), over the session's rows BEFORE
     # this turn - every class it has, the UI/design and partial-failure ones
     # included, so a state the earlier turns left refused stays refused (review
@@ -4377,7 +4405,7 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
     # here, and `_partial_state` scopes to the newest turn of what it is given.
     # A turn that ran a passing check of its own is not one of these shapes: its
     # own pass is the evidence, and the turn fold below judges it.
-    if session_id and not edited_hint and _last_pass(rows) < 0:
+    if session_id and _last_pass(rows) < 0:
         if worked and _bookkeeping_turn(rows):
             # A turn that only read or did VCS bookkeeping (`git status`, a
             # commit) after a check passed on a tree nothing has changed since:
@@ -4388,19 +4416,18 @@ def _stop_block(text, session_id, edited_hint=None, rows=None, cwd=None,
             # the turn fold below, which asks for a fresh check.
             srows = events(session_id)
             if not external and _settled(srows):
-                return _evidence_block(_before_turn(srows), True, None,
-                                       "this session")
+                return fold(_before_turn(srows), True, None, "this session")
         elif not worked and (done or verified):
             # A claim in a turn that did nothing: "Tamamlandı, tüm testler
             # geçti" after a turn that edited and ended "doğrulanmadı" was
             # allowed on all five Stop hosts (audit INT-01 / M-2).
             prior = _before_turn(events(session_id))
-            refused = _evidence_block(
+            refused = fold(
                 prior, {str(r.get("kind")) for r in prior} & WORK_KINDS, None,
                 "this session")
             if refused[0]:
                 return refused
-    return _evidence_block(rows, worked, external)
+    return fold(rows, worked, external)
 
 
 def _before_turn(rows):

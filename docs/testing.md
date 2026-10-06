@@ -98,6 +98,16 @@ read and the "doğrulanmadı" clear. The lost call, the bookkeeping and idle-tur
 fallbacks and the refusal row have rows too. The shortcut half is still
 hand-written (`MUTANTS`), so a new guard there needs a row.
 
+The Stop rule's temporal spec (`hooks/tezgah_stopspec.py`, plan 063) has its own
+local script, `tests/stop_spec_eval.py`. `--replay` judges plan 055's replayed
+Stop events with both folds and reads GO 2 only on the events whose selector
+reached the fold. `--shadow-rows` reads the live `stop_spec` rows the same way.
+`--timing` times both folds in-process. `--stop-cost` times the whole
+`stop_reason`, shadow on and off, on copies of the real ledgers. `--mutants`, also reached through
+`tests/neuter_matrix.py --stop-generated`, runs seeded mutants of the formula
+table through the in-process Stop tests of `tests/test_integrity.py`. On any
+suite run, `TEZGAH_STOPSPEC_STRICT=1` fails the test that reached a disagreement.
+
 The plan report (`render_table.py --acceptance --strict`) is not in CI: it reads
 the gitignored `.tezgah/`, so on a runner it reads nothing and cannot fail. Run
 it locally. The dsh and omp status-line scripts, `tests/e2e_tezgah_mcp.py` and

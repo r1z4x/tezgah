@@ -230,6 +230,10 @@ def run(name, edit, work):
 
 
 def main():
+    if "--stop-generated" in sys.argv[1:]:
+        # the temporal spec's table mutants: in-process, no clone (plan 063)
+        import stop_spec_eval
+        return stop_spec_eval.main(["--mutants"])
     strict = os.environ.get("TEZGAH_E2E_STRICT") == "1"
     if not shutil.which("git"):
         print("SKIP: git is missing")

@@ -1646,7 +1646,7 @@ def _transcript_calls(path, since):
 
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
 # turn marker, judge row, lesson rows and disarm row, the Stop hook's claim,
-# refusal, after_block and shape rows, the subagent-end hook's subagent_end row,
+# refusal, after_block, shape and stop_spec rows, the subagent-end hook's subagent_end row,
 # compaction, the subagent mark (SubagentStart writes it too), the guard's crash
 # row (any hook), the damage row any reader writes and the session start's
 # attest row. Every other kind - deny, nudge, began, snapshot, ... - can only
@@ -1655,7 +1655,7 @@ def _transcript_calls(path, since):
 # from `deny` carries no `tool` field, and a session whose every gated call the
 # gate refused read as disarmed (review S3).
 NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"refusal",
-                           b"after_block", b"subagent_end",
+                           b"after_block", b"subagent_end", b"stop_spec",
                            b"shape", b"compact", b"orch", b"crash", b"route",
                            b"spawned", b"lesson", b"disarm", b"ledger_damage",
                            b"attest"))
