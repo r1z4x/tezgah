@@ -227,6 +227,28 @@ class PostToolUseProvenance(TempHome):
         self.assertIn("an MCP server", text)
         self.assertNotIn("already read", text)
 
+    def test_an_mcp_effect_after_a_web_read_is_noticed_and_labelled(self):
+        # security-06: an MCP effect (an issue opened, a file written by a
+        # server) is an effect like a write tool's, so the turn's web read is
+        # noticed on it; its own result still came from the server, so it keeps
+        # the label and its row the `mcp` channel, which spends the web read.
+        self.post("WebFetch", {"url": "https://x"})
+        text = self.line("mcp__github__create_issue", {"title": "t"})
+        self.assertIn("already read a web result", text)
+        self.assertIn("this result came from an MCP server", text)
+        self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
+                         [("external", "web"), ("external", "mcp")])
+
+    def test_the_mcp_effect_class_is_the_shared_definition(self):
+        import tezgah_untrusted as tu
+        for tool in ("mcp__github__create_issue", "mcp__fs_write_file",
+                     "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"):
+            self.assertTrue(tu.effectful(tool), tool)
+            self.assertIsNotNone(ti.mcp_class(tool), tool)
+        for tool in ("mcp__github__get_file", "mcp__codegraph_explore"):
+            self.assertFalse(tu.effectful(tool), tool)
+            self.assertIsNone(ti.mcp_class(tool), tool)
+
     def test_a_stale_turn_s_read_is_not_this_turn_s(self):
         # The turn marker bounds the read, so a page the *previous* turn fetched
         # and never spent is not this turn's: inheriting it would hold this

@@ -6,7 +6,8 @@ so this adapter translates them onto the shared tezgah core:
   preToolUse          -> {"permission": "allow"|"deny", "agent_message": ...}
                          (the shared gate: grep-only explorer, first identifier
                          grep nudge, attribution and test-skip on the write tools)
-  beforeMCPExecution  -> {"permission": "allow"} for the code graph, else {}
+  beforeMCPExecution  -> {"permission": "allow"} for the code graph, a deny
+                         from the gate's content rules on an MCP effect, else {}
   subagentStart       -> {"additional_context": <short contract brief>} for the
                          delegate, or deny for a grep-only explorer
   subagentStop        -> record orch and a record-only `subagent_end` verdict
@@ -349,9 +350,24 @@ def dispatch(payload):
     elif event == "beforeMCPExecution":
         if kind:
             record(session_id, kind)
-        # allow the code graph explicitly; defer (no decision) for all other
-        # servers so a user policy is never overridden
-        out = dict(ALLOW) if kind == "graph" else {}
+        # allow the code graph explicitly; every other server's call meets the
+        # gate's content rules under the shared `mcp__<server>__<tool>` name (a
+        # deny), else no decision, so a user policy is never overridden.
+        # Cursor sends `tool_input` as a JSON string.
+        inp = payload.get("tool_input") or {}
+        if isinstance(inp, str):
+            try:
+                inp = json.loads(inp)
+            except ValueError:
+                inp = {}
+        reason = None if kind == "graph" else decision(
+            "mcp__%s__%s" % (payload.get("mcp_server_name") or "",
+                             payload.get("tool_name") or ""),
+            inp if isinstance(inp, dict) else {}, cwd, session_id)
+        if reason:
+            out = {"permission": "deny", "agent_message": reason}
+        else:
+            out = dict(ALLOW) if kind == "graph" else {}
     elif event == "subagentStart":
         if explored(payload.get("subagent_type")):
             out = {"permission": "deny", "user_message": "grep-only explorer blocked; use general-purpose with the code graph tools"}

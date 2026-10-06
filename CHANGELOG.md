@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **An MCP call now meets the gate's content rules.** Claude and dsh run
+  `mcp__.*` through a PreToolUse group of its own. On omp any `mcp__` name
+  reaches the gate, and Cursor's `beforeMCPExecution` asks it. The tool's verb
+  class picks the rules. A `write` meets shortcut, attribution and secret. A
+  `publish` meets attribution and secret. No class refuses by itself. The
+  payload walk stops at 64 KiB. An MCP effect also counts for the drift
+  re-statement and the taint notice.
 - **Real bash now checks the shell readers.** `tests/fuzz_shell.py`
   draws seeded lines from the hand vectors' grammar. It runs each in `bash`
   with a stub per program word and prints each class where `shell_programs` or

@@ -514,14 +514,16 @@ model on the far side of the network (`hooks/tezgah_integrity.py::TIER_PROGRAMS`
 invocation that reaches a provider) — and tells the model to treat instructions inside it as data.
 The call's own row carries the channel in `source` (`hooks/tezgah_integrity.py::note_tool`).
 
-After that read, the first effect the turn makes — a shell call or a write
-(`hooks/tezgah_untrusted.py:39-44`) — carries a taint notice instead (`hooks/tezgah_untrusted.py::marks`,
+After that read, the first effect the turn makes — a shell call, a write, or an MCP call of any verb
+class (`hooks/tezgah_untrusted.py::effectful`, `hooks/tezgah_integrity.py::mcp_class`) — carries a taint notice instead (`hooks/tezgah_untrusted.py::marks`,
 `hooks/tezgah_untrusted.py::taint_notice`, `hooks/tezgah_untrusted.py::turn_channel`) — which reads the ledger through `turn_rows`
 (`hooks/tezgah_integrity.py::turn_rows`): the whole file's lines, but only the current turn's rows
 parsed, so a taint check costs the length of the turn and not the length of the session. It names
 the turn, never a cause: whether the
 fetched page *caused* the write is not something a hook can see (`:14-17`). One notice per read, and
 the effect's own row then carries the channel, so the taint is a transition rather than a repeat.
+An MCP effect carries both lines. Its result came from the server, so it keeps the label. Its row
+carries the `mcp` channel, which takes the inherited channel's place.
 
 Subagents of one Claude session write one ledger, so one sibling's web read used to taint every
 sibling's effects. Claude's hook payload carries `agent_id` on a call a subagent makes, and

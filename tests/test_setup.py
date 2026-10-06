@@ -2488,6 +2488,21 @@ class PowershellMatcher(SetupBase):
                         "%s: PreToolUse never runs the gate for %s"
                         % (path, tool))
 
+    def test_the_two_manifests_gate_mcp_in_a_group_of_its_own(self):
+        # Plan 019: the literal group stays a list of exact names (a regex
+        # character in it would turn every name into an unanchored pattern, so
+        # `Edit` would select `NotebookEdit`'s neighbours and `task` every
+        # `*task*`). An MCP tool reaches the gate through its own group.
+        for path in ("hooks/hooks.json", "hosts/dsh/hooks.json"):
+            with self.subTest(path=path):
+                matchers = self.pretool_matchers(path)
+                self.assertRegex(matchers[0], self.LITERAL)
+                self.assertIn("mcp__.*", matchers[1:])
+                for tool in ("mcp__github__create_issue", "mcp__fs_write_file"):
+                    self.assertTrue(any(self.selects(m, tool) for m in matchers),
+                                    tool)
+                self.assertFalse(any(self.selects(m, "Read") for m in matchers))
+
     def test_the_written_omp_hook_gates_the_shell_name(self):
         self.env["TEZGAH_CODEGRAPH_BIN"] = sys.executable  # as OmpHost.install does
         proc = self.setup("--install", "--hosts", "omp")

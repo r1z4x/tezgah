@@ -90,9 +90,11 @@ import shlex
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               GIT_WRAPPER, HOOKS_KEY, STEP_KINDS, WRITE_TOOLS,
                               _blank_heredocs, _turn_start, _unquoted_backticks,
-                              call_id, cut, events, heredoc_bodies, mask, note,
-                              prior_calls, shortcut_command, shortcut_edit,
-                              turn_rows, verify_command)
+                              call_id, cut, events, heredoc_bodies, mask,
+                              mcp_class, mcp_text, note, prior_calls,
+                              shortcut_command, shortcut_edit, turn_rows,
+                              verify_command)
+from tezgah_integrity import SECRET_TOKEN as SECRET_FAMILY
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -232,6 +234,13 @@ SECRET_DENY = (
     "name, length or a fingerprint instead of its value, pass it through the "
     "tool's own environment, or let the tool read it from there rather than "
     "writing it out.")
+
+# the MCP half of the rule (see `decision`): the same advice, for a server write
+MCP_SECRET_DENY = (
+    "Credential write denied: this MCP call would land a credential (a prefixed "
+    "token such as `ghp_...` or `sk-...`) in what the server writes or posts. "
+    "Record the credential's name, length or a fingerprint instead of its value, "
+    "or let the server read it from its own environment.")
 
 EXPLORE_DENY = (
     "A grep-only explorer subagent is not allowed in this tree: it greps by "
@@ -1215,14 +1224,15 @@ def drift_reason(tool, inp, cwd, session_id):
 
 
 def effectful(t, inp):
-    """True when this call is one the constraints are about: a write tool, or a
-    git/gh command that lands an artifact. A read changes nothing, so the notice
-    spent on it would be spent where no rule applies."""
+    """True when this call is one the constraints are about: a write tool, a
+    git/gh command that lands an artifact, or an MCP effect
+    (`tezgah_integrity.mcp_class`). A read changes nothing, so the notice spent
+    on it would be spent where no rule applies."""
     if t in WRITE_TOOLS:
         return True
     if t in BASH_TOOLS:
         return bool(WRITE_CMD.search(mask(str(inp.get("command") or ""))))
-    return False
+    return mcp_class(t) is not None
 
 
 # --- plan required: work that spans files on main has no plan ----------------
@@ -2122,6 +2132,24 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
         reason = workspace_reason(inp, cwd, base)
         if reason:
             return _deny(session_id, "workspace", reason, tool, inp, base)
+    # MCP: a server's effect tool lands text the way a write tool or a `gh`
+    # write does, so its payload meets the same content rules. The verb class
+    # (tezgah_integrity.MCP_VERBS) only picks which rules read it - it never
+    # refuses or asks by itself - and the payload is read through the bounded
+    # walk (mcp_text). The credential half reads the prefixed token families,
+    # never the shell's name=value shape, which matches a program's own text.
+    verb = mcp_class(t)
+    if verb in ("write", "publish"):
+        text = mcp_text(inp)
+        if verb == "write" and not off("verify-off"):
+            reason = shortcut_edit({"file_path": (write_paths(inp) or [""])[0],
+                                    "content": text})
+            if reason:
+                return _deny(session_id, "shortcut", reason, tool, inp, base)
+        if ATTRIB_LINE.search(text):
+            return _deny(session_id, "attribution", ATTRIB_DENY, tool, inp, base)
+        if SECRET_FAMILY.search(text):
+            return _deny(session_id, "secret", MCP_SECRET_DENY, tool, inp, base)
     # A credential on its way into a file. No escape hatch: the deny text
     # names the rephrase (a name, a length, a fingerprint), so the write can
     # be replaced rather than repeated. The body a heredoc writes is read

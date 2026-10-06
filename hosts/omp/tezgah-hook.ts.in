@@ -263,7 +263,8 @@ function skillRead(tool: string, args: any): boolean {
 
 // The gate is only consulted for the tools the shared rule knows: the refusal
 // of the grep-only explorer (task/agent), the anti-shortcut and attribution
-// checks (bash), and the test-skip check (the edit/write names).
+// checks (bash), and the test-skip check (the edit/write names). An `mcp__`
+// tool is consulted by its prefix (see `tool_call`).
 const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
   "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
   "search_replace", "powershell", "pwsh"];
@@ -626,7 +627,12 @@ export default function tezgahOmp(pi: any): void {
 
   pi.on("tool_call", async (event: any, ctx: any) => {
     const tool = String(event?.toolName ?? event?.name ?? "");
-    if (!GATED.includes(tool.toLowerCase())) return undefined;
+    // An MCP tool is named per server (`mcp__<server>_<tool>`), so no exact
+    // list can hold it: the prefix reaches the gate, whose content rules read
+    // an MCP effect's payload (tezgah_integrity.mcp_class).
+    if (!GATED.includes(tool.toLowerCase()) && !tool.startsWith("mcp__")) {
+      return undefined;
+    }
     const res = ask({ event: "pre_tool_use", cwd: cwdOf(ctx), tool,
                       input: event?.input ?? event?.args ?? {},
                       session_id: sessionOf(ctx) });

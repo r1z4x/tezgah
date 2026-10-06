@@ -1109,6 +1109,68 @@ class Gate(TempHome):
             with self.subTest(inp=inp):
                 self.assertEqual(tg.write_paths(inp), want)
 
+    # ---- MCP: an effect tool's payload meets the content rules -------------
+    # Spelled the way the hosts send them: Claude/dsh/Codex `mcp__<server>__<tool>`,
+    # omp `mcp__<server>_<tool>`.
+    MCP_WRITES = ("mcp__filesystem__write_file", "mcp__fs_write_file")
+    TOKEN = "ghp_" + "a" * 36
+
+    def test_an_mcp_write_landing_a_token_is_refused(self):
+        for tool in self.MCP_WRITES:
+            reason = self.decide(tool, {"path": "src/a.py",
+                                        "content": "T = '%s'\n" % self.TOKEN})
+            self.assertIsNotNone(reason, tool)
+            self.assertIn("Credential", reason)
+        # nested the way an edit tool nests it
+        self.assertIsNotNone(self.decide("mcp__filesystem__edit_file", {
+            "path": "a.py", "edits": [{"oldText": "x", "newText": self.TOKEN}]}))
+
+    def test_an_mcp_publish_carrying_a_credit_is_refused(self):
+        reason = self.decide("mcp__github__create_pull_request", {
+            "title": "fix", "body": "change\n\nGenerated with Claude Code"})
+        self.assertIsNotNone(reason)
+        self.assertIn("Attribution", reason)
+
+    def test_an_mcp_write_adding_a_skip_to_a_test_is_refused(self):
+        content = "import pytest\n\n%s\ndef test_a():\n    pass\n" % SKIP_MARK
+        reason = self.decide("mcp__filesystem__write_file",
+                             {"path": "tests/test_zz.py", "content": content})
+        self.assertIsNotNone(reason)
+        self.assertIn("Test disable", reason)
+        self.assertIsNone(self.decide("mcp__filesystem__write_file",
+                                      {"path": "src/zz.py", "content": content}))
+
+    def test_no_mcp_call_is_refused_by_its_verb_class_alone(self):
+        # consent and sink were removed on purpose (docs/gate.md): the class only
+        # decides which content rules read the payload, never a refusal or an ask
+        for tool, inp in (
+                ("mcp__github__create_issue", {"title": "t", "body": "plain"}),
+                ("mcp__filesystem__write_file", {"path": "a.py", "content": "x=1"}),
+                ("mcp__github__merge_pull_request", {"pull_number": 3}),
+                ("mcp__fs_delete_file", {"path": "a.py"}),
+                ("mcp__mobile_mcp_mobile_click_on_screen_at_coordinates",
+                 {"x": 1, "y": 2}),
+                # a read lands nothing, so a token in its query is not a write
+                ("mcp__github__get_file", {"query": self.TOKEN})):
+            self.assertIsNone(self.decide(tool, inp), tool)
+
+    def test_the_mcp_payload_walk_is_bounded(self):
+        # audit H-3: a hook past Claude's 5 s budget never refuses anything. The
+        # walk keeps MCP_WALK_MAX characters; a token past them is not read.
+        pad = "x" * ti.MCP_WALK_MAX
+        self.assertIsNotNone(self.decide("mcp__fs_write_file", {
+            "path": "a.py", "content": self.TOKEN + pad}))
+        self.assertIsNone(self.decide("mcp__fs_write_file", {
+            "path": "a.py", "content": pad + self.TOKEN}))
+        deep = self.TOKEN
+        for _ in range(ti.MCP_WALK_DEPTH + 2):
+            deep = [deep]
+        self.assertEqual(ti.mcp_text({"a": deep}), "")
+        start = time.monotonic()
+        text = ti.mcp_text({"items": ["y" * 100] * 200000})
+        self.assertLessEqual(len(text), ti.MCP_WALK_MAX + 1)
+        self.assertLess(time.monotonic() - start, 1.0)
+
     # ---- constraint drift: a long turn re-states the rules -----------------
     # Above the gate's DRIFT_STEPS whatever it is tuned to: this test is about a
     # turn long enough to have lost the prompt that armed the rules, not about
@@ -1198,6 +1260,15 @@ class Gate(TempHome):
     def test_a_git_write_is_effectful_enough(self):
         self.seed_turn("long", self.LONG)
         reason = self.decide("Bash", {"command": 'git commit -m "fix: typo"'},
+                             session_id="long")
+        self.assertIsNotNone(reason)
+        self.assertIn("Long turn", reason)
+
+    def test_an_mcp_effect_earns_the_restatement_and_an_mcp_read_does_not(self):
+        self.seed_turn("long", self.LONG)
+        self.assertIsNone(self.decide("mcp__github__get_file", {"path": "x"},
+                                      session_id="long"))
+        reason = self.decide("mcp__github__create_issue", {"title": "t"},
                              session_id="long")
         self.assertIsNotNone(reason)
         self.assertIn("Long turn", reason)

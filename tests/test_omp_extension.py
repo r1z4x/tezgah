@@ -272,6 +272,22 @@ class OmpExtension(TempHome):
         self.assertIs(blocked["block"], True)
         self.assertIn("attribution", blocked["reason"].lower())
 
+    def test_tool_call_gates_an_mcp_write_by_its_content(self):
+        # omp names a server's tool `mcp__<server>_<tool>`; the prefix reaches
+        # the gate, and only the payload's content is what refuses it.
+        token = "ghp_" + "a" * 36
+        out = self.drive([
+            {"event": "tool_call", "arg": {"toolName": "mcp__fs_write_file",
+                                           "input": {"path": "a.py",
+                                                     "content": token}}},
+            {"event": "tool_call", "arg": {"toolName": "mcp__fs_write_file",
+                                           "input": {"path": "a.py",
+                                                     "content": "x = 1"}}}])
+        blocked, passed = self.results(out)
+        self.assertIs(blocked["block"], True)
+        self.assertIn("Credential", blocked["reason"])
+        self.assertIsNone(passed)
+
     def test_a_broken_hook_is_visible_and_never_blocks(self):
         # the audit's reproduction: with the hook missing, every event was a
         # silent no-op - an attribution commit and an unverified done-claim both

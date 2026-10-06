@@ -23,6 +23,7 @@ writing them would buy a second file read on every tool call. Stdlib only. Every
 reader fails open so a missing or broken ledger can never wedge a session.
 """
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -2702,6 +2703,76 @@ def classify(tool, inp):
 WEB_TOOLS = ("web_search", "websearch", "web_fetch", "webfetch", "fetch",
              "browser", "browse")
 MCP_TOOL = re.compile(r"^mcp__", re.I)
+# The verb classes of an MCP tool, read off its name: what the server is asked to
+# do picks which of the gate's existing content rules read the payload
+# (`tezgah_gate.decision`) and whether the call is an effect for the drift
+# re-statement (`tezgah_gate.effectful`) and the taint notice
+# (`tezgah_untrusted.effectful`) - one definition for all three. A class never
+# refuses or asks by itself: consent and sink were removed on purpose
+# (docs/gate.md). `write` lands file content (shortcut, attribution, secret),
+# `publish` lands text on a service under the workspace's name (attribution,
+# secret), `act` changes state and carries no artifact text (drift and taint
+# only). Matched per word of the name, so Claude/dsh/Codex
+# `mcp__<server>__<tool>` and omp `mcp__<server>_<tool>` read the same; the first
+# class with a word in the name wins.
+# ponytail: a verb missing here (a server's own word for "send") reads as a read:
+# it costs that tool the content rules, never a call.
+MCP_VERBS = (
+    ("write", frozenset(("write", "edit", "create", "update", "insert", "append",
+                         "replace", "patch", "put", "save", "upload", "move",
+                         "rename", "delete", "remove", "mkdir", "copy"))),
+    ("publish", frozenset(("send", "post", "reply", "comment", "review",
+                           "merge", "push", "commit", "publish", "release",
+                           "tag", "close", "submit", "message", "email",
+                           "notify", "share"))),
+    ("act", frozenset(("run", "exec", "execute", "click", "tap", "type", "fill",
+                       "press", "swipe", "drag", "start", "stop", "cancel",
+                       "install", "uninstall", "deploy", "set", "launch",
+                       "terminate", "kill", "print", "pause", "resume", "skip",
+                       "clear", "navigate", "evaluate"))))
+# The payload walk the content rules read an MCP effect through: string values,
+# depth-first, up to MCP_WALK_MAX characters, MCP_WALK_DEPTH levels and
+# MCP_WALK_NODES values. A server's payload has no shape of its own to key on,
+# and an unbounded read of it is a hook past the host's 5 s budget, which refuses
+# nothing (audit H-3).
+# ponytail: text past the cap is not read - a credential behind 64 KiB of padding
+# lands; the cap is the ceiling, named here.
+MCP_WALK_MAX = 64 * 1024
+MCP_WALK_DEPTH = 8
+MCP_WALK_NODES = 4096
+
+
+def mcp_class(tool):
+    """The verb class (`write`, `publish`, `act`) of an MCP tool, or None for a
+    read and for every tool that is not an MCP one."""
+    name = str(tool or "").strip().lower()
+    if not MCP_TOOL.match(name):
+        return None
+    words = set(re.split(r"[^a-z0-9]+", name[5:]))
+    for cls, verbs in MCP_VERBS:
+        if words & verbs:
+            return cls
+    return None
+
+
+def mcp_text(inp):
+    """The text an MCP payload carries, bounded (see MCP_WALK_MAX)."""
+    out, size, seen = [], 0, 0
+    stack = [(inp, 0)]
+    while stack and size < MCP_WALK_MAX and seen < MCP_WALK_NODES:
+        node, depth = stack.pop()
+        seen += 1
+        if isinstance(node, str):
+            part = node[:MCP_WALK_MAX - size]
+            out.append(part)
+            size += len(part) + 1
+        elif depth < MCP_WALK_DEPTH and isinstance(node, (dict, list, tuple)):
+            items = node.values() if isinstance(node, dict) else node
+            kids = list(itertools.islice(items, MCP_WALK_NODES))
+            stack.extend((kid, depth + 1) for kid in reversed(kids))
+    return "\n".join(out)
+
+
 # A read that leaves the machine, matched on the masked text so that quoting curl
 # in a commit message is not a read, and only at a command position so that
 # `grep -n curl hooks/` is not one either. ponytail: `sudo curl` and a program
