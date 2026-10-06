@@ -5,6 +5,7 @@ imperative fold.
     python3 tests/stop_spec_eval.py --replay        # GO 2: plan 055's replayed Stop events
     python3 tests/stop_spec_eval.py --shadow-rows   # GO 2: the live `stop_spec` rows
     python3 tests/stop_spec_eval.py --timing        # GO 3: perf_counter, in-process
+    python3 tests/stop_spec_eval.py --stop-cost     # the shadow's cost: stop_reason on/off
     python3 tests/stop_spec_eval.py --mutants       # generated table mutants
 
 `--replay` builds plan 055's corpus in this process (`tezgah_replay.build_corpus`:
@@ -82,39 +83,70 @@ def _spec_fold(rows, worked, external, where="this turn"):
     return ss.fold(rows, worked, external, where)
 
 
+def _per_class(rows):
+    """{imperative class: [n, agree]} over `rows`."""
+    out = defaultdict(lambda: [0, 0])
+    for r in rows:
+        out[r["imperative"] or "ok"][0] += 1
+        out[r["imperative"] or "ok"][1] += r["imperative"] == r["spec"]
+    return {k: {"n": v[0], "agree": v[1]} for k, v in sorted(out.items())}
+
+
 def replay():
+    """Both folds over every joined Stop item. GO 2 is read on the items whose
+    selector reached the fold: one it decided alone (a shape class, a lost
+    check, "evidence tampered") agrees by construction. The corpus joins claim
+    rows only (plan 055's ITEM_KINDS), so refusal rows are not in it."""
     events = stop_events()
     rows, moved = [], Counter()
     for it, prefix, turn in events:
+        reached = []
+
+        def spec_fold(r, w, e, where="this turn"):
+            reached.append(True)
+            return _spec_fold(r, w, e, where)
+
         try:
             imp = _judge(it, prefix, turn, ti._evidence_block)
-            spec = _judge(it, prefix, turn, _spec_fold)
+            spec = _judge(it, prefix, turn, spec_fold)
         except Exception as exc:  # a crash is a result, never an agreement
             imp, spec = "error", "%s: %s" % (type(exc).__name__, exc)
         rows.append({"i": it["i"], "sid": it["sid"], "ts": it["ts"], "live": it["live"],
                      "live_rule": it["live_rule"], "imperative": imp, "spec": spec,
-                     "turn_rows": len(turn)})
+                     "fold": bool(reached), "turn_rows": len(turn)})
         moved["%s -> %s" % (imp or "ok", spec or "ok")] += 1
     agree = sum(1 for r in rows if r["imperative"] == r["spec"])
-    evidence = [r for r in rows if r["imperative"] not in ti.SHAPE_BLOCKS]
-    agree_ev = sum(1 for r in evidence if r["imperative"] == r["spec"])
+    folded = [r for r in rows if r["fold"]]
+    agree_f = sum(1 for r in folded if r["imperative"] == r["spec"])
     summary = {"n": len(rows), "agree": agree,
                "agreement": round(100.0 * agree / len(rows), 3) if rows else None,
-               "n_evidence_judged": len(evidence), "agree_evidence_judged": agree_ev,
+               "n_fold_reached": len(folded), "agree_fold_reached": agree_f,
+               "fold_reached_share": round(100.0 * len(folded) / len(rows), 3)
+               if rows else None,
+               "go2_agreement": round(100.0 * agree_f / len(folded), 3) if folded else None,
+               "per_class_fold_reached": _per_class(folded),
+               "per_class_selector": _per_class([r for r in rows if not r["fold"]]),
                "classes": dict(moved),
                "disagreements": [r for r in rows if r["imperative"] != r["spec"]]}
-    print("replayed Stop events: n=%d agree=%d (%s%%); not refused on shape: n=%d agree=%d"
-          % (summary["n"], agree, summary["agreement"], len(evidence), agree_ev))
-    for key, count in sorted(moved.items(), key=lambda kv: -kv[1]):
-        print("  %5d  %s" % (count, key))
+    print("replayed Stop events: n=%d agree=%d (%s%%); fold reached: n=%d (%s%% of all) "
+          "agree=%d (GO 2: %s%%)" % (summary["n"], agree, summary["agreement"],
+                                     len(folded), summary["fold_reached_share"],
+                                     agree_f, summary["go2_agreement"]))
+    for title, per in (("fold reached", summary["per_class_fold_reached"]),
+                       ("selector alone", summary["per_class_selector"])):
+        print("  %s:" % title)
+        for cls, v in sorted(per.items(), key=lambda kv: -kv[1]["n"]):
+            print("    %5d agree %5d  %s" % (v["n"], v["agree"], cls))
     for r in summary["disagreements"]:
-        print("  DISAGREE i=%s sid=%s imperative=%s spec=%s" % (
-            r["i"], r["sid"], r["imperative"], r["spec"]))
+        print("  DISAGREE i=%s sid=%s imperative=%s spec=%s fold=%s" % (
+            r["i"], r["sid"], r["imperative"], r["spec"], r["fold"]))
     _out("replay", summary)
     return summary
 
 
 def shadow_rows():
+    """The live `stop_spec` rows. GO 2 is read on `agree fold`/`disagree fold`
+    rows; `selector` rows and `error` rows are counted beside it."""
     count, bad = Counter(), []
     for path in ti.ledgers():
         for row in ti._foreign_rows(path):
@@ -126,12 +158,17 @@ def shadow_rows():
                 bad.append({"ledger": os.path.basename(path), "ts": row.get("ts"),
                             "detail": detail})
     n = sum(count.values())
-    summary = {"n": n, "min_n": ss.MIN_LIVE_N, "counts": dict(count),
-               "agreement": round(100.0 * count["agree"] / n, 3) if n else None,
-               "readable": n >= ss.MIN_LIVE_N, "disagreements": bad}
-    print("live stop_spec rows: n=%d (pre-registered minimum %d, %s) %s" % (
-        n, ss.MIN_LIVE_N, "readable" if summary["readable"] else "NOT readable",
-        dict(count)))
+    folded = count["agree fold"] + count["disagree fold"]
+    summary = {"n": n, "n_fold_reached": folded, "min_n": ss.MIN_LIVE_N,
+               "counts": dict(count),
+               "fold_reached_share": round(100.0 * folded / n, 3) if n else None,
+               "go2_agreement": round(100.0 * count["agree fold"] / folded, 3)
+               if folded else None,
+               "readable": folded >= ss.MIN_LIVE_N, "disagreements": bad}
+    print("live stop_spec rows: n=%d, fold reached n=%d (pre-registered minimum %d, %s) "
+          "GO 2 %s%% %s" % (n, folded, ss.MIN_LIVE_N,
+                            "readable" if summary["readable"] else "NOT readable",
+                            summary["go2_agreement"], dict(count)))
     for r in bad:
         print("  %s %s %s" % (r["ledger"], r["ts"], r["detail"]))
     _out("shadow-rows", summary)
@@ -166,6 +203,7 @@ def timing(reps=7):
         for _ in range(reps):
             for k, fold in enumerate(folds):
                 spent[0] = 0.0
+                ti._mask.cache_clear()  # one hook process per Stop: a cold cache
                 t0 = time.perf_counter()
                 try:
                     _judge(it, prefix, turn, fold)
@@ -187,6 +225,67 @@ def timing(reps=7):
                "shadow_added_ms": {"p50": _p(whole, .5), "p95": _p(whole, .95)}}
     print(json.dumps(summary, indent=2))
     _out("timing", summary)
+    return summary
+
+
+COST_CLAIM = "Done: all tests pass."
+
+
+def stop_cost(reps=3):
+    """The whole `stop_reason` per ledger, shadow on against shadow off, on
+    copies of the real ledgers that hold a claim or a refusal row (the Stops
+    the shadow runs on). Each copy is judged with the same claim reply; nothing
+    is written (`note` is a no-op), so every run reads the same file. Per
+    ledger, the median of `reps` interleaved runs, each with a cold `mask`
+    cache as a fresh hook process has."""
+    import shutil
+    import tempfile
+    from unittest import mock
+    tmp = tempfile.mkdtemp(prefix="stopcost-")
+    copies = []
+    for path in ti.ledgers():
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            continue
+        if b'"kind": "claim"' in data or b'"kind": "refusal"' in data:
+            dst = os.path.join(tmp, os.path.basename(path))
+            with open(dst, "wb") as fh:
+                fh.write(data)
+            copies.append(dst)
+    off_ms, on_ms, delta = [], [], []
+    try:
+        with mock.patch.object(ti, "note"):
+            for dst in copies:
+                runs = ([], [])
+                for _ in range(reps):
+                    for k in (0, 1):
+                        ti._mask.cache_clear()
+                        with mock.patch.object(ti, "_path", lambda _sid, p=dst: p), \
+                                mock.patch.object(ss, "shadow", ss.shadow if k
+                                                  else (lambda *a, **kw: None)):
+                            t0 = time.perf_counter()
+                            try:
+                                ti.stop_reason(COST_CLAIM, "cost")
+                            except Exception:
+                                pass
+                            runs[k].append((time.perf_counter() - t0) * 1000)
+                off, on = statistics.median(runs[0]), statistics.median(runs[1])
+                off_ms.append(off)
+                on_ms.append(on)
+                delta.append(on - off)
+    finally:
+        shutil.rmtree(tmp, True)
+    summary = {"n_ledgers": len(copies), "reps": reps, "loadavg": os.getloadavg(),
+               "shadow_off_ms": {"p50": _p(off_ms, .5), "p95": _p(off_ms, .95),
+                                 "max": max(off_ms, default=None)},
+               "shadow_on_ms": {"p50": _p(on_ms, .5), "p95": _p(on_ms, .95),
+                                "max": max(on_ms, default=None)},
+               "added_ms": {"p50": _p(delta, .5), "p95": _p(delta, .95),
+                            "max": max(delta, default=None)}}
+    print(json.dumps(summary, indent=2))
+    _out("stop-cost", summary)
     return summary
 
 
@@ -329,13 +428,16 @@ def main(argv=None):
     ap.add_argument("--replay", action="store_true")
     ap.add_argument("--shadow-rows", action="store_true")
     ap.add_argument("--timing", action="store_true")
+    ap.add_argument("--stop-cost", action="store_true")
     ap.add_argument("--mutants", action="store_true")
     ap.add_argument("--mutant-child")
     args = ap.parse_args(argv)
     if args.mutant_child:
         return mutant_child(args.mutant_child)
-    if not (args.replay or args.shadow_rows or args.timing or args.mutants):
-        ap.error("name at least one of --replay, --shadow-rows, --timing, --mutants")
+    if not (args.replay or args.shadow_rows or args.timing or args.stop_cost
+            or args.mutants):
+        ap.error("name at least one of --replay, --shadow-rows, --timing, "
+                 "--stop-cost, --mutants")
     status = 0
     if args.replay:
         replay()
@@ -343,6 +445,8 @@ def main(argv=None):
         shadow_rows()
     if args.timing:
         timing()
+    if args.stop_cost:
+        stop_cost()
     if args.mutants:
         status = run_mutants()
     return status

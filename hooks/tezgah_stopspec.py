@@ -273,35 +273,46 @@ def fold(rows, worked, external, where="this turn", table=None):
 
 
 def judge(text, session_id, rows, cwd, shape, table=None):
-    """The spec's verdict class for one Stop: the shared selector with the spec
-    as its fold."""
-    return ti._stop_block(text, session_id, rows=rows, cwd=cwd, shape=shape,
-                          fold=lambda r, w, e, where="this turn":
-                          fold(r, w, e, where, table))[0]
+    """(the spec's verdict class, whether the selector reached the fold) for one
+    Stop: the shared selector with the spec as its fold. A verdict the selector
+    made alone (a shape class, "evidence tampered", a lost check) is the
+    imperative one by construction."""
+    reached = []
+
+    def spec_fold(r, w, e, where="this turn"):
+        reached.append(True)
+        return fold(r, w, e, where, table)
+
+    cls = ti._stop_block(text, session_id, rows=rows, cwd=cwd, shape=shape,
+                         fold=spec_fold)[0]
+    return cls, bool(reached)
 
 
 def check(imperative, text, session_id, rows, cwd, shape):
-    """(spec class, agree) for one Stop; raises under `TEZGAH_STOPSPEC_STRICT`
-    when the two disagree."""
-    spec = judge(text, session_id, rows, cwd, shape)
+    """(spec class, agree, fold reached) for one Stop; raises under
+    `TEZGAH_STOPSPEC_STRICT` when the two disagree."""
+    spec, reached = judge(text, session_id, rows, cwd, shape)
     agree = spec == imperative
     if not agree and os.environ.get(STRICT):
         raise AssertionError("stop spec disagrees: imperative %r, spec %r"
                              % (imperative, spec))
-    return spec, agree
+    return spec, agree, reached
 
 
 def shadow(imperative, text, session_id, rows, cwd, shape, key):
     """Record the spec's verdict beside the imperative one as one `stop_spec`
-    row per reply per turn. Never returns a verdict: the caller's is final.
-    A failure of the spec is recorded as `error: <type>` and re-raised only under
-    the strict switch."""
+    row per reply per turn: `agree fold: <class>`, `disagree selector: <imp> ->
+    <spec>` and so on, where `fold` says the selector reached the fold and
+    `selector` says it decided alone (GO 2 reads only the first). Never returns
+    a verdict: the caller's is final. A failure of the spec is recorded as
+    `error: <type>` and re-raised only under the strict switch."""
     if any(r.get("kind") == ROW_KIND and r.get("id") == key for r in rows):
         return
     try:
-        spec, agree = check(imperative, text, session_id, rows, cwd, shape)
-        detail = ("agree: %s" % (imperative or "ok") if agree else
-                  "disagree: %s -> %s" % (imperative or "ok", spec or "ok"))
+        spec, agree, reached = check(imperative, text, session_id, rows, cwd, shape)
+        where = "fold" if reached else "selector"
+        detail = ("agree %s: %s" % (where, imperative or "ok") if agree else
+                  "disagree %s: %s -> %s" % (where, imperative or "ok", spec or "ok"))
     except Exception as exc:
         if os.environ.get(STRICT):
             raise

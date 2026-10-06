@@ -74,7 +74,7 @@ ITEM_KINDS = ("deny", "began", "claim")
 TEST_ROW_KINDS = ("route",)
 # Rows a live call wrote just before its own item row: they are moved after it.
 SIDE_KINDS = {"deny": ("drift", "nudge"), "began": ("drift", "nudge"),
-              "claim": ("shape",)}
+              "claim": ("shape", "stop_spec")}
 # The rule the family fold (plan 055 part 6, D32a) is about.
 RACE_RULE = "race"
 RACE_BAR_UNMEASURABLE = ("not measurable on this corpus: no race item is on the sheet "
@@ -371,8 +371,8 @@ def build_corpus(cutoff, since=None):
                                       item.get("input"))
             items.append(item)
             row_item = item["i"] if item["join"] else None
-            # the call's own side rows (drift/nudge marks, the Stop `shape` row)
-            # sit just before it at the same ts: move them after the item
+            # the call's own side rows (drift/nudge marks, the Stop `shape` and
+            # `stop_spec` rows) sit just before it at the same ts: move them after the item
             j = order.index(idx)
             k = j
             while (k > 0 and rows[order[k - 1]].get("ts") == row["ts"]
@@ -456,7 +456,7 @@ def _replay_one(it, prefix, tg, seen, live_events):
     out = {"i": it["i"]}
     try:
         if it["kind"] == "claim":
-            prefix = [r for r in prefix if not (r.get("kind") == "shape"
+            prefix = [r for r in prefix if not (r.get("kind") in SIDE_KINDS["claim"]
                                                 and r.get("id") == it["id"])]
             turn = prefix[ti._turn_start(prefix):]
             turns = sum(1 for r in prefix if r.get("kind") == ti.TURN_KIND)

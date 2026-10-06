@@ -82,7 +82,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `refusal` | `stop_reason`, for a blocked reply that claimed nothing - a work-only or a shape refusal - with the same `blocked: <class>` detail (row version 3) | `counters.refusals`, and `shape_blocked` for a shape class; never a claim; `NOT_TOOL_HOOK` lists it |
 | `after_block` | `hooks/tezgah_integrity.py::stop_reason`, on the reply after this rule's own block (`stop_hook_active` in a turn holding a `blocked:` claim or refusal row) on Claude, Codex and omp; `detail` is `would block: <class>`, `ok` or `no claim` | nothing yet: a record for the after-block observation window, not a claim and not a second `shape` row, so `counters` counts it neither as a claim nor as a reply; `NOT_TOOL_HOOK` lists it |
 | `subagent_end` | `stop_reason(..., subagent=True)`, from Claude's SubagentStop (`hooks/hooks.json`) and Cursor's subagentStop `summary`; the evidence half only, never a block (ADR 011); `detail` as `after_block`'s | nothing yet: the rows plan 055 replays before a subagent end may block; `NOT_TOOL_HOOK` lists it. On Claude a subagent's tool rows sit in the parent's ledger, so until the agent key (plan 050) lands the row judges the parent's turn |
-| `stop_spec` | `hooks/tezgah_stopspec.py::shadow`, from `stop_reason`, one per judged reply, keyed like the claim row. The `detail` is `agree: <class>`, `disagree: <imperative> -> <spec>` (`ok` for an allow) or `error: <type>` | `tests/stop_spec_eval.py --shadow-rows`, for plan 063's live agreement bar. It never feeds the verdict. `NOT_TOOL_HOOK` lists it |
+| `stop_spec` | `hooks/tezgah_stopspec.py::shadow`, from `stop_reason`, one per reply that leaves a claim or a refusal row, keyed like the claim row. The `detail` is `agree <where>: <class>`, `disagree <where>: <imperative> -> <spec>` (`ok` for an allow) or `error: <type>`. `<where>` is `fold` when the selector reached the fold and `selector` when it decided alone | `tests/stop_spec_eval.py --shadow-rows`, for plan 063's live agreement bar, read on the `fold` rows. It never feeds the verdict. `NOT_TOOL_HOOK` lists it |
 | `deny`, `nudge` | the [gate](gate.md)'s `hooks/tezgah_gate.py::_deny`, first-nudge `hooks/tezgah_gate.py::decision` | `hooks/tezgah_integrity.py::counters` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py::_capture_one`, `:277-280` | `hooks/tezgah_integrity.py::_snapshot_hash`; no counter |
 | `compact` | `hooks/tezgah_integrity.py::note_compaction`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py::remember_compaction`) | `hooks/tezgah_integrity.py::_counts` (what `counters` folds with) |
@@ -321,11 +321,12 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    tooling.
 
 Classes 5–10 also exist as a past-time temporal spec (`hooks/tezgah_stopspec.py::FORMULAS`,
-plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. Each formula is
-compiled to a one-pass monitor over the rows (`hooks/tezgah_stopspec.py::compile_table`), and the
+plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. The module compiles
+each formula to a one-pass monitor over the rows (`hooks/tezgah_stopspec.py::compile_table`), and the
 order above is its decision list (`ORDER`). The spec runs in shadow. `stop_reason` asks it after the imperative
-fold, inside its own `try`, and writes one `stop_spec` row per reply. The row says `agree`,
-`disagree` or `error`, and the verdict stays the imperative one. Both folds share one selector,
+fold, inside its own `try`, when the reply leaves a claim or a refusal row. It writes one `stop_spec` row
+per reply. The row says `agree`, `disagree` or `error`. It also says `fold` when the selector reached
+the fold and `selector` when it decided alone. The verdict stays the imperative one. Both folds share one selector,
 `_stop_block`, through its `fold` argument. It picks the rows, runs the lost-began path and
 refuses "evidence tampered". `ESCAPES` names the three predicates that read beyond one row: the
 began-row join, the repository binding and the lost-began set. Plan 063 fixed that list before

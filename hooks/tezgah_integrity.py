@@ -22,6 +22,7 @@ NOT written - a reader derives them from the line's index and the `ts` delta, an
 writing them would buy a second file read on every tool call. Stdlib only. Every
 reader fails open so a missing or broken ledger can never wedge a session.
 """
+import functools
 import hashlib
 import json
 import os
@@ -2050,8 +2051,16 @@ def mask(text):
     a word. So `https://x`, `a#b`, `src/*.py ... lib/*/`, `'x\\'` and `\\$'x\\'`
     are words, not a comment or an open string that blanks the command after
     them (gate-01). A quote left open blanks from itself to the end - bash runs
-    nothing after it - and keeps the reading before it."""
-    text = _blank_heredocs(str(text or ""))
+    nothing after it - and keeps the reading before it.
+
+    Memoised per process: a pure function of the text, and one Stop asks it of
+    the same ledger details from several readers (both Stop folds, plan 063)."""
+    return _mask(str(text or ""))
+
+
+@functools.lru_cache(maxsize=4096)
+def _mask(text):
+    text = _blank_heredocs(text)
     body = _heredoc_bytes(text)
     out, i, n, start, prev = list(text), 0, len(text), True, ""
     while i < n:
@@ -3911,15 +3920,6 @@ def stop_reason(text, session_id, cwd=None, record_only=False,
     cls, reason = _stop_block(text, session_id, rows=rows, cwd=cwd,
                               shape=not subagent)
     key = _claim_key(text, turns)
-    # The temporal spec's verdict, in shadow (plan 063): recorded beside this
-    # one and never read back. Its own guard, because the host wraps this whole
-    # function in `safe()` and an escaping exception would lose the refusal.
-    try:
-        import tezgah_stopspec
-        tezgah_stopspec.shadow(cls, text, session_id, rows, cwd, not subagent, key)
-    except Exception:
-        if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
-            raise
     # Keyed like the claim row, so Cursor's re-run of the handler on a follow-up
     # does not count the same reply twice; above the early return, so a reply
     # with no claim vocabulary still leaves its row.
@@ -3943,6 +3943,18 @@ def stop_reason(text, session_id, cwd=None, record_only=False,
         detail, kind = "ok", "claim"
     else:
         return None
+    # The temporal spec's verdict, in shadow (plan 063): recorded beside this
+    # one and never read back, and only for a reply that leaves a claim or a
+    # refusal row - the population its agreement bar is read on - so a quiet
+    # allowed reply pays nothing. Its own guard, because the host wraps this
+    # whole function in `safe()` and an escaping exception would lose the refusal.
+    if not record_only:
+        try:
+            import tezgah_stopspec
+            tezgah_stopspec.shadow(cls, text, session_id, rows, cwd, True, key)
+        except Exception:
+            if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
+                raise
     if not any(entry.get("kind") == kind and entry.get("id") == key
                for entry in rows):
         if cls == "no verify_ok" and not record_only:

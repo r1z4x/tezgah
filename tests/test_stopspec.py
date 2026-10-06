@@ -154,7 +154,7 @@ class Shadow(unittest.TestCase):
         reason = ti.stop_reason(self.CLAIM, "s")
         self.assertIn("no check ran", reason)
         rows = self.rows()
-        self.assertEqual([r["detail"] for r in rows], ["agree: no verify_ok"])
+        self.assertEqual([r["detail"] for r in rows], ["agree fold: no verify_ok"])
         self.assertEqual(rows[0]["v"], ti.ROW_VERSION)
         self.assertTrue(rows[0]["id"])
 
@@ -164,6 +164,27 @@ class Shadow(unittest.TestCase):
             self.assertEqual(ti.stop_reason(self.CLAIM, "s"), want)
         self.assertEqual([r["detail"] for r in self.rows()],
                          ["error: RuntimeError"])
+
+    def test_a_stop_that_writes_no_claim_or_refusal_runs_no_shadow(self):
+        # the 99% bar is read on claim and refusal rows; a quiet allowed reply
+        # and a reply after a block pay nothing for the shadow
+        ti.note("s", "verify_ok", "pytest -q", exit=0, out_bytes=9)
+        with mock.patch.object(ss, "check") as asked:
+            self.assertIsNone(ti.stop_reason("Here is the summary.", "s"))
+            self.assertIsNone(ti.stop_reason(self.CLAIM, "s", record_only=True))
+            self.assertIsNone(ti.stop_reason(self.CLAIM, "s", subagent=True))
+        asked.assert_not_called()
+        self.assertEqual(self.rows(), [])
+
+    def test_a_verdict_the_selector_made_says_the_fold_was_not_reached(self):
+        # a shape refusal is decided before any fold: agreement there is by
+        # construction, so the row says so and GO 2 leaves it out
+        text = "Done:\n" + "\n".join("- item %d" % k for k in range(12))
+        cls = ti._stop_block(text, "s", rows=ti.turn_rows("s"))[0]
+        self.assertIn(cls, ti.SHAPE_BLOCKS)
+        ti.stop_reason(text, "s")
+        self.assertEqual([r["detail"] for r in self.rows()],
+                         ["agree selector: %s" % cls])
 
     def test_a_shadow_that_fails_outside_its_guard_keeps_the_refusal(self):
         want = ti._stop_block(self.CLAIM, "s", rows=ti.turn_rows("s"))[1]
@@ -178,15 +199,15 @@ class Shadow(unittest.TestCase):
                     self.assertEqual(ti.stop_reason(self.CLAIM + " " + str(spec), "s"),
                                      want)
         self.assertEqual([r["detail"] for r in self.rows()],
-                         ["disagree: no verify_ok -> ok",
-                          "disagree: no verify_ok -> check failed"])
+                         ["disagree fold: no verify_ok -> ok",
+                          "disagree fold: no verify_ok -> check failed"])
 
     def test_an_allowed_turn_stays_allowed_under_a_refusing_spec(self):
         ti.note("s", "verify_ok", "pytest -q", exit=0, out_bytes=9)
         with mock.patch.object(ss, "fold", return_value=("no verify_ok", "x")):
             self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
         self.assertEqual([r["detail"] for r in self.rows()],
-                         ["disagree: ok -> no verify_ok"])
+                         ["disagree fold: ok -> no verify_ok"])
 
     def test_one_row_per_reply_per_turn(self):
         ti.stop_reason(self.CLAIM, "s")
