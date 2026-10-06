@@ -2092,13 +2092,47 @@ def _unquoted_backticks(text):
     return "".join(out)
 
 
+def _for_shlex(text):
+    """`text` rewritten into what shlex can read: each `$'...'` (bash's ANSI-C
+    quoting, `\\'` included, which shlex does not know) as the single-quoted
+    word it expands to, and each unquoted backtick pair as the `$( )` it is.
+    ponytail: an escape expands to its own character, so `$'\\x2d'` is read as
+    `x2d`; a quote left open goes to shlex as it was."""
+    out, quote, tick, i, n = [], None, False, 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and quote != "'" and i + 1 < n:
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch == "$" and text[i + 1:i + 2] == "'":
+            end = i + 2
+            while end < n and text[end] != "'":
+                end += 2 if text[end] == "\\" else 1
+            if end < n:
+                out.append(shlex.quote(re.sub(r"\\(.)", r"\1", text[i + 2:end])))
+                i = end + 1
+                continue
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "`":
+            ch, tick = (")" if tick else "$("), not tick
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _shell_commands(cmd):
     """`_shell_segments` with each command's separator kept: [words, sep], where
     `sep` is the `;&|()` runs that ended it (a run after an empty command joins
-    the previous one's) plus "\\n" at a line end, "" at the end of the line."""
+    the previous one's) plus "\\n" at a line end, "" at the end of the line.
+    A `$( )` or backtick body is a command of its own, ended by `$)`, and the
+    command around it goes on after its close with a `$()` word in its place."""
     out = []
-    text = _unquoted_backticks(
-        _blank_heredocs(str(cmd or "")).replace("\\\n", " "))
+    text = _for_shlex(_blank_heredocs(str(cmd or "")).replace("\\\n", " "))
     for line in re.split(r"\r\n|\r|\n", text):
         try:
             lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
@@ -2107,7 +2141,7 @@ def _shell_commands(cmd):
             words = list(lex)
         except ValueError:
             words = ROUGH_WORDS.findall(re.sub(r"['\"`]", "", line))
-        cur, after_redir, i = [], False, 0
+        cur, subs, after_redir, i = [], [], False, 0
         while i < len(words):
             word = words[i]
             i += 1
@@ -2127,16 +2161,32 @@ def _shell_commands(cmd):
                     continue  # `>&2`: the `&` belongs to the operator
                 after_redir = False
                 continue
-            if word and word[0] in ";&|()":
-                if cur:
-                    out.append([cur, word])
-                elif out:
-                    out[-1][1] += word
-                cur = []
-            else:
+            if not (word and word[0] in ";&|()"):
                 cur.append(word)
-        if cur:
-            out.append([cur, "\n"])
+                continue
+            for piece in re.findall(r"[()]|[;&|]+", word):
+                if piece == "(" and cur and cur[-1].endswith("$"):
+                    cur[-1] += "()"
+                    subs.append([cur, 0])  # the outer command, its open `(`s
+                    cur = []
+                    continue
+                if subs and piece == "(":
+                    subs[-1][1] += 1
+                elif subs and piece == ")":
+                    if not subs[-1][1]:
+                        if cur:
+                            out.append([cur, "$)"])
+                        cur = subs.pop()[0]
+                        continue
+                    subs[-1][1] -= 1
+                if cur:
+                    out.append([cur, piece])
+                elif out:
+                    out[-1][1] += piece
+                cur = []
+        for seg in [cur] + [outer for outer, _open in reversed(subs)]:
+            if seg:
+                out.append([seg, "\n"])
     if out and out[-1][1] == "\n":
         out[-1][1] = ""
     return out
@@ -2146,7 +2196,8 @@ def _shell_segments(cmd):
     """The line's simple commands as word lists, read the way
     `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
     `;&|()<>` - so quotes and escapes are gone, heredoc bodies are blanked first,
-    a continued line is joined, and an unquoted backtick ends a command. A line
+    a continued line is joined, a `$'...'` is one word (`_for_shlex`), and a
+    `$( )` or backtick body is a command of its own (`_shell_commands`). A line
     shlex cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
 
     Two places where bash and shlex disagree, and bash wins because bash is what

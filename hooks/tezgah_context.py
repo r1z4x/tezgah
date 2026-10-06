@@ -2257,16 +2257,44 @@ _OPTION_ARG = frozenset(("-u", "-g", "-k", "-o", "-C", "-h", "-T", "-r", "-t",
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
+def _substitutions(text, start, end):
+    """The `$( )` and backtick spans of text[start:end], outermost only."""
+    i = start
+    while i < end:
+        if text.startswith("$(", i):
+            depth, j = 0, i + 1
+            while j < end:
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                if not depth:
+                    break
+                j += 1
+        elif text[i] == "`":
+            j = text.find("`", i + 1, end)
+            j = end if j < 0 else j
+        else:
+            i += 1
+            continue
+        yield i, j + 1
+        i = j + 1
+
+
 def shell_programs(command, _depth=0):
-    """Every word a shell line would run as a program, in order. Every closed
-    heredoc body is data here, quoted tag or not: what an unquoted body expands
-    is not a run this reader claims, while the deny readers keep it visible."""
-    text = list(str(command or ""))
-    for h in _heredocs("".join(text)):
-        if h[5]:
-            for k in range(h[4], h[5][0]):
-                if text[k] != "\n":
-                    text[k] = " "
+    """Every word a shell line would run as a program, in order. A closed
+    heredoc body is data: a quoted tag's whole, an unquoted tag's all but its
+    `$( )` and backtick substitutions, which bash runs. The deny readers keep an
+    unquoted body visible whole."""
+    command = str(command or "")
+    text = list(command)
+    for h in _heredocs(command):
+        if not h[5]:
+            continue
+        keep = set()
+        if not h[3]:
+            for a, b in _substitutions(command, h[4], h[5][0]):
+                keep.update(range(a, b))
+        for k in range(h[4], h[5][1]):
+            if text[k] != "\n" and k not in keep:
+                text[k] = " "
     out = []
     for words in _shell_segments("".join(text)):
         out += _command_words(words, _depth)
@@ -2301,7 +2329,10 @@ def _command_words(words, depth):
             out += shell_programs(word, depth + 1)
             want, shell_c = False, False
             continue
-        out.append(os.path.basename(word))
+        # a program word holding `$()` is whatever the substitution prints:
+        # the substitution's own command is named, the printed word is not
+        if "$()" not in word:
+            out.append(os.path.basename(word))
         want = False
     return out
 
