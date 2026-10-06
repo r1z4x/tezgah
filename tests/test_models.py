@@ -612,16 +612,20 @@ class Cli(unittest.TestCase):
 
     def test_importing_support_sandboxes_the_process(self):
         # set before any hooks/ import: tezgah_paths fixes HOME and CACHE then
+        # A host dir the developer exported (Orca exports CODEX_HOME) is the real
+        # config: a test that writes and removes `<CODEX_HOME>/config.toml` deleted
+        # the developer's own Codex config on 2026-10-06.
+        real = ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+                "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA")
         code = ("import os, support; print(os.environ['HOME']); "
-                "print('TEZGAH_SESSION' in os.environ, 'XDG_CONFIG_HOME' in os.environ)")
-        env = dict(os.environ, HOME="/real-home", TEZGAH_SESSION="r02-probe",
-                   XDG_CONFIG_HOME="/real-home/.config")
+                "print(sorted(n for n in %r if n in os.environ))" % (real,))
+        env = dict(os.environ, HOME="/real-home", **{n: "/real-home/" + n for n in real})
         p = subprocess.run([sys.executable, "-c", code], cwd=os.path.join(REPO, "tests"),
                            env=env, capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
-        home, flags = p.stdout.splitlines()
+        home, left = p.stdout.splitlines()
         self.assertNotEqual(home, "/real-home")
-        self.assertEqual(flags, "False False")
+        self.assertEqual(left, "[]")
 
     def test_judge_off_routes_by_rule_and_phase(self):
         p = self.run_route("Migrate the ledger rows", "--json")
