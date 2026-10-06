@@ -117,10 +117,12 @@ class Unjudged(JudgeCase):
 
     def test_a_judge_call_that_fails_falls_back_to_the_ranking(self):
         # a credential that is refused, and a reply naming no option, are no
-        # judgement - unlike a judged `none`, which still exits 1
+        # judgement - unlike a judged `none`, which still exits 1. The refusal
+        # goes last: it marks the provider down, and the seam would then skip
+        # the unreadable-reply call without asking.
         unreadable = {"model": MODEL, "answers": {},
                       "usage": {"input_tokens": 9, "output_tokens": 1}}
-        for status, reply in ((401, Fake.reply), (200, unreadable)):
+        for status, reply in ((200, unreadable), (401, Fake.reply)):
             with self.subTest(status=status):
                 Fake.seen, Fake.status, Fake.reply = [], status, reply
                 proc = self.docs(*self.ROLLBACK, TYPESAFE_API_KEY="test")

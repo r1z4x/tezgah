@@ -81,12 +81,13 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `CONSULT_URL` | `bin/consult:173` | the provider's URL | Repoints every HTTP member. The bearer token is dropped on a redirect to another host. |
+| `CONSULT_URL` | `bin/consult::endpoint` | the provider's URL | Repoints every HTTP member. The bearer token is dropped on a redirect to another host. |
 | `CONSULT_MODELS` | `bin/consult::defaults` | the provider's default list | Comma list of `openrouter` models for the panel. |
-| `CONSULT_JUDGE` | `bin/consult::main` | the recorded referee | The member that referees, after `--judge`. |
-| `CONSULT_SESSION_MODEL` | `bin/consult::session_model` | omp's own record of the session model | The model this session runs on, so the panel skips it. |
-| `OMPCODE`, `CLAUDECODE` | `bin/consult::own_cli` | set by the host | Names the calling host's own CLI, so consult does not ask the session to second-guess itself (omp sets both; `OMPCODE` wins). |
-| `CODEGEN_URL` | `bin/codegen::ask` | the provider's URL | Repoints codegen's endpoint. |
+| `CONSULT_JUDGE` | `bin/consult::main` | the recorded referee, else an available member outside the panel | The member that referees, after `--judge`. With none outside the panel a panel member referees and the run prints a note. |
+| `CONSULT_SEED` | `bin/consult::referee_packet` | unset (a fresh shuffle) | Fixes the shuffled order of the anonymised answers the referee reads (tests). |
+| `CONSULT_SESSION_MODEL` | `bin/consult::session_model` | omp's own record of the session model, read only on omp (`OMPCODE`) | The model this session runs on, so the panel skips it. |
+| `OMPCODE`, `CLAUDECODE` | `bin/consult::own_cli` | set by the host | Names the calling host's own CLI, so consult does not ask the session to second-guess itself (omp sets both; `OMPCODE` wins). `OMPCODE` is also what lets consult read omp's session model. |
+| `CODEGEN_URL` | `bin/codegen::ask` | the provider's URL | Repoints codegen's endpoint. Plain `http` is refused unless the host is this machine (`127.0.0.1`, `localhost`); a redirect to another host is refused. |
 | `CODEGEN_MODEL` | `bin/codegen::MODEL` | the cheap `any` row of the models table | The model codegen drafts with. |
 
 ## Status line

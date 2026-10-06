@@ -935,3 +935,49 @@ def ws_git(repo, *args, **kw):
     kw.setdefault("text", True)
     return subprocess.run(["git", "-C", workspace(repo)] + list(WS_IDENTITY)
                           + list(args), **kw)
+
+
+def guarded_opener(drop_auth=False):
+    """An urllib opener whose redirects never carry the bearer off its origin.
+
+    urllib copies the Authorization header onto a redirected request, so a
+    301/302 from a repointable endpoint would hand the key to whatever host the
+    answer named - or, on a same-host https->http hop, send it in clear. A hop
+    that changes the scheme or the host is refused (it surfaces as an
+    HTTPError), or, with `drop_auth`, followed without the header so the far end
+    answers 401 and the caller reports a key failure; a same-origin redirect is
+    followed as urllib would. One copy for the judge seam and codegen (refuse)
+    and consult (drop). The import is deferred: see the fallback_cache() note."""
+    import urllib.parse
+    import urllib.request
+
+    class Guard(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            old, new_url = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+            cross = (new_url.scheme.lower(), new_url.netloc) != (old.scheme.lower(), old.netloc)
+            if cross and not drop_auth:
+                return None
+            new = super().redirect_request(req, fp, code, msg, headers, newurl)
+            if new is not None and cross:
+                new.remove_header("Authorization")
+            return new
+
+    return urllib.request.build_opener(Guard)
+
+
+def plain_http(url):
+    """True for an `http://` endpoint off this machine: the bearer and the body
+    would cross the network in clear. Loopback stays allowed - the tests and a
+    local gateway point the endpoint overrides at `http://127.0.0.1`."""
+    import ipaddress
+    import urllib.parse
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme.lower() != "http":
+        return False
+    host = parts.hostname or ""
+    if host == "localhost":
+        return False
+    try:
+        return not ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return True
