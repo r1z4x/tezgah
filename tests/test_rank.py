@@ -11,10 +11,13 @@ import unittest
 import support
 
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
+import tezgah_integrity  # noqa: E402
 import tezgah_rank  # noqa: E402
 
+# the first lesson quotes the gate's piped-check remedy, pinned with the other
+# copies in tests/test_integrity.py
 LESSONS = [
-    "never pipe a test run into tail; write it to a file and read it",
+    "never pipe a test run into tail; " + tezgah_integrity.PIPED_REMEDY,
     "worktree'de paralel ajan çalıştırmadan önce dalı ayır",
     "a commit that adds a tracked file regenerates the MANIFEST first",
     "kırmızı citation satırını kaydırınca tezgah-docs --citations koş",

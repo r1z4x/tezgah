@@ -2553,6 +2553,14 @@ def status_hidden(cmd):
     return bool(cmds) and "&" in cmds[-1][1]
 
 
+# The one remedy for a piped check: the refusal below, the always-on core
+# (hooks/tezgah_policy.py::CORE, so every host copy), the contract skill and
+# docs/gate.md quote it word for word (tests/test_integrity.py pins the copies).
+# Both shapes keep the check's exit status; `> log; tail log` on one line does not.
+PIPED_REMEDY = ("keep the check last with its output in a file, then read the "
+                "file in a separate call, or open the line with `set -o pipefail;`")
+
+
 def piped_check(cmd):
     """A deny reason when a check is piped into a trimmer or filter (`pytest |
     tail`), else None. The line's status is the trimmer's, so the ledger can only
@@ -2574,13 +2582,10 @@ def piped_check(cmd):
                 trim = m.group(1).split()[0]
                 return ("Piped check denied: `%s` is piped into `%s`, so the "
                         "line's exit status is `%s`'s and the check is recorded as "
-                        "ran, never as passed. Keep the check the line's last "
-                        "command and send its output to a file (`%s > "
-                        "/tmp/check.log 2>&1`), then read /tmp/check.log in a "
-                        "separate call - `; tail` on the same line hands the "
-                        "status to `tail` - or open the line with `set -o "
-                        "pipefail;` so the pipe keeps the check's status."
-                        % (check, trim, trim, check))
+                        "ran, never as passed. To keep its status, %s. Here: `%s > "
+                        "/tmp/check.log 2>&1`, then read /tmp/check.log - `; tail` "
+                        "on the same line hands the status to `tail`."
+                        % (check, trim, trim, PIPED_REMEDY, check))
             if not check and verify_command(part):
                 check = raw[pos:pos + len(part)].strip()
         pos += len(part)

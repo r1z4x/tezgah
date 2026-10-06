@@ -88,9 +88,20 @@ red. It reads HEAD, so commit first. Run it after adding or changing a deny rule
 `python3 tests/fuzz_shell.py --seed 1 --lines 10000` draws seeded shell lines
 from the hand vectors' grammar and runs each in real `bash` with a stub per
 program word. It prints, per 10^4 lines, each class where `shell_programs` or
-`mask` disagrees with what bash ran. `tests/test_fuzz_shell.py` runs 60 lines
-in the normal suite and fails if `mask` blanks a program bash ran;
-`TEZGAH_FUZZ_LINES=10000` widens the sample.
+`mask` disagrees with what bash ran. `--js` reads the same lines with the
+opencode plugin's ports (`maskText`, `shellPrograms`, through node and
+`tests/_fuzz_shell_reader.mjs`) and adds a `js-parity:` class wherever a port
+answers differently from the core. `tests/test_fuzz_shell.py` runs 60 lines
+in the normal suite and fails if `mask` or its port blanks a program bash ran,
+or if a port disagrees with the core; `TEZGAH_FUZZ_LINES=10000` widens the
+sample.
+
+### Gate latency
+
+`python3 tests/bench_gate_latency.py [--hooks DIR]` times
+`tezgah_gate.decision(..., record=False)` over 200 common calls in a throwaway
+HOME and prints p50/p95 in milliseconds; `--hooks` points it at another
+revision's exported `hooks/` (`git archive <rev> hooks | tar -x -C /tmp/base`).
 
 ### App-analysis MCP, end to end
 

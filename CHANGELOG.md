@@ -12,7 +12,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   draws seeded lines from the hand vectors' grammar. It runs each in `bash`
   with a stub per program word and prints each class where `shell_programs` or
   `mask` disagrees. `tests/test_fuzz_shell.py` runs a small sample per suite
-  run and fails if `mask` blanks a program bash ran.
+  run and fails if `mask` blanks a program bash ran. `--js` reads the same
+  lines with the opencode plugin's ports through node. It reports where a port
+  disagrees with bash or with the core, and the suite sample fails on either.
+- **`tests/bench_gate_latency.py` times the gate.** It prints p50/p95 of
+  `decision(..., record=False)` over 200 common calls, for this tree or for
+  another revision's exported `hooks/`.
 - **Concluding or closing a research line seals it.** `conclude` and `close`
   write `state.json` `order_seal`. It holds, per experiment, the sha256 of
   `protocol.md` and `results.jsonl`, and no order verdict. Every `check`
@@ -182,6 +187,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The piped-check remedy is one sentence.** `PIPED_REMEDY` in
+  `hooks/tezgah_integrity.py` holds it. The refusal, the always-on core, its
+  hookless copy, the contract skill and `docs/gate.md` quote it word for word.
+  A test pins every copy. It names the two shapes that keep the check's exit
+  status. One runs the check last into a file and reads the file in a separate
+  call. The other opens the line with `set -o pipefail;`.
 - **A session pays each armed rule once.** The first matching prompt gets the
   full paragraph of spec, consult, research, product or graph. A later match in
   the same session gets one line that names the rule. The research line keeps
