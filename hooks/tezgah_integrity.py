@@ -177,9 +177,10 @@ DESIGN_COMPONENT = re.compile(
     r"(?:^|/)(?:components?|views?|widgets?|partials?|screens?)/"
     r"|(?:^|/)(?-i:[A-Z])[A-Za-z0-9_]*\.(?:tsx|jsx|vue|svelte|swift|kt|dart)$"
     r"|\.(?:component|view|widget)\.[a-z]+$", re.I)
-# forms that make a failing check exit 0, the classic "I ran it and it was fine"
-# `; exit 0`, `; :` and a trailing `; echo` after a check do what `|| true`
-# does - the line's status stops being the check's (audit M-1)
+# the explicit swallowers that make a failing check exit 0, the classic "I ran it
+# and it was fine": `|| true`, `|| :`, `|| exit 0`, `; true`, `; :` and
+# `; exit 0` after a check (audit M-1). It is a deny; a softer `; echo done` or
+# a trailing `&` is not refused but records as ran (`status_hidden`).
 NEUTER = re.compile(
     r"\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|"
     r";\s*(?:true|:|exit\s+0)\s*(?:$|[|;&])")
@@ -241,7 +242,9 @@ TEST_PATH = re.compile(
 # Strings, comments and heredoc bodies are neither commands nor test code: the
 # repo's own tests quote a skip marker, and a commit message that *describes*
 # `--no-verify` disables nothing. Both scans run on a copy where those regions
-# are blanked - length preserved, so offsets stay usable.
+# are blanked - length preserved, so offsets stay usable. LITERALS is the
+# source-file reading (`mask_source`); a shell line is read as bash reads it
+# (`mask`), where `//`, `/* */` and a `#` inside a word are plain text.
 LITERALS = re.compile(
     r"'''(?:.|\n)*?'''|\"\"\"(?:.|\n)*?\"\"\"|"
     r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|"
@@ -2020,10 +2023,63 @@ def _blank_heredocs(text):
     return "".join(out)
 
 
-def mask(text):
-    """The text with quoted strings, comments and heredoc bodies blanked."""
+def mask_source(text):
+    """A source file's text with quoted strings, comments and heredoc bodies
+    blanked (LITERALS): the test-disable scan's reading, length kept."""
     return LITERALS.sub(lambda m: " " * len(m.group(0)),
                         _blank_heredocs(str(text or "")))
+
+
+def _heredoc_bytes(text):
+    """1 for each character of a heredoc body or its terminator line: data, so
+    a reader that follows quotes opens none there (an apostrophe in a body is
+    not a quote), and a newline there always ends a line."""
+    out = bytearray(len(text))
+    if "<<" in text:
+        for h in _heredocs(text):
+            end = h[5][1] if h[5] else len(text)
+            out[h[4]:end] = b"\x01" * (end - h[4])
+    return out
+
+
+def mask(text):
+    """A shell line with quoted strings, comments and heredoc bodies blanked,
+    length and newlines kept, read the way bash reads it: `'...'` takes no
+    escape, `$'...'` (an unescaped `$` only) and `"..."` do, a `\\` outside
+    quotes escapes one character, and `#` starts a comment only at the start of
+    a word. So `https://x`, `a#b`, `src/*.py ... lib/*/`, `'x\\'` and `\\$'x\\'`
+    are words, not a comment or an open string that blanks the command after
+    them (gate-01). A quote left open blanks from itself to the end - bash runs
+    nothing after it - and keeps the reading before it."""
+    text = _blank_heredocs(str(text or ""))
+    body = _heredoc_bytes(text)
+    out, i, n, start, prev = list(text), 0, len(text), True, ""
+    while i < n:
+        ch = text[i]
+        if body[i]:
+            i, start, prev = i + 1, True, ""
+            continue
+        if ch == "\\":
+            i, start, prev = i + 2, False, ""
+            continue
+        if ch in "'\"":
+            escapes = ch == '"' or prev == "$"
+            end = i + 1
+            while end < n and text[end] != ch:
+                end += 2 if escapes and text[end] == "\\" else 1
+            end = min(end + 1, n)
+        elif ch == "#" and start:
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+        else:
+            start, prev = ch.isspace() or ch in ";&|()<>", ch
+            i += 1
+            continue
+        for k in range(i, end):
+            if out[k] != "\n":
+                out[k] = " "
+        i, start, prev = end, False, ""
+    return "".join(out)
 
 
 def _unquoted_backticks(text):
@@ -2050,24 +2106,99 @@ def _unquoted_backticks(text):
     return "".join(out)
 
 
-def _shell_segments(cmd):
-    """The line's simple commands as word lists, read the way
-    `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
-    `;&|()<>` - so quotes and escapes are gone, heredoc bodies are blanked first,
-    a continued line is joined, and an unquoted backtick ends a command. A line
-    shlex cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
+def _for_shlex(text):
+    """`text` rewritten into what shlex can read: each `$'...'` (bash's ANSI-C
+    quoting, `\\'` included, which shlex does not know) as the single-quoted
+    word it expands to, and each unquoted backtick pair as the `$( )` it is.
+    ponytail: an escape expands to its own character, so `$'\\x2d'` is read as
+    `x2d`; a quote left open goes to shlex as it was."""
+    out, quote, tick, i, n = [], None, False, 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and quote != "'" and i + 1 < n:
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch == "$" and text[i + 1:i + 2] == "'":
+            end = i + 2
+            while end < n and text[end] != "'":
+                end += 2 if text[end] == "\\" else 1
+            if end < n:
+                out.append(shlex.quote(re.sub(r"\\(.)", r"\1", text[i + 2:end])))
+                i = end + 1
+                continue
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "`":
+            ch, tick = (")" if tick else "$("), not tick
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
-    Two places where bash and shlex disagree, and bash wins because bash is what
-    runs the line: a `#` ends the line only at the start of a word (`x=a#b` is one
-    word, so `shlex`'s commenter is switched off and the split below drops the
-    rest of the line itself), and a redirection is neither a command nor an
-    argument - its words are dropped here, including the `&` of `2>&1`/`&>`,
-    which would otherwise end the segment in the middle of one command. A run of
-    `;&|()` still ends a command."""
-    segs = []
-    text = _unquoted_backticks(
-        _blank_heredocs(str(cmd or "")).replace("\\\n", " "))
-    for line in re.split(r"\r\n|\r|\n", text):
+
+def _shell_lines(text):
+    """`text` split at the newlines that end a command in bash: none inside
+    quotes (`'...'`, `"..."`, `$'...'`), each one in a heredoc body or its
+    terminator (`_heredoc_bytes`), and a comment - `#` at the start of a word -
+    dropped to its line end. A double-quoted string holding a `$( )` or a
+    backtick runs a command, so its newlines still split - the reading this had
+    before, which keeps that command visible. A quote left open at the end goes
+    back to a split at every newline from its line on."""
+    body = _heredoc_bytes(text)
+    lines, cur, quote, start, i, n = [], [], None, True, 0, len(text)
+    opened, runs = 0, False
+    while i < n:
+        ch = text[i]
+        if body[i] or (not quote or runs) and ch in "\r\n":
+            if ch in "\r\n":
+                lines.append("".join(cur))
+                cur, quote, start, runs = [], None, True, False
+                i += 2 if text[i:i + 2] == "\r\n" else 1
+            else:
+                cur.append(ch)
+                i += 1
+            continue
+        if quote:
+            if ch == "\\" and quote != "'" and i + 1 < n:
+                cur.append(text[i:i + 2])
+                i += 2
+                continue
+            if ch == quote[-1]:
+                quote, runs = None, False
+            elif quote == '"' and (ch == "`" or text.startswith("$(", i)):
+                runs = True
+        elif ch == "\\" and i + 1 < n:
+            cur.append(text[i:i + 2])
+            i, start = i + 2, False
+            continue
+        elif ch == "#" and start:
+            while i < n and text[i] not in "\r\n":
+                i += 1
+            continue
+        elif ch in "'\"":
+            quote = "$'" if ch == "'" and cur and cur[-1] == "$" else ch
+            opened = len(lines)
+        start = not quote and (ch.isspace() or ch in ";&|()<>")
+        cur.append(ch)
+        i += 1
+    lines.append("".join(cur))
+    if quote:
+        lines[opened:] = re.split(r"\r\n|\r|\n", "\n".join(lines[opened:]))
+    return lines
+
+
+def _shell_commands(cmd):
+    """`_shell_segments` with each command's separator kept: [words, sep], where
+    `sep` is the `;&|()` runs that ended it (a run after an empty command joins
+    the previous one's) plus "\\n" at a line end, "" at the end of the line.
+    A `$( )` or backtick body is a command of its own, ended by `$)`, and the
+    command around it goes on after its close with a `$()` word in its place."""
+    out = []
+    text = _blank_heredocs(str(cmd or "")).replace("\\\n", "  ")
+    for line in map(_for_shlex, _shell_lines(text)):
         try:
             lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
             lex.whitespace_split = True
@@ -2075,12 +2206,10 @@ def _shell_segments(cmd):
             words = list(lex)
         except ValueError:
             words = ROUGH_WORDS.findall(re.sub(r"['\"`]", "", line))
-        cur, after_redir, i = [], False, 0
+        cur, subs, after_redir, i = [], [], False, 0
         while i < len(words):
             word = words[i]
             i += 1
-            if word.startswith("#") and cur:
-                break  # bash: a comment starts a word; `x=a#b` is one word
             if word == "&" and i < len(words) and REDIRECTION.match(words[i]):
                 continue  # `&>` is a redirection, not a separator
             if REDIRECTION.match(word):
@@ -2095,15 +2224,54 @@ def _shell_segments(cmd):
                     continue  # `>&2`: the `&` belongs to the operator
                 after_redir = False
                 continue
-            if word and word[0] in ";&|()":
-                if cur:
-                    segs.append(cur)
-                cur = []
-            else:
+            if not (word and word[0] in ";&|()"):
                 cur.append(word)
-        if cur:
-            segs.append(cur)
-    return segs
+                continue
+            for piece in re.findall(r"[()]|[;&|]+", word):
+                if piece == "(" and cur and cur[-1].endswith("$"):
+                    cur[-1] += "()"
+                    subs.append([cur, 0])  # the outer command, its open `(`s
+                    cur = []
+                    continue
+                if subs and piece == "(":
+                    subs[-1][1] += 1
+                elif subs and piece == ")":
+                    if not subs[-1][1]:
+                        if cur:
+                            out.append([cur, "$)"])
+                        cur = subs.pop()[0]
+                        continue
+                    subs[-1][1] -= 1
+                if cur:
+                    out.append([cur, piece])
+                elif out:
+                    out[-1][1] += piece
+                cur = []
+        for seg in [cur] + [outer for outer, _open in reversed(subs)]:
+            if seg:
+                out.append([seg, "\n"])
+    if out and out[-1][1] == "\n":
+        out[-1][1] = ""
+    return out
+
+
+def _shell_segments(cmd):
+    """The line's simple commands as word lists, read the way
+    `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
+    `;&|()<>` - so quotes and escapes are gone, heredoc bodies are blanked first,
+    a continued line is joined, a newline ends a command only where bash ends
+    one (`_shell_lines`), a `$'...'` is one word (`_for_shlex`), and a `$( )` or
+    backtick body is a command of its own (`_shell_commands`). A line shlex
+    cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
+
+    Two places where bash and shlex disagree, and bash wins because bash is what
+    runs the line: a `#` ends the line only at the start of a word (`x=a#b` is one
+    word, so `shlex`'s commenter is switched off and `_shell_lines` drops the
+    rest of the line itself), and a redirection is neither a command nor an
+    argument - its words are dropped here, including the `&` of `2>&1`/`&>`,
+    which would otherwise end the segment in the middle of one command. A run of
+    `;&|()` still ends a command."""
+    return [words for words, _sep in _shell_commands(cmd)]
 
 
 def _names_hooks_key(setting):
@@ -2322,7 +2490,8 @@ def _shortcut_command(cmd, depth):
     if verify_command(c) and NEUTER.search(c):
         return ("Verification neutered: this check is chained with `|| true` / "
                 "`; true`, so it reports success no matter what it found. Run it "
-                "plain and read the real exit status before claiming it passed.")
+                "as the line's last command, with nothing after it but `&&`, and "
+                "read the real exit status before claiming it passed.")
     if depth < SHELL_DEPTH:
         for script in _shell_scripts(cmd):
             reason = _shortcut_command(script, depth + 1)
@@ -2349,6 +2518,41 @@ def pipe_hides_status(cmd):
     return "||" in cmd or not PIPEFAIL.match(cmd)
 
 
+# the separators after a check that keep its status the line's: `&&` stops the
+# line at a failing check, a pipe is `pipe_hides_status`'s to judge, and a
+# subshell's parentheses change nothing
+OWNING_SEP = re.compile(r"^[()]*(?:&&|\|&?)[()]*$")
+
+
+def status_hidden(cmd):
+    """True when the line's exit status is not its check's: a pipe owns it
+    (`pipe_hides_status`), or a command after the check does - the check is
+    followed by `;` or a newline and more commands, or is sent to the background
+    with `&`. `pytest; echo done` exits 0 whatever pytest found, so it records as
+    ran; `pytest && echo ok`, `cd x; pytest` and `pytest > log` keep the check's
+    status. A heredoc body and its terminator are data here, and an `exit $?`
+    (or a bare `exit`) right after the check ends the line with the check's
+    status. Read with `_shell_commands`, each command re-quoted for
+    `verify_command`. ponytail: `set -e` is not read, so `set -e; pytest; echo
+    done` records as ran - a lost credit, never an invented one."""
+    if pipe_hides_status(cmd):
+        return True
+    cmd = str(cmd or "")
+    body = _heredoc_bytes(cmd)
+    cmds = _shell_commands("".join(" " if b and ch != "\n" else ch
+                                   for ch, b in zip(cmd, body)))
+    for i, (words, _sep) in enumerate(cmds):
+        if not verify_command(shlex.join(words)):
+            continue
+        for k in range(i, len(cmds) - 1):
+            if OWNING_SEP.match(cmds[k][1]):
+                continue
+            if cmds[k + 1][0] in (["exit", "$?"], ["exit"]):
+                break
+            return True
+    return bool(cmds) and "&" in cmds[-1][1]
+
+
 def piped_check(cmd):
     """A deny reason when a check is piped into a trimmer or filter (`pytest |
     tail`), else None. The line's status is the trimmer's, so the ledger can only
@@ -2370,10 +2574,12 @@ def piped_check(cmd):
                 trim = m.group(1).split()[0]
                 return ("Piped check denied: `%s` is piped into `%s`, so the "
                         "line's exit status is `%s`'s and the check is recorded as "
-                        "ran, never as passed. Write the output to a file and read "
-                        "the file (`%s > /tmp/check.log 2>&1`, then read "
-                        "/tmp/check.log), or open the line with `set -o pipefail;` "
-                        "so the pipe keeps the check's status."
+                        "ran, never as passed. Keep the check the line's last "
+                        "command and send its output to a file (`%s > "
+                        "/tmp/check.log 2>&1`), then read /tmp/check.log in a "
+                        "separate call - `; tail` on the same line hands the "
+                        "status to `tail` - or open the line with `set -o "
+                        "pipefail;` so the pipe keeps the check's status."
                         % (check, trim, trim, check))
             if not check and verify_command(part):
                 check = raw[pos:pos + len(part)].strip()
@@ -2431,7 +2637,7 @@ def shortcut_edit(inp):
                 old = fh.read()
         except OSError:
             old = ""
-    added = _added(mask(new), mask(old))
+    added = _added(mask_source(new), mask_source(old))
     if added:
         return ("Test disable denied: this change adds %s. Making a failing test "
                 "disappear is not a fix - fix the code or say the test is failing. "
@@ -2820,7 +3026,9 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     same holds for a check run through a pipe: the status belongs to the pipe's
     last stage, so `pytest | tail` records as a check that ran, whatever the
     host reported for the line - unless the line opens with `set -o pipefail`,
-    which hands the status back to the check (`pipe_hides_status`).
+    which hands the status back to the check. A check followed by `;` and more
+    commands, or sent to the background with `&`, records as ran the same way:
+    `pytest; echo done` exits 0 whatever pytest found (`status_hidden`).
 
     `interrupted=True` is the third outcome, and it is not a weaker failure: the
     host said the call was STOPPED - a user's cancel, a call a policy denied
@@ -2852,7 +3060,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     kind = classify(tool, inp)
     if kind == "verify":
-        if failed is None or pipe_hides_status(cmd) or (empty_run and not failed):
+        if failed is None or status_hidden(cmd) or (empty_run and not failed):
             kind = "verify"
         else:
             kind = "verify_fail" if failed else "verify_ok"
@@ -3055,14 +3263,15 @@ def passing_check(entry):
     A `verify_ok` is support only when the host reported exit 0, the tool
     returned something (an exit-0-but-empty result is the classic silent
     failure), its own output did not say it ran nothing (`empty_run`) and no
-    pipe owns the status - `pytest | tail` proves nothing about pytest, `set -o
-    pipefail; pytest | tail` does (`pipe_hides_status`). Everything else is a
+    pipe or a later command owns the status - `pytest | tail` and `pytest; echo
+    done` prove nothing about pytest, `set -o pipefail; pytest | tail` and
+    `pytest && echo ok` do (`status_hidden`). Everything else is a
     check that ran with an outcome nobody saw."""
     if entry.get("kind") != "verify_ok" or entry.get("empty_run"):
         return False
     if entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
-    return not pipe_hides_status(entry.get("detail"))
+    return not status_hidden(entry.get("detail"))
 
 
 def _changed_write(row):

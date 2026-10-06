@@ -8,6 +8,7 @@ import sys
 import time
 import unittest
 
+import bash_vectors
 import support
 from support import TempHome, run_json
 
@@ -822,6 +823,15 @@ class Gate(TempHome):
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
         self.assertIsNone(self.decide("Bash", {"command": "git commit -m x"},
                                       session_id="order"))
+
+    # ---- gate-01: a prefix the masker misread hid the rule after it ---------
+    def test_a_prefix_bash_reads_as_words_does_not_hide_a_rule(self):
+        for command, marker in (("HUSKY=0 git commit -m y", "bypass"),
+                                ("pytest || true", "neutered"),
+                                ("echo api_key=abc123 > out.txt", "Credential")):
+            for wrap in bash_vectors.GATE01_WRAPS:
+                reason = self.decide("Bash", {"command": wrap % command})
+                self.assertIn(marker, reason or "", wrap % command)
 
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):
@@ -1667,6 +1677,11 @@ class TaskGate(TempHome):
             reason = self.decide({"command": command}, tool="Bash")
             self.assertIsNotNone(reason, command)
             self.assertIn("record", reason)
+        # gate-01: a prefix bash reads as plain words does not hide the CLI
+        for wrap in bash_vectors.GATE01_WRAPS:
+            command = wrap % "tezgah-task phase implementation"
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("record", reason or "", command)
 
     def test_recording_a_review_and_closing_a_plan_are_the_sessions(self):
         # neither moves the phase or the allowlist: `review` writes the verdict

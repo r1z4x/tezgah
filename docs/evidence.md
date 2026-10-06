@@ -147,9 +147,12 @@ the command is piped — a pipe's status belongs to its last stage, so `pytest |
 about pytest — and only otherwise splits it into `verify_ok`/`verify_fail`. A line that opens with
 `set -o pipefail` (or `set -euo pipefail`) and carries no `||` is not piped for this purpose: the
 pipe's status is then its first failing stage's, so the host's verdict is the check's
-(`hooks/tezgah_integrity.py::pipe_hides_status`, read at `hooks/tezgah_integrity.py:2781`). `passing_check`
+(`hooks/tezgah_integrity.py::pipe_hides_status`). A check followed by `;` or a newline and more
+commands records as `verify` too, and so does one sent to the background with `&`. `pytest; echo
+done` exits 0 whatever pytest found. `pytest && echo ok` and `cd x && pytest` keep its status
+(`hooks/tezgah_integrity.py::status_hidden`). The opencode plugin reads the same shapes (`statusHidden`). `passing_check`
 (`hooks/tezgah_integrity.py::passing_check`) is stricter: a `verify_ok` counts only with `exit == 0`, a non-zero `out_bytes` (exit
-0 with an empty result is the classic silent failure) and no pipe owning the status. The gate refuses the
+0 with an empty result is the classic silent failure) and no pipe or later command owning the status. The gate refuses the
 trimmed form before it runs ([gate.md](gate.md), the `piped` rule). The `out_bytes` half
 bites only where the host reported a result size — Codex (`hosts/codex/hook.py::main`), Cursor
 (`hosts/cursor/hook.py::remember_answer,275`) and omp, whose bridge measures it and sends `result_len`

@@ -15,6 +15,7 @@ import time
 import unittest
 from unittest import mock
 
+import bash_vectors
 import support
 from support import TempHome, run_json
 
@@ -103,6 +104,26 @@ class ShortcutCommand(unittest.TestCase):
                   "git commit -m-n", "git log -n 3",
                   "git commit --no-verbose -m x", "bash -c 'pytest -q'"):
             self.assertIsNone(ti.shortcut_command(c), c)
+
+    def test_the_shell_line_is_masked_as_bash_reads_it(self):
+        # gate-01: `//`, `a#b`, a `/* */` glob pair, `'x\'` and an escaped
+        # `\$'` are words to bash, so the command after them stays visible
+        for wrap in bash_vectors.GATE01_WRAPS:
+            self.assertIn("HUSKY=0 git commit", ti.mask(wrap % "HUSKY=0 git commit"))
+            self.assertIsNotNone(ti.shortcut_command(wrap % "pytest || true"))
+        # a quote left open hides only what comes after it, and an apostrophe in
+        # a heredoc body opens no quote (review of plan 054)
+        for c in ("curl https://x.io; HUSKY=0 git commit -m x\necho 'oops",
+                  "curl https://x.io; pytest || true\necho 'oops",
+                  "cat <<EOF\ndon't\nEOF\ngit commit --no-verify -m x",
+                  "cat <<EOF\ndon't\nEOF\nHUSKY=0 git commit -m x; echo 'y'"):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        # quotes, `$'...'` escapes and a word-initial `#` are still blanked
+        for c in ("git commit -m 'run pytest || true'",
+                  'git commit -m "a \\" pytest || true"',
+                  "echo $'it\\'s pytest || true'", "ls # pytest || true",
+                  "git commit -m 'a\npytest || true'"):
+            self.assertNotIn("pytest", ti.mask(c), c)
 
     # The review's cases, shared with the opencode mirror's test.
     STUCK_AND_WRAPPED = (
@@ -414,6 +435,26 @@ class PipedCheck(unittest.TestCase):
         self.assertTrue(ti.pipe_hides_status("set -o pipefail; pytest || true"))
         self.assertFalse(ti.pipe_hides_status("set -o pipefail; pytest | tail"))
         self.assertFalse(ti.pipe_hides_status("pytest -q"))
+
+    def test_a_check_owns_the_status_only_when_nothing_after_it_answers(self):
+        # a `;`, a newline or a trailing `&` hands the line's status to what
+        # follows the check (plan 054 slice 0, gate-02)
+        for c in ("pytest; echo done", "pytest; echo EXIT=$?", "pytest &",
+                  "pytest > log; tail log", "pytest -q\necho done",
+                  "(pytest); echo x", "pytest; ruff check ."):
+            self.assertTrue(ti.status_hidden(c), c)
+        for c in ("pytest && echo ok", "cd x && pytest", "cd x; pytest",
+                  "set -o pipefail; pytest | tee log", "pytest;",
+                  "pytest > /tmp/x.log 2>&1", "set -euo pipefail\npytest -q | tail -3",
+                  "ruff check . && pytest", "git commit -m 'pytest; echo x'",
+                  # review of plan 054: quoted newlines, comments, a heredoc
+                  # body and `exit $?` leave the status with the check
+                  'pytest && echo "a\nb"', "pytest -k 'a\nb' && echo done",
+                  "pytest; # trailing", "pytest\n# comment",
+                  "pytest <<EOF\nx\nEOF", "pytest; exit $?",
+                  'pytest; exit "$?"'):
+            self.assertFalse(ti.status_hidden(c), c)
+        self.assertTrue(ti.status_hidden("pytest | tee log"))
 
 
 class ShortcutEdit(unittest.TestCase):
@@ -1981,10 +2022,11 @@ class DesignContractEvidence(unittest.TestCase):
     def test_a_design_check_on_a_later_line_of_the_call_is_a_check(self):
         # a call is often multi-line; the readers matched `^` and `[|;&(]`, so
         # the same checker on the call's own second line was invisible to the
-        # floor while `VERIFY` read the row as a check
+        # floor while `VERIFY` read the row as a check. `&&` keeps pytest's
+        # status the line's: a bare newline would hand it to the second line
         self.edit(self.component)
         self.screen_read()
-        ti.note_tool("s", "Bash", {"command": "pytest -q\n" + self.CHECK},
+        ti.note_tool("s", "Bash", {"command": "pytest -q &&\n" + self.CHECK},
                      failed=False, out_bytes=64)
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
@@ -2702,6 +2744,16 @@ class StopHook(TempHome):
         # `||` answers for the failure whatever pipefail says
         self.seed("Bash", {"command": "set -o pipefail; pytest -q | tail || echo x"})
         self.assertEqual(self.kinds(), ["verify"])
+
+    def test_a_check_followed_by_another_command_records_as_ran(self):
+        for command, kind in (("pytest -q; echo done", "verify"),
+                              ("pytest -q; echo EXIT=$?", "verify"),
+                              ("pytest -q &", "verify"),
+                              ("pytest -q > log; tail log", "verify"),
+                              ("pytest -q && echo ok", "verify_ok"),
+                              ("cd x && pytest -q", "verify_ok")):
+            self.seed("Bash", {"command": command})
+            self.assertEqual(self.kinds()[-1], kind, command)
 
     def test_a_blocked_stop_is_recorded_as_a_false_completion(self):
         self.seed("Edit", {"file_path": "x.py"})

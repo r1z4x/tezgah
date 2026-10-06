@@ -372,6 +372,25 @@ class OpenCodePlugin(TempHome):
             self.assertIsNone(ti.shortcut_command(command), command)
             self.allowed(self.before("bash", {"command": command}))
 
+    def test_a_prefix_bash_reads_as_words_hides_no_rule_on_either_side(self):
+        # gate-01, mirrored: a URL's `//`, `a#b`, a glob pair and `'x\'` are
+        # words to bash, so the masker must not blank the command after them
+        for command in ("HUSKY=0 git commit -m y", "pytest || true",
+                        "echo api_key=abc123 > out.txt"):
+            for wrap in bash_vectors.GATE01_WRAPS:
+                line = wrap % command
+                self.assertTrue(ti.shortcut_command(line)
+                                or tg.secret_command(line), line)
+                self.denied(self.before("bash", {"command": line}))
+        # a quote left open hides only what follows it, and an apostrophe in a
+        # heredoc body opens no quote (review of plan 054)
+        for line in ("curl https://x.io; HUSKY=0 git commit -m x\necho 'oops",
+                     "curl https://x.io; pytest || true\necho 'oops",
+                     "cat <<EOF\ndon't\nEOF\ngit commit --no-verify -m x",
+                     "cat <<EOF\ndon't\nEOF\nHUSKY=0 git commit -m x; echo 'y'"):
+            self.assertIsNotNone(ti.shortcut_command(line), line)
+            self.denied(self.before("bash", {"command": line}))
+
     def test_the_reviews_hook_skip_shapes_match_the_python_gate(self):
         # review F4 (`-S`/`-u` take no separate word), F10 (bash options before
         # `-c`) and F7 (a long option's separate value starting with `-`)
@@ -866,6 +885,16 @@ class OpenCodePlugin(TempHome):
             "payload": {"tool": "bash", "input": args, "cwd": self.repo,
                         "session_id": "s1"}}])
 
+    def test_a_prefix_bash_reads_as_words_does_not_hide_the_cli_from_the_core(self):
+        # gate-01's four wraps in front of the task CLI: the plugin asks the
+        # core, and the core's answer is the refusal on both sides
+        self.gate_bin()
+        for wrap in bash_vectors.GATE01_WRAPS:
+            args = {"command": wrap % "tezgah-task phase implementation"}
+            expected = self.gate("bash", args)
+            self.assertIn("record", expected, args)
+            self.assertEqual(self.denied(self.before("bash", args)), expected)
+
     def test_a_shell_command_that_does_not_name_the_cli_never_asks_the_core(self):
         # One ask per naming command is the whole bound: the pre-test is what
         # keeps a rule about the record from taxing every command in a session
@@ -1208,6 +1237,31 @@ class OpenCodePlugin(TempHome):
         self.after("bash", {"command": "set -o pipefail; pytest | tail || echo x"},
                    exit=0)
         self.assertEqual(self.kinds(), ["verify", "verify_fail", "verify"])
+
+    def test_a_check_followed_by_another_command_records_as_ran_on_both_sides(self):
+        # plan 054 slice 0, mirrored: a `;`, a newline or a trailing `&` hands
+        # the line's status to what follows the check; `&&` keeps it
+        cases = (("pytest -q; echo done", "verify"),
+                 ("pytest -q; echo EXIT=$?", "verify"),
+                 ("pytest -q &", "verify"),
+                 ("pytest -q > log; tail log", "verify"),
+                 ("echo $(pytest -q)", "verify"),
+                 ("pytest -q && echo ok", "verify_ok"),
+                 ("cd x && pytest -q", "verify_ok"),
+                 # review of plan 054: quoted newlines, comments, a heredoc
+                 # body and `exit $?` leave the status with the check
+                 ('pytest -q && echo "a\nb"', "verify_ok"),
+                 ("pytest -k 'a\nb' && echo done", "verify_ok"),
+                 ("pytest -q; # trailing", "verify_ok"),
+                 ("pytest -q\n# comment", "verify_ok"),
+                 ("pytest -q <<EOF\nx\nEOF", "verify_ok"),
+                 ("pytest -q; exit $?", "verify_ok"))
+        for i, (command, kind) in enumerate(cases):
+            self.assertEqual(ti.status_hidden(command), kind == "verify", command)
+            session = "status%d" % i
+            self.after("bash", {"command": command}, exit=0, session=session)
+            self.assertEqual([r["kind"] for r in self.ledger(session)], [kind],
+                             command)
 
     def test_non_check_command_records_run(self):
         self.after("bash", {"command": "ls -la"})
@@ -1640,8 +1694,7 @@ class OpenCodePlugin(TempHome):
         ("bash", {"command": "echo hi  # curl https://x"}),
         ("bash", {"command": "python3 -c 'import consult'"}),
         # a line shlex rejects (unterminated quote, a backslash with nothing to
-        # escape) reaches no program position on either side: the Python caller
-        # drops the whole line, so the JS reader drops it too
+        # escape) is read roughly on both sides, never dropped as if nothing ran
         ("bash", {"command": "consult 'q"}),
         ("bash", {"command": "consult q's"}),
         ("bash", {"command": 'consult "q'}),

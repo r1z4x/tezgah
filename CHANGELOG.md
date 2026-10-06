@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Real bash now checks the shell readers.** `tests/fuzz_shell.py`
+  draws seeded lines from the hand vectors' grammar. It runs each in `bash`
+  with a stub per program word and prints each class where `shell_programs` or
+  `mask` disagrees. `tests/test_fuzz_shell.py` runs a small sample per suite
+  run and fails if `mask` blanks a program bash ran.
 - **Concluding or closing a research line seals it.** `conclude` and `close`
   write `state.json` `order_seal`. It holds, per experiment, the sha256 of
   `protocol.md` and `results.jsonl`, and no order verdict. Every `check`
@@ -303,6 +308,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The masker and the status reader drop three misreads.** An escaped `\$'` no longer
+  opens an ANSI-C string. A quote left open blanks only what follows it, and an
+  apostrophe in a heredoc body opens no quote. A quoted newline, a comment, a
+  heredoc body and `exit $?` after a check no longer take the check's status.
+  The opencode plugin reads all of these the same way.
+- **The word reader follows bash on three shapes.** A `$'it\'s'` is one
+  word, so the line after it no longer falls to the
+  rough read. The words after a `$( )` or backtick close stay that command's
+  arguments. `shell_programs` names the substitutions of an unquoted heredoc
+  body and nothing of a quoted one. The fuzzer found all three.
+- **The opencode plugin reads a shell line the way the core does.** Its
+  masker, word reader, program reader and ledger kind follow the core's. A
+  shared corpus pins both sides: the gate-01 prefixes and the status shapes.
+- **A prefix bash reads as words no longer hides a shell rule.** Such a
+  prefix is a URL's `//`, `a#b`, a glob pair or `'x\'`. The masker read it as
+  a comment or an open string and hid the command after it: `HUSKY=0 git
+  commit`, `pytest || true`, `tezgah-task phase` or a credential write. `mask()` now
+  reads a shell line the way bash does. Source files keep the old reading
+  (`mask_source`). `shell_programs` uses the gate's own reader, so `a#b`, a
+  redirect target and an unreadable line no longer mislead it. The opencode
+  plugin reads the line the same way.
+- **A check whose status the line does not keep is no longer a pass.** These
+  lines record as ran: `pytest; echo done`, `pytest; echo EXIT=$?`, `pytest &`,
+  `pytest > log; tail log`. Each exits 0 whatever pytest found.
+  `pytest && echo ok`, `cd x && pytest` and a `set -o pipefail;` pipe still
+  pass (`status_hidden`). The NEUTER comment now names only what it denies.
+  The piped and neutered remedies name the shape that keeps the status.
 - **Two lines each delivering their own `to_human/report.md` are no longer
   serial twins.** `serial_twins` compares the resolved file, not the spelling.
 - **A claim's `path:line` citation is not a number.** The containment rule

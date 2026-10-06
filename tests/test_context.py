@@ -642,6 +642,29 @@ class UsedToolKind(unittest.TestCase):
                 ("echo hi\nconsult q", "consult")):
             self.assertEqual(self.kind(command), want, command)
 
+    def test_the_line_is_read_as_bash_reads_it(self):
+        # gate-08: a `#` inside a word is text, a redirect target is not a
+        # program, and a line shlex cannot read is read roughly, not dropped
+        self.assertEqual(self.kind("echo a#b; consult 'q'"), "consult")
+        self.assertEqual(self.kind("echo $'it\\'s'; consult q"), "consult")
+        self.assertEqual(self.tc.shell_programs("pytest > log; tail log"),
+                         ["pytest", "tail"])
+
+    def test_the_fuzzers_three_program_classes_are_closed(self):
+        # tests/fuzz_shell.py, seed 1: `$'...'` is one word, the words after a
+        # `$( )` or backtick close stay its command's arguments, and an unquoted
+        # heredoc body runs its substitutions while a quoted one runs nothing;
+        # a substitution runs before the command it is an argument of
+        programs = self.tc.shell_programs
+        for command, want in (
+                ("cat $'it\\'s a1' `b1` x # m1", ["b1", "cat"]),
+                ("p0 &> r2 > r1 | ls; cat $'it\\'s a1'", ["p0", "ls", "cat"]),
+                ("cat lib/*/ $(c1 x) https://example.com/u1 && p1",
+                 ["c1", "cat", "p1"]),
+                ("cat <<E\nh1 body\n$(h2)\nE", ["cat", "h2"]),
+                ("cat <<'E'\nh3 body\n$(h4)\nE", ["cat"])):
+            self.assertEqual(programs(command), want, command)
+
     def test_the_layers_own_cli_is_a_research_run(self):
         # `tezgah-research` reads and writes the research workspace, so a run of
         # it is a research run; before this it was classified as nothing, and the

@@ -83,6 +83,15 @@ red. It reads HEAD, so commit first. Run it after adding or changing a deny rule
 (and add the rule's row to `MUTANTS`); CI runs it weekly
 (`.github/workflows/neuter.yml`), not per push.
 
+### Shell readers against real bash
+
+`python3 tests/fuzz_shell.py --seed 1 --lines 10000` draws seeded shell lines
+from the hand vectors' grammar and runs each in real `bash` with a stub per
+program word. It prints, per 10^4 lines, each class where `shell_programs` or
+`mask` disagrees with what bash ran. `tests/test_fuzz_shell.py` runs 60 lines
+in the normal suite and fails if `mask` blanks a program bash ran;
+`TEZGAH_FUZZ_LINES=10000` widens the sample.
+
 ### App-analysis MCP, end to end
 
 `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py` starts the exact

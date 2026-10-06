@@ -10,7 +10,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import time
@@ -18,9 +17,10 @@ import time
 import tezgah_embed
 import tezgah_research
 from tezgah_guard import import_crash_mark
-from tezgah_integrity import (STEP_KINDS, _path as _ledger_path, changed_files,
-                              cut, last_check, note, note_compaction, note_turn,
-                              redact, scratch_evidence)
+from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
+                              _shell_segments,
+                              changed_files, cut, last_check, note,
+                              note_compaction, note_turn, redact, scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            REPLY_LANG_TEXT, open_lines_note, pony_level_line)
 from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir,
@@ -2237,8 +2237,10 @@ def context_for(event, cwd, payload=None, with_core=True):
 # the words that stand between the shell and the program have to be understood:
 # a wrapper (`sudo env X=1 consult q`), a keyword (`if consult q`), a wrapper's
 # own argument (`timeout 30 consult q`), a shell running a command string
-# (`bash -c 'consult q'`) and a heredoc body (data, not commands). A line it
-# cannot parse contributes nothing - under-reporting beats claiming a tool ran.
+# (`bash -c 'consult q'`) and a heredoc body (data, not commands). The line is
+# split by the gate's own reader (`tezgah_integrity._shell_segments`): a `#`
+# inside a word is text, a redirect target is not a program, and a line shlex
+# cannot read is read roughly rather than dropped as if nothing ran.
 _SHELL_WRAPPERS = frozenset((
     "sudo", "env", "nohup", "time", "timeout", "command", "exec", "xargs",
     "bash", "sh", "zsh", "dash", "ksh",
@@ -2252,47 +2254,60 @@ _WRAPPER_ARG = frozenset(("timeout",))
 # not the program: `sudo -u root consult q`
 _OPTION_ARG = frozenset(("-u", "-g", "-k", "-o", "-C", "-h", "-T", "-r", "-t",
                          "--user", "--group", "--prompt", "--chdir"))
-_SHELL_SEPARATORS = (";", "&&", "||", "|", "&", "(", ")", "<", ">", ">>")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-# A heredoc opener. The delimiter has to look like a word, so arithmetic such as
-# `$((1<<2))` is not mistaken for one.
-_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def _substitutions(text, start, end):
+    """The `$( )` and backtick spans of text[start:end], outermost only."""
+    i = start
+    while i < end:
+        if text.startswith("$(", i):
+            depth, j = 0, i + 1
+            while j < end:
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                if not depth:
+                    break
+                j += 1
+        elif text[i] == "`":
+            j = text.find("`", i + 1, end)
+            j = end if j < 0 else j
+        else:
+            i += 1
+            continue
+        yield i, j + 1
+        i = j + 1
 
 
 def shell_programs(command, _depth=0):
-    """Every word a shell line would run as a program, in order."""
-    out = []
-    lines = str(command or "").splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        i += 1
-        opener = _HEREDOC.search(line)
-        if opener:
-            # the body is data, not commands: skip to the delimiter line
-            while i < len(lines) and lines[i].strip() != opener.group(2):
-                i += 1
-            i += 1
-        try:
-            lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
-            lex.whitespace_split = True
-            words = list(lex)
-        except ValueError:
+    """Every word a shell line would run as a program, in order. A closed
+    heredoc body is data: a quoted tag's whole, an unquoted tag's all but its
+    `$( )` and backtick substitutions, which bash runs. The deny readers keep an
+    unquoted body visible whole."""
+    command = str(command or "")
+    text = list(command)
+    for h in _heredocs(command):
+        if not h[5]:
             continue
+        keep = set()
+        if not h[3]:
+            for a, b in _substitutions(command, h[4], h[5][0]):
+                keep.update(range(a, b))
+        for k in range(h[4], h[5][1]):
+            if text[k] != "\n" and k not in keep:
+                text[k] = " "
+    out = []
+    for words in _shell_segments("".join(text)):
         out += _command_words(words, _depth)
     return out
 
 
 def _command_words(words, depth):
-    """The command positions of one tokenized shell line."""
+    """The command positions of one simple command's words."""
     out = []
     want = True
     skip = 0
     shell_c = False
     for word in words:
-        if word in _SHELL_SEPARATORS:
-            want, skip, shell_c = True, 0, False
-            continue
         if not want:
             continue
         if skip and not word.startswith("-"):
@@ -2314,7 +2329,10 @@ def _command_words(words, depth):
             out += shell_programs(word, depth + 1)
             want, shell_c = False, False
             continue
-        out.append(os.path.basename(word))
+        # a program word holding `$()` is whatever the substitution prints:
+        # the substitution's own command is named, the printed word is not
+        if "$()" not in word:
+            out.append(os.path.basename(word))
         want = False
     return out
 

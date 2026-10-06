@@ -87,8 +87,9 @@ request is refused.
 ### Shortcut — a check made unable to fail, or a test disabled
 
 Trigger, shell: `--no-verify`, or `SKIP=`/`HUSKY_SKIP_HOOKS=`/`HUSKY=0`, next to a git/hook word; or a `core.hooksPath` assignment (`git -c core.hooksPath=...`, `git config core.hooksPath <dir>` with a quoted value too, `--config-env`, `GIT_CONFIG_KEY_n`/`GIT_CONFIG_PARAMETERS`) in the same command as a `git commit`/`git push` (`HOOKS_KEY`/`GIT_VALUE_OPTS`/`CONFIG_READS`/`ROUGH_WORDS` `hooks/tezgah_integrity.py::HOOKS_KEY`, `hooks/tezgah_integrity.py::GIT_VALUE_OPTS`, `hooks/tezgah_integrity.py::CONFIG_READS`, `hooks/tezgah_integrity.py::ROUGH_WORDS`, `hooks/tezgah_integrity.py::_shell_segments` reads the line word by word the way shlex does - an unquoted backtick ends a command (`hooks/tezgah_integrity.py::_unquoted_backticks`; one inside double quotes is read as data, the blind spot `mask` has) and a line shlex cannot read is read roughly rather than dropped - `hooks/tezgah_integrity.py::_hooks_redirect`; husky's standalone setup, a read or `--unset`, a hook install naming `pre-push`, and a commit message naming the key or the env var pass); or a verification command chained with `|| true`/`; true`
-(`hooks/tezgah_integrity.py:2102-2112`, `hooks/tezgah_integrity.py::NO_VERIFY`, `hooks/tezgah_integrity.py::SKIP_ENV`, `hooks/tezgah_integrity.py::NEUTER`, `hooks/tezgah_integrity.py::GITISH`). Trigger, edit/write: a skip marker newly
-introduced into a test file — the path must match `tests?/`, `test_*`, `*_test`, `*.test.*` (`hooks/tezgah_integrity.py::TEST_PATH`), the marker must survive `mask()` so one
+(`hooks/tezgah_integrity.py:2102-2112`, `hooks/tezgah_integrity.py::NO_VERIFY`, `hooks/tezgah_integrity.py::SKIP_ENV`, `hooks/tezgah_integrity.py::NEUTER`, `hooks/tezgah_integrity.py::GITISH`).
+These shell predicates read the line through `mask()` (`hooks/tezgah_integrity.py::mask`), which blanks quotes and comments the way bash reads them. A URL's `//`, a word's `#`, a `/* */` glob pair and `'x\'` are words there, so they do not hide the command after them. The word reader takes a `$'...'` as one word and a `$( )` or backtick body as a command of its own (`hooks/tezgah_integrity.py::_for_shlex`). Trigger, edit/write: a skip marker newly
+introduced into a test file — the path must match `tests?/`, `test_*`, `*_test`, `*.test.*` (`hooks/tezgah_integrity.py::TEST_PATH`), the marker must survive `mask_source()` so one
 inside a string or comment does not count, and `_added` compares against the file's own text on disk for a `Write` (`hooks/tezgah_integrity.py::_added`, `hooks/tezgah_integrity.py::SKIP_TEST`). Told:
 the texts at `hooks/tezgah_integrity.py::shortcut_edit` — run the checks, or say the test is failing; ask the user first if the skip is intended. Standing, with one switch:
 `verify-off` removes this check (`hooks/tezgah_gate.py::decision`). The shell is a write route like any other, and the one E7c measured an
@@ -103,10 +104,10 @@ Trigger: a verification command (integrity's `VERIFY`) piped into a trimmer or f
 `hooks/tezgah_integrity.py::TRIMMER`). The line's exit status is the trimmer's, so the ledger can only record the check as ran, never as passed, and the Stop rule
 then refuses every claim the run was meant to carry — observed in a real omp session where 13 checks ran piped and 3 of 6 completion claims were blocked.
 Passes: a line that opens with `set -o pipefail` (`hooks/tezgah_integrity.py::PIPEFAIL`), which integrity then records as decisive
-(`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). Told: redirect the
-check to a file and read the file, or prefix `set -o pipefail;`, with the check named as it was typed. Standing, under `verify-off`
+(`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). Told: run the
+check as the line's last command with its output in a file, and read the file in a separate call. A `; tail` on the same line hands the status to `tail`. The other way out is a `set -o pipefail;` prefix. The refusal names the check as it was typed. Standing, under `verify-off`
 (`hooks/tezgah_gate.py::decision`). opencode asks the core for this rule on any shell line that pipes a check
-(`hosts/opencode/plugins/tezgah.js:2184`) and records such a line as `verify` unless it opens with pipefail (`hosts/opencode/plugins/tezgah.js:995-998`).
+(`hosts/opencode/plugins/tezgah.js:2341`) and records such a line as `verify` when a pipe or a later command owns its status (`statusHidden`, `hosts/opencode/plugins/tezgah.js:391`).
 
 ### Attribution — an AI/model credit on its way into an artifact
 

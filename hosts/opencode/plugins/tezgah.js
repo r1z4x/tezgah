@@ -289,38 +289,105 @@ const REDIRECTION = /^(?=[&<>]*[<>])[&<>]+$/
 const GIT_WRAPPER = new Set(["sudo", "env", "nohup", "time", "timeout",
   "command", "exec"])
 
-// unquoted backticks become `;` (hooks/tezgah_integrity._unquoted_backticks)
-function unquotedBackticks(text) {
-  let out = "", quote = null, i = 0
-  while (i < text.length) {
+// What shlex can read (hooks/tezgah_integrity._for_shlex): each `$'...'` (bash's
+// ANSI-C quoting, `\'` included) as the single-quoted word it expands to, and
+// each unquoted backtick pair as the `$( )` it is
+function forShlex(text) {
+  let out = "", quote = null, tick = false, i = 0
+  const n = text.length
+  while (i < n) {
     let ch = text[i]
-    if (ch === "\\" && quote !== "'" && i + 1 < text.length) {
+    if (ch === "\\" && quote !== "'" && i + 1 < n) {
       out += text.slice(i, i + 2); i += 2; continue
     }
     if (quote) { if (ch === quote) quote = null }
-    else if (ch === "'" || ch === '"') quote = ch
-    else if (ch === "`") ch = ";"
+    else if (ch === "$" && text[i + 1] === "'") {
+      let end = i + 2
+      while (end < n && text[end] !== "'") end += text[end] === "\\" ? 2 : 1
+      if (end < n) {
+        const value = text.slice(i + 2, end).replace(/\\(.)/g, "$1")
+        out += "'" + value.replace(/'/g, "'\"'\"'") + "'"
+        i = end + 1
+        continue
+      }
+    } else if (ch === "'" || ch === '"') quote = ch
+    else if (ch === "`") { ch = tick ? ")" : "$("; tick = !tick }
     out += ch
     i++
   }
   return out
 }
 
-// The line's simple commands as word lists: heredoc bodies blanked, a continued
-// line joined, unquoted backticks split, each line read by shellWords - or, when
-// it cannot read it, roughly (ROUGH_WORDS) - and split at a run of `;&|()`.
-function shellSegments(cmd) {
-  const segs = []
-  const text = unquotedBackticks(blankHeredocs(String(cmd || "")).replace(/\\\n/g, " "))
-  for (const line of text.split(/\r\n|\r|\n/)) {
-    const words = shellWords(line, false) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
+// 1 for each character of a heredoc body or its terminator line
+// (hooks/tezgah_integrity._heredoc_bytes): data, never a quote or a comment
+function heredocBytes(text) {
+  const out = new Uint8Array(text.length)
+  if (text.includes("<<")) {
+    for (const h of heredocs(text)) out.fill(1, h[4], h[5] ? h[5][1] : text.length)
+  }
+  return out
+}
+
+// The newlines that end a command (hooks/tezgah_integrity._shell_lines): none
+// inside quotes, each one in a heredoc body, every one inside a double-quoted
+// `$( )`/backtick; a comment dropped to its line end; a quote left open goes
+// back to a split at every newline from its line on.
+function shellLines(text) {
+  const body = heredocBytes(text)
+  let lines = [], cur = "", quote = null, start = true, i = 0, opened = 0, runs = false
+  let dollar = false  // the character before i was a `$` bash read unescaped
+  const n = text.length
+  while (i < n) {
+    const ch = text[i]
+    if (body[i] || ((!quote || runs) && (ch === "\r" || ch === "\n"))) {
+      if (ch === "\r" || ch === "\n") {
+        lines.push(cur)
+        cur = ""; quote = null; start = true; runs = false; dollar = false
+        i += text.slice(i, i + 2) === "\r\n" ? 2 : 1
+      } else { cur += ch; i += 1 }
+      continue
+    }
+    if (quote) {
+      if (ch === "\\" && quote !== "'" && i + 1 < n) {
+        cur += text.slice(i, i + 2); i += 2; continue
+      }
+      if (ch === quote[quote.length - 1]) { quote = null; runs = false }
+      else if (quote === '"' && (ch === "`" || text.startsWith("$(", i))) runs = true
+    } else if (ch === "\\" && i + 1 < n) {
+      cur += text.slice(i, i + 2); i += 2; start = false; dollar = false; continue
+    } else if (ch === "#" && start) {
+      while (i < n && text[i] !== "\r" && text[i] !== "\n") i += 1
+      continue
+    } else if (ch === "'" || ch === '"') {
+      quote = ch === "'" && dollar ? "$'" : ch
+      opened = lines.length
+    }
+    start = !quote && (/\s/.test(ch) || ";&|()<>".includes(ch))
+    dollar = !quote && ch === "$"
+    cur += ch
+    i += 1
+  }
+  lines.push(cur)
+  if (quote) lines = lines.slice(0, opened).concat(lines.slice(opened).join("\n").split(/\r\n|\r|\n/))
+  return lines
+}
+
+// The line's simple commands with the separator that ended each, as
+// hooks/tezgah_integrity._shell_commands reads them: heredoc bodies blanked, a
+// continued line joined, each line read by shellWords - or, when it cannot read
+// it, roughly (ROUGH_WORDS) - and split at a run of `;&|()`. A `$( )` or
+// backtick body is a command of its own, ended by `$)`, and the command around
+// it goes on after its close with a `$()` word in its place.
+function shellCommands(cmd) {
+  const out = []
+  const text = blankHeredocs(String(cmd || "")).replace(/\\\n/g, "  ")
+  for (const line of shellLines(text).map(forShlex)) {
+    const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
     // a redirection is not an argument and not a command: its words (the fd
-    // before, the `&` of `2>&1`/`&>`, the target after) are dropped, as
-    // hooks/tezgah_integrity._shell_segments drops them
-    let cur = [], afterRedir = false
+    // before, the `&` of `2>&1`/`&>`, the target after) are dropped
+    let cur = [], subs = [], afterRedir = false
     for (let i = 0; i < words.length; i++) {
       const word = words[i]
-      if (word.startsWith("#") && cur.length) break  // bash: a comment starts a word
       if (word === "&" && i + 1 < words.length && REDIRECTION.test(words[i + 1])) continue
       if (REDIRECTION.test(word)) {
         if (cur.length && /^\d+$/.test(cur[cur.length - 1])) cur.pop()
@@ -332,12 +399,71 @@ function shellSegments(cmd) {
         afterRedir = false
         continue
       }
-      if (word && ";&|()".includes(word[0])) { if (cur.length) segs.push(cur); cur = [] }
-      else cur.push(word)
+      if (!(word && ";&|()".includes(word[0]))) { cur.push(word); continue }
+      for (const piece of word.match(/[()]|[;&|]+/g) || []) {
+        if (piece === "(" && cur.length && cur[cur.length - 1].endsWith("$")) {
+          cur[cur.length - 1] += "()"
+          subs.push([cur, 0])
+          cur = []
+          continue
+        }
+        if (subs.length && piece === "(") subs[subs.length - 1][1] += 1
+        else if (subs.length && piece === ")") {
+          if (!subs[subs.length - 1][1]) {
+            if (cur.length) out.push([cur, "$)"])
+            cur = subs.pop()[0]
+            continue
+          }
+          subs[subs.length - 1][1] -= 1
+        }
+        if (cur.length) out.push([cur, piece])
+        else if (out.length) out[out.length - 1][1] += piece
+        cur = []
+      }
     }
-    if (cur.length) segs.push(cur)
+    for (const seg of [cur, ...subs.reverse().map((s) => s[0])]) {
+      if (seg.length) out.push([seg, "\n"])
+    }
   }
-  return segs
+  if (out.length && out[out.length - 1][1] === "\n") out[out.length - 1][1] = ""
+  return out
+}
+
+function shellSegments(cmd) {
+  return shellCommands(cmd).map((c) => c[0])
+}
+
+// the separators after a check that keep its status the line's
+// (hooks/tezgah_integrity.OWNING_SEP)
+const OWNING_SEP = /^[()]*(?:&&|\|&?)[()]*$/
+
+// True when the line's exit status is not its check's
+// (hooks/tezgah_integrity.status_hidden): a pipe owns it unless the line opens
+// with `set -o pipefail` and has no `||`, or a command after the check does -
+// a `;`, a newline or a trailing `&` - unless that command is `exit $?`. A
+// heredoc body and its terminator are data.
+function statusHidden(cmd) {
+  if (cmd.includes("|") && (cmd.includes("||") ||
+      !/^\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\s*(?:;|&&|\n)/.test(cmd))) return true
+  const body = heredocBytes(cmd)
+  const cmds = shellCommands(cmd.split("").map((ch, k) =>
+    body[k] && ch !== "\n" ? " " : ch).join(""))
+  for (let i = 0; i < cmds.length; i++) {
+    if (!verifyCommand(cmds[i][0].map(quoteWord).join(" "))) continue
+    for (let k = i; k < cmds.length - 1; k++) {
+      if (OWNING_SEP.test(cmds[k][1])) continue
+      const next = cmds[k + 1][0].join(" ")
+      if (next === "exit $?" || next === "exit") break
+      return true
+    }
+  }
+  return cmds.length > 0 && cmds[cmds.length - 1][1].includes("&")
+}
+
+// shlex.quote: a word with nothing a shell would read is itself
+function quoteWord(word) {
+  if (word && /^[\w@%+=:,./-]+$/.test(word)) return word
+  return "'" + word.replace(/'/g, "'\"'\"'") + "'"
 }
 
 function namesHooksKey(setting) {
@@ -612,8 +738,48 @@ function blankHeredocs(text) {
   return out.join("")
 }
 
-function maskText(text) {
+// a source file's reading (hooks/tezgah_integrity.mask_source): the test-disable
+// scan's, length kept
+function maskSource(text) {
   return blankHeredocs(text).replace(LITERALS, (m) => " ".repeat(m.length))
+}
+
+// A shell line with quotes, comments and heredoc bodies blanked as bash reads
+// them (hooks/tezgah_integrity.mask): `'...'` takes no escape, `$'...'` (an
+// unescaped `$` only) and `"..."` do, a `\` outside quotes escapes one
+// character, `#` is a comment only at the start of a word, a heredoc body is
+// data, and a quote left open blanks from itself to the end.
+function maskText(raw) {
+  const text = blankHeredocs(String(raw || ""))
+  const body = heredocBytes(text)
+  const out = text.split("")
+  const n = text.length
+  let i = 0, start = true, prev = ""
+  while (i < n) {
+    const ch = text[i]
+    let end
+    if (body[i]) { i += 1; start = true; prev = ""; continue }
+    if (ch === "\\") { i += 2; start = false; prev = ""; continue }
+    if (ch === "'" || ch === '"') {
+      const escapes = ch === '"' || prev === "$"
+      end = i + 1
+      while (end < n && text[end] !== ch) end += escapes && text[end] === "\\" ? 2 : 1
+      end = Math.min(end + 1, n)
+    } else if (ch === "#" && start) {
+      end = text.indexOf("\n", i)
+      if (end < 0) end = n
+    } else {
+      start = /\s/.test(ch) || ";&|()<>".includes(ch)
+      prev = ch
+      i += 1
+      continue
+    }
+    for (let k = i; k < end; k++) if (out[k] !== "\n") out[k] = " "
+    i = end
+    start = false
+    prev = ""
+  }
+  return out.join("")
 }
 
 // mirrors hooks/tezgah_integrity INFO_ARGS / INFO_SUBCOMMAND / FORMAT_WRITE: an
@@ -749,8 +915,9 @@ function shortcutCommand(cmd, depth = 0) {
       "and commit without it."
   if (verifyCommand(c) && NEUTER.test(c))
     return "Verification neutered: this check is chained with `|| true` / " +
-      "`; true`, so it reports success no matter what it found. Run it plain " +
-      "and read the real exit status."
+      "`; true`, so it reports success no matter what it found. Run it as the " +
+      "line's last command, with nothing after it but `&&`, and read the real " +
+      "exit status."
   if (depth < SHELL_DEPTH) {
     for (const script of shellScripts(cmd)) {
       const reason = shortcutCommand(script, depth + 1)
@@ -786,7 +953,7 @@ async function shortcutEdit(args) {
   if (!base && p) {
     try { base = await readFile(expand(p), "utf8") } catch { base = "" }
   }
-  const added = addedSkips(maskText(newText), maskText(base))
+  const added = addedSkips(maskSource(newText), maskSource(base))
   if (!added.length) return null
   return "Test disable denied: this change adds " +
     [...new Set(added)].join(", ") + ". Making a failing test disappear is not " +
@@ -1003,11 +1170,9 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
     const cmd = String(args?.command || args?.cmd || "")
     if (!verifyCommand(cmd)) kind = "run"
     else {
-      // a pipe owns the status unless the line opens with `set -o pipefail`
-      // and has no `||` (hooks/tezgah_integrity.pipe_hides_status)
-      const hidden = cmd.includes("|") && (cmd.includes("||") ||
-        !/^\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\s*(?:;|&&|\n)/.test(cmd))
-      kind = typeof exit === "number" && !hidden
+      // a pipe or a later command owns the status
+      // (hooks/tezgah_integrity.status_hidden)
+      kind = typeof exit === "number" && !statusHidden(cmd)
         ? (exit === 0 ? "verify_ok" : "verify_fail") : "verify"
     }
   } else if (!source) {
@@ -1494,11 +1659,9 @@ const TIER_LOCAL_ARGS = ["-h", "--help"]
 const EFFECTFUL = new Set([...BASH_TOOLS, ...WRITE_TOOLS])
 // The shell vocabulary the program-position reader needs, spelled as
 // hooks/tezgah_context has it (_SHELL_WRAPPERS, _SHELL_KEYWORDS, _WRAPPER_ARG,
-// _OPTION_ARG, _SHELL_SEPARATORS, _ASSIGNMENT): a mention of the tool in an
+// _OPTION_ARG, _ASSIGNMENT): a mention of the tool in an
 // argument is not a run of it, and the two halves have to agree on which word a
 // shell line would run.
-const SHELL_SEPARATORS = new Set([";", "&&", "||", "|", "&", "(", ")", "<",
-  ">", ">>"])
 const SHELL_WRAPPERS = new Set(["sudo", "env", "nohup", "time", "timeout",
   "command", "exec", "xargs", "bash", "sh", "zsh", "dash", "ksh"])
 const SHELL_KEYWORDS = new Set(["if", "elif", "while", "until", "then", "do",
@@ -1511,19 +1674,16 @@ const WRAPPER_ARG = new Set(["timeout"])
 const OPTION_ARG = new Set(["-u", "-g", "-k", "-o", "-C", "-h", "-T", "-r",
   "-t", "--user", "--group", "--prompt", "--chdir"])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
-const PROGRAM_HEREDOC = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/
 
 // One shell line's words, as `shlex.shlex(line, posix=True,
 // punctuation_chars=";&|()<>")` with whitespace_split reads them: quotes and
 // escapes are removed, and a run of one punctuation character is a token of its
 // own, so `a&&b` is three words. null is shlex's ValueError - an unterminated
-// quote, or a backslash with nothing to escape - which the Python caller answers
-// by dropping that whole line, so `consult 'q` and `consult q's` reach no
-// program position on either side rather than one.
-// `comments` is shlex's default commenter: a word-initial `#` ends the line.
-// The gate reader turns it off because bash does not end a line at `x=a#b`, and
-// stops at a word-initial `#` itself (shellSegments).
-function shellWords(line, comments = true) {
+// quote, or a backslash with nothing to escape - which shellSegments answers by
+// reading the line roughly (ROUGH_WORDS), as the Python reader does. shlex's
+// commenter is off: bash does not end a line at `x=a#b`, so shellSegments stops
+// at a word-initial `#` itself.
+function shellWords(line) {
   const text = String(line || "")
   const out = []
   let word = ""
@@ -1536,7 +1696,6 @@ function shellWords(line, comments = true) {
   while (i < text.length) {
     const c = text[i]
     if (/\s/.test(c)) { push(); i += 1; continue }
-    if (comments && c === "#" && !word) break
     if (";&|()<>".includes(c)) {
       push()
       let run = c
@@ -1583,7 +1742,7 @@ function shellWords(line, comments = true) {
   return out
 }
 
-// The command positions of one tokenized shell line, in the Python order
+// The command positions of one simple command's words, in the Python order
 // (hooks/tezgah_context._command_words): the word after the program is an
 // argument whatever it looks like, and `bash -c '<line>'` is a command line of
 // its own and not an argument.
@@ -1593,12 +1752,6 @@ function commandWords(words, depth) {
   let skip = 0
   let shellC = false
   for (const word of words) {
-    if (SHELL_SEPARATORS.has(word)) {
-      want = true
-      skip = 0
-      shellC = false
-      continue
-    }
     if (!want) continue
     if (skip && !word.startsWith("-")) { skip -= 1; continue }
     if (word.startsWith("-")) {
@@ -1618,29 +1771,56 @@ function commandWords(words, depth) {
       shellC = false
       continue
     }
-    out.push(basename(word))
+    // a program word holding `$()` is whatever the substitution prints
+    if (!word.includes("$()")) out.push(basename(word))
     want = false
   }
   return out
 }
 
-// Every word a shell line would run as a program, in order, with heredoc bodies
-// skipped as data (hooks/tezgah_context.shell_programs).
-function shellPrograms(command, depth = 0) {
-  const out = []
-  const lines = String(command || "").split(/\r\n|\r|\n/)
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i]
-    i += 1
-    const opener = PROGRAM_HEREDOC.exec(line)
-    if (opener) {
-      while (i < lines.length && lines[i].trim() !== opener[2]) i += 1
-      i += 1
-    }
-    const words = shellWords(line)
-    if (words) out.push(...commandWords(words, depth))
+// The `$( )` and backtick spans of text[start:end], outermost only
+// (hooks/tezgah_context._substitutions)
+function substitutions(text, start, end) {
+  const spans = []
+  let i = start
+  while (i < end) {
+    let j
+    if (text.startsWith("$(", i)) {
+      let depth = 0
+      for (j = i + 1; j < end; j++) {
+        depth += text[j] === "(" ? 1 : text[j] === ")" ? -1 : 0
+        if (!depth) break
+      }
+    } else if (text[i] === "`") {
+      j = text.indexOf("`", i + 1)
+      if (j < 0 || j >= end) j = end
+    } else { i += 1; continue }
+    spans.push([i, j + 1])
+    i = j + 1
   }
+  return spans
+}
+
+// Every word a shell line would run as a program, in order
+// (hooks/tezgah_context.shell_programs): a closed heredoc body is data - a
+// quoted tag's whole, an unquoted tag's all but its substitutions.
+function shellPrograms(command, depth = 0) {
+  const s = String(command || "")
+  const text = s.split("")
+  for (const h of heredocs(s)) {
+    if (!h[5]) continue
+    const keep = new Set()
+    if (!h[3]) {
+      for (const [a, b] of substitutions(s, h[4], h[5][0])) {
+        for (let k = a; k < b; k++) keep.add(k)
+      }
+    }
+    for (let k = h[4]; k < h[5][1]; k++) {
+      if (text[k] !== "\n" && !keep.has(k)) text[k] = " "
+    }
+  }
+  const out = []
+  for (const words of shellSegments(text.join(""))) out.push(...commandWords(words, depth))
   return out
 }
 
