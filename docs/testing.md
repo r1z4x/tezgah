@@ -83,9 +83,9 @@ cancels its other legs when one fails (`fail-fast: false`).
   build, install and smoke through `packaging/install.ps1` - the twin a Windows
   user runs - so it is the only place the Windows claim is proven.
 
-`.github/workflows/neuter.yml` runs weekly (and on demand) two jobs. The first,
-`neuter`, asks the
-question the suite cannot ask of itself - would a test fail if a guard went?
+`.github/workflows/neuter.yml` runs two jobs weekly (and on demand). The first,
+`neuter`, asks the question the suite cannot ask of itself - would a test fail
+if a guard went?
 `tests/neuter_matrix.py` clones HEAD once per anti-shortcut guard, reverts that
 guard, and runs the gate's test modules; a mutant that still passes is a guard no
 test notices, and an unmutated control that fails voids the run. The script
@@ -100,13 +100,13 @@ fallbacks and the refusal row have rows too. The shortcut half is still
 hand-written (`MUTANTS`), so a new guard there needs a row.
 
 The second, `fuzz-shell`, runs the bash-oracle fuzzer (`tests/fuzz_shell.py`)
-under the ubuntu runner's bash 5.x; locally, macOS ships bash 3.2. A first step
+under the ubuntu runner's bash 5.x. Locally, macOS ships bash 3.2. A first step
 fails unless `BASH_VERSINFO` is 5 or later. Then
 `python3 tests/fuzz_shell.py --seed 1 --lines 20000 --strict` reads the lines
-with the core readers and the same command with `--js` reads them with the
-opencode plugin's ports; the `--js` step runs even when the core step failed.
+with the core readers. The same command with `--js` reads them with the
+opencode plugin's ports. That step runs even when the core step failed.
 `--strict` turns any disagreement class into exit 1
-(`tests/fuzz_shell.py::main`), so a reader that misreads a bash 5 line fails
+(`tests/fuzz_shell.py::main`). So a reader that misreads a bash 5 line fails
 the leg instead of printing a count. `tests/test_packaging.py` pins the job.
 
 The Stop rule's temporal spec (`hooks/tezgah_stopspec.py`, plan 063) has its own
