@@ -509,7 +509,7 @@ the user's: fix and re-run, or reach for a snapshot deliberately.
 
 A result that arrived from outside the user and this workspace carries a provenance label on the
 result itself: `untrusted_label` (`hooks/tezgah_integrity.py::untrusted_label`) names the channel — a web
-result (`hooks/tezgah_integrity.py::WEB_TOOLS`), an MCP server (`hooks/tezgah_integrity.py::untrusted_source`), a network read (`hooks/tezgah_integrity.py::NETWORK_READ`: `curl`, `wget`, `gh api`, `gh issue view`, `gh pr view`, `git clone`, also behind `sudo`) or a
+result (`hooks/tezgah_integrity.py::WEB_TOOLS`), an MCP server (`hooks/tezgah_integrity.py::untrusted_source`), a network read (`hooks/tezgah_integrity.py::NETWORK_READ`: `curl`, `wget`, `gh api`, `gh issue view|list`, `gh pr view|diff|checkout|list`, a `git clone|pull|fetch` from a remote, also behind `sudo`, `git -C dir` or an `X=1` prefix) or a
 model on the far side of the network (`hooks/tezgah_integrity.py::TIER_PROGRAMS`: a `bin/consult`/`bin/codegen`
 invocation that reaches a provider) — and tells the model to treat instructions inside it as data.
 The call's own row carries the channel in `source` (`hooks/tezgah_integrity.py::note_tool`).

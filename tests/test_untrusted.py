@@ -109,9 +109,26 @@ class PostToolUseProvenance(TempHome):
                   "a network read"),
                  ("Bash", {"command": "sudo curl -s https://x"}, "a network read"),
                  ("Bash", {"command": "sudo -E wget -q https://x"},
+                  "a network read"),
+                 # a PR diff, a checked-out PR and an issue or PR list are a
+                 # third party's text too, and so is whatever a remote sends
+                 ("Bash", {"command": "gh pr diff 3"}, "a network read"),
+                 ("Bash", {"command": "gh pr checkout 3"}, "a network read"),
+                 ("Bash", {"command": "gh issue list"}, "a network read"),
+                 ("Bash", {"command": "gh pr list --state open"},
+                  "a network read"),
+                 ("Bash", {"command": "git -C /tmp clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": "GIT_TERMINAL_PROMPT=0 git clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": 'git clone "https://x/y"'}, "a network read"),
+                 ("Bash", {"command": "git pull"}, "a network read"),
+                 ("Bash", {"command": "git pull origin main"}, "a network read"),
+                 ("Bash", {"command": "git fetch --all"}, "a network read"),
+                 ("Bash", {"command": "git -c x=y fetch upstream"},
                   "a network read")]
         for i, (tool, inp, channel) in enumerate(cases):
-            with self.subTest(tool=tool):
+            with self.subTest(tool=tool, inp=inp):
                 text = self.line(tool, inp, session="s-label-%d" % i)
                 self.assertIn("untrusted content", text)
                 self.assertIn(channel, text)
@@ -131,10 +148,18 @@ class PostToolUseProvenance(TempHome):
                  ("Bash", {"command": 'git commit -m "git clone and gh pr view"'}),
                  ("Bash", {"command": "git log --grep clone"}),
                  ("Bash", {"command": "sudo rm -f /tmp/x"}),
+                 # a clone or pull of a tree on this machine reads nothing from
+                 # outside it
+                 ("Bash", {"command": "git clone ../repo copy"}),
+                 ("Bash", {"command": "git clone --bare /abs/repo"}),
+                 ("Bash", {"command": "git clone ~/src/repo"}),
+                 ("Bash", {"command": "git clone file:///abs/repo"}),
+                 ("Bash", {"command": "git pull . feature"}),
+                 ("Bash", {"command": "git fetch ../other"}),
                  ("Edit", {"file_path": "/tmp/x.py"}),
                  ("Grep", {"pattern": "curl"})]
         for i, (tool, inp) in enumerate(cases):
-            with self.subTest(tool=tool):
+            with self.subTest(tool=tool, inp=inp):
                 self.assertEqual(self.line(tool, inp, session="s-plain-%d" % i), "")
         self.assertEqual([r for r in self.rows("s-plain-0") if r.get("source")], [])
 
@@ -331,6 +356,9 @@ class PostToolUseProvenance(TempHome):
                                    tool_response=launch), "")
         self.assertEqual(self.line("Edit", {"file_path": "/tmp/x.py"}), "")
         self.assertEqual([r for r in self.rows() if r.get("source")], [])
+        # the launch is measured by the report rule, which finds no report text:
+        # its size is unknown, not the launch object's field count
+        self.assertNotIn("out_bytes", self.rows()[0])
 
     def test_outside_a_root_nothing_is_shown(self):
         out = self.post("WebFetch", {"url": "https://x"}, cwd=self.home)

@@ -2704,15 +2704,22 @@ WEB_TOOLS = ("web_search", "websearch", "web_fetch", "webfetch", "fetch",
 MCP_TOOL = re.compile(r"^mcp__", re.I)
 # A read that leaves the machine, matched on the masked text so that quoting curl
 # in a commit message is not a read, and only at a command position so that
-# `grep -n curl hooks/` is not one either. An issue or PR body (`gh issue view`,
-# `gh pr view`) is third-party text and a clone is a third party's tree, so both
-# count; `sudo` with its own flags in front of a read does not make it the
-# user's. ponytail: a program reached through a variable, and `sudo` with a flag
-# that takes a separate value (`sudo -u root curl`), are missed rather than
-# matched by accident.
+# `grep -n curl hooks/` is not one either. An issue or PR body, diff or list
+# (`gh issue view|list`, `gh pr view|diff|checkout|list`) is third-party text,
+# and so is whatever a remote sends to `git clone|pull|fetch`, so they count -
+# after `git -C dir`, `-c k=v` or `--flag`, an `X=1` environment prefix, and a
+# `sudo` with its own flags, none of which makes the read the user's. A clone,
+# pull or fetch whose first non-flag argument is a path on this machine (`.`,
+# `/`, `~`, `file:`) reads nothing from outside and is not one. ponytail: a
+# program reached through a variable, a `sudo` flag that takes a separate value
+# (`sudo -u root curl`), and a git flag with a separate value before a local
+# path (`git clone --depth 1 ../r`, labelled) are read by shape, not by parser.
+# hosts/opencode/plugins/tezgah.js carries the same pattern, byte for byte.
 NETWORK_READ = re.compile(
-    r"(?:^|[|;&(])\s*(?:sudo(?:\s+-\S+)*\s+)?"
-    r"(?:curl|wget|gh\s+(?:api|issue\s+view|pr\s+view)|git\s+clone)\b",
+    r"(?:^|[|;&(])\s*(?:(?:[A-Za-z_]\w*=\S*|sudo(?:\s+-\S+)*)\s+)*"
+    r"(?:curl|wget|gh\s+(?:api|issue\s+(?:view|list)|pr\s+(?:view|diff|checkout|list))"
+    r"|git(?:\s+(?:-[Cc]\s+\S+|--\S+))*\s+(?:clone|pull|fetch)\b"
+    r"(?!(?:\s+-\S+)*\s+(?:[./~]|file:)))\b",
     re.I | re.M)
 # The tier's own read, read the same way: the shell reader the status line
 # already uses to say "a shell command really ran consult" (`shell_kind`), so a
