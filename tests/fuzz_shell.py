@@ -22,6 +22,7 @@ a disagreement is its class: one shape rather than one line.
     python3 tests/fuzz_shell.py --seed 1 --lines 10000
 """
 import argparse
+import functools
 import json
 import os
 import random
@@ -171,9 +172,10 @@ def js_read(texts):
     return json.loads(out.stdout)
 
 
-def run(seed, lines, js=False):
-    """(Counter of lines per disagreement class, invalid-line count, one example
-    line per class). `js` reads each line with the opencode plugin's ports."""
+@functools.lru_cache(maxsize=None)
+def bash_pass(seed, lines):
+    """((line, frozenset of programs bash ran), ...) for the valid lines, and the
+    invalid-line count. Cached, so the core and the JS legs share one bash run."""
     rnd = random.Random(seed)
     oracle = Oracle()
     seen, invalid = [], 0
@@ -183,9 +185,16 @@ def run(seed, lines, js=False):
             if not oracle.valid(text):
                 invalid += 1
                 continue
-            seen.append((text, oracle.ran(text)))
+            seen.append((text, frozenset(oracle.ran(text))))
     finally:
         oracle.close()
+    return tuple(seen), invalid
+
+
+def run(seed, lines, js=False):
+    """(Counter of lines per disagreement class, invalid-line count, one example
+    line per class). `js` reads each line with the opencode plugin's ports."""
+    seen, invalid = bash_pass(seed, lines)
     reads = js_read([t for t, _ in seen]) if js else [None] * len(seen)
     classes, examples = Counter(), {}
     for (text, ran), read in zip(seen, reads):
