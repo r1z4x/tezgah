@@ -2043,5 +2043,79 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(res["output"]["context"], [])
 
 
+# The plugin's node:path import, swapped for `path.win32` in a copy, plus an
+# export of the two root helpers: node picks its path flavour at startup from
+# the real platform, so this is how a POSIX host runs the Windows reading.
+PATH_IMPORT = re.compile(r'^import \{([^}]*)\} from "node:path"$', re.M)
+PATH_PROBE = r"""
+const [plugin, dir, pairs] = process.argv.slice(1);
+const m = await import(require("node:url").pathToFileURL(plugin).href);
+const hooks = await m.Tezgah({ directory: dir });
+const out = { env: {} };
+await hooks["shell.env"]({}, out);
+process.stdout.write(JSON.stringify({
+  roots: await m.roots(), env: out.env.TEZGAH_ROOTS,
+  under: JSON.parse(pairs).map(([d, r]) => m.under(d, r)),
+}));
+"""
+
+
+class PluginPaths(TempHome):
+    """roots(), under() and shell.env read the platform's own separators."""
+
+    def setUp(self):
+        if not NODE:
+            self.skipTest("node not installed")
+        super().setUp()
+
+    def copy(self, win32):
+        with open(support.OPENCODE_PLUGIN) as fh:
+            src = fh.read()
+        names = PATH_IMPORT.search(src)
+        self.assertIsNotNone(names, "the plugin no longer imports from node:path")
+        if win32:
+            src = PATH_IMPORT.sub(
+                lambda m: 'import { win32 as __p } from "node:path"\n'
+                          "const {%s} = __p" % m.group(1), src, count=1)
+        path = os.path.join(self.home, "tezgah-probe.mjs")
+        with open(path, "w") as fh:
+            fh.write(src + "\nexport { roots, under }\n")
+        return path
+
+    def probe(self, win32, roots, directory, pairs):
+        env = self.env(extra={"TEZGAH_ROOTS": roots})
+        work = os.path.join(self.home, "cwd")
+        os.makedirs(work, exist_ok=True)
+        proc = subprocess.run(
+            [NODE, "--input-type=module", "-e",
+             'import { createRequire } from "node:module";'
+             "const require = createRequire(import.meta.url);" + PATH_PROBE,
+             self.copy(win32), directory, json.dumps(pairs)],
+            capture_output=True, text=True, env=env, cwd=work, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_win32_splits_on_semicolon_and_matches_backslash_paths(self):
+        got = self.probe(True, r"C:\r;D:\work", r"C:\r\proj", [
+            [r"C:\r\proj", r"C:\r"], [r"c:\R\proj", r"C:\r"], [r"C:\r", r"C:\r"],
+            [r"C:\rest", r"C:\r"], [r"D:\r\proj", r"C:\r"], [r"C:\r\..x", r"C:\r"],
+            [r"C:\r\..\x", r"C:\r"]])
+        self.assertEqual(got["roots"], [r"C:\r", r"D:\work"])
+        self.assertEqual(got["env"], r"C:\r;D:\work")
+        # below, case-folded below, the root itself, a `..x` name; not a sibling
+        # prefix, another drive or a `..` step out
+        self.assertEqual(got["under"], [True, True, True, False, False, True, False])
+
+    def test_the_native_delimiter_holds_and_a_sibling_prefix_is_not_under(self):
+        """The unswapped plugin: `:` on POSIX, `;` on the windows-latest leg."""
+        root = os.path.realpath(self.roots)
+        other = os.path.join(os.path.realpath(self.home), "Work")
+        got = self.probe(False, os.pathsep.join([self.roots, other]), self.roots, [
+            [root + "/proj", root], [root, root + "/"], [root + "x/proj", root],
+            ["/elsewhere", root]])
+        self.assertEqual(got["env"], os.pathsep.join([root, other]))
+        self.assertEqual(got["under"], [True, True, False, False])
+
+
 if __name__ == "__main__":
     unittest.main()
