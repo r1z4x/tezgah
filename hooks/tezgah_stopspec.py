@@ -118,107 +118,140 @@ def _nodes(formula, out):
 
 
 def compile_table(formulas=None):
-    """(nodes, program, formulas): the subformulas in evaluation order and, per
-    node, its operator and argument indices - so a step is a walk over a list."""
-    formulas = formulas or FORMULAS
-    nodes = []
-    for f in formulas.values():
-        _nodes(f, nodes)
-    index = {n: i for i, n in enumerate(nodes)}
-    program = [(n, ()) if isinstance(n, str) else (n[0], tuple(index[a] for a in n[1:]))
-               for n in nodes]
-    return nodes, program, {name: index[f] for name, f in formulas.items()}
+    """Per formula, its program: the subformulas in evaluation order (the root
+    last), each as its operator and argument indices, a leaf as its atom name."""
+    out = {}
+    for name, f in (formulas or FORMULAS).items():
+        nodes = _nodes(f, [])
+        index = {n: i for i, n in enumerate(nodes)}
+        out[name] = [(n, ()) if isinstance(n, str)
+                     else (n[0], tuple(index[a] for a in n[1:])) for n in nodes]
+    return out
 
 
 _TABLE = compile_table()
 
 
-def _step(program, atoms, prev):
-    now = []
-    for op, args in program:
-        if not args:
-            v = atoms.get(op, False)
-        elif op == "not":
-            v = not now[args[0]]
-        elif op == "and":
-            v = all(now[a] for a in args)
-        elif op == "or":
-            v = any(now[a] for a in args)
-        elif op == "O":
-            v = now[args[0]] or prev[len(now)]
-        elif op == "S":
-            v = now[args[1]] or (now[args[0]] and prev[len(now)])
-        else:
-            raise ValueError("unknown operator %r" % op)
-        now.append(v)
-    return now
+class Trace:
+    """The atom columns of one trace, each computed once and only when a formula
+    the decision list reaches reads it - the way the imperative fold never reads
+    a UI write once the newest check has failed. X is read only when the reply
+    makes an external claim, as the imperative fold reads it."""
 
+    def __init__(self, rows, external):
+        self.rows, self.external, self.cols, self._masked = rows, external, {}, {}
 
-def atoms(rows, external):
-    """The atom valuation per row, plus Pb (escapes E1, E2). X is read only when
-    the reply makes an external claim, as the imperative fold reads it."""
-    out, starts, waiting, last_change = [], [], {}, -1
-    for i, row in enumerate(rows):
+    def masked(self, i):
+        if i not in self._masked:
+            self._masked[i] = ti.mask(str(self.rows[i].get("detail") or ""))
+        return self._masked[i]
+
+    def col(self, name):
+        if name not in self.cols:
+            self.cols[name] = (self._pb() if name == "Pb"
+                               else [self.atom(name, i, r) for i, r in enumerate(self.rows)])
+        return self.cols[name]
+
+    def atom(self, name, i, row):
         kind = str(row.get("kind"))
-        detail = ti.mask(str(row.get("detail") or ""))
-        passing = ti.passing_check(row)
-        ui = ti._ui_write(row)
-        change = ti._change_row(row)
-        ok_exit = row.get("exit") in (None, 0) and not row.get("fail_class")
-        if change:
-            last_change = i
-        a = {"Vany": kind in ("verify", "verify_ok", "verify_fail"),
-             "Vfail": kind == "verify_fail", "P": passing, "C": change, "U": bool(ui),
-             "Sp": (passing and bool(ti.UI_CHECK.search(detail)))
-             or ti._screen_read(row)
-             or (bool(ti.UI_TOOL_CMD.search(detail)) and ok_exit),
-             "Dc": bool(ui) and bool(ti.DESIGN_COMPONENT.search(detail)),
-             "Dk": passing and bool(ti.DESIGN_CHECK.search(detail)),
-             "X": external is not None
-             and kind in ("run", "verify", "verify_ok", "verify_fail")
-             and bool(ti.EXTERNAL_READ.search(detail)),
-             "W": kind in ti.WORK_KINDS, "T": kind == ti.TURN_KIND, "Pb": False}
-        out.append(a)
-        # E1: the pass's position is its check's start
-        digest = row.get("id")
-        if kind == ti.BEGAN_KIND:
-            if digest:
-                waiting.setdefault(digest, []).append(i)
-            continue
-        start = (waiting[digest].pop()
-                 if kind in ti.OUTCOME_KINDS and waiting.get(digest) else i)
-        if passing:
-            starts.append((start, row.get("repo")))
-    # E2: bound to the newest change's repository
-    repo = ti._change_repo(rows, last_change)
-    for start, where in starts:
-        if ti._same_repo(where, repo):
-            out[start]["Pb"] = True
-    return out
+        if name == "Vany":
+            return kind in ("verify", "verify_ok", "verify_fail")
+        if name == "Vfail":
+            return kind == "verify_fail"
+        if name == "P":
+            return ti.passing_check(row)
+        if name == "C":
+            return ti._change_row(row)
+        if name == "U":
+            return bool(ti._ui_write(row))
+        if name == "Sp":
+            return ((self.col("P")[i] and bool(ti.UI_CHECK.search(self.masked(i))))
+                    or ti._screen_read(row)
+                    or (bool(ti.UI_TOOL_CMD.search(self.masked(i)))
+                        and row.get("exit") in (None, 0) and not row.get("fail_class")))
+        if name == "Dc":
+            return self.col("U")[i] and bool(ti.DESIGN_COMPONENT.search(self.masked(i)))
+        if name == "Dk":
+            return self.col("P")[i] and bool(ti.DESIGN_CHECK.search(self.masked(i)))
+        if name == "X":
+            return (self.external is not None
+                    and kind in ("run", "verify", "verify_ok", "verify_fail")
+                    and bool(ti.EXTERNAL_READ.search(self.masked(i))))
+        if name == "W":
+            return kind in ti.WORK_KINDS
+        if name == "T":
+            return kind == ti.TURN_KIND
+        raise KeyError(name)
+
+    def _pb(self):
+        """P through escapes E1 (placed at its check's `began` row) and E2 (kept
+        only in the newest change's repository)."""
+        out, starts, waiting = [False] * len(self.rows), [], {}
+        passing = self.col("P")
+        for i, row in enumerate(self.rows):
+            digest, kind = row.get("id"), row.get("kind")
+            if kind == ti.BEGAN_KIND:
+                if digest:
+                    waiting.setdefault(digest, []).append(i)
+                continue
+            start = (waiting[digest].pop()
+                     if kind in ti.OUTCOME_KINDS and waiting.get(digest) else i)
+            if passing[i]:
+                starts.append((start, row.get("repo")))
+        changes = self.col("C")
+        last = max((i for i, c in enumerate(changes) if c), default=-1)
+        repo = ti._change_repo(self.rows, last)
+        for start, where in starts:
+            if ti._same_repo(where, repo):
+                out[start] = True
+        return out
 
 
-def monitor(rows, external, table=None):
-    """Each formula's value at the trace's last row: one pass, no stored state.
-    The first step reads no row, so an empty trace is the all-false valuation."""
-    _, program, names = table or _TABLE
-    now = _step(program, {}, [False] * len(program))
-    for a in atoms(rows, external):
-        now = _step(program, a, now)
-    return {name: now[i] for name, i in names.items()}
+def value(program, trace):
+    """One formula's value at the trace's last row: one pass over the rows, each
+    step from the previous step's values, nothing stored between Stops. Step -1
+    reads no row, so an empty trace is the all-false valuation."""
+    cols = {op: trace.col(op) for op, args in program if not args}
+    now = [False] * len(program)
+    for i in range(-1, len(trace.rows)):
+        prev, now = now, []
+        for k, (op, args) in enumerate(program):
+            if not args:
+                v = i >= 0 and cols[op][i]
+            elif op == "not":
+                v = not now[args[0]]
+            elif op == "and":
+                v = all(now[a] for a in args)
+            elif op == "or":
+                v = any(now[a] for a in args)
+            elif op == "O":
+                v = now[args[0]] or prev[k]
+            elif op == "S":
+                v = now[args[1]] or (now[args[0]] and prev[k])
+            else:
+                raise ValueError("unknown operator %r" % op)
+            now.append(v)
+    return now[-1]
 
 
-def verdict(values, worked, external):
-    """The class `ORDER` picks from the formula values, or None to allow."""
-    unread = external is not None and not values["read"]
+def verdict(rows, worked, external, table=None):
+    """The class `ORDER` picks, or None to allow; a formula is evaluated only
+    when the list reaches it."""
+    table, trace = table or _TABLE, Trace(rows, external)
+
+    def holds(name):
+        return value(table[name], trace)
+
     for cls in ("check failed", "partial failure", "no ui_ok"):
-        if values[cls]:
+        if holds(cls):
             return cls
-    if values["fresh"]:
+    unread = external is not None and not holds("read")
+    if holds("fresh"):
         if not unread:
             return None
-    elif values["stale"]:
+    elif holds("stale"):
         return "stale evidence"
-    elif worked or values["worked"]:
+    elif worked or holds("worked"):
         return "no verify_ok"
     return "no external read" if unread else None
 
@@ -227,7 +260,7 @@ def fold(rows, worked, external, where="this turn", table=None):
     """`_evidence_block`'s signature and contract, the class from the spec. The
     text is the class itself: shadow reads only the class (part 10, the switch,
     would carry the imperative texts over)."""
-    cls = verdict(monitor(rows, external, table), worked, external)
+    cls = verdict(rows, worked, external, table)
     return (cls, cls)
 
 

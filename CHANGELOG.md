@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The Stop rule's evidence fold, declared as a temporal spec, runs in
+  shadow.** `hooks/tezgah_stopspec.py` writes classes 5-10 as seven past-time
+  formulas over ten row atoms. A one-pass monitor judges every reply beside
+  the imperative fold and leaves one `stop_spec` row: `agree`, `disagree` or
+  `error`. The verdict stays the imperative one, and a failing spec costs only
+  its row. `TEZGAH_STOPSPEC_STRICT=1` makes a disagreement fatal in the tests.
+  `tests/stop_spec_eval.py` measures the bet (plan 063). On plan 055's 496
+  replayed Stop events the two folds agree on all 496.
 - **Real bash now checks the shell readers.** `tests/fuzz_shell.py`
   draws seeded lines from the hand vectors' grammar. It runs each in `bash`
   with a stub per program word and prints each class where `shell_programs` or

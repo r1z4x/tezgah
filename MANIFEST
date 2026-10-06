@@ -133,6 +133,7 @@ hooks/tezgah_research.py
 hooks/tezgah_shapes.py
 hooks/tezgah_skill_pick.py
 hooks/tezgah_snapshot.py
+hooks/tezgah_stopspec.py
 hooks/tezgah_task.py
 hooks/tezgah_taste.py
 hooks/tezgah_untrusted.py
@@ -648,6 +649,7 @@ tests/fuzz_shell.py
 tests/impacted.py
 tests/neuter_matrix.py
 tests/routing-fixtures.md
+tests/stop_spec_eval.py
 tests/support.py
 tests/test_agents.py
 tests/test_ai_research_library.py
@@ -723,6 +725,7 @@ tests/test_skills.py
 tests/test_snapshot.py
 tests/test_statusline.py
 tests/test_stop_after_block.py
+tests/test_stopspec.py
 tests/test_task.py
 tests/test_taste.py
 tests/test_taste_cli.py
