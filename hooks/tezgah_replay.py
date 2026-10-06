@@ -448,7 +448,7 @@ def child(run):
             if row.get("kind") == "nudge":
                 # the once-per-session nudge mark the live gate wrote with this
                 # row (`first_nudge`): disk state the ledger records
-                open(os.path.join(nudged, sid), "w").close()
+                open(os.path.join(nudged, sid), "w", encoding="utf-8").close()
     _write_jsonl(os.path.join(run, "results.jsonl"), results)
 
 
