@@ -6,6 +6,12 @@ plugin manifest when it is there and falls back to that heading. The manifest
 itself (`.claude-plugin/plugin.json`, mirrored in
 `.claude-plugin/marketplace.json`) is the maintainer's local, untracked file.
 
+The numbering was reset on 2026-10-04: the repository was re-rooted and the
+public line restarted at 0.1.1 after 0.32.0 (npm served 0.17.0-0.32.0 before
+it). `hooks/tezgah_update.py::RETIRED` makes the update check offer 0.1.x to an
+install still inside 0.2.0-0.32.0. The public line cannot reach 0.2.0 while
+that constant stands, so a 0.2.0 release removes it first.
+
 ## Cut a release
 
 1. Bump `version` in the local manifest's two files together (they are not

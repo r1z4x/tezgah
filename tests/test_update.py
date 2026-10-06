@@ -213,6 +213,48 @@ class Tag(unittest.TestCase):
         self.assertIsNone(tu.tag_from("https://github.com/login", b"<html>"))
 
 
+class Reset(unittest.TestCase):
+    """The 2026-10-04 re-root restarted the numbering at 0.1.x, so an install
+    still on the retired 0.2.0-0.32.0 line compares higher than every public
+    release; `newer()` has to offer the public one anyway."""
+
+    def test_a_retired_install_is_offered_the_public_release(self):
+        for mine in ("0.30.0", "0.29.2", "0.32.0", "0.17.0", "0.2.0", "v0.30.0"):
+            self.assertEqual(tu.newer(mine, {"latest": "0.1.2"}), "0.1.2", mine)
+
+    def test_an_older_public_release_is_still_not_offered(self):
+        self.assertIsNone(tu.newer("0.1.2", {"latest": "0.1.1"}))
+        self.assertIsNone(tu.newer("0.1.2", {"latest": "0.1.2"}))
+        self.assertEqual(tu.newer("0.1.1", {"latest": "0.1.2"}), "0.1.2")
+
+    def test_a_retired_latest_is_never_offered_over_the_public_line(self):
+        # a cache written before the reset still naming the old line
+        self.assertIsNone(tu.newer("0.1.2", {"latest": "0.30.0"}))
+        self.assertIsNone(tu.newer("0.29.2", {"latest": "0.30.0"}))
+
+    def test_malformed_versions_offer_nothing_and_never_raise(self):
+        for mine, latest in (("0.30", "0.1.2"), ("", "0.1.2"), (None, "0.1.2"),
+                             ("0.30.0-rc1", "0.1.2"), ("unknown", "0.1.2"),
+                             ("0.30.0", "nightly"), ("0.30.0", None),
+                             ("0.30.0", ["0.1.2"]), (30, "0.1.2")):
+            self.assertIsNone(tu.newer(mine, {"latest": latest}), (mine, latest))
+        self.assertFalse(tu.retired(None))
+        self.assertFalse(tu.retired("garbage"))
+
+    def test_the_notice_says_the_line_was_reset(self):
+        saved = tu.read_cache, tu.due, tu.disabled
+        tu.read_cache = lambda: {"latest": "0.1.2", "checked": 0}
+        tu.due, tu.disabled = (lambda data: False), (lambda: False)
+        try:
+            [seg] = tu.notice_segments("0.30.0")
+            self.assertEqual(seg["version"], "0.1.2")
+            self.assertIn("reset", seg["text"])
+            [seg] = tu.notice_segments("0.1.1")
+            self.assertEqual(seg["text"], "\u21910.1.2")
+        finally:
+            tu.read_cache, tu.due, tu.disabled = saved
+
+
 class Channels(unittest.TestCase):
     def setUp(self):
         import tempfile

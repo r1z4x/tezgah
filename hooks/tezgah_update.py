@@ -101,11 +101,30 @@ def write_cache(data):
         return False
 
 
+# The numbering retired by the 2026-10-04 re-root, which restarted the public
+# line at 0.1.x: npm published 0.17.0 through 0.32.0 before it (`npm view
+# @r1z4x/tezgah time`), and 0.2.0 is where the earlier, unpublished numbering is
+# taken to start. An install inside it compares higher than every public release.
+# ponytail: once the public line reaches 0.2.0 the two ranges overlap and cannot
+# be told apart; this constant has to go before that release.
+RETIRED = ((0, 2, 0), (0, 32, 0))
+
+
+def retired(version):
+    """True when `version` is on the retired pre-reset line."""
+    got = parse(version)
+    return bool(got) and RETIRED[0] <= got <= RETIRED[1]
+
+
 def newer(current, data=None):
-    """The cached latest release when it is newer than `current`, else None."""
+    """The cached latest release when it is newer than `current`, else None. A
+    public release is newer than any retired version, and a retired latest is
+    never offered."""
     data = read_cache() if data is None else data
     latest, mine = parse(data.get("latest")), parse(current)
-    if latest and mine and latest > mine:
+    if not latest or not mine or retired(data.get("latest")):
+        return None
+    if latest > mine or retired(current):
         return "%d.%d.%d" % latest
     return None
 
@@ -155,8 +174,10 @@ def notice_segments(current):
         latest = newer(current, data)
         if not latest:
             return []
+        # a retired install's ↑ points at a lower number, so it says why
         return [{"key": "update", "state": "ready", "glyph": "",
-                 "text": ARROW + latest, "version": latest, "group": -1}]
+                 "text": ARROW + latest + (" (line reset)" if retired(current) else ""),
+                 "version": latest, "group": -1}]
     except Exception:
         return []
 
