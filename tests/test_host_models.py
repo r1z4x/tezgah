@@ -214,6 +214,23 @@ class Omp(HostModels):
         self.assertEqual([], [n for n in os.listdir(self.agents())
                               if n.startswith("tezgah-")])
 
+    def test_uninstall_keeps_a_users_own_tezgah_named_agent(self):
+        # omp's files carry no MARKER, so the uninstall, its verify claim and the
+        # report rows own only the names tezgah generated, not the prefix
+        self.install("omp")
+        mine = os.path.join(self.agents(), "tezgah-mine.md")
+        with open(mine, "w") as fh:
+            fh.write("---\nname: mine\n---\nx\n")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(support.REPO, "bin", "tezgah-setup"),
+             "--uninstall", "--hosts", "omp"],
+            capture_output=True, text=True, cwd=self.home, input="", timeout=120,
+            env=self.env(extra={"TEZGAH_NO_DEPS": "1",
+                                "TEZGAH_OMP_BIN": self.pathless()}))
+        self.assertTrue(os.path.isfile(mine), proc.stdout + proc.stderr)
+        self.assertNotIn("tezgah-cheap.md", os.listdir(self.agents()))
+        self.assertNotIn("tezgah-mine.md", proc.stdout)
+
     def test_the_orchestrator_can_delegate(self):
         self.install("omp")
         head = self.read("tezgah-orchestrator.md").split("\n---\n", 1)[0]

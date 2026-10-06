@@ -2979,7 +2979,7 @@ def verify_uninstall(hosts, full):
         claim("omp subagents gone",
               [os.path.join(agents, n) for n in
                (os.listdir(agents) if os.path.isdir(agents) else [])
-               if n.startswith("tezgah-") and n.endswith(".md")])
+               if n[:-len(".md")] in tezgah_agents.OWNED_NAMES and n.endswith(".md")])
         clean("omp mcp.json unwired", [os.path.join(OMP_AGENT, "mcp.json")])
         claim("omp skills unlinked",
               [os.path.join(OMP_AGENT, "skills", s) for s in SKILLS
@@ -3194,7 +3194,7 @@ def uninstall_omp():
     agents_dir = os.path.join(OMP_AGENT, "agents")
     if os.path.isdir(agents_dir):
         for name in os.listdir(agents_dir):
-            if name.startswith("tezgah-") and name.endswith(".md"):
+            if name.endswith(".md") and name[:-len(".md")] in tezgah_agents.OWNED_NAMES:
                 os.remove(os.path.join(agents_dir, name))
                 print("%s removed %s" % (OK, os.path.join(agents_dir, name)))
     hook = os.path.join(OMP_AGENT, "hooks", "pre", "tezgah-hook.ts")
@@ -4293,7 +4293,7 @@ def host_checks_omp():
     servers = mcp.get("mcpServers") or {}
     agents_dir = os.path.join(OMP_AGENT, "agents")
     agents = ([n for n in os.listdir(agents_dir)
-               if n.startswith("tezgah-") and n.endswith(".md")]
+               if n.endswith(".md") and n[:-len(".md")] in tezgah_agents.OWNED_NAMES]
               if os.path.isdir(agents_dir) else [])
     rows = [
         # the byte comparison covers the two marker rows that stood here
