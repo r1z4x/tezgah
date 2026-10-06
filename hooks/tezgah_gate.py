@@ -1947,22 +1947,28 @@ def _blank_script_heredocs(text):
     (SECURITY.md's interpreter residual). Only when bash would expand nothing
     in it - no `$` and no backtick in the body - and nothing on the operator's
     line before it opens a context (`HEREDOC_RISK`) or follows it on its line
-    (`PLAIN_TAIL`); a body handed to a shell stays commands. The consumer is
-    the last simple command before the operator, read by a plain split, so a
-    quote or a backslash before the operator on its line, or a continued line
-    above it, keeps the body visible: `bash -s \\| python3 <<EOF` and
-    `bash -s "x | python3 " <<EOF` hand it to bash."""
+    (`PLAIN_TAIL`, and no quote there); a body handed to a shell stays
+    commands. The consumer is the last simple command before the operator,
+    read by a plain split, so a quote or a backslash before the operator on
+    its line, or a continued line above it, keeps the body visible: `bash -s
+    \\| python3 <<EOF` and `bash -s "x | python3 " <<EOF` hand it to bash. Its
+    word must be the bare interpreter name - no path, no env assignment - and
+    nothing earlier in the call may define a function or alias of that name
+    (`python3(){ bash; }`, `alias python3=bash`)."""
     out = list(text)
     for start, stop, _tag, _quoted, body, term, safe in _heredocs(text):
         line = text.rfind("\n", 0, start) + 1
         head = re.split(r"[;&|(]", text[line:start])[-1].split()
-        while head and (ENV_WORD.match(head[0]) or head[0] in GIT_WRAPPER):
-            head = head[1:]
+        name = re.escape(head[0]) if head else ""
         tail = PLAIN_TAIL.match(text, stop).end()
+        end = text.find("\n", stop)
         if (safe or not term or not head
-                or os.path.basename(head[0]) not in INTERPRETERS - SHELL_NAMES
+                or head[0] not in INTERPRETERS - SHELL_NAMES
                 or re.search(r"[$`]", text[body:term[0]])
                 or re.search(r"[\\'\"]", text[line:start])
+                or re.search(r"['\"]", text[stop:end if end >= 0 else len(text)])
+                or re.search(r"\balias\b|\bfunction\s+%s\b|\b%s\s*\(\s*\)"
+                             % (name, name), text[:start])
                 or text[max(0, line - 2):line] == "\\\n"
                 or HEREDOC_RISK.search(text, line, start)
                 or tail < len(text) and text[tail] != "\n"):
@@ -2189,6 +2195,21 @@ def shell_control(command, cwd, depth=0, origin=None):
         label = plain and _command_change(plain, where, depth, origin)
         if label:
             return label
+    # bash runs the `$( )` and backtick substitutions of an unquoted-tag
+    # heredoc body, whatever the consumer and whatever quotes the body holds,
+    # and the line reader above sees them as data (blanked or quoted)
+    text = str(command or "")
+    if "<<" in text and depth < 3:
+        from tezgah_context import _substitutions
+        for h in _heredocs(text):
+            if h[3]:
+                continue
+            for a, b in _substitutions(text, h[4], h[5][0] if h[5] else len(text)):
+                inner = text[a + (2 if text[a] == "$" else 1):b - 1]
+                for base in dict.fromkeys((cwd, where)):
+                    label = shell_control(inner, base, depth + 1, origin)
+                    if label:
+                        return label
     return None
 
 

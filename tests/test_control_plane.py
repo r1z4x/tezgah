@@ -416,6 +416,29 @@ class ControlPlane(unittest.TestCase):
                            ("bash -s \\\n  python3 <<EOF", hooks)):
             with self.subTest(head=head, body=body):
                 self.refused("Bash", {"command": "%s\n%s\nEOF" % (head, body)})
+        # bash runs the `$( )` and backtick substitutions of an unquoted-tag
+        # body, whatever the consumer and whatever quotes the body holds
+        for command in ("python3 - <<EOF\nprint('$(%s)')\nEOF" % touch,
+                        "python3 - <<EOF\nprint('`%s`')\nEOF" % hooks,
+                        "cat <<EOF > /tmp/x\n'$(%s)'\nEOF" % touch,
+                        "python3 - <<EOF\nx = \"$(%s)\"" % hooks):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+        # a quoted tag's body expands nothing: data
+        self.assertIsNone(self.decide("Bash", {
+            "command": "python3 - <<'EOF'\nprint('$(%s)')\nEOF" % touch}))
+        # the body is python's only when the consumer is plainly python: not a
+        # tail that hands python other code, a function or alias of that name,
+        # a path to some other binary, or a changed environment
+        for head in ("python3 <<EOF -c \"import os;os.execlp('bash','bash')\"",
+                     "python3(){ bash; }; python3 - <<EOF",
+                     "python3() { bash; }\npython3 - <<EOF",
+                     "function python3 { bash; }\npython3 - <<EOF",
+                     "cp /bin/bash ./python3 && ./python3 - <<EOF",
+                     "PATH=/tmp/evil python3 - <<EOF",
+                     "alias python3=bash\npython3 - <<EOF"):
+            with self.subTest(head=head):
+                self.refused("Bash", {"command": "%s\n%s\nEOF" % (head, touch)})
 
     def test_a_fixture_and_the_install_trees_workspace_are_not_wiring(self):
         # plan 050 replay rows 4/6/7: a plan in the private `.tezgah/` of the
