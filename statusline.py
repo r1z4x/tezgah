@@ -21,10 +21,17 @@ import sys
 # real file to find the plugin it ships with before importing the shared core
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "hooks"))
-from tezgah_context import (GRAPH_TOOL_MARK, LEGEND, TOOL_USE_MEASURES,
-                            color_default, health_segments, render_line,
-                            shell_kind, skill_read_kind,
-                            used as used_kinds)  # noqa: E402
+from tezgah_guard import import_failed  # noqa: E402
+try:
+    from tezgah_context import (GRAPH_TOOL_MARK, LEGEND,  # noqa: E402
+                                TOOL_USE_MEASURES, color_default,
+                                health_segments, render_line, shell_kind,
+                                skill_read_kind, used as used_kinds)
+except Exception as exc:
+    # the status line is the one surface the user always sees: say the core is
+    # down there, rather than drawing nothing
+    print("tezgah \u2717 core import failed (%s)" % type(exc).__name__)
+    import_failed(exc)
 
 HOME = os.path.expanduser("~")
 ORCA = os.path.join(HOME, ".orca", "agent-hooks", "claude-statusline.sh")

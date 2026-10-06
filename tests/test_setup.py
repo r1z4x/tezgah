@@ -1094,6 +1094,144 @@ class PluginCopy(SetupBase):
         self.assertFalse(self.current(root),
                          "a copy missing a file the checkout ships was current")
 
+    SYNC_PROBE = (
+        "import importlib.machinery, importlib.util, json, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "def killed(stage, target):\n"
+        "    raise KeyboardInterrupt('killed after staging')\n"
+        "m._swap = killed\n"
+        "try:\n"
+        "    m.sync()\n"
+        "except KeyboardInterrupt:\n"
+        "    pass\n"
+        "print(json.dumps(m.plugin_copies()))\n"
+    )
+
+    def test_a_sync_killed_after_staging_leaves_the_copy_whole(self):
+        root = self.synced_copy()
+        os.makedirs(os.path.join(root, ".git"))
+        self.freeze(root, "hooks/tezgah_gate.py")
+        with open(os.path.join(root, "hooks", "tezgah_gate.py")) as fh:
+            before = fh.read()
+        out = subprocess.run([sys.executable, "-c", self.SYNC_PROBE, SETUP],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        # the previous copy is exactly as it was, .git included
+        with open(os.path.join(root, "hooks", "tezgah_gate.py")) as fh:
+            self.assertEqual(fh.read(), before)
+        self.assertTrue(os.path.isdir(os.path.join(root, ".git")))
+        # the staging tree the kill left is beside the cache, never a copy
+        plugins = self.path(".claude", "plugins")
+        stages = [n for n in os.listdir(plugins) if n.startswith(".tezgah-sync-")]
+        self.assertTrue(stages, os.listdir(plugins))
+        self.assertEqual(json.loads(out.stdout.strip().splitlines()[-1]), [root])
+        # the next sync sweeps it and replaces the copy
+        self.assertIn("synced", self.setup("--sync").stdout)
+        self.assertEqual([n for n in os.listdir(plugins)
+                          if n.startswith(".tezgah-sync-")], [])
+        self.assertTrue(self.current(root))
+
+    def test_the_copy_keeps_its_git_across_the_swap(self):
+        root = self.synced_copy()
+        marker = os.path.join(root, ".git", "HEAD")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as fh:
+            fh.write("ref: refs/heads/main\n")
+        self.freeze(root, "hooks/tezgah_gate.py")
+        self.assertIn("synced", self.setup("--sync").stdout)
+        self.assertTrue(self.current(root))
+        self.assertEqual(self.read_text(marker), "ref: refs/heads/main\n")
+
+    # The kill lands between the two renames: the copy is moved aside, the
+    # stage (holding the copy's .git) is not yet in its place.
+    MID_SWAP_PROBE = (
+        "import importlib.machinery, importlib.util, os, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "real = os.rename\n"
+        "def rename(src, dst):\n"
+        "    if os.path.basename(src).startswith(m.SYNC_STAGE_PREFIX) \\\n"
+        "            and not src.endswith('.git') and dst == sys.argv[2]:\n"
+        "        raise KeyboardInterrupt('killed mid-swap')\n"
+        "    return real(src, dst)\n"
+        "m.os.rename = rename\n"
+        "try:\n"
+        "    m.sync()\n"
+        "except KeyboardInterrupt:\n"
+        "    pass\n"
+    )
+
+    def test_a_sync_killed_mid_swap_is_restored_with_its_git(self):
+        root = self.synced_copy()
+        marker = os.path.join(root, ".git", "HEAD")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as fh:
+            fh.write("ref: refs/heads/main\n")
+        out = subprocess.run([sys.executable, "-c", self.MID_SWAP_PROBE, SETUP, root],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertFalse(os.path.exists(root), "the kill did not land mid-swap")
+        proc = self.setup("--sync")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("restored %s" % root, proc.stdout)
+        self.assertTrue(self.current(root))
+        self.assertEqual(self.read_text(marker), "ref: refs/heads/main\n")
+        plugins = self.path(".claude", "plugins")
+        self.assertEqual([n for n in os.listdir(plugins)
+                          if n.startswith(".tezgah-sync-")], [])
+
+    FAILING_COPY_PROBE = (
+        "import importlib.machinery, importlib.util, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "def full(src, dst):\n"
+        "    raise OSError(28, 'No space left on device')\n"
+        "m._copy_normalised = full\n"
+        "sys.exit(m.sync())\n"
+    )
+
+    def test_a_failed_copy_makes_sync_exit_non_zero(self):
+        root = self.synced_copy()
+        out = subprocess.run([sys.executable, "-c", self.FAILING_COPY_PROBE, SETUP],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        self.assertIn("left as it was", out.stdout)
+        self.assertTrue(self.current(root))
+
+    def test_every_synced_file_is_owner_writable_only(self):
+        # a source file the checkout left world-writable (0666) is copied 0644,
+        # and an executable one 0755: the copy is what Claude runs
+        root = self.synced_copy()
+        for dirpath, dirnames, files in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d != ".git"]
+            for name in files:
+                path = os.path.join(dirpath, name)
+                rel = os.path.relpath(path, root)
+                src = os.path.join(REPO, rel)
+                want = (0o755 if os.path.isfile(src) and os.stat(src).st_mode & 0o100
+                        else 0o644)
+                self.assertEqual(os.stat(path).st_mode & 0o777, want, rel)
+
+    def test_a_world_writable_source_is_copied_0644(self):
+        module = setup_module()
+        src = self.path("src.json")
+        with open(src, "w") as fh:
+            fh.write("{}\n")
+        os.chmod(src, 0o666)
+        dst = self.path("stage", "hooks", "hooks.json")
+        module._copy_normalised(src, dst)
+        self.assertEqual(os.stat(dst).st_mode & 0o777, 0o644)
+
     def test_a_stale_copy_is_reported_and_install_refreshes_it(self):
         _root, fingerprint = self.copy()
         self.assertTrue(self.reported().strip().startswith("MISS"),
@@ -2222,6 +2360,20 @@ class OmpHost(SetupBase):
         for handler in ("session_start", "before_agent_start", "tool_call",
                         "tool_result", "session_stop", "setWidget", "setStatus"):
             self.assertIn(handler, hook)
+
+    def test_the_bridge_row_is_a_byte_compare_against_a_fresh_render(self):
+        # a keyword test passed a bridge an older tree or a hand edit left
+        # behind, as long as the six handler names were still in it
+        self.install()
+        label = "session, prompt, tool and stop hooks wired"
+        report = self.setup("--hosts", "omp").stdout
+        self.assertTrue(self.row(report, label).strip().startswith("ok"), report)
+        hook = self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts")
+        with open(hook, "a") as fh:
+            fh.write("// session_start before_agent_start tool_call session_stop "
+                     "setWidget setStatus\n")
+        report = self.setup("--hosts", "omp").stdout
+        self.assertTrue(self.row(report, label).strip().startswith("MISS"), report)
 
     def test_install_heals_an_argv_as_list_mcp_entry(self):
         path = self.path(".omp", "agent", "mcp.json")

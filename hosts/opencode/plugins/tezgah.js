@@ -2398,6 +2398,12 @@ export const Tezgah = async ({ directory }) => {
         if (await oncePerSession(sessionID + "|contract")) {
           spawn(pythonBin(), [SETUP_BIN, "--refresh"], { detached: true, stdio: "ignore" }).unref()
         }
+        // the session-start attestation every hook host runs from its own
+        // session start (hooks/tezgah_attest.py): one `attest` row per session
+        if (await oncePerSession(sessionID + "|attest")) {
+          spawn(pythonBin(), [CONTEXT_BIN, "attest", "opencode", sessionID, dir],
+                { detached: true, stdio: "ignore" }).unref()
+        }
         if (!(await oncePerSession(sessionID + "|index"))) return
         spawn(pythonBin(), [INDEX_BIN, dir], { detached: true, stdio: "ignore" }).unref()
       } catch {}

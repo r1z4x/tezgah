@@ -43,14 +43,17 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import (  # noqa: E402
-    command_text, context_for, record, shell_kind, slug, under)
-from tezgah_gate import decision, explored  # noqa: E402
-from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, note, note_tool, ran_nothing, report_bytes, stop_reason)
-from tezgah_paths import cache_dir, off  # noqa: E402
-from tezgah_untrusted import marks  # noqa: E402
+from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
+try:
+    from tezgah_context import (  # noqa: E402
+        command_text, context_for, record, shell_kind, slug, under)
+    from tezgah_gate import decision, explored  # noqa: E402
+    from tezgah_integrity import (  # noqa: E402
+        SUBAGENT_CHANNEL, note, note_tool, ran_nothing, report_bytes, stop_reason)
+    from tezgah_paths import cache_dir, off  # noqa: E402
+    from tezgah_untrusted import marks  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 # How many times one stop chain may be refused (hooks/projects-stop.py names the
 # same constant): one, deliberately; raising it is owner decision 11. Whether
@@ -273,6 +276,7 @@ def dispatch(payload):
     quiet = off("reminder-off")
 
     if event == "sessionStart":
+        safe(session_id, attest_session, "cursor", session_id, cwd)
         text = context_for("session_start", cwd, payload)
         out = {"additional_context": text} if text else {}
     elif event == "postToolUse":

@@ -234,8 +234,11 @@ class Upgrade(SetupBase):
         self.swap(tp, "CONFIG", self.path(".config", "tezgah", "config.json"))
         self.swap(mod, "UPGRADE", script)
         self.swap(mod, "INSTALL_PREFIX", prefix)
+        # `--hook-entries` is the new tree listing what re-arming changes
+        # (tezgah_update.confirm_rearm): a read, not one of the two steps
         self.swap(subprocess, "run", lambda argv, *a, **kw: (
-            calls.append(list(argv)), SimpleNamespace(returncode=0))[1])
+            "--hook-entries" in argv or calls.append(list(argv)),
+            SimpleNamespace(returncode=0))[1])
         return mod.upgrade(version, False), calls, launcher
 
     def test_a_version_flag_refuses_instead_of_printing_and_stopping(self):

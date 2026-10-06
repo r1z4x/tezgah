@@ -23,7 +23,8 @@ before an install is considered.
 | `--refresh` | Re-render every always-on contract artifact of the armed hosts - the managed blocks of `CLAUDE.md`, Codex's `AGENTS.md` and omp's `RULES.md`, opencode's contract and skill routers - after a policy edit or a kill switch; prints the paths it refreshed, else `contract is current`. Before the first install there is no hash record, so it changes nothing (`refresh_contract`, `bin/tezgah-setup::refresh_contract`). |
 | `--uninstall` | Remove everything tezgah installed — per host the wiring it wrote, plus (a full run) the Claude plugin copy with its registry rows, the generated config state, the kill switches, the caches and the versioned install tree — then verify the removal; nonzero exit while anything tezgah wrote survives (`bin/tezgah-setup:4456-4458`, `bin/tezgah-setup::uninstall`). |
 | `--adopt` | Move pre-tezgah wiring aside instead of deleting it; alone it stops there, with `--install` it runs first (`bin/tezgah-setup:3322`, `bin/tezgah-setup:2840-2931`). |
-| `--sync` | Copy this checkout over every installed Claude plugin [copy](glossary.md#plugin-copy) (`bin/tezgah-setup:3323`, `bin/tezgah-setup:3782-3859`). |
+| `--sync` | Copy this checkout over every installed Claude plugin [copy](glossary.md#plugin-copy) (`bin/tezgah-setup::sync`). Each copy is built in a staging tree beside the plugin cache and swapped in with two renames, its `.git` carried over, so a failed or killed sync leaves the previous copy whole (`bin/tezgah-setup::_swap`). Every copied file is 0644, or 0755 when the tree marks it executable, whatever mode the source has (`bin/tezgah-setup::_copy_normalised`). |
+| `--hook-entries` | Print, as JSON, the tezgah-owned hook entries this tree arms per armed host - what `tezgah update` asks the new tree for (`bin/tezgah-setup::hook_entries`). |
 | `--status [PATH]` | Print the armed/used checklist for PATH (default cwd) and stop — the same line as `bin/tezgah-status` (`bin/tezgah-setup:3324`, `bin/tezgah-setup:4258-4260`). It also prints the report's `config.json hosts (...) match the hosts wired (...)` row when the recorded list and the wiring on disk disagree (`hosts_row`), and nothing when they agree: install health is checked here, not only in a full report. |
 | `--agents [PATH]` | Regenerate PATH's per-repo subagent set (default cwd); outside a [root](glossary.md#root) it prints `no agents generated` (`bin/tezgah-setup::main`). |
 | `--write-manifest` | Regenerate the tracked `MANIFEST` from `git ls-files` and stop — the release step, its only writer, and it says so on a tree with no `.git` rather than writing an empty listing (`bin/tezgah-setup::write_manifest`, `bin/tezgah-setup::plugin_files`). |
@@ -37,8 +38,8 @@ before an install is considered.
 | `--enable ID[,ID]`, `--disable ID[,ID]` | Select or deselect features and persist the choice in `config.json`. An enable satisfies the named features' dependencies in the same run (an embedding id fetches and converts its model, see [below](#opt-in-embedding-relevance)); a disable runs no installer and removes only a file tezgah made for the row (`select_features`, `bin/tezgah-setup::select_features`). |
 | `--dry-run` | Print what the optional-tool install would run, and run none of it (`bin/tezgah-setup:4192-4195`). |
 | `--prefix DIR` | Set the install prefix for this run: where a released artifact unpacks, and the second root a farm link may resolve into along with the checkout. It wins over `TEZGAH_PREFIX`, which wins over `$XDG_DATA_HOME/tezgah`, which wins over `~/.local/share/tezgah` (`bin/tezgah-setup::main`, `bin/tezgah-setup:61-67`). |
-| `--upgrade [VERSION]` | Move the install tree to VERSION (default: the newest release): `packaging/upgrade.sh` fetches it, checksum-verifies it, unpacks `<prefix>/<VERSION>` and flips `current`, then the installer re-runs **from the new tree**; `--dry-run` prints every step and runs none (`bin/tezgah-setup::upgrade`, `bin/tezgah-setup:4244-4246`, `bin/tezgah-setup::upgrade`). |
-| `update` | `tezgah update [--dry-run]` moves this install to the newest release through the channel it came from, then re-arms the hosts from the new tree. A release prefix goes through `--upgrade`. A Homebrew keg runs `brew upgrade r1z4x/tezgah/tezgah`, an npm tree runs `npm install -g @r1z4x/tezgah@latest`, and a git checkout runs `git pull --ff-only` (`update()`, `hooks/tezgah_update.py`). |
+| `--upgrade [VERSION]` | Move the install tree to VERSION (default: the newest release): `packaging/upgrade.sh` fetches it, checksum-verifies it, checks its build provenance with `gh attestation verify` when `gh` is on PATH (and says `provenance not checked` when it is not), unpacks `<prefix>/<VERSION>` and flips `current`, then the installer re-runs **from the new tree** after the hook-entry change is printed; `--dry-run` prints every step and runs none (`bin/tezgah-setup::upgrade`). |
+| `update` | `tezgah update [--dry-run]` moves this install to the newest release through the channel it came from, then re-arms the hosts from the new tree. A release prefix goes through `--upgrade`. A Homebrew keg runs `brew upgrade r1z4x/tezgah/tezgah`, an npm tree runs `npm install -g @r1z4x/tezgah@latest`, and a git checkout runs `git pull --ff-only` (`update()`, `hooks/tezgah_update.py`). Before re-arming it prints every tezgah hook entry the new tree adds, removes or changes, per host. Paths compare with the tree root taken out, so a move to the new release's own path is no change. A real change on a terminal waits for a yes; Enter is no. A piped run goes on without asking (decision 12; `hooks/tezgah_update.py::confirm_rearm`). A no exits 1 after the fetch and says what it left. A checkout or an npm package is replaced in place, and the prefix's `current` already points at the new tree, so there the hooks run the new code and only the changed entries wait. A Homebrew keg is new beside the old one, so hooks wired to the old keg's path run the old code until the re-arm (`NOT_REARMED`, `hooks/tezgah_update.py::NOT_REARMED`). |
 | `--version` | Print the plugin version and exit (`bin/tezgah-setup:4208-4213`, `:165-181`). |
 | `--roots R` | Set the roots for this install, `os.pathsep`-separated. Without `--install` it exits 1: `--roots only means something with --install` (`bin/tezgah-setup::main`). |
 | `--hosts H` | Comma-separated subset of `claude,codex,opencode,cursor,dsh,omp`; an unknown name exits 1 before anything is written, and naming hosts switches off the re-detection that follows a tool install (`bin/tezgah-setup:4212`, `bin/tezgah-setup:3921-3931`, `bin/tezgah-setup:4339`). |
@@ -58,8 +59,8 @@ built by `packaging/build.sh` from the tracked `MANIFEST` plus a generated
 team can stay on one version and a rollback is one tree away: the older version is
 never removed, and going back is
 `ln -sfn <prefix>/<previous> <prefix>/current` (`packaging/upgrade.sh:9-11`,
-`packaging/upgrade.sh:98-117`). The prefix is `~/.local/share/tezgah` unless
-`TEZGAH_PREFIX` or `$XDG_DATA_HOME` says otherwise (`packaging/upgrade.sh:61`),
+`packaging/upgrade.sh:118-137`). The prefix is `~/.local/share/tezgah` unless
+`TEZGAH_PREFIX` or `$XDG_DATA_HOME` says otherwise (`packaging/upgrade.sh:63`),
 and `bin/tezgah-setup --prefix DIR` wins over both (`bin/tezgah-setup:61-67`).
 A farm link counts as tezgah's when it resolves into the checkout **or** into the
 install root, which is what keeps an upgrade from orphaning the wiring
@@ -77,11 +78,14 @@ install root, which is what keeps an upgrade from orphaning the wiring
 unpacked and made current — and then starts `bin/tezgah-setup --install` from the
 tree that just became current (`packaging/install.sh:42-49`). `upgrade.sh`
 compares the digest it fetched against the artifact before unpacking anything and
-stops, printing both, on a mismatch (`packaging/upgrade.sh:86-94`).
+stops, printing both, on a mismatch (`packaging/upgrade.sh:88-96`). It then
+checks the tarball's build provenance with `gh attestation verify` when `gh` is
+on PATH. Without `gh` it prints `provenance not checked`, and a `gh` that cannot
+answer is a warning: the checksum stays the gate.
 `TEZGAH_DIST` points `upgrade.sh` and `install.ps1` at a directory holding
 `tezgah-<version>.tar.gz` + `.sha256` instead of the release URL — the seam that
 installs a locally built artifact with no published release, which is what CI
-uses (`packaging/upgrade.sh:16-18`, `packaging/upgrade.sh:72-76`).
+uses (`packaging/upgrade.sh:17-21`, `packaging/upgrade.sh:74-78`).
 
 Windows goes through `packaging/install.ps1`, which assumes no `sh`, no `python3`
 and no symlink privilege: it unpacks with the `tar.exe` that Windows 10 1803+

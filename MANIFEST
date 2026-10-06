@@ -113,6 +113,7 @@ hooks/projects-pretooluse.py
 hooks/projects-stop.py
 hooks/tezgah_agents.py
 hooks/tezgah_apps.py
+hooks/tezgah_attest.py
 hooks/tezgah_clarity.py
 hooks/tezgah_components.py
 hooks/tezgah_context.py
@@ -650,6 +651,7 @@ tests/support.py
 tests/test_agents.py
 tests/test_ai_research_library.py
 tests/test_apps_registry.py
+tests/test_attest.py
 tests/test_bash_agreement.py
 tests/test_cheap_source.py
 tests/test_clarity.py

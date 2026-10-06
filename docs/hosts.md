@@ -30,6 +30,32 @@ any adapter that sees its host's tool calls can light them by calling
 the same core and takes the session id as an argument or `TEZGAH_SESSION`
 (`bin/tezgah-status::main`).
 
+## Enforcement capability
+
+What each host can enforce, in the
+[enforcement capability](glossary.md#enforcement-capability) words. `gate`: the
+hook can refuse. `observe`: it records and never refuses. `partial`: only part
+of the surface fires. `unavailable`: the host has no event for it. A cell gets
+`unverified` when no driver on this machine can probe it. Fixture payloads test
+the code path there, but no run has shown the host obeying it.
+
+| Host | Gate (PreToolUse) | Stop | Subagent |
+|---|---|---|---|
+| claude | gate, probed by `--report --live` (`bin/tezgah-setup::live_probe`) | gate, unverified (`hooks/projects-stop.py::main`) | observe, unverified: a brief at SubagentStart, a record-only `subagent_end` row at SubagentStop (ADR 011) |
+| codex | gate, probed by `--report --live`; Codex runs only a trusted group | gate, unverified (`hosts/codex/hook.py::main`) | partial, unverified: a brief at SubagentStart, no subagent-end event |
+| cursor | gate, probed by `--report --live` | gate, unverified (`hosts/cursor/hook.py::dispatch`) | observe, unverified: a brief at subagentStart, a record-only `subagent_end` row at subagentStop |
+| opencode | gate, probed by `--report --live` through a node driver | unavailable: the plugin API has no end-of-turn event | unavailable |
+| dsh | gate, probed by `--report --live` through the bridge | unavailable: ADR 003 removed the Stop entry, because the bridge carries no outcome | partial, unverified: a brief at SubagentStart, no SubagentStop entry |
+| omp | gate, probed by `--report --live` (node 22.6+) | gate, unverified (`hosts/omp/hook.py::handle`) | partial, unverified: a brief at a task session's start; `session_stop` does not fire for task sessions |
+
+Every host also attests its own hook entries once per session
+(`hooks/tezgah_attest.py::run`). Claude, dsh, Codex, Cursor and omp do it at
+session start. opencode does it at the first message, through `oncePerSession`.
+The `attest` row and the `drift` mark are
+[evidence](evidence.md#the-kinds-by-what-reads-them), never a block.
+`--report` prints the same comparison per host
+(`bin/tezgah-setup::attestation_rows`).
+
 ## What each host gets, and where it is written
 
 Every host gets the skill symlinks from `SKILLS` (`bin/tezgah-setup::SKILLS`)
