@@ -107,7 +107,7 @@ Passes: a line that opens with `set -o pipefail` (`hooks/tezgah_integrity.py::PI
 (`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). Told: run the
 check as the line's last command with its output in a file, and read the file in a separate call. A `; tail` on the same line hands the status to `tail`. The other way out is a `set -o pipefail;` prefix. The refusal names the check as it was typed. Standing, under `verify-off`
 (`hooks/tezgah_gate.py::decision`). opencode asks the core for this rule on any shell line that pipes a check
-(`hosts/opencode/plugins/tezgah.js:2184`) and records such a line as `verify` unless it opens with pipefail (`hosts/opencode/plugins/tezgah.js:995-998`).
+(`hosts/opencode/plugins/tezgah.js:2341`) and records such a line as `verify` when a pipe or a later command owns its status (`statusHidden`, `hosts/opencode/plugins/tezgah.js:391`).
 
 ### Attribution — an AI/model credit on its way into an artifact
 

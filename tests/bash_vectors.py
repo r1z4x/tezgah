@@ -118,6 +118,15 @@ ACCEPTED_REFUSALS = (
     "(cat <<'EOF'\n%s\nEOF\n)" % COMMIT,
 )
 
+# gate-01's prefixes (plan 054): bash reads a URL's `//`, a word's `#`, a
+# `/* */` glob pair and `'x\'` as plain words, and a polyglot masker read them as
+# a comment or an open string, blanking the command after them. `%s` is that
+# command; the gate and its opencode mirror both test every wrap.
+GATE01_WRAPS = ("curl -s https://example.com/health; %s",
+                "echo a#b; %s",
+                "ls src/*.py; %s; ls lib/*/",
+                "echo 'x\\'; %s; echo '\\'")
+
 
 def bash():
     """The `bash` on PATH: the one a host's shell tool runs."""
