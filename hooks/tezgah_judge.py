@@ -85,9 +85,21 @@ CHAT_SYSTEM = (
 OPENER = tp.guarded_opener()
 
 
+def override(name, default):
+    """The URL in env var `name`, else `default` - every endpoint override routes
+    through here. An `http://` URL off this machine raises ValueError: the bearer
+    key and the state would cross the network in clear (`tp.plain_http`;
+    loopback stays allowed for the tests' fakes)."""
+    url = os.environ.get(name, "").strip() or default
+    if tp.plain_http(url):
+        raise ValueError("%s is plain http off this machine: the key and the state "
+                         "would cross the network in clear" % name)
+    return url
+
+
 def endpoint():
     """The evaluation endpoint, repointed by TEZGAH_TYPESAFE_URL (tests)."""
-    return os.environ.get("TEZGAH_TYPESAFE_URL", "").strip() or URL
+    return override("TEZGAH_TYPESAFE_URL", URL)
 
 
 def key():
@@ -108,7 +120,7 @@ def key():
 
 def openrouter_url():
     """The fallback endpoint, repointed by TEZGAH_OPENROUTER_URL (tests)."""
-    return os.environ.get("TEZGAH_OPENROUTER_URL", "").strip() or OPENROUTER_URL
+    return override("TEZGAH_OPENROUTER_URL", OPENROUTER_URL)
 
 
 def openrouter_key():
@@ -317,15 +329,16 @@ def _chat_body(state, questions, model):
                                         "questions": questions})}]}
 
 
-def _chat_request(secret, body, timeout, questions):
-    """One POST to the fallback endpoint, mapped into the documented return.
+def _chat_request(secret, body, timeout, questions, url=None):
+    """One POST to an OpenAI-compatible chat endpoint - the fallback's unless
+    `url` names another - mapped into the documented return.
 
     A reply that carries no message content, or content that is not JSON, raises
     here and `_transient()` refuses to retry it - the same reading as a malformed
     TypeSafe reply. Usage keys come back in the OpenAI spelling and are carried
     in the seam's own (`{"input_tokens", "output_tokens"}`), so a caller's cost
     row reads one usage shape whichever provider answered."""
-    request = urllib.request.Request(openrouter_url(), data=body, headers={
+    request = urllib.request.Request(url or openrouter_url(), data=body, headers={
         "Authorization": "Bearer " + secret,
         "Content-Type": "application/json"})
     started = time.monotonic()

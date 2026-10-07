@@ -364,6 +364,9 @@ class Corpus(TempHome):
                          sorted(r["n"] for r in rows if r is not rows[0]))
         self.assertEqual({(r["rater"], r["model"], r["provider"]) for r in got},
                          {("deepseek", "deepseek-v4-pro-stub", "deepseek")})
+        with open(path, encoding="utf-8") as fh:
+            self.assertNotIn("dsk-stub", fh.read())
+        self.assertNotIn("dsk-stub", out)
         self.assertFalse(os.path.exists(os.path.join(s["run"], "labels-model.jsonl")))
         # the second rater's file beside it: kappa over the rows both labelled
         other = os.path.join(s["run"], "labels-model.jsonl")
@@ -386,6 +389,24 @@ class Corpus(TempHome):
                               env=self.env(extra={"DEEPSEEK_API_KEY": ""}), timeout=120)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("DEEPSEEK_API_KEY", proc.stderr)
+
+    def test_label_model_deepseek_refuses_plain_http_off_this_machine(self):
+        """The bearer key and the sheet text would cross the network in clear."""
+        s = self.replay()
+        self.cli("--sheet")
+        prompt = os.path.join(self.home, "prompt.json")
+        with open(prompt, "w", encoding="utf-8") as fh:
+            json.dump({}, fh)
+        proc = subprocess.run([sys.executable, CLI, "replay", "--label-model", "--provider",
+                               "deepseek", "--run", s["run"], "--prompt", prompt],
+                              capture_output=True, text=True, timeout=120,
+                              env=self.env(extra={"DEEPSEEK_API_KEY": "dsk-stub",
+                                                  "TEZGAH_DEEPSEEK_URL":
+                                                  "http://example.invalid/chat/completions"}))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("plain http", proc.stderr)
+        self.assertNotIn("dsk-stub", proc.stderr + proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(s["run"], "labels-deepseek.jsonl")))
 
 
 class Stub(BaseHTTPRequestHandler):

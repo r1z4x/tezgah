@@ -871,30 +871,26 @@ DEEPSEEK_PRICE_PER_MILLION = (1.32, 3.96)
 def _deepseek(secret, model):
     """`ask(state, questions)` for DeepSeek: the judge seam's chat body
     (`CHAT_SYSTEM`, JSON-object reply, temperature 0) with thinking off, so the
-    temperature takes effect; one retry on a transient failure, as the seam does."""
-    import urllib.request
-
+    temperature takes effect, sent by the seam's `_chat_request`; one retry on a
+    transient failure, as the seam does. A plain-http override off this machine
+    is refused before any request (`tj.override`)."""
     import tezgah_judge as tj
-    url = os.environ.get("TEZGAH_DEEPSEEK_URL", "").strip() or DEEPSEEK_URL
+    try:
+        url = tj.override("TEZGAH_DEEPSEEK_URL", DEEPSEEK_URL)
+    except ValueError as exc:
+        raise SystemExit("label-model: %s" % exc)
 
     def ask(state, questions):
         body = dict(tj._chat_body(state, questions, model), thinking={"type": "disabled"})
         data = json.dumps(body).encode()
         for attempt in range(2):
             try:
-                request = urllib.request.Request(url, data=data, headers={
-                    "Authorization": "Bearer " + secret, "Content-Type": "application/json"})
-                with tj.OPENER.open(request, timeout=120) as response:
-                    reply = json.load(response)
-                content = reply["choices"][0]["message"]["content"]
-                usage = reply.get("usage") or {}
-                return {"answers": tj._chat_answers(json.loads(content), questions),
-                        "usage": {"input_tokens": int(usage.get("prompt_tokens") or 0),
-                                  "output_tokens": int(usage.get("completion_tokens") or 0)},
-                        "model": reply.get("model") or model, "provider": "deepseek"}
+                result = tj._chat_request(secret, data, 120, questions, url)
             except Exception as exc:
                 if attempt or not tj._transient(exc):
                     return None
+                continue
+            return dict(result, model=result["model"] or model, provider="deepseek")
     return ask
 
 
@@ -915,9 +911,10 @@ def label_model(run, prompt_file, provider="typesafe", model=None):
         ask, rater = _deepseek(secret, model or "deepseek-v4-pro"), "deepseek"
         price = DEEPSEEK_PRICE_PER_MILLION
     else:
-        if tj.credential()[0] != "typesafe" or not tj.available():
+        used = tj.credential()[0]
+        if used != "typesafe" or not tj.available():
             raise SystemExit("label-model: the judge seam must answer through TypeSafe "
-                             "(provider: %s)" % tj.credential()[0])
+                             "(provider: %s)" % used)
 
         def ask(state, questions):
             return tj.ask(state, questions, model=model or RATER_MODEL, timeout=60)

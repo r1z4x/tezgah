@@ -73,10 +73,11 @@ the kill switches are files, not variables, and live in
 |---|---|---|---|
 | `TYPESAFE_API_KEY` | `hooks/tezgah_judge.py::key`, `hooks/tezgah_paths.py` | `~/.config/typesafe/key` | The judgement seam's first credential; omp also reads it for its own judge. |
 | `OPENROUTER_API_KEY` | `hooks/tezgah_judge.py::openrouter_key`, `bin/consult`, `bin/codegen`, `hooks/tezgah_models.py` | `~/.config/openrouter/key` | The seam's chat fallback, consult's and codegen's `openrouter` provider, and omp's `any` family. |
-| `DEEPSEEK_API_KEY`, `INCEPTION_API_KEY` | `bin/consult`, `bin/codegen` | `~/.config/deepseek/key`, `~/.config/inception/key` | The `deepseek` and `inception` providers of consult and codegen. |
+| `DEEPSEEK_API_KEY`, `INCEPTION_API_KEY` | `bin/consult`, `bin/codegen`, `hooks/tezgah_replay.py::label_model` | `~/.config/deepseek/key`, `~/.config/inception/key` | The `deepseek` and `inception` providers of consult and codegen; `DEEPSEEK_API_KEY` alone is also the replay sheet's `--provider deepseek` rater. |
 | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ZAI_API_KEY` | `hooks/tezgah_models.py::OMP_AUTH` | omp's own auth store | Read as presence only: whether omp can run the `anthropic` or `zai` model family, so the model table can pick a row omp will run. |
-| `TEZGAH_TYPESAFE_URL` | `hooks/tezgah_judge.py::endpoint` | `https://api.typesafe.ai/v1/systemone` | Repoints the seam's TypeSafe endpoint (tests). A cross-host redirect is refused. |
-| `TEZGAH_OPENROUTER_URL` | `hooks/tezgah_judge.py::openrouter_url` | OpenRouter's chat-completions URL | Repoints the seam's chat fallback (tests). |
+| `TEZGAH_TYPESAFE_URL` | `hooks/tezgah_judge.py::endpoint` | `https://api.typesafe.ai/v1/systemone` | Repoints the seam's TypeSafe endpoint (tests). Plain `http` is refused unless the host is this machine; a cross-host redirect is refused. |
+| `TEZGAH_OPENROUTER_URL` | `hooks/tezgah_judge.py::openrouter_url` | OpenRouter's chat-completions URL | Repoints the seam's chat fallback (tests). Plain `http` is refused unless the host is this machine. |
+| `TEZGAH_DEEPSEEK_URL` | `hooks/tezgah_replay.py::_deepseek` | `https://api.deepseek.com/chat/completions` | Repoints the replay sheet's `--provider deepseek` rater (tests). Plain `http` is refused unless the host is this machine. |
 | `TEZGAH_JUDGE_MODEL` | `hooks/tezgah_judge.py::fallback_model` | the cheap `any` row of the models table | The model the seam's chat fallback asks. |
 
 ## consult and codegen
