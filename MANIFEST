@@ -640,6 +640,7 @@ tests/_probe_poisoned.py
 tests/_workflow_harness.mjs
 tests/bash_vectors.py
 tests/bench_gate_latency.py
+tests/claim_reader_eval.py
 tests/constraint-fixtures.md
 tests/e2e_analyze_mobile.py
 tests/e2e_analyze_web.py
