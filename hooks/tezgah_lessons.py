@@ -19,14 +19,16 @@ import re
 from tezgah_paths import cache_dir, off
 
 # A line carries its metadata after its text, never in it: from the first
-# `|| check:` or `|| enforced_by:` clause to the end of the line (in any order),
-# and an `@<sha> <path>` stamp just before those clauses. `parse` cuts both off
-# before anything else reads the line, so neither enters the 200-character cut,
-# `lesson_key`, the per-turn digest or the ranking. A bare `||` in the prose
-# (`pytest || true`) is text: only a clause name followed by `:` opens the tail.
-# `check` is plan 061's compiled check, which nothing reads yet.
+# `|| check:` or `|| enforced_by:` clause outside a code span to the end of the
+# line (in any order), and an `@<sha> <path>` stamp just before those clauses.
+# `parse` cuts both off before anything else reads the line, so neither enters
+# the 200-character cut, `lesson_key`, the per-turn digest or the ranking. Prose
+# keeps the rest: a bare `||` (`pytest || true`), a clause inside backticks
+# (`a||check:b`), and an `@<sha>` followed by a word that is not a path (`git
+# show @cafebabe1 HEAD` - a path holds a `/` or a `.`). `check` is plan 061's
+# compiled check, which nothing reads yet.
 SUFFIX = re.compile(r"\s*\|\|\s*(?:check|enforced_by):")
-STAMP = re.compile(r"\s+@[0-9a-f]{7,40}\s+\S+$")
+STAMP = re.compile(r"\s+@[0-9a-f]{7,40}\s+\S*[/.]\S*$")
 # A line a gate rule or a test already enforces carries `|| enforced_by:
 # <slug|test>` and leaves the injected pool while that enforcer is armed: a gate
 # rule slug from `tezgah_gate.DENY_RULES`, or a test named from the repository
@@ -94,7 +96,8 @@ def parse(line):
     if not s or s.startswith("#"):
         return None
     s = BULLET.sub("", s)
-    m = SUFFIX.search(s)
+    m = next((m for m in SUFFIX.finditer(s)
+              if s.count("`", 0, m.start()) % 2 == 0), None)
     text, tail = (s[:m.start()], s[m.start():]) if m else (s, "")
     return STAMP.sub("", text), tail
 

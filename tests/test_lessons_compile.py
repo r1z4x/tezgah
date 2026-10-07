@@ -123,6 +123,16 @@ class SuffixAndStamp(Reader):
         self.assertEqual(tezgah_lessons.lines(repo),
                          [line, "a rule @notahexsha path"])
 
+    def test_only_a_path_after_the_sha_and_a_clause_outside_code_is_cut(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, ["the fix landed at @deadbeef hooks/x.py",
+                                  "run git show @cafebabe1 HEAD",
+                                  "keep `a||check:b` intact",
+                                  "keep `a||check:b` intact || check: argv(x)"])
+        self.assertEqual(tezgah_lessons.lines(repo),
+                         ["the fix landed at", "run git show @cafebabe1 HEAD",
+                          "keep `a||check:b` intact", "keep `a||check:b` intact"])
+
 
 if __name__ == "__main__":
     unittest.main()
