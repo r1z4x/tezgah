@@ -800,6 +800,28 @@ class RouteReport(unittest.TestCase):
         self.assertEqual(groups[("jev", "frontier")], self.counts(fail=1))
         self.assertEqual(groups[("jev", "cheap")], self.counts(**{"pass": 1}))
 
+    def test_a_worker_s_orphan_pass_reads_as_ran_through_the_ledger_reader(self):
+        # plan 051: `tezgah-route --report` reads each ledger with
+        # `events_path`, which pairs a pass with the gate's `began` row. A pass
+        # with none, in a ledger that has began rows, is not the worker's pass.
+        began = {"kind": "began", "id": "c", "check": 1, "detail": "pytest"}
+        other = {"kind": "began", "id": "x", "check": 1, "detail": "ruff check ."}
+        ok = dict(self.OK, id="c")
+        rows = {"a": self.child("p", 102, began, ok, agent="Fix"),
+                "b": self.child("p", 103, other, ok, agent="Design")}
+        parent = [self.route("frontier", "jev", ts=100), self.route("cheap", "jev", ts=101),
+                  self.spawn("Fix", "tezgah-cheap"), self.spawn("Design", "tezgah-frontier")]
+        with tempfile.TemporaryDirectory() as d:
+            ledgers = {ti._slug("p"): parent}
+            for stem, child in rows.items():
+                path = os.path.join(d, stem + ".jsonl")
+                with open(path, "w") as fh:
+                    fh.writelines(json.dumps(r) + "\n" for r in child)
+                ledgers[stem] = ti.events_path(path)
+            groups = tm.route_report(ledgers)[0]
+        self.assertEqual(groups[("jev", "cheap")], self.counts(**{"pass": 1}))
+        self.assertEqual(groups[("jev", "frontier")], self.counts(ran=1))
+
     def test_order_joins_only_when_nothing_could_be_swapped(self):
         # no agent identity on either child: order is the only evidence
         p = ti._slug("p")

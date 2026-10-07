@@ -4658,5 +4658,189 @@ class StopFoldInProcess(unittest.TestCase):
             "npm 0.22.0 yayımlanmadı, registry'de böyle bir sürüm yok.", "s"))
 
 
+class OrphanPass(unittest.TestCase):
+    """Plan 051 part 8: a `verify_ok` the gate never saw begin is an orphan.
+
+    The gate writes a `began` row (`check=1`) before every shell check it lets
+    through, so a passing row with no such row before it was appended by hand
+    (`python3 -c`) or survived the deletion of its turn's began rows. Each
+    exemption names a way an honest session loses its began row, and leaves the
+    pass standing. (`_path` is patched so the real cache is never touched.)"""
+
+    CLAIM = "Tamamlandı, tüm testler geçti."
+    CHECK = {"command": "pytest -q"}
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        self.path = os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: self.path
+
+    def began(self, inp=None):
+        """The row `tezgah_gate.decision` writes before it lets a check run."""
+        inp = inp or self.CHECK
+        ti.note("s", ti.BEGAN_KIND, inp["command"], id=ti.call_id("Bash", inp),
+                tool="Bash", check=1 if ti.verify_command(inp["command"]) else None)
+
+    def honest(self, inp=None):
+        self.began(inp)
+        ti.note_tool("s", "Bash", inp or self.CHECK, failed=False, out_bytes=42)
+
+    def forge(self):
+        """A passing row appended outside the hooks, the interpreter route."""
+        row = {"kind": "verify_ok", "ts": int(time.time()), "v": ti.ROW_VERSION,
+               "detail": "pytest -q", "id": ti.call_id("Bash", self.CHECK),
+               "tool": "Bash", "exit": 0, "out_bytes": 42}
+        proc = support.run(["-c", "import sys; open(sys.argv[1], 'a')"
+                            ".write(sys.argv[2] + '\\n')", self.path, json.dumps(row)])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def turn(self, key):
+        ti.note("s", ti.TURN_KIND, "", key=key)
+
+    def work_then_forge(self):
+        self.turn("t1")
+        self.honest()
+        self.turn("t2")
+        ti.note("s", "edit", "app.py", changed=True)
+        self.forge()
+
+    def test_a_forged_pass_is_an_orphan_and_refuses_the_claim(self):
+        self.work_then_forge()
+        rows = ti.events("s")
+        self.assertEqual([r.get(ti.ORPHAN) for r in rows if r["kind"] == "verify_ok"],
+                         [None, 1])
+        self.assertIn("Evidence tampered", ti.stop_reason(self.CLAIM, "s") or "")
+        claims = [r for r in ti.events("s") if r.get("kind") == "claim"]
+        self.assertEqual(claims[-1]["detail"], "blocked: evidence tampered")
+        self.assertEqual(ti.counters("s")["orphans"], 1)
+        # the admission still clears it, as it clears a damaged ledger
+        self.assertIsNone(ti.stop_reason("Bitti, doğrulanmadı.", "s"))
+
+    def test_a_turn_whose_began_rows_were_deleted_is_refused(self):
+        self.turn("t1")
+        self.honest()
+        self.turn("t2")
+        ti.note("s", "edit", "app.py", changed=True)
+        self.honest()
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+        with open(self.path) as fh:
+            lines = fh.readlines()
+        start = max(i for i, line in enumerate(lines) if '"turn"' in line)
+        with open(self.path, "w") as fh:
+            fh.writelines(lines[:start] + [line for line in lines[start:]
+                                           if '"began"' not in line])
+        self.assertIn("Evidence tampered", ti.stop_reason(self.CLAIM, "s") or "")
+
+    def test_a_forged_began_and_pass_pair_is_the_named_residual(self):
+        # the gate's own row is forgeable through the same interpreter: pairing
+        # cannot see this, and SECURITY.md names it
+        self.turn("t1")
+        self.honest()
+        self.turn("t2")
+        ti.note("s", "edit", "app.py", changed=True)
+        self.began()
+        self.forge()
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+        with open(os.path.join(support.REPO, "SECURITY.md"), encoding="utf-8") as fh:
+            self.assertIn("forged `began` row", fh.read())
+
+    # ---- the exemptions: an honest session that lost its began row ----------
+    def assert_unrefused(self):
+        self.assertFalse([r for r in ti.events("s") if r.get(ti.ORPHAN)])
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def unpaired_pass(self):
+        """An earlier turn's honest pair, then a pass whose began row is gone."""
+        self.turn("t1")
+        self.honest()
+        self.turn("t2")
+        ti.note("s", "edit", "app.py", changed=True)
+        ti.note_tool("s", "Bash", self.CHECK, failed=False, out_bytes=42)
+
+    def test_pretooluse_off_exempts_the_pass(self):
+        with mock.patch.object(ti, "off", lambda name, *a: name == "pretooluse-off"):
+            self.unpaired_pass()
+            self.assert_unrefused()
+
+    def test_a_crash_row_in_the_turn_exempts_the_pass(self):
+        self.turn("t1")
+        self.honest()
+        self.turn("t2")
+        ti.note("s", "crash", "decision: boom")
+        ti.note("s", "edit", "app.py", changed=True)
+        ti.note_tool("s", "Bash", self.CHECK, failed=False, out_bytes=42)
+        self.assert_unrefused()
+        # the crash is the turn's: a later turn's orphan is not exempted by it
+        self.turn("t3")
+        ti.note("s", "edit", "app.py", changed=True)
+        self.forge()
+        self.assertIn("Evidence tampered", ti.stop_reason(self.CLAIM, "s") or "")
+
+    def test_a_session_with_no_began_rows_is_exempt(self):
+        # a host that writes none (no PreToolUse gate on this call path)
+        self.turn("t1")
+        ti.note("s", "edit", "app.py", changed=True)
+        ti.note_tool("s", "Bash", self.CHECK, failed=False, out_bytes=42)
+        self.forge()
+        self.assert_unrefused()
+
+    def test_a_ledger_in_the_fallback_cache_is_exempt(self):
+        # a sandboxed host splits one session over two cache dirs, so the
+        # began row can sit in the ledger this reader does not read
+        fallback = os.path.join(self.dir, "fallback")
+        self.path = os.path.join(fallback, "evidence", "s.jsonl")
+        with mock.patch.dict(os.environ, {"TEZGAH_FALLBACK_CACHE": fallback}):
+            self.unpaired_pass()
+            self.assert_unrefused()
+
+    def test_an_unlocked_append_exempts_the_pass(self):
+        # the LOCK_WAIT fallback truncates without the lock, and can cut a
+        # concurrent writer's began row; the row it writes says so
+        self.turn("t1")
+        self.honest()
+        self.turn("t2")
+        self.addCleanup(setattr, ti, "LOCK_WAIT", ti.LOCK_WAIT)
+        ti.LOCK_WAIT = 0.0
+        with open(self.path, "a+b") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            ti.note("s", "edit", "app.py", changed=True)
+        self.assertEqual(ti.events("s")[-1].get(ti.UNLOCKED), 1)
+        ti.note_tool("s", "Bash", self.CHECK, failed=False, out_bytes=42)
+        self.assert_unrefused()
+
+    # ---- every passing_check caller gets the paired answer -----------------
+    def test_every_reader_of_a_pass_reads_the_orphan_as_none(self):
+        scratch = {"command": "pytest -q /tmp/fixture_test.py"}
+        self.turn("t1")
+        self.honest(scratch)
+        self.assertEqual(ti.scratch_evidence("s")["detail"], scratch["command"])
+        self.honest({"command": "npx playwright test"})
+        self.honest({"command": "python3 bin/tezgah-design check --contract c.md "
+                                "--measured m.json"})
+        rows = ti.events("s")
+        self.assertGreaterEqual(ti._last_pass(rows), 0)
+        self.assertEqual(ti._last_verify(rows), "ok")
+        self.assertGreaterEqual(ti._ui_evidence(rows)[1], 0)
+        self.assertGreaterEqual(ti._design_evidence(rows)[1], 0)
+        self.assertEqual(ti._no_pass_cause(rows), "other repo")
+        # the same rows with their began rows gone, after a began of another call
+        with open(self.path) as fh:
+            kept = [line for line in fh if '"began"' not in line]
+        with open(self.path, "w") as fh:
+            fh.writelines([kept[0], json.dumps(
+                {"kind": ti.BEGAN_KIND, "id": "x", "check": 1}) + "\n"] + kept[1:])
+        rows = ti.events("s")
+        self.assertIsNone(ti.scratch_evidence("s"))
+        self.assertEqual(ti._last_pass(rows), -1)
+        self.assertEqual(ti._last_verify(rows), "ran")
+        self.assertEqual(ti._ui_evidence(rows)[1], -1)
+        self.assertEqual(ti._design_evidence(rows)[1], -1)
+        self.assertEqual(ti._no_pass_cause(rows), "outcome unread")
+        self.assertEqual(ti._last_pass(ti.turn_rows("s")), -1)
+        self.assertEqual(ti._last_verify(ti.events("s", tail=5)), "ran")
+
+
 if __name__ == "__main__":
     unittest.main()

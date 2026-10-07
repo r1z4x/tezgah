@@ -805,7 +805,8 @@ def _append(path, line):
     and on the fallback too, because a fragment left in place would be terminated
     by this very write and become the unparseable committed line the reader has
     to refuse. The boundary is the last newline in the file, so the repair
-    removes a fragment and can never cut a record."""
+    removes a fragment and can never cut a record (the fallback's row says so:
+    `_unlocked`)."""
     handle = None
     try:
         # owner-only: a row carries commands and paths, and the default umask
@@ -823,6 +824,7 @@ def _append(path, line):
                     break
                 except OSError:
                     if time.time() >= deadline:
+                        line = _unlocked(line)
                         break
                     time.sleep(LOCK_POLL)
         truncate_to_committed(handle)
@@ -1032,14 +1034,17 @@ def _foreign_rows(path, tail=None):
 
 def events_path(path, tail=None):
     """Every parseable ledger entry at an explicit ledger path, oldest first.
-    `events` is this function with the path derived from a session id."""
+    `events` is this function with the path derived from a session id. Every
+    `verify_ok` is paired with the gate's `began` row on the way out (`_pair`)."""
     if tail:
-        return _parse(_tail_lines(path, tail), path)
-    try:
-        with open(path, "rb") as fh:
-            return _parse(_lines(fh.read()), path)
-    except OSError:
-        return []
+        lines = _tail_lines(path, tail)
+    else:
+        try:
+            with open(path, "rb") as fh:
+                lines = _lines(fh.read())
+        except OSError:
+            return []
+    return _pair(_parse(lines, path), path, lines)
 
 
 def events(session_id, tail=None):
@@ -1091,7 +1096,8 @@ def turn_rows(session_id, turns=False, agent=None):
             lines = _lines(fh.read())
     except OSError:
         return ([], 0) if turns else []
-    rows = _parse(lines[_turn_line(lines):], path)
+    start = _turn_line(lines)
+    rows = _pair(_parse(lines[start:], path), path, lines, lines[:start])
     if agent:
         rows = [row for row in rows if row.get("agent") == agent]
     return (rows, _turn_count(lines)) if turns else rows
@@ -1706,7 +1712,7 @@ def _counts(rows, weeks=False, tools=False):
            "shape": 0, "replies": 0, "shape_blocked": 0, "fanout": 0,
            "steps": 0, "tool_error_rate": None,
            "claims": 0, "false_completion": 0, "blocked_claims": {},
-           "refusals": 0,
+           "refusals": 0, "orphans": 0,
            "subagent_results": 0, "subagent_bytes_p50": None,
            "subagent_bytes_max": None,
            "compactions": 0, "compact_chars": None,
@@ -1780,6 +1786,8 @@ def _counts(rows, weeks=False, tools=False):
                 bucket["claims"] += 1
                 if refused:
                     bucket["false_completion"] += 1
+        if entry.get(ORPHAN):
+            out["orphans"] += 1
         if kind == "judge":
             # by the row's kind, not a `detail` substring like the two below: a
             # judgement's detail carries the caller and the model, so a substring
@@ -3476,7 +3484,7 @@ def passing_check(entry):
     done` prove nothing about pytest, `set -o pipefail; pytest | tail` and
     `pytest && echo ok` do (`status_hidden`). Everything else is a
     check that ran with an outcome nobody saw."""
-    if entry.get("kind") != "verify_ok" or entry.get("empty_run"):
+    if entry.get("kind") != "verify_ok" or entry.get("empty_run") or entry.get(ORPHAN):
         return False
     if entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
@@ -4440,6 +4448,8 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     rows = events(session_id) if rows is None else rows
     if (done or verified) and any(r.get("kind") == DAMAGE_KIND for r in rows):
         return ("evidence tampered", TAMPERED)
+    if (done or verified) and any(r.get(ORPHAN) for r in rows):
+        return ("evidence tampered", ORPHANED)
     ev = {str(entry.get("kind")) for entry in rows}
     # The trigger is the turn's own evidence, not its words. The claim vocabulary
     # below catches a claim-shaped reply; it missed the same unfounded state
@@ -4917,3 +4927,112 @@ def changed_files_notice(session_id, base=None):
     if rest > 0:
         text = "%s (+%d more)" % (text, rest)
     return "files this turn changed: " + text
+
+
+# --- pairing: a pass the gate never saw begin (plan 051 part 8) --------------
+# The field `_append` adds to a row it wrote without the lock, and the in-memory
+# mark `_pair` puts on a `verify_ok` no gate-written `began` row answers. The
+# mark is never written: `passing_check` refuses a marked row, and the Stop rule
+# reads one in the turn as "evidence tampered".
+UNLOCKED = "unlocked"
+ORPHAN = "orphan"
+ORPHANED = (
+    "Evidence tampered: a passing check in this turn has no `began` row from the "
+    "gate before it (counted as an orphan), so it was written outside the hooks "
+    "or the rows of its call were removed, and the ledger cannot carry a done or "
+    "tested claim this turn. Run the check again through the tool, or say what "
+    "is unverified (\"doğrulanmadı\"); the ledger is the user's to inspect.")
+BEGAN_ROW = re.compile(r'"kind"\s*:\s*"%s"' % BEGAN_KIND)
+UNLOCKED_ROW = re.compile(r'"%s"\s*:\s*1\b' % UNLOCKED)
+
+
+def _unlocked(line):
+    """`line` with `unlocked: 1` added to its row (`_append`'s LOCK_WAIT
+    fallback), or as it was when it is not one row."""
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return line
+    if not isinstance(row, dict):
+        return line
+    row[UNLOCKED] = 1
+    return json.dumps(row, ensure_ascii=False) + "\n"
+
+
+def _pair(rows, path, lines, before=()):
+    """`rows`, with each `verify_ok` that no earlier `began` row of its `id`
+    with `check` answers marked ORPHAN, in place. `lines` are the ledger lines
+    the rows were read from, `before` the ones read and not parsed (the turns
+    before `turn_rows`' slice).
+
+    The gate writes that `began` row before every shell check it lets through
+    (`tezgah_gate.decision`), and the PostToolUse row of the same call answers
+    it; a pass with none was appended outside the hooks (`python3 -c`) or
+    outlived the deletion of its call's rows. One outcome answers one `began`,
+    oldest first, the way `_began_fold` pairs them.
+
+    The mark is the narrow case only, because a false "evidence tampered" is a
+    fail-closed block on an honest turn. Nothing is marked
+    - before the first `began` row the lines show: a host that writes none, or
+      a gate installed mid-session (`docs/evidence.md`, the no-began exemption);
+    - in a turn holding a `crash` row: the gate that writes `began` may be the
+      code that crashed;
+    - with `pretooluse-off` armed: no gate ran;
+    - when an append took `_append`'s unlocked fallback, or this platform has
+      no lock at all: that truncate can cut a concurrent writer's `began` row;
+    - for a ledger in the sandbox fallback cache, or one whose session also has
+      a ledger in the other cache dir: a sandboxed host can split one call's two
+      rows over two files (`tezgah_context`'s fallback-cache note).
+    A tail read pairs within its window, so a check whose `began` row fell just
+    outside it can read as an orphan there. ponytail: the readers of a window
+    (the gate's order rule, `scratch_evidence`) only lose a pass by it, never
+    refuse; the Stop rule reads whole turns. A forged `began` row plus its pass
+    is not seen here at all: the residual SECURITY.md names."""
+    waiting, began, turn, crashed, found = {}, False, 0, set(), []
+    for row in rows:
+        kind, digest = row.get("kind"), row.get("id")
+        if kind == TURN_KIND:
+            turn += 1
+        elif kind == "crash":
+            crashed.add(turn)
+        elif kind == BEGAN_KIND:
+            began = True
+            if digest:
+                waiting.setdefault(digest, []).append(row)
+        elif kind in OUTCOME_KINDS:
+            start = waiting[digest].pop(0) if digest and waiting.get(digest) else None
+            if kind == "verify_ok" and not (start and start.get("check")):
+                found.append((row, turn, began))
+    if not found:
+        return rows
+    prior = None
+    marked = []
+    for row, at, seen in found:
+        if at in crashed:
+            continue
+        if not seen:
+            if prior is None:
+                prior = any(BEGAN_ROW.search(line) for line in before)
+            if not prior:
+                continue
+        marked.append(row)
+    if marked and not _unpaired_exempt(path, lines):
+        for row in marked:
+            row[ORPHAN] = 1
+    return rows
+
+
+def _unpaired_exempt(path, lines):
+    """True when this ledger may lack an honest `began` row (`_pair`'s list)."""
+    if fcntl is None or off("pretooluse-off"):
+        return True
+    if any(UNLOCKED_ROW.search(line) for line in lines):
+        return True
+    if not path:
+        return False
+    from tezgah_paths import CACHE, fallback_cache
+    here = os.path.realpath(os.path.dirname(path))
+    fallback = os.path.realpath(os.path.join(fallback_cache(), "evidence"))
+    dirs = {os.path.realpath(os.path.join(CACHE, "evidence")), fallback} - {here}
+    return here == fallback or any(
+        os.path.exists(os.path.join(d, os.path.basename(path))) for d in dirs)

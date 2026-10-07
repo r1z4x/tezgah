@@ -64,11 +64,19 @@ an adversarial agent, and it does not claim to be one.
 - **Residual routes, named rather than closed.**
   - An interpreter: `python3 -c "open(...)"`, `node -e`, any script the agent
     writes and then runs. The path is assembled at run time and the gate reads
-    the command line, not what the program does. This includes appending a
-    forged `verify_ok` row to the ledger, which passes the Stop rule until
-    began/pass pairing ships (plan 051), and emptying the ledger the same way.
-  - Began-row forgery through `tezgah-gate decide`: the rule refuses the CLI
-    by name, and an interpreter can still import the core and write the row.
+    the command line, not what the program does. Appending a forged
+    `verify_ok` row to the ledger this way no longer carries a claim: a pass
+    with no gate-written `began` row before it is an orphan, which no reader
+    counts as a pass and which blocks a done-claim in its turn as "evidence
+    tampered" (plan 051). Pairing is a narrow check: it stands down for a
+    session with no `began` row, a turn with a `crash` row, `pretooluse-off`,
+    an unlocked append (a row the forger can mark `unlocked`) and the sandbox
+    fallback cache, and emptying the ledger is still not seen.
+  - A forged `began` row plus its pass: the `began` row is the pairing's only
+    witness and it is a ledger row like any other. The rule refuses
+    `tezgah-gate decide` by name; an interpreter can still import the core, or
+    append the line, and write both rows. No hash chain or per-install key
+    signs the ledger.
   - `find -delete`, `xargs`, and a path built from variables the gate does not
     expand (anything but `~`, `$HOME` and the XDG variables).
   - A glob or brace in a directory component (`rm -rf ~/.config/tez?ah`), and a
