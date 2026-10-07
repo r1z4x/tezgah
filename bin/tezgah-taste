@@ -903,7 +903,7 @@ def main(argv):
                "reject": cmd_one, "edit": cmd_one, "export": cmd_export,
                "label": cmd_label, "calibrate": cmd_calibrate,
                "gate": cmd_gate}[args.cmd]
-    if args.cmd not in ("learn", "accept", "reject", "edit"):
+    if args.cmd not in ("learn", "accept", "reject", "edit", "label"):
         return handler(args)
     # the commands that rewrite ledger.json: one at a time, or the last one
     # to finish would silently drop what the other wrote
