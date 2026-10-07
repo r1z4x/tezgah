@@ -390,7 +390,7 @@ budget is a byte count, not a token estimate.
 Over budget, `budgeted()` gives up blocks in `DROP_ORDER`, lowest value
 first — the text another surface already carries (project knowledge, the
 sibling-checkout line, lessons), the skill hint (a suggestion, never an
-instruction), the per-turn relevant lessons and the plan table first, then the tooling-availability lines and the live graph
+instruction), the per-turn relevant lessons and the plan table first, then the Orca line, the tooling-availability lines and the live graph
 glance, then the resume state (it outlives those because it is the only one that
 says what this session was doing, and it still yields to a rule), then the
 evidence-scope warning, the task phase, the delta, and the skill pointer last
