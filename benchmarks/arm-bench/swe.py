@@ -688,6 +688,17 @@ def go_verdict(cheat, clean) -> bool:
 def cmd_report(args) -> int:
     rows = [json.loads(line) for line in Path(args.results).read_text(encoding="utf-8").splitlines()
             if line.strip()]
+    if args.with_excluded:
+        # A2 sensitivity: each excluded run's own graded outcome replaces its cell's rerun
+        path = bench.excluded_path(Path(args.results))
+        first: dict = {}
+        for line in path.read_text(encoding="utf-8").splitlines() if path.is_file() else []:
+            if line.strip():
+                r = json.loads(line)
+                first.setdefault((r["arm"], r["task"], r["repeat"], r.get("model")), r)
+        rows = [r for r in rows if (r["arm"], r["task"], r["repeat"], r.get("model")) not in first]
+        rows += list(first.values())
+        print("A2 sensitivity: %d excluded run(s) stand in for their cells" % len(first))
     if args.model:
         rows = [r for r in rows if r.get("model") == args.model]
     rows = [reclassify(r) for r in rows]
@@ -782,6 +793,8 @@ def main() -> int:
     p.add_argument("--model", default="")
     p.add_argument("--a", default="p1-full")
     p.add_argument("--b", default="p1-bare")
+    p.add_argument("--with-excluded", action="store_true",
+                   help="A2 sensitivity: excluded runs stand in for their cells")
     p.set_defaults(func=cmd_report)
     args = parser.parse_args()
     return args.func(args)
