@@ -253,6 +253,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **An open plan's move and a forced add of `.tezgah/` leave evidence.** The
+  `control` rule refused a delete or move under `.tezgah/plans/open/`. It also
+  refused a `git add -f` of a `.tezgah/` path. Plan 050's replay of real
+  ledgers found both refused without the user's say-so. That happened more
+  than once a week, so its falsifier fired (ADR 018). A call that moves or
+  deletes one plan, or force-adds a `.tezgah/` path, now passes and leaves a
+  `disarm` row, `control: <what>`. The rule still refuses the open plans'
+  directory and its ancestors, and a call that also changes another protected
+  path.
 - **The research session note hashes a line under `done/`.** `failing()` runs
   `_check_seal` on a concluded or closed line instead of the full `check_line`.
   An edit after the seal still reaches the note. The line's other findings stay
