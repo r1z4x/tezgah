@@ -58,10 +58,21 @@ except Exception as exc:
     import_failed(exc)
 
 # How many times one stop chain may be refused (hooks/projects-stop.py names the
-# same constant): one, deliberately; raising it is owner decision 11. Whether
-# Cursor's `stop` payload carries `stop_hook_active` or only `loop_count` is
-# unverified (no captured payload), so the flag is still what is read.
+# same constant): one, deliberately; raising it is owner decision 11. Cursor's
+# `stop` payload carries `loop_count` (the follow-ups already sent in this chain)
+# and no `stop_hook_active` (cursor-agent 2026.10.01, captured 2026-10-07); the
+# flag is still read for a build that sends it.
 STOP_REASKS = 1
+
+
+def asked(payload):
+    """How many follow-ups tezgah's Stop refusals already started in this chain."""
+    try:
+        count = int(payload.get("loop_count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    return max(count, 1 if payload.get("stop_hook_active") else 0)
+
 
 ALLOW = {"permission": "allow"}
 # MCP tool names that are a code graph call: codegraph serves every tool as
@@ -415,7 +426,7 @@ def dispatch(payload):
         # to check - and `loop_count` is the platform's own cap on follow-ups.
         out = {}
         if (payload.get("status") in (None, "completed")
-                and (1 if payload.get("stop_hook_active") else 0) < STOP_REASKS
+                and asked(payload) < STOP_REASKS
                 and not off("verify-off") and under(cwd)):
             reason = stop_reason(last_answer(session_id), session_id, cwd=cwd)
             if reason:
