@@ -8,6 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.33.0] - 2026-10-07
 
+### Upgrade note
+
+- **Homebrew users coming from 0.1.2: re-arm once after `brew upgrade`.**
+  0.1.2 armed the host hooks with paths into its own keg,
+  `Cellar/tezgah/0.1.2/libexec`. The upgrade's default cleanup deletes that
+  keg, so those hooks point at nothing until a re-arm. Run `tezgah update`.
+  On the brew channel it runs `brew upgrade` first. Then it re-arms the hosts
+  and roots this install recorded, from the new tree behind `opt/tezgah`.
+  0.1.2's `tezgah update` already re-arms from there too. Or re-arm by hand with
+  `tezgah-setup --install --hosts <the hosts you armed>`. 0.33.0 arms through
+  `opt/tezgah`, so later upgrades need no re-arm. The formula's caveats say
+  the same after `brew upgrade`.
+
 ### Added
 
 - **An orphan pass no longer licenses a claim.** Every ledger reader now
@@ -442,6 +455,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The tap formula waits for its asset.** The release's brew job pushed
+  `Formula/tezgah.rb` before it uploaded the tarball the formula names. So
+  `brew install` met a 404 until the upload finished, and for good if it
+  failed. The job now uploads the tarball and its `.sha256` first. It checks
+  that both are on the release, and only then touches the tap.
 - **The seam refuses a plain-http endpoint override off this machine.** The
   judge seam's `TEZGAH_TYPESAFE_URL` and `TEZGAH_OPENROUTER_URL` and the
   replay rater's `TEZGAH_DEEPSEEK_URL` all route through

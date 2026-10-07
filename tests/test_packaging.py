@@ -302,5 +302,36 @@ class ReleaseWaitsForCi(unittest.TestCase):
                           "%s --strict\n" % leg, block)
 
 
+class BrewTapWaitsForItsAsset(unittest.TestCase):
+    """The tap formula names a release asset by URL, so pushing it before the
+    asset is on the release left `brew install` a 404 - for good when the upload
+    then failed. The asset goes up and is checked first; the tap is touched only
+    after both files are there."""
+
+    def block(self):
+        jobs = ReleaseWaitsForCi.jobs(ReleaseWaitsForCi.workflow("release.yml"))
+        return jobs.get("brew-formula", "")
+
+    def test_the_asset_is_uploaded_and_verified_before_the_tap_is_cloned(self):
+        block = self.block()
+        upload = block.find("gh release upload")
+        verified = [block.find('grep -qx "tezgah-${VERSION}.tar.gz%s"' % ext)
+                    for ext in ("", ".sha256")]
+        clone = block.find("git clone")
+        for at in [upload] + verified + [clone, block.find("git push")]:
+            self.assertNotEqual(at, -1, block)
+        self.assertLess(upload, min(verified))
+        self.assertLess(max(verified), clone)
+
+    def test_the_formula_tells_a_0_1_2_keg_to_re_arm(self):
+        # 0.1.2 armed hooks with Cellar/tezgah/0.1.2 paths; the upgrade's cleanup
+        # deletes that keg, and only a re-arm from opt/tezgah rewrites them
+        import re
+        caveats = re.search(r"def caveats\n(.*?)\n\s*end\n", self.block(), re.S)
+        self.assertIsNotNone(caveats, "the formula template has no caveats")
+        self.assertIn("tezgah-setup --install", caveats.group(1))
+        self.assertIn("tezgah update", caveats.group(1))
+
+
 if __name__ == "__main__":
     unittest.main()

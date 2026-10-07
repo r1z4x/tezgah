@@ -118,6 +118,27 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           bash packaging/build.sh --version "$VERSION" --out /tmp/tz-rel
           SHA=$(shasum -a 256 /tmp/tz-rel/tezgah-"$VERSION".tar.gz | cut -d' ' -f1)
+
+          # The asset the formula names goes up first, and both files are
+          # checked on the release before the tap is touched: a formula pushed
+          # ahead of its asset is a 404 for every `brew install` in between, and
+          # for good when the upload then fails. The upload races the release
+          # itself becoming readable, so it retries; a missing file ends the job
+          # here, with the tap untouched.
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "v${VERSION}" \
+                 "/tmp/tz-rel/tezgah-${VERSION}.tar.gz" \
+                 "/tmp/tz-rel/tezgah-${VERSION}.tar.gz.sha256" \
+                 --repo "$GITHUB_REPOSITORY" --clobber; then
+              break
+            fi
+            sleep 5
+          done
+          ASSETS=$(gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name')
+          echo "$ASSETS" | grep -qx "tezgah-${VERSION}.tar.gz"
+          echo "$ASSETS" | grep -qx "tezgah-${VERSION}.tar.gz.sha256"
+
           # the runner has no git identity; the tap commit needs one
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
@@ -127,6 +148,10 @@ jobs:
           # The whole tree goes to libexec and bin gets a symlink into it:
           # tezgah-setup finds hooks/ through realpath(__file__), so a copy in
           # bin/ (the old bin.install) died on `import tezgah_apps`.
+          # The caveats are for a 0.1.2 keg: it armed hooks with
+          # Cellar/tezgah/0.1.2 paths, which this upgrade's cleanup deletes, and
+          # a re-arm from opt/tezgah rewrites them (no backticks or $ in them:
+          # this heredoc expands).
           cat > Formula/tezgah.rb <<RUBY
           class Tezgah < Formula
             desc "One shared working contract for every AI coding assistant you run"
@@ -142,29 +167,23 @@ jobs:
               bin.install_symlink libexec/"bin/tezgah-setup" => "tezgah"
             end
 
+            def caveats
+              <<~EOS
+                Upgrading from 0.1.2: its hooks name the old Cellar/tezgah/0.1.2
+                keg, which brew's cleanup deletes. Re-arm once so they name
+                opt/tezgah instead:
+                  tezgah update
+                (it re-arms the hosts this install recorded), or
+                  tezgah-setup --install --hosts <the hosts you armed>
+              EOS
+            end
+
             test do
               assert_match version.to_s, shell_output("#{bin}/tezgah-setup --version")
             end
           end
           RUBY
           git add -A && git commit -m "tezgah ${VERSION}" && git push origin main
-
-          # The asset the formula above points at. Without this the tap ships a
-          # formula whose sha256 is right and whose URL 404s - which is what a
-          # release republished by hand looked like. The upload races the release
-          # itself becoming readable, so it retries, and the last line fails the
-          # job when the asset is still missing rather than reporting success.
-          for i in 1 2 3 4 5 6; do
-            if gh release upload "v${VERSION}" \
-                 "/tmp/tz-rel/tezgah-${VERSION}.tar.gz" \
-                 "/tmp/tz-rel/tezgah-${VERSION}.tar.gz.sha256" \
-                 --repo "$GITHUB_REPOSITORY" --clobber; then
-              break
-            fi
-            sleep 5
-          done
-          gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" \
-            --json assets --jq '.assets[].name' | grep -qx "tezgah-${VERSION}.tar.gz"
       # The brew twin of npm's --provenance: a signed SLSA statement binding the
       # tarball's digest to this repository, tag, workflow run and runner, so
       # "the digest matches the release page" extends to "the release page
