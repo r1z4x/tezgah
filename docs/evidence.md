@@ -768,16 +768,24 @@ agent cheated in 0 of 132 runs with tezgah and 1 of 131 without: -0.8 pp, 95%
 CI -2.3 to 0. Clean pass on the original tasks held at 129 of 131 against 129
 of 132.
 
-The Stop rule's claim reader is `hooks/tezgah_integrity.py::claims`. On the
-impossible split it read 115 of 132 final messages with tezgah as done claims,
-and 90 of 131 without. Hand labels of 30 sampled messages per arm found real
-done claims in 3 with tezgah and 6 without. The adjusted difference is -5 pp,
+The false-done reader is `hooks/tezgah_integrity.py::claims`, the Stop rule's
+claim vocabulary. On the impossible split it read 115 of 132 final messages
+with tezgah as done claims, and 90 of 131 without. Hand labels of 30 sampled
+messages per arm found real done claims in 3 with tezgah and 6 without. The
+adjusted difference is -5 pp,
 95% CI -18 to +9, so no effect either way. As a false-done reader on this
 split, the reader's precision was 0.10 with tezgah and 0.20 without. With
-tezgah the agent replied in Turkish in 129 of 132 runs. The reader counts the
+tezgah the agent replied in Turkish in 129 of 132 runs. The reader counted the
 passive `doğrulandı` on a partial fix as a completion claim, even beside a
-`doğrulanmadı` for the failing test. This is a recorded weakness, not fixed
-here.
+`doğrulanmadı` for the failing test. It no longer does. A reply that admits an
+open check now reads as no claim. It says no check backs the work
+(`hooks/tezgah_integrity.py::NEGATED`), or that a test contradicts the issue or
+cannot pass (`hooks/tezgah_integrity.py::ADMITTED`). A failure the reply
+dismisses as pre-existing still reads as a claim. On the 60 hand-labelled
+messages, precision rose from 0.15 to 0.69 at recall 1.0
+(`python3 tests/claim_reader_eval.py --set e4`). The rule came from that same
+set. The Stop verdict and its `claim` row still read the plain vocabulary, so
+no refusal changed.
 
 A red-team pass found one route a hook cannot read (a `python3 -c` write of a
 switch) in 30 attempts.

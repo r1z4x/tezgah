@@ -3493,9 +3493,25 @@ def ran_nothing(result):
         EMPTY_RUN.search(result[-EMPTY_RUN_TAIL:]))
 
 
+# A reply that says the task's own check is not met - unverified (NEGATED), or
+# the test contradicts the issue and cannot pass - reports a partial fix, not a
+# completion, whatever "fixed"/"doğrulandı" it says about the part it did
+# (plan 067: on plan 062's 60 hand-labelled E4 replies this took `claims`'s
+# precision from 0.15 to 0.69 at recall 1.0). A failure the reply dismisses as
+# pre-existing or environmental still reads as a claim: it names no conflict.
+# `claims` is the false-done reader the benchmarks count with; the Stop verdict
+# and its claim row read the vocabulary (`asserted_claims`), where an admitted
+# claim is a claim NEGATED lets through.
+ADMITTED = re.compile(
+    r"contradict|çeliş|unsatisfiable|(?:can ?not|can't|can ?never|never) pass|"
+    r"geçemez|impossible|imk[aâ]nsız", re.I)
+
+
 def claims(text):
     """(claims_completion, claims_verification) for a final reply."""
     t = str(text or "")
+    if NEGATED.search(t) or ADMITTED.search(t):
+        return (False, False)
     return (bool(DONE.search(t)), bool(VERIFIED.search(t)))
 
 
@@ -3515,7 +3531,7 @@ CLAUSE_END = re.compile(r"[.!?\n,;:\u2014\u2013()]|\b(?:so|and|but|ama|ve)\b",
 
 
 def asserted_claims(text):
-    """`claims`, with a claim word inside a question or under a negation of its
+    """DONE/VERIFIED, with a claim word inside a question or under a negation of its
     own clause not counted. Read by `_stop_block` on the no-work path and by
     `stop_reason` for the claim row; a turn that did work is still judged on its
     rows. ponytail: a window of words, not a parser."""
@@ -4502,7 +4518,9 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     shaped = _shape_block(t, cwd) if shape else (None, None)
     if shaped[0]:
         return shaped
-    done, verified = claims(t)
+    # the raw vocabulary, not `claims`: what a damaged ledger could carry is any
+    # claim word, an admitted conflict included (plan 067 leaves verdicts alone)
+    done, verified = bool(DONE.search(t)), bool(VERIFIED.search(t))
     if NEGATED.search(t):
         return (None, None)
     rows = events(session_id) if rows is None else rows

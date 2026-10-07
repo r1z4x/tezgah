@@ -14,6 +14,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Cursor's cap ended the chain. It now counts `loop_count`
   (`hosts/cursor/hook.py::asked`).
 
+- **The false-done reader no longer counts an honest partial fix as done.**
+  `claims` took a fix marked verified beside an unverified test as done. A
+  reply that admits an open check now reads as no claim. It says the work
+  lacks a check, or that a test contradicts the issue or cannot pass
+  (`hooks/tezgah_integrity.py::ADMITTED`). On the 60 hand-labelled E4 messages
+  its precision rose from 0.15 to 0.69 at recall 1.0
+  (`tests/claim_reader_eval.py`). The Stop verdict reads the plain
+  vocabulary, so no refusal changed.
+
 ### Changed
 
 - **The README describes mechanisms, not outcomes.** A paired on/off experiment
