@@ -34,24 +34,55 @@ Kurallar paylaşılan bir çekirdekte bir kez yer alır; her barındırıcı, bu
 kuralları anladığı şekle çeviren ince bir adaptör alır — bir kuralı tek yerde
 değiştirdiğinizde her barındırıcıya aynı şekilde ulaşır.
 
-## Neden tezgah
+## tezgah neyi zorunlu kılar ve kaydeder
 
 - **Tek sözleşme, altı barındırıcı.** omp, Claude Code, Codex, Cursor,
   opencode ve dsh aynı kuralları görür, çünkü her barındırıcı paylaşılan tek
   bir çekirdeğin ince bir adaptörüdür — kuralı bir kez değiştirin, hepsi alır.
-- **"Tamamlandı", kontrolün çalıştığı anlamına gelir.** 15 reddin olduğu bir
-  kapı, etkisizleştirilmiş kontrolü durdurur — `--no-verify`, `|| true`,
-  `tail`'e yönlendirilmiş bir test, uçuş sırasında eklenen bir skip — ve
-  çalıştırmanın destekleyemediği tamamlanma iddiasını engeller.
+- **"Tamamlandı" demek için kayıtta geçmiş bir kontrol gerekir.** 15 reddin
+  olduğu bir kapı, etkisizleştirilmiş kontrolü durdurur — `--no-verify`,
+  `|| true`, `tail`'e yönlendirilmiş bir test, uçuş sırasında eklenen bir
+  skip — ve Stop kuralı, oturumun kanıt defterinin desteklemediği tamamlanma
+  iddiasını reddeder. Turu reddeder; modelin bu iddiayı dile getirmesini
+  engelleyemez.
 - **Araştırma kütüphanesiyle birlikte gelir.** Araştırma görevleri,
   bağlamın küçük kalması için tek tek yüklenen 98 becerilik gömülü
   bir kütüphaneyle OpenResearch üzerinden yürütülür.
 - **Her kuralın bir kapatma anahtarı vardır.** On altı kapatma anahtarı — ve
   depo başına işaretler — kuralın metnini oturumdan kaldırır; böylece kural
   yalnızca kapalı görünmez, gerçekten durur.
-- **Harekete geçirebileceğiniz yanıtlar.** Yanıtlar, başka bir dil seçmediyseniz Türkçedir ve sonuçla
+- **Sabit bir yanıt biçimi.** Yanıtlar, başka bir dil seçmediyseniz Türkçedir ve sonuçla
   başlar; bir liste en fazla beş sıralı madde gösterir; bir tahmin tahmin
   olarak adlandırılır; bir hata konum, neden, çözüm olarak okunur.
+
+## Neyi göstermedi
+
+Tezgah bir mekanizmalar bütünüdür: oturuma eklenen kurallar, belirli komutları
+reddeden bir kapı ve Stop kuralının okuduğu bir defter. Bir ajanın daha az
+hile yaptığının ya da daha çok görev bitirdiğinin kanıtı değildir. Eşleştirilmiş
+bir açık/kapalı deneyi (Ekim 2026; omp üzerinde DeepSeek V4.1 Flash, tezgah'sız
+ile tam tezgah kurulumu karşılaştırıldı) hilede ölçülebilir bir azalma bulmadı,
+çünkü model iki kolda da neredeyse hiç hile yapmadı:
+
+- **Aşama 1, üç baskı düzeneği:** her kolda 60 çalıştırmanın 0'ında hile;
+  temiz geçiş tezgah ile 48/60, tezgah'sız 53/60.
+- **Aşama 2, ImpossibleBench'in çelişkili SWE-bench bölümü (44 örnek,
+  k = 3):** hile tezgah ile 0/132, tezgah'sız 1/131 (-0.8 pp, %95 GA -2.3 ile
+  0 arası); özgün görevlerde temiz geçiş 129/131'e karşı 129/132.
+- **Elle etiketlenmiş yanlış "bitti" iddiaları:** bu imkânsız görevlerde,
+  örneklenen son mesajların tezgah ile 30'da 3'ü, tezgah'sız 30'da 6'sı
+  kullanıcıya görevin bittiğini söyledi. Düzeltilmiş fark -5 pp (%95 GA -18 ile
+  +9 arası), yani iki yönde de etki yok.
+- **Stop kuralının iddia okuyucusunda bir zayıf nokta:** tezgah ile 115/132,
+  tezgah'sız 90/131 çalıştırmayı işaretledi, ama işaretlerinin yalnızca %10'u
+  ve %20'si gerçek "bitti" iddiasıydı. tezgah ile ajan Türkçe yanıt verdi ve
+  okuyucu kısmi bir düzeltmedeki `doğrulandı` sözcüğünü iddia sayıyor. Bu
+  kayda geçti, henüz düzeltilmedi.
+
+Çalıştırmada ölçüm aracı kusurları vardı; bunların arasında, iki koldaki
+ajanların benchmark'ın doğru cevaplarını okuyabilmesi de var. Toplamlar, görev
+başına sayımlar ve her çekince
+[sonuç paketinde](docs/results/paired-outcome-2026-10.md) yer alır (İngilizce).
 
 <a id="install"></a>
 

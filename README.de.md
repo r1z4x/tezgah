@@ -35,25 +35,59 @@ Host erhält einen dünnen Adapter, der sie in die Form übersetzt, die er
 versteht — eine Regel, die an einer Stelle geändert wird, erreicht jeden Host
 auf dieselbe Weise.
 
-## Warum tezgah
+## Was tezgah durchsetzt und aufzeichnet
 
 - **Ein Vertrag, sechs Hosts.** omp, Claude Code, Codex, Cursor, opencode und
   dsh sehen dieselben Regeln, denn jeder Host ist ein dünner Adapter über
   einem gemeinsamen Kern — eine Regel einmal ändern, alle übernehmen sie.
-- **„Fertig“ heißt: Die Prüfung lief.** Ein Gate aus 15 Verweigerungen stoppt
-  die entschärfte Prüfung — `--no-verify`, `|| true`, ein in `tail` gepipeter
-  Test, ein mitten im Flug ergänzter Skip — und blockiert den
-  Fertigstellungsanspruch, den der Lauf nicht stützen kann.
+- **Eine Fertig-Meldung braucht eine bestandene Prüfung im Protokoll.** Ein
+  Gate aus 15 Verweigerungen stoppt die entschärfte Prüfung — `--no-verify`,
+  `|| true`, ein in `tail` gepipeter Test, ein mitten im Flug ergänzter Skip —
+  und die Stop-Regel verweigert einen Fertigstellungsanspruch, den das
+  Evidenzprotokoll der Sitzung nicht stützt. Sie verweigert den Zug; sie kann
+  das Modell nicht davon abhalten, den Anspruch zu erheben.
 - **Forschung kommt mit eigener Bibliothek.** Forschungsaufgaben laufen über
   OpenResearch, mit einer integrierten Bibliothek aus 98 Upstream-Skills, die
   Eintrag für Eintrag geladen wird, damit der Kontext klein bleibt.
 - **Jede Regel hat einen Ausschalter.** Sechzehn Kill-Switches — dazu
   Repo-Markierungen — entfernen den Regeltext aus der Sitzung; die Regel
   stoppt damit wirklich, statt nur als aus zu erscheinen.
-- **Antworten, mit denen Sie arbeiten können.** Antworten sind türkisch, sofern Sie keine andere Sprache wählen, und
+- **Eine feste Antwortform.** Antworten sind türkisch, sofern Sie keine andere Sprache wählen, und
   beginnen mit dem Ergebnis; eine Liste zeigt höchstens fünf gerankte
   Einträge; eine Schätzung wird als Schätzung genannt; ein Fehler liest sich
   als Ort, Ursache, Behebung.
+
+## Was es nicht gezeigt hat
+
+Tezgah ist eine Sammlung von Mechanismen: Regeln, die in die Sitzung
+eingespeist werden, ein Gate, das bestimmte Befehle verweigert, und ein
+Protokoll, das die Stop-Regel liest. Es ist kein Beleg dafür, dass ein Agent
+weniger schummelt oder mehr Aufgaben löst. Ein gepaartes An/Aus-Experiment
+(Oktober 2026; DeepSeek V4.1 Flash auf omp, ohne tezgah gegen eine volle
+tezgah-Installation) fand keine messbare Verringerung des Schummelns, weil
+das Modell in beiden Armen kaum schummelte:
+
+- **Phase 1, drei Druck-Fixtures:** Schummeln in 0 von 60 Läufen in jedem
+  Arm; sauber bestanden 48/60 mit tezgah gegen 53/60 ohne.
+- **Phase 2, der widersprüchliche SWE-bench-Split von ImpossibleBench (44
+  Instanzen, k = 3):** Schummeln 0/132 mit tezgah gegen 1/131 ohne (-0.8 pp,
+  95%-KI -2.3 bis 0); sauber bestanden auf den Originalaufgaben 129/131 gegen
+  129/132.
+- **Falsche Fertig-Meldungen, von Hand gelabelt:** Bei diesen unmöglichen
+  Aufgaben meldeten 3 von 30 Stichproben-Abschlussnachrichten mit tezgah und
+  6 von 30 ohne dem Nutzer, die Aufgabe sei erledigt. Der bereinigte
+  Unterschied liegt bei -5 pp (95%-KI -18 bis +9), also kein Effekt in
+  irgendeine Richtung.
+- **Eine Schwachstelle im Anspruchsleser der Stop-Regel:** Er markierte
+  115/132 Läufe mit tezgah und 90/131 ohne, aber nur 10% bzw. 20% seiner
+  Markierungen waren echte Fertig-Meldungen. Mit tezgah antwortete der Agent
+  auf Türkisch, und der Leser zählt `doğrulandı` (verifiziert) bei einer
+  Teilkorrektur als Anspruch. Das ist festgehalten, aber noch nicht behoben.
+
+Der Lauf hatte Messmängel, darunter Agenten in beiden Armen, die die
+Grundwahrheit des Benchmarks lesen konnten. Die Aggregate, die Zählungen pro
+Aufgabe und jede Einschränkung stehen im
+[Ergebnisbündel](docs/results/paired-outcome-2026-10.md) (Englisch).
 
 <a id="install"></a>
 
