@@ -400,12 +400,30 @@ experiments/variants, or producing a research artifact (report, figure, dataset)
 It is NOT "where is X defined" or "who calls Y" - that is code discovery and
 stays on the codegraph index.
 
+**Lock the line to the question asked.** Restate the user's question verbatim as
+the line's scope (`--ask`) and name what is in it and what is out (`--in`,
+`--out`: state.json `scope`). Every finding answers an in-scope item - a claim's
+`trace` names its `S<n>`, and `{RESEARCH_BIN} check` refuses one that names none -
+and a finding that answers nothing asked is dropped, not reported as a bonus. Do
+not widen the question, add sub-questions or chase an adjacent topic; a tangent
+worth having is one line under Open questions for the user to pick. The question
+picks the method, not the tooling: a qualitative, conceptual or reference question
+is a source review (`--method qualitative`: no metric, no experiment), and a
+metric, a locked evaluation and the experiment tree belong only to a question
+whose answer is a measurement (`--method measured`). A plain factual or reference
+question gets no line at all: answer it in the reply from primary sources. Depth
+is the primary source read, not more breadth - the spec, the paper, the code, the
+vendor's own documentation - each finding citing the source it rests on and
+stating its confidence (high, medium or low, and why); a summary of summaries is
+not an answer.
+
 When the task is research and the OpenResearch CLI (`{ORX_BIN}`) is installed,
 drive it through that CLI instead of ad-hoc local scripting. Load the operating
 manual first: the `orx` skill if the host has it, otherwise run
-`{ORX_BIN} skill` from the shell; then
-the named modules (`{ORX_BIN} skill experiment-tree`, `{ORX_BIN} skill lit-review`,
-`{ORX_BIN} skill evidence`, ...). Its cardinal rules are not style preferences - they
+`{ORX_BIN} skill` from the shell; then the module the method needs -
+`{ORX_BIN} skill lit-review` for sources, `{ORX_BIN} skill experiment-tree` and
+`{ORX_BIN} skill evidence` for a measured line. On a measured line its cardinal
+rules are not style preferences - they
 are what keeps results comparable, and breaking one silently invalidates the run:
 never edit a node once a run has answered it (branch a child instead); the run
 command and environment are a fixed contract identical on every node; vary the
@@ -420,7 +438,8 @@ afterwards - and `{RESEARCH_BIN} check` refuses a claim that claims a wider scop
 than the rows it rests on.
 
 If the CLI is not installed, say the research tooling is unavailable and do not
-improvise its protocol; fall back to a host subagent and say so. Kill switch:
+improvise its protocol; fall back to a host subagent and say so, briefed with the
+question verbatim, its in- and out-of-scope items and its method. Kill switch:
 `research-off`.
 
 Keep the line auditable in the repository, not in your head:
@@ -437,11 +456,13 @@ into a refusal. A report owes an independent review (`reviewer` is not the
 construct and conclusion validity threats, whatever `phase` says. `state.json`
 `deliverable` names what the line delivers and lists the ask's items, each
 answered in the report, a decision or a claim `trace`, or written `A<n> not
-delivered: <reason>`. A design, plan or analysis is produced as >= 3 variants in
+delivered: <reason>`. A design or plan the user will choose between is produced
+as >= 3 variants in
 `decisions/<id>/` - `criteria.json` committed before any cell, `variants.jsonl`
 (V0 the status quo), cells appended by `{RESEARCH_BIN} compare`, `decision.md`
 naming the chosen id, each rejected id with the criterion that ruled it out, and a
-`flip:` condition; a new version of a line is opened `init --supersedes <old>` and
+`flip:` condition (an analysis answers its question once); a new version of a
+line is opened `init --supersedes <old>` and
 carries the old one as a variant. Code or config variants are sibling orx nodes
 under one head node. Literature is found with `{ORX_BIN} discover` and read with
 `{ORX_BIN} paper`; an agent's summary is indexed as `agent-report` and never alone
@@ -756,19 +777,30 @@ Off: `consult-off`.
 
 **Research: route it to OpenResearch.** When a task is research - a literature
 or reference review, forming and testing hypotheses, running or comparing
-experiments, producing a research artifact - drive it through the OpenResearch
-CLI (`{ORX_BIN}`) and load its manual first (`{ORX_BIN} skill`), following its
-experiment-tree rules instead of improvising the protocol. Plain code discovery
-stays on the code graph, not OpenResearch. At most one line is open at a time:
+experiments, producing a research artifact - lock it to the question asked:
+restate the user's question verbatim as the scope, name what is in and out of it
+(`init --ask --in --out`), and drop every finding that does not answer an
+in-scope item; never widen it or chase an adjacent topic. The question picks the
+method: a qualitative or reference question is a source review (`--method
+qualitative`, no metric, no experiment); metrics and the experiment tree only
+when the answer is a measurement (`--method measured`). A plain factual or
+reference question gets no line and no orx experiment: answer it in the reply.
+Depth means primary sources read and cited, each finding with its confidence,
+not a thin summary. Drive the work through the OpenResearch CLI (`{ORX_BIN}`)
+and load its manual first (`{ORX_BIN} skill`; `lit-review` for sources,
+`experiment-tree` for a measured line) instead of improvising the protocol.
+Plain code discovery stays on the code graph, not OpenResearch.
+At most one line is open at a time:
 while one is under way - not `concluded`, or carrying a live proposal, an unrun
 experiment, a missing report or review, an unlabelled review finding - no new line
 opens until it is closed or `{RESEARCH_BIN} close <slug> --limit "<reason>"` records
 what is left. `{RESEARCH_BIN} init` refuses on that rule and names each open line;
 `--allow-open "<reason>"` passes it (never beside a line `check` fails) and logs why.
-A plan, design or analysis is >= 3 variants compared under criteria committed
-first (`decisions/`); one version is not a finished line.{OPEN_LINES}
+A design or plan the user will choose between is >= 3 variants compared under
+criteria committed first (`decisions/`); an analysis answers its question once.{OPEN_LINES}
 If the CLI is not installed, say the research tooling is unavailable and fall
-back to a host subagent. Off: `research-off`.
+back to a host subagent briefed with the question verbatim, its in/out scope and
+its method. Off: `research-off`.
 
 **Product analysis: five axes, one evidence class per finding.** A product
 question - "analyse this product", "why is retention falling", "which feature

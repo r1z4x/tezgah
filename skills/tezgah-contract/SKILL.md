@@ -623,13 +623,31 @@ experiments/variants, or producing a research artifact (report, figure, dataset)
 It is NOT "where is X defined" or "who calls Y" - that is code discovery and
 stays on the codegraph index.
 
+**Lock the line to the question asked.** Restate the user's question verbatim as
+the line's scope (`--ask`) and name what is in it and what is out (`--in`,
+`--out`: state.json `scope`). Every finding answers an in-scope item - a claim's
+`trace` names its `S<n>`, and `tezgah-research check` refuses one that names none -
+and a finding that answers nothing asked is dropped, not reported as a bonus. Do
+not widen the question, add sub-questions or chase an adjacent topic; a tangent
+worth having is one line under Open questions for the user to pick. The question
+picks the method, not the tooling: a qualitative, conceptual or reference question
+is a source review (`--method qualitative`: no metric, no experiment), and a
+metric, a locked evaluation and the experiment tree belong only to a question
+whose answer is a measurement (`--method measured`). A plain factual or reference
+question gets no line at all: answer it in the reply from primary sources. Depth
+is the primary source read, not more breadth - the spec, the paper, the code, the
+vendor's own documentation - each finding citing the source it rests on and
+stating its confidence (high, medium or low, and why); a summary of summaries is
+not an answer.
+
 When the task is research and the OpenResearch CLI is installed, drive it
 through that CLI instead of ad-hoc local scripting. Resolve it as `orx` on PATH,
 else `~/.cargo/bin/orx` (the installer's location, which a non-interactive shell
 does not put on PATH). Load the operating manual first:
 the `orx` skill if the host has it, otherwise run `orx skill` from the shell; then
-the named modules (`orx skill experiment-tree`, `orx skill lit-review`,
-`orx skill evidence`, ...). Its cardinal rules are not style preferences - they
+the module the method needs - `orx skill lit-review` for sources,
+`orx skill experiment-tree` and `orx skill evidence` for a measured line. On a
+measured line its cardinal rules are not style preferences - they
 are what keeps results comparable, and breaking one silently invalidates the run:
 never edit a node once a run has answered it (branch a child instead); the run
 command and environment are a fixed contract identical on every node; vary the
@@ -638,7 +656,8 @@ downward, not sideways. Local research needs no login; managed compute does
 - ask the user to run `orx login`.
 
 If the CLI is not installed, say the research tooling is unavailable and do not
-improvise its protocol; fall back to a host subagent and say so. Kill switch:
+improvise its protocol; fall back to a host subagent and say so, briefed with the
+question verbatim, its in- and out-of-scope items and its method. Kill switch:
 `research-off`.
 
 Keep the line auditable in the repository, not in your head:
@@ -655,11 +674,13 @@ row, and results rows left append-only; `~/.config/tezgah/bin/tezgah-research in
 construct and conclusion validity threats, whatever `phase` says. `state.json`
 `deliverable` names what the line delivers and lists the ask's items, each answered
 in the report, a decision or a claim `trace`, or written `A<n> not delivered:
-<reason>`. A design, plan or analysis is produced as >= 3 variants in
+<reason>`. A design or plan the user will choose between is produced as >= 3
+variants in
 `decisions/<id>/` - `criteria.json` committed before any cell, `variants.jsonl` (V0
 the status quo), cells appended by `tezgah-research compare`, `decision.md` naming
 the chosen id, each rejected id with the criterion that ruled it out, and a `flip:`
-condition; a new version of a line is opened `init --supersedes <old>` and carries
+condition (an analysis answers its question once); a new version of a line is
+opened `init --supersedes <old>` and carries
 the old one as a variant. Code or config variants are sibling orx nodes under one
 head node. Literature is found with `orx discover` and read with `orx paper`; an
 agent's summary is indexed as `agent-report` and never alone carries a literature

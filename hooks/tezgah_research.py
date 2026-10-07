@@ -136,12 +136,20 @@ SOURCE_CLASSES = ("formal", "grey", "agent-report")
 # those warns on it instead of refusing - its rows were written before the rule
 # existed. Each later set is gated on its own number, so a bump never demotes an
 # older set: 2 the standards rules, 3 the ask contract (keyed on the `ask` field),
-# 4 the protocol sections (`_check_protocol_sections`). A `rules` above `RULES` is
+# 4 the protocol sections (`_check_protocol_sections`), 5 the scope lock
+# (`scope_problems`, `trace_problem`, the method-gated evaluation and the analysis
+# that owes no variants). A `rules` above `RULES` is
 # a line a later tezgah wrote, and every reader and writer here refuses it by name
 # (`newer_rules`) rather than judging it by rules it does not know.
 STANDARDS_RULES = 2
 PROTOCOL_RULES = 4
-RULES = PROTOCOL_RULES
+SCOPE_RULES = 5
+RULES = SCOPE_RULES
+# How a rules-5 line answers its question. `qualitative` is a source or
+# reference review and owes no metric; `measured` runs experiments and locks
+# one. The question picks it, not the tooling: a qualitative ask answered with a
+# metric table is the metric-first drift this field exists against.
+METHODS = ("qualitative", "measured")
 
 # What a line delivers, and how many compared variants that takes. `finding` is a
 # line whose deliverable is its claims; the other four are an artifact a reader
@@ -925,6 +933,7 @@ def _check_state(base, errors, warnings, strict):
         errors.append("state.json direction %r is not one of %s"
                       % (state.get("direction"), ", ".join(DIRECTIONS)))
     _check_evaluation(state, errors, warnings, strict)
+    _check_scope(base, state, errors, warnings, strict)
     _check_hypotheses(state, errors)
     _check_sessions(state, errors)
     _check_success(state, errors, warnings, strict)
@@ -1012,6 +1021,8 @@ def _check_evaluation(state, errors, warnings, strict):
     is written where a session reads it (`skills/research/SKILL.md`,
     `docs/research.md`); what it cannot catch is a tolerance its own author sets
     so wide that every candidate passes it."""
+    if _qualitative(state):
+        return
     phase = state.get("phase")
     locked = phase != "bootstrap"
     evaluation = state.get("evaluation")
@@ -1043,6 +1054,77 @@ def _check_evaluation(state, errors, warnings, strict):
                                 or not counter.strip()):
         errors.append("state.json evaluation counter_metric %r names no metric to "
                       "move: fill it, or omit the two-gate pair" % (counter,))
+
+
+# --- scope lock (rules 5) ------------------------------------------------------
+# A line answers the question the user asked, by the method that question takes.
+# `scope.in` lists what the answer covers (S1, S2, ... in order) and `scope.out`
+# what it deliberately leaves alone; every claim's `trace` names an in-scope item,
+# so a finding about something nobody asked is refused instead of padding the
+# report. Owner's report, 2026-10-07: research turned every question into
+# metrics, grew past the ask, and wandered into unrelated topics.
+
+def _qualitative(state):
+    return _rules(state) >= SCOPE_RULES and state.get("method") == "qualitative"
+
+
+def _scope_items(state):
+    scope = state.get("scope")
+    items = scope.get("in") if isinstance(scope, dict) else None
+    return [i for i in items if isinstance(i, str) and i.strip()] \
+        if isinstance(items, list) else []
+
+
+def scope_problems(state):
+    """What a rules-5 line is missing to be locked to its question; [] otherwise."""
+    if _rules(state) < SCOPE_RULES:
+        return []
+    problems = []
+    scope = state.get("scope") if isinstance(state.get("scope"), dict) else {}
+    for side, what in (("in", "what the answer covers"),
+                       ("out", "what it deliberately leaves alone")):
+        items = scope.get(side)
+        if not isinstance(items, list) or not [
+                i for i in items if isinstance(i, str) and i.strip()]:
+            problems.append("state.json scope.%s names nothing: list %s, from the "
+                            "user's own question" % (side, what))
+    if state.get("method") not in METHODS:
+        problems.append("state.json method %r is not one of %s: the question picks "
+                        "it - a source or reference question is qualitative and "
+                        "owes no metric" % (state.get("method"), ", ".join(METHODS)))
+    return problems
+
+
+def trace_problem(cid, claim, state):
+    """The refusal for a rules-5 claim that answers no in-scope item, or None.
+    The write path (`claim_problems`) and the checker (`_check_claims`) both
+    call it, so they cannot disagree about what is on topic."""
+    if _rules(state) < SCOPE_RULES:
+        return None
+    items = _scope_items(state)
+    trace = claim.get("trace")
+    for entry in trace if isinstance(trace, list) else [trace]:
+        if not isinstance(entry, str):
+            continue
+        entry = entry.strip()
+        if any(entry in ("S%d" % n, item.strip()) for n, item in enumerate(items, 1)):
+            return None
+    return ("claim %s traces to no in-scope item: its `trace` names S<n> or the "
+            "text of a state.json scope.in entry - a finding that answers nothing "
+            "the user asked is dropped, not reported" % cid)
+
+
+def _check_scope(base, state, errors, warnings, strict):
+    for problem in scope_problems(state):
+        _soft(errors, warnings, strict or state.get("phase") != "bootstrap", problem)
+    if _qualitative(state):
+        ran = [h for h in _experiment_names(base)
+               if os.path.isfile(os.path.join(base, "experiments", h, "results.jsonl"))]
+        if ran:
+            errors.append("state.json method is qualitative and experiment(s) %s "
+                          "recorded results: a measured question is `method: "
+                          "measured` with its evaluation locked first"
+                          % ", ".join(ran))
 
 
 def _check_hypotheses(state, errors):
@@ -1563,7 +1645,8 @@ def _check_claims(base, errors, warnings, roots=(), strict=False):
         superseded.update(_supersedes(give)[0])
     # the token-savings rule is a `PROTOCOL_RULES` rule, so an older line keeps
     # the rules it was opened under
-    sections = _rules(_state(base)) >= PROTOCOL_RULES
+    line_state = _state(base)
+    sections = _rules(line_state) >= PROTOCOL_RULES
     parsed = []
     for n, raw in enumerate(rows, 1):
         raw = raw.strip()
@@ -1599,6 +1682,9 @@ def _check_claims(base, errors, warnings, roots=(), strict=False):
             errors.append("claim %s status %r is not one of %s"
                           % (cid, claim.get("status"), ", ".join(STATUSES)))
         _check_claim_scope(cid, claim, base, repo, errors, warnings, strict)
+        problem = trace_problem(cid, claim, line_state)
+        if problem:
+            errors.append(problem)
         # A superseded claim is the historical row: the line has corrected it in
         # the row that supersedes it, and that row is the one whose numbers are
         # held to their proof here. Warning on the historical statement too would
@@ -1907,6 +1993,9 @@ def claim_problems(claim, base, repo, held=None):
         known = _claim_ids(base) if held is None else held
         problems.extend("claim %s supersedes %s, and no claim in this line carries "
                         "that id" % (cid, ref) for ref in ids if ref not in known)
+    problem = trace_problem(cid, claim, _state(base))
+    if problem:
+        problems.append(problem)
     # The scope rules the checker decides, so the write path cannot record a claim
     # `check` would refuse. The warn class (a claim over fixture rows that declares
     # nothing) is deliberately not repeated: a writer stricter than the checker
@@ -2848,7 +2937,7 @@ def _check_results_append_only(repo, base, state, errors, warnings, strict):
 # 2006), and serial versions fixate on the first option (Dow et al. 2010); the
 # layer used to hold exactly that, v3 -> v4 -> v5 of one plan never compared.
 
-def deliverable_problems(deliverable):
+def deliverable_problems(deliverable, rules=RULES):
     """(problems, variants needed) for `state.json`'s deliverable declaration."""
     if not isinstance(deliverable, dict):
         return (["state.json deliverable is a %s, not the object naming what the line "
@@ -2862,7 +2951,11 @@ def deliverable_problems(deliverable):
     if ask is not None and (not isinstance(ask, list) or not all(
             isinstance(item, str) and item.strip() for item in ask)):
         problems.append("state.json deliverable ask is not a list of the ask's items")
-    default = {"code": 2}.get(kind, 3) if kind in VARIANT_KINDS else 0
+    # rules 5: an analysis answers its question once; variants are for a design,
+    # plan or code the user will choose between, not a way to triple the answer
+    kinds = VARIANT_KINDS if rules < SCOPE_RULES else tuple(
+        k for k in VARIANT_KINDS if k != "analysis")
+    default = {"code": 2}.get(kind, 3) if kind in kinds else 0
     need = deliverable.get("min_variants", default)
     if not isinstance(need, int) or isinstance(need, bool) or need < 0:
         problems.append("state.json deliverable min_variants %r is not a count"
@@ -3250,7 +3343,7 @@ def _check_decisions(repo, slug, base, state, errors, warnings, strict, git):
                   "line delivers a design, plan, analysis or code that is owed "
                   "compared variants, or only findings")
     else:
-        problems, need = deliverable_problems(deliverable)
+        problems, need = deliverable_problems(deliverable, _rules(state))
         errors.extend(problems)
     decisions = _decision_dirs(base)
     if need > 1 and not decisions:
@@ -3910,7 +4003,7 @@ def _variants_owed(base, state):
     deliverable = state.get("deliverable")
     if not isinstance(deliverable, dict):
         return None
-    _problems, need = deliverable_problems(deliverable)
+    _problems, need = deliverable_problems(deliverable, _rules(state))
     if need < 2:
         return None
     for _name, ddir in _decision_dirs(base):
@@ -4688,7 +4781,8 @@ def verdict_problems(state, rows):
     return problems
 
 
-def init(repo, slug, question="", created="", supersedes=None, ask="", tier=DEFAULT_TIER):
+def init(repo, slug, question="", created="", supersedes=None, ask="", tier=DEFAULT_TIER,
+         method="", scope_in=(), scope_out=()):
     """Scaffold a research line. Returns the paths created (never overwrites).
 
     Refuses a slug `slugs()` cannot list - see `valid_slug` - so no caller can
@@ -4702,6 +4796,8 @@ def init(repo, slug, question="", created="", supersedes=None, ask="", tier=DEFA
         path = os.path.join(base, sub)
         os.makedirs(path, exist_ok=True)
     state = dict(STATE_TEMPLATE)
+    state["method"] = method
+    state["scope"] = {"in": list(scope_in), "out": list(scope_out)}
     state["question"] = question
     state["created"] = created
     # every new line is opened under the newest rule set (`RULES` in the
