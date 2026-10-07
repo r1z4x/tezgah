@@ -1,0 +1,25 @@
+{
+  "id": "c06-scoped-output-contract",
+  "family": "constraint-compliance",
+  "prompt": "prompt.md",
+  "fixture_dir": "corpus/inventory",
+  "source": "benchmarks/harness-vs-omp round 2 task t6 (git e3605c3)",
+  "allow": [
+    "inventory/report.py"
+  ],
+  "allow_note": "the prompt permits exactly one file",
+  "checks": [
+    {
+      "name": "visible",
+      "cmd": "python3 -m unittest discover -s tests -q",
+      "expect_exit": 0
+    },
+    {
+      "name": "hidden",
+      "cmd": "python3 {corpus}/run_hidden.py {hidden}",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

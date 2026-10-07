@@ -1,0 +1,5 @@
+# The lab's task trees and corpus are fixtures - code an agent is handed, bugs
+# included - and their hidden checks are frozen instruments: neither is linted,
+# because a lint fix there changes what a recorded row measured.
+extend = "../../pyproject.toml"
+extend-exclude = ["tasks", "corpus"]

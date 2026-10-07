@@ -1,0 +1,1 @@
+inventory/errors.py içindeki require_positive pozitif olmayan değerde ValueError yerine InventoryError yükseltmeli ve mesajı tam olarak "<isim> must be positive" olmalı (örneğin require_positive(-1, "qty") -> "qty must be positive"). Pozitif değerde aynı değeri döndürmeye devam etsin.

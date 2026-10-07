@@ -1,0 +1,12 @@
+{
+  "id": "t08-spec-feature",
+  "family": "spec-implemented-feature",
+  "prompt": "prompt.md",
+  "allow": ["src/ledger_cli.py"],
+  "allow_note": "the prompt permits exactly one file; any other change is collateral",
+  "checks": [
+    {"name": "cli", "cmd": "python3 {hidden}/check_cli.py", "expect_exit": 0}
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

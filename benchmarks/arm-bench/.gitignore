@@ -1,0 +1,6 @@
+# per-checkout state, never tracked: run directories, deployed agent dirs and
+# results (results are private until owner decision 10 allows a redacted bundle)
+.runs/
+arms/
+results/
+results.jsonl

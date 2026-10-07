@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The arm-bench lab is back in the repository.** `benchmarks/arm-bench/` holds
+  the runner, the 49 task trees and the earlier pre-registrations, with every
+  home path redacted. It is a maintainer tool: `managed()` keeps it out of host
+  plugin trees and the MANIFEST. Plan 062's phase 1 adds arm HOMEs built out of
+  tree from one pinned commit (`homes.py`) and a fresh HOME per run. It adds the
+  unlock strip that defines the switch-paragraph arm (`unlocks.py`) and a cheat
+  classifier over the final diff that uses the gate's own patterns. The report
+  adds paired bootstrap intervals, exact McNemar and Holm. `bench.py selftest`
+  now also fails when an arm's prompt text names a task's hidden identifier.
 - **A tainted lesson gets a label, never a refusal.**
   Untrusted text is a web, MCP, network, tier or subagent read. A write to
   `.tezgah/lessons.md` after one in the same user turn now leaves one
