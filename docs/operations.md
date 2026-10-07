@@ -471,12 +471,21 @@ One module owns both databases (`taste`, `hooks/tezgah_store.py::taste`). Each
 runs SQLite in WAL mode with a 5-second busy timeout. The directory is 0700 and
 the database file 0600. A row keeps its JSON fields as before. A hook drops a
 row it cannot write, and the CLI's decision, defect and label rows raise
-instead (`append`, `hooks/tezgah_taste_ledger.py::append`). The first open of a
-database imports the files it replaces: `ledger.json`, `gate.json`, and
-`signals`, `decisions`, `defects`, `labels` and `injected` as `.jsonl`. The
-import runs in one transaction. It renames each imported file to `<name>.imported`
-and never deletes one. A later open imports nothing (`_import`,
-`hooks/tezgah_store.py::_import`).
+instead (`append`, `hooks/tezgah_taste_ledger.py::append`). An open of a
+database imports the files it replaces, in one transaction (`_import`,
+`hooks/tezgah_store.py::_import`). `ledger.json` and `gate.json` import only
+into empty tables. The `.jsonl` row files (`signals`, `decisions`, `defects`,
+`labels`, `injected`) import on every open that finds one, so rows an older
+install wrote later still land. The import skips a torn last line. It renames
+each file it read to `<name>.imported`, or `.imported.N` beside an earlier one,
+and never deletes one. A file that does not parse stays in place for the next
+open. The old per-session `taste-notes/` files under the cache dir are not
+carried over: they never named their repository. A session open during the
+upgrade can see one write note again.
+
+Every command that opens the store exits 2 when the repository's `.tezgah`
+came with the clone (`store_or_exit`, `bin/tezgah-taste::store_or_exit`). It
+then reads, imports and creates nothing there.
 
 Session start injects the active learnings (`block`,
 `hooks/tezgah_taste_ledger.py::block`). A rule needs confidence 0.8 and a

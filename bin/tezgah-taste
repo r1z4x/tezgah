@@ -70,6 +70,7 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_judge  # noqa: E402
 import tezgah_models  # noqa: E402
+import tezgah_paths  # noqa: E402
 import tezgah_taste_ledger as tl  # noqa: E402
 
 WRITE_TOOLS = {"omp": {"edit", "write"},
@@ -666,9 +667,15 @@ def write_line(learning):
 
 
 def store_or_exit(args):
+    """The repository whose taste store a command opens. Refused when its
+    `.tezgah` came with the clone: those files are the project's data, and
+    opening the store would import, rename or create files in them."""
     repo = repo_root(os.path.abspath(args.repo or os.getcwd()))
     if not repo:
         raise SystemExit(misuse("not inside a git repository"))
+    if tezgah_paths.workspace_from_repo(repo):
+        raise SystemExit(misuse("%s/.tezgah came with the repository; its taste "
+                                "store is not opened" % repo))
     return repo
 
 

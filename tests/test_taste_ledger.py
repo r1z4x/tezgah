@@ -297,7 +297,7 @@ class Ledger(TempHome):
 
     # --- the store
 
-    def test_the_legacy_files_import_once_and_are_renamed(self):
+    def test_the_legacy_files_import_and_are_renamed(self):
         store = tl.store_dir(self.repo)
         self.assertEqual((tl.rows(self.repo, "signals"), tl.stopped(self.repo)), ([], False))
         self.assertFalse(os.path.exists(store), "a read created the store")
@@ -334,12 +334,47 @@ class Ledger(TempHome):
         for path in legacy:
             self.assertFalse(os.path.exists(path), path)
             self.assertTrue(os.path.exists(path + ".imported"), path)
-        # a second open imports nothing, even a legacy file that appeared since
+        # a row file that appears later (an older install still writing it) is
+        # appended on the next open, beside the first import's file, never over it
         again = os.path.join(store, "signals.jsonl")
+        late = {"kind": "prompt", "session": "B", "text": "late"}
         with open(again, "w") as fh:
-            fh.write(json.dumps({"kind": "prompt", "session": "B", "text": "late"}) + "\n")
-        self.assertEqual(tl.rows(self.repo, "signals"), tables["signals"])
-        self.assertTrue(os.path.exists(again), "a second open imported again")
+            fh.write(json.dumps(late) + "\n")
+        self.assertEqual(tl.rows(self.repo, "signals"), tables["signals"] + [late])
+        self.assertFalse(os.path.exists(again))
+        self.assertTrue(os.path.exists(again + ".imported.1"))
+        self.assertTrue(os.path.exists(again + ".imported"))
+        # a ledger document imports only into empty tables: a later one stays put
+        stale = os.path.join(store, "ledger.json")
+        with open(stale, "w") as fh:
+            json.dump({"v": 1, "learnings": {}, "meta": {"next_id": 99}}, fh)
+        self.assertEqual(tl.load(self.repo)["repo"], books["repo"])
+        self.assertTrue(os.path.exists(stale))
+
+    def test_a_torn_multibyte_tail_keeps_the_rows_before_it(self):
+        store = tl.store_dir(self.repo)
+        os.makedirs(store)
+        row = {"kind": "prompt", "session": "A", "text": "çalış"}
+        path = os.path.join(store, "signals.jsonl")
+        with open(path, "wb") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False).encode() + b'\n{"text": "\xc5')
+        self.assertEqual(tl.rows(self.repo, "signals"), [row])
+        self.assertTrue(os.path.exists(path + ".imported"))
+
+    def test_a_legacy_file_that_does_not_parse_is_tried_again_on_the_next_open(self):
+        store = tl.store_dir(self.repo)
+        os.makedirs(store)
+        path = os.path.join(store, "ledger.json")
+        with open(path, "w") as fh:
+            fh.write('{"learnings": ')
+        self.assertEqual(tl.load(self.repo)["repo"]["learnings"], {})
+        self.assertTrue(os.path.exists(path), "an unparsed file was moved away")
+        tl.apply(self.books, sig(1, "A"), dec(), DAY)
+        with open(path, "w") as fh:
+            json.dump(self.books["repo"], fh)
+        self.assertEqual(tl.load(self.repo)["repo"]["learnings"],
+                         self.books["repo"]["learnings"])
+        self.assertTrue(os.path.exists(path + ".imported"))
 
     def test_a_strict_append_raises_where_a_hook_append_drops(self):
         os.makedirs(os.path.dirname(tl.store_dir(self.repo)), exist_ok=True)

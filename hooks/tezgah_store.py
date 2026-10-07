@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""SQLite runtime stores (ADR 021): the connection, the schema, and the one-time
-import of the JSON and JSONL files a store replaces. No caller opens a store
-file itself.
+"""SQLite runtime stores (ADR 021): the connection, the schema, and the import
+of the JSON and JSONL files a store replaces. No caller opens a store file
+itself.
 
 It holds the taste stores so far:
 - `<repo>/.tezgah/taste/taste.db`: the capture signals, the typed decisions,
@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS gate (one INTEGER PRIMARY KEY CHECK (one = 1),
 CREATE TABLE IF NOT EXISTS notes_seen (session TEXT NOT NULL, learning TEXT NOT NULL,
                                        PRIMARY KEY (session, learning));
 """
-# The files each taste store replaces, imported on its first open.
+# The files each taste store replaces. A JSON document imports only into the
+# tables it names while they are empty; a row file (`<table>.jsonl`) always.
+DOC_TABLES = {"ledger.json": ("learnings", "meta"), "gate.json": ("gate",)}
 REPO_LEGACY = ("ledger.json", "gate.json") + tuple(t + ".jsonl" for t in TASTE_ROWS)
 USER_LEGACY = ("ledger.json",)
 
@@ -70,20 +72,22 @@ def connect(path, schema):
 @contextlib.contextmanager
 def transaction(conn):
     """One write transaction, taken at its start so two writers queue on the
-    busy timeout instead of failing at commit."""
+    busy timeout instead of failing at commit; rolled back on any failure,
+    the commit's own included."""
     conn.execute("BEGIN IMMEDIATE")
     try:
         yield conn
+        conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
-    conn.execute("COMMIT")
 
 
 @contextlib.contextmanager
 def taste(dirpath, user=False, create=True):
     """The taste database in `dirpath` (the user store when `user`), the legacy
-    files there imported on its first open. With `create` False it yields None
+    files there imported first (`_import`). With `create` False it yields None
     instead of creating a database where neither it nor a legacy file exists,
     so a read leaves no file behind."""
     path = os.path.join(dirpath, TASTE_DB)
@@ -101,63 +105,81 @@ def taste(dirpath, user=False, create=True):
 
 
 def _import(conn, dirpath, names):
-    """Import the legacy files into their empty tables in one transaction, then
-    rename each imported file `<name>.imported`. `user_version` 1 marks the
-    import done, so a second open imports nothing. A file that does not parse
-    is left in place, unimported."""
-    if conn.execute("PRAGMA user_version").fetchone()[0]:
+    """Bring the legacy files present in `dirpath` into their tables in one
+    transaction. A row file is appended on every open that finds it, so one an
+    older install wrote after the first import still lands; a JSON document
+    only while its tables are empty. Each imported file is renamed aside in the
+    same transaction (`_aside`), and renamed back when it rolls back. A file
+    that does not read or parse stays in place for the next open. With no
+    legacy file, an open costs one stat per name."""
+    present = [n for n in names if os.path.exists(os.path.join(dirpath, n))]
+    present = [n for n in present if _wanted(conn, n)]
+    if not present:
         return
-    done = []
-    with transaction(conn):
-        if conn.execute("PRAGMA user_version").fetchone()[0]:
-            return  # another process imported between the check and the lock
-        for name in names:
-            src = os.path.join(dirpath, name)
-            if os.path.exists(src) and _import_one(conn, name, src):
-                done.append(src)
-        conn.execute("PRAGMA user_version = 1")
-    for src in done:
-        try:
-            os.rename(src, src + ".imported")
-        except OSError:
-            pass
+    moved = []
+    try:
+        with transaction(conn):
+            for name in present:
+                src = os.path.join(dirpath, name)
+                if _import_one(conn, name, src):
+                    moved.append((src, _aside(src)))
+    except BaseException:
+        for src, dst in moved:
+            try:
+                os.rename(dst, src)
+            except OSError:
+                pass
+        raise
 
 
-def _empty(conn, table):
-    return conn.execute("SELECT 1 FROM %s LIMIT 1" % table).fetchone() is None
+def _wanted(conn, name):
+    """False for a JSON document whose tables already hold rows."""
+    return all(conn.execute("SELECT 1 FROM %s LIMIT 1" % table).fetchone() is None
+               for table in DOC_TABLES.get(name, ()))
+
+
+def _aside(src):
+    """Rename `src` to `<src>.imported`, or `.imported.N` beside an earlier one;
+    never over a file, so no import's source is ever lost."""
+    dst, n = src + ".imported", 0
+    while os.path.exists(dst):
+        n += 1
+        dst = "%s.imported.%d" % (src, n)
+    os.rename(src, dst)
+    return dst
 
 
 def _import_one(conn, name, src):
-    """True when `src` was read and its rows went into an empty table."""
+    """True when `src` was read and its rows went in. A row file's line that is
+    not a whole UTF-8 JSON object (a torn tail) is skipped, as the old reader
+    skipped it."""
     try:
-        with open(src, encoding="utf-8") as fh:
-            if name.endswith(".jsonl"):
-                data = []
-                for line in fh:
-                    try:
-                        data.append(json.loads(line))
-                    except ValueError:
-                        continue  # a torn or foreign line, as the old reader skipped
-            else:
-                data = json.load(fh)
-    except (OSError, ValueError):
+        with open(src, "rb") as fh:
+            raw = fh.read()
+    except OSError:
         return False
-    if name == "ledger.json":
-        if not isinstance(data, dict) or not isinstance(data.get("learnings"), dict) \
-                or not (_empty(conn, "learnings") and _empty(conn, "meta")):
-            return False
-        _write_ledger(conn, data)
-    elif name == "gate.json":
-        if not isinstance(data, dict) or not _empty(conn, "gate"):
-            return False
-        set_gate(conn, data.get("stopped"), data.get("report") or {})
-    else:
+    if name not in DOC_TABLES:
         table = name[:-len(".jsonl")]
-        if not _empty(conn, table):
-            return False
-        for row in data:
+        for line in raw.split(b"\n"):
+            try:
+                row = json.loads(line.decode("utf-8"))
+            except ValueError:  # UnicodeDecodeError is one
+                continue
             if isinstance(row, dict):
                 append(conn, table, row)
+        return True
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        return False
+    if not isinstance(data, dict) or not _wanted(conn, name):
+        return False
+    if name == "ledger.json":
+        if not isinstance(data.get("learnings"), dict):
+            return False
+        _write_ledger(conn, data)
+    else:
+        set_gate(conn, data.get("stopped"), data.get("report") or {})
     return True
 
 

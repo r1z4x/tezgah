@@ -501,6 +501,26 @@ class Learn(support.TempHome):
         self.assertFalse(os.path.exists(
             os.path.join(self.home, ".config", "tezgah", "taste", "ledger.lock")))
 
+    def test_a_workspace_that_came_with_the_clone_is_never_opened(self):
+        # `.tezgah` a symlink, the shape a tracked `.tezgah -> notes` checks out
+        # as: its files are the project's data, so no command imports, renames
+        # or creates anything in it
+        cloned = self.make_repo("cloned")
+        subprocess.run(["git", "init", "-q", cloned], check=True)
+        legacy = os.path.join(cloned, "notes", "taste", "ledger.json")
+        os.makedirs(os.path.dirname(legacy))
+        with open(legacy, "w") as fh:
+            json.dump({"v": 1, "learnings": {}, "meta": {}}, fh)
+        os.symlink("notes", os.path.join(cloned, ".tezgah"))
+        for args in (("learn",), ("list",), ("show", "t0001"), ("accept", "t0001"),
+                     ("reject", "t0001"), ("edit", "t0001", "--text", "x"), ("export",),
+                     ("label",), ("calibrate",), ("gate",)):
+            proc = self.cli(*args, "--repo", cloned)
+            self.assertEqual(proc.returncode, 2, (args, proc.stdout))
+            self.assertIn("came with the repository", proc.stderr)
+        self.assertEqual(os.listdir(os.path.dirname(legacy)), ["ledger.json"])
+        self.assertEqual(Decider.seen, [])
+
     def test_a_second_writer_exits_2_while_the_ledger_is_held(self):
         self.cli("learn")
         [learning] = self.listed()
