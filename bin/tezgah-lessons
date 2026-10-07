@@ -28,6 +28,7 @@ import sys
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_context as tc  # noqa: E402
+import tezgah_lessons  # noqa: E402
 import tezgah_rank  # noqa: E402
 
 # Word-Jaccard at which two lines are one lesson: the duplicate-append measure of
@@ -114,7 +115,7 @@ def main(argv):
     ap.add_argument("--root", default=os.getcwd())
     ap.add_argument("--fixture")
     args = ap.parse_args(argv)
-    lines = tc._lesson_lines(args.root)
+    lines = tezgah_lessons.lines(args.root)
     print("Proposals for %s (nothing is written; apply what you agree with by hand):"
           % os.path.join(args.root, ".tezgah", "lessons.md"))
     for n, ln in enumerate(lines, 1):
