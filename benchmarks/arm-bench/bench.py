@@ -363,6 +363,39 @@ def served_models(text: str) -> list[str]:
                    for m in assistant_messages(stream_events(text)) if m.get("model")})
 
 
+# Amendment A5 (plan 062 E1): a provider error is not an outcome. OpenRouter's
+# key limit answers 403 "Key limit exceeded"; insufficient credit answers 402.
+QUOTA = re.compile(r"key limit|limit exceeded|insufficient credit|quota", re.I)
+QUOTA_RC = 4
+
+
+def provider_errors(text: str) -> list[dict]:
+    """The provider errors the run's assistant messages carry, each once."""
+    return [{"status": m.get("errorStatus"), "message": m.get("errorMessage") or ""}
+            for m in assistant_messages(stream_events(text))
+            if m.get("errorStatus") is not None or m.get("stopReason") == "error"]
+
+
+def is_quota(error: dict) -> bool:
+    """A spend limit, so every later run fails the same way: the block stops."""
+    return error.get("status") == 402 or bool(QUOTA.search(error.get("message") or ""))
+
+
+def excluded_path(out: Path) -> Path:
+    return out.with_name(out.stem + ".excluded.jsonl")
+
+
+def record_row(out: Path, row: dict, errors: list[dict]) -> bool:
+    """Append an outcome row to `out`, or, when the run hit a provider error, log
+    it to the excluded file instead so its cell stays open for the next block.
+    Returns whether the row is an outcome."""
+    target = excluded_path(out) if errors else out
+    with target.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({**row, "provider_errors": errors} if errors else row,
+                            ensure_ascii=False) + "\n")
+    return not errors
+
+
 def extract_final_message(text: str, limit: int = 2000) -> str:
     """The last assistant message's text in the host's captured stream, or "".
 
@@ -1122,7 +1155,7 @@ def cmd_run(args) -> int:
     out = Path(args.results)
     out.parent.mkdir(parents=True, exist_ok=True)
     recorded = set() if args.force else existing_cells(out, arm["name"], args.task, args.model)
-    rows = []
+    rows, excluded = [], 0
     for repeat in range(args.repeat_from, args.repeat + 1):
         if repeat in recorded:
             print(f"{arm['name']:22s} {args.task:24s} r{repeat} skip "
@@ -1205,18 +1238,26 @@ def cmd_run(args) -> int:
             "run_dir": str(run_dir.parent) if LAB else None,
             **json.loads(args.row_meta or "{}"),
         }
-        rows.append(row)
-        with out.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-        print(f"{row['arm']:22s} {row['task']:24s} r{repeat} "
-              f"{'pass' if row['pass'] else 'FAIL':4s} {wall:6.1f}s "
-              f"usage={'yes' if usage else 'none'}")
+        errors = provider_errors(stdout)
+        quota = any(is_quota(e) for e in errors)
+        if record_row(out, row, errors):
+            rows.append(row)
+            print(f"{row['arm']:22s} {row['task']:24s} r{repeat} "
+                  f"{'pass' if row['pass'] else 'FAIL':4s} {wall:6.1f}s "
+                  f"usage={'yes' if usage else 'none'}")
+        else:
+            excluded += 1
+            print(f"{row['arm']:22s} {row['task']:24s} r{repeat} EXCLUDED "
+                  f"{'QUOTA ' if quota else ''}provider error {errors[0]['status']}: "
+                  f"{errors[0]['message'][:80]} (logged to {excluded_path(out).name}; cell stays open)")
         if args.keep or LAB:
             # a lab run is evidence: its tree, HOME and stream stay in the lab
             print(f"    run dir: {run_dir}")
         else:
             shutil.rmtree(run_dir.parent, ignore_errors=True)
-    return 0 if all(r["pass"] for r in rows) else 1
+        if quota:
+            return QUOTA_RC
+    return 0 if not excluded and all(r["pass"] for r in rows) else 1
 
 
 def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:

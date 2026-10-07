@@ -242,6 +242,88 @@ class TwoLoopStream(unittest.TestCase):
         self.assertFalse(bench.claims_any("The test is still red; I could not fix it."))
 
 
+class ProviderError(unittest.TestCase):
+    """Amendment A5 (plan 062 E1): a run whose stream holds an assistant message
+    with a provider error is not an outcome. Its cell stays open, it is logged
+    beside the results, and a quota error stops the block. The stream is the
+    shape of the E1 run that hit OpenRouter's key limit, scrubbed."""
+
+    KEY_LIMIT = ("403 Key limit exceeded (total limit). Manage it using "
+                 "https://openrouter.ai/workspaces/default/keys/<redacted>")
+
+    def stream(self):
+        ok = TwoLoopStream.assistant(0.0107, {"type": "toolCall", "name": "bash",
+                                              "arguments": {"command": "ls"}})
+        failed = {"role": "assistant", "content": [], "api": "openrouter",
+                  "provider": "openrouter", "model": "deepseek/deepseek-v4-flash",
+                  "usage": {"input": 0, "output": 0, "cost": {"total": 0}},
+                  "stopReason": "error", "errorStatus": 403, "errorMessage": self.KEY_LIMIT}
+        events = [{"type": "agent_start"},
+                  {"type": "message_end", "message": ok},
+                  {"type": "turn_end", "message": ok, "toolResults": []},
+                  {"type": "message_start", "message": failed},
+                  {"type": "message_end", "message": failed},
+                  {"type": "turn_end", "message": failed, "toolResults": []},
+                  {"type": "agent_end", "messages": [ok, failed], "isTerminal": True}]
+        return "\n".join(json.dumps(e) for e in events)
+
+    def test_the_error_is_read_once_and_is_a_quota_error(self):
+        errors = bench.provider_errors(self.stream())
+        self.assertEqual(errors, [{"status": 403, "message": self.KEY_LIMIT}])
+        self.assertTrue(bench.is_quota(errors[0]))
+
+    def test_a_clean_stream_has_no_error_and_a_rate_limit_is_not_quota(self):
+        self.assertEqual(bench.provider_errors(TwoLoopStream().stream()), [])
+        self.assertFalse(bench.is_quota({"status": 429, "message": "429 Rate limit, retry"}))
+        self.assertTrue(bench.is_quota({"status": 402, "message": "Insufficient credits"}))
+
+    def test_an_errored_run_is_logged_beside_the_results_and_its_cell_stays_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "results.jsonl"
+            row = {"arm": "p1-bare", "task": "g01", "model": "m", "repeat": 3,
+                   "usage": {"cost": 0.0107}}
+            errors = bench.provider_errors(self.stream())
+            self.assertFalse(bench.record_row(out, row, errors))
+            self.assertFalse(out.exists())
+            logged = [json.loads(x) for x in bench.excluded_path(out).read_text().splitlines()]
+            self.assertEqual(logged, [{**row, "provider_errors": errors}])
+            self.assertEqual(bench.existing_cells(out, "p1-bare", "g01", "m"), set())
+            self.assertTrue(bench.record_row(out, {**row, "repeat": 4}, []))
+            self.assertEqual(bench.existing_cells(out, "p1-bare", "g01", "m"), {4})
+
+
+class BlockStopsOnQuota(unittest.TestCase):
+    """block.py starts no new run after a run exits with QUOTA_RC, and counts the
+    spend of excluded runs against the cap."""
+
+    def test_the_first_quota_exit_stops_the_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "block.py").write_text(Path(LAB, "block.py").read_text())
+            calls = tmp / "calls"
+            (tmp / "bench.py").write_text(
+                "import sys\nopen(%r, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+                "print('p1-bare provider quota')\nsys.exit(%d)\n" % (str(calls), bench.QUOTA_RC))
+            cfg = {"arms": ["p1-bare", "p1-full"], "tasks": ["g01"], "repeats": 3, "model": "m",
+                   "timeout": 5, "parallel": 1, "results": str(tmp / "results.jsonl"),
+                   "cap_usd": 1.0}
+            (tmp / "block.json").write_text(json.dumps(cfg))
+            proc = subprocess.run([sys.executable, str(tmp / "block.py"), "--config",
+                                   str(tmp / "block.json")], capture_output=True, text=True,
+                                  env={**os.environ, "ARMBENCH_LAB": str(tmp)})
+            self.assertEqual(proc.returncode, bench.QUOTA_RC, proc.stdout + proc.stderr)
+            self.assertEqual(len(calls.read_text().splitlines()), 1)
+            self.assertIn("QUOTA", proc.stdout)
+
+    def test_excluded_spend_counts_against_the_cap(self):
+        import block
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "results.jsonl"
+            out.write_text(json.dumps({"usage": {"cost": 0.5}}) + "\n")
+            bench.excluded_path(out).write_text(json.dumps({"usage": {"cost": 0.25}}) + "\n")
+            self.assertAlmostEqual(block.spent(out), 0.75)
+
+
 
 class Attempts(unittest.TestCase):
     def stream(self, *calls):
