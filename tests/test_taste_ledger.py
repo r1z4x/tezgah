@@ -109,7 +109,6 @@ class Ledger(TempHome):
         self.assertEqual(learning["state"], "candidate", "one session promoted it")
         tl.apply(self.books, sig(3, "B"), dec(relations={learning["id"]: ("supports", 1.0)}), DAY)
         self.assertEqual(learning["state"], "active")
-        self.assertEqual(self.books["repo"]["meta"]["first_active"], DAY)
 
     def test_an_unverified_or_non_preference_decision_never_touches_the_ledger(self):
         self.assertEqual(tl.apply(self.books, sig(1, "A"), dec(verified=False), DAY),
@@ -133,6 +132,28 @@ class Ledger(TempHome):
         tl.settle(self.books, DAY)
         self.assertEqual((old["state"], new["state"]), ("retired", "candidate"))
 
+    def test_a_corroborated_contrary_claim_is_withheld_until_the_conflict_resolves(self):
+        old = self.active()
+        tl.apply(self.books, sig(3, "C", "use os.path"),
+                 dec(relations={old["id"]: ("contradicts", 1.0)}), DAY)
+        [new] = [v for v in tl.every(self.books).values() if v["id"] != old["id"]]
+        tl.apply(self.books, sig(4, "D", "os.path again"),
+                 dec(relations={new["id"]: ("supports", 1.0)}), DAY)
+        self.assertEqual((old["state"], new["state"]), ("conflicted", "conflicted"))
+        tl.save(self.repo, self.books)
+        self.assertEqual(tl.usable(self.repo, DAY), [])
+
+    def test_an_id_is_never_issued_twice_after_a_learning_is_forgotten(self):
+        old = self.active()
+        tl.apply(self.books, sig(3, "C", "use os.path"),
+                 dec(p=0.6, relations={old["id"]: ("contradicts", 0.1)}), DAY)
+        [gone] = [v["id"] for v in tl.every(self.books).values() if v["id"] != old["id"]]
+        tl.settle(self.books, DAY + 200)
+        self.assertNotIn(gone, tl.every(self.books))
+        self.assertNotIn(gone, old["conflicts"])
+        tl.apply(self.books, sig(5, "E", "tabs"), dec(category="formatting"), DAY + 200)
+        self.assertNotIn(gone, tl.every(self.books), "a forgotten id was issued again")
+
     def test_narrows_keeps_the_broad_learning_and_adds_a_narrower_one(self):
         broad = self.active(scope="repository")
         tl.apply(self.books, sig(3, "C", "except in tests use plain asserts", ("tests/t.py",)),
@@ -142,7 +163,7 @@ class Ledger(TempHome):
         self.assertEqual((narrow["scope"], narrow["where"], narrow["parent"]),
                          ("path", "tests/**", broad["id"]))
 
-    def test_an_applied_learning_corrected_in_its_category_loses_confidence(self):
+    def test_an_applied_learning_corrected_in_its_category_and_scope_loses_confidence(self):
         learning = self.active()
         before = tl.confidence(learning, DAY)
         tl.apply(self.books, sig(3, "C", "no, camelCase here"), dec(), DAY,
@@ -151,6 +172,11 @@ class Ledger(TempHome):
         # a correction in another category leaves it alone
         s = learning["s"]
         tl.apply(self.books, sig(4, "C", "add a test"), dec(category="testing"), DAY,
+                 applied={learning["id"]})
+        self.assertEqual(learning["s"], s)
+        # so does one outside a path learning's directory
+        learning.update(scope="path", where="pkg/**")
+        tl.apply(self.books, sig(5, "C", "camelCase", ("web/x.py",)), dec(), DAY,
                  applied={learning["id"]})
         self.assertEqual(learning["s"], s)
 
@@ -195,26 +221,34 @@ class Ledger(TempHome):
         os.remove(os.path.join(self.repo, "a.py"))
         self.assertEqual(tl.usable(self.repo, DAY), [], "evidence is gone, still injected")
 
-    def test_the_session_block_names_the_learning_and_records_the_injection(self):
+    def test_the_session_block_names_the_learning_and_returns_its_ids(self):
         learning = self.active()
-        text = tl.block(self.repo, "S9", DAY)
+        text, ids = tl.block(self.repo, DAY)
         self.assertIn("hint [naming, %s]: use pathlib" % learning["id"], text)
         self.assertIn("narrower scope wins", text)
-        self.assertEqual(tl.injected(self.repo, "S9"), {learning["id"]})
+        self.assertEqual(ids, [learning["id"]])
+        self.assertEqual(tl.injected(self.repo, "S9"), set(), "recorded before the budget")
 
     def test_context_for_carries_the_block_only_when_taste_is_armed(self):
-        self.active()
+        learning = self.active()
         payload = {"session_id": "S10"}
         self.assertNotIn("Taste (learned", tc.context_for("session_start", self.repo, payload) or "")
+        self.assertEqual(tl.injected(self.repo, "S10"), set())
         open(os.path.join(self.config_dir, tt.ARM), "w").close()
         self.assertIn("Taste (learned", tc.context_for("session_start", self.repo, payload))
+        self.assertEqual(tl.injected(self.repo, "S10"), {learning["id"]})
 
-    def test_the_write_note_is_once_per_session_per_file_type_and_in_scope(self):
+    def test_the_write_note_shows_each_in_scope_learning_once_per_session(self):
         self.active(scope="language", where="*.py")
         self.assertIn("use pathlib", tl.write_note(self.repo, "S", "pkg/b.py"))
         self.assertEqual(tl.write_note(self.repo, "S", "pkg/c.py"), "", "repeated in one session")
         self.assertEqual(tl.write_note(self.repo, "S", "web/x.ts"), "", "out of scope")
         self.assertIn("use pathlib", tl.write_note(self.repo, "T", "c.py"))
+
+    def test_a_path_learning_shows_at_its_directory_after_another_write_of_the_type(self):
+        self.active(scope="path", where="tests/**")
+        self.assertEqual(tl.write_note(self.repo, "S", "pkg/b.py"), "")
+        self.assertIn("use pathlib", tl.write_note(self.repo, "S", "tests/t.py"))
 
     def test_tezgah_taste_write_note_skips_a_read_and_needs_the_marker(self):
         self.active(scope="language", where="*.py")
@@ -232,9 +266,11 @@ class Ledger(TempHome):
         with open(path) as fh:
             self.assertIn("- use pathlib (repository, %s). Confidence: 0.80" % learning["id"],
                           fh.read())
+        self.assertEqual(tl.export_agents(self.repo), 0)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "AGENTS.md")),
+                         "an empty export wrote AGENTS.md")
         with open(os.path.join(self.repo, "AGENTS.md"), "w") as fh:
             fh.write("# Rules\n\nkeep this\n")
-        self.assertEqual(tl.export_agents(self.repo), 0)
         tl.decide_user(self.books, learning["id"], "accept", DAY)
         tl.save(self.repo, self.books)
         self.assertEqual(tl.export_agents(self.repo), 1)
@@ -245,18 +281,20 @@ class Ledger(TempHome):
         self.assertEqual(text.count(tl.START), 1)
         self.assertIn("- use pathlib", text)
 
-    def test_the_gate_stops_injection_when_corrections_do_not_fall(self):
-        self.active()
-        first = self.books["repo"]["meta"]["first_active"]
+    def test_the_gate_splits_at_the_first_injection_by_turn_time(self):
+        learning = self.active()
+        tl.record_injection(self.repo, "S", [learning["id"]], day=DAY)
         path = os.path.join(tl.store_dir(self.repo), "decisions.jsonl")
         for i in range(10):
-            for arm, day in (("b", first - 1), ("a", first + 1)):
-                tl.append(path, {"id": "%s%d" % (arm, i), "provider": "typesafe", "day": day,
+            # every row decided now; the turn time alone picks the arm
+            for arm, at in (("b", DAY - 1), ("a", DAY + 1)):
+                tl.append(path, {"id": "%s%d" % (arm, i), "provider": "typesafe",
+                                 "day": DAY + 5, "at": at,
                                  "kind": "preference" if i < 3 else "none"})
         report = tl.gate(self.repo, need=10)
         self.assertEqual((report["before"]["turns"], report["after"]["turns"]), (10, 10))
         self.assertTrue(report["stopped"])
-        self.assertEqual(tl.block(self.repo, "S", DAY), "")
+        self.assertEqual(tl.block(self.repo, DAY), ("", []))
         with open(os.path.join(tl.store_dir(self.repo), "gate.json")) as fh:
             self.assertEqual(json.load(fh)["stopped"], True)
 

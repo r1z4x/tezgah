@@ -337,7 +337,8 @@ class Learn(support.TempHome):
                               ("B", "BROKEN the test fails"), ("C", "thanks")):
             rows += [{"kind": "edit", "session": session, "path": "a.py",
                       "old": "x = 1", "new": "X = 1"},
-                     {"kind": "prompt", "session": session, "text": text}]
+                     {"kind": "prompt", "session": session, "text": text,
+                      "ts": "2026-10-0%dT10:00:00Z" % (len(rows) // 2 + 1)}]
         jsonl(os.path.join(self.store, "signals.jsonl"), rows)
 
     def cli(self, *args, typesafe=True, openrouter=False):
@@ -443,6 +444,28 @@ class Learn(support.TempHome):
         [learning] = self.listed()
         self.assertEqual((learning["state"], learning["sessions"]), ("active", ["t1", "t2"]))
         self.assertEqual(learning["evidence"][0]["paths"], ["a.py"])
+        # a new session that sorts first shifts no earlier id: nothing is re-decided
+        jsonl(os.path.join(sessions, "a0.jsonl"), [
+            '{"type":"session","id":"a0","cwd":%s}' % json.dumps(self.repo),
+            omp_user("build"), call, omp_tool("edit"), omp_user("PREF snake_case")])
+        again = json.loads(self.cli("learn", "--from-transcripts", "--host", "omp",
+                                    "--json").stdout)
+        self.assertEqual(again["signals"], 1)
+        [learning] = self.listed()
+        self.assertEqual(len(learning["evidence"]), 3, "a signal was applied twice")
+
+    def test_judge_off_sends_nothing_although_a_typesafe_key_resolves(self):
+        config = os.path.join(self.home, ".config", "tezgah")
+        os.makedirs(config, exist_ok=True)
+        open(os.path.join(config, "judge-off"), "w").close()
+        proc = self.cli("learn")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertEqual(Decider.seen, [])
+
+    def test_no_taste_mark_refuses_to_learn(self):
+        open(os.path.join(self.repo, ".no-taste"), "w").close()
+        self.assertEqual(self.cli("learn").returncode, 2)
+        self.assertEqual(Decider.seen, [])
 
 
 if __name__ == "__main__":

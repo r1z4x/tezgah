@@ -2375,7 +2375,8 @@ function captureSnapshot(tool, args, dir, sessionID) {
 
 // hooks/tezgah_taste.py's own entry point, found beside the bin the snapshot
 // capture runs (the installed bins are links into the checkout, which holds no
-// copy of hooks/ under CONFIG). Best effort and silent, like captureSnapshot.
+// copy of hooks/ under CONFIG). Best effort, like captureSnapshot: a failure is
+// ignored. It resolves to the taste note the process printed, else undefined.
 function noteTaste(sessionID, id, args, cwd) {
   let script
   try {

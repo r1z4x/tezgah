@@ -2087,6 +2087,7 @@ def context_for(event, cwd, payload=None, with_core=True):
              else [("core", core)]) if with_core else []
     _, marks = repo_marks(cwd)
     injected = []  # the session block's lessons, when it carries them
+    taste = ""  # the session block's taste learnings, when it carries them
     if ".no-graph" in marks:
         parts.append(("graph", "Graph: disabled for this repo (.no-graph), so use "
                                "grep/find and say the answer came from text "
@@ -2190,12 +2191,13 @@ def context_for(event, cwd, payload=None, with_core=True):
                         recent, tainted_lessons(root))))
         # The opt-in taste learnings (hooks/tezgah_taste_ledger.block): the
         # active ones as rules or hints, read from the ledger with no call out;
-        # off, `enabled` costs the marker stat.
+        # off, `enabled` costs the marker stat. The injection is recorded below,
+        # only when the budget kept the block.
         taste_root = tezgah_taste.enabled(cwd) if tezgah_taste else None
         if taste_root:
             try:
                 import tezgah_taste_ledger
-                taste = tezgah_taste_ledger.block(taste_root, session_of(payload))
+                taste, taste_ids = tezgah_taste_ledger.block(taste_root)
             except Exception:
                 taste = ""
             if taste:
@@ -2231,6 +2233,11 @@ def context_for(event, cwd, payload=None, with_core=True):
     for ln, line in injected:
         if "\n- " + line + "\n" in text:
             note_lesson(session_of(payload), lesson_key(ln), "session")
+    if taste and taste.split("\n", 1)[0] in text:
+        try:
+            tezgah_taste_ledger.record_injection(taste_root, session_of(payload), taste_ids)
+        except Exception:
+            pass
     return text
 
 

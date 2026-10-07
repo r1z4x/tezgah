@@ -456,6 +456,15 @@ def sig_id(*parts):
     return hashlib.sha1("\0".join(str(p) for p in parts).encode()).hexdigest()[:12]
 
 
+def iso_day(ts):
+    """A capture row's ISO timestamp as days since the epoch, or None."""
+    try:
+        return datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00")) \
+            .timestamp() / 86400.0
+    except ValueError:
+        return None
+
+
 def _snapshots():
     """{absolute path: [(ts, id, after)]} over the snapshot store, oldest first."""
     import tezgah_snapshot as ts
@@ -528,6 +537,7 @@ def capture_signals(repo):
                                      for a in turn["after"] if a.get("path")) if d]
                 out.append({
                     "id": sig_id(session, row.get("ts"), row.get("text")),
+                    "at": iso_day(row.get("ts")),
                     "session": session, "text": row.get("text") or "",
                     "paths": sorted({e.get("path") for e in turn["edits"] if e.get("path")}),
                     "edits": [(e.get("path"), (e.get("old") or "")[:300],
@@ -554,8 +564,10 @@ def transcript_signals(repo, host):
             if cwd != repo and not cwd.startswith(repo + os.sep):
                 continue
             session = session_id(name, path)[0] or os.path.basename(path)
-            written, n = [], 0
+            written, n, k, at = [], 0, 0, None
             for event in HOSTS[name][2](path, calls=True):
+                if event[0] in ("call", "reply") and isinstance(event[-1], (int, float)):
+                    at = event[-1] / 86400.0
                 if event[0] == "call" and event[1] in WRITE_TOOLS[name]:
                     target = _call_path(event[2])
                     if target:
@@ -567,7 +579,10 @@ def transcript_signals(repo, host):
                 elif event[0] == "user":
                     if n and not harness_prompt(event[1]):
                         text = ti.redact(event[1])[:CUT]
-                        out.append({"id": sig_id(name, session, len(out), text),
+                        # keyed inside its own session, so another session's
+                        # new turns never shift this id and re-decide it
+                        k += 1
+                        out.append({"id": sig_id(name, session, k, text), "at": at,
                                     "session": session, "text": text,
                                     "paths": sorted(set(written)), "edits": [], "diffs": []})
                     written, n = [], 0
@@ -616,12 +631,14 @@ def picked(result, qid, default):
     return choice, (p if p is not None else 0.5)
 
 
-def decide(sig, learnings):
+def decide(sig, learnings, fallback=True):
     """(decision, result): the typed decision, TypeSafe required; when it cannot
-    answer, the seam's own providers, recorded unverified."""
+    answer, the seam's own providers, recorded unverified - only on a signal's
+    first try, since an unverified answer is never applied and a rerun would pay
+    for it again."""
     state, questions = decision_request(sig, learnings)
     result = tezgah_judge.ask(state, questions, only=("typesafe",), timeout=60)
-    if result is None:
+    if result is None and fallback:
         result = tezgah_judge.ask(state, questions, timeout=120)
     if result is None:
         return None, None
@@ -644,7 +661,7 @@ def write_line(learning):
                   "Write the coding preference this correction states as one imperative "
                   "line for a coding agent, under 20 words. Use only what the correction "
                   "says; add no preference it does not state."}},
-        only=("omp", "claude", "openrouter"), timeout=120)
+        timeout=120)
     return tezgah_judge.text(result, "line")
 
 
@@ -657,13 +674,19 @@ def store_or_exit(args):
 
 def cmd_learn(args):
     repo = store_or_exit(args)
-    if not tezgah_judge.available() and not tezgah_judge.named(("typesafe",)):
+    if tezgah_judge.tp.off("judge-off") or not (
+            tezgah_judge.available() or tezgah_judge.named(("typesafe",))):
         return misuse("no judge: no credential resolves or judge-off is set; nothing sent")
+    import tezgah_context
+    if ".no-taste" in tezgah_context.repo_marks(repo)[1]:
+        return misuse(".no-taste marks this repository; nothing learned")
     signals = (transcript_signals(repo, args.host) if args.from_transcripts
                else capture_signals(repo))
-    done = {r.get("id") for r in tl.rows(os.path.join(tl.store_dir(repo), "decisions.jsonl"))
-            if r.get("provider") == "typesafe"}
-    todo = [s for s in signals if s["id"] not in done]
+    decided = {}
+    for r in tl.rows(os.path.join(tl.store_dir(repo), "decisions.jsonl")):
+        decided[r.get("id")] = decided.get(r.get("id")) or r.get("provider") == "typesafe"
+    # a typed decision is final; an unverified one is retried, TypeSafe only
+    todo = [s for s in signals if not decided.get(s["id"])]
     if args.limit is not None:
         todo = todo[:args.limit]
     ledgers = tl.load(repo)
@@ -672,7 +695,7 @@ def cmd_learn(args):
               "preference": 0, "defect": 0, "none": 0}
     tokens = [0, 0]
     for sig in todo:
-        dec, result = decide(sig, held(ledgers))
+        dec, result = decide(sig, held(ledgers), fallback=sig["id"] not in decided)
         if dec is None:
             counts["unanswered"] += 1
             continue
@@ -680,7 +703,7 @@ def cmd_learn(args):
         tokens[1] += result["usage"]["output_tokens"]
         day = tl.now_day()
         tl.append(os.path.join(tl.store_dir(repo), "decisions.jsonl"), {
-            "id": sig["id"], "day": day, "session": sig["session"],
+            "id": sig["id"], "day": day, "at": sig.get("at"), "session": sig["session"],
             "provider": result.get("provider"), "model": result.get("model"),
             "verified": dec["verified"], "kind": dec["kind"][0], "p": dec["kind"][1],
             "category": dec["category"][0], "scope": dec["scope"][0],

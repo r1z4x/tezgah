@@ -412,7 +412,7 @@ ledger row. A rollback therefore never reads it as a pre-state (`capture_after`,
 `hooks/tezgah_snapshot.py::capture_after`). A file outside the repository gets no
 after blob.
 opencode reaches the same call through a process (`noteTaste`,
-`hosts/opencode/plugins/tezgah.js:2379-2389`).
+`hosts/opencode/plugins/tezgah.js:2380-2390`).
 
 ```sh
 touch ~/.config/tezgah/taste-on               # arm; rm it to disarm
@@ -458,11 +458,12 @@ Session start injects the active learnings (`block`,
 `hooks/tezgah_taste_ledger.py::block`). A rule needs confidence 0.8 and a
 Clopper-Pearson lower bound of 0.8 on preference precision, measured on the
 labelled sample (`calibration`, `hooks/tezgah_taste_ledger.py::calibration`). A
-hint needs 0.6. A learning whose evidence paths are all gone is withheld. The
-first write to a file type also carries the learnings in scope for it, on every
-host's post-tool channel (`write_note`, `hooks/tezgah_taste.py::write_note`).
+hint needs 0.6. A learning whose evidence paths are all gone is withheld. A
+write also carries the in-scope learnings it has not yet shown in the session,
+on every host's post-tool channel (`write_note`, `hooks/tezgah_taste.py::write_note`).
 `gate` compares preference corrections per writing turn before and after the
-first activation. Once both arms hold 980 turns and the after-rate is not lower
+first injection, by when each turn happened. Once both arms hold 980 turns and
+the after-rate is not lower
 at one-sided p < 0.1, it writes `gate.json` and injection stops (`gate`,
 `hooks/tezgah_taste_ledger.py::gate`). `mine` reads omp's top-level session
 files and Claude's top-level transcripts whose cwd is under `--root`

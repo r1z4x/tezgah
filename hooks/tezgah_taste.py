@@ -9,11 +9,12 @@ workspace that came with the clone is data, and nothing of the user's is
 written into it). The store is `<git root>/.tezgah/taste/signals.jsonl`, one
 JSON object per line, owner-only.
 
-Every public function is total: it never raises, makes no network call and
-appends at most one row. They run on the prompt and PostToolUse hot paths, so
-the switch is read before anything else is.
+Every public function is total: it never raises and makes no network call.
+The capture functions append at most one row each. They run on the prompt and
+PostToolUse hot paths, so the switch is read before anything else is.
 
-Nothing here is learned or fed back into a prompt; this is capture only.
+Learning lives in `bin/tezgah-taste learn` and `tezgah_taste_ledger`; the one
+thing fed back from here is `write_note`, the learnings in scope for a write.
 """
 import datetime
 import json
