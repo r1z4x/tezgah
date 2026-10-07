@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Taste learns and applies, not only records.** Arm it with `taste-on`.
+  `tezgah-taste learn` then turns each correction after a writing turn into one
+  typed decision, and only TypeSafe may give it. The decision names a
+  preference, a defect or neither. It picks one of eleven fixed categories and
+  a scope, and relates the correction to each learning already held. A ledger
+  computes each learning's confidence from its evidence and forgets it over
+  time. A contradiction flags a learning and never overwrites it. A learning
+  goes active in its second session. Session start injects active learnings as
+  rules or hints. Every host notes them on the first write to a matching file
+  type. A rule needs a measured calibration bound. A defect never enters the
+  ledger. A before/after gate stops injection when corrections do not fall.
+  `list`, `accept`, `reject`, `edit` and `export` give the user control, and
+  `learn --from-transcripts` bootstraps from history. The judge seam gains
+  `only=` and a `text` question.
+
 ## [1.1.0] - 2026-10-07
 
 ### Added

@@ -385,15 +385,18 @@ extension the engine has no parser for and an extensionless script it cannot key
 on at all. The extensionless case is why `bin/*` carries `.py` twins, and the
 report counts a tracked `bin/x` as covered when the index holds `bin/x.py`.
 
-## Opt-in taste capture
+## Opt-in taste: capture, learn, apply
 
-Phase 1 of a coding-taste learner stores the signals tezgah already receives.
-It learns nothing and injects nothing yet. It stays off until the user arms it
-with a `taste-on` file in `~/.config/tezgah/` (`enabled`,
-`hooks/tezgah_taste.py::enabled`). The off path costs two stats. Armed, it writes
-only into a repository that already has a `.tezgah/` directory. A `.no-taste`
-mark turns it off for one repository (`hooks/tezgah_context.py::repo_marks`).
-A workspace of repo-provided data gets nothing.
+Taste learns the user's coding preferences from their own corrections. It is
+taste-1's architecture as Command Code documents it, ported to tezgah (research
+line taste-architecture, design T1P). An LLM-free structured signal goes to a
+typed decision step, then a symbolic ledger, then a meta loop. It stays off
+until the user arms it with a `taste-on` file in `~/.config/tezgah/` (`enabled`,
+`hooks/tezgah_taste.py::enabled`). The off path costs two stats. Armed, it
+writes only into a repository that already has a `.tezgah/` directory. A
+`.no-taste` mark turns it off for one repository
+(`hooks/tezgah_context.py::repo_marks`). A workspace of repo-provided data gets
+nothing.
 
 Rows go to `<repo>/.tezgah/taste/signals.jsonl` through the ledger's own writer
 (`_write`, `hooks/tezgah_taste.py::_write`). A user turn adds a `prompt` row,
@@ -409,22 +412,62 @@ ledger row. A rollback therefore never reads it as a pre-state (`capture_after`,
 `hooks/tezgah_snapshot.py::capture_after`). A file outside the repository gets no
 after blob.
 opencode reaches the same call through a process (`noteTaste`,
-`hosts/opencode/plugins/tezgah.js:2310-2319`).
+`hosts/opencode/plugins/tezgah.js:2379-2389`).
 
 ```sh
 touch ~/.config/tezgah/taste-on               # arm; rm it to disarm
+bin/tezgah-taste learn                        # decide the new capture signals, update the ledger
+bin/tezgah-taste learn --from-transcripts     # bootstrap from this repo's omp/Claude history
+bin/tezgah-taste list                         # learnings: state, rule/hint, confidence, scope
+bin/tezgah-taste accept|reject|show ID        # the user's call on one learning
+bin/tezgah-taste edit ID --text "..."         # reword it; an edited line is never rewritten
+bin/tezgah-taste export                       # accepted learnings into AGENTS.md
+bin/tezgah-taste label; bin/tezgah-taste label ID preference   # the calibration sample
+bin/tezgah-taste calibrate                    # the bound a rule needs
+bin/tezgah-taste gate                         # the pooled before/after test
 bin/tezgah-taste mine --host omp --stats      # sessions, writes, prompts after a writing turn
-bin/tezgah-taste mine --out mined.jsonl       # one row per such prompt, redacted
-bin/tezgah-taste measure --samples S --labels L   # judge precision/recall against labels
-bin/tezgah-taste rate --in mined.jsonl        # preference corrections per writing turn
+bin/tezgah-taste measure --samples S --labels L [--typed]   # judge precision/recall
 ```
 
-`mine` reads the host transcripts already on disk, so it needs no capture. It
-reads omp's top-level session files and Claude's top-level transcripts whose cwd
-is under `--root` (`cmd_mine`, `bin/tezgah-taste::cmd_mine`). `measure` and `rate`
-send the sample text to the judge seam's provider ([judge](judge.md)), redacted
-first (`classify`, `bin/tezgah-taste::classify`). They use a fixed labelling rule
-(`RULE`, `bin/tezgah-taste::RULE`). Without a credential they send nothing.
+`learn` turns each prompt that followed a writing turn into one signal, and code
+builds it (`capture_signals`, `bin/tezgah-taste::capture_signals`). A signal
+holds the prompt, the files written, the agent's edits, and the user's own edit
+between two agent writes. That last one compares the after blob with the next
+write's pre-state, or with the file on disk (`user_diff`,
+`bin/tezgah-taste::user_diff`). `learn` asks TypeSafe for one typed decision per
+signal (`decide`, `bin/tezgah-taste::decide`, [judge](judge.md)). The decision
+names preference, defect or none. It picks one of eleven fixed categories and a
+scope. It also says how the signal relates to each learning held: supports,
+contradicts, narrows or unrelated. When another provider answers, `learn` writes
+the decision to `decisions.jsonl` as `unverified` and never applies it. A defect
+goes to `defects.jsonl` and never into the ledger.
+
+The ledger is `<repo>/.tezgah/taste/ledger.json`, plus
+`~/.config/tezgah/taste/ledger.json` for user-scope learnings
+(`hooks/tezgah_taste_ledger.py`). Confidence is (r+1)/(r+s+2) over supporting
+and contradicting evidence. Each piece counts at its decision probability, and
+the ledger forgets it per day at its scope's rate (`confidence`,
+`hooks/tezgah_taste_ledger.py::confidence`). A learning turns active in its
+second session. A contradiction flags an active learning `conflicted` and stores
+the contrary claim `quarantined`. Neither overwrites the other. `narrows` adds a
+narrower learning beside the broader one. When the user corrects an injected
+learning's category in the same session, that learning loses confidence
+(`apply`, `hooks/tezgah_taste_ledger.py::apply`).
+
+Session start injects the active learnings (`block`,
+`hooks/tezgah_taste_ledger.py::block`). A rule needs confidence 0.8 and a
+Clopper-Pearson lower bound of 0.8 on preference precision, measured on the
+labelled sample (`calibration`, `hooks/tezgah_taste_ledger.py::calibration`). A
+hint needs 0.6. A learning whose evidence paths are all gone is withheld. The
+first write to a file type also carries the learnings in scope for it, on every
+host's post-tool channel (`write_note`, `hooks/tezgah_taste.py::write_note`).
+`gate` compares preference corrections per writing turn before and after the
+first activation. Once both arms hold 980 turns and the after-rate is not lower
+at one-sided p < 0.1, it writes `gate.json` and injection stops (`gate`,
+`hooks/tezgah_taste_ledger.py::gate`). `mine` reads omp's top-level session
+files and Claude's top-level transcripts whose cwd is under `--root`
+(`cmd_mine`, `bin/tezgah-taste::cmd_mine`). `measure` and `rate` use a fixed
+labelling rule (`RULE`, `bin/tezgah-taste::RULE`).
 
 ## Tidying the lessons ledger
 
@@ -580,8 +623,8 @@ question instead of paying an agent to read a page: the analyze-app loop's snaps
 triage (`bin/tezgah-triage`), `bin/tezgah-docs` for a query its keyword index
 cannot place, and the prompt-path skill hint (`hooks/tezgah_skill_pick.py`), the
 one caller no shell row sees, `bin/tezgah-route`, the tier router
-([models](models.md)), and `bin/tezgah-taste`'s `measure` and `rate`
-([above](#opt-in-taste-capture)). All five go through the same stdlib-only seam,
+([models](models.md)), and `bin/tezgah-taste`'s `measure`, `rate` and `learn`
+([above](#opt-in-taste-capture-learn-apply)). All five go through the same stdlib-only seam,
 which returns `None` rather than raising because a hook may import it
 (`available()`, `hooks/tezgah_judge.py::available`); the request is
 one batched call, and the credential resolves per call (`ask()`,

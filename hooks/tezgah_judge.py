@@ -68,9 +68,10 @@ FALLBACK_MODEL = "deepseek/deepseek-v4-flash"
 # The contract the fallback asks a chat model to answer in, one shape per
 # question type this repository's callers send (`bin/tezgah-triage` and
 # `hooks/tezgah_skill_pick.py` ask `noul`, `bin/tezgah-docs` and the triage's
-# pair rows ask `choice`). It is prose because a chat endpoint has no schema
-# field to carry it; every field it names is validated on the way back, and a
-# question of any other type reads as unanswered rather than as a guess.
+# pair rows ask `choice`, `bin/tezgah-taste` asks `text` for a learning's
+# readable line). It is prose because a chat endpoint has no schema field to
+# carry it; every field it names is validated on the way back, and a question
+# of any other type reads as unanswered rather than as a guess.
 CHAT_SYSTEM = (
     "You answer questions about the state that follows. Reply with one JSON "
     "object and nothing else: {\"answers\": {\"<id>\": {...}}}, one entry per "
@@ -78,6 +79,7 @@ CHAT_SYSTEM = (
     "noul   -> {\"noul\": <probability 0..1 that the statement is true>}\n"
     "choice -> {\"choice\": \"<the chosen label>\", \"probabilities\": "
     "{\"<label>\": <probability>, ...}, \"confidence\": <0..1>}\n"
+    "text   -> {\"text\": \"<the answer as plain prose>\"}\n"
     "Every probability is a number in 0..1 and the ones you list for one "
     "question sum to 1. Answer every id you were given.")
 
@@ -188,6 +190,20 @@ def providers():
                   (("typesafe", key()), ("openrouter", openrouter_key())) if secret]
 
 
+def named(only):
+    """`providers()` for a caller that requires particular ones: every provider
+    in `only` that resolves, in `only`'s order. The `vendor` policy's
+    session-first order does not apply - the caller named the provider, so
+    nothing is a silent fallback - but `none` still keeps every third party
+    out."""
+    session = tp.session_cli()
+    third = tp.fallback_policy() != "none"
+    found = {session: getattr(tp, session + "_bin")()} if session else {}
+    if third:
+        found.update(typesafe=key(), openrouter=openrouter_key())
+    return [(name, found[name]) for name in only if found.get(name)]
+
+
 def credential():
     """`(provider, secret)` for the first provider `ask()` will try, else
     `(None, None)` - so `available()` and `ask()` cannot disagree."""
@@ -200,7 +216,8 @@ def available():
     return bool(credential()[1]) and not tp.off("judge-off")
 
 
-def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None):
+def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
+        only=None):
     """One batched call over `questions`; `{"answers", "usage", "latency_ms",
     "model", "provider", "fallback"}`.
 
@@ -233,18 +250,26 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None)
 
     Total by design: no provider, an unreadable state, a refused request, a
     timeout, a reply that is not the documented shape - all `None`, never an
-    exception."""
-    if not credential()[1]:
+    exception.
+
+    `only` names the providers the caller requires (`named()`); a caller whose
+    decision must come from a typed model passes `only=("typesafe",)` and gets
+    None rather than another provider's answer."""
+    tried = providers() if only is None else named(only)
+    if not tried or not tried[0][1]:
         return None
     stop = None if deadline is None else time.monotonic() + deadline
     failed = []
-    for provider, secret in providers():
+    for provider, secret in tried:
         result, why = _ask_one(provider, secret, state, questions, model,
                                timeout, attempts, stop)
         if result is None:
             failed.append("%s: %s" % (provider, why))
             continue
-        note = "; ".join(failed) or (None if provider in SESSION_ARGV else NO_SESSION)
+        # a provider the caller named is not a stand-in: no note, unless an
+        # earlier one it named failed
+        note = "; ".join(failed) or (None if only is not None or provider in SESSION_ARGV
+                                     else NO_SESSION)
         result["fallback"] = note
         _record(result["provider"], result["model"], fallback=note)
         return result
@@ -261,6 +286,9 @@ def _ask_one(provider, secret, state, questions, model, timeout, attempts, stop)
     """One provider's attempts: `(result, None)`, or `(None, why)`."""
     try:
         if provider == "typesafe":
+            if any(isinstance(q, dict) and q.get("type") == "text"
+                   for q in questions.values()):
+                return None, "typesafe answers no text question"
             used, url = model, endpoint()
             body = json.dumps({"state": state, "model": used,
                                "questions": questions}).encode()
@@ -326,6 +354,14 @@ def choice(result, id):
     answer = _answer(result, id)
     value = answer.get("choice") if answer else None
     return value if isinstance(value, str) else None
+
+
+def text(result, id):
+    """The prose a `text` question came back with, stripped, or None. Only a
+    generative provider answers one; TypeSafe is never sent one."""
+    answer = _answer(result, id)
+    value = answer.get("text") if answer else None
+    return (value.strip() or None) if isinstance(value, str) else None
 
 
 def noul(result, id, option=None):
@@ -448,17 +484,20 @@ def _chat_answers(parsed, questions):
 def _clean_answer(raw, kind):
     """One answer in the shape its question type names, or None.
 
-    The two shapes this repository's callers send - `noul`, the probability a
-    statement holds, and `choice`, the label taken - map onto exactly what
-    `choice()`/`noul()` already read, so a fallback answer and a TypeSafe answer
-    are indistinguishable downstream. Any other type reads as no answer rather
-    than as a guess. Probabilities are kept only when they are numbers, because
-    `noul()` does the arithmetic on them."""
+    The shapes this repository's callers send - `noul`, the probability a
+    statement holds, `choice`, the label taken, and `text`, prose - map onto
+    exactly what `choice()`/`noul()`/`text()` already read, so a fallback answer
+    and a TypeSafe answer are indistinguishable downstream. Any other type reads
+    as no answer rather than as a guess. Probabilities are kept only when they
+    are numbers, because `noul()` does the arithmetic on them."""
     if not isinstance(raw, dict):
         return None
     if kind == "noul":
         value = raw.get("noul")
         return {"noul": float(value)} if isinstance(value, (int, float)) else None
+    if kind == "text":
+        value = raw.get("text")
+        return {"text": value} if isinstance(value, str) and value.strip() else None
     if kind != "choice":
         return None
     if not isinstance(raw.get("choice"), str):

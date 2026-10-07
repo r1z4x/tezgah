@@ -368,7 +368,8 @@
         "how do I install or upgrade a released version without a git checkout",
         "where does an installed version unpack and how do I roll back",
         "something is broken what do I check first",
-        "how do I turn on taste signal capture and measure my corrections"
+        "how do I turn on taste signal capture and measure my corrections",
+        "how does taste learn my coding preferences and inject them"
       ],
       "answers_tr": [
         "bunu bir makineye nasıl kurar, doğrular ve yükseltirim",
@@ -376,7 +377,8 @@
         "git deposu olmadan yayımlanmış bir sürümü nasıl kurar veya yükseltirim",
         "kurulu bir sürüm nereye açılır ve nasıl geri alırım",
         "bir şey bozuk, önce neyi kontrol etmeliyim",
-        "zevk sinyali kaydını nasıl açar ve düzeltmelerimi nasıl ölçerim"
+        "zevk sinyali kaydını nasıl açar ve düzeltmelerimi nasıl ölçerim",
+        "taste kodlama tercihlerimi nasıl öğrenir ve oturuma nasıl ekler"
       ],
       "sources": [
         "bin/tezgah-setup",
@@ -390,6 +392,7 @@
         "README.md",
         "hooks/tezgah_embed.py",
         "hooks/tezgah_taste.py",
+        "hooks/tezgah_taste_ledger.py",
         "bin/tezgah-taste"
       ]
     },

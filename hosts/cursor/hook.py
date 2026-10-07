@@ -53,6 +53,7 @@ try:
         SUBAGENT_CHANNEL, bind_session, note, note_tool, ran_nothing, report_bytes,
         stop_reason)
     from tezgah_paths import cache_dir, off  # noqa: E402
+    from tezgah_taste import write_note  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
 except Exception as exc:
     import_failed(exc)
@@ -323,7 +324,11 @@ def dispatch(payload):
         # result they belong to, read together rather than one replacing another
         advice = (graph_advice(gate_name(payload.get("tool_name", "")), inp, cwd,
                                "cursor") if under(cwd) and not quiet else None)
-        text = "\n".join(t for t in (notice, reinforce, advice) if t)
+        # the opt-in taste note for the first write to this file type
+        # (hooks/tezgah_taste.write_note)
+        taste = (write_note(session_id, inp, cwd, gate_name(payload.get("tool_name", "")))
+                 if under(cwd) and not call_failed(payload) else None)
+        text = "\n".join(t for t in (notice, reinforce, advice, taste) if t)
         out = {"additional_context": text} if text else {}
     elif event == "postToolUseFailure":
         if kind:

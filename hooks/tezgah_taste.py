@@ -181,16 +181,41 @@ def note_write(session_id, row_id, inp, cwd, host=None):
         pass
 
 
+def write_note(session_id, inp, cwd, tool=None):
+    """The in-scope taste learnings for the first write to a file type in a
+    session (`tezgah_taste_ledger.write_note`), or "". Every host's post-tool
+    channel carries it beside its other notices; off, it costs the marker stat.
+    `tool` is the call's tool name; a call that is not a write gets nothing."""
+    try:
+        if not armed(ARM) or not isinstance(inp, dict) or inp.get("command") == "view" \
+                or (tool is not None and str(tool).lower() not in ti.WRITE_TOOLS):
+            return ""
+        from tezgah_gate import write_paths
+        paths = write_paths(inp)
+        root = enabled(cwd)
+        rel = _rel(root, paths[0], cwd) if root and paths else None
+        if rel is None:
+            return ""
+        import tezgah_taste_ledger
+        return tezgah_taste_ledger.write_note(root, session_id, rel)
+    except Exception:
+        return ""
+
+
 def main(argv):
-    """`tezgah_taste.py '<json>'`: `note_write` for a host that cannot call it
-    in process (opencode's plugin is JavaScript). The one argument is
-    {"session_id", "id", "input", "cwd", "host"}. Silent, exit 0 always."""
+    """`tezgah_taste.py '<json>'`: `note_write`, then `write_note`, for a host
+    that cannot call them in process (opencode's plugin is JavaScript). The one
+    argument is {"session_id", "id", "input", "cwd", "host"}. Prints the note
+    (nothing when there is none); exit 0 always."""
     try:
         payload = json.loads(argv[0]) if argv else {}
         if isinstance(payload, dict):
+            cwd = payload.get("cwd") or os.getcwd()
             note_write(payload.get("session_id"), payload.get("id"),
-                       payload.get("input"), payload.get("cwd") or os.getcwd(),
-                       payload.get("host"))
+                       payload.get("input"), cwd, payload.get("host"))
+            note = write_note(payload.get("session_id"), payload.get("input"), cwd)
+            if note:
+                print(note)
     except Exception:
         pass
     return 0

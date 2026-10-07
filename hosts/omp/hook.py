@@ -63,6 +63,7 @@ try:
         SUBAGENT_CHANNEL, bind_session, note, note_tool, stop_reason, untrusted_label,
         untrusted_source)
     from tezgah_paths import off, root_for  # noqa: E402
+    from tezgah_taste import write_note  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
 except Exception as exc:
     import_failed(exc)
@@ -246,6 +247,11 @@ def handle(payload):
         # deny: the bridge puts it in front of the content itself, so the model
         # reads where the text came from - or, on an effect after such a read,
         # the taint notice - while it reads the result.
+        # the opt-in taste note for the first write to this file type
+        # (hooks/tezgah_taste.write_note) rides the same label
+        taste = (safe(session_id, write_note, session_id, inp, cwd, tool)
+                 if failed is not True else None)
+        label = "\n".join(t for t in (label, taste) if t)
         if label:
             out["label"] = label
         return out

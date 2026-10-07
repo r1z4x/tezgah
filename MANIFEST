@@ -144,6 +144,7 @@ hooks/tezgah_stack.py
 hooks/tezgah_stopspec.py
 hooks/tezgah_task.py
 hooks/tezgah_taste.py
+hooks/tezgah_taste_ledger.py
 hooks/tezgah_untrusted.py
 hooks/tezgah_update.py
 hosts/codex/hook.py
@@ -752,6 +753,7 @@ tests/test_switch_latching.py
 tests/test_task.py
 tests/test_taste.py
 tests/test_taste_cli.py
+tests/test_taste_ledger.py
 tests/test_tezgah_mcp_wiring.py
 tests/test_triage.py
 tests/test_untrusted.py

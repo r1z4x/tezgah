@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""tezgah-taste - mine and measure the coding-taste signals in local sessions.
+"""tezgah-taste - mine, measure, learn and apply the coding-taste signals.
 
   tezgah-taste mine [--host omp|claude|all] [--root DIR] [--stats] [--out FILE]
   tezgah-taste measure --samples FILE --labels FILE [--model M] [--json]
   tezgah-taste rate --in MINED [--limit N] [--json]
+  tezgah-taste learn [--repo DIR] [--from-transcripts] [--host omp|claude|all]
+                     [--limit N] [--json]
+  tezgah-taste list [--repo DIR] [--all] [--json]
+  tezgah-taste show|accept|reject ID [--repo DIR]
+  tezgah-taste edit ID --text TEXT [--repo DIR]
+  tezgah-taste export [--repo DIR]
+  tezgah-taste label [ID LABEL] [--n N] [--repo DIR]
+  tezgah-taste calibrate|gate [--repo DIR] [--json]
 
 `mine` reads the session transcripts on this machine - omp's top-level session
 files under `~/.omp/agent/sessions/*/` (a nested file is a subagent session) and
@@ -25,13 +33,36 @@ writing-turn prompt, per repo and overall. Both send the sample text to the
 judge's provider (`hooks/tezgah_judge.py` names it); with no credential or
 `judge-off` set they send nothing and exit 2.
 
+`learn` is taste-1's pipeline on tezgah (research line taste-architecture,
+design T1P). Each prompt after a writing turn - from the capture rows in
+`<repo>/.tezgah/taste/signals.jsonl`, or with `--from-transcripts` from this
+repository's omp and Claude transcripts - becomes one structured signal built by
+code: the prompt, the files written, the agent's edits and the user's own edit
+between two agent writes. One typed decision per signal, required from TypeSafe
+(`only=("typesafe",)`): preference, defect or none; the category; the scope; and
+how it relates to each learning held. A decision any other provider gave is
+recorded `unverified` and never applied. A defect goes to `defects.jsonl`, never
+into the ledger. The ledger itself is `hooks/tezgah_taste_ledger.py`. A
+learning that becomes active gets one readable line from a generative provider
+(a `text` question; the user's own words when none answers).
+
+`list`, `show`, `accept`, `reject` and `edit` are the user's control; `export`
+writes the accepted learnings into AGENTS.md. `label` draws an independent
+random sample of decided signals for the user to label, `calibrate` prints the
+Clopper-Pearson bound a rule needs, and `gate` runs the pooled before/after test
+that stops injection when the corrections do not fall.
+
 Exit codes: 0 done, 2 misuse or no judge.
 """
 import argparse
 import datetime
+import difflib
 import glob
+import hashlib
 import json
 import os
+import random
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -39,6 +70,7 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_judge  # noqa: E402
 import tezgah_models  # noqa: E402
+import tezgah_taste_ledger as tl  # noqa: E402
 
 WRITE_TOOLS = {"omp": {"edit", "write"},
                "claude": {"Edit", "Write", "MultiEdit", "NotebookEdit"}}
@@ -282,7 +314,7 @@ def read_jsonl(path):
         raise SystemExit(misuse("cannot read %s: %s" % (path, exc)))
 
 
-def classify(texts, model):
+def classify(texts, model, only=None):
     """One label per text (None when the judge gave none) and the usage.
 
     The rule rides the state, so each request pays for it once and the
@@ -294,7 +326,7 @@ def classify(texts, model):
                                  "instructions": "Label this prompt under the rule "
                                                  "in the state:\n" + ti.redact(text)}
                      for i, text in enumerate(chunk)}
-        result = tezgah_judge.ask(RULE, questions, model=model, timeout=120)
+        result = tezgah_judge.ask(RULE, questions, model=model, timeout=120, only=only)
         if result is not None:
             tokens_in += result["usage"]["input_tokens"]
             tokens_out += result["usage"]["output_tokens"]
@@ -336,7 +368,8 @@ def cmd_measure(args):
         return misuse("no sample joins a label on (set, n)")
     if not tezgah_judge.available():
         return misuse("no judge: no credential resolves or judge-off is set; nothing sent")
-    got, usage = classify([text for text, _gold in pairs], args.model)
+    got, usage = classify([text for text, _gold in pairs], args.model,
+                          only=("typesafe",) if args.typed else None)
     confusion = {g: {p: 0 for p in CLASSES} for g in CLASSES}
     unjudged = 0
     for (_text, gold), pred in zip(pairs, got):
@@ -396,6 +429,400 @@ def cmd_rate(args):
     print(usage_line(usage))
     return 0
 
+# ------------------------------------------------------------ learn, apply ----
+
+SCOPE_CRITERIA = {
+    "path": "only files under the directory the agent wrote",
+    "language": "files of the language or extension the agent wrote",
+    "repository": "everything in this repository",
+    "user": "every repository this user works in"}
+RELATION_CRITERIA = {
+    "supports": "the prompt asks for the same preference as this learning",
+    "contradicts": "the prompt asks for the opposite of this learning",
+    "narrows": "the prompt keeps this learning but makes an exception for a narrower place",
+    "unrelated": "the prompt is about something else"}
+CATEGORY_CRITERIA = {c: c.replace("-", " ") for c in tl.CATEGORIES}
+HELD_MAX = 30
+DIFF_MAX = 1500
+
+
+def repo_root(path):
+    out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else None
+
+
+def sig_id(*parts):
+    return hashlib.sha1("\0".join(str(p) for p in parts).encode()).hexdigest()[:12]
+
+
+def _snapshots():
+    """{absolute path: [(ts, id, after)]} over the snapshot store, oldest first."""
+    import tezgah_snapshot as ts
+    out = {}
+    for d in ts._dirs():
+        try:
+            with open(os.path.join(d, "meta.json"), encoding="utf-8") as fh:
+                meta = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(meta, dict) and meta.get("path"):
+            out.setdefault(meta["path"], []).append(
+                (int(meta.get("ts") or 0), os.path.basename(d), bool(meta.get("after"))))
+    for rows in out.values():
+        rows.sort()
+    return out
+
+
+def _read_blob(sid):
+    import tezgah_snapshot as ts
+    try:
+        with open(ts._blob(sid), "rb") as fh:
+            return fh.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
+def user_diff(repo, rel, after_sid, snaps):
+    """The user's own change to `rel` after the agent's write: the after-blob
+    against the pre-write bytes of the next agent write to it, or against the
+    file on disk when none came. "" when nothing changed in between."""
+    after = _read_blob(after_sid)
+    if after is None:
+        return ""
+    apath = os.path.realpath(os.path.join(repo, rel))
+    rows = snaps.get(apath) or []
+    mine = next((t for t, sid, _a in rows if sid == after_sid), None)
+    later = next((sid for t, sid, a in rows if mine is not None and t >= mine
+                  and not a and sid != after_sid), None)
+    if later:
+        now = _read_blob(later)
+    else:
+        try:
+            with open(apath, encoding="utf-8", errors="replace") as fh:
+                now = fh.read()
+        except OSError:
+            return ""
+    if now is None or now == after:
+        return ""
+    diff = "".join(difflib.unified_diff(after.splitlines(True), now.splitlines(True),
+                                        "agent/" + rel, "user/" + rel, n=1))
+    return ti.redact(diff)[:DIFF_MAX]
+
+
+def capture_signals(repo):
+    """One signal per prompt that followed a writing turn, from the capture rows."""
+    snaps, turns, out = None, {}, []
+    for row in tl.rows(os.path.join(tl.store_dir(repo), "signals.jsonl")):
+        session = row.get("session") or ""
+        turn = turns.setdefault(session, {"edits": [], "after": []})
+        if row.get("kind") == "edit":
+            turn["edits"].append(row)
+        elif row.get("kind") == "after":
+            turn["after"].append(row)
+        elif row.get("kind") == "prompt":
+            if turn["edits"]:
+                if snaps is None:
+                    snaps = _snapshots()
+                diffs = [d for d in (user_diff(repo, a.get("path"), a.get("snapshot"), snaps)
+                                     for a in turn["after"] if a.get("path")) if d]
+                out.append({
+                    "id": sig_id(session, row.get("ts"), row.get("text")),
+                    "session": session, "text": row.get("text") or "",
+                    "paths": sorted({e.get("path") for e in turn["edits"] if e.get("path")}),
+                    "edits": [(e.get("path"), (e.get("old") or "")[:300],
+                               (e.get("new") or "")[:300]) for e in turn["edits"][-4:]],
+                    "diffs": diffs})
+            turns[session] = {"edits": [], "after": []}
+    return out
+
+
+def _call_path(args):
+    for key in ("path", "file_path", "notebook_path"):
+        if isinstance(args.get(key), str):
+            return args[key]
+    return None
+
+
+def transcript_signals(repo, host):
+    """The same signals from this repository's top-level host transcripts: the
+    prompt and the files written; no edit text or user diff (the history
+    bootstrap, Command Code's `/learn-taste`)."""
+    out = []
+    for name in (("omp", "claude") if host == "all" else (host,)):
+        for path, cwd in sessions(name, os.path.dirname(repo)):
+            if cwd != repo and not cwd.startswith(repo + os.sep):
+                continue
+            session = session_id(name, path)[0] or os.path.basename(path)
+            written, n = [], 0
+            for event in HOSTS[name][2](path, calls=True):
+                if event[0] == "call" and event[1] in WRITE_TOOLS[name]:
+                    target = _call_path(event[2])
+                    if target:
+                        rel = os.path.relpath(os.path.join(cwd, target), repo)
+                        if not rel.startswith(".."):
+                            written.append(rel)
+                elif event[0] == "write":
+                    n += 1
+                elif event[0] == "user":
+                    if n and not harness_prompt(event[1]):
+                        text = ti.redact(event[1])[:CUT]
+                        out.append({"id": sig_id(name, session, len(out), text),
+                                    "session": session, "text": text,
+                                    "paths": sorted(set(written)), "edits": [], "diffs": []})
+                    written, n = [], 0
+    return out
+
+
+def held(ledgers):
+    """The learnings a new signal is compared against: every one not retired,
+    the most supported first, capped so one call stays one call."""
+    alive = [v for v in tl.every(ledgers).values() if v["state"] != "retired"]
+    alive.sort(key=lambda v: -v.get("r", 0.0))
+    return alive[:HELD_MAX]
+
+
+def decision_request(sig, learnings):
+    state = ["A user prompt that followed a turn in which a coding agent wrote files.",
+             "Prompt: " + ti.redact(sig["text"])[:CUT]]
+    if sig["paths"]:
+        state.append("Files the agent wrote: " + ", ".join(sig["paths"][:12]))
+    for path, old, new in sig.get("edits") or ():
+        state.append("Agent edit to %s:\n- %s\n+ %s" % (path, ti.redact(old), ti.redact(new)))
+    for diff in sig.get("diffs") or ():
+        state.append("The user's own edit after the agent's write:\n" + diff)
+    questions = {
+        "kind": {"type": "choice", "instructions": RULE, "criteria": CRITERIA},
+        "category": {"type": "choice", "criteria": CATEGORY_CRITERIA,
+                     "instructions": "If the prompt states a coding preference, which "
+                                     "category does it belong to?"},
+        "scope": {"type": "choice", "criteria": SCOPE_CRITERIA,
+                  "instructions": "Where should this preference apply, judging only from "
+                                  "what the prompt says?"}}
+    for learning in learnings:
+        questions["rel_" + learning["id"]] = {
+            "type": "choice", "criteria": RELATION_CRITERIA,
+            "instructions": "How does the prompt relate to this learning (%s, %s): %s"
+                            % (learning["category"], learning["scope"],
+                               " ".join(learning["text"].split())[:300])}
+    return "\n\n".join(state), questions
+
+
+def picked(result, qid, default):
+    choice = tezgah_judge.choice(result, qid)
+    if choice is None:
+        return default, 0.0
+    p = tezgah_judge.noul(result, qid, choice)
+    return choice, (p if p is not None else 0.5)
+
+
+def decide(sig, learnings):
+    """(decision, result): the typed decision, TypeSafe required; when it cannot
+    answer, the seam's own providers, recorded unverified."""
+    state, questions = decision_request(sig, learnings)
+    result = tezgah_judge.ask(state, questions, only=("typesafe",), timeout=60)
+    if result is None:
+        result = tezgah_judge.ask(state, questions, timeout=120)
+    if result is None:
+        return None, None
+    dec = {"kind": picked(result, "kind", "none"),
+           "category": picked(result, "category", ""),
+           "scope": picked(result, "scope", "repository"),
+           "relations": {lr["id"]: picked(result, "rel_" + lr["id"], "unrelated")
+                         for lr in learnings},
+           "verified": result.get("provider") == "typesafe"}
+    return dec, result
+
+
+def write_line(learning):
+    """One readable line for a learning that became active, from a generative
+    provider; None when none answers (the user's own words stay)."""
+    evidence = " ".join(learning["text"].split())[:600]
+    result = tezgah_judge.ask(
+        "A user corrected a coding agent with: " + evidence,
+        {"line": {"type": "text", "instructions":
+                  "Write the coding preference this correction states as one imperative "
+                  "line for a coding agent, under 20 words. Use only what the correction "
+                  "says; add no preference it does not state."}},
+        only=("omp", "claude", "openrouter"), timeout=120)
+    return tezgah_judge.text(result, "line")
+
+
+def store_or_exit(args):
+    repo = repo_root(os.path.abspath(args.repo or os.getcwd()))
+    if not repo:
+        raise SystemExit(misuse("not inside a git repository"))
+    return repo
+
+
+def cmd_learn(args):
+    repo = store_or_exit(args)
+    if not tezgah_judge.available() and not tezgah_judge.named(("typesafe",)):
+        return misuse("no judge: no credential resolves or judge-off is set; nothing sent")
+    signals = (transcript_signals(repo, args.host) if args.from_transcripts
+               else capture_signals(repo))
+    done = {r.get("id") for r in tl.rows(os.path.join(tl.store_dir(repo), "decisions.jsonl"))
+            if r.get("provider") == "typesafe"}
+    todo = [s for s in signals if s["id"] not in done]
+    if args.limit is not None:
+        todo = todo[:args.limit]
+    ledgers = tl.load(repo)
+    before = {k for k, v in tl.every(ledgers).items() if v["state"] == "active"}
+    counts = {"signals": len(todo), "typesafe": 0, "unverified": 0, "unanswered": 0,
+              "preference": 0, "defect": 0, "none": 0}
+    tokens = [0, 0]
+    for sig in todo:
+        dec, result = decide(sig, held(ledgers))
+        if dec is None:
+            counts["unanswered"] += 1
+            continue
+        tokens[0] += result["usage"]["input_tokens"]
+        tokens[1] += result["usage"]["output_tokens"]
+        day = tl.now_day()
+        tl.append(os.path.join(tl.store_dir(repo), "decisions.jsonl"), {
+            "id": sig["id"], "day": day, "session": sig["session"],
+            "provider": result.get("provider"), "model": result.get("model"),
+            "verified": dec["verified"], "kind": dec["kind"][0], "p": dec["kind"][1],
+            "category": dec["category"][0], "scope": dec["scope"][0],
+            "relations": {k: v[0] for k, v in dec["relations"].items() if v[0] != "unrelated"},
+            "text": ti.redact(sig["text"])[:300], "paths": sig["paths"][:8]})
+        if not dec["verified"]:
+            counts["unverified"] += 1
+            continue
+        counts["typesafe"] += 1
+        counts[dec["kind"][0] if dec["kind"][0] in CLASSES else "none"] += 1
+        if dec["kind"][0] == "defect":
+            tl.append(os.path.join(tl.store_dir(repo), "defects.jsonl"),
+                      {"id": sig["id"], "day": day, "session": sig["session"],
+                       "text": ti.redact(sig["text"])[:600], "paths": sig["paths"][:8]})
+        tl.apply(ledgers, sig, dec, day, applied=tl.injected(repo, sig["session"]))
+    for lid, learning in tl.every(ledgers).items():
+        if learning["state"] == "active" and lid not in before \
+                and not learning.get("written") and not learning.get("edited"):
+            line = write_line(learning)
+            if line:
+                learning.update(text=" ".join(line.split())[:400], written=True)
+    tl.save(repo, ledgers)
+    tl.markdown(repo)
+    states = {}
+    for learning in tl.every(ledgers).values():
+        states[learning["state"]] = states.get(learning["state"], 0) + 1
+    report = dict(counts, states=states, input_tokens=tokens[0], output_tokens=tokens[1],
+                  cost_usd=cost(tezgah_judge.MODEL, tokens[0], tokens[1]))
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+    print("signals %d: typesafe %d, unverified %d, unanswered %d" % (
+        counts["signals"], counts["typesafe"], counts["unverified"], counts["unanswered"]))
+    print("decided: preference %d, defect %d, none %d" % (
+        counts["preference"], counts["defect"], counts["none"]))
+    print("ledger: " + (", ".join("%s %d" % kv for kv in sorted(states.items())) or "empty"))
+    print("typed decisions: %d input tokens, $%s" % (tokens[0], report["cost_usd"]))
+    return 0
+
+
+def cmd_list(args):
+    repo = store_or_exit(args)
+    ledgers = tl.load(repo)
+    modes = {m[1]["id"]: m[0] for m in tl.usable(repo)}
+    rows = [v for v in tl.every(ledgers).values() if args.all or v["state"] != "retired"]
+    rows.sort(key=lambda v: (v["state"] != "active", -tl.confidence(v)))
+    if args.json:
+        print(json.dumps([dict(v, confidence=round(tl.confidence(v), 4),
+                               mode=modes.get(v["id"])) for v in rows], indent=2))
+        return 0
+    if not rows:
+        print("no learnings")
+        return 0
+    for v in rows:
+        print("%-6s %-11s %-4s %.2f %-10s %-17s %s" % (
+            v["id"], v["state"], modes.get(v["id"], "-"), tl.confidence(v),
+            v["scope"] + ("" if v["scope"] in ("repository", "user") else ":" + v["where"]),
+            v["category"], " ".join(v["text"].split())[:80]))
+    return 0
+
+
+def cmd_one(args):
+    repo = store_or_exit(args)
+    ledgers = tl.load(repo)
+    if args.cmd == "show":
+        learning = tl.every(ledgers).get(args.id)
+        if learning is None:
+            return misuse("no learning %s" % args.id)
+        print(json.dumps(dict(learning, confidence=round(tl.confidence(learning), 4)),
+                         indent=2, ensure_ascii=False))
+        return 0
+    if not tl.decide_user(ledgers, args.id, args.cmd, tl.now_day(),
+                          text=getattr(args, "text", None)):
+        return misuse("no learning %s" % args.id)
+    tl.save(repo, ledgers)
+    tl.markdown(repo)
+    print("%s %s" % (args.id, {"accept": "accepted", "reject": "rejected",
+                               "edit": "edited"}[args.cmd]))
+    return 0
+
+
+def cmd_export(args):
+    repo = store_or_exit(args)
+    print("AGENTS.md: %d accepted learning(s)" % tl.export_agents(repo))
+    return 0
+
+
+def cmd_label(args):
+    """With ID and LABEL, record the user's label; without, print a random
+    sample of unlabelled typed decisions - drawn without regard to what was
+    injected, so the calibration bound rests on an unselected sample."""
+    repo = store_or_exit(args)
+    store = tl.store_dir(repo)
+    decided = {r["id"]: r for r in tl.rows(os.path.join(store, "decisions.jsonl"))
+               if r.get("provider") == "typesafe" and r.get("id")}
+    labelled = {r.get("id") for r in tl.rows(os.path.join(store, "labels.jsonl"))}
+    if args.id:
+        if args.label not in CLASSES:
+            return misuse("label is one of %s" % ", ".join(CLASSES))
+        row = decided.get(args.id)
+        if row is None:
+            return misuse("no typed decision %s" % args.id)
+        tl.append(os.path.join(store, "labels.jsonl"),
+                  {"id": args.id, "label": args.label, "decided": row.get("kind"),
+                   "provider": row.get("provider"), "day": tl.now_day()})
+        print("%s labelled %s (decided %s)" % (args.id, args.label, row.get("kind")))
+        return 0
+    pool = sorted(i for i in decided if i not in labelled)
+    for i in random.Random().sample(pool, min(args.n, len(pool))):
+        print("%s  %s" % (i, " ".join(decided[i].get("text", "").split())[:200]))
+    print("label each: tezgah-taste label <id> preference|defect|none")
+    return 0
+
+
+def cmd_calibrate(args):
+    repo = store_or_exit(args)
+    x, n, bound = tl.calibration(repo)
+    report = {"agree": x, "labelled_preference_decisions": n, "bound": round(bound, 4),
+              "rules_allowed": bound >= tl.BOUND_AT}
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print("preference precision %d/%d, Clopper-Pearson 95%% lower bound %.4f: %s" % (
+            x, n, bound, "rules allowed" if report["rules_allowed"]
+            else "hints only (a rule needs >= %.1f)" % tl.BOUND_AT))
+    return 0
+
+
+def cmd_gate(args):
+    repo = store_or_exit(args)
+    report = tl.gate(repo)
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+    b, a = report["before"], report["after"]
+    print("before: %d/%d preference per writing turn; after: %d/%d; one-sided p %s; "
+          "need %d per arm; injection %s" % (
+              b["preference"], b["turns"], a["preference"], a["turns"], report["p"],
+              report["need"], "STOPPED" if report["stopped"] else "on"))
+    return 0
+
+
 
 def main(argv):
     parser = argparse.ArgumentParser(prog="tezgah-taste", description=__doc__,
@@ -411,12 +838,41 @@ def main(argv):
     measure.add_argument("--labels", required=True)
     measure.add_argument("--model", default=tezgah_judge.MODEL)
     measure.add_argument("--json", action="store_true")
+    measure.add_argument("--typed", action="store_true",
+                         help="require TypeSafe (the decision T1P's ledger trusts)")
     rate = sub.add_parser("rate")
     rate.add_argument("--in", dest="inp", required=True)
     rate.add_argument("--limit", type=int)
     rate.add_argument("--json", action="store_true")
+    learn = sub.add_parser("learn")
+    learn.add_argument("--from-transcripts", action="store_true")
+    learn.add_argument("--host", choices=("omp", "claude", "all"), default="all")
+    learn.add_argument("--limit", type=int)
+    listing = sub.add_parser("list")
+    listing.add_argument("--all", action="store_true")
+    for name in ("show", "accept", "reject", "edit"):
+        one = sub.add_parser(name)
+        one.add_argument("id")
+        if name == "edit":
+            one.add_argument("--text", required=True)
+    sub.add_parser("export")
+    label = sub.add_parser("label")
+    label.add_argument("id", nargs="?")
+    label.add_argument("label", nargs="?")
+    label.add_argument("--n", type=int, default=10)
+    sub.add_parser("calibrate")
+    sub.add_parser("gate")
+    for name, p in sub.choices.items():
+        if name not in ("mine", "measure", "rate"):
+            p.add_argument("--repo")
+            if name in ("learn", "list", "calibrate", "gate"):
+                p.add_argument("--json", action="store_true")
     args = parser.parse_args(argv[1:])
-    return {"mine": cmd_mine, "measure": cmd_measure, "rate": cmd_rate}[args.cmd](args)
+    return {"mine": cmd_mine, "measure": cmd_measure, "rate": cmd_rate,
+            "learn": cmd_learn, "list": cmd_list, "show": cmd_one, "accept": cmd_one,
+            "reject": cmd_one, "edit": cmd_one, "export": cmd_export,
+            "label": cmd_label, "calibrate": cmd_calibrate,
+            "gate": cmd_gate}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -919,6 +919,7 @@ if os.environ.get("FAKE_CLI_FAIL"):
     sys.exit(1)
 asked = json.loads(sys.argv[-1])["questions"]
 answers = {q: ({"noul": 0.9} if spec["type"] == "noul" else
+               {"text": "Prefer pathlib over os.path."} if spec["type"] == "text" else
                {"choice": sorted(spec["criteria"])[0], "confidence": 0.9})
            for q, spec in asked.items()}
 text = "```json\n" + json.dumps({"answers": answers}) + "\n```"
@@ -1039,6 +1040,28 @@ class SessionFirst(JudgeCase):
             env=dict(os.environ, HOME=self.home))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("omp/anthropic/claude-opus-5-5", proc.stdout)
+
+    def test_only_asks_the_named_provider_and_skips_the_session_cli(self):
+        out = self.ask(only=("typesafe",))
+        self.assertEqual(out["provider"], "typesafe")
+        self.assertEqual(self.calls(), [], "the session CLI was asked")
+        self.assertEqual(len(Fake.seen), 1)
+        self.assertIsNone(out["fallback"])
+        self.assertEqual(self.said, [], "a named provider was announced as a fallback")
+
+    def test_only_never_reaches_a_third_party_under_fallback_none(self):
+        self.fallback("none")
+        self.assertIsNone(self.ask(only=("typesafe",)))
+        self.assertEqual(Fake.seen, [])
+
+    def test_a_text_question_is_never_sent_to_typesafe(self):
+        asked = {"rule": {"type": "text", "instructions": "One line."}}
+        self.assertIsNone(self.ask(questions=asked, only=("typesafe",)))
+        self.assertEqual(Fake.seen, [], "a text question went to TypeSafe")
+        out = self.ask(questions=asked, only=("typesafe", "omp"))
+        self.assertEqual(out["provider"], "omp")
+        self.assertEqual(tezgah_judge.text(out, "rule"), "Prefer pathlib over os.path.")
+        self.assertEqual(Fake.seen, [])
 
 
 if __name__ == "__main__":

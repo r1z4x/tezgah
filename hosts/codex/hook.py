@@ -34,6 +34,7 @@ try:
         SUBAGENT_CHANNEL, bind_session, changed_files_notice, note_tool, ran_nothing,
         report_bytes, stop_reason, untrusted_source)
     from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
+    from tezgah_taste import write_note  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
 except Exception as exc:
     import_failed(exc)
@@ -200,7 +201,11 @@ def main():
         # carries a deny and nothing else.
         advice = (safe(session_id, graph_advice, tool, inp, cwd, "codex")
                   if root_for(cwd) else None)
-        notice = "\n".join(p for p in (notice, advice) if p)
+        # the opt-in taste note for the first write to this file type
+        # (hooks/tezgah_taste.write_note), on the same channel
+        taste = (safe(session_id, write_note, session_id, inp, cwd, tool)
+                 if root_for(cwd) and not verify_outcome(payload) else None)
+        notice = "\n".join(p for p in (notice, advice, taste) if p)
         if notice:
             # Codex's PostToolUse output carries `additionalContext` with the
             # result - the field is part of its own hook output schema

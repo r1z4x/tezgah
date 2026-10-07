@@ -26,6 +26,7 @@ try:
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, note_tool, ran_nothing, report_bytes, untrusted_source)
     from tezgah_paths import root_for  # noqa: E402
+    from tezgah_taste import write_note  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
 except Exception as exc:
     import_failed(exc)
@@ -139,6 +140,12 @@ def main():
          # empty-run contract (tezgah_integrity.EMPTY_RUN)
          empty_run=ran_nothing(result),
          agent=agent)
+    # the opt-in taste note: the learnings in scope for the first write to this
+    # file type in the session (hooks/tezgah_taste.write_note), beside the
+    # provenance line rather than instead of it
+    if event == "PostToolUse" and not failed:
+        notice = "\n".join(t for t in (notice, safe(session_id, write_note, session_id,
+                                                     inp, cwd, tool)) if t)
     if notice:
         json.dump({"hookSpecificOutput": {
             "hookEventName": event,

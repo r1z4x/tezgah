@@ -1412,7 +1412,7 @@ DEFAULT_BUDGET = 13000
 # spend them would turn bloat into rule loss - which is the failure the budget
 # exists to prevent, not one it may cause.
 DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
-              "plans", "subagents", "steer", "orca", "consult", "research",
+              "taste", "plans", "subagents", "steer", "orca", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate", "index",
               "resume", "scratch", "task", "delta", "pointer")
 
@@ -2188,6 +2188,18 @@ def context_for(event, cwd, payload=None, with_core=True):
                     recent = lesson_lines(root)[-LESSON_LINES:]
                     injected = list(zip(recent, _lesson_shown(
                         recent, tainted_lessons(root))))
+        # The opt-in taste learnings (hooks/tezgah_taste_ledger.block): the
+        # active ones as rules or hints, read from the ledger with no call out;
+        # off, `enabled` costs the marker stat.
+        taste_root = tezgah_taste.enabled(cwd) if tezgah_taste else None
+        if taste_root:
+            try:
+                import tezgah_taste_ledger
+                taste = tezgah_taste_ledger.block(taste_root, session_of(payload))
+            except Exception:
+                taste = ""
+            if taste:
+                parts.append(("taste", taste))
         broken = tezgah_research.failing(root) if not off("research-off") else []
         if broken:
             line_slug, err = broken[0]

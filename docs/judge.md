@@ -28,11 +28,14 @@ A session CLI answers in 4-10 s (measured 2026-10-07), so the skill hint's
 4 s deadline usually ends first. `TEZGAH_TYPESAFE_URL`, `TEZGAH_OPENROUTER_URL`
 and `TEZGAH_OMP_BIN`/`TEZGAH_CLAUDE_BIN` are the test seams.
 
-Every caller reads an answer through the same two accessors rather than reaching
+Every caller reads an answer through the same accessors rather than reaching
 into the raw reply, so a Choice and a Noul are read one way for all five
 (`choice`, `hooks/tezgah_judge.py::choice`; `noul`,
-`hooks/tezgah_judge.py::noul`). Both are total: a missing or wrongly-typed
-answer is a `None`, never an exception.
+`hooks/tezgah_judge.py::noul`). A `text` question is the one shape that asks
+for prose. `bin/tezgah-taste` asks it for a learning's readable line, and only
+a generative provider answers one. TypeSafe is never sent one (`text`,
+`hooks/tezgah_judge.py::text`). All three are total: a missing or
+wrongly-typed answer is a `None`, never an exception.
 
 A judgement is an aid, never the claim. It ranks units or names a page; the agent
 still reads the selected refs and owns the finding, and the ledger's step kinds
@@ -69,7 +72,7 @@ why its redaction is not optional. The switches below are the off buttons.
 | `bin/tezgah-docs` | the docs page fallback: only when the keyword index placed nothing, one Choice over the pages with `none` offered (`judge_pick`, `bin/tezgah-docs::judge_pick`; the question wording is `ASK`, `bin/tezgah-docs::ASK`) | reads as no judgement; with none (no credential, `judge-off`, `docs-judge-off`, or a call that failed or came back without one of its options) the pages are ranked by shared words instead (`ranked`, BM25 in `hooks/tezgah_rank.py` over each page's title and answers and their Turkish phrasings) and the top three printed; a query sharing no word with any page, or a judged `none`, exits 1. With the opt-in embedding feature on, the ranking is fused with a static embedding (`hooks/tezgah_embed.py`), which places every page, so only a judged `none` exits 1 |
 | `hooks/tezgah_skill_pick.py` | the prompt-path skill hint: a Choice over the roster skills plus one Noul (`judge`, `hooks/tezgah_skill_pick.py::judge`, with the criteria cut from each skill's own clauses, `clause`, `hooks/tezgah_skill_pick.py::clause`), behind a threshold (`GATE`, `hooks/tezgah_skill_pick.py::GATE`), one attempt and a 4 s wall-clock deadline (`ASK_DEADLINE`, `hooks/tezgah_skill_pick.py::ASK_DEADLINE`), the prompt redacted and cut at 2,000 characters | returns `""`; the turn loses the hint |
 | `bin/tezgah-route` | the tier router: after the deterministic overrides, one Choice over the three tiers for a delegation brief (`route`, `hooks/tezgah_models.py::route`; `TIER_QUESTION`, `hooks/tezgah_models.py::TIER_QUESTION`) - see [models](models.md) | the static phase table, else the middle tier |
-| `bin/tezgah-taste` | the coding-taste measurement: `measure` and `rate` label the prompts a user sent after a writing turn, one Choice per prompt batched into one request, each prompt redacted first (`classify`, `bin/tezgah-taste::classify`) | with no credential or `judge-off` it exits 2 before any request; a failed call leaves its prompts unlabelled |
+| `bin/tezgah-taste` | the coding-taste measurement and learning: `measure` and `rate` label the prompts a user sent after a writing turn, one Choice per prompt batched into one request, each prompt redacted first (`classify`, `bin/tezgah-taste::classify`). `learn` asks one typed decision per signal and requires TypeSafe (`decide`, `bin/tezgah-taste::decide`). For a learning that turns active it asks one `text` question of a generative provider (`write_line`, `bin/tezgah-taste::write_line`) | with no credential or `judge-off` it exits 2 before any request. A failed call leaves its prompts unlabelled. A decision another provider gave is recorded `unverified` and never applied. A missing line keeps the user's own words |
 
 The third caller is the one no shell row can see: it runs on the prompt path,
 caches one answer per `(session, prompt)` (`_remember`,
@@ -113,6 +116,12 @@ not. That answer, and a refusal with its failures, is said on stderr as one
 `tezgah-judge:` line. It is also kept as the last-use record (`_record`,
 `hooks/tezgah_judge.py::_record`), which `tezgah-status --judge` prints. The skill
 hint's cost row and the router's `route` row also carry `judge=<provider>/<model>`.
+
+A caller that needs one provider in particular passes `only` (`named`,
+`hooks/tezgah_judge.py::named`). `learn`'s decision has to come from a typed
+model, so it passes `only=("typesafe",)`. It gets `None` rather than another
+provider's answer. The caller named the provider, so the `vendor` order does not
+apply. `none` still keeps every third party out.
 
 ## The switches
 

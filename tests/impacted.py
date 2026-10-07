@@ -63,8 +63,13 @@ OVERRIDES = {
     "tezgah_rank": ("context", "docs_router", "embed"),
     # the opt-in fusion both of those call, and the registry rows that probe it
     "tezgah_embed": ("context", "docs_router", "apps_registry"),
-    # the opt-in taste capture the prompt path, note_tool and the snapshot store call
-    "tezgah_taste": ("context", "integrity", "snapshot", "opencode_plugin"),
+    # the opt-in taste capture the prompt path, note_tool and the snapshot store
+    # call, and the write note every host's post-tool channel carries
+    "tezgah_taste": ("context", "integrity", "snapshot", "opencode_plugin",
+                     "taste_ledger", "codex_hook", "cursor_hook", "omp_hook",
+                     "dsh_hooks"),
+    # the taste ledger the session block, the write note and the CLI read
+    "tezgah_taste_ledger": ("taste", "taste_cli", "context"),
 }
 # a change only in these maps to only these modules
 DOC_TARGETS = ("test_docs.py", "test_docs_router.py", "test_clarity.py")

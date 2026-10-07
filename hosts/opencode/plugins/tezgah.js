@@ -1266,9 +1266,10 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   // hooks/tezgah_taste.note_write in process, and this host writes its edit row
   // here, so the same call goes to that module through a process. The marker
   // lives where the kill switches do (tezgah_paths.armed), so off it costs two
-  // stats and spawns nothing.
+  // stats and spawns nothing. The process prints the taste note for the first
+  // write to this file type (tezgah_taste.write_note), returned to the caller.
   if (kind === "edit" && row.exit !== 1 && off("taste-on")) {
-    await noteTaste(sessionID, row.id, args, cwd)
+    return await noteTaste(sessionID, row.id, args, cwd)
   }
 }
 
@@ -2383,7 +2384,8 @@ function noteTaste(sessionID, id, args, cwd) {
   } catch { return undefined }
   return collect([script, JSON.stringify({
     session_id: sessionID, id, input: args, cwd, host: "opencode" })],
-  { stdio: "ignore" }, null, () => undefined)
+  { stdio: ["ignore", "pipe", "ignore"] }, null,
+  (code, out) => (code === 0 && out.trim() ? out.trim() : undefined))
 }
 
 export const Tezgah = async ({ directory }) => {
@@ -2736,8 +2738,9 @@ export const Tezgah = async ({ directory }) => {
         if (notice) labelResult(output, notice)
         const kind = await classify(tool, args)
         if (kind) await record(sessionID, kind)
-        await recordEvidence(sessionID, tool, args, output, workspace, dir,
-                             own || inherited)
+        const taste = await recordEvidence(sessionID, tool, args, output, workspace,
+                                           dir, own || inherited)
+        if (taste) labelResult(output, taste)
       } catch {}
     },
 

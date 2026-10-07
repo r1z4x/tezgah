@@ -6,6 +6,7 @@ recall the CLI prints are checked against arithmetic done here by hand.
 """
 import json
 import os
+import subprocess
 import sys
 import threading
 import unittest
@@ -267,6 +268,181 @@ class Judged(support.TempHome):
             self.assertEqual(proc.returncode, 2, proc.stdout)
             self.assertIn("no judge", proc.stderr)
         self.assertEqual(Labeller.seen, [])
+
+
+class Decider(BaseHTTPRequestHandler):
+    """TypeSafe and the chat fallback in one fake: the decision reads the state -
+    PREF is a preference, BROKEN a defect - and every learning relation is
+    `supports` for a preference. A `text` question is answered on the chat path."""
+    seen = []
+
+    def answers(self, state, questions):
+        out = {}
+        for qid, q in questions.items():
+            if q["type"] == "text":
+                out[qid] = {"text": "Name things in snake_case."}
+                continue
+            if qid == "kind":
+                pick = "preference" if "PREF" in state else "defect" if "BROKEN" in state \
+                    else "none"
+            elif qid == "category":
+                pick = "naming"
+            elif qid == "scope":
+                pick = "repository"
+            else:
+                pick = "supports" if "PREF" in state else "unrelated"
+            out[qid] = {"choice": pick, "probabilities": {pick: 0.9}}
+        return out
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        type(self).seen.append((self.path, body))
+        if self.path.endswith("/chat/completions"):
+            asked = json.loads(body["messages"][1]["content"])
+            content = json.dumps({"answers": self.answers(asked["state"], asked["questions"])})
+            reply = {"choices": [{"message": {"content": content}}],
+                     "usage": {"prompt_tokens": 5, "completion_tokens": 5}}
+        else:
+            reply = {"answers": self.answers(body["state"], body["questions"]),
+                     "usage": {"input_tokens": 100, "output_tokens": 0}}
+        out = json.dumps(reply).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+    def log_message(self, *args):
+        pass
+
+
+class Learn(support.TempHome):
+    def setUp(self):
+        super().setUp()
+        Decider.seen = []
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Decider)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        self.urls = {"TEZGAH_TYPESAFE_URL": base + "/v1/systemone",
+                     "TEZGAH_OPENROUTER_URL": base + "/v1/chat/completions"}
+        self.repo = self.make_repo("app")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        with open(os.path.join(self.repo, "a.py"), "w") as fh:
+            fh.write("x = 1\n")
+        self.store = os.path.join(self.repo, ".tezgah", "taste")
+        rows = []
+        for session, text in (("A", "PREF name it snake_case"), ("B", "PREF snake_case again"),
+                              ("B", "BROKEN the test fails"), ("C", "thanks")):
+            rows += [{"kind": "edit", "session": session, "path": "a.py",
+                      "old": "x = 1", "new": "X = 1"},
+                     {"kind": "prompt", "session": session, "text": text}]
+        jsonl(os.path.join(self.store, "signals.jsonl"), rows)
+
+    def cli(self, *args, typesafe=True, openrouter=False):
+        extra = dict(self.urls)
+        if typesafe:
+            extra["TYPESAFE_API_KEY"] = "k"
+        if openrouter:
+            extra["OPENROUTER_API_KEY"] = "o"
+        return support.run([CLI, *args, "--repo", self.repo], env=self.env(extra=extra))
+
+    def listed(self):
+        proc = self.cli("list", "--json", "--all")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def rows(self, name):
+        path = os.path.join(self.store, name)
+        if not os.path.exists(path):
+            return []
+        with open(path) as fh:
+            return [json.loads(line) for line in fh]
+
+    def test_two_sessions_of_one_preference_make_one_active_learning(self):
+        proc = self.cli("learn", "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        report = json.loads(proc.stdout)
+        self.assertEqual((report["signals"], report["typesafe"], report["preference"],
+                          report["defect"], report["none"]), (4, 4, 2, 1, 1))
+        [learning] = self.listed()
+        self.assertEqual((learning["state"], learning["category"], learning["sessions"]),
+                         ("active", "naming", ["A", "B"]))
+        self.assertEqual(learning["evidence"][0]["paths"], ["a.py"])
+        # the defect went to its own file and never into the ledger
+        [defect] = self.rows("defects.jsonl")
+        self.assertIn("BROKEN", defect["text"])
+        # every decision required TypeSafe: the chat fallback was never asked a decision
+        self.assertTrue(all(p.endswith("/v1/systemone") for p, b in Decider.seen
+                            if "kind" in b.get("questions", {})))
+        # a second run decides nothing again
+        again = json.loads(self.cli("learn", "--json").stdout)
+        self.assertEqual(again["signals"], 0)
+        with open(os.path.join(self.store, "naming", "taste.md")) as fh:
+            self.assertIn("Confidence:", fh.read())
+
+    def test_a_decision_from_another_provider_is_unverified_and_unapplied(self):
+        proc = self.cli("learn", "--json", typesafe=False, openrouter=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        report = json.loads(proc.stdout)
+        self.assertEqual((report["typesafe"], report["unverified"]), (0, 4))
+        self.assertEqual(self.listed(), [])
+        self.assertTrue(all(r["verified"] is False and r["provider"] == "openrouter"
+                            for r in self.rows("decisions.jsonl")))
+        self.assertEqual(self.rows("defects.jsonl"), [])
+
+    def test_an_activated_learning_gets_a_written_line_from_a_generative_provider(self):
+        self.cli("learn", typesafe=True, openrouter=True)
+        [learning] = self.listed()
+        self.assertEqual((learning["text"], learning["written"]),
+                         ("Name things in snake_case.", True))
+
+    def test_the_user_controls_each_learning(self):
+        self.cli("learn")
+        [learning] = self.listed()
+        lid = learning["id"]
+        self.assertEqual(self.cli("edit", lid, "--text", "Use snake_case.").returncode, 0)
+        self.assertEqual(self.cli("accept", lid).returncode, 0)
+        self.assertEqual(self.cli("export").returncode, 0)
+        with open(os.path.join(self.repo, "AGENTS.md")) as fh:
+            self.assertIn("- Use snake_case.", fh.read())
+        self.assertEqual(self.cli("reject", lid).returncode, 0)
+        self.assertEqual(self.listed()[0]["state"], "retired")
+        self.assertEqual(self.cli("show", "nope").returncode, 2)
+
+    def test_label_calibrate_and_gate(self):
+        self.cli("learn")
+        sample = self.cli("label", "--n", "2")
+        self.assertEqual(sample.returncode, 0, sample.stderr)
+        ids = [line.split()[0] for line in sample.stdout.splitlines()[:-1]]
+        self.assertEqual(len(ids), 2)
+        for row in self.rows("decisions.jsonl"):
+            if row["kind"] == "preference":
+                self.assertEqual(self.cli("label", row["id"], "preference").returncode, 0)
+        cal = json.loads(self.cli("calibrate", "--json").stdout)
+        self.assertEqual((cal["agree"], cal["labelled_preference_decisions"]), (2, 2))
+        self.assertFalse(cal["rules_allowed"])
+        self.assertEqual(self.cli("label", "nope", "preference").returncode, 2)
+        gate = json.loads(self.cli("gate", "--json").stdout)
+        self.assertEqual(gate["after"]["turns"] + gate["before"]["turns"], 4)
+        self.assertFalse(gate["stopped"])
+
+    def test_learn_from_transcripts_reads_this_repository_s_sessions(self):
+        sessions = os.path.join(self.home, ".omp", "agent", "sessions", "-app-")
+        call = {"type": "message", "message": {"role": "assistant", "content": [
+            {"type": "toolCall", "name": "edit", "arguments": {"path": "a.py"}}]}}
+        for sid in ("t1", "t2"):
+            jsonl(os.path.join(sessions, sid + ".jsonl"), [
+                '{"type":"session","id":"%s","cwd":%s}' % (sid, json.dumps(self.repo)),
+                omp_user("build it"), call, omp_tool("edit"),
+                omp_user("PREF use snake_case")])
+        proc = self.cli("learn", "--from-transcripts", "--host", "omp", "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["signals"], 2)
+        [learning] = self.listed()
+        self.assertEqual((learning["state"], learning["sessions"]), ("active", ["t1", "t2"]))
+        self.assertEqual(learning["evidence"][0]["paths"], ["a.py"])
 
 
 if __name__ == "__main__":
