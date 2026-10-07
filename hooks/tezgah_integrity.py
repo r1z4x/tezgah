@@ -506,7 +506,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
 # step row can carry this kind with no `exit` at all.
 #
 # 3: a `claim` row is written only for a reply in the claim vocabulary
-# (`claims`). A refusal of a reply that claimed nothing - work-only, or its
+# (DONE/VERIFIED). A refusal of a reply that claimed nothing - work-only, or its
 # shape - is a `refusal` row with the same detail, so `false_completion /
 # claims` counts completion claims only; and a `blocked: no verify_ok` row
 # carries `cause`. A v2 `claim` row may be either.
@@ -4164,7 +4164,7 @@ def stop_reason(text, session_id, cwd=None, record_only=False,
     nothing else.
 
     The verdict is recorded as a `claim` row when the reply is in the claim
-    vocabulary - a completion or verification word (`claims`), blocked or not,
+    vocabulary - a DONE/VERIFIED word (`asserted_claims`), blocked or not,
     or a refused claim about an external system's state (`_external_claim`) -
     and as a `refusal` row when a reply that claimed nothing was blocked - a
     work-only or a shape refusal - so `false_completion / claims` counts claims

@@ -98,7 +98,7 @@ NOT_COUNTED = (
     ("session fallbacks", "scope selector (plan 063 part 3): `_settled`, "
                           "`_bookkeeping_turn`, `_before_turn`, the idle-turn claim "
                           "fallback choose the rows, the formulas judge them"),
-    ("reply atoms", "claims, NEGATED, the external claim and the shape classes are "
+    ("reply atoms", "DONE/VERIFIED, NEGATED, the external claim and the shape classes are "
                     "constants over one trace, read off the reply, not a row"),
     ("evidence tampered", "a trace-validity guard in the selector, before the fold"),
 )

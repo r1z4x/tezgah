@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan 067's measure: the Stop rule's claim reader (`tezgah_integrity.claims`)
+"""Plan 067's measure: the false-done claim reader (`tezgah_integrity.claims`)
 against hand labels.
 
     python3 tests/claim_reader_eval.py --set e4        # dev: plan 062's 60 E4 labels
@@ -15,15 +15,29 @@ raters split on is left out. The sets live in the gitignored workspace
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(os.path.dirname(HERE), "hooks"))
+REPO = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
 
-LIVE = "/Users/rizax/Projects/tezgah/.tezgah"
-DIR = os.path.join(LIVE, "analysis", "claim-reader-heldout-2026-10")
-E4 = os.path.join(LIVE, "research", "done", "paired-outcome-arm", "experiments",
+
+def _root():
+    """The main checkout: a linked worktree shares its git dir, not its `.tezgah`."""
+    try:
+        out = subprocess.run(["git", "-C", REPO, "rev-parse", "--git-common-dir"],
+                             capture_output=True, text=True).stdout.strip()
+    except OSError:
+        out = ""
+    return os.path.dirname(os.path.join(REPO, out)) if out else REPO
+
+
+WS = tp.workspace(_root())
+DIR = os.path.join(WS, "analysis", "claim-reader-heldout-2026-10")
+E4 = os.path.join(WS, "research", "done", "paired-outcome-arm", "experiments",
                   "E4-falsedone-labels")
 
 

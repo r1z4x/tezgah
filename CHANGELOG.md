@@ -18,10 +18,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `claims` took a fix marked verified beside an unverified test as done. A
   reply that admits an open check now reads as no claim. It says the work
   lacks a check, or that a test contradicts the issue or cannot pass
-  (`hooks/tezgah_integrity.py::ADMITTED`). On the 60 hand-labelled E4 messages
-  its precision rose from 0.15 to 0.69 at recall 1.0
-  (`tests/claim_reader_eval.py`). The Stop verdict reads the plain
-  vocabulary, so no refusal changed.
+  (`hooks/tezgah_integrity.py::ADMITTED`). The rule came from the 60
+  hand-labelled E4 dev messages, where precision rose from 0.15 to 0.69 at
+  recall 1.0 (`tests/claim_reader_eval.py`). On a held-out set of 40 messages,
+  labelled by two model raters (kappa 0.565), precision rose from 0.212 to
+  0.857. Recall fell from 1.0 to 0.857 (6 of 7), below the plan's bar of 0.9.
+  The one miss is a real verification claim whose double negative read as an
+  admission. `claims` only feeds the benchmarks' false-done counts. The Stop
+  verdict reads the plain vocabulary, so no refusal changed. A false-done
+  count from before this change is not comparable with one after it.
 
 ### Changed
 
