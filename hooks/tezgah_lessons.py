@@ -17,12 +17,21 @@ import re
 
 from tezgah_paths import off
 
-# A line a gate rule or a test already enforces ends `|| enforced_by: <slug|test>`
-# and leaves the injected pool while that enforcer is armed: a gate rule slug from
-# `tezgah_gate.DENY_RULES`, or a test named from the repository root
-# (`tests.test_research.Unfinished`) that this repository still defines. An
-# unknown name keeps the line.
-ENFORCED = re.compile(r"\s*\|\|\s*enforced_by:\s*(\S+)\s*$")
+# A line carries its metadata after its text, never in it: from the first
+# `|| check:` or `|| enforced_by:` clause to the end of the line (in any order),
+# and an `@<sha> <path>` stamp just before those clauses. `parse` cuts both off
+# before anything else reads the line, so neither enters the 200-character cut,
+# `lesson_key`, the per-turn digest or the ranking. A bare `||` in the prose
+# (`pytest || true`) is text: only a clause name followed by `:` opens the tail.
+# `check` is plan 061's compiled check, which nothing reads yet.
+SUFFIX = re.compile(r"\s*\|\|\s*(?:check|enforced_by):")
+STAMP = re.compile(r"\s+@[0-9a-f]{7,40}\s+\S+$")
+# A line a gate rule or a test already enforces carries `|| enforced_by:
+# <slug|test>` and leaves the injected pool while that enforcer is armed: a gate
+# rule slug from `tezgah_gate.DENY_RULES`, or a test named from the repository
+# root (`tests.test_research.Unfinished`) that this repository still defines. An
+# unknown name keeps the line. Read off the tail `parse` cut.
+ENFORCED = re.compile(r"\|\|\s*enforced_by:\s*(\S+)\s*(?=\|\||$)")
 # A ledger written with markdown bullets must not render as "- - ...".
 BULLET = re.compile(r"^[-*+]\s+|^\d+[.)]\s+")
 
@@ -77,12 +86,25 @@ def _enforced(value, root):
     return not (DENY_RULES[value] and off(DENY_RULES[value]))
 
 
+def parse(line):
+    """(text, tail) for one ledger line - the lesson as every reader sees it, and
+    the clauses cut off its end - or None for a blank line or a `#` heading."""
+    s = line.strip()
+    if not s or s.startswith("#"):
+        return None
+    s = BULLET.sub("", s)
+    m = SUFFIX.search(s)
+    text, tail = (s[:m.start()], s[m.start():]) if m else (s, "")
+    return STAMP.sub("", text), tail
+
+
 def lines(root, retired=None):
-    """The lesson ledger as entries: one per line, markdown bullets stripped.
+    """The lesson ledger as entries: one per line, markdown bullets, the clause
+    tail and the stamp stripped (`parse`).
 
     The one reader, so every surface agrees on what is a lesson: a line whose
     enforcer is armed (ENFORCED) is left out and appended to `retired` when
-    given; one whose enforcer is off comes back without its suffix."""
+    given; one whose enforcer is off comes back without its tail."""
     try:
         with open(ledger(root), encoding="utf-8", errors="replace") as fh:
             raw = fh.read().splitlines()
@@ -90,14 +112,14 @@ def lines(root, retired=None):
         return []
     out = []
     for ln in raw:
-        s = ln.strip()
-        if not s or s.startswith("#"):
+        got = parse(ln)
+        if not got or not got[0]:
             continue
-        s = BULLET.sub("", s)
-        m = ENFORCED.search(s)
+        text, tail = got
+        m = ENFORCED.search(tail)
         if m and _enforced(m.group(1), root):
             if retired is not None:
-                retired.append(s)
+                retired.append(text)
             continue
-        out.append(s[:m.start()] if m else s)
+        out.append(text)
     return out

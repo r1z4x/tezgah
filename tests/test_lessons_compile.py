@@ -54,5 +54,69 @@ class OneModule(Reader):
             % repo), ["first rule - once", "second rule - twice"])
 
 
+PLAIN = "Never stash with nothing to stash - a pop took another session's stash"
+CHECK = " || check: argv(git stash push)"
+STAMP = " @0123abc hooks/tezgah_gate.py"
+VARIANTS = {"suffix": PLAIN + CHECK, "stamp": PLAIN + STAMP,
+            "both": PLAIN + STAMP + CHECK + " || enforced_by: nosuchrule"}
+
+
+class SuffixAndStamp(Reader):
+    """A `|| check: ...` suffix and an `@sha path` stamp are the line's metadata,
+    never its text: they enter no key, no digest, no cut and no ranking."""
+
+    def state(self, repo, ledger, *calls):
+        self.write_lessons(repo, ledger)
+        return self.child("import tezgah_context as tc\nprint(json.dumps([%s]))"
+                          % ", ".join(calls))
+
+    def test_the_key_of_a_suffixed_line_is_the_plain_key(self):
+        repo = self.make_repo()
+        for name, line in VARIANTS.items():
+            with self.subTest(name):
+                got, = self.state(repo, [line], "tc.lesson_lines(%r)" % repo)
+                self.assertEqual(got, [PLAIN])
+                self.assertEqual(tezgah_lessons.lesson_key(got[0]),
+                                 tezgah_lessons.lesson_key(PLAIN))
+
+    def test_the_digest_and_the_cut_do_not_move(self):
+        repo = self.make_repo()
+        long = PLAIN + " " + "x" * (tc.LESSON_CHARS - len(PLAIN) - 1)
+        calls = ("tc._lessons_state(%r)" % repo, "tc.lessons(%r)" % repo)
+        base = self.state(repo, ["first rule - once", long], *calls)
+        self.assertNotIn("…", base[1])
+        for name, tail in (("suffix", CHECK), ("stamp", STAMP),
+                           ("both", STAMP + CHECK)):
+            with self.subTest(name):
+                self.assertEqual(self.state(repo, ["first rule - once", long + tail],
+                                            *calls), base)
+
+    def test_a_word_only_in_the_suffix_ranks_nothing(self):
+        repo = self.make_repo()
+        recent = ["recent rule %d - shown in the session block" % i
+                  for i in range(tc.LESSON_LINES)]
+        call = "tc.relevant_lessons(%r, %%r, [])" % repo
+        got = self.state(repo, [PLAIN + " @0123abc okapi.py"
+                                + " || check: argv(zebra quagga)"] + recent,
+                         call % "zebra quagga okapi", call % "stash nothing")
+        self.assertEqual(got[0], ["", []])
+        self.assertEqual(got[1][1], [tezgah_lessons.lesson_key(PLAIN)])
+        self.assertNotIn("check:", got[1][0])
+
+    def test_enforced_by_still_retires_after_a_check(self):
+        repo = self.make_repo()
+        self.write_lessons(repo, [PLAIN + CHECK + " || enforced_by: piped", "keep"])
+        self.assertEqual(self.child(
+            "import tezgah_lessons as tl\nr = []\n"
+            "print(json.dumps([tl.lines(%r, r), len(r)]))" % repo), [["keep"], 1])
+
+    def test_a_double_pipe_in_the_prose_is_text(self):
+        repo = self.make_repo()
+        line = "Never run `pytest || true` - it hides the failure"
+        self.write_lessons(repo, [line, "a rule @notahexsha path"])
+        self.assertEqual(tezgah_lessons.lines(repo),
+                         [line, "a rule @notahexsha path"])
+
+
 if __name__ == "__main__":
     unittest.main()
