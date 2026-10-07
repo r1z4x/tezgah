@@ -17,8 +17,8 @@ host says the same thing (`hooks/tezgah_policy.py:14-15`); path placeholders
 
 | Surface | Text | Paid |
 |---|---|---|
-| always-on core | `CORE` (`hooks/tezgah_policy.py::CORE`) minus the five conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
-| conditional paragraph | one of the five keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`) | in full on the first turn of a session whose prompt matches its task class; a later match pays one line (`hooks/tezgah_context.py::armed_again`) until a compaction or `ARMED_RESURFACE` turns (`hooks/tezgah_context.py::ARMED_RESURFACE`) bring the full text back |
+| always-on core | `CORE` (`hooks/tezgah_policy.py::CORE`) minus the six conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
+| conditional paragraph | one of the six keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`) | in full on the first turn of a session whose prompt matches its task class; a later match pays one line (`hooks/tezgah_context.py::armed_again`) until a compaction or `ARMED_RESURFACE` turns (`hooks/tezgah_context.py::ARMED_RESURFACE`) bring the full text back |
 | per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py::PROMPT_REMINDER`) | every user prompt |
 | skill suggestion | one `<skill_relevance>` line naming at most one installed skill, written by `suggest` (`hooks/tezgah_skill_pick.py::suggest`); off unless `skill-suggest-on` is armed | only on a turn the judgement answers with a skill |
 | on-demand full contract | the long-form blocks of `hooks/tezgah_policy.py` (`EXEC`, `CONSULT`, `RESEARCH`, …), shipped hand-kept as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
@@ -142,23 +142,26 @@ research lines with a written flip; everything else keeps one fresh reviewer
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py::CORE_RULES`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**{REPLY_LANG}, BLUF.**` :637, `**Ponytail (minimal code).**` :645, `**Output shape:
-ADHD-friendly.**` :656, `**Deliver the whole ask; never the shortcut.**` :670,
-`**Integrity: evidence, or "doğrulanmadı".**` :684, `**Loop discipline.**` :700,
-`**Spec before building.**` :709 *(conditional)*, `**Lessons ledger: stop
-repeating mistakes.**` :723, `**Code discovery: graph first.**` :731
-*(conditional)*, `**Consult before irreversible.**` :740 *(conditional)*,
-`**Research: route it to OpenResearch.**` :756 *(conditional)*, `**Product
-analysis: five axes, one evidence class per finding.**` :772 *(conditional)*,
-`**No AI attribution, ever, on any host.**` :805, `**Identifiers and messages
-stay English.**` :815, `**Session scope: the user's repo, not tezgah.**` :821,
-`**Kill switches:**` :837. The first label renders as `**Turkish, BLUF.**` under
+`**{REPLY_LANG}, BLUF.**` :643, `**Ponytail (minimal code).**` :651, `**Output shape:
+ADHD-friendly.**` :662, `**Deliver the whole ask; never the shortcut.**` :676,
+`**Integrity: evidence, or "doğrulanmadı".**` :690, `**Loop discipline.**` :707,
+`**Spec before building.**` :716 *(conditional)*, `**Lessons ledger: stop
+repeating mistakes.**` :730, `**Code discovery: graph first.**` :738
+*(conditional)*, `**Consult before irreversible.**` :747 *(conditional)*,
+`**Research: route it to OpenResearch.**` :763 *(conditional)*, `**Product
+analysis: five axes, one evidence class per finding.**` :779 *(conditional)*,
+`**No AI attribution, ever, on any host.**` :812, `**Identifiers and messages
+stay English.**` :822, `**Session scope: the user's repo, not tezgah.**` :828,
+``**Workspace: `.tezgah/` only.**`` :837, `**Parallel by default: fan out
+independent items.**` :844 *(conditional)*,
+`**Kill switches:**` :858. The first label renders as `**Turkish, BLUF.**` under
 the default `reply_lang`.
 
-`always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the five
+`always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the six
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py::POINTERS`):
 one line each saying the rule exists and where its full text lives — spec-first,
-a second opinion, OpenResearch routing, product analysis, the code graph, and the
+a second opinion, OpenResearch routing, product analysis, the code graph, parallel
+fan-out, and the
 per-repo design contract `bin/tezgah-design` checks a UI change against (the one
 pointer with no conditional paragraph behind it, because the Stop rule's `no
 ui_ok` class is what asks for the check). That is
@@ -234,13 +237,17 @@ sentence of the rule.
 | consult | The owner removed the consent rule on 2026-09-26 ([gate.md](gate.md#what-the-gate-deliberately-does-not-catch)). The per-turn reminder carries the clause instead. |
 | research | Owner decision ADR 010 (2026-10-05): no new research rule until plan 062 reports. |
 | product | Owner decision ADR 010 (2026-10-05): no new research rule until plan 062 reports. The product rule is the research route. |
+| fanout | A refusal cannot see a serial run that should have been parallel: nothing is called that a gate could deny. The prompt-shape arming (`hooks/tezgah_context.py::PROMPT_HINTS`) and the generated specialists line are the mechanism. |
 | scope | no decision |
 
 ## Arming the conditional paragraphs, and the per-turn reminder
 
 `PROMPT_HINTS` (`hooks/tezgah_context.py::PROMPT_HINTS`) is one compiled pattern per key
-— `spec`, `consult`, `research`, `product`, `graph` — and `classify_prompt()` returns the keys
-a prompt matches (`hooks/tezgah_context.py::classify_prompt`). On that turn only, the
+— `spec`, `consult`, `research`, `product`, `graph`, `fanout` — and `classify_prompt()` returns the keys
+a prompt matches (`hooks/tezgah_context.py::classify_prompt`). `fanout` arms on the
+shape of the request, not a word. Two or more list entries on their own lines
+arm it, and so does an explicit subagent, parallel or worktree ask. The owner
+no longer has to say "do it with subagents, in parallel". On that turn only, the
 matching paragraphs are appended after the reminder
 (`hooks/tezgah_context.py::context_for`); a session that never asks such a question
 pays the one-line pointer instead. The patterns carry Turkish stems because the
@@ -300,7 +307,7 @@ a keyword match, not intent: "don't touch `verify-off`" names the switch too.
 | `verify-off` | `**Integrity: evidence…**`, and the per-turn evidence-scope line with it | `hooks/tezgah_context.py::switches`, `hooks/tezgah_context.py::context_for` |
 | `consult-off` | `**Consult before irreversible.**` | `hooks/tezgah_context.py::switches` |
 | `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py::switches` |
-| `orchestrate-off` | the orchestration section of the on-demand skill (there is no core paragraph) | `hooks/tezgah_context.py::switches` disables it, `hooks/tezgah_context.py::context_for` injects "Orchestration is off", and the skill-ignore note is `hooks/tezgah_context.py::context_for` |
+| `orchestrate-off` | `**Parallel by default: fan out independent items.**`, and the orchestration section of the on-demand skill | `hooks/tezgah_context.py::switches` drops the paragraph, `hooks/tezgah_context.py::context_for` injects "Orchestration is off" and drops the specialists line, and the skill-ignore note is `hooks/tezgah_context.py::context_for` |
 | `reminder-off` | the per-turn reminder | `hooks/tezgah_context.py::context_for` returns `None` |
 | `judge-off` | the judgement seam: the snapshot triage, the docs page fallback and the skill hint | `hooks/tezgah_judge.py::available` — `available()` is asked before any call, so an armed switch makes no request at all |
 | `triage-off` | the snapshot triage alone (`bin/tezgah-triage`), leaving the docs fallback and the skill hint armed | `bin/tezgah-triage::off_reason` — `off_reason()` answers this switch before the seam's, so the analyze-app loop reads the tree instead of paying for a judgement |

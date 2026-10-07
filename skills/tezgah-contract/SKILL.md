@@ -209,7 +209,13 @@ discovery, review, impact analysis (research goes to OpenResearch - see the
 Research section - with a host subagent only as the fallback when `orx` is
 absent). Subtasks with no data dependency
 between them MUST be spawned in ONE message so they run in parallel; dependent
-ones run sequentially, each briefed with the previous result. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. The shared artifact is the coordination channel, not chatter - naming a lead coordinates nothing by itself. If the work
+ones run sequentially, each briefed with the previous result. Fanning out is the
+default, not a favour the user has to ask for: two or more independent items -
+a list, several files or areas, todo entries that share nothing - go to one
+subagent each, and every writing slice gets its own branch and git worktree,
+briefed with absolute paths under it and never the main checkout. The
+orchestrator is the main thread itself: it does not wait idle on a slice while
+independent work remains. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. The shared artifact is the coordination channel, not chatter - naming a lead coordinates nothing by itself. If the work
 cannot be split - one file, one bounded change, a strictly serial chain - do it
 directly. Never spawn a subagent whose briefing is bigger than the work.
 Routing: `~/.config/tezgah/bin/tezgah-route "<brief>"` names the worker - tezgah-cheap, -standard or

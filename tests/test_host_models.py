@@ -193,12 +193,12 @@ class Omp(HostModels):
         # and a user's own `tezgah-*.md` must survive it
         os.makedirs(self.agents(), exist_ok=True)
         for name in ("tezgah-explorer.md", "tezgah-verifier.md",
-                     "tezgah-researcher.md", "my-agent.md", "tezgah-mine.md"):
+                     "my-agent.md", "tezgah-mine.md"):
             with open(os.path.join(self.agents(), name), "w") as fh:
                 fh.write("---\nname: x\n---\nx\n")
         self.install("omp")
         names = sorted(os.listdir(self.agents()))
-        for gone in ("tezgah-explorer.md", "tezgah-verifier.md", "tezgah-researcher.md"):
+        for gone in ("tezgah-explorer.md", "tezgah-verifier.md"):
             self.assertNotIn(gone, names)
         self.assertIn("my-agent.md", names)
         self.assertIn("tezgah-mine.md", names)

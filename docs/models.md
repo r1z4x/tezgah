@@ -20,7 +20,12 @@ and every slot a model per family (`SLOTS`, `hooks/tezgah_models.py::SLOTS`). Th
 three tier workers - `tezgah-cheap`, `tezgah-standard`, `tezgah-frontier` - are
 generated in every tezgah root because routing needs no capability (`ROLES`,
 `hooks/tezgah_agents.py::ROLES`; their brief, `_worker_body`,
-`hooks/tezgah_agents.py::_worker_body`). A cheaper worker that meets work above its tier
+`hooks/tezgah_agents.py::_worker_body`). So are the five specialists:
+`tezgah-tester`, `tezgah-docs`, `tezgah-security`, `tezgah-ui` and
+`tezgah-researcher` (`hooks/tezgah_agents.py::SPECIALISTS`). A specialist's
+description names its slot from `AGENT_SLOT`. The tier a host shows and the
+model line it runs therefore cannot disagree, and `tezgah-agents --list` prints
+both. A cheaper worker that meets work above its tier
 answers `ESCALATE: <why>`, and the router restarts the task on `tezgah-frontier`
 with the original brief rather than handing the failed trajectory up: continuing a
 cheap trajectory on a frontier model was the most expensive option measured
@@ -30,10 +35,10 @@ cheap trajectory on a frontier model was the most expensive option measured
 
 | slot | agents | anthropic | zai (omp's own provider) | openai | any (OpenRouter id) |
 |---|---|---|---|---|
-| cheap | tezgah-cheap | Opus 5.5 @low | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | GLM-5.3 Flash |
+| cheap | tezgah-cheap, tezgah-tester | Opus 5.5 @low | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | GLM-5.3 Flash |
 | explore | omp's bundled `scout` | Opus 5.5 @medium | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | DeepSeek V4.1 Flash |
-| standard | tezgah-standard | Opus 5.5 @medium | `zai/glm-5.3` | GPT-6.1 Sol @high | GPT-6.1 Sol @high |
-| frontier | tezgah-frontier, tezgah-reviewer | Opus 5.5 @high | `zai/glm-5.3` | GPT-6 Astra @high | Opus 5.5 @high |
+| standard | tezgah-standard, tezgah-docs, tezgah-ui | Opus 5.5 @medium | `zai/glm-5.3` | GPT-6.1 Sol @high | GPT-6.1 Sol @high |
+| frontier | tezgah-frontier, tezgah-reviewer, tezgah-security, tezgah-researcher | Opus 5.5 @high | `zai/glm-5.3` | GPT-6 Astra @high | Opus 5.5 @high |
 
 Why these, briefly. Inside the Anthropic family the lever is effort, not model:
 Opus 5.5 and Sonnet 5.5 read cache at the same $0.20 per 1M tokens, and on
