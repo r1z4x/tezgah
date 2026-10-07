@@ -87,10 +87,20 @@ class Home(unittest.TestCase):
                               input="", timeout=180)
 
     def backups(self, path):
+        """The timestamped backups of `path`: under the throwaway HOME's backup
+        dir for a subprocess run, beside the file for an in-process call (the
+        module's HOME is the real one, so a temp path is outside it)."""
         d, base = os.path.split(path)
-        return sorted(os.path.join(d, n) for n in os.listdir(d)
+        mirror = os.path.join(self.home, ".config", "tezgah", "backups",
+                              os.path.relpath(d, self.home))
+        return sorted(os.path.join(where, n) for where in (d, mirror)
+                      if os.path.isdir(where) for n in os.listdir(where)
                       if n.startswith(base + ".") and n.endswith(".tezgah-bak")
                       and n != base + ".tezgah-bak")
+
+    def beside(self, path):
+        d = os.path.dirname(path)
+        return sorted(n for n in os.listdir(d) if n.endswith(".tezgah-bak"))
 
 
 class Refusal(Home):
@@ -149,6 +159,28 @@ class Backups(Home):
         self.assertIn(mine.encode("utf-8"), [self.bytes(b) for b in baks])
         self.assertFalse(os.path.exists(path + ".tezgah-bak"),
                          "the untimestamped single backup is still written")
+        self.assertEqual(self.beside(path), [],
+                         "a host file's backup was laid in the dir the host scans")
+
+    def test_install_moves_old_backups_out_of_host_dirs(self):
+        """omp 18.6's hooks capability lists every non-dot file in hooks/pre,
+        so a backup an older release laid beside the bridge is one more entry
+        omp enumerates: an install moves it under the backup dir, bytes intact."""
+        old = {
+            self.path(".omp", "agent", "hooks", "pre",
+                      "tezgah-hook.ts.20261007T172335952363.tezgah-bak"): "old bridge",
+            self.path(".omp", "agent", "agents", "tezgah-explorer.md.tezgah-bak"): "retired",
+            self.path(".cursor", "hooks.json.tezgah-bak"): "{}",
+        }
+        for p, text in old.items():
+            self.put(p, text)
+        proc = self.setup("--install", "--hosts", "cursor")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for p, text in old.items():
+            self.assertFalse(os.path.exists(p), p)
+            moved = os.path.join(self.home, ".config", "tezgah", "backups",
+                                 os.path.relpath(p, self.home))
+            self.assertEqual(self.bytes(moved), text.encode("utf-8"), proc.stdout)
 
     def test_the_count_never_exceeds_the_cap_and_the_oldest_survives(self):
         mod = load_setup()
@@ -187,6 +219,33 @@ class Backups(Home):
         self.assertFalse(os.path.exists(stamped), proc.stdout)
         self.assertFalse(os.path.exists(legacy), proc.stdout)
         self.assertTrue(os.path.exists(users), "a user file's backup was deleted")
+
+
+class CursorSkills(Home):
+    """Cursor reads ~/.codex/skills as well as ~/.cursor/skills, so a skill
+    linked into both reached it twice."""
+
+    def skill_links(self, host):
+        d = self.path(host, "skills")
+        return sorted(n for n in os.listdir(d) if os.path.islink(os.path.join(d, n))) \
+            if os.path.isdir(d) else []
+
+    def test_a_skill_codex_links_is_not_linked_into_cursor_too(self):
+        # cursor named first: the install still runs it after codex
+        proc = self.setup("--install", "--hosts", "cursor,codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("harness", self.skill_links(".codex"))
+        self.assertEqual(self.skill_links(".cursor"), [], proc.stdout)
+        report = self.setup("--report", "--hosts", "cursor").stdout
+        line = next((ln for ln in report.splitlines() if "skills linked" in ln), "")
+        self.assertNotIn("MISS", line, report)
+
+    def test_uninstalling_codex_relinks_cursor(self):
+        self.setup("--install", "--hosts", "cursor,codex")
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.skill_links(".codex"), [])
+        self.assertIn("harness", self.skill_links(".cursor"), proc.stdout)
 
 
 if __name__ == "__main__":

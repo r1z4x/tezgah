@@ -23,7 +23,7 @@ before an install is considered.
 | `--refresh` | Re-render every always-on contract artifact of the armed hosts - the managed blocks of `CLAUDE.md`, Codex's `AGENTS.md` and omp's `RULES.md`, opencode's contract and skill routers - after a policy edit or a kill switch; prints the paths it refreshed, else `contract is current`. Before the first install there is no hash record, so it changes nothing (`refresh_contract`, `bin/tezgah-setup::refresh_contract`). |
 | `--uninstall` | Remove everything tezgah installed — per host the wiring it wrote, plus (a full run) the Claude plugin copy with its registry rows, the generated config state, the kill switches, the caches and the versioned install tree — then verify the removal; nonzero exit while anything tezgah wrote survives (`bin/tezgah-setup::verify_uninstall`, `bin/tezgah-setup::uninstall`). |
 | `--adopt` | Move pre-tezgah wiring aside instead of deleting it; alone it stops there, with `--install` it runs first (`bin/tezgah-setup::main`, `bin/tezgah-setup::adopt`). |
-| `--sync` | Copy this checkout over every installed Claude plugin [copy](glossary.md#plugin-copy) (`bin/tezgah-setup::sync`). Each copy is built in a staging tree beside the plugin cache and swapped in with two renames, its `.git` carried over, so a failed or killed sync leaves the previous copy whole (`bin/tezgah-setup::_swap`). Every copied file is 0644, or 0755 when the tree marks it executable, whatever mode the source has (`bin/tezgah-setup::_copy_normalised`). |
+| `--sync` | Copy this checkout over the Claude plugin [copy](glossary.md#plugin-copy) `installed_plugins.json` names, or over every copy when it names none (`bin/tezgah-setup::sync`, `bin/tezgah-setup::live_plugin_copies`). An older version dir is Claude's cache to collect, so it is left alone. Each copy is built in a staging tree beside the plugin cache and swapped in with two renames, its `.git` carried over, so a failed or killed sync leaves the previous copy whole (`bin/tezgah-setup::_swap`). Every copied file is 0644, or 0755 when the tree marks it executable, whatever mode the source has (`bin/tezgah-setup::_copy_normalised`). |
 | `--hook-entries` | Print, as JSON, the tezgah-owned hook entries this tree arms per armed host - what `tezgah update` asks the new tree for (`bin/tezgah-setup::hook_entries`). |
 | `--status [PATH]` | Print the armed/used checklist for PATH (default cwd) and stop — the same line as `bin/tezgah-status` (`bin/tezgah-setup::main`, `hooks/tezgah_context.py::health_lines`). It also prints the report's `config.json hosts (...) match the hosts wired (...)` row when the recorded list and the wiring on disk disagree (`hosts_row`), and nothing when they agree: install health is checked here, not only in a full report. |
 | `--agents [PATH]` | Regenerate PATH's per-repo subagent set (default cwd); outside a [root](glossary.md#root) it prints `no agents generated` (`bin/tezgah-setup::main`). |
@@ -284,8 +284,8 @@ A **full** run also takes everything the wiring was serving from:
   `bin/tezgah-setup` plus the `current` flip (`remove_install_tree()`,
   `bin/tezgah-setup::remove_install_tree`).
 
-Kept in every run: the user's own files, every `.tezgah-bak` backup
-outside the config dir (the timestamped ones too), `~/.config/tezgah/adopted/` (the only copy of the
+Kept in every run: the user's own files, every host-file backup under
+`~/.config/tezgah/backups/` (the timestamped ones too), `~/.config/tezgah/adopted/` (the only copy of the
 predecessor wiring adopt moved aside), and every repository's `.tezgah/`
 research state. A **partial** run also keeps config.json and the install tree,
 because the hosts still armed read both at runtime, and says so. It also leaves
@@ -372,6 +372,7 @@ does not hold.
 | `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings, the `.codegraph` bytes and index presence per repository, and the three host state dirs (`bin/tezgah-doctor::collect`, `bin/tezgah-doctor::report`) |
 | `tezgah-doctor --clean` | vacuums opencode's database, and only when opencode is not running (`bin/tezgah-doctor::vacuum_db`, `bin/tezgah-doctor::main`); and deletes tezgah's own hook state not modified for `--retention-days` (default 30) - the ledgers under `evidence/`, `turns/`, `sessions/`, `classify.log`, `context-drops.log` and `debug.log`, in the cache and its sandbox fallback - keeping the current session's (`$TEZGAH_SESSION`) files whatever their age (`sweep_state`) |
 | `tezgah-doctor --coverage` | every tracked file the codegraph index does not hold, in two classes — a supported extension the index is missing, and a shebang-only script with no `.py` twin — with the file counts it read, so an empty result cannot read as "everything is covered" |
+| `tezgah-doctor --stack` | per host: the context files in load order, the skill dirs and which copy wins, the hook rows per event with their owner, the MCP servers, and every conflict; exits 1 on one ([hosts](hosts.md#precedence-what-each-host-loads-and-in-which-order), `hooks/tezgah_stack.py::report`) |
 | `tezgah-doctor --prune-sessions DAYS` | deletes sessions idle longer than DAYS through `opencode session delete`, then vacuums; skipped when opencode is running or its CLI is missing (`bin/tezgah-doctor::prune_sessions`, `bin/tezgah-doctor::main`) |
 
 `VACUUM` alone cannot shrink that database — its pages are all live — so
@@ -541,7 +542,11 @@ with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 
 Reversible and safe to repeat: every link and settings key it writes is
 idempotent and re-created by `--install`. A write that changes a file first
-copies it to `<file>.<timestamp>.tezgah-bak`. The oldest of those copies is
+copies it to `<file>.<timestamp>.tezgah-bak`. A host file's copy goes under
+`~/.config/tezgah/backups/` (`bin/tezgah-setup::backup_base`). A host lists the
+files in its own dirs. tezgah's own state dir
+keeps its copies beside the file. `--install` moves the copies an older release
+left in a host dir (`bin/tezgah-setup::sweep_backups`). The oldest of those copies is
 always kept, beside the newest four (`backup()`, `BACKUP_CAP`). The oldest is
 the file before tezgah's first timestamped write, which is tezgah's own content
 for a file tezgah created. On an upgraded install the pre-tezgah copy is the

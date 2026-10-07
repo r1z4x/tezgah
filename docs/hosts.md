@@ -141,6 +141,52 @@ An installed host whose core line is missing is a health check's business
 (`host_checks_<host>`), not a second copy: two delivery paths for one host is the
 same rules paid twice per session.
 
+## Precedence: what each host loads, and in which order
+
+Several host dirs are read by more than one host. The table gives each host's
+documented order. "First wins" means the host keeps the first copy of a name
+and drops the later ones.
+
+| concern | host | order | tezgah's part |
+|---|---|---|---|
+| context | claude | `~/.claude/CLAUDE.md`, then the repo's `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`; all load | block in the first |
+| context | codex | `$CODEX_HOME/AGENTS.override.md`, else `AGENTS.md`, then the repo's `AGENTS.md` | block in the first |
+| context | cursor | the `sessionStart` hook context, the repo's `AGENTS.md`, `.cursor/rules/*.mdc`, `.cursorrules` | the hook |
+| context | opencode | `~/.config/opencode/AGENTS.md`, `opencode.json` `instructions`, the repo's `AGENTS.md` | the contract and router files in `instructions` |
+| context | omp | `SYSTEM.md`, `APPEND_SYSTEM.md`, `RULES.md` (sticky), the repo's `.omp/AGENTS.md`, `AGENTS.md`, `CLAUDE.md`; another host's user files only with `enabledProviders` | block in `RULES.md`, the extension at session start |
+| skills | omp | `skills.customDirectories`, then `.omp/skills` and `~/.omp/agent/skills`, Claude's project dir (user dir opt-in), `.agents/skills` and `~/.agents/skills`; first wins, identical copies collapse, a differing copy is renamed `<namespace>/<name>` | links in `~/.omp/agent/skills` |
+| skills | claude | `.claude/skills`, `~/.claude/skills`; plugin skills are namespaced `tezgah:<name>` | the plugin copy |
+| skills | codex | `.agents/skills` from the cwd up to the repo root, `~/.agents/skills`, `$CODEX_HOME/skills`; one name in two dirs is listed twice, not merged | links in `$CODEX_HOME/skills` |
+| skills | cursor | `.agents/skills`, `.cursor/skills`, `~/.agents/skills`, `~/.cursor/skills`, then Claude's and Codex's project and user dirs; no documented winner | links in `~/.cursor/skills` |
+| skills | opencode | its own skill tool is denied; the router lists `~/.config/opencode/skills`, `~/.claude/skills`, `~/.agents/skills`, first wins (`bin/tezgah-setup::skill_groups`) | links and the router |
+| hooks | claude | user `settings.json` rows (Orca's), project rows, the plugin's `hooks/hooks.json` (tezgah's); every matching row runs, none is ordered before another | plugin rows |
+| hooks | codex, cursor | `hooks.json` array order, then the repo's `.codex/` or `.cursor/hooks.json`; Codex runs a row only once its hash is trusted | own rows after Orca's |
+| hooks | opencode | every `*.js`/`*.ts` in `plugins/` and `plugin/`; `tezgah.js` is linked into both, and its `globalThis.__tezgahPluginLoaded` guard makes the second load return `{}` | the plugin |
+| hooks | omp | `~/.omp/agent/extensions/` first, then `config.yml` `extensions:`, one load per absolute path; per event in that order, and the first `block` ends a tool call | the bridge in `hooks/pre/` |
+| mcp | each | omp: project `.omp/mcp.json`, then `~/.omp/agent/mcp.json`, first name wins; claude: `~/.claude.json`, the repo's `.mcp.json`, the plugin's `.mcp.json`; codex: `$CODEX_HOME/config.toml`; cursor: `~/.cursor/mcp.json`; opencode: `opencode.json` `mcp` | one `tezgah` and one `codegraph` row per host |
+
+Orca is a launcher, not a host. It starts omp with its own `--extension`. It
+gives each Codex account its own `CODEX_HOME` under
+`~/Library/Application Support/orca/codex-accounts/<id>/home`. It adds its
+status rows to Claude's `settings.json`, to Cursor's `hooks.json`, to that
+Codex home's `hooks.json` and to opencode's `plugins/`. Its rows sit beside
+tezgah's. The installer arms the `CODEX_HOME` it runs under
+(`hooks/tezgah_paths.py::HOST_DIRS`). An install from a plain terminal and one
+from an Orca pane therefore arm two different Codex homes.
+
+`tezgah-doctor --stack [--repo PATH] [--json]` prints this stack as it stands
+on the machine (`hooks/tezgah_stack.py::host_stack`). It exits 1 on a conflict
+(`hooks/tezgah_stack.py::conflicts`). The kinds are `skill-differs`, `skill-dup`,
+`skill-stale`, `rule-twice`, `hook-twice`, `mcp-twice`, `backup-in-scan` and
+`orphan-copy`. `skill-differs` names the copy that wins. `skill-stale` is a
+tezgah copy that is not this tree's bytes. `orphan-copy` is a Claude plugin
+copy that `installed_plugins.json` no longer names.
+
+A backup tezgah writes never lands in a host dir. It goes under
+`~/.config/tezgah/backups/` (`bin/tezgah-setup::backup_base`), because omp
+lists every file in `hooks/pre/` as a hook. `--install` moves the backups older
+releases left in host dirs (`bin/tezgah-setup::sweep_backups`).
+
 ## The model wire
 
 The matrix above is about events. This is about the other side of a host: which
@@ -398,3 +444,4 @@ In order, each step verified by the one below it:
 - `hosts/opencode/plugins/tezgah.js`, `hosts/opencode/tui/tezgah-tui.tsx`
 - `statusline.py`, `bin/tezgah-status`, `hooks/tezgah_context.py`
 - `hooks/tezgah_models.py` - the per-host model surface in `## The model wire`
+- `hooks/tezgah_stack.py`, `bin/tezgah-doctor` `--stack` - the order in `## Precedence`
