@@ -3000,9 +3000,11 @@ class VersionPrefixIsNotContract(SetupBase):
         # paragraphs carry their operative rules from the first turn instead of
         # deferring to a skill read (+1042 B) - the deferral phrases are gone,
         # measured by SkillRulesInForceAtSessionStart (tests/test_context.py).
-        # The band is here to catch an accidental move, so a deliberate one is
-        # recorded.
-        self.assertEqual(10274, band, "the always-on band moved")
+        # Re-pinned 2026-10-07: the session-scope paragraph tells every session
+        # to run `tezgah-skill <words>` and read only the returned range
+        # (+113 B). The band is here to catch an accidental move, so a
+        # deliberate one is recorded.
+        self.assertEqual(10387, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

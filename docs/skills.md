@@ -113,8 +113,34 @@ the matching SECTION of that skill - `Start at skill://ponytail:38-61` plus the
 path - so the session opens the part that answers the turn instead of a name it
 must skim (`hooks/tezgah_skill_pick.py::section_of`, pinned by
 `tests/test_skill_pick.py::OmpHintPath` through omp's own dispatch). The search
-CLI is local and unarmed: it costs nothing until it is run, and the hint stays
-opt-in exactly as before.
+CLI is local and unarmed: it costs nothing until it is run, and the judgement
+stays opt-in exactly as before.
+
+The always-on Session scope paragraph sends every session to it. Run
+`tezgah-skill <words>` before working a topic a skill covers, then read only
+the returned range (`hooks/tezgah_policy.py::CORE`). The installer links the
+CLI into `~/.config/tezgah/bin` beside the other tezgah commands.
+
+On a turn the judgement does not answer, the same search runs on its own,
+default on and with no model (`hooks/tezgah_skill_pick.py::section_hint`). It
+keeps its index as SQLite in the tezgah cache dir (`skill-search.sqlite`). It
+rebuilds that index only when a SKILL.md's mtime or size moves
+(`hooks/tezgah_skill_pick.py::_open_index`). A prompt reads its own terms'
+postings and the length column, never the corpus.
+
+The hook then appends one line, `A local skill search matched this request:
+skill://<name>:<start>-<end>`, with the section title. Every host but omp also
+gets the absolute path. The top section must carry 60% of the prompt's
+distinct content terms that any skill contains, and at least three
+(`hooks/tezgah_skill_pick.py::HINT_COVER`, `HINT_MIN_TERMS`). Each section
+appears once per session.
+
+Measured on this machine on 2026-10-07: 7 502 sections and a 9.5 MB index. The
+one cold rebuild took 1.36 s, and a warm prompt takes 6-15 ms. On a turn it
+fires the line costs 196-239 bytes on omp and 245-320 elsewhere. It is not a
+judgement, so `judge-off` leaves it on. `reminder-off` drops it with the rest
+of the per-turn text (`tests/test_skill_search.py::LocalHint`,
+`OmpPromptPath`).
 
 
 ## How a skill reaches a host

@@ -131,7 +131,9 @@ Never install, upgrade, restart or kill anything for tezgah, and never open an
 issue for one of its tools mid-session. Name a missing capability in one line,
 use the documented fallback (grep/find, or the second opinion skipped), and carry
 on with the task in hand. Tezgah maintenance is in scope when the user asks for
-it, or when the repo IS the tezgah checkout.
+it, or when the repo IS the tezgah checkout. Before working a topic an
+installed skill covers, run `tezgah-skill <words>` and read only the range it
+returns.
 
 **Workspace: `.tezgah/` only.** Every per-project tezgah artifact - plans,
 research lines, analysis, lessons - lives under `<repo>/.tezgah/`, which the

@@ -352,7 +352,13 @@ class ContextLine(SkillPick):
         repo = os.path.join(self.home, "Projects", "repo")
         os.makedirs(repo)
         baseline = self.baseline(repo)
-        self.assertNotIn("skill_relevance", baseline)
+        # without a judgement the model-free section search answers this
+        # prompt (`section_hint`); the judgement's line takes its place, so a
+        # turn carries one skill line, never two
+        local = re.search(r"\n\n<skill_relevance>\nA local skill search.*"
+                          r"</skill_relevance>$", baseline, re.S)
+        self.assertTrue(local, baseline)
+        baseline = baseline[:local.start()]
         self.key_file()
         with_hint = self.prompt(repo, env=self.child_env(endpoint=True))
         self.assertEqual(with_hint[:len(baseline)], baseline)
@@ -360,6 +366,7 @@ class ContextLine(SkillPick):
         self.assertTrue(rest.startswith("\n\n<skill_relevance>\nRelevant to the "
                                         "current request: ponytail"), rest)
         self.assertTrue(rest.endswith("</skill_relevance>"), rest)
+        self.assertEqual(1, with_hint.count("<skill_relevance>"))
 
     def test_an_unarmed_picker_appends_nothing(self):
         repo = os.path.join(self.home, "Projects", "repo")

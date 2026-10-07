@@ -13,14 +13,18 @@ absolute path a host without skill:// opens.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "hooks"))
 import tezgah_skill_pick as sp  # noqa: E402
+
+import support  # noqa: E402
 
 ALPHA = """---
 name: alpha
@@ -181,6 +185,133 @@ class SkillSearchCLI(FixtureTree):
         proc = self.run_cli("--root", self.root, "zzqx vblorb fnord")
         self.assertEqual(1, proc.returncode, proc.stderr)
         self.assertEqual("", proc.stdout.strip())
+
+
+class CacheHome(FixtureTree):
+    """The fixture tree as the machine's only skill roots, and a private cache
+    dir, so the cached path runs without touching the real index."""
+
+    def setUp(self):
+        super().setUp()
+        self.cache = os.path.join(self.tmp.name, "cache")
+        patches = (mock.patch.object(sp, "skill_roots",
+                                     lambda extra=(): list(self.roots)),
+                   mock.patch.object(sp.tp, "cache_dir", lambda: self.cache))
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+
+class PostingsIndex(CacheHome):
+    """The cached inverted index: same ordering as the plain ranking, rebuilt
+    when a skill file's stat moves and only then, and never written for an
+    explicit-roots lookup (a fixture lookup must not overwrite the machine's
+    own cache with a two-skill index)."""
+
+    QUERIES = ("jwt alg none", "database migration backfill",
+               "reuse a helper before writing one", "alpha beta",
+               "zzqx vblorb fnord", "authentication tokens")
+
+    def test_the_postings_ranking_agrees_with_tezgah_rank(self):
+        import tezgah_rank
+        rows = sp._rows(self.roots)
+        posts, lengths = sp._postings(rows)
+        for query in self.QUERIES:
+            self.assertEqual(
+                tezgah_rank.rank(query, [sp._toktext(r) for r in rows], 5),
+                sp.rank_postings(query, posts, lengths, 5), query)
+
+    def test_the_cache_rebuilds_when_a_skill_file_changes_and_only_then(self):
+        with mock.patch.object(sp, "_build", wraps=sp._build) as build:
+            first = sp.top_section("database migration backfill")
+            sp.top_section("database migration backfill")
+            self.assertEqual(1, build.call_count, "a warm lookup rebuilt")
+            self.assertEqual("Migrations", first[0][2])
+            path = os.path.join(self.root, "beta", "SKILL.md")
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write("\n## Rollback\n\nRevert a failed schema rollout.\n")
+            hit = sp.top_section("rollback schema rollout")
+            self.assertEqual(2, build.call_count, "the edit was not noticed")
+            self.assertEqual("Rollback", hit[0][2])
+        self.assertTrue(os.path.isfile(os.path.join(self.cache,
+                                                    sp.INDEX_CACHE)))
+
+    def test_an_explicit_roots_lookup_writes_no_cache(self):
+        self.assertTrue(sp.top_section("jwt alg none", roots=self.roots))
+        self.assertFalse(os.path.exists(self.cache))
+
+
+class LocalHint(CacheHome):
+    """The default-on, model-free hint: one line naming the top section when
+    it carries enough of the prompt's terms, nothing otherwise. The bar is
+    coverage, not an absolute BM25 score - scores scale with corpus size, so a
+    bar calibrated on the live corpus would misfire on a five-section fixture
+    and vice versa; coverage transfers."""
+
+    TOPIC = "test jwt alg none bypass"
+
+    def test_a_topic_prompt_gets_one_section_line(self):
+        line = sp.section_hint(self.TOPIC, "s1")
+        self.assertTrue(line.startswith("<skill_relevance>\nA local skill "
+                                        "search matched"), line)
+        self.assertIn("skill://alpha:10-19 (%s)" % self.alpha, line)
+        self.assertIn("not an instruction", line)
+        self.assertEqual(1, line.count("<skill_relevance>"))
+
+    def test_omp_gets_the_address_without_the_path(self):
+        line = sp.section_hint(self.TOPIC, "s1", host="omp")
+        self.assertIn("skill://alpha:10-19,", line)
+        self.assertNotIn(self.alpha, line)
+
+    def test_a_prompt_the_corpus_does_not_cover_is_silent(self):
+        self.assertEqual("", sp.section_hint("fix the typo in the readme", "s1"))
+        self.assertEqual("", sp.section_hint("zzqx vblorb", "s1"))
+        # one shared word among many the section lacks is below the bar
+        self.assertEqual("", sp.section_hint(
+            "migrate the jwt column then backfill tokens schema", "s1"))
+
+    def test_a_single_shared_word_is_not_a_topic(self):
+        # below the two-term floor: a one-word probe is the CLI's job
+        self.assertEqual("", sp.section_hint("jwt", "s1"))
+
+    def test_judge_off_does_not_disarm_the_local_hint(self):
+        # no judgement is made here, so the judgement seam's switch is not its
+        # switch; `reminder-off` drops it with the rest of the per-turn text
+        with mock.patch.object(sp.tp, "OFF_DIRS", (self.tmp.name,)):
+            open(os.path.join(self.tmp.name, "judge-off"), "w").close()
+            self.assertTrue(sp.section_hint(self.TOPIC, "s1"))
+
+    def test_a_section_is_named_once_per_session(self):
+        self.assertTrue(sp.section_hint(self.TOPIC, "s9"))
+        self.assertEqual("", sp.section_hint(self.TOPIC, "s9"))
+        self.assertEqual("", sp.section_hint("jwt alg none header", "s9"))
+        self.assertTrue(sp.section_hint(self.TOPIC, "s10"))
+
+
+class OmpPromptPath(unittest.TestCase):
+    """Through omp's own dispatch (hosts/omp/hook.py), with no judge key and
+    no arming file: the local hint alone reaches the user_prompt context, as
+    an address omp resolves and without the absolute path."""
+
+    # the plugin's own skills are the only root a throwaway HOME has
+    PROMPT = "ponytail intensity levels lite full ultra"
+
+    def test_the_user_prompt_context_carries_the_local_hint(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        repo = os.path.join(home, "Projects", "repo")
+        os.makedirs(repo)
+        out, proc = support.run_json(
+            [support.OMP_HOOK],
+            {"event": "user_prompt", "cwd": repo, "prompt": self.PROMPT,
+             "session_id": "s-omp"},
+            env=support.base_env(home))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        context = out.get("context") or ""
+        self.assertRegex(context, r"<skill_relevance>\nA local skill search "
+                                  r"matched this request: skill://ponytail:"
+                                  r"\d+-\d+, \"Intensity\"")
+        self.assertNotIn(os.path.join(REPO, "skills"), context)
 
 
 if __name__ == "__main__":

@@ -44,6 +44,12 @@ Tezgah maintenance is in scope when the user asks for it, when the repo IS the
 tezgah checkout, or when tezgah's own check (`tezgah-setup --status`) is the
 requested task.
 
+Using the skills is the user's work, not maintenance: before working a topic
+an installed skill covers, run `tezgah-skill <words>` (BM25 over every
+installed skill's sections) and read only the `skill://<name>:<start>-<end>`
+range it returns - or the absolute path beside it on a host that does not
+resolve `skill://` - instead of loading the whole skill.
+
 ## Workspace: `.tezgah/` only
 
 Every per-project tezgah artifact - plans, research lines, analysis, lessons -
