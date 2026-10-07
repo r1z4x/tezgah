@@ -6,12 +6,72 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Parallel by default.** A prompt with two or more independent items arms a
+  fan-out rule. One batch of subagents runs, one worktree per writing slice,
+  and the main thread integrates. Five specialist agents join the roster:
+  `tezgah-tester`, `tezgah-docs`, `tezgah-security`, `tezgah-ui` and
+  `tezgah-researcher`. `tezgah-agents --list` prints each with its tier,
+  skills and tools.
+- **tezgah detects an Orca session** (`hooks/tezgah_orca.py`). Inside Orca a slice
+  checkout goes through `orca worktree create`, and `tezgah-status --orca`
+  lists the checkouts Orca tracks and the git worktrees it does not.
+  `docs/orca.md` maps what Orca owns and what tezgah owns.
+- **`tezgah-doctor --stack`** prints each host's effective stack: context
+  files in load order, skill dirs and which copy wins, hooks per event, MCP
+  servers. It flags duplicate or stale skills, doubled hooks and rules, and
+  backups inside a scanned dir. `docs/hosts.md` holds the precedence table.
+- **`tezgah-skill <words>`** searches every installed skill by section and
+  returns `skill://<name>:<start>-<end>` plus the file path. Every session is
+  told to use it. A local, model-free hint is on by default: when a prompt's
+  terms match one section well enough, the turn names that section once. The
+  armed judge hint names the section too, not only the skill.
+- **`tezgah-status --judge`** shows what the judgement seam used last, and why
+  it was not the session's own model when it was not.
+
+### Fixed
+
+- **The judgement seam asks the session's own CLI first.** It used a third
+  party (TypeSafe, then OpenRouter) even when the session's frontier
+  credential was there. A third party now answers only as the `fallback`
+  setting in `config.json` allows. The default is `vendor`: no cross-vendor
+  stand-in while a session CLI exists. Every stand-in or refusal is said on
+  stderr and recorded. omp subagent chains stay inside the session vendor by
+  default too.
+- **Research stays on the question asked.** A line records its scope (`--in`,
+  `--out`) and its method (`--method qualitative|measured`). A qualitative
+  line owes no metric. Every claim must trace to a scope item. An analysis no
+  longer owes three variants. A plain factual question gets an answer from
+  primary sources, with no experiment line.
+- **Ponytail and adhd are in force from the first turn.** Their operative rules
+  ride the always-on contract instead of a "read the skill later" pointer.
+- **The graph engages.** A stale index stamp now starts a background re-index.
+  It no longer tells the session to fall back to text search. omp's `find`,
+  `search` and `ast_grep` reach the gate. The graph nudge fires on
+  symbol-shaped searches only, not on plain words, and honours `.no-graph`.
+  The session line names the host's own graph tool.
+- **A prose edit owes no check.** The Stop rule no longer counts a `.md`,
+  `.rst` or `.adoc` edit outside the instruction files as work. Such an edit
+  neither demands a check nor makes an earlier pass stale. Refusals ask for
+  the smallest check that proves the change.
+- **`tests/impacted.py` maps a host file to the modules that name it**, not to
+  nearly the whole suite.
+- **Host-file backups leave the dirs a host scans.** They go to
+  `~/.config/tezgah/backups/`, and `--install` sweeps the old ones. Cursor gets
+  each tezgah skill from one dir, not two. `--sync` refreshes only the plugin
+  copy Claude loads.
+
 ### Changed
 
 - **A release run skips the serial suite.** `release.yml` calls CI with
   `release: true`. One 3.10 `test` leg then runs compile, lint and the citation
-  audit, and `test-sharded` runs the suite. A push still runs the full
-  four-version matrix, where the plan 045 shadow compares the two jobs.
+  audit, and `test-sharded` runs the suite.
+- **CI runs less.** It runs on pushes to `main`, on pull requests and by hand.
+  A newer run cancels an older one on the same ref, and every job has a
+  timeout. A docs-only change runs only the citations audit and its impacted
+  tests. The `test` matrix is 3.10 and 3.14. A pull request runs the impacted
+  set. `main` and a release run the whole suite.
 
 ## [1.0.0] - 2026-10-07
 

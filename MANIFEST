@@ -103,6 +103,7 @@ docs/judge.md
 docs/layers.md
 docs/models.md
 docs/operations.md
+docs/orca.md
 docs/research.md
 docs/results/paired-outcome-2026-10.jsonl
 docs/results/paired-outcome-2026-10.md
@@ -130,6 +131,7 @@ hooks/tezgah_judge.py
 hooks/tezgah_lang.py
 hooks/tezgah_lessons.py
 hooks/tezgah_models.py
+hooks/tezgah_orca.py
 hooks/tezgah_paths.py
 hooks/tezgah_policy.py
 hooks/tezgah_rank.py
@@ -138,6 +140,7 @@ hooks/tezgah_research.py
 hooks/tezgah_shapes.py
 hooks/tezgah_skill_pick.py
 hooks/tezgah_snapshot.py
+hooks/tezgah_stack.py
 hooks/tezgah_stopspec.py
 hooks/tezgah_task.py
 hooks/tezgah_taste.py
@@ -721,6 +724,7 @@ tests/test_neuter_matrix.py
 tests/test_omp_extension.py
 tests/test_omp_hook.py
 tests/test_opencode_plugin.py
+tests/test_orca.py
 tests/test_packaging.py
 tests/test_packaging_scripts.py
 tests/test_paths.py
@@ -740,6 +744,7 @@ tests/test_skill_pick.py
 tests/test_skill_search.py
 tests/test_skills.py
 tests/test_snapshot.py
+tests/test_stack.py
 tests/test_statusline.py
 tests/test_stop_after_block.py
 tests/test_stopspec.py
