@@ -472,20 +472,27 @@ runs SQLite in WAL mode with a 5-second busy timeout. The directory is 0700 and
 the database file 0600. A row keeps its JSON fields as before. A hook drops a
 row it cannot write, and the CLI's decision, defect and label rows raise
 instead (`append`, `hooks/tezgah_taste_ledger.py::append`). An open of a
-database imports the files it replaces, in one transaction (`_import`,
+database imports the files it replaces (`_import`,
 `hooks/tezgah_store.py::_import`). `ledger.json` and `gate.json` import only
 into empty tables. The `.jsonl` row files (`signals`, `decisions`, `defects`,
 `labels`, `injected`) import on every open that finds one, so rows an older
-install wrote later still land. The import skips a torn last line. It renames
-each file it read to `<name>.imported`, or `.imported.N` beside an earlier one,
-and never deletes one. A file that does not parse stays in place for the next
-open. The old per-session `taste-notes/` files under the cache dir are not
-carried over: they never named their repository. A session open during the
-upgrade can see one write note again.
+install wrote later still land. The import holds the old writer's flock on the
+file. The `imported` table records how many bytes of each file went in, in the
+same transaction as the rows. The next open therefore takes only the bytes a
+writer added since, and a torn last line waits for its newline. After the commit
+the import renames a fully read file to `<name>.imported`, or `.imported.N`
+beside an earlier one, and never deletes one. A process killed before that
+rename imports nothing twice. A file that does not read or parse stays in
+place. The import retries it only once its size or mtime changes. The old
+per-session `taste-notes/` files under the cache dir are not carried over: they
+never named their repository. A session open during the upgrade can see one
+write note again.
 
 Every command that opens the store exits 2 when the repository's `.tezgah`
 came with the clone (`store_or_exit`, `bin/tezgah-taste::store_or_exit`). It
-then reads, imports and creates nothing there.
+then reads, imports and creates nothing there. The refusal also applies to a
+repository whose `.tezgah` is a symlink or whose git index cannot be read. Run
+the command from another checkout to manage the user-scope learnings.
 
 Session start injects the active learnings (`block`,
 `hooks/tezgah_taste_ledger.py::block`). A rule needs confidence 0.8 and a

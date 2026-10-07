@@ -20,10 +20,20 @@ import contextlib
 import json
 import os
 import sqlite3
+import time
+
+try:
+    import fcntl
+except ImportError:  # Windows: the old writers took no lock there either
+    fcntl = None
 
 BUSY_MS = 5000
 TASTE_DB = "taste.db"
 ERRORS = (OSError, sqlite3.Error)
+# how long an import waits for a legacy row file's flock (its old writer,
+# `tezgah_integrity._append`, holds it for one row) before leaving the file
+# to the next open
+LOCK_WAIT, LOCK_POLL = 1.0, 0.02
 
 # Each append-only taste table and the columns a query reads beside its JSON
 # row; `n` is the append order.
@@ -37,6 +47,11 @@ TASTE_ROWS = {
 USER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS learnings (id TEXT PRIMARY KEY, row TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS imported (name TEXT NOT NULL, dev INTEGER NOT NULL,
+                                     ino INTEGER NOT NULL, bytes INTEGER NOT NULL,
+                                     PRIMARY KEY (name, dev, ino));
+CREATE TABLE IF NOT EXISTS import_failed (name TEXT PRIMARY KEY, mtime_ns INTEGER NOT NULL,
+                                          size INTEGER NOT NULL);
 """
 REPO_SCHEMA = USER_SCHEMA + "".join(
     "CREATE TABLE IF NOT EXISTS %s (n INTEGER PRIMARY KEY, %s, row TEXT NOT NULL);\n"
@@ -105,31 +120,39 @@ def taste(dirpath, user=False, create=True):
 
 
 def _import(conn, dirpath, names):
-    """Bring the legacy files present in `dirpath` into their tables in one
-    transaction. A row file is appended on every open that finds it, so one an
-    older install wrote after the first import still lands; a JSON document
-    only while its tables are empty. Each imported file is renamed aside in the
-    same transaction (`_aside`), and renamed back when it rolls back. A file
-    that does not read or parse stays in place for the next open. With no
-    legacy file, an open costs one stat per name."""
-    present = [n for n in names if os.path.exists(os.path.join(dirpath, n))]
-    present = [n for n in present if _wanted(conn, n)]
-    if not present:
-        return
-    moved = []
-    try:
-        with transaction(conn):
-            for name in present:
-                src = os.path.join(dirpath, name)
-                if _import_one(conn, name, src):
-                    moved.append((src, _aside(src)))
-    except BaseException:
-        for src, dst in moved:
-            try:
-                os.rename(dst, src)
-            except OSError:
-                pass
-        raise
+    """Bring the legacy files present in `dirpath` into their tables. With no
+    legacy file, an open costs one stat per name.
+
+    A row file (`<table>.jsonl`) imports on every open that finds it, under
+    its old writer's flock. The `imported` table records how many bytes of
+    that file (by device and inode) went in, in the same transaction as the
+    rows, so the next open takes only what was appended since; a torn last
+    line waits for its newline. A JSON document imports only while its tables
+    are empty. The rename aside (`_aside`) comes after the commit and is
+    tidiness: a process killed before it re-imports nothing. A file that
+    cannot be read or parsed is recorded in `import_failed` and skipped,
+    before any transaction, until its mtime or size changes."""
+    for name in names:
+        src = os.path.join(dirpath, name)
+        if not os.path.exists(src):
+            continue
+        try:
+            st = os.stat(src)
+        except OSError:
+            continue
+        if conn.execute("SELECT 1 FROM import_failed WHERE name = ? AND mtime_ns = ? "
+                        "AND size = ?", (name, st.st_mtime_ns, st.st_size)).fetchone():
+            continue
+        if name in DOC_TABLES:
+            _import_doc(conn, name, src, st)
+        else:
+            _import_rows(conn, name, src, st)
+
+
+def _failed(conn, name, st):
+    with transaction(conn):
+        conn.execute("INSERT OR REPLACE INTO import_failed (name, mtime_ns, size) "
+                     "VALUES (?, ?, ?)", (name, st.st_mtime_ns, st.st_size))
 
 
 def _wanted(conn, name):
@@ -140,47 +163,94 @@ def _wanted(conn, name):
 
 def _aside(src):
     """Rename `src` to `<src>.imported`, or `.imported.N` beside an earlier one;
-    never over a file, so no import's source is ever lost."""
+    never over a file, so no import's source is ever lost. A failed rename is
+    left for the next open, which finds nothing new in the file."""
     dst, n = src + ".imported", 0
     while os.path.exists(dst):
         n += 1
         dst = "%s.imported.%d" % (src, n)
-    os.rename(src, dst)
-    return dst
+    try:
+        os.rename(src, dst)
+    except OSError:
+        pass
 
 
-def _import_one(conn, name, src):
-    """True when `src` was read and its rows went in. A row file's line that is
-    not a whole UTF-8 JSON object (a torn tail) is skipped, as the old reader
-    skipped it."""
+def _import_doc(conn, name, src, st):
+    if not _wanted(conn, name):
+        return
     try:
         with open(src, "rb") as fh:
-            raw = fh.read()
-    except OSError:
-        return False
-    if name not in DOC_TABLES:
-        table = name[:-len(".jsonl")]
-        for line in raw.split(b"\n"):
-            try:
-                row = json.loads(line.decode("utf-8"))
-            except ValueError:  # UnicodeDecodeError is one
-                continue
-            if isinstance(row, dict):
-                append(conn, table, row)
+            data = json.loads(fh.read().decode("utf-8"))
+    except FileNotFoundError:
+        return  # another process imported it since the stat
+    except (OSError, ValueError):  # UnicodeDecodeError is a ValueError
+        data = None
+    if not isinstance(data, dict) or (
+            name == "ledger.json" and not isinstance(data.get("learnings"), dict)):
+        _failed(conn, name, st)
+        return
+    with transaction(conn):
+        if not _wanted(conn, name):
+            return  # another process imported it first
+        if name == "ledger.json":
+            _write_ledger(conn, data)
+        else:
+            set_gate(conn, data.get("stopped"), data.get("report") or {})
+    _aside(src)
+
+
+def _locked(fh):
+    """An exclusive flock on `fh` within LOCK_WAIT, True where flock is missing."""
+    if fcntl is None:
         return True
+    deadline = time.monotonic() + LOCK_WAIT
+    while True:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(LOCK_POLL)
+
+
+def _import_rows(conn, name, src, st):
+    """The complete lines of `src` past the recorded offset; a line that is not
+    a UTF-8 JSON object is skipped, as the old reader skipped it."""
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except ValueError:
-        return False
-    if not isinstance(data, dict) or not _wanted(conn, name):
-        return False
-    if name == "ledger.json":
-        if not isinstance(data.get("learnings"), dict):
-            return False
-        _write_ledger(conn, data)
-    else:
-        set_gate(conn, data.get("stopped"), data.get("report") or {})
-    return True
+        fh = open(src, "rb")
+    except FileNotFoundError:
+        return  # another process imported it since the stat
+    except OSError:
+        _failed(conn, name, st)
+        return
+    with fh:  # closing it releases the flock
+        if not _locked(fh):
+            return  # its writer holds it: the next open takes it
+        st = os.fstat(fh.fileno())
+        key = (name, st.st_dev, st.st_ino)
+        found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? "
+                             "AND ino = ?", key).fetchone()
+        start = found[0] if found else 0
+        fh.seek(start)
+        raw = fh.read()
+        whole = raw[:raw.rfind(b"\n") + 1]
+        if whole:
+            table = name[:-len(".jsonl")]
+            with transaction(conn):
+                for line in whole.split(b"\n"):
+                    try:
+                        row = json.loads(line.decode("utf-8"))
+                    except ValueError:  # UnicodeDecodeError is one
+                        continue
+                    if isinstance(row, dict):
+                        append(conn, table, row)
+                conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
+                             "VALUES (?, ?, ?, ?)", key + (start + len(whole),))
+        # aside only when every byte went in and no writer appended past the
+        # read (the old writer appends unlocked once its own wait runs out)
+        if len(whole) == len(raw) and os.fstat(fh.fileno()).st_size == start + len(raw):
+            _aside(src)
 
 
 # --- the taste tables ---------------------------------------------------------------

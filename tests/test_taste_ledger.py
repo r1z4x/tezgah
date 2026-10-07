@@ -19,8 +19,14 @@ from support import TempHome
 sys.path.insert(0, support.HOOKS)
 import tezgah_context as tc  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
+import tezgah_store  # noqa: E402
 import tezgah_taste as tt  # noqa: E402
 import tezgah_taste_ledger as tl  # noqa: E402
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
 
 DAY = tl.now_day()  # the hooks read the ledger at the real now
 
@@ -322,7 +328,7 @@ class Ledger(TempHome):
             path = os.path.join(store, table + ".jsonl")
             legacy[path] = rows
             with open(path, "w") as fh:
-                fh.write("".join(json.dumps(r) + "\n" for r in rows) + '{"torn')
+                fh.write("".join(json.dumps(r) + "\n" for r in rows))
         books = tl.load(self.repo)
         self.assertEqual(books["repo"]["learnings"], self.books["repo"]["learnings"])
         self.assertEqual(books["repo"]["meta"], self.books["repo"]["meta"])
@@ -351,7 +357,7 @@ class Ledger(TempHome):
         self.assertEqual(tl.load(self.repo)["repo"], books["repo"])
         self.assertTrue(os.path.exists(stale))
 
-    def test_a_torn_multibyte_tail_keeps_the_rows_before_it(self):
+    def test_a_torn_multibyte_tail_waits_and_the_rows_before_it_land(self):
         store = tl.store_dir(self.repo)
         os.makedirs(store)
         row = {"kind": "prompt", "session": "A", "text": "çalış"}
@@ -359,6 +365,11 @@ class Ledger(TempHome):
         with open(path, "wb") as fh:
             fh.write(json.dumps(row, ensure_ascii=False).encode() + b'\n{"text": "\xc5')
         self.assertEqual(tl.rows(self.repo, "signals"), [row])
+        self.assertTrue(os.path.exists(path), "a torn tail was moved away")
+        # its writer finishes the line: the next open takes it, and only it
+        with open(path, "ab") as fh:
+            fh.write('\x9f"}\n'.encode("latin-1"))
+        self.assertEqual(tl.rows(self.repo, "signals"), [row, {"text": "ş"}])
         self.assertTrue(os.path.exists(path + ".imported"))
 
     def test_a_legacy_file_that_does_not_parse_is_tried_again_on_the_next_open(self):
@@ -374,6 +385,56 @@ class Ledger(TempHome):
             json.dump(self.books["repo"], fh)
         self.assertEqual(tl.load(self.repo)["repo"]["learnings"],
                          self.books["repo"]["learnings"])
+        self.assertTrue(os.path.exists(path + ".imported"))
+
+    def test_an_import_killed_before_its_rename_imports_nothing_twice(self):
+        store = tl.store_dir(self.repo)
+        os.makedirs(store)
+        path = os.path.join(store, "signals.jsonl")
+        first, second = {"kind": "prompt", "text": "one"}, {"kind": "prompt", "text": "two"}
+        with open(path, "w") as fh:
+            fh.write(json.dumps(first) + "\n")
+        self.assertEqual(tl.rows(self.repo, "signals"), [first])
+        # the rows committed, then the process died before the rename: the
+        # file is back under its old name, and an older writer appends to it
+        os.rename(path + ".imported", path)
+        with open(path, "a") as fh:
+            fh.write(json.dumps(second) + "\n")
+        self.assertEqual(tl.rows(self.repo, "signals"), [first, second])
+        self.assertFalse(os.path.exists(path))
+
+    @unittest.skipIf(fcntl is None, "no flock on this platform")
+    def test_a_row_file_its_writer_holds_waits_for_the_next_open(self):
+        store = tl.store_dir(self.repo)
+        os.makedirs(store)
+        path = os.path.join(store, "signals.jsonl")
+        row = {"kind": "prompt", "text": "one"}
+        with open(path, "w") as fh:
+            fh.write(json.dumps(row) + "\n")
+        wait = mock.patch.object(tezgah_store, "LOCK_WAIT", 0.1)
+        wait.start()
+        self.addCleanup(wait.stop)
+        with open(path, "rb") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)  # the old writer's lock (ti._append)
+            self.assertEqual(tl.rows(self.repo, "signals"), [])
+            self.assertTrue(os.path.exists(path))
+        self.assertEqual(tl.rows(self.repo, "signals"), [row])
+
+    def test_a_file_that_failed_costs_no_write_until_it_changes(self):
+        store = tl.store_dir(self.repo)
+        os.makedirs(store)
+        path = os.path.join(store, "gate.json")
+        with open(path, "w") as fh:
+            fh.write("{")
+        spy = mock.patch.object(tezgah_store, "transaction", wraps=tezgah_store.transaction)
+        began = spy.start()
+        self.addCleanup(spy.stop)
+        for _ in range(3):
+            self.assertFalse(tl.stopped(self.repo))
+        self.assertEqual(began.call_count, 1, "a known failure took the write lock again")
+        with open(path, "w") as fh:
+            json.dump({"stopped": True}, fh)
+        self.assertTrue(tl.stopped(self.repo))
         self.assertTrue(os.path.exists(path + ".imported"))
 
     def test_a_strict_append_raises_where_a_hook_append_drops(self):
