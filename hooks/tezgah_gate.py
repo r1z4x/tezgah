@@ -1693,6 +1693,9 @@ OPEN_PLAN = "an open plan"
 FORCED_ADD = "a private `.tezgah/` path forced into the project's history"
 CONTROL_EVIDENCE = frozenset((OPEN_PLAN, FORCED_ADD))
 HELD = "a directory that holds tezgah's control state"
+# A word the shell expands into names (a glob or a brace): directly under the
+# open plans it names every plan, not one.
+GLOB_CHARS = re.compile(r"[*?\[{]")
 
 
 def _refusing(label):
@@ -1879,8 +1882,11 @@ def _target_label(real, remove, origin):
         return "the repository's git hooks"
     opened = "%s.tezgah%splans%sopen%s" % ((os.sep,) * 4)
     if remove and opened in real + os.sep:
-        # strictly under it is one plan; the directory itself is all of them
-        return OPEN_PLAN if opened in real else HELD
+        # strictly under it is one named plan; the directory itself, or a glob
+        # or brace that names its entries (`open/*`, `open/{a,b}`), is all
+        rest = real.split(opened, 1)[1] if opened in real else ""
+        plan = rest.split(os.sep, 1)[0]
+        return OPEN_PLAN if plan and not GLOB_CHARS.search(plan) else HELD
     return None
 
 
@@ -1903,7 +1909,10 @@ def control_target(path, cwd, remove=False, origin=None):
         if _refusing(label):
             return label
         noted = noted or label
-    if remove and any(_under(held, real) for held in _held(origin)):
+    # a delete through a link (`rm -rf link/`) takes what it points at: judge
+    # the resolved target too
+    if remove and any(_under(held, spelling) for held in _held(origin)
+                      for spelling in (real, _full(path, cwd))):
         return HELD
     return noted
 

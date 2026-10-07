@@ -539,9 +539,34 @@ class ControlPlane(unittest.TestCase):
                         "rm -rf .tezgah/plans/open",
                         "mv .tezgah/plans/open .tezgah/plans/old",
                         "rm -rf %s" % os.path.join(self.repo, ".tezgah", "plans",
-                                                   "open") + "/"):
+                                                   "open") + "/",
+                        # a glob or brace directly under it names every plan
+                        "rm -rf .tezgah/plans/open/*",
+                        "cd .tezgah/plans/open && rm -rf *",
+                        "rm -rf .tezgah/plans/open/{a,b}",
+                        "rm .tezgah/plans/open/0?-x.md",
+                        "mv .tezgah/plans/open/[0-9]* .tezgah/plans/done/"):
             with self.subTest(command=command):
                 self.refused("Bash", {"command": command})
+
+    def test_a_link_to_held_state_is_judged_by_what_it_points_at(self):
+        # `rm -rf link/` deletes what the link points at: a link under the open
+        # plans or anywhere else, to a directory holding control state, is
+        # that directory (the switch dir's parent, the checkout's `.git`)
+        opened = os.path.join(self.repo, ".tezgah", "plans", "open")
+        elsewhere = os.path.join(self.repo, "elsewhere")
+        for d in (opened, elsewhere):
+            os.makedirs(d, exist_ok=True)
+        config = os.path.dirname(os.path.realpath(tp.CONFIG_DIR))
+        for name, target in (("l2", config),
+                             ("lg", os.path.join(self.repo, ".git"))):
+            for d in (opened, elsewhere):
+                os.symlink(target, os.path.join(d, name))
+            for command in ("rm -rf .tezgah/plans/open/%s/" % name,
+                            "rm -rf elsewhere/%s/" % name,
+                            "cd .tezgah/plans/open && rm -rf %s/" % name):
+                with self.subTest(command=command):
+                    self.refused("Bash", {"command": command})
 
     def test_only_pretooluse_off_removes_the_rule(self):
         for name in ("verify-off", "task-off", "workspace-off", "lang-off"):
