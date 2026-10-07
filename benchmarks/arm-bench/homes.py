@@ -136,10 +136,15 @@ def cmd_deploy(args) -> int:
         home.mkdir()
         (home / ".armbench-template").write_text(arm + "\n")
         entry = {}
+        if arm in SWITCHED:
+            # before the install: the installer renders RULES.md without the
+            # rule a switch removes (static_core), so the arm's contract text is
+            # the one a user with that switch gets, not full's text plus a file
+            switch = home / ".config" / "tezgah" / SWITCHED[arm]
+            switch.parent.mkdir(parents=True, exist_ok=True)
+            switch.write_text("")
         if arm != "p1-bare":
             install(src, home, runs)
-        if arm in SWITCHED:
-            (home / ".config" / "tezgah" / SWITCHED[arm]).write_text("")
         if arm == "p1-noswitch":
             entry["stripped_residue"] = strip_home(home, src)
             if entry["stripped_residue"]:
