@@ -1526,7 +1526,7 @@ SCRATCH_CHARS = 120
 # a session whose transcript holds no tool call never fires.
 GATE_TAIL = 262144
 GATE_MIN_CALLS = 3
-# The tool names whose every allowed call leaves a PreToolUse row (`began`,
+# The tool names whose every call leaves a PreToolUse row (`began`,
 # tezgah_gate.decision's write and shell branch) and every refused one a `deny`:
 # Claude's write and shell tools and Codex's `exec_command`/`apply_patch`. A
 # tool the gate may pass without a row (Read, Grep, Task, WebFetch, an MCP
