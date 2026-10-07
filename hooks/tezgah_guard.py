@@ -37,6 +37,9 @@ import time
 # the whole cost is this one environment read.
 DEBUG = os.environ.get("TEZGAH_DEBUG", "") not in ("", "0")
 _CALLS = []
+# Plumbing every entry runs before its first decision (the plan 051 switch
+# latch): its success says nothing about the event, so only its crash is logged.
+_PLUMBING = frozenset({"bind_session"})
 _START = time.monotonic()
 
 
@@ -77,7 +80,7 @@ def safe(session_id, fn, *args, **kwargs):
     unowned ledger the rest of the module already writes to."""
     try:
         out = fn(*args, **kwargs)
-        if DEBUG:
+        if DEBUG and getattr(fn, "__name__", "?") not in _PLUMBING:
             # `answer`: the core returned something (a deny reason, a context
             # block, a block decision); `none`: it had nothing to say
             _CALLS.append("%s:%s" % (getattr(fn, "__name__", "?"),
