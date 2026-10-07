@@ -99,12 +99,16 @@ an adversarial agent, and it does not claim to be one.
   - A forged prompt run through a hook entry meets two layers. The control
     rule refuses a hook entry named on the command line, through the wrappers
     and interpreter options it reads (`env`, `nice`, `timeout`, `python3 -u`).
-    `note_turn` writes no row at all while a call is in flight (an unanswered
-    `began` row since the last turn or reply). Neither layer catches a forge
-    the call starts in the background to run after it is answered
-    (`(sleep 2; … | python3 hook) &`). Inside the call, the in-flight layer
-    alone stops a form the command line does not name: `runpy`,
-    `exec(open(…))`, a script on stdin, or a renamed copy of a hook.
+    `note_turn` writes no `authorized` row while a call is in flight (an
+    unanswered `began` row under ten minutes old since the last reply or
+    unmarked turn). Its `turn` row then carries `inflight`, which closes no
+    window, so a second forged run in the same call is in flight too. Neither
+    layer catches a forge the call starts in the background to run after it is
+    answered (`(sleep 2; … | python3 hook) &`), or one inside a call that runs
+    longer than ten minutes. Inside the call, the in-flight layer alone stops a
+    form the command line does not name: `runpy`, `exec(open(…))`, a script on
+    stdin, or a renamed copy of a hook. A user who interrupts a call and names
+    a switch within ten minutes names it again later.
   - The latch is a keyword
     match, not intent: "don't touch verify-off" authorizes the flip. A prompt
     computed by a workflow, or a parent's task text a host hands a child as its

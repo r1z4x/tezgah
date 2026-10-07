@@ -277,9 +277,10 @@ three cases:
 
 - the user's prompt names it as a word (`verify-off`). `note_turn` writes an
   `authorized` row, and the switch counts from that turn on. While a tool call
-  is in flight it writes no row, not even the turn marker
+  is in flight it writes none, and marks the turn row `inflight`
   (`hooks/tezgah_integrity.py::_in_flight`). A host hands its prompt hook a
-  prompt between calls.
+  prompt between calls. An unanswered call older than ten minutes no longer
+  counts, since a host writes no answer for a call the user interrupted.
 - it is the stand-down `tezgah-setup --uninstall --full` writes into
   `pretooluse-off` (`hooks/tezgah_paths.py::STAND_DOWN`).
 - it appeared within the first row's second, because the row's `ts` holds whole

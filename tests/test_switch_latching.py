@@ -208,20 +208,81 @@ class Latching(TempHome):
 
     def test_two_forged_prompts_in_one_call_authorize_nothing(self):
         """The first forged run must not close the in-flight window: in flight,
-        `note_turn` writes neither the `turn` row nor the `authorized` one."""
+        `note_turn` writes its `turn` row marked `inflight` and no `authorized`
+        one, and a marked row is no boundary for the next run."""
         path = self.ledger(int(time.time()) - 100)
         self.switch("verify-off")
-        child = ("import tezgah_integrity as ti\n"
-                 "ti.note('s', 'turn', 'k')\n"
-                 "ti.note('s', 'began', 'x', id='abc', tool='Bash')\n")
-        proc = subprocess.run([sys.executable, "-c", child], capture_output=True,
-                              text=True, env=self.env(), timeout=60)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.append(path, {"kind": "turn", "detail": "k"},
+                    {"kind": "began", "id": "abc", "tool": "Bash"})
         self.probe([], prompt="first")
         out = self.probe(["verify-off"], prompt="verify-off")
         self.assertEqual(out, {"verify-off": False})
-        self.assertEqual([r["kind"] for r in self.rows(path)][1:],
-                         ["turn", "began"])
+        rows = self.rows(path)[1:]
+        self.assertEqual([(r["kind"], r.get("inflight")) for r in rows],
+                         [("turn", None), ("began", None), ("turn", 1), ("turn", 1)])
+        self.assertIn("inflight", ti.LEDGER_FIELDS)
+
+    def append(self, path, *rows, age=0):
+        with open(path, "a") as fh:
+            for row in rows:
+                fh.write(json.dumps(dict({"ts": int(time.time()) - age, "v": 3,
+                                          "detail": ""}, **row)) + "\n")
+
+    def test_an_interrupted_call_stops_blocking_after_ten_minutes(self):
+        """A host writes no PostToolUse for a call the user interrupted, so its
+        `began` row stays unanswered: past IN_FLIGHT_MAX_AGE it is no longer in
+        flight, and a genuine prompt authorizes and writes a plain turn row."""
+        for age, want in ((660, True), (300, False)):
+            with self.subTest(age=age):
+                session = "int-%d" % age
+                path = self.ledger(int(time.time()) - 1000, session=session)
+                self.switch("verify-off")
+                self.append(path, {"kind": "turn", "detail": "k"},
+                            {"kind": "began", "id": "abc", "tool": "Bash"}, age=age)
+                proc = subprocess.run(
+                    [sys.executable, "-c", PROBE.replace('"s"', "sys.argv[2]"),
+                     json.dumps({"names": ["verify-off"], "prompt": "verify-off"}),
+                     session], capture_output=True, text=True, env=self.env(),
+                    timeout=60)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(json.loads(proc.stdout), {"verify-off": want})
+                rows = self.rows(path)
+                self.assertEqual([r["kind"] for r in rows if r["kind"] == "authorized"],
+                                 ["authorized"] if want else [])
+                self.assertEqual(rows[-1]["kind"], "turn")
+                self.assertEqual(rows[-1].get("inflight"), None if want else 1)
+
+    def test_the_turn_after_an_interrupted_call_is_its_own(self):
+        """The Stop rule slices at every turn row, the marked one too: the
+        interrupted call stays in the turn it began in."""
+        path = self.ledger(int(time.time()) - 100)
+        self.append(path, {"kind": "turn", "detail": "k"},
+                    {"kind": "began", "id": "abc", "tool": "Edit"})
+        self.probe([], prompt="next turn")
+        proc = subprocess.run(
+            [sys.executable, "-c", "import json, tezgah_integrity as ti\n"
+             "print(json.dumps([r['kind'] for r in ti.turn_rows('s')]))"],
+            capture_output=True, text=True, env=self.env(), timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("began", json.loads(proc.stdout))
+        self.assertEqual(self.rows(path)[-1].get("inflight"), 1)
+
+    def test_a_refused_call_is_answered(self):
+        """A call the gate refused is answered by its `deny` row, or by the
+        `nudge` row the identifier nudge writes instead of one."""
+        for kind in ("deny", "nudge"):
+            with self.subTest(kind=kind):
+                session = "refused-" + kind
+                path = self.ledger(int(time.time()) - 100, session=session)
+                self.append(path, {"kind": "turn", "detail": "k"},
+                            {"kind": "began", "id": "abc", "tool": "Bash"},
+                            {"kind": kind, "id": "abc"})
+                proc = subprocess.run(
+                    [sys.executable, "-c", "import sys, tezgah_integrity as ti\n"
+                     "print(ti._in_flight(sys.argv[1]))", session],
+                    capture_output=True, text=True, env=self.env(), timeout=60)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout.strip(), "False")
 
     def test_a_wrapped_hook_entry_is_refused_like_the_bare_one(self):
         repo = self.make_repo()
