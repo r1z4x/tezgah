@@ -634,17 +634,19 @@ class Gate(TempHome):
         self.assertIn("Verification bypass", self.check_cli("decide", calls[0]))
         self.assertNotEqual(self.cache_tree(), before)
 
-    def test_the_dry_run_swaps_exactly_its_three_writers(self):
+    def test_the_dry_run_swaps_exactly_its_writers(self):
         # plan 055: the replay corpus must not grow `_dry_decision`'s swap list -
         # it serves `tezgah-gate check` and the MCP gate check, which promise the
-        # live answer; the replay swaps what it needs in its own process
+        # live answer; the replay swaps what it needs in its own process. Plan
+        # 061 added `note_path`, the lesson taint index a live write appends to
+        # (tezgah_gate.lesson_taint), which the dry run must not write.
         import ast
         import inspect
         tree = ast.parse(inspect.getsource(tg._dry_decision), filename="tezgah_gate.py")
         swapped = [tuple(e.value for e in node.elts) for node in ast.walk(tree)
                    if isinstance(node, ast.Tuple) and node.elts
                    and all(isinstance(e, ast.Constant) for e in node.elts)]
-        self.assertEqual(swapped, [("note", "first_nudge", "capture")])
+        self.assertEqual(swapped, [("note", "note_path", "first_nudge", "capture")])
 
     def test_the_flag_value_reader_passes_maxsplit_by_keyword(self):
         # audit QA-3 / L-13: positional maxsplit warns on 3.13+, and a future
