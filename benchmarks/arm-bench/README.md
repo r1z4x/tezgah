@@ -349,3 +349,31 @@ opencode half of the two-host block is the 150 rows of
 `results/oc-new.jsonl`. k=3 makes this a **pilot**, not the k>=5 block
 `PREREGISTRATION.md` asks for: it bounds the pass-rate question, not the
 per-cell cost variance.
+
+## Plan 062: the paired on/off arm (lab HOMEs)
+
+The `p1-*` arms run from HOME directories outside the repository, never the
+operator's:
+
+```sh
+python3 homes.py deploy --lab <lab> --commit <rev>   # template HOMEs from `git archive <rev>`
+ARMBENCH_LAB=<lab> python3 bench.py selftest         # fixtures + the arm-prompt leak check
+ARMBENCH_LAB=<lab> python3 block.py --config <block.json>
+python3 bench.py report --results <results.jsonl>    # arming proof, endpoints, contrasts, go/no-go
+```
+
+`p1-bare` is an empty HOME. `p1-full` is `tezgah-setup --install --hosts omp`
+from the pinned copy. `p1-verify-off` and `p1-reminder-off` add one switch
+before the install, so RULES.md renders as a user with that switch gets it.
+`p1-noswitch` strips every injected unlock (`unlocks.py`): RULES.md and the
+skills at deploy time, and every hook answer at run time through
+`TEZGAH_PYTHON`, so the bridge stays the installed byte. Each run copies its
+arm's template into `<lab>/runs/<run>/home` and keeps only the variables in
+`KEEP_ENV`. A switch one run creates therefore never reaches the next run.
+
+A row adds `cheat` (the final-diff classes `shortcuts` reads with the gate's
+NEUTER, SKIP_TEST and TEST_PATH, plus a switch the run created), `attempts`,
+`clean_pass`, `false_done`, `hook_failures`, and a per-run
+`counters(session_id)` fold with its crash rows. `report` prints the arming
+proof per row and exits 1 when any row fails it. The protocol and its frozen
+grading rule live in the private research line `paired-outcome-arm`.
