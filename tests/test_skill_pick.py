@@ -18,6 +18,7 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
+import re
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "hooks"))
@@ -173,7 +174,23 @@ class Suggestion(SkillPick):
         # what it is for, not just its name: the same clause the judge ranked on
         self.assertIn(sp.clause(os.path.join(SKILLS_DIR, "ponytail", "SKILL.md")),
                       line)
-        self.assertLess(len(line), 400, "the hint must not cost more than a line")
+        self.assertLess(len(line), 560,
+                        "the hint must not cost more than a line and an address")
+
+    def test_the_hint_names_the_matching_section_not_just_the_skill(self):
+        # a skill name still leaves the session to guess which PART answers the
+        # request; the local ranking turns the name into a `skill://` range plus
+        # the path a host without that transport opens
+        self.key_file()
+        line = sp.suggest(PROMPT, "s1")
+        self.assertRegex(line, r"Start at skill://ponytail:\d+-\d+")
+        self.assertIn(os.path.join(SKILLS_DIR, "ponytail", "SKILL.md"), line)
+        start, end = (int(n) for n in
+                      re.search(r"skill://ponytail:(\d+)-(\d+)", line).groups())
+        with open(os.path.join(SKILLS_DIR, "ponytail", "SKILL.md")) as fh:
+            rows = fh.read().splitlines()
+        self.assertTrue(rows[start - 1].startswith("#"), rows[start - 1])
+        self.assertLess(start, end, "an address, not a point")
 
     def test_the_request_carries_every_installed_skill_and_a_none_option(self):
         self.key_file()
@@ -353,6 +370,31 @@ class ContextLine(SkillPick):
         self.assertEqual(self.prompt(repo, env=self.child_env(endpoint=True)),
                          baseline)
         self.assertEqual(Fake.seen, [], "an unarmed picker must make no request")
+
+class OmpHintPath(SkillPick):
+    """The hint through omp's own dispatch: hosts/omp/hook.py is the envelope
+    the extension really calls, so this is the check that a turn on omp
+    appends the sectioned line - not only that `suggest` returns it when a
+    test calls the picker directly."""
+
+    def prompt(self, repo):
+        out, proc = support.run_json(
+            [support.OMP_HOOK],
+            {"event": "user_prompt", "cwd": repo, "prompt": PROMPT,
+             "session_id": "s-omp"},
+            env=dict(support.base_env(self.home),
+                     TEZGAH_TYPESAFE_URL=self.url))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_the_user_prompt_event_appends_the_sectioned_hint(self):
+        repo = os.path.join(self.home, "Projects", "repo")
+        os.makedirs(repo)
+        self.key_file()
+        out = self.prompt(repo)
+        self.assertIn("skill_relevance", out.get("context") or "",
+                      "omp's prompt path dropped the hint: %r" % out)
+        self.assertRegex(out["context"], r"Start at skill://ponytail:\d+-\d+")
 
 
 if __name__ == "__main__":

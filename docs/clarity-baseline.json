@@ -18,10 +18,10 @@
     "semicolons": 9
   },
   "docs/contract.md": {
-    "long_sentences": 40,
-    "passive": 26,
+    "long_sentences": 43,
+    "passive": 27,
     "replace_words": 0,
-    "semicolons": 30
+    "semicolons": 32
   },
   "docs/environment.md": {
     "long_sentences": 3,
@@ -90,10 +90,10 @@
     "semicolons": 77
   },
   "docs/skills.md": {
-    "long_sentences": 31,
-    "passive": 16,
+    "long_sentences": 36,
+    "passive": 18,
     "replace_words": 0,
-    "semicolons": 14
+    "semicolons": 16
   },
   "docs/status-line.md": {
     "long_sentences": 44,

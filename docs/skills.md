@@ -83,6 +83,40 @@ directory that host reads, and the host lists `name` + `description` itself -
 which is why the installer counts that metadata as an always-on cost
 (`bin/tezgah-setup::context_budget`).
 
+## Searching skills, and reading part of one
+
+A session meets the roster as names (omp's list runs to hundreds once a
+`skills.customDirectories` corpus is mounted - 284 on this machine), and no host
+searches bodies by topic. `bin/tezgah-skill` does: it indexes every installed
+skill root - the checkout's, omp's user and custom-directories corpora,
+Claude's, `~/.agents`, Codex's, opencode's - into heading-delimited sections
+(`hooks/tezgah_skill_pick.py::sections`) and ranks them for a query with the
+lessons ledger's BM25 (`hooks/tezgah_rank.py::rank`, heading weighted over
+body). Each hit is a section:
+
+    tezgah-skill "jwt alg none"
+    skill://attack-jwt:26-122  /Users/.../attack-jwt/SKILL.md  JWT Token Attack
+
+The `skill://<name>:<start>-<end>` address is a range omp's read tool resolves
+(line selectors are part of the `read` contract; `skill://<name>/<file>` reads a
+neighbour file, and `/skill:<name>` injects the whole body - a command, not a
+range). The absolute path beside it is for hosts without a `skill://`
+transport, and both are printed because a name that differs between roots keeps
+only omp's precedence - the search reports the first root's copy rather than
+resolving the collision. Measured on this machine: 7 roots, 10 482 sections,
+2.3-2.6 s cold. Fenced code is not indexed as headings, so a `# comment`
+inside a block never masquerades as a section title.
+
+The per-turn hint reuses the same ranking: when the armed judgement names a
+skill (`skill-suggest-on`, [contract](contract.md)), the appended line points at
+the matching SECTION of that skill - `Start at skill://ponytail:38-61` plus the
+path - so the session opens the part that answers the turn instead of a name it
+must skim (`hooks/tezgah_skill_pick.py::section_of`, pinned by
+`tests/test_skill_pick.py::OmpHintPath` through omp's own dispatch). The search
+CLI is local and unarmed: it costs nothing until it is run, and the hint stays
+opt-in exactly as before.
+
+
 ## How a skill reaches a host
 
 `SKILLS` in `bin/tezgah-setup::SKILLS` is the shipped list, and it is the single
@@ -229,6 +263,9 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
   its index and its three trap cases
 - `skills/rl-env/SOURCE` - the vendored FineEnvs environment-authoring set, its
   upstream revision and the per-file sha256
+- `bin/tezgah-skill` - the section search CLI over every installed skill root;
+  `hooks/tezgah_skill_pick.py` - `sections`, `search`, `skill_roots`,
+  `section_of`, the hint that carries the address
 - `hooks/tezgah_policy.py` - the always-on rule text and the Claude skill name
 - `tests/test_setup.py`, `tests/test_skills.py` - the router-line, name
   resolution, frontmatter, collision and skill-standard tests

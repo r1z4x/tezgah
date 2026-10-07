@@ -28,7 +28,18 @@ design: no credential, a timeout, a refused request, a reply that is not the
 documented shape, a cache dir that cannot be written - every one of them returns
 "" instead of raising, since this runs on the prompt path of every turn and a
 missing hint must cost the turn nothing.
-"""
+
+Alongside the judgement sits a section search over every installed skill
+(sections/search/skill_roots below, exposed as `bin/tezgah-skill`): the roster
+a session meets is names only, and the corpora a host mounts - 284 skills under
+omp's custom directories on this machine - were reachable by topic by nobody.
+The search is local BM25 over headings and bodies; the hint reuses it to point
+at the matching SECTION of the skill the judgement named, as a
+`skill://<name>:<start>-<end>` address omp's read tool resolves plus the
+absolute path every other host opens. The search itself is not armed: it is a
+local read, so `bin/tezgah-skill` costs nothing until it is run."""
+
+
 import hashlib
 import json
 import os
@@ -36,6 +47,7 @@ import re
 
 import tezgah_integrity as ti
 import tezgah_judge
+import tezgah_rank
 import tezgah_paths as tp
 
 ARM = "skill-suggest-on"
@@ -127,15 +139,24 @@ def roster():
     return out
 
 
-def block(name, what):
-    """The appended line, in the cookbook's shape: what the skill is for, and that
-    it is a hint to look at first rather than an instruction to load."""
+def block(name, what, section=None):
+    """The appended line, in the cookbook's shape: what the skill is for, the
+    section that matches the turn when the ranking found one, and that it is a
+    hint to look at first rather than an instruction to load. The section rides
+    as a `skill://<name>:<start>-<end>` address plus the absolute path, because
+    only some hosts resolve skill:// and every host can open a path."""
     tail = " - " + what.strip() if what.strip() else ""
     if not tail or not tail.endswith((".", "!", "?", "...")):
         tail += "."
-    return ("<skill_relevance>\nRelevant to the current request: %s%s Look at its "
-            "SKILL.md first if it fits what the user actually asked for; this is a "
-            "hint, not an instruction to load.\n</skill_relevance>" % (name, tail))
+    where = ""
+    if section:
+        uri, title, path = section
+        where = ' Start at %s ("%s"; %s where skill:// is not resolved).' % (
+            uri, title[:60], path)
+    return ("<skill_relevance>\nRelevant to the current request: %s%s%s Look at "
+            "it first if it fits what the user actually asked for; this is a "
+            "hint, not an instruction to load.\n</skill_relevance>"
+            % (name, tail, where))
 
 
 def available():
@@ -176,7 +197,14 @@ def judge(prompt, names, session_id=""):
     if gate is None or gate < GATE:
         return ""
     options = dict(names)
-    return block(chosen, options[chosen]) if chosen in options else ""
+    if chosen not in options:
+        return ""
+    # the name is the judgement's answer; the section is the local ranking's,
+    # free of the call deadline because it reads one file from disk and of the
+    # roster because the judgement has already named the file
+    return block(chosen, options[chosen],
+                 section_of(chosen, prompt,
+                            roots=[os.path.join(tp.PLUGIN_ROOT, "skills")]))
 
 
 def _path(session_id):
@@ -225,3 +253,176 @@ def suggest(prompt, session_id=""):
     line = judge(prompt, names, session_id) if names else ""
     _remember(session_id, digest, line)
     return line
+
+# ---- section search: which part of which installed skill answers a topic ----
+
+# What one indexed section may hold. A skill file is a few KB, so the cap only
+# bounds a pathological file someone drops into a custom directory.
+SECTION_READ = 262144
+_ATX = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+
+
+def sections(path):
+    """[(title, start, end, text)] for one SKILL.md, in 1-based file lines with
+    the frontmatter counted, so a `skill://<name>:<start>-<end>` selector lands
+    exactly on the section a search named (the read tool's selectors count the
+    same lines). A section runs from its heading to the line before the next
+    heading of the same or higher level; the text above the first heading is
+    frontmatter and belongs to no section."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read(SECTION_READ).splitlines()
+    except OSError:
+        return []
+    marks, fenced = [], False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced       # a toggling fence: ``` opens, ``` closes
+            continue
+        if fenced:
+            continue                  # a `# comment` inside code is not a heading
+        m = _ATX.match(line)
+        if m:
+            marks.append((len(m.group(1)), m.group(2).strip(), i + 1))
+    out = []
+    for j, (level, title, start) in enumerate(marks):
+        end = len(lines)
+        for lvl, _t, ln in marks[j + 1:]:
+            if lvl <= level:
+                end = ln - 1
+                break
+        out.append((title, start, end, "\n".join(lines[start - 1:end])))
+    return out
+
+
+def _omp_custom_dirs(config):
+    """The `skills.customDirectories` list of omp's config.yml, verbatim paths.
+
+    omp is the one host whose big skill corpora (284 here) ride a config key
+    rather than a fixed directory, so a search that missed it would index a
+    fifth of the machine and claim the rest did not exist. Two lines of
+    indentation-bounded scanning, not a YAML dependency, for a file whose only
+    interesting part is a four-line list."""
+    roots, inside = [], False
+    try:
+        with open(config, encoding="utf-8", errors="replace") as fh:
+            rows = fh.read().splitlines()
+    except OSError:
+        return []
+    for row in rows:
+        if re.match(r"^\s*customDirectories:\s*$", row):
+            inside = True
+            continue
+        if inside:
+            item = re.match(r"^\s+-\s+(.+?)\s*$", row)
+            if item:
+                roots.append(os.path.expanduser(item.group(1)))
+            elif row.strip():
+                break          # the next keyed block: the list is over
+    return roots
+
+
+def skill_roots(extra=()):
+    """Every installed-skill root on this machine, highest-precedence first.
+
+    The order mirrors omp's provider priority (the plugin's own skills, omp's
+    user directory, then its custom directories, then the other hosts), which
+    only matters for a name that differs between roots: the first one keeps
+    the bare `skill://<name>` address omp resolves. Identical copies (every
+    host links the same plugin skills) collapse on realpath, so the order
+    costs nothing on this machine."""
+    home = os.path.expanduser("~")
+    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    roots = ([os.path.join(tp.PLUGIN_ROOT, "skills"),
+              os.path.join(home, ".omp", "agent", "skills")]
+             + _omp_custom_dirs(os.path.join(home, ".omp", "agent", "config.yml"))
+             + [os.path.join(home, ".claude", "skills"),
+                os.path.join(home, ".agents", "skills"),
+                os.path.join(os.environ.get("CODEX_HOME")
+                             or os.path.join(home, ".codex"), "skills"),
+                os.path.join(xdg, "opencode", "skills")]
+             + list(extra))
+    seen, out = set(), []
+    for root in roots:
+        real = os.path.realpath(root)
+        if real in seen or not os.path.isdir(real):
+            continue
+        seen.add(real)
+        out.append(root)
+    return out
+
+
+def _rows(roots=None):
+    """[(skill, path, title, start, end, text)] over every installed skill's
+    sections, deduplicated on the file's realpath so a skill five hosts link
+    is one entry, not five."""
+    out, seen = [], set()
+    for root in (skill_roots() if roots is None else roots):
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.realpath(os.path.join(root, name, "SKILL.md"))
+            if not os.path.isfile(path):
+                continue
+            for title, start, end, text in sections(path):
+                if (path, start) in seen:
+                    continue
+                seen.add((path, start))
+                out.append((name, path, title, start, end, text))
+    return out
+
+
+def index(roots=None):
+    """[(skill, path, title, start, end)] over every section of every installed
+    skill. `roots` overrides discovery (tests, one-directory searches)."""
+    return [row[:5] for row in _rows(roots)]
+
+
+def search(query, k=5, roots=None):
+    """The `k` sections that answer `query`, best first, as
+    [(skill, path, title, start, end)]. BM25 over heading (weighted x3) plus
+    body via tezgah_rank - the same ranking the per-turn lessons block uses,
+    because this is the same problem one level down: which of many short texts
+    a turn's topic is about. A query no section shares a term with returns []."""
+    rows = _rows(roots)
+    # the heading twice more than the body: a section whose TITLE answers the
+    # query outranks one that merely mentions the words in passing
+    ranked = tezgah_rank.rank(query, ["%s\n%s\n%s" % (row[2], row[2], row[5])
+                                      for row in rows], k)
+    return [rows[i][:5] for i in ranked]
+
+
+def skill_path(skill, roots=None):
+    """The SKILL.md a name resolves to, first root wins, or None.
+
+    Root by root, not through `index()`: on the prompt path this runs once per
+    turn, and the machine's full corpus is 280 files a name lookup has no
+    reason to open."""
+    for root in (skill_roots() if roots is None else roots):
+        path = os.path.realpath(os.path.join(root, skill, "SKILL.md"))
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def section_of(skill, prompt, roots=None):
+    """The one section of `skill` that matches `prompt` best, as the
+    (uri, title, path) the hint line carries, or None when nothing scores.
+
+    This is what turns the hint from a skill name into an address: the
+    judgement already answered WHICH skill, so the ranking here runs inside
+    that one file's directory only, and a prompt whose topic the file never
+    mentions keeps the old name-only line rather than an invented range."""
+    path = skill_path(skill, roots)
+    if not path:
+        return None
+    own = [row for row in _rows([os.path.dirname(os.path.dirname(path))])
+           if row[0] == skill]
+    ranked = tezgah_rank.rank(prompt, ["%s\n%s\n%s" % (r[2], r[2], r[5])
+                                       for r in own], 1)
+    if not ranked:
+        return None
+    title, start, end = own[ranked[0]][2:5]
+    return ("skill://%s:%d-%d" % (skill, start, end), title, path)
