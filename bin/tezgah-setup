@@ -465,8 +465,9 @@ def hook_entries(hosts):
 
 def link(src, dst):
     """Idempotent symlink - or, where this platform refuses one, an entry
-    materialised in place. A real file in the way is kept as <dst>.tezgah-bak
-    and replaced, so an old shim (codex/bin/consult) does not block the build."""
+    materialised in place. A real file in the way is kept as
+    `<backup_base(dst)>.tezgah-bak` and replaced, so an old shim
+    (codex/bin/consult) does not block the build."""
     if is_tezgah_copy(dst):
         # tezgah's own materialised entry from an earlier symlink-less run: it
         # is replaced, not reported as a user's file and not left pointing at a
@@ -480,8 +481,10 @@ def link(src, dst):
         os.unlink(dst)
     elif os.path.exists(dst):
         try:
-            os.replace(dst, dst + ".tezgah-bak")
-        except OSError as exc:
+            bak = backup_base(dst) + ".tezgah-bak"
+            mkdirp(os.path.dirname(bak))
+            shutil.move(dst, bak)
+        except (OSError, shutil.Error) as exc:
             return "%s %s (%s)" % (NO, dst, exc)
     try:
         mkdirp(os.path.dirname(dst))
@@ -681,30 +684,92 @@ def write_json(path, data):
 # ponytail: a fixed cap, no setting.
 BACKUP_CAP = 5
 BACKUP_RE = re.compile(r"(.+)\.\d{8}T\d{12}(?:-\d+)?\.tezgah-bak")
+# Where a host file's backups live. A host enumerates its own config dirs - omp
+# 18.6's hooks capability lists every non-dot file in hooks/pre, so a
+# `tezgah-hook.ts.<stamp>.tezgah-bak` beside the bridge was one more hook entry -
+# so a copy laid beside a host file is one more thing that host discovers.
+# tezgah's own state dir is scanned by no host and keeps its copies beside the
+# file, where the uninstall that owns them finds them.
+BACKUP_DIR = os.path.join(tp.CONFIG_DIR, "backups")
+
+
+def backup_base(path):
+    """The path a backup of `path` is named after: `path` itself inside
+    tezgah's config dir, otherwise its mirror under BACKUP_DIR (relative to
+    HOME).
+
+    ponytail: a file outside HOME keeps its backup beside it - every host dir
+    lives under HOME on a real machine, and a mirror of an arbitrary absolute
+    path would let an in-process caller write into the real home."""
+    real = os.path.abspath(path)
+    if real.startswith(tp.CONFIG_DIR + os.sep) or not real.startswith(tp.HOME + os.sep):
+        return real
+    return os.path.join(BACKUP_DIR, os.path.relpath(real, tp.HOME))
 
 
 def backup(path):
-    """Copy `path` to `<path>.<timestamp>.tezgah-bak` before a write changes it.
+    """Copy `path` to `<backup_base>.<timestamp>.tezgah-bak` before a write
+    changes it.
 
     The suffix stays `.tezgah-bak`, so managed() and the uninstall cleanup still
     know it; past BACKUP_CAP the middle copies go, never the oldest."""
     if not os.path.exists(path):
         return
+    base = backup_base(path)
     stamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S%f")
-    dst = "%s.%s.tezgah-bak" % (path, stamp)
+    dst = "%s.%s.tezgah-bak" % (base, stamp)
     n = 0
     while os.path.exists(dst):
         n += 1
-        dst = "%s.%s-%d.tezgah-bak" % (path, stamp, n)
+        dst = "%s.%s-%d.tezgah-bak" % (base, stamp, n)
     try:
+        mkdirp(os.path.dirname(dst))
         shutil.copy2(path, dst)
-        d, base = os.path.split(path)
-        old = sorted(name for name in os.listdir(d or ".")
-                     if (m := BACKUP_RE.fullmatch(name)) and m.group(1) == base)
-        for name in old[1:max(1, len(old) - BACKUP_CAP + 1)]:
-            os.remove(os.path.join(d, name))
+        d, name = os.path.split(base)
+        old = sorted(entry for entry in os.listdir(d or ".")
+                     if (m := BACKUP_RE.fullmatch(entry)) and m.group(1) == name)
+        for entry in old[1:max(1, len(old) - BACKUP_CAP + 1)]:
+            os.remove(os.path.join(d, entry))
     except OSError:
         pass
+
+
+# Dirs a backup sweep never enters: a host's transcripts, caches and plugin
+# marketplaces hold no file tezgah ever backed up, and they are where the bytes are.
+SWEEP_SKIP = frozenset((
+    ".git", ".tmp", "blobs", "browser-profiles", "cache", "file-history",
+    "history", "log", "logs", "marketplaces", "memories", "node_modules", "packages",
+    "projects", "sessions", "shell-snapshots", "shell_snapshots", "tmp",
+    "vendor", "vendor_imports"))
+SWEEP_DEPTH = 3
+
+
+def sweep_backups():
+    """Move every `.tezgah-bak` an older release laid beside a host file under
+    BACKUP_DIR. Returns the moved destinations. A destination that already
+    exists is left alone rather than overwritten: it may be the only copy of the
+    user's original."""
+    roots = set(tp.HOST_DIRS.values()) | {os.path.join(tp.HOME, ".codex")}
+    moved = []
+    for root in sorted(roots):
+        depth0 = root.rstrip(os.sep).count(os.sep)
+        for dirpath, dirnames, filenames in os.walk(root):
+            deep = dirpath.count(os.sep) - depth0 >= SWEEP_DEPTH
+            dirnames[:] = [] if deep else sorted(d for d in dirnames if d not in SWEEP_SKIP)
+            for name in filenames:
+                if not name.endswith(".tezgah-bak"):
+                    continue
+                src = os.path.join(dirpath, name)
+                dst = backup_base(src)
+                if dst == os.path.abspath(src) or os.path.lexists(dst):
+                    continue
+                try:
+                    mkdirp(os.path.dirname(dst))
+                    shutil.move(src, dst)
+                    moved.append(dst)
+                except (OSError, shutil.Error):
+                    pass
+    return moved
 
 
 def set_managed_block(path, block, start="# tezgah:start", end="# tezgah:end"):
@@ -3038,8 +3103,9 @@ def remove_generated_state(full):
     kept = []
     for name in names:
         path = os.path.join(tp.CONFIG_DIR, name)
-        if name == "adopted":
-            kept.append((path, "predecessor originals --adopt moved here"))
+        if name in ("adopted", "backups"):
+            kept.append((path, "predecessor originals --adopt moved here"
+                         if name == "adopted" else "host-file backups, for a manual restore"))
             continue
         if name in GENERATED_STATE or name.endswith((".off", "-off")) \
                 or (name.endswith(".tezgah-bak")
@@ -3253,7 +3319,7 @@ def unwire_claude_settings():
         changed = True
     if changed:
         write_json(sp, s)
-        print("%s removed tezgah statusLine/attribution/enabledPlugins from %s (restore from its .tezgah-bak copies if wanted)" % (OK, sp))
+        print("%s removed tezgah statusLine/attribution/enabledPlugins from %s (restore from its .tezgah-bak copies under %s if wanted)" % (OK, sp, BACKUP_DIR))
 
 
 def unwire_opencode_config():
@@ -3484,8 +3550,8 @@ def uninstall(hosts, dry_run=False):
     tezgah wrote outlives the command, and the verify pass at the end re-derives
     that from the disk.
 
-    What never goes, in any run: the user's own files, `.tezgah-bak` backups
-    outside the config dir, the `adopted/` predecessor snapshots, and every
+    What never goes, in any run: the user's own files, the host-file backups
+    under `BACKUP_DIR`, the `adopted/` predecessor snapshots, and every
     repository's `.tezgah/` research state. A partial run (some armed hosts
     stay) also keeps config.json and the install tree, because the hosts still
     armed read both at runtime."""
@@ -5322,7 +5388,8 @@ def wizard_plan(hosts, roots, deps_off, features, adopt_now):
     if adopt_now:
         print("  %s retire the predecessor wiring (moved aside, not deleted)" % OK)
     print("  files tezgah rewrites are backed up as <file>.<timestamp>.tezgah-bak "
-          "(oldest and newest four kept); an unparseable host config is refused")
+          "under %s (oldest and newest four kept); an unparseable host config "
+          "is refused" % BACKUP_DIR)
 
 
 def wizard(default_hosts, default_roots, deps_off_default, default_features,
@@ -5474,6 +5541,8 @@ def install_all(hosts, new_roots, deps_off, dry_run, redetect):
         print("\nopenresearch (orx):\n%s skipped: orx is not selected" % NO)
     for h in hosts:
         INSTALLERS[h]()
+    for dst in sweep_backups():
+        print("%s moved a backup out of a host dir: %s" % (OK, dst))
     refresh_plugin_copy(hosts)
     record_hooks(hosts)
     print()

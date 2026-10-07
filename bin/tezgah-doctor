@@ -410,6 +410,10 @@ def main():
     ap.add_argument("--json", action="store_true", help="machine-readable report")
     ap.add_argument("--coverage", action="store_true",
                     help="the tracked files the graph index does not hold (exits 0)")
+    ap.add_argument("--stack", action="store_true",
+                    help="per host: context files, skills and which copy wins, "
+                         "hooks per event, MCP servers, and the conflicts "
+                         "(exits 1 when any conflict is found)")
     ap.add_argument("--repo", action="append", metavar="PATH",
                     help="a repository to account for instead of the configured "
                          "roots (repeatable; --coverage reports the first)")
@@ -435,6 +439,13 @@ def main():
         repo = os.path.realpath(os.path.expanduser(args.repo[0]) if args.repo
                                 else os.getcwd())
         return coverage_report(repo, args.dump)
+    if args.stack:
+        import tezgah_stack
+        repo = os.path.realpath(os.path.expanduser(args.repo[0]) if args.repo
+                                else os.getcwd())
+        data = tezgah_stack.report(repo)
+        print(json.dumps(data, indent=2) if args.json else tezgah_stack.render(data))
+        return 1 if any(s["conflicts"] for s in data.values()) else 0
 
     pairs = targets(args.repo)
     rep = collect(pairs)

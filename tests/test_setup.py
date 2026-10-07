@@ -133,7 +133,8 @@ class Install(SetupBase):
         self.assertEqual(s["attribution"],
                          {"commit": "", "pr": "", "sessionUrl": False})
         self.assertEqual(s["theme"], "dark")
-        self.assertTrue(glob.glob(self.path(".claude", "settings.json.*.tezgah-bak")))
+        self.assertTrue(glob.glob(self.path(".config", "tezgah", "backups", ".claude",
+                                            "settings.json.*.tezgah-bak")))
 
         # codex: pre-existing entry survives next to tezgah's
         raw = self.read_text(self.path(".codex", "hooks.json"))
@@ -1493,7 +1494,8 @@ class Uninstall(SetupBase):
         self.assertNotIn("statusLine", s)
         self.assertNotIn("attribution", s)
         self.assertEqual(s["theme"], "dark")
-        self.assertTrue(glob.glob(self.path(".claude", "settings.json.*.tezgah-bak")))
+        self.assertTrue(glob.glob(self.path(".config", "tezgah", "backups", ".claude",
+                                            "settings.json.*.tezgah-bak")))
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
         self.assertFalse(oc.get("instructions"))
 
