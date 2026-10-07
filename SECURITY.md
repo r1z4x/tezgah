@@ -46,8 +46,13 @@ an adversarial agent, and it does not claim to be one.
     permission away, or move of `.husky`;
   - a delete or move of a directory that holds any of the above
     (`rm -rf ~/.cache`, `mv .git /tmp/x`);
-  - a forced `git add` of a `.tezgah/` path, and a delete or move under
-    `.tezgah/plans/open/` (a `--cached` removal is plan-sync's and passes);
+  - not refused, but left as evidence: a forced `git add` of a `.tezgah/`
+    path, and a delete or move under `.tezgah/plans/open/` (a `--cached`
+    removal is plan-sync's and leaves nothing). The call passes and writes a
+    `disarm` row naming what it changed. Plan 050's replay of real ledgers
+    found these refused without the user's say-so more than once a week, so
+    its falsifier dropped the refusal; a call that also changes a protected
+    path above is refused whole;
   - the CLIs that change that state: `tezgah-gate decide`, `tezgah-capture`,
     `tezgah-pony <level>`, `tezgah-adhd on|off`, `tezgah-context attest`.
     The task CLI is the task rule's.
@@ -60,7 +65,8 @@ an adversarial agent, and it does not claim to be one.
 - **Who the rule can tell apart.** It sees only the calls a host routes
   through its tool hook, so the user's own terminal is never refused. Inside a
   session it cannot tell a change the user asked for from one the agent chose:
-  both are refused, and the user makes the change in their own terminal.
+  both are refused, and the user makes the change in their own terminal (the
+  two evidence-only targets above pass both, with a row).
 - **Residual routes, named rather than closed.**
   - An interpreter: `python3 -c "open(...)"`, `node -e`, any script the agent
     writes and then runs. The path is assembled at run time and the gate reads

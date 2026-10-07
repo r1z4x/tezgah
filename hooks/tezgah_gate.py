@@ -82,11 +82,11 @@ Rules, all only inside a tezgah root:
      (`control`): a kill switch or opt-in marker (tezgah_paths.SWITCHES under
      OFF_DIRS), ~/.config/tezgah, the evidence ledger and the session state in
      the cache, the hook registration files and the installed hook tree, a
-     repo's `.no-*` marks, the repository's git hooks, a forced `git add` of a
-     `.tezgah/` path, a delete or move under `.tezgah/plans/open/`, and the CLIs
-     that change that state (control_reason). It runs first after the root
-     check, and no switch but `pretooluse-off` removes it: every other switch is
-     one of the files it protects.
+     repo's `.no-*` marks, the repository's git hooks, and the CLIs that change
+     that state (control_reason); a forced `git add` of `.tezgah/` and an open
+     plan's delete or move leave a `disarm` row instead (CONTROL_EVIDENCE). It
+     runs first after the root check, and no switch but `pretooluse-off`
+     removes it: every other switch is one of the files it protects.
 Adapters translate the returned reason into their own permission envelope.
 """
 import hashlib
@@ -1682,6 +1682,22 @@ CONTROL_DENY = (
     "Control plane: this call changes %s. That state is the user's, not the "
     "session's: they change it in their own terminal. Say what you wanted "
     "changed and why, and carry on without it.")
+# The two targets plan 050's replay of three weeks of real ledgers (2026-10-07,
+# rows 1, 3, 5 and 8) found refused without the user's say-so more than once a
+# week: its falsifier (REPORT.md 5430, ADR 018) keeps the tamper evidence and
+# drops the refusal. A call that changes one of these and nothing else the rule
+# protects passes and leaves a `disarm` row (`decision`); a refusing target in
+# the same call still refuses.
+OPEN_PLAN = "an open plan"
+FORCED_ADD = "a private `.tezgah/` path forced into the project's history"
+CONTROL_EVIDENCE = frozenset((OPEN_PLAN, FORCED_ADD))
+
+
+def _refusing(label):
+    """True for a control label that refuses rather than leaves evidence."""
+    return bool(label) and label not in CONTROL_EVIDENCE
+
+
 # The CLIs that change control state, by basename with or without `.py`, and the
 # first argument that makes a call a change: None is any call, "" any argument.
 # `tezgah-gate decide` writes a genuine `began` row with `check=1`; the capture
@@ -1701,8 +1717,9 @@ CONTROL_PROGRAMS = frozenset(("touch", "rm", "rmdir", "unlink", "shred",
                               "dd", "sed", "perl"))
 CONTROL_COPIERS = frozenset(("cp", "mv", "ln", "install", "rsync"))
 # The programs that remove, disable or move a path. A directory that holds
-# protected state, a repository's husky hooks and the open plans are refused for
-# these only: husky's own setup writes `.husky/pre-commit` with a redirect.
+# protected state, a repository's husky hooks and the open plans (evidence) are
+# judged for these only: husky's own setup writes `.husky/pre-commit` with a
+# redirect.
 CONTROL_REMOVERS = frozenset(("rm", "rmdir", "unlink", "shred", "truncate",
                               "chmod", "chown", "chgrp", "mv"))
 # Options whose value is a write target (`cp -t dir`, `curl -o file`).
@@ -1788,7 +1805,8 @@ def _tops(cwd):
 def _held(origin):
     """The protected paths a remove or move of a directory holding one takes
     with it: tezgah's configuration, the switches that exist, the cache state,
-    the install trees, and the session checkout's git hooks and open plans."""
+    the install trees, and the session checkout's git hooks. The open plans are
+    `control_target`'s own ancestor check: evidence, not a refusal."""
     out = [os.path.realpath(CONFIG_DIR)]
     out += [p for d in OFF_DIRS for p in (os.path.join(os.path.realpath(d), n)
                                           for n in SWITCHES) if os.path.exists(p)]
@@ -1796,9 +1814,7 @@ def _held(origin):
                                         os.path.realpath(fallback_cache())}
             for d in CONTROL_CACHE]
     out += _install_trees(origin)
-    for top in _tops(origin):
-        out += [os.path.join(top, ".git", "hooks"),
-                os.path.join(top, ".tezgah", "plans", "open")]
+    out += [os.path.join(top, ".git", "hooks") for top in _tops(origin)]
     return out
 
 
@@ -1857,7 +1873,7 @@ def _target_label(real, remove, origin):
     if remove and ".husky" in real.split(os.sep):
         return "the repository's git hooks"
     if remove and "%s.tezgah%splans%sopen%s" % ((os.sep,) * 4) in real + os.sep:
-        return "an open plan"
+        return OPEN_PLAN
     return None
 
 
@@ -1870,16 +1886,22 @@ def control_target(path, cwd, remove=False, origin=None):
     hooks count), `cwd` the one a `cd` in the line moved to. The path is judged
     as spelled and with every link resolved. A shared registration file comes
     back as its own real path, for the caller to judge by key: an edit of a key
-    that is not tezgah's is the user's business."""
+    that is not tezgah's is the user's business. An evidence label
+    (CONTROL_EVIDENCE) comes back only when no spelling refuses."""
     origin = origin or cwd
     real = _real(path, cwd)
+    noted = None
     for spelling in dict.fromkeys((real, _full(path, cwd))):
         label = _target_label(spelling, remove, origin)
-        if label:
+        if _refusing(label):
             return label
+        noted = noted or label
     if remove and any(_under(held, real) for held in _held(origin)):
         return "a directory that holds tezgah's control state"
-    return None
+    if remove and any(_under(os.path.join(top, ".tezgah", "plans", "open"), real)
+                      for top in _tops(origin)):
+        return OPEN_PLAN
+    return noted
 
 
 def _names_tezgah(value):
@@ -2149,12 +2171,15 @@ def _git_change(args, cwd, origin):
     if sub == "add" and any(a == "--force" or re.match(r"-[A-Za-z]*f", a)
                             for a in rest):
         if any(".tezgah" in a.replace("\\", "/").split("/") for a in paths):
-            return "a private `.tezgah/` path forced into the project's history"
+            return FORCED_ADD
     if sub in ("rm", "mv") and "--cached" not in rest:
+        noted = None
         for path in paths:
             label = control_target(path, where, remove=True, origin=origin)
-            if label:
+            if _refusing(label):
                 return _shell_label(label)
+            noted = noted or label
+        return noted
     if sub == "config" and HOOKS_KEY in (a.lower() for a in rest):
         head = rest[:rest.index("--")] if "--" in rest else rest
         positional = [a for a in head if not a.startswith("-")]
@@ -2212,11 +2237,13 @@ def _command_change(words, cwd, depth, origin):
                 targets, remove = targets[-1:], program == "rsync" and any(
                     a.startswith("--delete") for a in args)
             checks += [(t, remove) for t in targets]
+    noted = None
     for target, remove in checks:
         label = control_target(target, cwd, remove=remove, origin=origin)
-        if label:
+        if _refusing(label):
             return _shell_label(label)
-    return None
+        noted = noted or label
+    return noted
 
 
 def shell_control(command, cwd, depth=0, origin=None):
@@ -2237,7 +2264,7 @@ def shell_control(command, cwd, depth=0, origin=None):
     line and a path assembled at run time are not read; SECURITY.md names them
     as the residual routes."""
     origin = origin or cwd
-    where, words, pending = cwd, [], None
+    where, words, pending, noted = cwd, [], None, None
     for word, is_op in _shell_words(command):
         if pending:
             judged, pending = pending, None
@@ -2245,8 +2272,9 @@ def shell_control(command, cwd, depth=0, origin=None):
                 target = _unquote(word)
                 if judged == ">" and not (target.isdigit() or target == "-"):
                     label = control_target(target, where, origin=origin)
-                    if label:
+                    if _refusing(label):
                         return _shell_label(label)
+                    noted = noted or label
                 continue
         if is_op and ("<" in word or ">" in word):
             if words and words[-1].isdigit():
@@ -2268,8 +2296,9 @@ def shell_control(command, cwd, depth=0, origin=None):
                 where = _full(dest[0] if dest else "~", where)
             continue
         label = plain and _command_change(plain, where, depth, origin)
-        if label:
+        if _refusing(label):
             return label
+        noted = noted or label or None
     # bash runs the `$( )` and backtick substitutions of an unquoted-tag
     # heredoc body, whatever the consumer and whatever quotes the body holds,
     # and the line reader above sees them as data (blanked or quoted)
@@ -2283,23 +2312,28 @@ def shell_control(command, cwd, depth=0, origin=None):
                 inner = text[a + (2 if text[a] == "$" else 1):b - 1]
                 for base in dict.fromkeys((cwd, where)):
                     label = shell_control(inner, base, depth + 1, origin)
-                    if label:
+                    if _refusing(label):
                         return label
-    return None
+                    noted = noted or label
+    return noted
 
 
 def control_reason(t, inp, cwd):
-    """The control-plane label this call changes, or None (see CONTROL_DENY)."""
+    """The control-plane label this call changes, or None (see CONTROL_DENY).
+    A CONTROL_EVIDENCE label comes back only when nothing in the call refuses."""
     if t in BASH_TOOLS:
         return shell_control(inp.get("command") or inp.get("cmd"), cwd)
     deletes = set(PATCH_DELETE.findall(str(inp.get("patch") or "")))
+    noted = None
     for path in write_paths(inp):
         label = control_target(path, cwd, remove=path in deletes)
         if label and not os.path.isabs(label):
-            return label
-        if label and _shared_change(label, inp):
+            if _refusing(label):
+                return label
+            noted = noted or label
+        elif label and _shared_change(label, inp):
             return "tezgah's hook wiring"
-    return None
+    return noted
 
 
 def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None,
@@ -2351,12 +2385,16 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
                   if t in BASH_TOOLS else None)
     # Control plane, first after the root check: every rule below is held by a
     # file this one protects (control_reason). No switch but `pretooluse-off`
-    # removes it, and that one is among the files.
+    # removes it, and that one is among the files. A CONTROL_EVIDENCE target is
+    # not refused: the call goes on to the rules below, and a call they let
+    # through leaves a `disarm` row beside its `began` row.
+    evidence = None
     if t in WRITE_TOOLS + BASH_TOOLS:
         what = control_reason(t, inp, cwd)
-        if what:
+        if _refusing(what):
             return _deny(session_id, "control", CONTROL_DENY % what, tool, inp,
                          base)
+        evidence = what
     if t in ("agent", "task", "subagent") and any(explored(s) for s in subs):
         return _deny(session_id, "explorer", EXPLORE_DENY, tool, inp, base)
     # anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
@@ -2563,6 +2601,9 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     # the stored detail is cut at DETAIL_MAX, and a check past that cut read as
     # no check at all.
     if t in WRITE_TOOLS or t in BASH_TOOLS:
+        if evidence:
+            note(session_id, "disarm", "control: %s" % evidence,
+                 id=call_id(tool, inp), workspace=base)
         digest = call_id(tool, inp)
         if digest:
             command = str(inp.get("command") or inp.get("cmd") or "")
