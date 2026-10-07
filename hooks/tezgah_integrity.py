@@ -1199,6 +1199,11 @@ def _abs_target(path, cwd):
 # An open descriptor's own link: Linux resolves /dev/stderr and /dev/fd/N to
 # one of these (`/proc/<pid>/fd/pipe:[N]`), so it is a device by another name.
 PROC_FD = re.compile(r"^/proc/(?:self|\d+)/fd/")
+# The devices a spelling alone licenses, before realpath: only these. A
+# world-writable /dev dir (Linux /dev/shm) can hold a link into the checkout,
+# and that write is the checkout's, so any other /dev/ path is read after
+# realpath like every other path.
+DEVICE = re.compile(r"^/dev/(?:std(?:in|out|err)|fd/\d+|null|tty)$")
 
 
 def scratch_target(path, cwd=None):
@@ -1214,9 +1219,9 @@ def scratch_target(path, cwd=None):
     path = str(path or "").strip()
     if not path:
         return False
-    # the device test reads the spelling before realpath: on Linux realpath
-    # turns /dev/stderr into `/proc/<pid>/fd/pipe:[N]` (CI ubuntu)
-    if os.path.normpath(os.path.join(cwd or os.getcwd(), path)).startswith("/dev/"):
+    # the named devices are read by their spelling, before realpath: on Linux
+    # realpath turns /dev/stderr into `/proc/<pid>/fd/pipe:[N]` (CI ubuntu)
+    if DEVICE.match(os.path.normpath(os.path.join(cwd or os.getcwd(), path))):
         return True
     real = _abs_target(path, cwd)
     if real.startswith("/dev/") or PROC_FD.match(real):

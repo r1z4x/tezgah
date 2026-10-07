@@ -1316,13 +1316,17 @@ function absTarget(path, cwd) {
 // An open descriptor's own link: Linux resolves /dev/stderr and /dev/fd/N to
 // one of these (`/proc/<pid>/fd/pipe:[N]`) (hooks/tezgah_integrity.PROC_FD).
 const PROC_FD = /^\/proc\/(?:self|\d+)\/fd\//
+// The devices a spelling alone licenses before realpath; any other /dev/ path
+// (a link under Linux /dev/shm) is read after realpath
+// (hooks/tezgah_integrity.DEVICE).
+const DEVICE = /^\/dev\/(?:std(?:in|out|err)|fd\/\d+|null|tty)$/
 
 // A written path that is the session's own scratch: a device, or a file under
 // the system temp dir or /tmp but not inside the cwd
 // (hooks/tezgah_integrity.scratch_target). The device test reads the spelling
 // before realpath too: on Linux realpath turns /dev/stderr into a /proc fd.
 function scratchTarget(path, cwd) {
-  if (resolve(cwd || process.cwd(), String(path)).startsWith("/dev/")) return true
+  if (DEVICE.test(resolve(cwd || process.cwd(), String(path)))) return true
   const target = absTarget(path, cwd)
   if (target.startsWith("/dev/") || PROC_FD.test(target)) return true
   const here = absTarget(cwd || process.cwd(), "/")

@@ -1438,7 +1438,9 @@ class WriteRowPath(unittest.TestCase):
         # and the run row carried a race target (CI ubuntu, macOS kept /dev/)
         real = os.path.realpath
         linux = {"/dev/stderr": "/proc/42/fd/pipe:[7]",
-                 "/dev/fd/2": "/proc/42/fd/pipe:[7]"}
+                 "/dev/fd/2": "/proc/42/fd/pipe:[7]",
+                 # a world-writable /dev dir holding a link into the checkout
+                 "/dev/shm/l": os.path.join(real(self.dir), "f")}
         with mock.patch.object(ti.os.path, "realpath",
                                lambda p: linux.get(p) or real(p)):
             for path in ("/dev/stderr", "/dev/fd/2", "/proc/self/fd/1",
@@ -1450,6 +1452,9 @@ class WriteRowPath(unittest.TestCase):
             self.assertNotIn("target", ti.events("s")[-1])
             # a /proc path that is not an fd link is no device
             self.assertFalse(ti.scratch_target("/proc/42/environ", self.dir))
+            # the spelling alone licenses only the named devices: a link under
+            # /dev/shm that resolves into the checkout is the checkout's file
+            self.assertFalse(ti.scratch_target("/dev/shm/l", self.dir))
 
     def test_every_dialect_records_the_path_the_call_wrote(self):
         # One fixture per dialect: the four spellings a host puts a write's

@@ -2135,7 +2135,11 @@ class PluginPaths(TempHome):
 LINUX_REALPATH = r"""
 const __linux = {"/dev/stderr": "/proc/42/fd/pipe:[7]",
                  "/dev/fd/2": "/proc/42/fd/pipe:[7]"}
-function realpathSync(p) { return __linux[p] || __realpathSync(p) }
+// a world-writable /dev dir (Linux /dev/shm) holding a link into the checkout
+function realpathSync(p) {
+  if (p === "/dev/shm/l") return __realpathSync(process.argv[2]) + "/f"
+  return __linux[p] || __realpathSync(p)
+}
 export { scratchTarget }
 """
 SCRATCH_PROBE = r"""
@@ -2165,13 +2169,14 @@ class ScratchOnLinux(TempHome):
         with open(plugin, "w") as fh:
             fh.write(swapped + LINUX_REALPATH)
         paths = ["/dev/stderr", "/dev/fd/2", "/proc/self/fd/1", "/proc/42/fd/2",
-                 "/proc/42/environ"]
+                 "/proc/42/environ", "/dev/shm/l"]
         proc = subprocess.run(
             [NODE, "--input-type=module", "-e", SCRATCH_PROBE,
              plugin, self.home, json.dumps(paths)],
             capture_output=True, text=True, env=self.env(), timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(json.loads(proc.stdout), [True, True, True, True, False])
+        self.assertEqual(json.loads(proc.stdout),
+                         [True, True, True, True, False, False])
 
 
 if __name__ == "__main__":
