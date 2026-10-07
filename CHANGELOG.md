@@ -410,11 +410,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **A plain-http endpoint override off this machine is refused.** The judge
-  seam's `TEZGAH_TYPESAFE_URL` and `TEZGAH_OPENROUTER_URL` and the replay
-  rater's `TEZGAH_DEEPSEEK_URL` all route through `tezgah_judge.override`.
-  An `http://` URL to another host would have sent the bearer key and the
-  state in clear; loopback stays allowed for the tests.
+- **The seam refuses a plain-http endpoint override off this machine.** The
+  judge seam's `TEZGAH_TYPESAFE_URL` and `TEZGAH_OPENROUTER_URL` and the
+  replay rater's `TEZGAH_DEEPSEEK_URL` all route through
+  `tezgah_judge.override`. An `http://` URL to another host would have sent
+  the bearer key and the state in clear. Loopback stays allowed for the tests.
 - **A Homebrew install survives `brew upgrade` with its default cleanup.**
   The installer now names its keg through the stable `opt/tezgah` link
   (`hooks/tezgah_paths.py::stable_root`). So the farm links, the omp bridge's
