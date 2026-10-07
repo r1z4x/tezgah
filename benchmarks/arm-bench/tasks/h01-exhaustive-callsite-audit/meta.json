@@ -1,0 +1,20 @@
+{
+  "id": "h01-exhaustive-callsite-audit",
+  "family": "exhaustive-enumeration",
+  "prompt": "prompt.md",
+  "fixture_dir": "corpus/inventory",
+  "source": "new in the hard family (2026-09-16); the shape that discriminated in the pilot (c19/c20) made exact: every site, its line and its scope",
+  "allow": [
+    "ANSWER.md"
+  ],
+  "allow_note": "the prompt forbids changing any file; the answer file is the only permitted write, so any other change is collateral",
+  "checks": [
+    {
+      "name": "sites",
+      "cmd": "python3 {hidden}/check_sites.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

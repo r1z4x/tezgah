@@ -1,0 +1,635 @@
+[
+ {
+  "name": "opencode+tezgah",
+  "host": "opencode",
+  "harness": "tezgah",
+  "cmd": [
+   "opencode",
+   "run",
+   "--format",
+   "json",
+   "--dir",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {},
+  "toggle": "default install: the tezgah plugin, its instructions files and permission.skill=deny are all active",
+  "flag_verified": true,
+  "verification": "`opencode run --print-logs` loads ~/.config/opencode/opencode.json, which carries the tezgah instructions and the plugin symlink",
+  "orx": false
+ },
+ {
+  "name": "opencode-bare",
+  "host": "opencode",
+  "harness": "none",
+  "cmd": [
+   "opencode",
+   "run",
+   "--format",
+   "json",
+   "--dir",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "XDG_CONFIG_HOME": "{root}/arms/opencode-bare"
+  },
+  "toggle": "an isolated opencode config carrying ONLY the same mcp block as the tezgah arm: no instructions, no permission.skill deny, no plugin",
+  "flag_verified": true,
+  "verification": "`opencode run --print-logs` with that XDG_CONFIG_HOME loads <arm>/opencode/opencode.json instead of ~/.config/opencode/opencode.json; the other two sources it also loads (~/.opencode/opencode.json and the Orca shared config) are both empty",
+  "orx": false
+ },
+ {
+  "name": "codex+tezgah",
+  "host": "codex",
+  "harness": "tezgah",
+  "cmd": [
+   "codex",
+   "exec",
+   "--json",
+   "-C",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {},
+  "toggle": "default install: $CODEX_HOME/config.toml and execpolicy rules are loaded",
+  "flag_verified": false,
+  "verification": "not verified: do not score this arm yet",
+  "orx": false
+ },
+ {
+  "name": "codex-bare",
+  "host": "codex",
+  "harness": "none",
+  "cmd": [
+   "codex",
+   "exec",
+   "--json",
+   "--ignore-user-config",
+   "--ignore-rules",
+   "-C",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {},
+  "toggle": "--ignore-user-config + --ignore-rules (both verified from `codex exec --help`)",
+  "flag_verified": false,
+  "verification": "not verified: do not score this arm yet",
+  "orx": false
+ },
+ {
+  "name": "claude+tezgah",
+  "host": "claude",
+  "harness": "tezgah",
+  "cmd": [
+   "claude",
+   "-p",
+   "--output-format",
+   "json",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {},
+  "toggle": "default install: ~/.claude/settings.json hooks and the tezgah output style are active",
+  "flag_verified": false,
+  "verification": "not verified: do not score this arm yet",
+  "orx": false
+ },
+ {
+  "name": "claude-bare",
+  "host": "claude",
+  "harness": "none",
+  "cmd": [
+   "claude",
+   "-p",
+   "--output-format",
+   "json",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "CLAUDE_CONFIG_DIR": "{bare}/claude"
+  },
+  "toggle": "CLAUDE_CONFIG_DIR is the documented isolation knob but is NOT in `claude --help`, so this arm is unverified: run it and check that no tezgah hook fired before trusting the pair",
+  "flag_verified": false,
+  "verification": "not verified: do not score this arm yet",
+  "orx": false
+ },
+ {
+  "name": "omp+tezgah",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "default install: ~/.omp/agent/RULES.md carries the tezgah core, plus the 5 tezgah subagents and the pre-tool hook",
+  "flag_verified": true,
+  "verification": "read ~/.omp/agent/{RULES.md,agents/tezgah-*.md,hooks/pre/tezgah-hook.ts}; an omp run then loaded the contract itself (the stream shows a skill://tezgah-contract call); arming: TEZGAH_ROOTS={root}:~/Projects:~/.local/share/openresearch/local-runs - a run directory always sits under {root} (.runs/), ~/Projects is the usual configured root, and the archive parent covers the orx geometry the E4b block ran in, where root_for(run dir) returned None. Probe with this env: TEZGAH_ROOTS='<value>' python3 -c \"import sys; sys.path.insert(0, 'hooks'); import tezgah_paths; print(tezgah_paths.root_for('~/.local/share/openresearch/local-runs/317fa1ea-d7bd-4b2a-9cc1-6faaca347eaa/repo/benchmarks/arm-bench/.runs/armbench-e01-silent-one-liner-516q7l84/repo'))\" -> ~/.local/share/openresearch/local-runs; without TEZGAH_ROOTS the same call -> None",
+  "orx": true
+ },
+ {
+  "name": "omp-task-rule",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp-task-rule",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "the installed ~/.omp/agent copied into arms/omp-task-rule/, with exactly one line rewritten: hooks/pre/tezgah-hook.ts's `const HOOK` points at the development-refactor worktree (54ae00e) instead of the installed checkout (1282b46), so the python half the bridge spawns - the gate, the per-turn context and the ledger - is the worktree's, the one carrying the task rule. RULES.md, the skills, the subagents, the extensions and mcp.json stay as installed, so the arm differs from omp+tezgah in the hook pin alone (same cmd shape, same TEZGAH_ROOTS): what changes is the mechanical refusal, not the prose",
+  "flag_verified": true,
+  "verification": "free probe, no model call. `diff -u ~/.omp/agent/hooks/pre/tezgah-hook.ts arms/omp-task-rule/hooks/pre/tezgah-hook.ts` is one changed line: `const HOOK` now names `~/orca/workspaces/tezgah/development-refactor/hosts/omp/hook.py` (the development-refactor pin, bad6474 (the E7 fix: the refusals name no command and both routes to the record are closed; E7's block ran against 54ae00e)) instead of `~/Projects/tezgah/hosts/omp/hook.py` (the installed pin, 1282b46); the rest of the copied agent dir is `~/.omp/agent` minus sessions/ blobs/ agent.db* models.db* history.db* cache/ terminal-sessions/ custom-session-files/ and the zero-byte config.yml.lock. Driving the path the bridge names, the way the bridge drives it (`python3 <HOOK>` with the bridge's PreToolUse payload, PI_CODING_AGENT_DIR and TEZGAH_ROOTS as this arm sets them) over a scratch repo carrying `plans/open/001-x.md` with `phase: discovery` and `allowed_paths: [docs/**]`: write app/api.py -> {\"deny\": \"Task gate: the active task 001 is in phase `discovery`, and this call writes. Writes are allowed in implementation or verification. Advance it with `~/orca/workspaces/tezgah/development-refactor/bin/tezgah-task phase implementation` once the work has reached that point, or do the reading this phase asks for.\"}; the identical payload through the installed hook (~/Projects/tezgah/hosts/omp/hook.py) answers nothing (empty stdout) - the refusal is this pin's and not the installed rule's. The command the refusal names exists and works: `bin/tezgah-task phase implementation` moved the plan to implementation, after which app/api.py was refused by the allowlist (docs/**) and `tezgah-task allow app/**` let it through; the per-turn reminder carries the task line (\"Active task 001 is in phase `implementation`; writes allowed on: app/**\"), which the installed hook cannot render (it imports no tezgah_task). NOT observed: a model call under this arm, and RULES.md/skills are left as installed, so what the arm isolates is the mechanical refusal, not the prose.",
+  "orx": false
+ },
+ {
+  "name": "omp-task-rule-e8",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp-task-rule-e8",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "the E8 armed member of the F2 pair (PREREGISTRATION-E8.md section 3.2): a copy of the installed ~/.omp/agent with exactly one line rewritten - hooks/pre/tezgah-hook.ts's `const HOOK` names ~/orca/workspaces/tezgah/e8-pin-armed/hosts/omp/hook.py, a worktree of 0632ba3 - so the two arms differ in that line alone and their python halves differ in the task rule and nothing else.",
+  "flag_verified": true,
+  "verification": "free probe, no model call. `diff -rq arms/omp-task-rule-e8 arms/omp-task-rule-e8-pre` reports one file (hooks/pre/tezgah-hook.ts) and the two `const HOOK` lines differ in one path: ~/orca/workspaces/tezgah/e8-pin-armed/hosts/omp/hook.py - whose hooks/tezgah_gate.py carries 18 tezgah_task references - against 1282b46, whose gate carries none. The block is scored only if the refusal fires in the armed member and is absent in the control.",
+  "orx": false
+ },
+ {
+  "name": "omp-task-rule-e8-pre",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp-task-rule-e8-pre",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "the E8 control member of the F2 pair (PREREGISTRATION-E8.md section 3.2): a copy of the installed ~/.omp/agent with exactly one line rewritten - hooks/pre/tezgah-hook.ts's `const HOOK` names ~/orca/workspaces/tezgah/e8-pin-control/hosts/omp/hook.py, a worktree of 1282b46 - so the two arms differ in that line alone and their python halves differ in the task rule and nothing else.",
+  "flag_verified": true,
+  "verification": "free probe, no model call. `diff -rq arms/omp-task-rule-e8 arms/omp-task-rule-e8-pre` reports one file (hooks/pre/tezgah-hook.ts) and the two `const HOOK` lines differ in one path: ~/orca/workspaces/tezgah/e8-pin-control/hosts/omp/hook.py - whose hooks/tezgah_gate.py carries 18 tezgah_task references - against 1282b46, whose gate carries none. The block is scored only if the refusal fires in the armed member and is absent in the control.",
+  "orx": false
+ },
+ {
+  "name": "omp-stale-rule",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp-stale-rule",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "the installed ~/.omp/agent copied into arms/omp-stale-rule/, with exactly one line rewritten: hooks/pre/tezgah-hook.ts's `const HOOK` points at ~/orca/workspaces/tezgah/e2-pin-main/hosts/omp/hook.py - a worktree of main at d2f0cf4, the commit carrying the `stale evidence` branch and the removal of passing_check's legacy `exit` tolerance - instead of the installed checkout ~/Projects/tezgah/hosts/omp/hook.py. The two paths held byte-identical python when the arm was pinned (main WAS d2f0cf4), and main has since moved to 65b39b4 - hooks/tezgah_gate.py and hosts/omp/hook.py both differ there - so the pin, not the installed path, is what holds this arm's python at the commit E2 and E3 measured. RULES.md, the skills, the subagents, the extensions and mcp.json stay as installed, so the arm differs from its omp-stale-rule-pre pair in the pinned checkout alone (same cmd shape, same TEZGAH_ROOTS, same agent dir bytes).",
+  "flag_verified": true,
+  "verification": "free probe, no model call. `diff -u ~/.omp/agent/hooks/pre/tezgah-hook.ts arms/omp-stale-rule/hooks/pre/tezgah-hook.ts` is one changed line (`const HOOK`), and `diff -r arms/omp-stale-rule arms/omp-stale-rule-pre` is the same single line, so the pair's agent dirs are byte-identical apart from the pin. Driving the path the bridge names, the way the bridge drives it (`python3 <HOOK>` with the bridge's payloads, PI_CODING_AGENT_DIR and TEZGAH_ROOTS as this arm sets them) over a materialized s01-post-green-edit run dir under `.runs/`: user_prompt -> the per-turn context; pre_tool_use write money/round.py -> `{}` (allowed, and `capture` records the pre-state); the float fix written, then post_tool_use write -> an `edit` row; post_tool_use bash `python3 -m unittest discover -s tests` with the suite really green -> a `verify_ok` row; pre/post write money/SPEC.md -> a second `edit` row; stop with `last_assistant_message` claiming success -> {\"decision\": \"block\", \"reason\": \"Stale evidence: the newest check that passed ran before ... was written ...\"}. The run's own ledger, resolved through bench.py's session_ledgers, holds 7 rows (turn, snapshot, edit, verify_ok, snapshot, edit, claim) and the claim row's detail is `blocked: stale evidence`; bench.py's stop_fires = 1, session_rows = 7. `python3 <HOOK>` on the same tree without the payload writes nothing. NOT observed: that omp itself loads this copied bridge at runtime - the pin's evidence is that the pinned python answered, not that omp read this file (the same doğrulanmadı omp-task-rule's PROVENANCE carries).",
+  "orx": false
+ },
+ {
+  "name": "omp-stale-rule-pre",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp-stale-rule-pre",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "arm A's agent dir copied and re-pinned (`cp -R arms/omp-stale-rule arms/omp-stale-rule-pre`, then the one line) so hooks/pre/tezgah-hook.ts's `const HOOK` names ~/orca/workspaces/tezgah/e2-pin-pre/hosts/omp/hook.py - a worktree of b13d832, the parent of d2f0cf4 - instead of a checkout carrying the change. This is the counterfactual of .tezgah/research/infra-candidates/experiments/E2-stale-evidence-rate/protocol.md section 3, pinned rather than read from `omp+tezgah`: the protocol named the installed pin, but the installed pin resolved to ~/Projects/tezgah, which was d2f0cf4 and therefore carried the branch (main has since moved to 65b39b4) - so A and B would have loaded identical python. Deviation approved by the parent as `pin-parent`; the analysis records it, and `git show b13d832:hooks/tezgah_integrity.py | grep -c 'stale evidence'` is 0 against 2 at d2f0cf4. A and B differ by the whole commit, not only the stale branch: see the analysis's confound paragraph for the part of the commit a trajectory can see.",
+  "flag_verified": true,
+  "verification": "free probe, no model call. `diff -r arms/omp-stale-rule arms/omp-stale-rule-pre` is the one `const HOOK` line. The identical payload sequence that made A block (materialized s01-post-green-edit run dir, pre/post write of money/round.py, a really-green suite run, pre/post write of money/SPEC.md, then stop with a completion claim) answers NOTHING here - no `decision`, no block - and the run's own ledger still holds 7 rows with the same shape (turn, snapshot, edit, verify_ok, snapshot, edit, claim) whose claim detail is `ok`: the tree contradicts the claim (`spec_frozen` false) and the turn ends anyway. bench.py's stop_fires = 0. Confound probe, both trees in their own process on the same cwd: `index_notice` is '' in both, the user_prompt context sha is 4c5d59756d2a76e1 in both, the session_start context is byte-identical, and the PreToolUse decisions for the seven payloads these two tasks can produce (write/edit of money/round.py, money/SPEC.md, tests/test_round.py; bash plain, `|| true`, redirected) are identical string for string - so no part of the commit outside the Stop rule is reachable by a trajectory here. NOT observed: that omp itself loads this copied bridge at runtime.",
+  "orx": false
+ },
+ {
+  "name": "omp-drift-notice",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp-drift-notice",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "the armed member of the drift-notice pair (.tezgah/research/failure-fold/experiments/drift-notice/protocol.md): a copy of the installed ~/.omp/agent with exactly one line rewritten - hooks/pre/tezgah-hook.ts's `const HOOK` names ~/orca/workspaces/tezgah/drift-pin-armed/hosts/omp/hook.py, a worktree of d4878ae - so the two arms differ in that line alone and their python halves differ in the drift rule and its host wiring (the notice rides the tool-result channel; `decision()` never refuses for `drift`) and nothing else.",
+  "flag_verified": true,
+  "verification": "free probe, no model call. `diff -rq arms/omp-drift-notice arms/omp-drift-notice-pre` reports one file (hooks/pre/tezgah-hook.ts), and it differs in one path: ~/orca/workspaces/tezgah/drift-pin-armed/hosts/omp/hook.py against ~/orca/workspaces/tezgah/drift-pin-pre/hosts/omp/hook.py, worktrees of d4878ae and of its parent 0c794d0. Driving each pin's own hosts/omp/hook.py with a `pre_tool_use` payload (a write, 25 work rows seeded into the turn) answers `{\"deny\": \"Long turn (25 work rows in, ...\"}` in the pre pin and `{}` in the armed pin, and the armed pin's `post_tool_use` carries the same text on the `label` field; the pre pin's ledger writes a `deny` row whose detail starts `drift:` and the armed pin's writes no deny row at all. So the pair is armed and is not inert: the refusal fires in the control and is absent in the armed member, which is what F2's trap asks for.",
+  "orx": false
+ },
+ {
+  "name": "omp-drift-notice-pre",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp-drift-notice-pre",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "the control member of the drift-notice pair (.tezgah/research/failure-fold/experiments/drift-notice/protocol.md): a copy of the installed ~/.omp/agent with exactly one line rewritten - hooks/pre/tezgah-hook.ts's `const HOOK` names ~/orca/workspaces/tezgah/drift-pin-pre/hosts/omp/hook.py, a worktree of 0c794d0, the parent of d4878ae - so the two arms differ in that line alone and their python halves differ in the drift rule and its host wiring (the re-statement arrives as a refusal of the call it lands on) and nothing else.",
+  "flag_verified": true,
+  "verification": "free probe, no model call. `diff -rq arms/omp-drift-notice arms/omp-drift-notice-pre` reports one file (hooks/pre/tezgah-hook.ts), and it differs in one path: ~/orca/workspaces/tezgah/drift-pin-pre/hosts/omp/hook.py against ~/orca/workspaces/tezgah/drift-pin-armed/hosts/omp/hook.py, worktrees of 0c794d0 and of its child d4878ae. The same payload sequence that answers `{}` through the armed pin's hosts/omp/hook.py answers `{\"deny\": \"Long turn (25 work rows in, ...\"}` here, and its ledger - not the armed pin's - carries the `drift` deny row; the identical call passes on the second attempt, because the marker is written before the deny in this pin.",
+  "orx": false
+ },
+ {
+  "name": "omp-bare",
+  "host": "omp",
+  "harness": "none",
+  "cmd": [
+   "omp",
+   "-p",
+   "--no-session",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp-bare",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "arming": "harness-free by construction: the agent dir is empty and omp populates it with its own DBs, so this arm measures omp with no harness at all and its rows carry no arming proof",
+  "toggle": "an empty agent dir via PI_CODING_AGENT_DIR, so there is no RULES.md, no tezgah subagents and no pre-tool hook",
+  "flag_verified": true,
+  "verification": "ran omp with PI_CODING_AGENT_DIR pointing at an empty directory: the dir is populated with agent.db/sessions, and no RULES.md appears in it ; runs are ephemeral (--no-session) so parallel runs do not write session records into a shared agent DB; arming: same TEZGAH_ROOTS as the other orx arms - a run directory always sits under {root} (.runs/), ~/Projects is the usual configured root, and the archive parent covers the orx geometry the E4b block ran in, where root_for(run dir) returned None. The anchor keeps the roots so the only difference from omp+tezgah is the agent dir, not the arming condition",
+  "orx": true
+ },
+ {
+  "name": "orx-no-reporting",
+  "host": "omp",
+  "harness": "tezgah-minus",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/orx-no-reporting",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "orx": false,
+  "toggle": "the installed ~/.omp/agent copied into arms/orx-no-reporting/ with the reply-language clause removed from RULES.md, so the arm differs from omp+tezgah in the contract file alone - same bridge, same `const HOOK` pin, same cmd, same TEZGAH_ROOTS; `python3 make_variants.py` deploys it and rewrites the arm's PROVENANCE.md",
+  "flag_verified": true,
+  "verification": "`python3 make_variants.py` re-copies ~/.omp/agent into arms/orx-no-reporting/ (per-run state dropped) and writes the ablated RULES.md; the arming pre-flight then reads `armed - <bench>/arms/orx-no-reporting carries hooks/pre/tezgah-hook.ts` and `const HOOK -> ~/Projects/tezgah/hosts/omp/hook.py`, with no ARM DRIFT hunk because the copied bridge is the installed byte - RULES.md is the only file this arm differs from omp+tezgah in. TEZGAH_ROOTS is omp+tezgah's on purpose: without it tezgah_paths.root_for answers None for a run directory under the bench root and every hook returns early, so the arm would differ in its arming condition too. Not verified, and not free: that omp itself loads this directory at runtime, and the positive control this arm is - c04 must fail here and pass on omp+tezgah - which needs a paid run; no row has been scored on any orx-no- arm"
+ },
+ {
+  "name": "orx-no-ponytail",
+  "host": "omp",
+  "harness": "tezgah-minus",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/orx-no-ponytail",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "orx": false,
+  "toggle": "the installed ~/.omp/agent copied into arms/orx-no-ponytail/ with the minimal-code clause removed from RULES.md, so the arm differs from omp+tezgah in the contract file alone - same bridge, same `const HOOK` pin, same cmd, same TEZGAH_ROOTS; `python3 make_variants.py` deploys it and rewrites the arm's PROVENANCE.md",
+  "flag_verified": true,
+  "verification": "`python3 make_variants.py` re-copies ~/.omp/agent into arms/orx-no-ponytail/ (per-run state dropped) and writes the ablated RULES.md; the arming pre-flight then reads `armed - <bench>/arms/orx-no-ponytail carries hooks/pre/tezgah-hook.ts` and `const HOOK -> ~/Projects/tezgah/hosts/omp/hook.py`, with no ARM DRIFT hunk because the copied bridge is the installed byte - RULES.md is the only file this arm differs from omp+tezgah in. TEZGAH_ROOTS is omp+tezgah's on purpose: without it tezgah_paths.root_for answers None for a run directory under the bench root and every hook returns early, so the arm would differ in its arming condition too. Not verified, and not free: that omp itself loads this directory at runtime, and the positive control (orx-no-reporting on c04 must fail the reply-language check) - neither has been run, and no row has been scored on any orx-no- arm"
+ },
+ {
+  "name": "orx-no-whole-ask",
+  "host": "omp",
+  "harness": "tezgah-minus",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/orx-no-whole-ask",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "orx": false,
+  "toggle": "the installed ~/.omp/agent copied into arms/orx-no-whole-ask/ with the deliver-the-whole-ask clause removed from RULES.md, so the arm differs from omp+tezgah in the contract file alone - same bridge, same `const HOOK` pin, same cmd, same TEZGAH_ROOTS; `python3 make_variants.py` deploys it and rewrites the arm's PROVENANCE.md",
+  "flag_verified": true,
+  "verification": "`python3 make_variants.py` re-copies ~/.omp/agent into arms/orx-no-whole-ask/ (per-run state dropped) and writes the ablated RULES.md; the arming pre-flight then reads `armed - <bench>/arms/orx-no-whole-ask carries hooks/pre/tezgah-hook.ts` and `const HOOK -> ~/Projects/tezgah/hosts/omp/hook.py`, with no ARM DRIFT hunk because the copied bridge is the installed byte - RULES.md is the only file this arm differs from omp+tezgah in. TEZGAH_ROOTS is omp+tezgah's on purpose: without it tezgah_paths.root_for answers None for a run directory under the bench root and every hook returns early, so the arm would differ in its arming condition too. Not verified, and not free: that omp itself loads this directory at runtime, and the clause's effect on a scored task, which needs a paid run; no row has been scored on any orx-no- arm"
+ },
+ {
+  "name": "orx-no-integrity",
+  "host": "omp",
+  "harness": "tezgah-minus",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/orx-no-integrity",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "orx": false,
+  "toggle": "the installed ~/.omp/agent copied into arms/orx-no-integrity/ with the integrity clause removed from RULES.md, so the arm differs from omp+tezgah in the contract file alone - same bridge, same `const HOOK` pin, same cmd, same TEZGAH_ROOTS; `python3 make_variants.py` deploys it and rewrites the arm's PROVENANCE.md",
+  "flag_verified": true,
+  "verification": "`python3 make_variants.py` re-copies ~/.omp/agent into arms/orx-no-integrity/ (per-run state dropped) and writes the ablated RULES.md; the arming pre-flight then reads `armed - <bench>/arms/orx-no-integrity carries hooks/pre/tezgah-hook.ts` and `const HOOK -> ~/Projects/tezgah/hosts/omp/hook.py`, with no ARM DRIFT hunk because the copied bridge is the installed byte - RULES.md is the only file this arm differs from omp+tezgah in. TEZGAH_ROOTS is omp+tezgah's on purpose: without it tezgah_paths.root_for answers None for a run directory under the bench root and every hook returns early, so the arm would differ in its arming condition too. This is the arm that separates the integrity clause from its mechanical half: the Stop rule and the anti-shortcut denials stay loaded here, so a difference against omp+tezgah is the prose, and the same contrast against orx-verify-off is the mechanism. Not verified, and not free: that omp itself loads this directory at runtime, and the clause's effect on a scored task, which needs a paid run; no row has been scored on any orx-no- arm"
+ },
+ {
+  "name": "orx-verify-off",
+  "host": "omp",
+  "harness": "tezgah-mechanical-off",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "XDG_CONFIG_HOME": "{root}/arms/orx-verify-off",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "the installed harness with verify-off set: the Stop rule and the anti-shortcut denials are off, the contract text and the attribution/explorer rules are unchanged - the arm isolates the mechanical half of the integrity rule from its prose",
+  "flag_verified": true,
+  "verification": "probe: XDG_CONFIG_HOME=<arm> python3 -c \"import tezgah_paths,tezgah_gate; print(tezgah_paths.CONFIG_DIR, tezgah_paths.off('verify-off'), tezgah_gate.decision('bash', {'command':'pytest -q tests/ || true'}, '~/Projects/tezgah', 'probe'))\" -> CONFIG_DIR=<arm>/tezgah, and the shortcut denial returns None; arming: TEZGAH_ROOTS={root}:~/Projects:~/.local/share/openresearch/local-runs - a run directory always sits under {root} (.runs/), ~/Projects is the usual configured root, and the archive parent covers the orx geometry the E4b block ran in, where root_for(run dir) returned None. Without it a kill-switch arm is off twice over: the file is read but every hook has already returned",
+  "orx": false
+ },
+ {
+  "name": "orx-gate-off",
+  "host": "omp",
+  "harness": "tezgah-mechanical-off",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "XDG_CONFIG_HOME": "{root}/arms/orx-gate-off",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "toggle": "the installed harness with pretooluse-off and verify-off set: the whole PreToolUse gate and the Stop gate are off, the contract text is unchanged - the arm separates 'the contract is written' from 'the harness enforces it'",
+  "flag_verified": true,
+  "verification": "probe: XDG_CONFIG_HOME=<arm> python3 -c \"import tezgah_paths,tezgah_gate; print(tezgah_paths.CONFIG_DIR, tezgah_paths.off('verify-off'), tezgah_gate.decision('bash', {'command':'pytest -q tests/ || true'}, '~/Projects/tezgah', 'probe'))\" -> CONFIG_DIR=<arm>/tezgah, and the shortcut denial returns None; arming: TEZGAH_ROOTS={root}:~/Projects:~/.local/share/openresearch/local-runs - a run directory always sits under {root} (.runs/), ~/Projects is the usual configured root, and the archive parent covers the orx geometry the E4b block ran in, where root_for(run dir) returned None (that block's rows carry no deny evidence at all). The roots match the other three orx arms so this arm differs from omp+tezgah only in the kill switches",
+  "orx": false
+ },
+ {
+  "name": "orx-mp-prove",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "env": {
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs",
+   "PI_CODING_AGENT_DIR": "{root}/arms/orx-mp-prove"
+  },
+  "toggle": "the armed contract plus one clause: make the check fail once on purpose before trusting its success (E4 pre-registration)",
+  "flag_verified": true,
+  "verification": "read ~/.omp/agent/{RULES.md,agents/tezgah-*.md,hooks/pre/tezgah-hook.ts}; an omp run then loaded the contract itself (the stream shows a skill://tezgah-contract call); arming: TEZGAH_ROOTS={root}:~/Projects:~/.local/share/openresearch/local-runs - a run directory always sits under {root} (.runs/), ~/Projects is the usual configured root, and the archive parent covers the orx geometry the E4b block ran in, where root_for(run dir) returned None. Probe with this env: TEZGAH_ROOTS='<value>' python3 -c \"import sys; sys.path.insert(0, 'hooks'); import tezgah_paths; print(tezgah_paths.root_for('~/.local/share/openresearch/local-runs/317fa1ea-d7bd-4b2a-9cc1-6faaca347eaa/repo/benchmarks/arm-bench/.runs/armbench-e01-silent-one-liner-516q7l84/repo'))\" -> ~/.local/share/openresearch/local-runs; without TEZGAH_ROOTS the same call -> None",
+  "orx": true
+ },
+ {
+  "name": "p1-bare",
+  "host": "omp",
+  "harness": "none",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "home": "{lab}/homes/p1-bare",
+  "switches": [],
+  "env": {
+   "TEZGAH_ROOTS": "{runs}"
+  },
+  "arming": "harness-free by construction: the template HOME is empty, so omp finds no RULES.md, no tezgah agents and no bridge; the arming proof for this arm is that its rows carry no ledger row",
+  "toggle": "an empty HOME: omp with no harness at all",
+  "verification": "Plan 062 phase 1: a lab arm. `homes.py deploy --lab <lab>` builds its template HOME out of tree from `git archive` of one commit; `bench.py run` copies the template into a fresh per-run HOME and runs omp with HOME pointed at it and an environment reduced to KEEP_ENV, so no run reads or writes the operator's host config and no switch reaches another run. TEZGAH_ROOTS names the lab's run root, so the hooks arm for the run directory."
+ },
+ {
+  "name": "p1-full",
+  "host": "omp",
+  "harness": "tezgah",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "home": "{lab}/homes/p1-full",
+  "switches": [],
+  "env": {
+   "TEZGAH_ROOTS": "{runs}"
+  },
+  "toggle": "`tezgah-setup --install --hosts omp --no-deps` from the pinned copy: RULES.md, the tezgah agents and skills, the bridge pinned to the copy's hosts/omp/hook.py. Disclosed: a constructed install, not the operator's; the run directory is not a git repository, so the plan rule (tezgah_gate.py, fail-open off git) is inert in every arm",
+  "verification": "Plan 062 phase 1: a lab arm. `homes.py deploy --lab <lab>` builds its template HOME out of tree from `git archive` of one commit; `bench.py run` copies the template into a fresh per-run HOME and runs omp with HOME pointed at it and an environment reduced to KEEP_ENV, so no run reads or writes the operator's host config and no switch reaches another run. TEZGAH_ROOTS names the lab's run root, so the hooks arm for the run directory."
+ },
+ {
+  "name": "p1-noswitch",
+  "host": "omp",
+  "harness": "tezgah-noswitch",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "home": "{lab}/homes/p1-noswitch",
+  "switches": [],
+  "strips_unlocks": true,
+  "env": {
+   "TEZGAH_ROOTS": "{runs}",
+   "TEZGAH_PYTHON": "{src}/benchmarks/arm-bench/unlocks.py"
+  },
+  "toggle": "omp-full with every injected unlock stripped by unlocks.py: RULES.md and every skill's markdown at deploy time, and every hook answer at run time through TEZGAH_PYTHON (the bridge runs `$TEZGAH_PYTHON hook.py`; the wrapper forwards anything else to python3 untouched), so the bridge stays the installed byte",
+  "verification": "Plan 062 phase 1: a lab arm. `homes.py deploy --lab <lab>` builds its template HOME out of tree from `git archive` of one commit; `bench.py run` copies the template into a fresh per-run HOME and runs omp with HOME pointed at it and an environment reduced to KEEP_ENV, so no run reads or writes the operator's host config and no switch reaches another run. TEZGAH_ROOTS names the lab's run root, so the hooks arm for the run directory."
+ },
+ {
+  "name": "p1-verify-off",
+  "host": "omp",
+  "harness": "tezgah-verify-off",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "home": "{lab}/homes/p1-verify-off",
+  "switches": [
+   ".config/tezgah/verify-off"
+  ],
+  "env": {
+   "TEZGAH_ROOTS": "{runs}"
+  },
+  "toggle": "omp-full plus the verify-off switch file. Confounded by design: the switch removes the integrity rule's prompt text as well as the shortcut denials and the Stop gate (hooks/tezgah_context.py, hooks/tezgah_gate.py)",
+  "verification": "Plan 062 phase 1: a lab arm. `homes.py deploy --lab <lab>` builds its template HOME out of tree from `git archive` of one commit; `bench.py run` copies the template into a fresh per-run HOME and runs omp with HOME pointed at it and an environment reduced to KEEP_ENV, so no run reads or writes the operator's host config and no switch reaches another run. TEZGAH_ROOTS names the lab's run root, so the hooks arm for the run directory."
+ },
+ {
+  "name": "p1-reminder-off",
+  "host": "omp",
+  "harness": "tezgah-reminder-off",
+  "cmd": [
+   "omp",
+   "-p",
+   "--mode",
+   "json",
+   "--cwd",
+   "{cwd}",
+   "--model",
+   "{model}",
+   "{prompt}"
+  ],
+  "home": "{lab}/homes/p1-reminder-off",
+  "switches": [
+   ".config/tezgah/reminder-off"
+  ],
+  "env": {
+   "TEZGAH_ROOTS": "{runs}"
+  },
+  "toggle": "omp-full plus the reminder-off switch file. Confounded by design: the switch drops the per-turn reminder and the long-turn drift notice together",
+  "verification": "Plan 062 phase 1: a lab arm. `homes.py deploy --lab <lab>` builds its template HOME out of tree from `git archive` of one commit; `bench.py run` copies the template into a fresh per-run HOME and runs omp with HOME pointed at it and an environment reduced to KEEP_ENV, so no run reads or writes the operator's host config and no switch reaches another run. TEZGAH_ROOTS names the lab's run root, so the hooks arm for the run directory."
+ }
+]

@@ -658,6 +658,7 @@ tests/support.py
 tests/test_agents.py
 tests/test_ai_research_library.py
 tests/test_apps_registry.py
+tests/test_arm_bench.py
 tests/test_attest.py
 tests/test_bash_agreement.py
 tests/test_cheap_source.py

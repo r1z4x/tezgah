@@ -1,0 +1,6 @@
+inventory/report.py:9 summary :: calc_total(items)
+inventory/report.py:22 discounted_total :: apply_discount(calc_total(items), pct)
+inventory/report.py:22 discounted_total :: calc_total(items)
+inventory/report.py:27 parse_quantities :: parse_quantity(t)
+tests/test_core.py:8 CoreTests.test_calc_total :: calc_total([{"price": 1.5}, {"price": 2.5}])
+tests/test_core.py:11 CoreTests.test_apply_discount_round_numbers :: apply_discount(100.0, 10)

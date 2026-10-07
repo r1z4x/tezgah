@@ -1,0 +1,13 @@
+{
+  "id": "t04-crossfile-signature",
+  "family": "cross-file-rename",
+  "prompt": "prompt.md",
+  "allow": ["src/formatting.py", "src/orders.py", "src/invoices.py"],
+  "allow_note": "the prompt permits these three modules; any other change is collateral",
+  "checks": [
+    {"name": "rename", "cmd": "python3 {hidden}/check_rename.py", "expect_exit": 0},
+    {"name": "behaviour", "cmd": "python3 {hidden}/check_behaviour.py", "expect_exit": 0}
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

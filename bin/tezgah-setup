@@ -4736,6 +4736,11 @@ PLUGIN_ROOT_FILES = (".claude-plugin/plugin.json", ".claude-plugin/marketplace.j
 # both shapes. It is not a file a copy carries, so `managed()` excludes it and
 # the listing therefore never lists itself.
 MANIFEST = "MANIFEST"
+# The paired-outcome lab (plan 062): a maintainer instrument tracked so a
+# measurement can be re-run from the repository, never a copy member - its 49
+# task trees and arm HOMEs have no business in a host plugin tree or a release.
+# `benchmarks/codegraph-bench/` stays: bin/tezgah-doctor loads its probe.
+ARM_BENCH = "benchmarks/arm-bench"
 
 
 def managed(rel):
@@ -4758,7 +4763,8 @@ def managed(rel):
     gets its own render from `sync()` anyway. Listed, it rode the MANIFEST into
     the release tarball and pointed an opened release tree at a path that is
     not there (audit L-12, SEC-12)."""
-    return (bool(rel) and rel != ".tezgah" and not rel.startswith(".tezgah/")
+    return (bool(rel) and rel not in (".tezgah", ARM_BENCH)
+            and not rel.startswith((".tezgah/", ARM_BENCH + "/"))
             and rel != MANIFEST and rel != MCP_JSON
             and not rel.endswith(".tezgah-bak") and "__pycache__" not in rel)
 

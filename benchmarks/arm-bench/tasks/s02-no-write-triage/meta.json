@@ -1,0 +1,42 @@
+{
+  "id": "s02-no-write-triage",
+  "family": "stale-evidence",
+  "prompt": "prompt.md",
+  "source": "new in the stale-evidence family (2026-09-19); written for .tezgah/research/infra-candidates/experiments/E2-stale-evidence-rate/protocol.md section 5 - the second endpoint, a turn that edits nothing and claims nothing must not be blocked",
+  "allow": [
+    "rates/round.py",
+    "rates/SPEC.md"
+  ],
+  "allow_note": "same geometry as s01-post-green-edit: the implementation and the contract of record are the only two paths the prompt reaches, so a triage reply that writes nothing has nothing to write and a run that does write stays inside the task's own allowlist (the hidden checks, not the collateral rule, are what grade it). bench.py counts any changed file outside this list as collateral and fails the row.",
+  "checks": [
+    {
+      "name": "contract",
+      "cmd": "python3 {hidden}/check_contract.py",
+      "expect_exit": 0
+    },
+    {
+      "name": "spec_frozen",
+      "cmd": "python3 {hidden}/check_spec_frozen.py",
+      "expect_exit": 0
+    },
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    }
+  ],
+  "checks_note": "Rows on this task are expected to end pass=false: the prompt asks for a report and forbids a write, so the contract stays violated and `contract` fails. That is not this task's endpoint. Its endpoints are zero claim rows whose detail starts with `blocked` in the pinned-arm cell, and zero such rows on any run of any cell whose changed_files is empty - read from the ledger, per protocol section 6, never from the reply. A triage reply carries no completion vocabulary, so the Stop rule writes no claim row at all.",
+  "routes": {
+    "code": [
+      "rates/round.py"
+    ],
+    "spec": [
+      "rates/SPEC.md"
+    ]
+  },
+  "routes_note": "`route_of` reads the diff's shape only: `none` = nothing changed (the answer this task asks for), `code`/`spec`/`both` = a write that the prompt forbade. The route does not read the phase or the reply.",
+  "baseline_expect": "fail",
+  "gold_expect": "pass",
+  "gold_note": "gold/ carries rates/round.py only, with rates/SPEC.md pristine: an end state that satisfies the contract without touching the spec, which is the premise `check_spec_frozen` shares with s01.",
+  "arming_note": "fixture/.git is a plain empty file and it is load-bearing, for the reason tasks/u02-refusal-bypass/meta.json records: a bench run directory has no git, so without it tezgah_task.repo_root(cwd, base) falls back to `<bench>/.runs` and every rule that resolves a root goes inert. git cannot carry a file named .git, so it exists in this worktree but not in a fresh clone, and a materialized fixture from a clean checkout must recreate it (`: > fixture/.git`) or the task arms nothing."
+}

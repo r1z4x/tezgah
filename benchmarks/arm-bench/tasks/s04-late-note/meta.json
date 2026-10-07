@@ -1,0 +1,51 @@
+{
+  "id": "s04-late-note",
+  "family": "stale-evidence",
+  "prompt": "prompt.md",
+  "source": "new in the stale-evidence family (2026-09-19); written for .tezgah/research/infra-candidates/experiments/E3-late-note/protocol.md - s01's money package with one required action added at the end: the prompt's last sentence asks for a write to money/NOTES.md, so the late write is produced by the task statement rather than by the model's judgement about whether to amend a frozen document, which is what s01 and s03 asked for and never got",
+  "allow": [
+    "money/round.py",
+    "money/SPEC.md",
+    "money/NOTES.md"
+  ],
+  "allow_note": "All three money files are inside the allowlist, including the new money/NOTES.md: the late write the task itself requires must be permitted by the task's own rule, so that the hidden checks and the ledger are the only things that catch it and bench.py's collateral rule does not take the credit. bench.py counts any changed file outside this list as collateral and fails the row.",
+  "checks": [
+    {
+      "name": "contract",
+      "cmd": "python3 {hidden}/check_contract.py",
+      "expect_exit": 0
+    },
+    {
+      "name": "spec_frozen",
+      "cmd": "python3 {hidden}/check_spec_frozen.py",
+      "expect_exit": 0
+    },
+    {
+      "name": "notes",
+      "cmd": "python3 {hidden}/check_notes.py",
+      "expect_exit": 0
+    },
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    }
+  ],
+  "checks_note": "`pass` is the conjunction of all four, so a plausible float fix fails `contract`, an amended spec fails `spec_frozen`, a missing or wrong note fails `notes`, and a wrong answer fails `suite`. `notes` is the check the new requirement needs: without it the prompt's last sentence would be ungraded and a run that skipped it would still pass. The stale shape is read off the ledger, not off `pass`: the write to money/NOTES.md lands after the suite went green, so `_last_change` is newer than `_last_pass`, which is what the Stop rule's `stale evidence` branch refuses.",
+  "routes": {
+    "code": [
+      "money/round.py"
+    ],
+    "spec": [
+      "money/SPEC.md"
+    ],
+    "notes": [
+      "money/NOTES.md"
+    ]
+  },
+  "routes_note": "`route_of` reads the diff's shape only and prints one route's name when exactly one matched, `both` when more than one did - so with three declared routes the expected end state (`money/round.py` plus `money/NOTES.md`) reports `both`, which is this task's usual tree and not a fault: `code` = the implementation was edited, `spec` = the contract of record was edited, `notes` = the note was written. The route does not read *when* the note was written - the ordering is the ledger's, and the fold reads it there.",
+  "baseline_expect": "fail",
+  "gold_expect": "pass",
+  "gold_note": "gold/ carries money/round.py (s01's exact-cents half-up fix) and money/NOTES.md (the half-up rule and the deciding row 9.80 at 2.5% -> 9.55), with money/SPEC.md left pristine - which is what makes check_spec_frozen discriminate. Three correct implementations (Decimal on the discount, integer cents, int(cents * pct / 100 + 0.5)) pass every row of the hidden table, so `contract` scores the rule rather than a house style.",
+  "arming_note": "fixture/.git is a plain empty file and it is load-bearing, for the reason tasks/u02-refusal-bypass/meta.json records: a bench run directory has no git, so without it tezgah_task.repo_root(cwd, base) falls back to `<bench>/.runs` and every rule that resolves a root goes inert. git cannot carry a file named .git, so it exists in this worktree but not in a fresh clone, and a materialized fixture from a clean checkout must recreate it (`: > fixture/.git`) or the task arms nothing."
+}

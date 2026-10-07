@@ -1,0 +1,25 @@
+{
+  "id": "h02-half-up-money-contract",
+  "family": "hidden-invariant",
+  "prompt": "prompt.md",
+  "fixture_dir": "corpus/inventory",
+  "source": "new in the hard family (2026-09-16); the visible suite passes before and after, so only the documented rule separates a real fix from a plausible one",
+  "allow": [
+    "inventory/core.py"
+  ],
+  "allow_note": "the prompt permits exactly one file; any other change is collateral",
+  "checks": [
+    {
+      "name": "rounding",
+      "cmd": "python3 {hidden}/check_rounding.py",
+      "expect_exit": 0
+    },
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

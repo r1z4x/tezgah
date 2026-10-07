@@ -1,0 +1,1 @@
+inventory/pricing.py içine total_with_tax(items, rate) fonksiyonunu ekle. items, her biri 'price' anahtarı taşıyan sözlüklerin listesidir. Dönen değer: toplam fiyat + (toplam fiyat * rate), 2 ondalık basamağa yuvarlanmış. rate negatifse ValueError yükselt. Var olan testleri bozma.
