@@ -1,10 +1,24 @@
 """hosts/codex/hook.py: SessionStart context, the gate, evidence and Stop."""
+import glob
 import json
 import os
+import re
 import unittest
 
 import support
 from support import TempHome, run, run_json
+
+
+def forge_pass(home, session):
+    """Append a passing `verify_ok` row to `session`'s ledger with
+    `python3 -c`, the interpreter route no hook sees (plan 051)."""
+    [path] = glob.glob(os.path.join(home, ".cache", "tezgah", "evidence",
+                                    support.slug(session) + "-*.jsonl"))
+    row = json.dumps({"kind": "verify_ok", "detail": "pytest -q", "id": "forged",
+                      "exit": 0, "out_bytes": 42, "v": 3})
+    proc = run(["-c", "import sys; open(sys.argv[1], 'a').write(sys.argv[2] + '\\n')",
+                path, row])
+    assert proc.returncode == 0, proc.stderr
 
 
 class CodexHook(TempHome):
@@ -17,6 +31,18 @@ class CodexHook(TempHome):
         hso = out["hookSpecificOutput"]
         self.assertEqual(hso["hookEventName"], "SessionStart")
         self.assertTrue(hso["additionalContext"].strip())
+
+    def test_the_pretool_matcher_names_every_shell_spelling_the_post_side_records(self):
+        # review R051b F5: PostToolUse has no matcher, so a `shell` call there
+        # writes its `verify_ok` while a PreToolUse that misses it writes no
+        # `began` - the pass reads as an orphan. The shipped manifest and the
+        # one setup renders carry the same matcher.
+        with open(os.path.join(support.REPO, "hosts", "codex", "hooks.json")) as fh:
+            [group] = json.load(fh)["hooks"]["PreToolUse"]
+        from test_setup import setup_module
+        self.assertEqual(group["matcher"], setup_module().CODEX_PRETOOL_MATCHER)
+        for name in ("Bash", "exec_command", "shell", "Shell", "PowerShell", "pwsh"):
+            self.assertTrue(re.fullmatch(group["matcher"], name), name)
 
     def test_post_compact_carries_no_context_envelope(self):
         # Codex's PostCompact output schema allows only the common fields
@@ -409,6 +435,22 @@ class CodexStopGate(TempHome):
         self.post("apply_patch", {"file_path": self.repo + "/x.py"})
         self.post("exec_command", {"command": "pytest -q"}, {"exit_code": 0})
         self.assertNotIn("decision", self.stop("Done. All tests pass."))
+
+    def test_a_forged_pass_after_a_gated_one_blocks_as_evidence_tampered(self):
+        # plan 051: the gate's PreToolUse `began` row pairs with the
+        # PostToolUse pass, so the honest call licenses the claim; a pass
+        # appended with `python3 -c` in the next turn has no such row
+        inp = {"command": "pytest -q"}
+        run([support.CODEX_HOOK], {"hook_event_name": "PreToolUse", "cwd": self.repo,
+                                   "session_id": self.session,
+                                   "tool_name": "exec_command", "tool_input": inp},
+            env=self.envv)
+        self.post("exec_command", inp, {"exit_code": 0, "output": "5 passed"})
+        self.assertNotIn("decision", self.stop("Done. All tests pass."))
+        forge_pass(self.home, self.session)
+        out = self.stop("Done. All tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Evidence tampered", out["reason"])
 
     def test_failed_check_blocks(self):
         self.post("exec_command", {"command": "pytest -q"}, {"exit_code": 1})

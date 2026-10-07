@@ -97,9 +97,9 @@ import shlex
 import time
 
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
-                              GIT_WRAPPER, HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
+                              HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
                               PLAIN_TAIL, SECRET_PREFIXED, STEP_KINDS,
-                              WRITE_TOOLS, _blank_heredocs, _heredocs,
+                              WRITE_TOOLS, _blank_heredocs, _heredocs, bind_session,
                               _shell_lines, _shell_segments, _turn_start,
                               _unquoted_backticks, call_id, cut, events,
                               heredoc_bodies, mask, mcp_class, mcp_text, note,
@@ -1710,9 +1710,19 @@ def _refusing(label):
 # attest` re-attests a session, and a clean result clears its drift mark. The
 # task CLI is not here: it is the task rule's (TASK_CHANGE), which `task-off`
 # removes, and that switch is one of the files this rule protects.
+# `tezgah-context user_prompt` is a prompt event, and a prompt naming a switch
+# writes the `authorized` row the switch latch honors (tezgah_paths.off).
 CONTROL_CLIS = {"tezgah-gate": ("decide",), "tezgah-capture": "",
                 "tezgah-pony": "", "tezgah-adhd": ("on", "off"),
-                "tezgah-context": ("attest",)}
+                "tezgah-context": ("attest", "user_prompt")}
+# The hook entries a host runs, by basename without `.py`: run from a tool call
+# with a forged payload on stdin, any of them writes genuine rows - a prompt's
+# `authorized` row, a `began` row, a Stop verdict. A host adapter is `hook.py`
+# under `hosts/<host>/` (HOOK_HOSTS); its launchers carry their own names.
+HOOK_ENTRIES = frozenset(("projects-auto-init", "projects-pretooluse",
+                          "projects-posttooluse", "projects-stop",
+                          "tezgah-codex-hook", "tezgah-cursor-hook"))
+HOOK_HOSTS = frozenset(("codex", "cursor", "omp"))
 # Programs that change a path named in their arguments. Every positional is a
 # target, except for the copiers, whose last one is (`cp switch /tmp` reads it).
 # `sed`/`perl` count only with an in-place flag.
@@ -2116,14 +2126,38 @@ def _shell_words(command):
     return out
 
 
+# The wrappers `_program` reads past, by basename, with the options that take
+# the next word as their value; `timeout` also takes its duration.
+WRAPPER_VALUE_OPTS = {"sudo": ("-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U"),
+                      "env": ("-u", "--unset", "-C", "--chdir"),
+                      "nice": ("-n", "--adjustment"), "nohup": (), "exec": ("-a",),
+                      "time": ("-f", "-o"), "command": (),
+                      "timeout": ("-s", "--signal", "-k", "--kill-after"),
+                      "stdbuf": ("-i", "-o", "-e")}
+# An interpreter's options that take the next word as their value, and the ones
+# that make the program its own text rather than a script (`python3 -c`, `-m`).
+INTERPRETER_VALUE_OPTS = ("-X", "-W", "-o", "+o", "-O")
+
+
 def _program(words):
     """(program basename without `.py`, its arguments) for one simple command,
-    past compound keywords, env assignments, the wrappers and an interpreter
-    running a script."""
+    past compound keywords, env assignments, the wrappers (WRAPPER_VALUE_OPTS,
+    by basename, with their options) and an interpreter's options before the
+    script it runs."""
     i = 0
-    while i < len(words) and (ENV_WORD.match(words[i]) or words[i] in GIT_WRAPPER
-                              or words[i] in SHELL_KEYWORDS):
-        i += 2 if words[i] == "timeout" else 1
+    while i < len(words):
+        word = words[i]
+        wrapper = os.path.basename(word)
+        if ENV_WORD.match(word) or word in SHELL_KEYWORDS:
+            i += 1
+            continue
+        if wrapper not in WRAPPER_VALUE_OPTS:
+            break
+        i += 1
+        while i < len(words) and words[i].startswith("-"):
+            i += 2 if words[i] in WRAPPER_VALUE_OPTS[wrapper] else 1
+        if wrapper == "timeout" and i < len(words):
+            i += 1  # the duration
     words = words[i:]
     if words and words[0] == "[":
         # the test command: its operands are not a program, and the command
@@ -2132,9 +2166,18 @@ def _program(words):
         words = words[close + 1:]
     if not words:
         return "", []
-    if len(words) > 1 and os.path.basename(words[0]) in INTERPRETERS \
-            and not words[1].startswith("-"):
-        words = words[1:]
+    name = os.path.basename(words[0])
+    if name in INTERPRETERS or re.fullmatch(r"python[\d.]+", name):
+        j = 1
+        while j < len(words) and words[j].startswith(("-", "+")) and words[j] != "-":
+            flag = words[j]
+            if re.fullmatch(r"-[A-Za-z]*[cm]" if name.startswith("python")
+                            else r"-[A-Za-z]*c[A-Za-z]*", flag):
+                j = len(words) + 1  # the program is its own text: no script word
+                break
+            j += 2 if flag in INTERPRETER_VALUE_OPTS else 1
+        if j < len(words):
+            words = words[j:]
     if not words:
         return "", []
     name = os.path.basename(words[0])
@@ -2207,6 +2250,16 @@ def _git_change(args, cwd, origin):
     return None
 
 
+def _host_hook(words, cwd):
+    """True when the `hook.py` this command runs sits under `hosts/<host>/`
+    (HOOK_HOSTS), as written or with its links resolved."""
+    word = next((w for w in words if os.path.basename(w) == "hook.py"), "")
+    written = os.path.join(cwd or os.sep, os.path.expanduser(word))
+    return any(os.path.basename(os.path.dirname(p)) in HOOK_HOSTS
+               and os.path.basename(os.path.dirname(os.path.dirname(p))) == "hosts"
+               for p in (os.path.normpath(written), _full(word, cwd)))
+
+
 def _command_change(words, cwd, depth, origin):
     """The control-plane label one simple command changes, or None."""
     program, args = _program(words)
@@ -2221,6 +2274,8 @@ def _command_change(words, cwd, depth, origin):
         script = script[1:] if script[:1] == ["--"] else script
         if script:
             return shell_control(script[0], cwd, depth + 1, origin)
+    if program in HOOK_ENTRIES or (program == "hook" and _host_hook(words, cwd)):
+        return "tezgah's hook state through one of its hook entries"
     if program in CONTROL_CLIS:
         verbs = CONTROL_CLIS[program]
         positional = [a for a in args if not a.startswith("-")]
@@ -2377,6 +2432,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     `agent` is the host's subagent id when the call came from one (Claude's
     `agent_id`): the repeat ceilings count that agent's own attempts, so one
     sibling's failures are not spent as another's."""
+    bind_session(session_id)  # the switch latch: off() below answers for this session
     if not record:
         return _dry_decision(tool, inp, cwd, session_id, agent)
     if off("pretooluse-off"):
@@ -2385,6 +2441,19 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     if not base:
         return None
     t = str(tool or "").lower()
+    # A write or shell call's first row (tezgah_integrity.BEGAN_KIND), written
+    # before any rule runs: a host that kills a slow gate still runs the call,
+    # and a pass with no `began` reads as an orphan (`_pair`). The PostToolUse
+    # hook writes the second row; a refusal below answers it with its `deny`.
+    # Through `note`, so the dry run writes none. `check` is decided here, from
+    # the whole command: the stored detail is cut at DETAIL_MAX.
+    if t in WRITE_TOOLS or t in BASH_TOOLS:
+        digest = call_id(tool, inp)
+        if digest:
+            command = str(inp.get("command") or inp.get("cmd") or "")
+            note(session_id, BEGAN_KIND, command or (write_paths(inp) or [""])[0],
+                 id=digest, tool=str(tool or "").strip() or None, workspace=base,
+                 check=1 if t in BASH_TOOLS and verify_command(command) else None)
     # Claude's Task names the agent `subagent_type`; omp's task names it `agent`,
     # on the call (flat shape) or on each `tasks[]` item (batch shape).
     subs = [inp.get("subagent_type"),
@@ -2607,24 +2676,12 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     # reads - SHELL_AS_WRITE - and the row it writes carries no tool name, so
     # nothing on the ledger claims a write tool ran.
     #
-    # A write or shell call let through also leaves its first row here
-    # (tezgah_integrity.BEGAN_KIND): the PostToolUse hook writes the second, and
-    # one with no answer is a call whose outcome nobody saw. Through `note`, so
-    # the dry run writes none. `check` is decided here, from the whole command:
-    # the stored detail is cut at DETAIL_MAX, and a check past that cut read as
-    # no check at all.
-    if t in WRITE_TOOLS or t in BASH_TOOLS:
-        if evidence:
-            note(session_id, "disarm", "control: %s" % evidence,
-                 id=call_id(tool, inp), workspace=base)
-        digest = call_id(tool, inp)
-        if digest:
-            command = str(inp.get("command") or inp.get("cmd") or "")
-            note(session_id, BEGAN_KIND,
-                 command or (write_paths(inp) or [""])[0],
-                 id=digest, tool=str(tool or "").strip() or None,
-                 workspace=base,
-                 check=1 if t in BASH_TOOLS and verify_command(command) else None)
+    # A control-plane change the rules let through (CONTROL_EVIDENCE) leaves
+    # its `disarm` row here, on the allow path. The call's `began` row is
+    # written before the rules (see the top of this function).
+    if evidence and (t in WRITE_TOOLS or t in BASH_TOOLS):
+        note(session_id, "disarm", "control: %s" % evidence,
+             id=call_id(tool, inp), workspace=base)
     if capture and t in WRITE_TOOLS:
         try:
             capture(tool, inp, cwd, session_id)

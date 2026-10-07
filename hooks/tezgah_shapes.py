@@ -257,10 +257,11 @@ RUN_MIN = 3
 SESSION_DENIES = 20
 
 # The rows the gate writes beside a refusal (`drift_reason`'s mark, the nudge
-# mark): a refused call leaves them in front of its deny row, so they continue a
-# run instead of ending it. Every other row - a call that ran, a turn marker, a
+# mark, and the call's `began`, written before any rule since plan 051): a
+# refused call leaves them in front of its deny row, so they continue a run
+# instead of ending it. Every other row - a call that ran, a turn marker, a
 # reply - ends the run.
-GATE_SIDE_KINDS = frozenset(("deny", "drift", "nudge"))
+GATE_SIDE_KINDS = frozenset(("deny", "drift", "nudge", "began"))
 
 
 def deny_runs(ledgers, run_min=RUN_MIN, session_min=SESSION_DENIES):
@@ -272,7 +273,7 @@ def deny_runs(ledgers, run_min=RUN_MIN, session_min=SESSION_DENIES):
 
     A run is consecutive deny rows under one `_deny_rule` label; a deny of
     another rule starts a new run, and any row outside `GATE_SIDE_KINDS` (a
-    `began` row, a step, a `turn` marker) ends it."""
+    step, a `turn` marker) ends it."""
     runs, longest, sessions, read = Counter(), Counter(), 0, 0
     for rows in ledgers:
         read += 1

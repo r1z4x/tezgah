@@ -85,6 +85,10 @@ class Corpus(TempHome):
             dict(bash, kind="began", ts=T0 + 1, detail="ls",
                  id=ti.call_id("bash", {"command": "ls"})),
             {"kind": "run", "ts": T0 + 1, "detail": "ls", "exit": 0},
+            # the gate writes a call's `began` before its rules (plan 051), so
+            # a refused call leaves it beside its `deny`: one item, the deny
+            dict(bash, kind="began", ts=T0 + 2, detail=PIPED,
+                 id=ti.call_id("bash", {"command": PIPED}), check=1),
             {"kind": "deny", "ts": T0 + 2, "detail": "piped: a check piped into tail",
              "id": ti.call_id("bash", {"command": PIPED}), "workspace": ws},
             {"kind": "edit", "ts": T0 + 4, "detail": "a.py", "workspace": ws},
@@ -141,7 +145,8 @@ class Corpus(TempHome):
         self.assertEqual(s["ledgers"], {"read": 5, "fixture": 1, "test-polluted": 1,
                                         "kept": 3})
         self.assertEqual(s["excluded"], {"test-row": 1, "after-cutoff": 1,
-                                         "retired-rule": 1, "capped": 1, "redacted": 1})
+                                         "retired-rule": 1, "capped": 1, "redacted": 1,
+                                         "refused-began": 1})
         self.assertEqual(s["cutoff"], CUTOFF)
         self.assertEqual((s["items"], s["joined"]), (6, 6))
         self.assertEqual(s["join"]["began:write:joined"], 2,

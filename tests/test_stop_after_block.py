@@ -147,6 +147,12 @@ class AfterBlock(TempHome):
     def test_verify_off_records_nothing(self):
         self.stop("claude", active=False)
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        # made mid-session, so it counts once an `authorized` row names it (the
+        # row a prompt naming it writes; written alone here, so the turn holds)
+        proc = run(["-c", "import sys, tezgah_integrity as ti\n"
+                    "ti.note(sys.argv[1], 'authorized', authorized=['verify-off'])",
+                    self.session], env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         for host in ("claude", "codex", "omp"):
             with self.subTest(host=host):
                 self.assertNotIn("decision", self.stop(host))

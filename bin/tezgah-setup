@@ -275,8 +275,8 @@ TOOLING_SKILLS = frozenset(("codegraph", "computer-use", "find-skills",
 # Skill dirs symlinked in from a third-party library whose frontmatter carries no
 # marker, so it is bucketed by its clone path instead of defaulting to marketing.
 AI_RESEARCH_SKILL_SOURCES = ("AI-Research-SKILLs",)
-CODEX_PRETOOL_MATCHER = ("Bash|exec_command|PowerShell|pwsh|apply_patch|Edit|Write|"
-                         "mcp__.*|spawn_agent|Agent|Task|Grep")
+CODEX_PRETOOL_MATCHER = ("Bash|exec_command|shell|Shell|PowerShell|pwsh|apply_patch|"
+                         "Edit|Write|mcp__.*|spawn_agent|Agent|Task|Grep")
 # Cursor's preToolUse matcher is a regex over tool TYPES, so it has to name the
 # write tools or the gate never sees an edit, and the shell under every spelling
 # it can arrive as or the gate never sees the call at all. Mirrors
@@ -3508,9 +3508,12 @@ def uninstall(hosts, dry_run=False):
     # full run stands the gate down; a partial run never touches the file, which
     # also keeps a switch the user set themselves (the f38423b version wrote the
     # file and then deleted it, taking the user's own switch with it).
+    # The text is the switch latch's carve-out (tezgah_paths.STAND_DOWN): a
+    # session that began before this run ignores a switch made mid-session, and
+    # this one is made mid-session on purpose.
     if full:
         with open(stand_down, "w", encoding="utf-8") as fh:
-            fh.write("")
+            fh.write(tp.STAND_DOWN)
         print("%s gate stood down (%s); this session will not be asked again"
               % (OK, stand_down))
     else:

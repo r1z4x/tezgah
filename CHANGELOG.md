@@ -8,6 +8,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **An orphan pass no longer licenses a claim.** Every ledger reader now
+  pairs each `verify_ok` with the `began` row the gate wrote for its call.
+  A pass with none is an orphan: it came from outside the hooks
+  (`python3 -c`), or its call's rows went missing. No reader counts it as a
+  pass. The Stop rule refuses a done-claim in its turn as "evidence tampered",
+  and `counters.orphans` counts it. Five cases stay exempt: a session with no
+  `began` row, a turn with a `crash` row, `pretooluse-off`, an unlocked append
+  and the sandbox fallback cache. A forged `began` row plus its pass is the
+  residual `SECURITY.md` names (plan 051). The gate now writes a call's
+  `began` before its rules run, so a refused call leaves `began` and `deny`.
+  Codex's PreToolUse matcher now names `shell` and `Shell` too.
+- **The session latches its kill switches.** A switch file newer than the
+  session's first ledger row (ctime or mtime) no longer disarms that session.
+  `off()` ignores it until the user's prompt names it, which writes an
+  `authorized` row. A switch present before the session starts counts as
+  before. So does the stand-down `tezgah-setup --uninstall --full` writes into
+  `pretooluse-off`. The opencode plugin answers the same way. A switch the user
+  flips in their own terminal mid-session now waits for the next session or a
+  prompt that names it (plan 051, SECURITY.md).
 - **The arm-bench lab is back in the repository.** `benchmarks/arm-bench/` holds
   the runner, the 49 task trees and the earlier pre-registrations, with every
   home path redacted. It is a maintainer tool: `managed()` keeps it out of host

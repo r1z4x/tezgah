@@ -121,10 +121,11 @@ carries no `exit` and no `fail_class` (`note_tool()`, `hooks/tezgah_integrity.py
 show; it is not a failed check, so `_partial_state`, `last_verify`, the error rate and `prior_calls`'
 attempts (`hooks/tezgah_integrity.py::prior_calls`) all read it as a stopped call rather than a rejection.
 
-**`began` opens a call.** The gate writes it when it
-lets a write or shell call through, with the call's `id`. The PostToolUse row of the same call carries
-the same `id` and answers it. A `deny` with that `id` answers it too: opencode asks the core first and
-may still refuse the call with a rule of its own. A `began` row nothing answered is a call whose result
+**`began` opens a call.** The gate writes it for a write or shell call, with the call's `id`, before
+any of its rules runs. A host that kills a slow gate still finds it there. The PostToolUse row of the same call carries
+the same `id` and answers it. A `deny` with that `id` answers it too. That is the gate's own refusal,
+or opencode's: it asks the core first and may still refuse the call with a rule of its own.
+The replay sheet drops a `began` that a refusal answers (`refused-began`). A `began` row nothing answered is a call whose result
 never reached the ledger. The host abandoned it, the user refused its prompt, or the post hook died. So
 its outcome is unknown in both directions. It is never a pass, a success or a failure. It is not work
 either. The gate writes it before the host's own permission layer, so a command the user refused
@@ -138,6 +139,21 @@ report back: omp gates `powershell` and does not watch it. The cost is one miss:
 call of a tool goes uncounted if the host abandons it. A ledger written before the row existed has
 none, so it counts zero. The idea is gortex's: it abandons a call that overran, and the call's side
 effect stays unknown until someone re-reads it.
+
+**A pass with no `began` row is an orphan.** Every ledger reader pairs each `verify_ok` with a
+`began` row (`hooks/tezgah_integrity.py::_pair`). That row shares the pass's `id` and carries `check`.
+`events_path` and `turn_rows` call it. A pass with none came from outside the hooks (`python3 -c`),
+or its call's rows went missing. The reader marks it in memory and never writes the mark.
+`passing_check` refuses a marked row. So the freshness fold, the UI and design halves,
+`scratch_evidence` and `tezgah-route --report` all read it as a check nobody saw pass. The Stop rule
+refuses a done-claim in its turn as "evidence tampered", and `counters.orphans` counts it. A false
+block refuses an honest turn, so the reader marks nothing in five cases. These are a ledger with no
+`began` row before the pass, a turn with a `crash` row, and `pretooluse-off`. The others are an
+append that took the unlocked fallback (its row carries `unlocked`) and the sandbox fallback cache.
+A row with no outcome, such as Cursor's afterShellExecution `verify`, does not take a pass's `began`.
+`turn_rows` seeds the waiting `began` rows from the 200 rows before the turn. So a call that straddles a
+prompt pairs there as it does in `events`. A forged `began` row plus its pass stays invisible:
+`SECURITY.md` names it.
 
 **A shell call's `id` folds ASCII whitespace only.** Both `call_id` and `actionID` fold such runs
 into one space (`hooks/tezgah_integrity.py::ID_SPACE`).

@@ -26,6 +26,7 @@ from support import TempHome
 # a separator or a canonical-form drift between the two halves fail here.
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
 # The attribution patterns, read from the Python half rather than retyped here:
 # the plugin has to deny the same forms the core denies.
 import tezgah_gate as tg  # noqa: E402
@@ -442,6 +443,60 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("bash",
                                  {"command": "git commit -m x --no-verify"}))
 
+    def test_the_switch_latch_answers_as_the_core_does(self):
+        """Plan 051: one fixture, two readers. A verify-off older than the
+        session's first ledger row counts, a newer one is latched out until an
+        `authorized` row names it, and a newer pretooluse-off counts only as
+        the uninstall's stand-down - in the plugin's `off(name, sessionID)` and
+        in the core's `decision` alike."""
+        switches = os.path.join(self.home, ".config", "tezgah")
+        line = "git commit -m x --no-verify"
+        core_gate = ("import json, sys, tezgah_gate\n"
+                     "print(json.dumps(tezgah_gate.decision('Bash', "
+                     "{'command': sys.argv[2]}, sys.argv[1], sys.argv[3])))\n")
+
+        def answers(session):
+            proc = subprocess.run([sys.executable, "-c", core_gate, self.repo,
+                                   line, session], capture_output=True,
+                                  text=True, env=self.envv, timeout=60)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            core = json.loads(proc.stdout) is None
+            return core, self.before("bash", {"command": line}, session)["ok"]
+
+        def first_row(session, ts):
+            path = self.evidence_path(session)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as fh:
+                fh.write(json.dumps({"kind": "attest", "ts": ts}) + "\n")
+            return path
+
+        self.touch(os.path.join(switches, "verify-off"))
+        first_row("older", int(time.time()) + 100)
+        self.assertEqual(answers("older"), (True, True))
+        ledger = first_row("newer", int(time.time()) - 100)
+        self.assertEqual(answers("newer"), (False, False))
+        with open(ledger, "a") as fh:
+            fh.write(json.dumps({"kind": "authorized", "ts": 0,
+                                 "authorized": ["verify-off"]}) + "\n")
+        self.assertEqual(answers("newer"), (True, True))
+        os.remove(os.path.join(switches, "verify-off"))
+        first_row("down", int(time.time()) - 100)
+        self.touch(os.path.join(switches, "pretooluse-off"))
+        self.assertEqual(answers("down"), (False, False))
+        with open(os.path.join(switches, "pretooluse-off"), "w") as fh:
+            fh.write(tp.STAND_DOWN)
+        self.assertEqual(answers("down"), (True, True))
+        # a link made now to a file older than the session is as new as the link
+        os.remove(os.path.join(switches, "pretooluse-off"))
+        target = os.path.join(self.home, "old")
+        open(target, "w").close()
+        since = int(os.stat(target).st_ctime) + 1
+        first_row("linked", since)
+        while time.time() < since + 1.05:
+            time.sleep(0.05)
+        os.symlink(target, os.path.join(switches, "verify-off"))
+        self.assertEqual(answers("linked"), (False, False))
+
     def test_naming_no_verify_in_a_message_or_a_read_passes(self):
         # describing the rule is not a bypass; the flag has to be in command
         # position (the plugin denied the description before the masking)
@@ -634,10 +689,11 @@ class OpenCodePlugin(TempHome):
                                           "x = 1", "new_string": "x = 2"}))
         # The write path asks the core before it captures, and the gate CLI is
         # not linked here: the ask could not be answered, so its one `delegation`
-        # row leads the ledger this test reads whole.
+        # row leads the ledger this test reads whole, and this file writes the
+        # call's `began` the core did not (review R051b F3).
         rows = self.ledger()
         self.assertEqual([r["kind"] for r in rows],
-                         ["delegation", "snapshot"], rows)
+                         ["delegation", "snapshot", "began"], rows)
         self.assertEqual(rows[1]["detail"], target)   # the file it copied
         self.assertEqual(rows[1]["out_bytes"], len("x = 1\n"))
 
@@ -647,7 +703,7 @@ class OpenCodePlugin(TempHome):
         self.denied(self.before("edit", {
             "file_path": target,
             "new_string": "Co-Authored-By: Claude <noreply@anthropic.com>"}))
-        self.assertEqual(self.kinds(), ["delegation", "snapshot", "deny"])
+        self.assertEqual(self.kinds(), ["delegation", "snapshot", "began", "deny"])
 
     def test_a_capture_that_cannot_run_does_not_block_the_write(self):
         # The CLI is not linked here and there is no python3 to run it with, so
@@ -665,7 +721,7 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("edit", {"file_path": target, "old_string":
                                           "x = 1", "new_string": "x = 2"}))
         rows = self.ledger()
-        self.assertEqual([r["kind"] for r in rows], ["delegation"], rows)
+        self.assertEqual([r["kind"] for r in rows], ["delegation", "began"], rows)
         self.assertEqual(rows[0]["detail"], "gate: spawn")
 
     def test_a_shell_write_is_snapshotted_when_the_call_is_allowed(self):
@@ -763,7 +819,7 @@ class OpenCodePlugin(TempHome):
         # ask fails are told apart (`exit` and `spawn` are pinned by the language
         # tests below), because "the core was asked and never answered" is the
         # fact that has to be countable
-        self.assertEqual(self.kinds(), ["delegation"])
+        self.assertEqual(self.kinds(), ["delegation", "began"])
         self.assertEqual(self.ledger()[0]["detail"], "gate: timeout")
 
     def spy_calls(self, log):
@@ -954,7 +1010,10 @@ class OpenCodePlugin(TempHome):
         self.gate_bin()
         for command in ("touch ~/.config/tezgah/verify-off",
                         "echo {} >> ~/.cache/tezgah/evidence/x.jsonl",
-                        "mv .husky .husky.bak"):
+                        "mv .husky .husky.bak",
+                        # a forged prompt writes the switch latch's `authorized` row
+                        "printf '{}' | python3 hooks/projects-auto-init.py",
+                        "printf '{}' | ~/.config/tezgah/bin/tezgah-context user_prompt ."):
             with self.subTest(command=command):
                 args = {"command": command}
                 expected = self.gate("bash", args)
@@ -997,14 +1056,17 @@ class OpenCodePlugin(TempHome):
         # would be worse than one that stays silent - but the failure itself must
         # not be silent, or a rule that never ran is indistinguishable from a
         # rule that found nothing. The ask leaves one `delegation` row naming the
-        # class, which is what makes the silence countable.
+        # class, which is what makes the silence countable. The core wrote no
+        # `began` for the call either, so this file writes it (review R051b F3):
+        # without it the call's pass reads as an orphan.
         self.spy_gate(os.path.join(self.home, "gate.log"), script=FAILING_GATE)
         args = {"command": 'git commit -m "durum-onarimi eklendi"'}
         self.allowed(self.before("bash", args))
         rows = self.ledger()
-        self.assertEqual([r["kind"] for r in rows], ["delegation"], rows)
+        self.assertEqual([r["kind"] for r in rows], ["delegation", "began"], rows)
         self.assertEqual(rows[0]["detail"], "gate: exit")
         self.assertEqual(rows[0]["id"], "s1")
+        self.assertEqual((rows[1]["tool"], rows[1]["detail"]), ("bash", args["command"]))
 
     # ---- secret: a credential on its way into a file -----------------------
     def test_secret_denies_a_credential_written_to_a_file(self):
@@ -1162,8 +1224,9 @@ class OpenCodePlugin(TempHome):
 
     def test_the_ordering_rule_rides_verify_off(self):
         # it rides the integrity rule's own switch rather than adding one
-        self.after("bash", {"command": "pytest -q"}, exit=1)
+        # set before the session's first row: a switch made later is latched out
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.after("bash", {"command": "pytest -q"}, exit=1)
         self.allowed(self.before("bash", {"command": "git commit -m x"}))
 
     # ---- evidence ledger ---------------------------------------------------

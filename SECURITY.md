@@ -57,14 +57,21 @@ an adversarial agent, and it does not claim to be one.
     (`rm -rf .tezgah`) stay refused as a directory holding control state, and
     a call that also changes a protected path above is refused whole;
   - the CLIs that change that state: `tezgah-gate decide`, `tezgah-capture`,
-    `tezgah-pony <level>`, `tezgah-adhd on|off`, `tezgah-context attest`.
-    The task CLI is the task rule's.
+    `tezgah-pony <level>`, `tezgah-adhd on|off`, `tezgah-context attest` and
+    `tezgah-context user_prompt`. The task CLI is the task rule's.
+  - a hook entry run from a tool call (`hooks/projects-*.py`,
+    `hosts/<host>/hook.py` and their launchers): fed a forged payload, it
+    writes genuine rows, a prompt's `authorized` row among them.
 
   Only `pretooluse-off` removes the rule, and it is one of the protected
   files. The refusal names no command. A ledger line that is not a row is
   recorded as `ledger_damage` and blocks a done-claim in that turn as
   "evidence tampered" instead of failing the Stop rule open. A switch armed
   mid-session leaves a `disarm` row and the status line's `gate` mark.
+  The session-level backstop for the routes the rule cannot see: a switch file
+  newer than the session's first ledger row is ignored in that session (switch
+  latching, [docs/contract.md](docs/contract.md#how-a-rule-is-disarmed)) until
+  the user's prompt names it.
 - **Who the rule can tell apart.** It sees only the calls a host routes
   through its tool hook, so the user's own terminal is never refused. Inside a
   session it cannot tell a change the user asked for from one the agent chose:
@@ -73,11 +80,20 @@ an adversarial agent, and it does not claim to be one.
 - **Residual routes, named rather than closed.**
   - An interpreter: `python3 -c "open(...)"`, `node -e`, any script the agent
     writes and then runs. The path is assembled at run time and the gate reads
-    the command line, not what the program does. This includes appending a
-    forged `verify_ok` row to the ledger, which passes the Stop rule until
-    began/pass pairing ships (plan 051), and emptying the ledger the same way.
-  - Began-row forgery through `tezgah-gate decide`: the rule refuses the CLI
-    by name, and an interpreter can still import the core and write the row.
+    the command line, not what the program does. Appending a forged
+    `verify_ok` row to the ledger this way no longer carries a claim: a pass
+    with no gate-written `began` row before it is an orphan, which no reader
+    counts as a pass and which blocks a done-claim in its turn as "evidence
+    tampered" (plan 051). Pairing is a narrow check: it stands down for a
+    session with no `began` row, a turn with a `crash` row, `pretooluse-off`,
+    an unlocked append (a row the forger can mark `unlocked`) and the sandbox
+    fallback cache, and emptying the ledger is still not seen.
+  - A forged `began` row plus its pass: the `began` row is the pairing's only
+    witness and it is a ledger row like any other. The rule refuses
+    `tezgah-gate decide` by name; an interpreter can still import the core, or
+    append the line, and write both rows. A pass forged under the `id` of a
+    real check that got no outcome pairs with that check's `began` too. No
+    hash chain or per-install key signs the ledger.
   - `find -delete`, `xargs`, and a path built from variables the gate does not
     expand (anything but `~`, `$HOME` and the XDG variables).
   - A glob or brace in a directory component (`rm -rf ~/.config/tez?ah`), and a
@@ -91,6 +107,35 @@ an adversarial agent, and it does not claim to be one.
   - A script fed to a shell on stdin through a quoted-tag heredoc
     (`bash <<'EOF'`): bash expands nothing in that body, and the gate reads it
     as data.
+  - Switch latching's ways through are bytes the agent can write. An
+    interpreter can append an `authorized` row, or write the uninstall's
+    stand-down text into `pretooluse-off`. It can also reset the latch for
+    good: an emptied or deleted ledger has no first row, and the next row it
+    gets becomes the first. Rewriting the first row's `ts` moves the latch the
+    same way. The cheapest route is still a direct append of an `authorized`
+    row to the ledger.
+  - A forged prompt run through a hook entry meets two layers. The control
+    rule refuses a hook entry named on the command line, through the wrappers
+    and interpreter options it reads (`env`, `nice`, `timeout`, `python3 -u`).
+    `note_turn` writes no `authorized` row while a call is in flight (an
+    unanswered `began` row under ten minutes old since the last reply or
+    unmarked turn). Its `turn` row then carries `inflight`, which closes no
+    window, so a second forged run in the same call is in flight too. Neither
+    layer catches a forge the call starts in the background to run after it is
+    answered (`(sleep 2; … | python3 hook) &`), or one inside a call that runs
+    longer than ten minutes. Inside the call, the in-flight layer alone stops a
+    form the command line does not name: `runpy`, `exec(open(…))`, a script on
+    stdin, or a renamed copy of a hook. A user who interrupts a call and names
+    a switch within ten minutes names it again later.
+  - The latch is a keyword
+    match, not intent: "don't touch verify-off" authorizes the flip. A prompt
+    computed by a workflow, or a parent's task text a host hands a child as its
+    prompt, arrives through the same path as the user's. A switch made within
+    the first row's second counts, because the row's `ts` holds whole seconds.
+    A clock set back makes a new switch look old, and a link inside the
+    switch's directory path is not read (the link's own times are, when the
+    switch file itself is one). A switch the user flips in their own terminal
+    waits for the next session or a prompt that names it.
 - **The same uid ceiling.** The agent runs as the user, with the user's file
   permissions. Nothing tezgah writes is out of its reach at the filesystem
   level; the gate is the only barrier, and it is a policy check, not a

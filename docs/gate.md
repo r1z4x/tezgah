@@ -8,7 +8,8 @@ report, and for the session that has just met a refusal in its transcript. [arch
 
 One function decides every refusal: `decision(tool, inp, cwd, session_id)` returns a reason string or `None`, and nothing else
 (`hooks/tezgah_gate.py::decision`). It answers only inside a tezgah [root](glossary.md#root): outside one `root_for` returns nothing and every call passes
-(`hooks/tezgah_gate.py::decision`). The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py::decision`).
+(`hooks/tezgah_gate.py::decision`). The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py::decision`). `decision` binds the session first.
+It reads every switch through the session latch ([contract.md](contract.md#how-a-rule-is-disarmed)).
 
 Each host's pre-tool hook calls it and wraps the string in that host's own deny envelope — opencode's is its `tool.execute.before`, which throws
 `new Error(deny)`; a `None` prints no envelope at all.
@@ -84,7 +85,8 @@ it first after the root check (`decision` `hooks/tezgah_gate.py::decision`). The
 | | `.husky` | a delete, a chmod that takes a permission away, or a move |
 | | a directory holding any protected path (`rm -rf ~/.cache`, `mv .git /tmp/x`), also through a link (`rm -rf link/`), including `.tezgah/plans/open/` itself, every ancestor of it (`rm -rf .tezgah`, `mv .tezgah/plans /tmp/x`) and a glob or brace directly under it (`rm -rf .tezgah/plans/open/*`) | a delete or move |
 | evidence only | a delete or move of one named plan under `.tezgah/plans/open/`; a glob or the directory is refused (row above); `git add -f` or `--force` of a `.tezgah/` path (`_git_change` `hooks/tezgah_gate.py::_git_change`) | never: the call goes on to the other rules and, if they let it through, leaves a `disarm` row whose `detail` is `control: <what>` (`CONTROL_EVIDENCE` `hooks/tezgah_gate.py::CONTROL_EVIDENCE`); `git rm --cached` leaves none (plan-sync's move) |
-| the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, `tezgah-context attest`, by basename with or without `.py` (`hooks/tezgah_gate.py::CONTROL_CLIS`) | always |
+| the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, `tezgah-context attest` or `user_prompt`, by basename with or without `.py` (`hooks/tezgah_gate.py::CONTROL_CLIS`) | always |
+| the hook entries | `projects-auto-init`, `projects-pretooluse`, `projects-posttooluse`, `projects-stop`, `hook.py` under `hosts/codex`, `hosts/cursor` or `hosts/omp`, and the `tezgah-codex-hook`/`tezgah-cursor-hook` launchers (`hooks/tezgah_gate.py::HOOK_ENTRIES`, `hooks/tezgah_gate.py::_host_hook`): fed a forged payload, one writes genuine rows, the switch latch's `authorized` row among them | always |
 
 The rule reads the shell word by word, one simple command at a time (`shell_control` `hooks/tezgah_gate.py::shell_control`). It reads each redirect target.
 It reads the arguments of `touch`, `rm`, `rmdir`, `unlink`, `mv`, `chmod`, `mkdir`, `tee`, `truncate`, the copiers' destination and `sed -i`/`perl -i`.
@@ -288,8 +290,8 @@ Read this before filing a security-ish issue; each is a decision, not an oversig
   table `write_paths` already holds.
 - A control-plane write through an interpreter: `python3 -c "open(...)"`, `node -e`, or a script the agent wrote. `find -delete` and `xargs` are the same
   class, and so is a path built from variables other than `~`, `$HOME` and the XDG ones. The control rule reads the command line, not what a program does at
-  run time. `SECURITY.md` names these as the residual routes. One of them is a forged `verify_ok` row appended this way. It passes the Stop rule until
-  began/pass pairing ships (plan 051).
+  run time. `SECURITY.md` names these as the residual routes. A forged `verify_ok` row appended this way no longer passes: with no gate-written `began`
+  row before it, it is an orphan (`hooks/tezgah_integrity.py::_pair`, `docs/evidence.md`). A forged `began` row plus its pass still does.
 
 **The seat a semantic rule would take on the Stop path, and why it stays empty.** The Stop rule's
 claim detector is a vocabulary (`DONE`/`VERIFIED`, `hooks/tezgah_integrity.py`),
@@ -359,13 +361,13 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
 | `loop` | designed | the turn's own repeated failure; no incident recorded | `tests/test_gate.py::test_an_identical_failed_call_is_denied_after_the_ceiling` |
 | `retry` | designed | the session ceiling over the same guard; no incident recorded | `tests/test_gate.py::test_a_fourth_identical_call_is_refused_whatever_the_outcome` |
 | `drift` | an internal plan's flip rule on the 2026-09-20 move to a result-channel notice: at 27 sessions the blocked-claim rate in turns under 25 work rows read 112/140 = 0.8000, against 59/142 = 0.4155 before | `hooks/tezgah_gate.py:1284-1296` | `tests/test_gate.py::test_a_long_turn_restates_the_constraints_before_a_write` |
-| `evidence tampered` | a terminated garbage line made `_parse` raise, and the guard then failed the Stop rule open for the turn; corrupting a `verify_fail` row was an allow route | `hooks/tezgah_integrity.py::_parse` | `tests/test_integrity.py::test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered` |
+| `evidence tampered` | a terminated garbage line made `_parse` raise, and the guard then failed the Stop rule open for the turn; corrupting a `verify_fail` row was an allow route. A `verify_ok` appended with `python3 -c` licensed a claim (security-03), so a pass with no `began` row is an orphan (`hooks/tezgah_integrity.py::_pair`) | `hooks/tezgah_integrity.py::_parse` | `tests/test_integrity.py::test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered` |
 | `check failed` | designed | the newest check failing is its own class; no incident recorded | `tests/test_integrity.py::test_failed_check_blocks` |
 | `partial failure` | designed | a failure the turn never resolved; no incident recorded | `tests/test_integrity.py::test_an_unresolved_failure_blocks_even_after_an_earlier_pass` |
 | `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_integrity.py::_evidence_block` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` |
 | `stale evidence` | measured 2026-09-19: reading a rewrite as a change refused honest turns | `hooks/tezgah_integrity.py::_post_write` | `tests/test_integrity.py::test_a_write_after_the_check_makes_the_check_stale` |
 | `no verify_ok` | E2: 0 of 10 description-shaped claims refused before the `worked` trigger | `hooks/tezgah_integrity.py::_stop_block` | `tests/test_integrity.py::test_work_with_no_passing_check_is_refused_without_a_claim_word` |
-| `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py:4667-4672` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` |
+| `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py::_external_read_row` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` |
 | `placating opener` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_sycophantic_opener_blocks` |
 | `forbidden closer` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_closer_from_the_skills_own_list_blocks` |
 | `list cap` | designed | output rule 8 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_list_over_the_cap_blocks_with_its_size` |

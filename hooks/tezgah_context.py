@@ -18,7 +18,7 @@ import tezgah_embed
 import tezgah_research
 from tezgah_guard import import_crash_mark
 from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
-                              _shell_segments,
+                              _shell_segments, bind_session,
                               changed_files, cut, last_check, note,
                               note_compaction, note_turn, redact, scratch_evidence,
                               UNTRUSTED_CHANNEL)
@@ -26,7 +26,7 @@ from tezgah_lessons import (lesson_key, lines as lesson_lines,
                             tainted as tainted_lessons)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            REPLY_LANG_TEXT, open_lines_note, pony_level_line)
-from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir,
+from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir, armed,
                           cache_dir, codegraph_bin, consult_options,
                           ensure_workspace, fallback_cache, have_judge_key, off,
                           orx_bin, pony_level, reply_lang, root_for, roots, tool,
@@ -1526,7 +1526,7 @@ SCRATCH_CHARS = 120
 # a session whose transcript holds no tool call never fires.
 GATE_TAIL = 262144
 GATE_MIN_CALLS = 3
-# The tool names whose every allowed call leaves a PreToolUse row (`began`,
+# The tool names whose every call leaves a PreToolUse row (`began`,
 # tezgah_gate.decision's write and shell branch) and every refused one a `deny`:
 # Claude's write and shell tools and Codex's `exec_command`/`apply_patch`. A
 # tool the gate may pass without a row (Read, Grep, Task, WebFetch, an MCP
@@ -1674,7 +1674,9 @@ def disarmed(session_id):
     line whoever set it. The baseline lives in the cache the control rule
     protects. ponytail: a switch armed at the start, lifted and armed again is
     not seen; the baseline is a set, not a history."""
-    now = sorted(n for n in SWITCHES if off(n))
+    # the files alone (`armed`, unlatched): a switch the latch ignores is still
+    # the tamper shape this records
+    now = sorted(n for n in SWITCHES if armed(n))
     path = _switch_baseline(session_id)
     try:
         with open(path, encoding="utf-8") as fh:
@@ -1910,12 +1912,10 @@ def context_for(event, cwd, payload=None, with_core=True):
     if event == "post_compact" or (event == "session_start" and isinstance(
             payload, dict) and payload.get("source") == "compact"):
         forget_seen(session_of(payload))
-    core, disabled = core_for(cwd)
-    # A disabled rule is also removed from the on-demand skill's reach, because
-    # the skill is loaded separately and would otherwise re-enable it.
-    off_note = ("Kill switches active this session: %s. Those rules are OFF; "
-                "ignore the matching section in the `tezgah-contract` skill."
-                % ", ".join(disabled)) if disabled else ""
+    # The switch latch: every off() below answers for this session, and a
+    # prompt's turn marker (with its `authorized` row) is written first, so a
+    # switch the user's prompt names is honored from this very turn.
+    bind_session(session_of(payload))
     if event == "user_prompt":
         # One marker per user turn, written before the reminder check: the loop
         # guard counts an identical call's failures in the current turn only, so
@@ -1923,9 +1923,16 @@ def context_for(event, cwd, payload=None, with_core=True):
         # guard state rather than part of the reminder. Only a hash of the prompt
         # is stored - note_turn keys the row on it so one submission cannot write
         # two markers and hide the failures the guard had just counted.
+        note_turn(session_of(payload), prompt_text(payload), workspace=root_for(cwd))
+    core, disabled = core_for(cwd)
+    # A disabled rule is also removed from the on-demand skill's reach, because
+    # the skill is loaded separately and would otherwise re-enable it.
+    off_note = ("Kill switches active this session: %s. Those rules are OFF; "
+                "ignore the matching section in the `tezgah-contract` skill."
+                % ", ".join(disabled)) if disabled else ""
+    if event == "user_prompt":
         prompt = prompt_text(payload)
         session_id = session_of(payload)
-        note_turn(session_id, prompt, workspace=root_for(cwd))
         # the taste capture (tezgah_taste), opt-in: off, one marker stat
         if tezgah_taste:
             host = (payload or {}).get("host") if isinstance(payload, dict) else None
@@ -2706,6 +2713,8 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
     idx_override: an idx glyph the host already resolved (one of "✓↻✗?–"), for a
     redraw that must not fork git for a cosmetic line - omp re-renders on every
     turn_end and tool_result. None probes as before; the other marks stay live."""
+    if session_id:
+        bind_session(session_id)  # the marks show the switches this session honors
     base, marks = repo_marks(cwd)
     seen = set(used_override) if used_override is not None else used(session_id)
     flags = [

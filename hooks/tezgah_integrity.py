@@ -37,7 +37,8 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
-from tezgah_paths import _toplevel, cache_dir, off, reply_lang, root_for
+from tezgah_paths import (SWITCHES, _toplevel, cache_dir, latch, off, reply_lang,
+                          root_for)
 
 # A command that actually checks the change, as opposed to one that merely runs.
 # Command position, like UI_CHECK: `echo pytest` and `cat pytest.ini` were
@@ -473,6 +474,11 @@ PERMANENT_ERROR = re.compile(
 # (`tezgah_lessons.lesson_key`, absent when the gate could not read it), `source`
 # the channel the turn had read, `target` the ledger, `id` the call. The planned
 # `lesson_hit` row (plan 061 Phase B, not written yet) needs only `key` and `id`.
+# `authorized` is an `authorized` row's list of switch names the user's prompt
+# named (`note_turn`); the switch latch (`tezgah_paths.off`) honors a switch
+# made mid-session only when one of these rows names it. `inflight` marks a
+# `turn` row written while a call was still unanswered (`_in_flight`): it
+# slices the turn like any other, and it is no boundary for `_in_flight`.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -480,7 +486,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "summary_chars", "summary_hash",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
-                           "host", "switches", "harness"))
+                           "host", "switches", "harness", "authorized", "inflight"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -805,7 +811,8 @@ def _append(path, line):
     and on the fallback too, because a fragment left in place would be terminated
     by this very write and become the unparseable committed line the reader has
     to refuse. The boundary is the last newline in the file, so the repair
-    removes a fragment and can never cut a record."""
+    removes a fragment and can never cut a record (the fallback's row says so:
+    `_unlocked`)."""
     handle = None
     try:
         # owner-only: a row carries commands and paths, and the default umask
@@ -823,6 +830,7 @@ def _append(path, line):
                     break
                 except OSError:
                     if time.time() >= deadline:
+                        line = _unlocked(line)
                         break
                     time.sleep(LOCK_POLL)
         truncate_to_committed(handle)
@@ -1032,14 +1040,17 @@ def _foreign_rows(path, tail=None):
 
 def events_path(path, tail=None):
     """Every parseable ledger entry at an explicit ledger path, oldest first.
-    `events` is this function with the path derived from a session id."""
+    `events` is this function with the path derived from a session id. Every
+    `verify_ok` is paired with the gate's `began` row on the way out (`_pair`)."""
     if tail:
-        return _parse(_tail_lines(path, tail), path)
-    try:
-        with open(path, "rb") as fh:
-            return _parse(_lines(fh.read()), path)
-    except OSError:
-        return []
+        lines = _tail_lines(path, tail)
+    else:
+        try:
+            with open(path, "rb") as fh:
+                lines = _lines(fh.read())
+        except OSError:
+            return []
+    return _pair(_parse(lines, path), path, lines)
 
 
 def events(session_id, tail=None):
@@ -1091,7 +1102,8 @@ def turn_rows(session_id, turns=False, agent=None):
             lines = _lines(fh.read())
     except OSError:
         return ([], 0) if turns else []
-    rows = _parse(lines[_turn_line(lines):], path)
+    start = _turn_line(lines)
+    rows = _pair(_parse(lines[start:], path), path, lines, lines[:start])
     if agent:
         rows = [row for row in rows if row.get("agent") == agent]
     return (rows, _turn_count(lines)) if turns else rows
@@ -1321,15 +1333,69 @@ def note_turn(session_id, prompt, workspace=None):
     ~90-byte append. A repeat of the same prompt after any ledger activity is a
     real new turn and writes its own marker.
 
+    The switch names the prompt carries as whole words go to an `authorized`
+    row first, from the prompt itself and before it is hashed: the switch latch
+    (`tezgah_paths.off`) honors a switch made mid-session only once the user
+    named it. Keyword match, not intent: "don't touch verify-off" names it too.
+    No `authorized` row while a call is in flight (`_in_flight`): a host hands
+    its prompt hook a prompt between calls, and a hook run from inside a tool
+    call with a forged payload is the one that finds its own call's `began`
+    unanswered. The `turn` row is still written, since the Stop rule slices
+    turns on every one of them, but marked `inflight`, and `_in_flight` reads
+    a marked row as no boundary: a first forged run cannot close the window
+    for a second one.
+
     ponytail: the same prompt re-sent as the very next thing, with no ledger row
     written in between, resets nothing - that direction can only deny too much,
     never too little."""
-    key = hashlib.sha1(str(prompt or "").encode("utf-8", "replace")
-                       ).hexdigest()[:12]
+    text = str(prompt or "")
+    key = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:12]
     rows = events(session_id, tail=1)
     if rows and rows[-1].get("kind") == "turn" and rows[-1].get("detail") == key:
         return
-    note(session_id, "turn", key, workspace=workspace)
+    inflight = _in_flight(session_id)
+    named = [n for n in SWITCHES
+             if re.search(r"(?<![\w.-])%s(?![\w-])" % re.escape(n), text)]
+    if named and not inflight:
+        note(session_id, "authorized", workspace=workspace, authorized=named)
+    note(session_id, "turn", key, workspace=workspace, inflight=1 if inflight else None)
+
+
+# How far back `_in_flight` looks for the previous turn or reply boundary, and
+# how old an unanswered `began` row may be and still count as a call in flight.
+IN_FLIGHT_TAIL = 200
+IN_FLIGHT_MAX_AGE = 600
+
+
+def _in_flight(session_id):
+    """True when a `began` row since the newest boundary - a `turn` row not
+    marked `inflight`, or a Stop hook's `shape` row - has no answer yet and is
+    under IN_FLIGHT_MAX_AGE seconds old. A refused call is answered: by its
+    `deny` row, or by the `nudge` row the identifier nudge writes instead
+    (both REFUSAL_KINDS).
+
+    ponytail: a host writes no PostToolUse for a call the user interrupted, so
+    a switch-naming prompt within ten minutes of one authorizes nothing; and a
+    forge inside a call that runs longer than that is the background-forge
+    residual SECURITY.md names."""
+    rows = events(session_id, tail=IN_FLIGHT_TAIL)
+    start = max((i + 1 for i, r in enumerate(rows)
+                 if r.get("kind") == "shape"
+                 or (r.get("kind") == TURN_KIND and not r.get("inflight"))), default=0)
+    window = rows[start:]
+    now = time.time()
+    return any(isinstance(r.get("ts"), (int, float)) and now - r["ts"] < IN_FLIGHT_MAX_AGE
+               for r in _began_fold(window)[0])
+
+
+
+def bind_session(session_id):
+    """Latch this process's `off()` to `session_id`'s ledger (`tezgah_paths.latch`).
+
+    Every hook entry that knows its session calls it before its first `off()`:
+    the gate (`decision`), the prompt path (`context_for`) and the host
+    adapters' Stop paths. No session id leaves the process unbound."""
+    latch(_path(session_id) if session_id else None)
 
 
 def note_compaction(session_id, summary, trigger=None, found=None, expected=None,
@@ -1706,7 +1772,7 @@ def _counts(rows, weeks=False, tools=False):
            "shape": 0, "replies": 0, "shape_blocked": 0, "fanout": 0,
            "steps": 0, "tool_error_rate": None,
            "claims": 0, "false_completion": 0, "blocked_claims": {},
-           "refusals": 0,
+           "refusals": 0, "orphans": 0,
            "subagent_results": 0, "subagent_bytes_p50": None,
            "subagent_bytes_max": None,
            "compactions": 0, "compact_chars": None,
@@ -1780,6 +1846,8 @@ def _counts(rows, weeks=False, tools=False):
                 bucket["claims"] += 1
                 if refused:
                     bucket["false_completion"] += 1
+        if entry.get(ORPHAN):
+            out["orphans"] += 1
         if kind == "judge":
             # by the row's kind, not a `detail` substring like the two below: a
             # judgement's detail carries the caller and the model, so a substring
@@ -3163,7 +3231,7 @@ def changed_files(session_id):
             if row.get("kind") == "edit" and row.get("changed")}
 
 
-# The row the gate writes on its allow path (`tezgah_gate.decision`), before a
+# The row the gate writes before its rules (`tezgah_gate.decision`), before a
 # write or a shell call runs: the first of a call's two rows, written by the
 # PreToolUse process. The second is `note_tool`'s, from the PostToolUse one,
 # and carries the same `id`.
@@ -3172,10 +3240,10 @@ def changed_files(session_id):
 # out - so what it did is unknown: not a pass, not a success, not a failure.
 BEGAN_KIND = "began"
 # The rows that answer a `began` one: the kinds `note_tool` writes, and a `deny`
-# - opencode asks the core first (which writes `began` on its allow) and may
-# still refuse the call with a rule of its own, so the call never ran. The
-# gate's own `deny` comes before any `began` of its call, so it answers none.
-OUTCOME_KINDS = frozenset(STEP_KINDS) | {"external", "unknown", "deny"}
+# - the gate's own refusal of the call, or opencode's: it asks the core first
+# (which writes `began`) and may refuse the call with a rule of its own - and a
+REFUSAL_KINDS = frozenset(("deny", "nudge"))  # `nudge`: the call never ran
+OUTCOME_KINDS = frozenset(STEP_KINDS) | {"external", "unknown"} | REFUSAL_KINDS
 
 
 def _began_fold(rows):
@@ -3193,7 +3261,7 @@ def _began_fold(rows):
             waiting.setdefault(digest, []).append(row)
         elif kind in OUTCOME_KINDS and waiting.get(digest):
             began = waiting[digest].pop(0)
-            if kind != "deny":
+            if kind not in REFUSAL_KINDS:
                 delivered.add(began.get("tool"))
     return [row for rows_ in waiting.values() for row in rows_], delivered
 
@@ -3478,7 +3546,7 @@ def passing_check(entry):
     check that ran with an outcome nobody saw."""
     if entry.get("kind") != "verify_ok" or entry.get("empty_run"):
         return False
-    if entry.get("exit") != 0 or entry.get("out_bytes") == 0:
+    if entry.get(ORPHAN) or entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
     return not status_hidden(entry.get("detail"))
 
@@ -4440,6 +4508,8 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     rows = events(session_id) if rows is None else rows
     if (done or verified) and any(r.get("kind") == DAMAGE_KIND for r in rows):
         return ("evidence tampered", TAMPERED)
+    if (done or verified) and any(r.get(ORPHAN) for r in rows):
+        return ("evidence tampered", ORPHANED)
     ev = {str(entry.get("kind")) for entry in rows}
     # The trigger is the turn's own evidence, not its words. The claim vocabulary
     # below catches a claim-shaped reply; it missed the same unfounded state
@@ -4917,3 +4987,137 @@ def changed_files_notice(session_id, base=None):
     if rest > 0:
         text = "%s (+%d more)" % (text, rest)
     return "files this turn changed: " + text
+
+
+# --- pairing: a pass the gate never saw begin (plan 051 part 8) --------------
+# The field `_append` adds to a row it wrote without the lock, and the in-memory
+# mark `_pair` puts on a `verify_ok` no gate-written `began` row answers. The
+# mark is never written: `passing_check` refuses a marked row, and the Stop rule
+# reads one in the turn as "evidence tampered".
+UNLOCKED = "unlocked"
+ORPHAN = "orphan"
+ORPHANED = (
+    "Evidence tampered: a passing check in this turn has no `began` row from the "
+    "gate before it (counted as an orphan), so it was written outside the hooks "
+    "or the rows of its call were removed, and the ledger cannot carry a done or "
+    "tested claim this turn. Run the check again through the tool, or say what "
+    "is unverified (\"doğrulanmadı\"); the ledger is the user's to inspect.")
+BEGAN_ROW = re.compile(r'"kind"\s*:\s*"%s"' % BEGAN_KIND)
+UNLOCKED_ROW = re.compile(r'"%s"\s*:\s*1\b' % UNLOCKED)
+# How many rows before a `turn_rows` slice seed `_pair`'s waiting `began` rows:
+# the same 200-row bound the gate's tail readers use.
+PAIR_SEED = 200
+
+
+def _unlocked(line):
+    """`line` with `unlocked: 1` added to its row (`_append`'s LOCK_WAIT
+    fallback), or as it was when it is not one row."""
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return line
+    if not isinstance(row, dict):
+        return line
+    row[UNLOCKED] = 1
+    return json.dumps(row, ensure_ascii=False) + "\n"
+
+
+def _pair(rows, path, lines, before=()):
+    """`rows`, with each `verify_ok` that no earlier `began` row of its `id`
+    with `check` answers marked ORPHAN, in place. `lines` are the ledger lines
+    the rows were read from, `before` the ones read and not parsed (the turns
+    before `turn_rows`' slice).
+
+    The gate writes that `began` row before every shell check it lets through
+    (`tezgah_gate.decision`), and the PostToolUse row of the same call answers
+    it; a pass with none was appended outside the hooks (`python3 -c`) or
+    outlived the deletion of its call's rows. One outcome answers one `began`,
+    oldest first, the way `_began_fold` pairs them.
+
+    The mark is the narrow case only, because a false "evidence tampered" is a
+    fail-closed block on an honest turn. Nothing is marked
+    - before the first `began` row the lines show: a host that writes none, or
+      a gate installed mid-session (`docs/evidence.md`, the no-began exemption);
+    - in a turn holding a `crash` row: the gate that writes `began` may be the
+      code that crashed;
+    - with `pretooluse-off` armed: no gate ran;
+    - when an append took `_append`'s unlocked fallback, or this platform has
+      no lock at all: that truncate can cut a concurrent writer's `began` row;
+    - for a ledger in the sandbox fallback cache, or one whose session also has
+      a ledger in the other cache dir: a sandboxed host can split one call's two
+      rows over two files (`tezgah_context`'s fallback-cache note).
+    An outcome-less row (no `exit`: a `verify` the host gave no result for,
+    an `interrupted` one) answers no `began` here, unlike `_began_fold`:
+    Cursor's afterShellExecution writes one for a call before postToolUse
+    writes the same call's pass, and it must not take the pass's `began`. A
+    `deny` still answers one, since the call never ran. `turn_rows` reads the
+    turn alone, so the last PAIR_SEED rows before it seed the waiting `began`
+    rows: a call that began before the user's next prompt and answered after
+    it is paired as `events` pairs it.
+    A tail read pairs within its window, so a check whose `began` row fell just
+    outside it can read as an orphan there. ponytail: the readers of a window
+    (the gate's order rule, `scratch_evidence`) only lose a pass by it, never
+    refuse; the Stop rule reads whole turns. A forged `began` row plus its pass
+    is not seen here at all: the residual SECURITY.md names, and so is a pass
+    forged under the `id` of a check that got no outcome."""
+    waiting, began, turn, crashed, found = {}, False, 0, set(), []
+
+    def answer(row):
+        """Fold one row into `waiting`; the `began` it answers, or None."""
+        kind, digest = row.get("kind"), row.get("id")
+        if kind == BEGAN_KIND:
+            if digest:
+                waiting.setdefault(digest, []).append(row)
+            return None
+        if kind not in OUTCOME_KINDS or not waiting.get(digest):
+            return None
+        if kind not in REFUSAL_KINDS and row.get("exit") is None:
+            return None
+        return waiting[digest].pop(0)
+
+    for row in _parse(before[-PAIR_SEED:]):
+        answer(row)
+    for row in rows:
+        kind = row.get("kind")
+        if kind == TURN_KIND:
+            turn += 1
+        elif kind == "crash":
+            crashed.add(turn)
+        elif kind == BEGAN_KIND:
+            began = True
+        start = answer(row)
+        if kind == "verify_ok" and not (start and start.get("check")):
+            found.append((row, turn, began))
+    if not found:
+        return rows
+    prior = None
+    marked = []
+    for row, at, seen in found:
+        if at in crashed:
+            continue
+        if not seen:
+            if prior is None:
+                prior = any(BEGAN_ROW.search(line) for line in before)
+            if not prior:
+                continue
+        marked.append(row)
+    if marked and not _unpaired_exempt(path, lines):
+        for row in marked:
+            row[ORPHAN] = 1
+    return rows
+
+
+def _unpaired_exempt(path, lines):
+    """True when this ledger may lack an honest `began` row (`_pair`'s list)."""
+    if fcntl is None or off("pretooluse-off"):
+        return True
+    if any(UNLOCKED_ROW.search(line) for line in lines):
+        return True
+    if not path:
+        return False
+    from tezgah_paths import CACHE, fallback_cache
+    here = os.path.realpath(os.path.dirname(path))
+    fallback = os.path.realpath(os.path.join(fallback_cache(), "evidence"))
+    dirs = {os.path.realpath(os.path.join(CACHE, "evidence")), fallback} - {here}
+    return here == fallback or any(
+        os.path.exists(os.path.join(d, os.path.basename(path))) for d in dirs)
