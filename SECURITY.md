@@ -57,6 +57,10 @@ an adversarial agent, and it does not claim to be one.
   recorded as `ledger_damage` and blocks a done-claim in that turn as
   "evidence tampered" instead of failing the Stop rule open. A switch armed
   mid-session leaves a `disarm` row and the status line's `gate` mark.
+  The session-level backstop for the routes the rule cannot see: a switch file
+  newer than the session's first ledger row is ignored in that session (switch
+  latching, [docs/contract.md](docs/contract.md#how-a-rule-is-disarmed)) until
+  the user's prompt names it.
 - **Who the rule can tell apart.** It sees only the calls a host routes
   through its tool hook, so the user's own terminal is never refused. Inside a
   session it cannot tell a change the user asked for from one the agent chose:
@@ -82,6 +86,14 @@ an adversarial agent, and it does not claim to be one.
   - A script fed to a shell on stdin through a quoted-tag heredoc
     (`bash <<'EOF'`): bash expands nothing in that body, and the gate reads it
     as data.
+  - Switch latching's ways through are bytes the agent can write: an
+    `authorized` row appended to the ledger, and the uninstall's stand-down
+    text in `pretooluse-off`, both written by an interpreter. The latch is a
+    keyword match, not intent: "don't touch verify-off" authorizes the flip,
+    and a prompt computed by a workflow, or a parent's task text a host hands
+    a child as its prompt, arrives through the same path as the user's. A
+    clock set back makes a new switch look old, and a switch the user flips in
+    their own terminal waits for the next session or a prompt that names it.
 - **The same uid ceiling.** The agent runs as the user, with the user's file
   permissions. Nothing tezgah writes is out of its reach at the filesystem
   level; the gate is the only barrier, and it is a policy check, not a

@@ -1207,8 +1207,9 @@ class OpenCodePlugin(TempHome):
 
     def test_the_ordering_rule_rides_verify_off(self):
         # it rides the integrity rule's own switch rather than adding one
-        self.after("bash", {"command": "pytest -q"}, exit=1)
+        # set before the session's first row: a switch made later is latched out
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.after("bash", {"command": "pytest -q"}, exit=1)
         self.allowed(self.before("bash", {"command": "git commit -m x"}))
 
     # ---- evidence ledger ---------------------------------------------------
