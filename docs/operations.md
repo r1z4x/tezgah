@@ -444,8 +444,11 @@ goes to `defects.jsonl` and never into the ledger.
 
 Armed taste also learns by itself. At session start, `learn` starts in the
 background when `signals.jsonl` grew since the last start, at most once an hour
-per repository (`learn_later`, `hooks/tezgah_taste.py::learn_later`). The stamp
-and the log live under the cache dir, in `taste-learn/`.
+per repository (`learn_later`, `hooks/tezgah_taste.py::learn_later`). It runs
+with `--no-fallback` and only when a TypeSafe key resolves, so it never pays a
+generative provider for a decision it could not apply. It does not run on
+Windows, which has no ledger lock yet. The stamp and the log live under the
+cache dir, in `taste-learn/`.
 
 The ledger is `<repo>/.tezgah/taste/ledger.json`, plus
 `~/.config/tezgah/taste/ledger.json` for user-scope learnings

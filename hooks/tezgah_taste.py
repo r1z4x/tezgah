@@ -212,15 +212,21 @@ def write_note(session_id, inp, cwd, tool=None):
         return ""
 
 
-def learn_later(cwd):
-    """Start `tezgah-taste learn --repo <root>` detached when taste is on for
-    `cwd`, its signals grew since the last start and an hour has passed.
-    Total; the stamp is written before the spawn, so a failed start waits."""
+def learn_later(root):
+    """Start `tezgah-taste learn --repo <root> --no-fallback` detached when the
+    signals of `root` (the git root `enabled` returned) grew since the last
+    start and an hour has passed. Only when TypeSafe resolves: the automatic run
+    never pays a generative provider for a decision it may not apply. Not on a
+    machine without flock (Windows), where two background runs in two
+    repositories would race on the user ledger. ponytail: no Windows lock; add
+    one (msvcrt.locking) before enabling it there. Total; the stamp is written
+    before the spawn, so a failed start waits an hour."""
     try:
-        if not armed(ARM):
-            return
-        root = enabled(cwd)
         if not root:
+            return
+        import tezgah_judge
+        import tezgah_taste_ledger
+        if tezgah_taste_ledger.fcntl is None or not tezgah_judge.named(("typesafe",)):
             return
         size = os.path.getsize(os.path.join(root, ".tezgah", "taste", "signals.jsonl"))
         base = os.path.join(tezgah_paths.cache_dir(), "taste-learn")
@@ -238,7 +244,8 @@ def learn_later(cwd):
         with open(stamp, "w", encoding="utf-8") as fh:
             json.dump({"size": size, "at": now}, fh)
         with open(os.path.join(base, name + ".log"), "ab") as log:
-            subprocess.Popen([sys.executable, BIN, "learn", "--repo", root],
+            subprocess.Popen([sys.executable, BIN, "learn", "--repo", root,
+                              "--no-fallback"],
                              cwd=root, stdin=subprocess.DEVNULL, stdout=log,
                              stderr=log, start_new_session=True)
     except Exception:

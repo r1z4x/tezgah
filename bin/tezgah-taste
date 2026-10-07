@@ -701,7 +701,8 @@ def cmd_learn(args):
               "preference": 0, "defect": 0, "none": 0}
     tokens = [0, 0]
     for sig in todo:
-        dec, result = decide(sig, held(ledgers), fallback=sig["id"] not in decided)
+        dec, result = decide(sig, held(ledgers),
+                             fallback=not args.no_fallback and sig["id"] not in decided)
         if dec is None:
             counts["unanswered"] += 1
             continue
@@ -878,6 +879,8 @@ def main(argv):
     learn.add_argument("--from-transcripts", action="store_true")
     learn.add_argument("--host", choices=("omp", "claude", "all"), default="all")
     learn.add_argument("--limit", type=int)
+    learn.add_argument("--no-fallback", action="store_true",
+                       help="TypeSafe only: never pay another provider for a decision")
     listing = sub.add_parser("list")
     listing.add_argument("--all", action="store_true")
     for name in ("show", "accept", "reject", "edit"):

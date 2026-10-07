@@ -11,6 +11,7 @@ import os
 import stat
 import subprocess
 import sys
+import types
 import unittest
 from unittest import mock
 
@@ -192,14 +193,28 @@ class Taste(TempHome):
         [edit] = self.rows("edit")
         self.assertEqual((edit["old"], edit["new"]), (None, "print(1)"))
 
-    def spawns(self):
-        """The argv lists `learn_later` starts, recorded instead of run."""
+    def spawns(self, typesafe=True):
+        """The (argv, kwargs) `learn_later` starts, recorded instead of run; a
+        TypeSafe key resolves unless `typesafe` is False."""
         spawned = []
-        popen = mock.patch.object(tt.subprocess, "Popen",
-                                  side_effect=lambda argv, **kw: spawned.append(argv))
+        # tezgah_taste's own `subprocess` name only: git, which the session start
+        # also runs, keeps the real module
+        stub = types.SimpleNamespace(DEVNULL=subprocess.DEVNULL,
+                                     Popen=lambda argv, **kw: spawned.append((argv, kw)))
+        popen = mock.patch.object(tt, "subprocess", stub)
         popen.start()
         self.addCleanup(popen.stop)
+        key = mock.patch.dict(os.environ, {"TYPESAFE_API_KEY": "k"} if typesafe else {})
+        key.start()
+        self.addCleanup(key.stop)
+        if not typesafe:
+            os.environ.pop("TYPESAFE_API_KEY", None)
         return spawned
+
+    def start(self, event="session_start"):
+        """A host's session start, through the one path every host takes."""
+        import tezgah_context
+        tezgah_context.context_for(event, self.repo, {"session_id": "s-learn"})
 
     def grow(self):
         os.makedirs(os.path.dirname(self.store), exist_ok=True)
@@ -219,36 +234,48 @@ class Taste(TempHome):
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(stamp, fh)
 
-    def test_learn_later_spawns_on_growth_at_most_hourly(self):
+    def test_session_start_spawns_a_detached_typed_learn_on_growth_at_most_hourly(self):
         spawned = self.spawns()
         self.arm()
         self.grow()
-        tt.learn_later(self.repo)
-        self.assertEqual(len(spawned), 1)
-        self.assertEqual(spawned[0][-3:],
-                         ["learn", "--repo", os.path.realpath(self.repo)])
-        tt.learn_later(self.repo)  # immediately again
+        self.start()
+        [(argv, kw)] = spawned
+        self.assertEqual(argv[-4:], ["learn", "--repo", os.path.realpath(self.repo),
+                                     "--no-fallback"])
+        self.assertTrue(kw["start_new_session"])
+        self.assertIs(kw["stdin"], subprocess.DEVNULL)
+        self.assertIsNotNone(kw["stdout"])
+        self.grow()
+        self.start()  # grew, but within the hour
         self.assertEqual(len(spawned), 1)
         self.age_stamp()
-        tt.learn_later(self.repo)  # the hour passed, the size did not change
-        self.assertEqual(len(spawned), 1)
-        self.grow()
-        tt.learn_later(self.repo)  # the hour passed and the signals grew
+        self.start()  # the hour passed and the signals grew since the stamp
+        self.assertEqual(len(spawned), 2)
+        self.age_stamp()
+        self.start()  # the hour passed, the size did not change
         self.assertEqual(len(spawned), 2)
 
-    def test_learn_later_unarmed_spawns_nothing_and_keeps_no_stamp(self):
-        spawned = self.spawns()
-        self.grow()
-        tt.learn_later(self.repo)
-        self.assertEqual((spawned, self.stamps()), ([], []))
-
-    def test_learn_later_honours_no_taste_mark(self):
+    def test_only_session_start_spawns(self):
         spawned = self.spawns()
         self.arm()
         self.grow()
-        open(os.path.join(self.repo, tt.MARK), "w").close()
-        tt.learn_later(self.repo)
+        for event in ("post_compact", "subagent_start", "user_prompt"):
+            self.start(event)
         self.assertEqual(spawned, [])
+
+    def test_no_spawn_unarmed_with_no_taste_or_without_typesafe(self):
+        spawned = self.spawns()
+        self.grow()
+        self.start()
+        self.assertEqual((spawned, self.stamps()), ([], []))
+        self.arm()
+        open(os.path.join(self.repo, tt.MARK), "w").close()
+        self.start()
+        self.assertEqual(spawned, [])
+        os.remove(os.path.join(self.repo, tt.MARK))
+        spawned = self.spawns(typesafe=False)
+        self.start()
+        self.assertEqual((spawned, self.stamps()), ([], []))
 
 
 if __name__ == "__main__":

@@ -59,10 +59,13 @@ certificates, destructive data or history operations, privilege and security.
 The prompt-path skill hint sends the user's prompt through the same redactor. It
 also cuts the prompt at 2,000 characters (`PROMPT_MAX`,
 `hooks/tezgah_skill_pick.py::PROMPT_MAX`), because a prompt can quote a token and
-nobody chose to send it. Four of the callers are explicit -
-a person runs the tool - and the fifth, `bin/tezgah-route`, is what the
-ORCHESTRATE paragraph tells the router to run before every delegation, which is
-why its redaction is not optional. The switches below are the off buttons.
+nobody chose to send it. Three of the callers are explicit - a person runs
+the tool. `bin/tezgah-route` is what the ORCHESTRATE paragraph tells the router
+to run before every delegation, which is why its redaction is not optional.
+`bin/tezgah-taste learn` also starts by itself at session start once the user
+armed `taste-on`. It then sends redacted signal text to TypeSafe only, and only
+when a TypeSafe key resolves (`learn_later`, `hooks/tezgah_taste.py::learn_later`).
+The switches below are the off buttons.
 
 ## The five callers
 
@@ -78,7 +81,9 @@ The third caller is the one no shell row can see: it runs on the prompt path,
 caches one answer per `(session, prompt)` (`_remember`,
 `hooks/tezgah_skill_pick.py::_remember`; `suggest`,
 `hooks/tezgah_skill_pick.py::suggest`), and asks at all only when its own marker is
-armed. The other four are bin tools a session runs by name.
+armed. `bin/tezgah-triage`, `bin/tezgah-docs` and `bin/tezgah-route` are bin
+tools a session runs by name, and so is `bin/tezgah-taste`, except for the
+background `learn` that armed taste starts.
 
 ## The providers and their order
 
