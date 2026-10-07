@@ -3171,7 +3171,7 @@ def changed_files(session_id):
             if row.get("kind") == "edit" and row.get("changed")}
 
 
-# The row the gate writes on its allow path (`tezgah_gate.decision`), before a
+# The row the gate writes before its rules (`tezgah_gate.decision`), before a
 # write or a shell call runs: the first of a call's two rows, written by the
 # PreToolUse process. The second is `note_tool`'s, from the PostToolUse one,
 # and carries the same `id`.
@@ -3180,9 +3180,9 @@ def changed_files(session_id):
 # out - so what it did is unknown: not a pass, not a success, not a failure.
 BEGAN_KIND = "began"
 # The rows that answer a `began` one: the kinds `note_tool` writes, and a `deny`
-# - opencode asks the core first (which writes `began` on its allow) and may
-# still refuse the call with a rule of its own, so the call never ran. The
-# gate's own `deny` comes before any `began` of its call, so it answers none.
+# - the gate's own refusal of the call, or opencode's: it asks the core first
+# (which writes `began`) and may still refuse the call with a rule of its own.
+# Either way the call never ran.
 OUTCOME_KINDS = frozenset(STEP_KINDS) | {"external", "unknown", "deny"}
 
 
@@ -4944,6 +4944,9 @@ ORPHANED = (
     "is unverified (\"doğrulanmadı\"); the ledger is the user's to inspect.")
 BEGAN_ROW = re.compile(r'"kind"\s*:\s*"%s"' % BEGAN_KIND)
 UNLOCKED_ROW = re.compile(r'"%s"\s*:\s*1\b' % UNLOCKED)
+# How many rows before a `turn_rows` slice seed `_pair`'s waiting `began` rows:
+# the same 200-row bound the gate's tail readers use.
+PAIR_SEED = 200
 
 
 def _unlocked(line):
@@ -4983,26 +4986,48 @@ def _pair(rows, path, lines, before=()):
     - for a ledger in the sandbox fallback cache, or one whose session also has
       a ledger in the other cache dir: a sandboxed host can split one call's two
       rows over two files (`tezgah_context`'s fallback-cache note).
+    An outcome-less row (no `exit`: a `verify` the host gave no result for,
+    an `interrupted` one) answers no `began` here, unlike `_began_fold`:
+    Cursor's afterShellExecution writes one for a call before postToolUse
+    writes the same call's pass, and it must not take the pass's `began`. A
+    `deny` still answers one, since the call never ran. `turn_rows` reads the
+    turn alone, so the last PAIR_SEED rows before it seed the waiting `began`
+    rows: a call that began before the user's next prompt and answered after
+    it is paired as `events` pairs it.
     A tail read pairs within its window, so a check whose `began` row fell just
     outside it can read as an orphan there. ponytail: the readers of a window
     (the gate's order rule, `scratch_evidence`) only lose a pass by it, never
     refuse; the Stop rule reads whole turns. A forged `began` row plus its pass
-    is not seen here at all: the residual SECURITY.md names."""
+    is not seen here at all: the residual SECURITY.md names, and so is a pass
+    forged under the `id` of a check that got no outcome."""
     waiting, began, turn, crashed, found = {}, False, 0, set(), []
-    for row in rows:
+
+    def answer(row):
+        """Fold one row into `waiting`; the `began` it answers, or None."""
         kind, digest = row.get("kind"), row.get("id")
+        if kind == BEGAN_KIND:
+            if digest:
+                waiting.setdefault(digest, []).append(row)
+            return None
+        if kind not in OUTCOME_KINDS or not waiting.get(digest):
+            return None
+        if kind != "deny" and row.get("exit") is None:
+            return None
+        return waiting[digest].pop(0)
+
+    for row in _parse(before[-PAIR_SEED:]):
+        answer(row)
+    for row in rows:
+        kind = row.get("kind")
         if kind == TURN_KIND:
             turn += 1
         elif kind == "crash":
             crashed.add(turn)
         elif kind == BEGAN_KIND:
             began = True
-            if digest:
-                waiting.setdefault(digest, []).append(row)
-        elif kind in OUTCOME_KINDS:
-            start = waiting[digest].pop(0) if digest and waiting.get(digest) else None
-            if kind == "verify_ok" and not (start and start.get("check")):
-                found.append((row, turn, began))
+        start = answer(row)
+        if kind == "verify_ok" and not (start and start.get("check")):
+            found.append((row, turn, began))
     if not found:
         return rows
     prior = None

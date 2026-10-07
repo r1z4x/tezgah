@@ -262,6 +262,21 @@ class CursorHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Evidence tampered", out["reason"])
 
+    def test_stop_passes_a_check_whose_shell_event_came_before_its_result(self):
+        # review R051b F1: afterShellExecution (no outcome) lands before
+        # postToolUse (exit 0) for one call; the outcome-less row must not take
+        # the call's `began` from the pass
+        call = {"cwd": self.repo, "conversation_id": "s", "tool_name": "Shell",
+                "tool_input": {"command": "pytest -q"}}
+        self.call(dict(call, hook_event_name="preToolUse"))
+        self.call({"hook_event_name": "afterShellExecution", "cwd": self.repo,
+                   "conversation_id": "s", "command": "pytest -q",
+                   "output": "5 passed"})
+        self.call(dict(call, hook_event_name="postToolUse",
+                       tool_output='{"exitCode":0,"stdout":"5 passed"}'))
+        self.response("Done. All tests pass.")
+        self.assertEqual(self.stop(), {})
+
     def test_stop_passes_a_claim_free_answer(self):
         self.response("Toplam 5 dosya incelendi.")
         self.assertEqual(self.stop(), {})

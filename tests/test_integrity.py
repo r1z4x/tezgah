@@ -4706,6 +4706,43 @@ class OrphanPass(unittest.TestCase):
         ti.note("s", "edit", "app.py", changed=True)
         self.forge()
 
+    # ---- review R051b: honest orders the pairing must not orphan -----------
+    def test_an_outcome_less_row_does_not_take_the_began_from_the_pass(self):
+        # Cursor: afterShellExecution writes a `verify` with no outcome before
+        # postToolUse writes the call's `verify_ok`, both under the call's id
+        self.turn("t1")
+        self.honest()
+        self.turn("t2")
+        ti.note("s", "edit", "app.py", changed=True)
+        self.began()
+        ti.note_tool("s", "Bash", self.CHECK, failed=None, out_bytes=42)
+        ti.note_tool("s", "Bash", self.CHECK, failed=False, out_bytes=42)
+        self.assertFalse([r for r in ti.events("s") if r.get(ti.ORPHAN)])
+        self.assertFalse([r for r in ti.turn_rows("s") if r.get(ti.ORPHAN)])
+
+    def test_a_began_in_the_previous_turn_pairs_its_pass_in_the_turn_reader(self):
+        # the 4-row straddle: the call began before the user's next prompt
+        # landed and answered after it
+        self.turn("t1")
+        self.began()
+        self.turn("t2")
+        ti.note_tool("s", "Bash", self.CHECK, failed=False, out_bytes=42)
+        self.assertFalse([r for r in ti.events("s") if r.get(ti.ORPHAN)])
+        self.assertFalse([r for r in ti.turn_rows("s") if r.get(ti.ORPHAN)])
+
+    def test_a_gate_killed_after_its_first_rule_still_left_the_began(self):
+        # a host that kills a slow gate still runs the call; the began has to
+        # be on disk before the rules that take the time
+        with mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.dir}), \
+                mock.patch.object(tg, "off", lambda *a: False), \
+                mock.patch.object(tg, "control_reason",
+                                  side_effect=RuntimeError("killed")):
+            with self.assertRaises(RuntimeError):
+                tg.decision("Bash", dict(self.CHECK), self.dir, "s")
+        began = [r for r in ti.events("s") if r["kind"] == ti.BEGAN_KIND]
+        self.assertEqual([(r["id"], r.get("check")) for r in began],
+                         [(ti.call_id("Bash", self.CHECK), 1)])
+
     def test_a_forged_pass_is_an_orphan_and_refuses_the_claim(self):
         self.work_then_forge()
         rows = ti.events("s")
