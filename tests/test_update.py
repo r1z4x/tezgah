@@ -296,6 +296,21 @@ class Channels(unittest.TestCase):
         self.assertEqual(tu.fetch_command("brew", keg),
                          ["brew", "upgrade", "r1z4x/tezgah/tezgah"])
 
+    def test_a_tree_named_through_opt_is_still_brew_and_re_arms_from_opt(self):
+        """bin/tezgah-setup names a keg through `opt/tezgah` (its HERE), and
+        `tezgah update` reads the channel and launcher off that HERE."""
+        from test_setup import setup_module
+        keg = self.tree("homebrew", "Cellar", "tezgah", "0.1.1", "libexec")
+        os.makedirs(os.path.join(self.root, "homebrew", "opt"))
+        os.symlink(os.path.join("..", "Cellar", "tezgah", "0.1.1"),
+                   os.path.join(self.root, "homebrew", "opt", "tezgah"))
+        here = setup_module().stable_root(keg)
+        opt = os.path.join(self.root, "homebrew", "opt", "tezgah", "libexec")
+        self.assertEqual(here, opt)
+        self.assertEqual(tu.channel(here), "brew")
+        self.assertEqual(tu.launcher("brew", here),
+                         os.path.join(opt, "bin", "tezgah-setup"))
+
     def run_update(self, here, codes=(0, 0), prefix="", dry_run=False,
                    npm_root="", which=lambda name: "/bin/" + name, fail=False,
                    old=None, new=None, tty=False, answer=None):

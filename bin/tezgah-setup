@@ -50,7 +50,26 @@ try:
 except ImportError:  # not POSIX: record_contract relies on os.replace alone
     fcntl = None
 
-HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+def stable_root(real):
+    """The path every install renders for the tree at `real` (a realpath).
+
+    A Homebrew keg `<brew>/Cellar/tezgah/<version>/libexec` is deleted by the
+    default cleanup of the next `brew upgrade`, so when `<brew>/opt/tezgah`
+    resolves to this keg the tree is named through that stable link instead.
+    Anything else - a checkout, a release prefix, npm, a keg opt/ does not
+    name - is its own path."""
+    keg, leaf = os.path.split(real)
+    formula = os.path.dirname(keg)
+    cellar = os.path.dirname(formula)
+    if (leaf != "libexec" or os.path.basename(formula) != "tezgah"
+            or os.path.basename(cellar) != "Cellar"):
+        return real
+    opt = os.path.join(os.path.dirname(cellar), "opt", "tezgah")
+    return os.path.join(opt, leaf) if os.path.realpath(opt) == keg else real
+
+
+HERE = stable_root(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_apps  # noqa: E402
 import tezgah_context  # noqa: E402
@@ -2801,7 +2820,7 @@ def is_tezgah_link(path):
         return False
     target = os.path.realpath(path)
     return any(target == root or target.startswith(root + os.sep)
-               for root in (HERE, INSTALL_PREFIX, tp.BIN_DIR))
+               for root in (os.path.realpath(HERE), INSTALL_PREFIX, tp.BIN_DIR))
 
 
 def is_tezgah_entry(path):
@@ -2966,8 +2985,8 @@ def remove_plugin_copies():
                 print("%s removed marketplace row(s) %s from %s"
                       % (OK, ", ".join(stale), KNOWN_MARKETPLACES))
     for target in plugin_copies():
-        real = os.path.realpath(target)
-        if real == HERE or HERE.startswith(real + os.sep):
+        real, here = os.path.realpath(target), os.path.realpath(HERE)
+        if real == here or here.startswith(real + os.sep):
             print("%s kept %s (it holds this checkout)" % (NO, target))
             continue
         try:
@@ -5100,8 +5119,8 @@ def sync():
         # A copy that contains this checkout IS this checkout, so replacing it
         # would delete the tree being copied from (someone running the copy's
         # own bin/tezgah-setup). The documented path never does; this says no.
-        real = os.path.realpath(t)
-        if real == HERE or HERE.startswith(real + os.sep):
+        real, here = os.path.realpath(t), os.path.realpath(HERE)
+        if real == here or here.startswith(real + os.sep):
             print("%s skip %s (it holds this checkout)" % (NO, t))
             continue
         stage = tempfile.mkdtemp(prefix=SYNC_STAGE_PREFIX, dir=plugins)
