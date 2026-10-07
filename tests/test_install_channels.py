@@ -15,10 +15,14 @@ fallback, and the install-update-uninstall cycle (.github/workflows/ci.yml).
 """
 import contextlib
 import io
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -27,6 +31,7 @@ from test_setup import SetupBase, setup_module
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 
 _MISSING = object()
@@ -263,6 +268,159 @@ class ResolvedPrefix(Base):
         with contextlib.redirect_stdout(io.StringIO()):
             self.mod.remove_install_tree()
         self.assertFalse(os.path.lexists(prefix))
+
+
+class BrewKeg(Base):
+    """A Homebrew install runs from `<brew>/Cellar/tezgah/<version>/libexec`
+    and `brew upgrade` deletes that keg by default, so every path an install
+    renders names the stable `<brew>/opt/tezgah` link instead. The keg is the
+    release tarball (the formula's `libexec.install Dir["*"]`) under a fake
+    brew root in the temp HOME; no real Homebrew is touched."""
+
+    HOSTS = "claude,codex,cursor,opencode,dsh,omp"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dist = tempfile.mkdtemp(prefix="tezgah-brew-dist.")
+        proc = subprocess.run(["sh", os.path.join("packaging", "build.sh"),
+                               "--version", "9.9.9", "--out", cls.dist],
+                              cwd=REPO, capture_output=True, text=True,
+                              env=dict(os.environ, TEZGAH_PYTHON=sys.executable))
+        if proc.returncode != 0:
+            raise AssertionError(proc.stdout + proc.stderr)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dist, ignore_errors=True)
+
+    def keg(self, version):
+        """<brew>/Cellar/tezgah/<version>/libexec holding the tarball, and
+        <brew>/opt/tezgah pointed at it the way `brew link` does."""
+        libexec = self.path("brew", "Cellar", "tezgah", version, "libexec")
+        os.makedirs(libexec)
+        with tarfile.open(os.path.join(self.dist, "tezgah-9.9.9.tar.gz")) as tar:
+            tar.extractall(libexec, **({"filter": "tar"}
+                                       if hasattr(tarfile, "tar_filter") else {}))
+        opt = self.path("brew", "opt", "tezgah")
+        os.makedirs(os.path.dirname(opt), exist_ok=True)
+        if os.path.lexists(opt):
+            os.unlink(opt)
+        os.symlink(os.path.join("..", "Cellar", "tezgah", version), opt)
+        return libexec
+
+    def install(self, tree):
+        proc = subprocess.run(
+            [sys.executable, os.path.join(tree, "bin", "tezgah-setup"), "--install",
+             "--no-deps", "--hosts", self.HOSTS],
+            capture_output=True, text=True, env=self.env, timeout=300)
+        self.assertEqual(proc.returncode, 0, proc.stdout[-2000:] + proc.stderr)
+
+    def rendered(self):
+        """Every link target and every small text file the install wrote
+        outside the fake brew root: (path, text) pairs."""
+        brew = self.path("brew")
+        out = []
+        for root, dirs, files in os.walk(self.home):
+            dirs[:] = [d for d in dirs if os.path.join(root, d) != brew]
+            for name in dirs + files:
+                p = os.path.join(root, name)
+                if os.path.islink(p):
+                    out.append((p, os.readlink(p)))
+                elif name in files and os.path.getsize(p) < 1 << 20:
+                    with open(p, "rb") as fh:
+                        out.append((p, fh.read().decode("utf-8", "replace")))
+        return out
+
+    def test_no_versioned_keg_path_survives_and_an_upgrade_with_cleanup_keeps_the_hooks(self):
+        self.install(self.keg("9.9.9"))
+        opt_tree = self.path("brew", "opt", "tezgah", "libexec")
+        texts = self.rendered()
+        keg = os.path.join("Cellar", "tezgah", "9.9.9")
+        self.assertEqual([p for p, t in texts if keg in t], [])
+        # the omp bridge's @HOOK@ and dsh's configPath/pluginRoot name opt/
+        joined = "\n".join(t for _, t in texts)
+        self.assertIn(os.path.join(opt_tree, "hosts", "omp", "hook.py"), joined)
+        self.assertRegex(joined, r"configPath: %s" % re.escape(opt_tree))
+        self.assertRegex(joined, r"pluginRoot: %s" % re.escape(opt_tree))
+        farm = self.path(".config", "tezgah", "bin")
+        self.assertTrue(os.listdir(farm))
+        for name in os.listdir(farm):
+            self.assertTrue(os.readlink(os.path.join(farm, name)).startswith(opt_tree),
+                            name)
+        # `brew upgrade`: a new keg, opt/ flipped to it, the old keg cleaned up
+        self.keg("9.9.10")
+        shutil.rmtree(self.path("brew", "Cellar", "tezgah", "9.9.9"))
+        links = [p for p, _ in texts if os.path.islink(p)]
+        self.assertTrue(links)
+        self.assertEqual([p for p in links if not os.path.exists(p)], [])
+        # and the new keg still knows those links as its own
+        proc = subprocess.run(
+            [sys.executable, os.path.join(opt_tree, "bin", "tezgah-setup"),
+             "--uninstall"],
+            capture_output=True, text=True, env=self.env, timeout=300)
+        self.assertEqual(proc.returncode, 0, proc.stdout[-2000:] + proc.stderr)
+        self.assertEqual([p for p in links if os.path.lexists(p)], [])
+        # the uninstall unwires; the keg is Homebrew's to remove
+        self.assertTrue(os.path.isfile(self.path("brew", "Cellar", "tezgah", "9.9.10",
+                                                 "libexec", "bin", "tezgah-setup")))
+
+    def attest(self, tree, host, session):
+        """The detail of the attest row `<tree>/bin/tezgah-context attest`
+        writes, the call every host's session start makes."""
+        work = self.path("work")
+        os.makedirs(work, exist_ok=True)
+        proc = subprocess.run(
+            [sys.executable, os.path.join(tree, "bin", "tezgah-context"), "attest",
+             host, session, work],
+            capture_output=True, text=True, env=dict(self.env, TEZGAH_ROOTS=work),
+            timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        path = self.path(".cache", "tezgah", "evidence", ti._slug(session) + ".jsonl")
+        with open(path) as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        return [r["detail"] for r in rows if r["kind"] == "attest"][-1]
+
+    def test_a_session_started_from_the_keg_reports_no_drift_before_or_after_an_upgrade(self):
+        """A hook runs from its realpath, the keg, while the install rendered
+        opt/: the attest root must read opt/ too, or every brew session starts
+        drifted (the omp bridge differs, opencode's plugin link moved)."""
+        hosts = self.HOSTS.split(",")
+        self.install(self.keg("9.9.9"))
+        for host in hosts:
+            with self.subTest(host=host, keg="9.9.9"):
+                self.assertEqual(self.attest(os.path.realpath(self.keg_tree("9.9.9")),
+                                             host, "before-" + host), "ok")
+        self.keg("9.9.10")
+        shutil.rmtree(self.path("brew", "Cellar", "tezgah", "9.9.9"))
+        for host in hosts:
+            with self.subTest(host=host, keg="9.9.10"):
+                self.assertEqual(self.attest(os.path.realpath(self.keg_tree("9.9.10")),
+                                             host, "after-" + host), "ok")
+
+    def keg_tree(self, version):
+        return self.path("brew", "Cellar", "tezgah", version, "libexec")
+
+    def test_the_running_tree_is_named_through_opt_only_when_opt_is_this_keg(self):
+        libexec = os.path.realpath(self.keg("9.9.9"))
+        opt_tree = os.path.join(os.path.realpath(self.path("brew", "opt")),
+                                "tezgah", "libexec")
+        self.assertEqual(tp.stable_root(libexec), opt_tree)
+        # a path inside the keg moves with it
+        self.assertEqual(tp.stable_root(os.path.join(libexec, "hosts", "omp", "hook.py")),
+                         os.path.join(opt_tree, "hosts", "omp", "hook.py"))
+        # opt/ flipped to another keg: this one is not what opt/ names
+        other = os.path.realpath(self.keg("9.9.10"))
+        self.assertEqual(tp.stable_root(libexec), libexec)
+        self.assertEqual(tp.stable_root(other), opt_tree)
+        # no opt/ link at all: the keg itself
+        os.unlink(self.path("brew", "opt", "tezgah"))
+        self.assertEqual(tp.stable_root(other), other)
+
+    def test_a_checkout_still_resolves_to_the_checkout(self):
+        real = os.path.realpath(REPO)
+        self.assertEqual(tp.stable_root(real), real)
+        self.assertEqual(self.mod.HERE, real)
+        self.assertEqual(os.path.realpath(tp.PLUGIN_ROOT), real)
 
 
 if __name__ == "__main__":

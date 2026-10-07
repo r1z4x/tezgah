@@ -50,8 +50,8 @@ try:
 except ImportError:  # not POSIX: record_contract relies on os.replace alone
     fcntl = None
 
-HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-sys.path.insert(0, os.path.join(HERE, "hooks"))
+_TREE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(_TREE, "hooks"))
 import tezgah_apps  # noqa: E402
 import tezgah_context  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
@@ -62,6 +62,9 @@ import tezgah_attest as ta  # noqa: E402
 from tezgah_policy import (  # noqa: E402
     ADHD, CODEGRAPH_RULE, CODEGRAPH_STATIC, CONSULT, EXEC, NO_CONSULT,
     ORCHESTRATE, PONYTAIL, WORKFLOWS)
+
+# the tree as installs name it: a Homebrew keg through its stable opt/ link
+HERE = tp.stable_root(_TREE)
 
 HOME = os.path.expanduser("~")
 # Where a released artifact unpacks: <prefix>/<version> plus a `current` symlink
@@ -2801,7 +2804,7 @@ def is_tezgah_link(path):
         return False
     target = os.path.realpath(path)
     return any(target == root or target.startswith(root + os.sep)
-               for root in (HERE, INSTALL_PREFIX, tp.BIN_DIR))
+               for root in (os.path.realpath(HERE), INSTALL_PREFIX, tp.BIN_DIR))
 
 
 def is_tezgah_entry(path):
@@ -2966,8 +2969,8 @@ def remove_plugin_copies():
                 print("%s removed marketplace row(s) %s from %s"
                       % (OK, ", ".join(stale), KNOWN_MARKETPLACES))
     for target in plugin_copies():
-        real = os.path.realpath(target)
-        if real == HERE or HERE.startswith(real + os.sep):
+        real, here = os.path.realpath(target), os.path.realpath(HERE)
+        if real == here or here.startswith(real + os.sep):
             print("%s kept %s (it holds this checkout)" % (NO, target))
             continue
         try:
@@ -5108,8 +5111,8 @@ def sync():
         # A copy that contains this checkout IS this checkout, so replacing it
         # would delete the tree being copied from (someone running the copy's
         # own bin/tezgah-setup). The documented path never does; this says no.
-        real = os.path.realpath(t)
-        if real == HERE or HERE.startswith(real + os.sep):
+        real, here = os.path.realpath(t), os.path.realpath(HERE)
+        if real == here or here.startswith(real + os.sep):
             print("%s skip %s (it holds this checkout)" % (NO, t))
             continue
         stage = tempfile.mkdtemp(prefix=SYNC_STAGE_PREFIX, dir=plugins)
