@@ -308,9 +308,12 @@ class OmpPromptPath(unittest.TestCase):
             env=support.base_env(home))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         context = out.get("context") or ""
+        # the path is under test, not the ranking: which live section wins moves
+        # with every edit to a shipped skill, and LocalHint pins the ranking on
+        # a fixture corpus
         self.assertRegex(context, r"<skill_relevance>\nA local skill search "
-                                  r"matched this request: skill://ponytail:"
-                                  r"\d+-\d+, \"Intensity\"")
+                                  r"matched this request: skill://[\w.-]+:"
+                                  r"\d+-\d+, \"")
         self.assertNotIn(os.path.join(REPO, "skills"), context)
 
 

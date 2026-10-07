@@ -1380,12 +1380,17 @@ def session_of(payload):
 # 4000 B this rule's own 282 B dropped `consult`, held at 4400 B a 111 B core
 # growth dropped it again, and at 5000 B the brief's operative clauses (the
 # inter-agent language and the lessons instruction, plan 056) would have - bloat
-# paid for with a rule, which is the failure this bound exists to prevent. A
+# paid for with a rule, which is the failure this bound exists to prevent. The
+# same reasoning moved the two session budgets on 2026-10-07: the ponytail and
+# ADHD rules inline from the first turn (+1042 B), the fan-out pointer (+112 B)
+# and the `tezgah-skill` line (+113 B) took the healthy fixture's session_start
+# from 10579 B to 12059 B, so at 12000 B a healthy repo gave up its lessons
+# and sibling checkouts to pay for core rules; 13000 B restores the headroom. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
-CONTEXT_BUDGET = {"session_start": 12000, "post_compact": 12000,
+CONTEXT_BUDGET = {"session_start": 13000, "post_compact": 13000,
                   "subagent_start": 5500, "user_prompt": 6000}
-DEFAULT_BUDGET = 12000
+DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest
 # value first: text another surface already carries (the plan table lives in the
 # plan-status skill, the sibling checkouts in `tezgah-research --all`, the
