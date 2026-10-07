@@ -84,7 +84,7 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `CONSULT_URL` | `bin/consult::endpoint` | the provider's URL | Repoints every HTTP member. The bearer token is dropped on a redirect to another host. |
+| `CONSULT_URL` | `bin/consult::endpoint` | the provider's URL | Repoints every HTTP member. Plain `http` is refused unless the host is this machine (failure class `plain-http`); the bearer token is dropped on a redirect to another host. |
 | `CONSULT_MODELS` | `bin/consult::defaults` | the provider's default list | Comma list of `openrouter` models for the panel. |
 | `CONSULT_JUDGE` | `bin/consult::main` | the recorded referee, else an available member outside the panel | The member that referees, after `--judge`. With none outside the panel a panel member referees and the run prints a note. |
 | `CONSULT_SEED` | `bin/consult::referee_packet` | unset (a fresh shuffle) | Fixes the shuffled order of the anonymised answers the referee reads (tests). |

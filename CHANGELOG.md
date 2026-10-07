@@ -415,6 +415,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   replay rater's `TEZGAH_DEEPSEEK_URL` all route through
   `tezgah_judge.override`. An `http://` URL to another host would have sent
   the bearer key and the state in clear. Loopback stays allowed for the tests.
+  `consult` now refuses a plain-http `CONSULT_URL` off this machine the same
+  way, before any request, as failure class `plain-http`.
 - **A Homebrew install survives `brew upgrade` with its default cleanup.**
   The installer now names its keg through the stable `opt/tezgah` link
   (`hooks/tezgah_paths.py::stable_root`). So the farm links, the omp bridge's

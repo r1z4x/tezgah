@@ -243,6 +243,20 @@ class Failures(ArenaCase):
         self.assertEqual(p.returncode, 3, p.stdout)
         self.assertIn("(malformed-reply)", p.stdout)
 
+    def test_a_plain_http_endpoint_off_this_machine_is_refused(self):
+        # The bearer key and the packet would cross the network in clear; a
+        # loopback http endpoint (every other case here) stays allowed.
+        self.env["CONSULT_URL"] = "http://example.invalid/v1/chat/completions"
+        self.env["OPENROUTER_API_KEY"] = "or-secret-key"
+        Fake.answers = {"a": "x", "b": "y"}
+        p = self.consult("q?", "--models", "a,b")
+        self.assertNotIn("Traceback", p.stderr)
+        self.assertEqual(p.returncode, 3, p.stdout)
+        self.assertIn("(plain-http)", p.stdout)
+        self.assertIn("plain http", p.stdout)
+        self.assertNotIn("or-secret-key", p.stdout + p.stderr)
+        self.assertEqual(Fake.seen, [])
+
     def test_a_dead_referee_is_disclosed_and_leaves_the_panel_standing(self):
         Fake.answers = {"a": "the only answer"}
         Fake.referee = 503
