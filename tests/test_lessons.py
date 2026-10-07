@@ -58,9 +58,7 @@ class Child(TempHome):
 
     def rows(self, session):
         return self.child("import tezgah_integrity as ti\n"
-                          "p = ti._path(%r)\n"
-                          "rows = [json.loads(r) for r in open(p)] "
-                          "if __import__('os').path.exists(p) else []\n"
+                          "rows = [json.loads(r) for r in ti.ts.evidence_rows(ti._path(%r))]\n"
                           "print(json.dumps(rows))\n" % session)
 
 

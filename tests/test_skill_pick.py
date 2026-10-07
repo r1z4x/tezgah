@@ -143,12 +143,7 @@ class SkillPick(unittest.TestCase):
 
         The cache is the throwaway HOME's, so a case reads the picker's own rows
         and never this machine's."""
-        rows = []
-        for path in glob.glob(os.path.join(self.home, ".cache", "tezgah",
-                                           "evidence", "*.jsonl")):
-            with open(path, encoding="utf-8") as fh:
-                rows += [json.loads(line) for line in fh if line.strip()]
-        return rows
+        return support.all_ledger_rows(os.path.join(self.home, ".cache", "tezgah"))
 
     def arm(self):
         """Opt the picker in. Every case below is about what it does ONCE ARMED,

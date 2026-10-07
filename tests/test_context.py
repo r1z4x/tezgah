@@ -1541,8 +1541,12 @@ class ResumeBlock(ChildCall):
         repo = self.repo()
         self.plan(repo)
         self.commit(repo, "first")
-        out = self.child("import json, tezgah_context as tc,"
+        # The line arrives through a legacy JSONL file, the one route a line
+        # that does not parse still reaches the ledger by.
+        out = self.child("import json, os, tezgah_context as tc,"
                          " tezgah_integrity as ti\n"
+                         "os.makedirs(os.path.dirname(ti._path('s1')), exist_ok=True)\n"
+                         "open(ti._path('s1'), 'w').close()\n"
                          "ti.note('s1', 'verify_ok', 'python3 -m unittest')\n"
                          "ti.note('s1', 'edit', 'hooks/tezgah_context.py',"
                          " changed=True)\n"

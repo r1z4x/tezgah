@@ -14,6 +14,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+import support
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
@@ -749,11 +751,10 @@ class Cli(unittest.TestCase):
         self.run_route("Bump the version", "--phase", "mechanical", HOME=home,
                        TEZGAH_SESSION="s2", CLAUDECODE="1", OMPCODE="")
         evidence = os.path.join(home, ".cache", "tezgah", "evidence")
-        with open(os.path.join(evidence, ti._slug("child") + ".jsonl"), "w") as fh:
-            for row in ({"kind": "spawned", "ts": 2 ** 40, "parent": "s2"},
-                        {"kind": "verify_ok", "ts": 2 ** 40, "exit": 0, "out_bytes": 3,
-                         "detail": "pytest"}):
-                fh.write(json.dumps(row) + "\n")
+        support.seed_ledger(os.path.join(evidence, ti._slug("child") + ".jsonl"), [
+            {"kind": "spawned", "ts": 2 ** 40, "parent": "s2"},
+            {"kind": "verify_ok", "ts": 2 ** 40, "exit": 0, "out_bytes": 3,
+             "detail": "pytest"}])
         p = self.run_route("--report", HOME=home)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("phase cheap routes=1 pass=1 fail=0 ran=0 none=0 unjoined=0",

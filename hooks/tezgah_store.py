@@ -86,15 +86,33 @@ def connect(path, schema, version=0):
     conn = sqlite3.connect(path, isolation_level=None)
     try:
         conn.execute("PRAGMA busy_timeout = %d" % BUSY_MS)
+        _wal(conn)
         if not version or conn.execute("PRAGMA user_version").fetchone()[0] != version:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.executescript(schema)
-            if version:
-                conn.execute("PRAGMA user_version = %d" % version)
+            # the write lock first, so a second opener waits on the busy
+            # timeout instead of failing on SQLite's lock-upgrade deadlock
+            conn.executescript("BEGIN IMMEDIATE;\n%s\nPRAGMA user_version = %d;\nCOMMIT;"
+                               % (schema, version))
     except sqlite3.Error:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         conn.close()
         raise
     return conn
+
+
+def _wal(conn):
+    """Switch `conn`'s file to WAL. The switch needs the file to itself and
+    SQLite answers "locked" at once instead of waiting, so it is retried for as
+    long as the busy timeout would have waited."""
+    deadline = time.monotonic() + BUSY_MS / 1000.0
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(LOCK_POLL)
 
 
 @contextlib.contextmanager
@@ -654,7 +672,7 @@ def import_later(cache):
                 return
         except OSError:
             pass
-        with open(stamp, "w"):
+        with open(stamp, "wb"):
             pass
         subprocess.Popen([sys.executable, os.path.abspath(__file__), "import-evidence", cache],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,

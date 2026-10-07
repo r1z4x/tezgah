@@ -7,9 +7,11 @@ undone from. Read it before changing a rule that records or reads evidence, or w
 
 ## The ledger
 
-One append-only JSONL file per session at `<cache>/evidence/<slug>.jsonl`; the stem is a readable
-prefix plus a hash of the session id, so a filename can never be turned back into one
-(`hooks/tezgah_integrity.py::_slug`). Every writer goes through `note_path` (`hooks/tezgah_integrity.py::note_path`): `note()`
+One append-only ledger per session, stored as the `evidence` rows of `<cache>/tezgah.db`
+(`hooks/tezgah_store.py::EVIDENCE_SCHEMA`). A row keeps the JSON text its writer produced, with the
+session, `kind` and `ts` in columns beside it. A caller still names a ledger by the path its file had,
+`<cache>/evidence/<slug>.jsonl`: the stem is the session key, a readable prefix plus a hash of the
+session id, so it can never be turned back into one (`hooks/tezgah_integrity.py::_slug`). Every writer goes through `note_path` (`hooks/tezgah_integrity.py::note_path`): `note()`
 derives the path from the session id (`hooks/tezgah_integrity.py::note`). The row is built in exactly one place (`hooks/tezgah_integrity.py::note_path`), and its shape is
 `{"kind": …, "ts": …, "v": …, "detail": …}` plus whatever `LEDGER_FIELDS` keys the writer knew — for a check
 the host reported passing, `{"kind": "verify_ok", "ts": 1758000000, "v": 3, "detail": "pytest -q",
@@ -50,17 +52,32 @@ plugin, whose row carries the same field under the same empty-means-absent rule
 (`hosts/opencode/plugins/tezgah.js:1230-1241`) — so no live host leaves it out. A row written *before*
 the field landed names its tool only where the name survived in `detail` — an `unknown` row and an
 MCP `external` row — so the one cause of an under-count is the corpus's age, and it shrinks as
-sessions run. The append is one locked line, an exclusive `flock` with a 1 s bound falling
-back to an unlocked write (`hooks/tezgah_integrity.py::_append`), and is best effort: a write failure is never the caller's.
-A ledger is created `0600` in a `0700` directory, because its rows name the paths and commands of
-the user's work (audit L-6 found them `0644`). Every reader skips a line that ends in a newline and
-does not parse, in its own ledger or another's (`_parse` `hooks/tezgah_integrity.py::_parse`). The
-reader used to raise there, and the guard then failed the Stop rule open for the turn, so corrupting
-a `verify_fail` row let a claim through. Now the reader writes one `ledger_damage` row per damaged
-line into that ledger, keyed on a digest of the line (`_note_damage`
+sessions run. The append is one INSERT in autocommit (`hooks/tezgah_integrity.py::_append`,
+`hooks/tezgah_store.py::append_evidence`), so a row is whole or absent and two writers queue on the
+database's lock. It is best effort: a write failure is never the caller's. The database is created
+`0600` in a `0700` directory, because its rows name the paths and commands of the user's work (audit
+L-6 found the old files `0644`).
+
+**The JSONL files it replaced.** A session's old `<cache>/evidence/<slug>.jsonl` file is imported
+before every read or write of that session (`hooks/tezgah_store.py::_sync`). The import costs one stat
+when nothing is new. It holds the old writer's flock, and it takes only the complete lines past the
+bytes the `imported` table already counts. The file is never renamed aside, because opencode's plugin
+still writes and reads it. A Python row for such a session, or for any session of a process serving
+opencode (`serve_host`), is appended to that file and imported from it
+(`hooks/tezgah_integrity.py::_jsonl_mirror`). This keeps the rows the plugin reads in the file it
+reads. Session start launches the bulk import of every other file, detached and at most once a day
+(`hooks/tezgah_store.py::import_later`). `python3 hooks/tezgah_store.py import-evidence` and
+`tezgah-doctor --import-evidence` run it on demand. A reader that spans every session imports first
+(`hooks/tezgah_store.py::sessions`).
+
+Every reader skips a line that ends in a newline and does not parse (`_parse`
+`hooks/tezgah_integrity.py::_parse`). Such a line reaches the database only through an imported file,
+which stores it as written. The reader used to raise there, and the guard then failed the Stop rule
+open for the turn, so corrupting a `verify_fail` row let a claim through. Now the reader writes one
+`ledger_damage` row per damaged line, keyed on a digest of the line (`_note_damage`
 `hooks/tezgah_integrity.py::_note_damage`). The Stop rule refuses a done-claim in a turn that holds one
-as "evidence tampered". A tail with no newline is a fragment, not damage: `_append` cuts it before
-its own write, so an honest writer never leaves one. Any other read error in another session's
+as "evidence tampered". A tail with no newline is a fragment, not damage: the import waits for its
+newline, and the file append cuts it before its own write. Any other read error in another session's
 ledger still costs only that ledger's rows (`_foreign_rows`; audit M-7).
 
 What never reaches the ledger: tool result bodies (only `out_bytes`, a size,

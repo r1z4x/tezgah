@@ -200,7 +200,8 @@ class CaptureStore(Snap):
                                          "meta.json"), 0o600),
                            (os.path.dirname(self.blob(sid)), 0o700),
                            (os.path.join(tp.CACHE, "snapshots"), 0o700),
-                           (ti._path(self.session), 0o600)):
+                           (os.path.join(os.path.dirname(os.path.dirname(
+                               ti._path(self.session))), "tezgah.db"), 0o600)):
             self.assertEqual(os.stat(path).st_mode & 0o777, mode, path)
 
 

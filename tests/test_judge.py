@@ -201,12 +201,7 @@ class JudgeCase(unittest.TestCase):
         The cache is the temp HOME's, so nothing this machine's is read - and a
         caller that wrote no row reads as an empty list rather than as the last
         run's leftovers."""
-        rows = []
-        for path in glob.glob(os.path.join(self.home, ".cache", "tezgah",
-                                           "evidence", "*.jsonl")):
-            with open(path, encoding="utf-8") as fh:
-                rows += [json.loads(line) for line in fh if line.strip()]
-        return rows
+        return support.all_ledger_rows(os.path.join(self.home, ".cache", "tezgah"))
 
     def snapshot_file(self):
         """The triage fixture, written where the subprocess can read it."""

@@ -72,8 +72,8 @@ class PinnedAcrossCompaction(TempHome):
         proc = subprocess.run(
             [sys.executable, "-c", "import json, sys\nsys.path.insert(0, %r)\n"
              "import tezgah_context as tc\nout = tc.context_for(%r, %r, %r)\n"
-             "rows = []\nif %r:\n    with open(tc._ledger_path(%r)) as fh:\n"
-             "        rows = [json.loads(l) for l in fh if l.strip()]\n"
+             "rows = []\nif %r:\n    rows = [json.loads(t) for t in "
+             "tc.tezgah_store.evidence_rows(tc._ledger_path(%r))]\n"
              "print(json.dumps([out, rows]))\n"
              % (support.HOOKS, event, self.repo, payload, read_ledger,
                 payload.get("session_id"))],

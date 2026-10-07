@@ -34,9 +34,9 @@ an adversarial agent, and it does not claim to be one.
     under `~/.config/tezgah` and the legacy `~/.claude`) and all of
     `~/.config/tezgah`;
   - the evidence ledger, the session store, the switch baseline and the
-    status marks in the cache (`evidence/`, `sessions/`, `switches/`,
-    `gate-inactive/`, `harness-drift/`, `import-crash/`,
-    `workspace-index.json`);
+    status marks in the cache (`tezgah.db` and its `-wal`/`-shm` files,
+    `evidence/`, `sessions/`, `switches/`, `gate-inactive/`,
+    `harness-drift/`, `import-crash/`, `workspace-index.json`);
   - the hook wiring: each host's hook registration file (in a shared file such
     as `~/.claude/settings.json`, only the entries that are tezgah's and
     `disableAllHooks`; in Codex's `config.toml`, every `[hooks...]` trust

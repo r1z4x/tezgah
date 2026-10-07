@@ -218,10 +218,9 @@ class RuleYield(TempHome):
     def ledger(self, name, when, rows=(), workspace=None):
         """One ledger whose last write is `when`, holding `rows` (kind, detail)."""
         path = os.path.join(self.evidence, name + ".jsonl")
-        ti.note_path(path, "run", "ls", workspace=workspace)
-        for kind, detail in rows:
-            ti.note_path(path, kind, detail, workspace=workspace)
-        os.utime(path, (when, when))
+        extra = {"workspace": workspace} if workspace else {}
+        support.seed_ledger(path, [dict(kind=kind, detail=detail, ts=when, **extra)
+                                   for kind, detail in [("run", "ls")] + list(rows)])
         self.files.append(path)
         return path
 
