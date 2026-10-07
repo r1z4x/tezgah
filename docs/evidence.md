@@ -777,8 +777,11 @@ split, the reader's precision was 0.10 with tezgah and 0.20 without. With
 tezgah the agent replied in Turkish in 129 of 132 runs. The reader counts the
 passive `doğrulandı` on a partial fix as a completion claim, even beside a
 `doğrulanmadı` for the failing test. This is a recorded weakness, not fixed
-here. A red-team pass found one route a hook cannot read (a `python3 -c`
-write of a switch) in 30 attempts.
+here.
+
+A red-team pass found one route a hook cannot read (a `python3 -c` write of a
+switch) in 30 attempts.
+
 The numbers, the per-task counts and the instrument flaws, among them agents
 that could read the benchmark's ground truth, are in
 [the results bundle](results/paired-outcome-2026-10.md).
