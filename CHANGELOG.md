@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A tainted lesson gets a label, never a refusal.**
+  Untrusted text is a web, MCP, network, tier or subagent read. A write to
+  `.tezgah/lessons.md` after one in the same user turn now leaves one
+  `lesson_tainted` row per line it adds
+  (`docs/evidence.md`). The line still rides both lesson blocks, behind a
+  per-line data label (ADR 010). The ledger now has one reader,
+  `hooks/tezgah_lessons.py`, for the context, the gate and `tezgah-lessons`.
+  It cuts a `|| check: ...` clause and an `@<sha> <path>` stamp off each line.
+  Neither changes the key, the per-turn digest, the cut or the ranking.
 - **A model can be the replay sheet's second rater.** `tezgah-gate replay
   --label-model --prompt <file>` sends each blind sheet row, redacted, to the
   judge seam. It writes `labels-model.jsonl` beside the sheet and prints the

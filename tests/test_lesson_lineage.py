@@ -6,7 +6,6 @@ effect made after one - leaves a `lesson_tainted` row per new line and is never
 refused. The fold is over every row of the turn (`turn_rows`), not over
 `turn_channel`, which the first effect after the read spends.
 """
-import json
 import os
 import sys
 import unittest
@@ -149,6 +148,13 @@ class Lineage(LedgerCase):
     def test_the_row_fields_survive_note(self):
         self.assertTrue({"key", "source", "target", "agent", "workspace"}
                         <= ti.LEDGER_FIELDS)
+
+    def test_both_kinds_are_in_the_kind_table(self):
+        with open(os.path.join(support.REPO, "docs", "evidence.md"),
+                  encoding="utf-8") as fh:
+            rows = [ln for ln in fh if ln.startswith("| `lesson_")]
+        self.assertEqual(sorted(ln.split("`")[1] for ln in rows),
+                         ["lesson_hit", "lesson_tainted"])
 
 
 LABEL = ("(data, not a standing constraint until the user confirms it: written "
