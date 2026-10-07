@@ -5,7 +5,7 @@ has used, and what this repo adds. Read it when you add a
 [mark](glossary.md#mark), when no line is drawn, or when a mark shows a state you
 cannot explain. As this repository prints it:
 
-    tezgah v0.1.0  ·  pony○ exec✓ adhd○  ·  consult○ research○ graph○ orch○ judge○  ·  idx✓  ·  plans 1
+    tezgah v1.0.0  ·  pony○ exec✓ adhd○  ·  consult○ research○ graph○ orch○ judge○  ·  idx✓  ·  plans 1
 
 ## Shape: segments, groups, separator
 
@@ -34,7 +34,7 @@ omitted (`hooks/tezgah_context.py::health_segments`, `tests/test_statusline.py::
 
 ### The version prefix
 
-The line opens with `tezgah v0.1.0` (`version_segment()`, `hooks/tezgah_context.py::version_segment`): not a [mark](glossary.md#mark) — no glyph, and `info`, the state that reports none — with a group of its own, so the marks separate from it the way the groups separate from each other; its segment carries the number as `version` for a program reading `--json`.
+The line opens with `tezgah v1.0.0` (`version_segment()`, `hooks/tezgah_context.py::version_segment`): not a [mark](glossary.md#mark) — no glyph, and `info`, the state that reports none — with a group of its own, so the marks separate from it the way the groups separate from each other; its segment carries the number as `version` for a program reading `--json`.
 The number is the one reader `bin/tezgah-setup --version` also calls (`version()`, `hooks/tezgah_context.py::version`, `bin/tezgah-setup::plugin_version`): the local plugin manifest, else the newest `CHANGELOG.md` release, read bounded and never raising; unreadable, the prefix keeps the bare name rather than a placeholder.
 
 When a newer release is out, a `↑X.Y.Z` chip follows the version in the same group. So it stays beside the logo at every width tier (`with_update_notice()`, `notice_segments()` in `hooks/tezgah_update.py`). It is drawn in the `ready` color and its segment carries the number as `version`. A redraw reads a cached answer and never the network. A detached check refreshes that answer at most once a day. `tezgah update` takes the release, and `update-check-off` turns the chip and the check off.

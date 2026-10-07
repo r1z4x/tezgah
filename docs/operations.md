@@ -210,9 +210,8 @@ at, and it is the only thing that moves the install. The
 `~/.config/tezgah/update-check-off` switch stops both the check and the chip.
 `tezgah` is also a farm link and a Homebrew name, so the command reads the same
 on npm, Homebrew and a checkout.
-An install on the numbering the 2026-10-04 reset retired (0.2.0 to 0.32.0,
-`hooks/tezgah_update.py::RETIRED`) is still offered 0.1.x. Its chip reads
-`↑0.1.x (line reset)`.
+The chip offers the public release to an install on any retired 0.x (0.1.0 to
+0.33.0, `hooks/tezgah_update.py::RETIRED`), and reads `↑1.0.0 (line reset)`.
 
 After a change to the contract text (`hooks/tezgah_policy.py`,
 `hooks/tezgah_context.py`, `skills/tezgah-contract/SKILL.md`):

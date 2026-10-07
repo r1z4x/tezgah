@@ -214,54 +214,64 @@ class Tag(unittest.TestCase):
 
 
 class Reset(unittest.TestCase):
-    """The 2026-10-04 re-root restarted the numbering at 0.1.x, so an install
-    still on the retired 0.2.0-0.32.0 line compares higher than every public
-    release; `newer()` has to offer the public one anyway."""
+    """1.0.0 restarted the public line and npm keeps no 0.x, so every 0.x ever
+    published (the pre-reset 0.17.0-0.32.0, then 0.1.1, 0.1.2 and 0.33.0) is
+    retired: an install on any of them is offered the public release, and a
+    0.x latest is never offered."""
 
     def test_a_retired_install_is_offered_the_public_release(self):
-        for mine in ("0.30.0", "0.29.2", "0.32.0", "0.17.0", "0.2.0", "v0.30.0"):
-            self.assertEqual(tu.newer(mine, {"latest": "0.1.2"}), "0.1.2", mine)
+        for mine in ("0.30.0", "0.29.2", "0.32.0", "0.17.0", "0.2.0", "v0.30.0",
+                     "0.1.1", "0.1.2", "0.33.0"):
+            self.assertEqual(tu.newer(mine, {"latest": "1.0.0"}), "1.0.0", mine)
 
     def test_an_older_public_release_is_still_not_offered(self):
-        self.assertIsNone(tu.newer("0.1.2", {"latest": "0.1.1"}))
-        self.assertIsNone(tu.newer("0.1.2", {"latest": "0.1.2"}))
-        self.assertEqual(tu.newer("0.1.1", {"latest": "0.1.2"}), "0.1.2")
+        self.assertIsNone(tu.newer("1.0.1", {"latest": "1.0.0"}))
+        self.assertIsNone(tu.newer("1.0.0", {"latest": "1.0.0"}))
+        self.assertEqual(tu.newer("1.0.0", {"latest": "1.0.1"}), "1.0.1")
 
     def test_a_retired_latest_is_never_offered_over_the_public_line(self):
-        # a cache written before the reset still naming the old line
-        self.assertIsNone(tu.newer("0.1.2", {"latest": "0.30.0"}))
-        self.assertIsNone(tu.newer("0.29.2", {"latest": "0.30.0"}))
+        # a cache written before 1.0.0 still naming a 0.x line
+        for latest in ("0.30.0", "0.1.2", "0.33.0"):
+            self.assertIsNone(tu.newer("1.0.0", {"latest": latest}), latest)
+        self.assertIsNone(tu.newer("0.29.2", {"latest": "0.33.0"}))
 
     def test_malformed_versions_offer_nothing_and_never_raise(self):
-        for mine, latest in (("0.30", "0.1.2"), ("", "0.1.2"), (None, "0.1.2"),
-                             ("0.30.0-rc1", "0.1.2"), ("unknown", "0.1.2"),
+        for mine, latest in (("0.30", "1.0.0"), ("", "1.0.0"), (None, "1.0.0"),
+                             ("0.30.0-rc1", "1.0.0"), ("unknown", "1.0.0"),
                              ("0.30.0", "nightly"), ("0.30.0", None),
-                             ("0.30.0", ["0.1.2"]), (30, "0.1.2")):
+                             ("0.30.0", ["1.0.0"]), (30, "1.0.0")):
             self.assertIsNone(tu.newer(mine, {"latest": latest}), (mine, latest))
         self.assertFalse(tu.retired(None))
         self.assertFalse(tu.retired("garbage"))
 
     def test_the_notice_says_the_line_was_reset(self):
         saved = tu.read_cache, tu.due, tu.disabled
-        tu.read_cache = lambda: {"latest": "0.1.2", "checked": 0}
+        tu.read_cache = lambda: {"latest": "1.0.1", "checked": 0}
         tu.due, tu.disabled = (lambda data: False), (lambda: False)
         try:
-            [seg] = tu.notice_segments("0.30.0")
-            self.assertEqual(seg["version"], "0.1.2")
+            [seg] = tu.notice_segments("0.33.0")
+            self.assertEqual(seg["version"], "1.0.1")
             self.assertIn("reset", seg["text"])
-            [seg] = tu.notice_segments("0.1.1")
-            self.assertEqual(seg["text"], "\u21910.1.2")
+            [seg] = tu.notice_segments("1.0.0")
+            self.assertEqual(seg["text"], "\u21911.0.1")
         finally:
             tu.read_cache, tu.due, tu.disabled = saved
 
     def test_the_shipped_version_stays_outside_the_retired_line(self):
-        # 0.1.x installs in the field keep RETIRED forever and never take a
-        # release inside it, so the next public line skips past RETIRED[1]
+        # installs in the field keep their RETIRED forever and never take a
+        # release inside it, so the public line starts past every 0.x
         shipped = tezgah_context.version(manifest=False)
         self.assertIsNotNone(tu.parse(shipped), shipped)
         self.assertFalse(tu.retired(shipped),
-                         "%s is inside the retired %s; the 0.1.x line goes "
-                         "straight to 0.33.0 or later" % (shipped, tu.RETIRED))
+                         "%s is inside the retired %s; every 0.x is retired and "
+                         "the public line starts at 1.0.0" % (shipped, tu.RETIRED))
+
+    def test_every_published_0x_is_retired(self):
+        # npm published 0.17.0-0.32.0 before the re-root, then 0.1.1, 0.1.2
+        # and 0.33.0; all of them are unpublished with 1.0.0
+        for v in ("0.1.1", "0.1.2", "0.17.0", "0.32.0", "0.33.0"):
+            self.assertTrue(tu.retired(v), v)
+        self.assertFalse(tu.retired("1.0.0"))
 
 
 class Channels(unittest.TestCase):

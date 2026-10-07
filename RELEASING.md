@@ -6,12 +6,12 @@ plugin manifest when it is there and falls back to that heading. The manifest
 itself (`.claude-plugin/plugin.json`, mirrored in
 `.claude-plugin/marketplace.json`) is the maintainer's local, untracked file.
 
-The numbering was reset on 2026-10-04: the repository was re-rooted and the
-public line restarted at 0.1.1 after 0.32.0 (npm served 0.17.0-0.32.0 before
-it). `hooks/tezgah_update.py::RETIRED` makes the update check offer 0.1.x to an
-install still inside 0.2.0-0.32.0. Every install that carries the constant
-treats that range as retired, and removing it later does not reach them. So the
-next line after 0.1.x skips to 0.33.0 or later, never 0.2.0-0.32.0
+The public line starts at 1.0.0 (2026-10-07), and npm keeps no 0.x: the
+pre-reset 0.17.0-0.32.0, then 0.1.1, 0.1.2 and 0.33.0, are all unpublished.
+`hooks/tezgah_update.py::RETIRED` (0.1.0-0.33.0) makes the update check offer
+the public release to any 0.x install and never offer a 0.x. Every install keeps
+the range it shipped with (0.1.x and 0.33.0 carry 0.2.0-0.32.0), and changing it
+later does not reach them. So no release goes back below 1.0.0
 (`tests/test_update.py::Reset` fails on a shipped version inside the range).
 
 ## Cut a release

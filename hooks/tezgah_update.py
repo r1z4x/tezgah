@@ -101,19 +101,21 @@ def write_cache(data):
         return False
 
 
-# The numbering retired by the 2026-10-04 re-root, which restarted the public
-# line at 0.1.x: npm published 0.17.0 through 0.32.0 before it (`npm view
-# @r1z4x/tezgah time`), and 0.2.0 is where the earlier, unpublished numbering is
-# taken to start. An install inside it compares higher than every public release.
+# Every 0.x ever published, retired by 1.0.0: npm served 0.17.0 through 0.32.0
+# before the 2026-10-04 re-root, then 0.1.1, 0.1.2 and 0.33.0, and none of them
+# stays on npm (`npm view @r1z4x/tezgah versions`). 1.0.0 is the first line
+# every 0.x install must move to; an install inside the range compares as older
+# than every public release, whatever its number says.
 # ponytail: a version inside the range is taken as retired, so an install that
-# carries this constant is never offered a public release inside it. Removing it
-# later cannot reach the 0.1.x installs already in the field: the line after
-# 0.1.x skips to 0.33.0 or later (pinned in tests/test_update.py::Reset).
-RETIRED = ((0, 2, 0), (0, 32, 0))
+# carries this constant is never offered a release inside it. Installs in the
+# field keep the range they shipped with (0.1.x and 0.33.0 retired 0.2.0-0.32.0),
+# which is why the public line starts at 1.0.0 (pinned in
+# tests/test_update.py::Reset).
+RETIRED = ((0, 1, 0), (0, 33, 0))
 
 
 def retired(version):
-    """True when `version` is on the retired pre-reset line."""
+    """True when `version` is on the retired 0.x line."""
     got = parse(version)
     return bool(got) and RETIRED[0] <= got <= RETIRED[1]
 

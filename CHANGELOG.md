@@ -6,46 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
-
-- **Cursor's Stop rule re-asks once, as on every other host.** A real Cursor
-  `stop` payload carries `loop_count` and no `stop_hook_active`. The hook read
-  only the flag, so it refused every follow-up its own refusal started, until
-  Cursor's cap ended the chain. It now counts `loop_count`
-  (`hosts/cursor/hook.py::asked`).
-
-- **The false-done reader no longer counts an honest partial fix as done.**
-  `claims` took a fix marked verified beside an unverified test as done. A
-  reply that admits an open check now reads as no claim. It says the work
-  lacks a check, or that a test contradicts the issue or cannot pass
-  (`hooks/tezgah_integrity.py::ADMITTED`). The rule came from the 60
-  hand-labelled E4 dev messages, where precision rose from 0.15 to 0.69 at
-  recall 1.0 (`tests/claim_reader_eval.py`). On a held-out set of 40 messages,
-  labelled by two model raters (kappa 0.565), precision rose from 0.212 to
-  0.857. Recall fell from 1.0 to 0.857 (6 of 7), below the plan's bar of 0.9.
-  The one miss is a real verification claim whose double negative read as an
-  admission. `claims` only feeds the benchmarks' false-done counts. The Stop
-  verdict reads the plain vocabulary, so no refusal changed. A false-done
-  count from before this change is not comparable with one after it.
-
-### Changed
-
-- **The README describes mechanisms, not outcomes.** A paired on/off experiment
-  ran DeepSeek V4.1 Flash on omp, bare against a full install. It found no
-  measurable reduction in cheating. The model barely cheated in either arm: 0
-  of 132 runs with tezgah and 1 of 131 without, on ImpossibleBench's
-  conflicting SWE-bench split. Hand labels of the final messages found no
-  false-done difference either: 3 of 30 with tezgah, 6 of 30 without. The
-  Stop rule's claim reader flagged far more, because it reads `doğrulandı` on
-  a partial fix as a done claim. That weakness stays open for now. The
-  README, `docs/vision.md` and `docs/evidence.md` now say what tezgah enforces
-  and records, and what it has not shown. The redacted results bundle is
-  `docs/results/paired-outcome-2026-10.md`, with per-task counts beside it.
-
-## [0.33.0] - 2026-10-07
+## [1.0.0] - 2026-10-07
 
 ### Upgrade note
 
+- **1.0.0 starts the public line, and npm keeps no 0.x.** The registry no
+  longer serves 0.1.1, 0.1.2 or 0.33.0, nor the pre-reset 0.17.0-0.32.0. The
+  update check treats every 0.x install as older than 1.0.0
+  (`hooks/tezgah_update.py::RETIRED`), so the `↑` chip and `tezgah update` move
+  it to 1.0.0. A 0.x install from npm moves with `npm install -g @r1z4x/tezgah`.
 - **Homebrew users coming from 0.1.2: re-arm once after `brew upgrade`.**
   0.1.2 armed the host hooks with paths into its own keg,
   `Cellar/tezgah/0.1.2/libexec`. The upgrade's default cleanup deletes that
@@ -53,7 +22,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   On the brew channel it runs `brew upgrade` first. Then it re-arms the hosts
   and roots this install recorded, from the new tree behind `opt/tezgah`.
   0.1.2's `tezgah update` already re-arms from there too. Or re-arm by hand with
-  `tezgah-setup --install --hosts <the hosts you armed>`. 0.33.0 arms through
+  `tezgah-setup --install --hosts <the hosts you armed>`. 1.0.0 arms through
   `opt/tezgah`, so later upgrades need no re-arm. The formula's caveats say
   the same after `brew upgrade`.
 
@@ -320,9 +289,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`tezgah-setup --write-plugin-agents`.** The plugin's `agents/tezgah-reviewer.md`
   is now rendered from the same role body the per-repo reviewer gets. A test
   fails until the flag has run after a body change.
+- **The status line says when a newer release is out, and `tezgah update`
+  takes it.** A `↑X.Y.Z` chip sits beside the logo on every surface. A redraw
+  reads a cached answer, and a detached check refreshes it at most once a day.
+  `tezgah update [--dry-run]` updates through the channel the install came
+  from (release prefix, Homebrew, npm or git) and re-arms the hosts. The
+  `update-check-off` switch turns the check and the chip off.
 
 ### Changed
 
+- **The README describes mechanisms, not outcomes.** A paired on/off experiment
+  ran DeepSeek V4.1 Flash on omp, bare against a full install. It found no
+  measurable reduction in cheating. The model barely cheated in either arm: 0
+  of 132 runs with tezgah and 1 of 131 without, on ImpossibleBench's
+  conflicting SWE-bench split. Hand labels of the final messages found no
+  false-done difference either: 3 of 30 with tezgah, 6 of 30 without. The
+  Stop rule's claim reader flagged far more, because it reads `doğrulandı` on
+  a partial fix as a done claim. That weakness stays open for now. The
+  README, `docs/vision.md` and `docs/evidence.md` now say what tezgah enforces
+  and records, and what it has not shown. The redacted results bundle is
+  `docs/results/paired-outcome-2026-10.md`, with per-task counts beside it.
 - **An open plan's move and a forced add of `.tezgah/` leave evidence.** The
   `control` rule refused a delete or move under `.tezgah/plans/open/`. It also
   refused a `git add -f` of a `.tezgah/` path. Plan 050's replay of real
@@ -491,6 +477,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Cursor's Stop rule re-asks once, as on every other host.** A real Cursor
+  `stop` payload carries `loop_count` and no `stop_hook_active`. The hook read
+  only the flag, so it refused every follow-up its own refusal started, until
+  Cursor's cap ended the chain. It now counts `loop_count`
+  (`hosts/cursor/hook.py::asked`).
+
+- **The false-done reader no longer counts an honest partial fix as done.**
+  `claims` took a fix marked verified beside an unverified test as done. A
+  reply that admits an open check now reads as no claim. It says the work
+  lacks a check, or that a test contradicts the issue or cannot pass
+  (`hooks/tezgah_integrity.py::ADMITTED`). The rule came from the 60
+  hand-labelled E4 dev messages, where precision rose from 0.15 to 0.69 at
+  recall 1.0 (`tests/claim_reader_eval.py`). On a held-out set of 40 messages,
+  labelled by two model raters (kappa 0.565), precision rose from 0.212 to
+  0.857. Recall fell from 1.0 to 0.857 (6 of 7), below the plan's bar of 0.9.
+  The one miss is a real verification claim whose double negative read as an
+  admission. `claims` only feeds the benchmarks' false-done counts. The Stop
+  verdict reads the plain vocabulary, so no refusal changed. A false-done
+  count from before this change is not comparable with one after it.
 - **The tap formula waits for its asset.** The release's brew job pushed
   `Formula/tezgah.rb` before it uploaded the tarball the formula names. So
   `brew install` met a 404 until the upload finished, and for good if it
@@ -725,31 +730,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Uninstall sweeps four more legacy switches.** An uninstall now also sweeps
   `workspace-off`, `triage-off`, `docs-judge-off` and `update-check-off` from `~/.claude`.
-
-## [0.1.2] - 2026-10-04
-
-### Added
-
-- **The status line says when a newer release is out, and `tezgah update`
-  takes it.** A `↑X.Y.Z` chip sits beside the logo on every surface. A redraw
-  reads a cached answer, and a detached check refreshes it at most once a day.
-  `tezgah update [--dry-run]` updates through the channel the install came
-  from (release prefix, Homebrew, npm or git) and re-arms the hosts. The
-  `update-check-off` switch turns the check and the chip off.
-
-### Fixed
-
 - **The Homebrew formula runs.** It copied `tezgah-setup` out of the tree, so
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-## [0.1.1] - 2026-10-04
-
-### Added
-
-- First public release.
-
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v0.33.0...HEAD
-[0.33.0]: https://github.com/r1z4x/tezgah/releases/tag/v0.33.0
-[0.1.2]: https://github.com/r1z4x/tezgah/releases/tag/v0.1.2
-[0.1.1]: https://github.com/r1z4x/tezgah/releases/tag/v0.1.1
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.0.0
