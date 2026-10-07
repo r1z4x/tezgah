@@ -79,7 +79,12 @@ EMPTY_IS_NOT_PROOF = (
 STEER = (("mechanical edit (tier from `tezgah-route`)", "tezgah-cheap"),
          ("bounded code or tests", "tezgah-standard"),
          ("design, invariants, unknown-cause debugging", "tezgah-frontier"),
-         ("review of a diff", "tezgah-reviewer"))
+         ("review of a diff", "tezgah-reviewer"),
+         ("running the impacted checks", "tezgah-tester"),
+         ("docs and path:line citations", "tezgah-docs"),
+         ("security review", "tezgah-security"),
+         ("running-app UI or design analysis", "tezgah-ui"),
+         ("a research line", "tezgah-researcher"))
 
 
 def manifest_sha():
@@ -235,6 +240,104 @@ def _worker_body(tier):
     return body
 
 
+# The specialists beside the tier workers: name -> (what it does, the skills it
+# loads first, its tools, the role text). The tier is not here: it is
+# tezgah_models.AGENT_SLOT, the row every host's model line is rendered from, so
+# the description cannot name one tier while the frontmatter runs another.
+# A skill is shipped under skills/ unless HOST_SKILLS names it: those are the
+# security families a host installs on its own, which tezgah does not ship.
+HOST_SKILLS = ("wstg-*", "attack-*", "ci-assessment", "llm-security")
+SPECIALISTS = {
+    "tezgah-tester": (
+        "Runs only the checks a change reaches and reports them verbatim: the "
+        "repo's impacted-test runner or the tests that import the changed "
+        "files, never the full suite unless the brief asks.",
+        (), "shell to run checks; no source or test edits",
+        "Take the changed files from the brief or `git diff --name-only`. Run\n"
+        "the repository's own impacted-test runner if it has one (for example\n"
+        "`python3 tests/impacted.py --run <files>`), else the test files that\n"
+        "import the changed modules. Keep each check last on its line with its\n"
+        "output in a file, then read the file in a separate call: never pipe a\n"
+        "check into tail or grep, never `|| true`, never `--no-verify`, never a\n"
+        "new skip. Set the shell timeout above 300 s for a long run. Report each\n"
+        "check as passed or failed with its counts and the exact failure text.\n"
+        "Never edit source or test files; a fix belongs to the caller."),
+    "tezgah-docs": (
+        "Writes and repairs docs pages and their `path:line` / `path::symbol` "
+        "citations after a code change, under the repo's own docs checks.",
+        ("no-ai-slop",), "read, edit and write docs; shell for the docs checks",
+        "Edit only documentation files the brief names. Cite code as\n"
+        "`path::symbol`; when a code change shifted a `path:line` citation,\n"
+        "re-anchor it by whole token (`:87` must never rewrite `:870`), map each\n"
+        "changed line to its replacement block, and run the repo's citation and\n"
+        "clarity checks (`bin/tezgah-docs --citations`, `--clarity` where they\n"
+        "exist) until they report zero. Plain sentences, one fact each."),
+    "tezgah-security": (
+        "Read-only security review of a change or surface: injection, authn/authz, "
+        "secrets, SSRF, deserialisation, supply chain; every finding with a "
+        "concrete exploit path and file:line.",
+        HOST_SKILLS, "read-only; shell only for read-only git and the codegraph CLI",
+        "Pick the skills that match the class under test: `wstg-injection`,\n"
+        "`wstg-auth-session`, `wstg-logic-client-api`, `wstg-recon-config`,\n"
+        "the matching `attack-*` entry (attack-ssrf, attack-jwt, ...),\n"
+        "`ci-assessment` for pipelines, `llm-security` for prompt handling.\n"
+        "Trace each untrusted input to its sink. Classify every candidate as\n"
+        "confirmed (exploit path + file:line), refuted (the guard that stops it)\n"
+        "or unverified. Never write, never run an exploit against a live system,\n"
+        "never print a secret you find - name its location only."),
+    "tezgah-ui": (
+        "Inspects a running web or mobile app and judges it against the design "
+        "floor: component x state coverage, layout, contrast and WCAG 2.2, with "
+        "the screen it read as evidence.",
+        ("analyze-app", "design-contract", "design-library", "feature-audit"),
+        "shell and browser/device tools; no source edits",
+        "Read the running app, never only its source: a UI claim inferred from\n"
+        "code is not evidence. Measure against `.tezgah/design-contract.md` when\n"
+        "it exists (`tezgah-design check`). Every finding names the screen,\n"
+        "breakpoint and state it came from and a 0-4 severity. Report findings;\n"
+        "do not edit source files."),
+    "tezgah-researcher": (
+        "Runs one research line through OpenResearch: hypotheses, experiments, "
+        "literature, a report - the protocol frozen before the run.",
+        ("research", "ai-research"),
+        "shell for `orx` and `tezgah-research`; writes only under .tezgah/research",
+        "Load the OpenResearch manual first (`orx skill`) and follow its\n"
+        "experiment-tree rules. Work inside the one line the brief names; never\n"
+        "open a second line while one is open (`tezgah-research status`). Freeze\n"
+        "the protocol and the criteria before any run; a correction after a run\n"
+        "goes in `amendments.md`. Run `tezgah-research check` before reporting.\n"
+        "If `orx` is not installed, say so and stop."),
+}
+
+
+def _specialist_desc(name):
+    what, skills, tools, _role = SPECIALISTS[name]
+    named = ", ".join(s + (" (host-installed)" if s in HOST_SKILLS else "")
+                      for s in skills)
+    return "%s Skills: %s. Tier: %s (tezgah-route). Tools: %s." % (
+        what, named or "none", tm.AGENT_SLOT[name], tools)
+
+
+def _specialist_body(name):
+    _what, skills, _tools, role = SPECIALISTS[name]
+
+    def body(_host):
+        load = ("Load these skills before anything else, those this host has: "
+                "%s.\n" % ", ".join("`%s`" % s for s in skills)) if skills else ""
+        return ("You are %s, a specialist on the %s model tier. Do exactly the\n"
+                "brief: stay inside the files and paths it names (absolute paths\n"
+                "under the worktree it gives, never the main checkout), and\n"
+                "report what you did and what each command printed, verbatim.\n"
+                "%s%s\nIf the brief cannot be met as written, say so and stop.\n"
+                "Never spawn subagents." % (name, tm.AGENT_SLOT[name], load, role))
+    return body
+
+
+def _specialist(name, readonly=False):
+    return (name, _specialist_desc(name), lambda infra: True,
+            _specialist_body(name), readonly)
+
+
 # name, description, capability gate, body(host), read-only?
 ROLES = (
     ("tezgah-reviewer",
@@ -257,6 +360,11 @@ ROLES = (
      "unknown-cause debugging and hard-to-reverse changes on the strongest model "
      "tier; also where an ESCALATE from a cheaper worker is restarted.",
      lambda infra: True, _worker_body("frontier"), False),
+    _specialist("tezgah-tester"),
+    _specialist("tezgah-docs"),
+    _specialist("tezgah-security", readonly=True),
+    _specialist("tezgah-ui"),
+    _specialist("tezgah-researcher"),
 )
 
 # The roles gated on the code graph, which a repo's `.no-graph` turns off.
@@ -264,33 +372,43 @@ GRAPH_ROLES = ("tezgah-reviewer",)
 # Every agent name tezgah ever generated: the live roles, the orchestrator and
 # the retired roles. omp's files carry no MARKER, so this list - not the
 # `tezgah-` prefix - is what makes a file there tezgah's to sweep.
-RETIRED_ROLES = ("tezgah-explorer", "tezgah-verifier", "tezgah-researcher")
+# tezgah-researcher was retired and came back as the OpenResearch specialist.
+RETIRED_ROLES = ("tezgah-explorer", "tezgah-verifier")
 OWNED_NAMES = tuple(r[0] for r in ROLES) + ("tezgah-orchestrator",) + RETIRED_ROLES
 
 ORCH_DESC = ("Route work in this repo to the generated tezgah-* subagents. The "
-             "main thread decides and verifies; delegate bounded, well-specified "
-             "work and never let a subagent orchestrate another.")
+             "main thread decides and verifies; two or more independent items "
+             "fan out to parallel subagents in one message, one git worktree per "
+             "writing slice, and no subagent orchestrates another.")
 
 
 def _orch_body(names):
     listed = ", ".join(names) if names else "(none active yet)"
     return (
         "You are the tezgah orchestrator for this repository. You decide and\n"
-        "verify; you delegate bounded, well-specified work and read the evidence\n"
-        "back. Available specialists: %s.\n\n"
+        "verify; you delegate execution and read the evidence back. Available\n"
+        "specialists: %s.\n\n"
+        "Fan out by default: when the request or your todo list holds two or more\n"
+        "independent items, spawn one subagent per item in ONE message. Give\n"
+        "every writing slice its own branch and checkout - `orca worktree create\n"
+        "--name <slug> --parent-worktree active --json` when the session runs\n"
+        "inside Orca, else `git worktree add -b <branch> <absolute path>` - and\n"
+        "brief it with absolute paths under that checkout only, never the main\n"
+        "checkout. Serialize only a real\n"
+        "dependency, and never wait idle while independent work remains; you\n"
+        "integrate the branches and run the checks once on the merged tree.\n\n"
         "Route reviews to tezgah-reviewer, with the changed files and symbols in\n"
-        "the brief: where it has no shell it cannot run `git diff` itself. Brief a\n"
-        "code-discovery task to a tier worker with the codegraph tools; a second\n"
-        "opinion (`consult`) and research (`orx`) stay with the main thread. Other\n"
-        "work goes to the tier worker\n"
+        "the brief: where it has no shell it cannot run `git diff` itself. Checks\n"
+        "go to tezgah-tester, docs and citations to tezgah-docs, a security review\n"
+        "to tezgah-security, a running app to tezgah-ui, a research line to\n"
+        "tezgah-researcher. Brief a code-discovery task to a tier worker with the\n"
+        "codegraph tools; a second opinion (`consult`) stays with the main\n"
+        "thread. Other work goes to the tier worker\n"
         "`tezgah-route \"<brief>\"` names (tezgah-cheap, tezgah-standard,\n"
         "tezgah-frontier); an ESCALATE answer is restarted on tezgah-frontier with\n"
         "the same brief. Never delegate a task a specialist is not\n"
         "listed for, and never let a subagent spawn its own subagents. Verify each\n"
-        "returned claim against the code before acting. A slice that needs its\n"
-        "own checkout gets one from `orca worktree create --parent-worktree\n"
-        "active` when the session runs inside Orca, else from `git worktree add`;\n"
-        "its brief names absolute paths under that checkout." % listed)
+        "returned claim against the code before acting." % listed)
 
 
 # ---------------------------------------------------------------- renderers --
@@ -410,10 +528,11 @@ def omp_user_agents(root="~"):
     names = [r[0] for r in active]
     if not names:
         return {}
+    # A role that writes gets every tool the session has; a read-only one gets
+    # the read tools plus the shell its body bounds to read-only commands.
     out = {name + ".md": render_md_omp(
-        name, desc, body("omp"),
-        **({"tools": None} if name[len("tezgah-"):] in tm.TIERS else {}))
-           for name, desc, _cap, body, _readonly in active}
+        name, desc, body("omp"), **({} if readonly else {"tools": None}))
+           for name, desc, _cap, body, readonly in active}
     out["tezgah-orchestrator.md"] = render_md_omp(
         "tezgah-orchestrator", ORCH_DESC, _orch_body(names),
         tools=("read", "grep", "glob", "bash", "task"))

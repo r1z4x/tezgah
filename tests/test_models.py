@@ -78,7 +78,7 @@ class OmpOverrides(unittest.TestCase):
         for agent in ("tezgah-frontier", "tezgah-reviewer"):
             self.assertEqual(out[agent], "anthropic/claude-opus-5-5:high")
         # the retired roles are no longer generated, so no override names them
-        for agent in ("tezgah-explorer", "tezgah-researcher", "tezgah-verifier"):
+        for agent in ("tezgah-explorer", "tezgah-verifier"):
             self.assertNotIn(agent, out)
 
     def test_any_mode_writes_the_frontier_row_through_openrouter(self):

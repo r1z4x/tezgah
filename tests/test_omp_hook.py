@@ -258,11 +258,11 @@ class OmpHook(TempHome):
         os.makedirs(agents)
         # a retired role's file left behind by an older install is never named
         for name in ("tezgah-reviewer", "tezgah-orchestrator", "tezgah-explorer",
-                     "tezgah-verifier", "tezgah-researcher"):
+                     "tezgah-verifier"):
             open(os.path.join(agents, name + ".md"), "w").close()
         out, _ = self.event(start)
         self.assertIn("-> tezgah-reviewer", out["context"])
-        for retired in ("tezgah-explorer", "tezgah-verifier", "tezgah-researcher"):
+        for retired in ("tezgah-explorer", "tezgah-verifier"):
             self.assertNotIn(retired, out["context"])
         # only the files that exist: no tier worker was installed
         self.assertNotIn("tezgah-cheap", out["context"])

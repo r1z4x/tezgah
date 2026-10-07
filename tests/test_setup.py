@@ -3000,9 +3000,11 @@ class VersionPrefixIsNotContract(SetupBase):
         # (1266 -> 1352, the format advisory line). Re-pinned 2026-10-06: the
         # integrity paragraph quotes PIPED_REMEDY, the piped-check shape that
         # keeps the exit status, instead of "to a file and read it" (+82 B).
-        # The band is here to catch an accidental move, so a deliberate one is
-        # recorded.
-        self.assertEqual(9232, band, "the always-on band moved")
+        # Re-pinned 2026-10-07: the pointer line names the parallel fan-out
+        # rule, so a host with no per-turn hook still knows two independent
+        # items go to parallel subagents (+112 B). The band is here to catch
+        # an accidental move, so a deliberate one is recorded.
+        self.assertEqual(9344, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

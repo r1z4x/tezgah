@@ -91,13 +91,64 @@ class Generation(AgentsBase):
                          "the help path generated agents")
 
     def test_generates_every_active_role_for_every_file_host(self):
-        self.assertIn("4 agent(s)", self.sync())
-        roles = ["cheap", "frontier", "reviewer", "standard"]
+        self.assertIn("9 agent(s)", self.sync())
+        roles = ["cheap", "docs", "frontier", "researcher", "reviewer", "security",
+                 "standard", "tester", "ui"]
         for d in (CLAUDE, OPENCODE, CODEX):
             self.assertEqual(
                 self.names(d),
                 sorted(["tezgah-%s.md" % r for r in roles] + ["tezgah-orchestrator.md"])
                 if d != CODEX else ["tezgah-%s.toml" % r for r in roles])
+
+    def test_every_specialist_names_its_routed_tier_and_shipped_skills(self):
+        # the description is what a host shows when choosing an agent, so it
+        # carries the tier the model line is rendered from and the skills the
+        # body loads; a skill named there must ship in skills/
+        import tezgah_models
+        for name, desc, _cap, body, _ro in tezgah_agents.ROLES:
+            self.assertIn(name, tezgah_models.AGENT_SLOT, name)
+            if name not in tezgah_agents.SPECIALISTS:
+                continue
+            tier = tezgah_models.AGENT_SLOT[name]
+            self.assertIn("Tier: %s" % tier, desc, name)
+            self.assertIn("on the %s model tier" % tier, body("claude"), name)
+            for skill in tezgah_agents.SPECIALISTS[name][1]:
+                self.assertIn(skill, desc, name)
+                self.assertIn("`%s`" % skill, body("omp"), name)
+                self.assertTrue(skill in tezgah_agents.HOST_SKILLS or os.path.isfile(
+                    os.path.join(support.REPO, "skills", skill, "SKILL.md")), skill)
+        # the security reviewer is mapped to the host's wstg/attack families
+        security = dict((r[0], r[1]) for r in tezgah_agents.ROLES)["tezgah-security"]
+        for family in ("wstg-*", "attack-*"):
+            self.assertIn(family + " (host-installed)", security)
+
+    def test_a_writing_specialist_gets_every_omp_tool_and_a_read_only_one_does_not(self):
+        out, proc = run_json([support.PROBE_AGENTS], {"fn": "omp", "root": self.repo},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for name in ("tezgah-tester", "tezgah-docs", "tezgah-ui", "tezgah-researcher"):
+            self.assertNotIn("\ntools:", out[name + ".md"], name)
+        self.assertIn("\ntools:\n  - read", out["tezgah-security.md"])
+        self.assertIn("disallowedTools", tezgah_agents.render_md(
+            "tezgah-security", "d", True, "b"))
+
+    def test_steering_and_the_orchestrator_name_the_specialists(self):
+        self.sync()
+        line = tezgah_agents.steering(self.repo)
+        orch = self.read(CLAUDE, "tezgah-orchestrator.md")
+        for name in tezgah_agents.SPECIALISTS:
+            self.assertIn("-> " + name, line)
+            self.assertIn(name, orch)
+
+    def test_list_prints_every_role_with_its_tier(self):
+        proc = subprocess.run(
+            [sys.executable, os.path.join(support.REPO, "bin", "tezgah-agents"),
+             "--list"], capture_output=True, text=True, env=self.env(), cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("tezgah-security  tier=frontier  read-only", proc.stdout)
+        self.assertIn("tezgah-tester  tier=cheap  writes", proc.stdout)
+        self.assertIn("Skills: analyze-app", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, CLAUDE)))
 
     def test_the_opencode_entry_carries_the_slots_effort_when_it_has_one(self):
         # opencode documents reasoningEffort in the agent config, and only the
@@ -208,7 +259,7 @@ class Generation(AgentsBase):
         texts = [self.read(d, n) for d in (CLAUDE, OPENCODE) for n in self.names(d)]
         texts += [self.read(CODEX, n) for n in self.names(CODEX)] + list(out.values())
         for text in texts:
-            for retired in ("tezgah-explorer", "tezgah-verifier", "tezgah-researcher"):
+            for retired in tezgah_agents.RETIRED_ROLES:
                 self.assertNotIn(retired, text)
 
     def test_opencode_markdown_uses_native_frontmatter(self):
@@ -330,13 +381,15 @@ class OpencodeConfig(AgentsBase):
         self.assertEqual(orch["permission"]["task"]["*"], "deny")
         self.assertEqual(orch["permission"]["task"]["tezgah-*"], "allow")
 
-    def test_json_holds_only_the_tier_workers_without_capabilities(self):
+    def test_json_holds_every_ungated_role_without_capabilities(self):
         data = self.opencode_json(
             extra={"TEZGAH_CODEGRAPH_BIN": self.pathless(),
                    "TEZGAH_ORX_BIN": self.pathless()}, consult=False)
         self.assertEqual(sorted(data["agent"]),
-                         ["tezgah-cheap", "tezgah-frontier", "tezgah-orchestrator",
-                          "tezgah-standard"])
+                         ["tezgah-cheap", "tezgah-docs", "tezgah-frontier",
+                          "tezgah-orchestrator", "tezgah-researcher",
+                          "tezgah-security", "tezgah-standard", "tezgah-tester",
+                          "tezgah-ui"])
 
     def pathless(self):
         return os.path.join(self.home, "nope")
@@ -547,18 +600,17 @@ class OpencodePlugin(AgentsBase):
 
 
 class Gating(AgentsBase):
-    def test_no_capability_writes_only_the_tier_workers(self):
-        # routing needs no capability, so the tier workers (and the orchestrator
-        # that names them) are written even where no specialist is
+    def test_no_capability_writes_only_the_ungated_roles(self):
+        # routing needs no capability, so the tier workers, the specialists and
+        # the orchestrator that names them are written even with no code graph
         env = self.env(extra={"TEZGAH_CODEGRAPH_BIN": self.pathless(),
                               "TEZGAH_ORX_BIN": self.pathless()}, consult=False)
         out, proc = run_json([support.PROBE_AGENTS],
                              {"fn": "sync_root", "root": self.repo}, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(out, "3 agent(s) written")
-        self.assertEqual(self.names(CLAUDE),
-                         ["tezgah-cheap.md", "tezgah-frontier.md",
-                          "tezgah-orchestrator.md", "tezgah-standard.md"])
+        self.assertEqual(out, "8 agent(s) written")
+        self.assertNotIn("tezgah-reviewer.md", self.names(CLAUDE))
+        self.assertIn("tezgah-tester.md", self.names(CLAUDE))
 
     def pathless(self):
         return os.path.join(self.home, "nope")
@@ -587,17 +639,17 @@ class Gating(AgentsBase):
             self.assertEqual(self.names(d), [], d)
 
     def test_a_retired_roles_managed_file_is_swept(self):
-        # tezgah-explorer, -verifier and -researcher left ROLES; their managed
-        # copies from an earlier session must stop being loaded
+        # tezgah-explorer and -verifier left ROLES; their managed copies from an
+        # earlier session must stop being loaded
         self.sync()
         stale = '---\n# tezgah: managed by tezgah-agents; do not edit\nname: x\n---\nx\n'
         for d, ext in ((CLAUDE, ".md"), (OPENCODE, ".md"), (CODEX, ".toml")):
-            for role in ("explorer", "verifier", "researcher"):
+            for role in ("explorer", "verifier"):
                 with open(os.path.join(self.repo, d, "tezgah-%s%s" % (role, ext)), "w") as fh:
                     fh.write(stale)
         self.assertIn("removed", self.sync())
         for d in (CLAUDE, OPENCODE, CODEX):
-            for role in ("explorer", "verifier", "researcher"):
+            for role in ("explorer", "verifier"):
                 self.assertNotIn("tezgah-" + role, " ".join(self.names(d)), d)
 
     def test_steering_names_no_retired_role_and_honours_no_graph(self):
@@ -708,7 +760,7 @@ class ContextWiring(AgentsBase):
         proc = subprocess.run([sys.executable, setup, "--agents", self.repo],
                               capture_output=True, text=True, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("4 agent(s) current", proc.stdout)
+        self.assertIn("9 agent(s) current", proc.stdout)
 
 
 if __name__ == "__main__":

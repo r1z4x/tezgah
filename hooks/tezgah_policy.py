@@ -273,7 +273,13 @@ discovery, review, impact analysis (research goes to OpenResearch - see the
 Research section - with a host subagent only as the fallback when `orx` is
 absent). Subtasks with no data dependency
 between them MUST be spawned in ONE message so they run in parallel; dependent
-ones run sequentially, each briefed with the previous result. Fan out only when
+ones run sequentially, each briefed with the previous result. Fanning out is the
+default, not a favour the user has to ask for: two or more independent items -
+a list, several files or areas, todo entries that share nothing - go to one
+subagent each, and every writing slice gets its own branch and checkout (see
+below), never the main checkout. The
+orchestrator is the main thread itself: it does not wait idle on a slice while
+independent work remains. Fan out only when
 the subtasks share no mutable file and no interface: if two of them would edit
 the same file, or one's answer decides the other's, keep them in one context or
 sequence them. The shared artifact is the coordination channel, not chatter -
@@ -873,6 +879,21 @@ project's `.gitignore` excludes and which keeps its own private git repository
 project root and never `git add -f` anything under `.tezgah/`. Off:
 `workspace-off`.
 
+**Parallel by default: fan out independent items.** A request with two or
+more independent items - a numbered or bulleted list, several files or areas, a
+todo list whose entries share no file and no interface - is delegated without
+being asked: one subagent per item, all spawned in ONE message, while the main
+thread decomposes, integrates, verifies and reports. Every writing slice gets
+its own branch and checkout - inside Orca `orca worktree create --name <slug>
+--parent-worktree active --json`, else `git worktree add -b <branch> <absolute
+path>`; its brief names every read, edit and shell `cwd` as an absolute path
+under that checkout, never the main checkout, whose `git status --short` must
+not grow. Read-only slices need no worktree. Pick each agent by task class from
+the specialists line; `{ROUTE_BIN}` names the tier for code work. Serialize
+only a real dependency - one slice's output is another's input, or two slices
+edit one file - and say which. Never wait idle on a spawned slice while
+independent work remains. Off: `orchestrate-off`.
+
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
 `consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`,
@@ -890,13 +911,13 @@ The ponytail intensity level is not a switch: `tezgah-pony lite|full|ultra`.
 # time (hooks/tezgah_context.classify_prompt), because a session that never asks
 # a structural or research question should not carry their text. Keys match the
 # CORE_RULES labels in hooks/tezgah_context.py.
-CONDITIONAL_KEYS = ("spec", "consult", "research", "product", "graph")
+CONDITIONAL_KEYS = ("spec", "consult", "research", "product", "graph", "fanout")
 
 # The always-on replacement for the conditional paragraphs: one line each so a
 # host without a per-turn hook still knows the rule exists and where the full
 # text lives.
 POINTERS = """
-**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. Product analysis is a five-axis evidence task - value, usability (the running app, not the source), feasibility (a cited `path:line`), competition, and keep/fix/cut/bet triage - with one named evidence class per finding. The code graph for "who calls X" and "what breaks if Z changes". The design floor a UI turn is judged against is `.tezgah/design-contract.md`: `tezgah-design derive` writes it from the repository's own tokens, `tezgah-design check` measures a change against it, and the `design-contract` skill owns its shape.
+**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. Product analysis is a five-axis evidence task - value, usability (the running app, not the source), feasibility (a cited `path:line`), competition, and keep/fix/cut/bet triage - with one named evidence class per finding. The code graph for "who calls X" and "what breaks if Z changes". Two or more independent items fan out to parallel subagents in one message, one git worktree per writing slice. The design floor a UI turn is judged against is `.tezgah/design-contract.md`: `tezgah-design derive` writes it from the repository's own tokens, `tezgah-design check` measures a change against it, and the `design-contract` skill owns its shape.
 """
 
 # The compact per-turn form, inside the <harness-reminder> envelope the hosts

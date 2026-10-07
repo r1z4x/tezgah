@@ -127,6 +127,17 @@ it (`tests/test_skills.py::SkillStandards`).
 | `ai-research` | The vendored 98-skill library for AI/ML machinery - training and serving a model, benchmarks, interpretability, retrieval pipelines; read one entry, never the tree. |
 | `rl-env` | The vendored FineEnvs skill set for authoring an RL environment from a description - OpenEnv, OpenReward/ORS, Verifiers and NeMo Gym, plus the orchestrator that ports one description across all four; read one entry, never the tree. |
 
+The generated specialists load skills first (`hooks/tezgah_agents.py::SPECIALISTS`).
+`tezgah-agents --list` prints the roster with tiers.
+
+| Specialist | Skills it loads |
+|---|---|
+| `tezgah-docs` | `no-ai-slop` |
+| `tezgah-ui` | `analyze-app`, `design-contract`, `design-library`, `feature-audit` |
+| `tezgah-researcher` | `research`, `ai-research` |
+| `tezgah-security` | the host's `wstg-*`, `attack-*`, `ci-assessment` and `llm-security` skills, which tezgah does not ship |
+| `tezgah-tester` | none |
+
 ## Vendored material
 
 `NOTICE` records every third-party skill and its terms: it opens by saying the

@@ -713,6 +713,7 @@ class KillSwitchEnforcement(TempHome):
     PRODUCT = ("**Product analysis: five axes, one evidence class per "
                "finding.**")
     ATTRIBUTION = "**No AI attribution, ever, on any host.**"
+    FANOUT = "**Parallel by default: fan out independent items.**"
 
     def session(self, repo):
         out, proc = run_json([support.PROBE_CONTEXT],
@@ -765,6 +766,16 @@ class KillSwitchEnforcement(TempHome):
         self.assertIn(self.GRAPH, self.prompt(repo, "who calls calc_total?"))
         self.assertIn(self.PRODUCT,
                       self.prompt(repo, "which feature should we build next"))
+        self.assertNotIn(self.FANOUT, out)
+        self.assertIn(self.FANOUT,
+                      self.prompt(repo, "1. fix the parser\n2. update the docs"))
+
+    def test_orchestrate_off_drops_the_fan_out_rule(self):
+        repo = self.make_repo()
+        self.switch("orchestrate-off")
+        out = self.prompt(repo, "1. fix the parser\n2. update the docs")
+        self.assertNotIn(self.FANOUT, out)
+        self.assertIn("orchestrate-off", out)
 
     def test_a_plain_prompt_arms_no_conditional_rule(self):
         out = self.prompt(self.make_repo(), "add a docstring to parse_quantity")
@@ -2448,7 +2459,8 @@ class ArmingConformance(TempHome):
               "research": "**Research: route it to OpenResearch.**",
               "product": "**Product analysis: five axes, one evidence class "
                          "per finding.**",
-              "graph": "**Code discovery: graph first.**"}
+              "graph": "**Code discovery: graph first.**",
+              "fanout": "**Parallel by default: fan out independent items.**"}
     PROMPTS = {
         "Bu ekranı daha kullanıcı dostu yap": {"product", "spec"},
         "Which approach for the schema change?": {"consult"},
@@ -2458,6 +2470,8 @@ class ArmingConformance(TempHome):
         "istiyorum": {"product"},
         "who calls calc_total?": {"graph"},
         "add a docstring to parse_quantity": set(),
+        "1. fix the parser\n2. write the release notes": {"fanout"},
+        "bunları alt ajanlarla paralel yap": {"fanout"},
         "kullanıcı deneyimi raporu": set(),
         # Turkish hints are stems, so their inflected forms must arm too
         # "ekran" now carries the feature-audit half of the product rule with it:
@@ -2509,7 +2523,7 @@ class ArmingConformance(TempHome):
         import tezgah_context as tc  # noqa: E402
         core = tc.always_on_core()
         for needle in ("Spec-first", "second opinion", "OpenResearch",
-                       "Product analysis", "code graph"):
+                       "Product analysis", "code graph", "parallel subagents"):
             self.assertIn(needle, core)
 
 
@@ -2652,7 +2666,8 @@ class OutputStyleMirrorsCore(unittest.TestCase):
                    "**Research: route it to OpenResearch.**",
                    "**Product analysis: five axes, one evidence class per "
                    "finding.**",
-                   "**Code discovery: graph first.**")
+                   "**Code discovery: graph first.**",
+                   "**Parallel by default: fan out independent items.**")
 
     def test_body_is_the_always_on_core(self):
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

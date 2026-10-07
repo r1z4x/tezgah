@@ -50,7 +50,7 @@ PLAIN = "add a docstring to parse_quantity"
 TRIGGERS = ("Run a literature review and form a hypothesis. "
             "who calls calc_total? which feature should we build next. "
             "Which approach for the schema change? "
-            "Bu ekranı daha kullanıcı dostu yap")
+            "Bu ekranı daha kullanıcı dostu yap, alt ajanlarla paralel")
 
 
 def git(*args):

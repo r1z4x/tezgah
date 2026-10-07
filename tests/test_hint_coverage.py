@@ -210,6 +210,19 @@ CORPUS = {
     "add pagination to the API": set(),
     "measure how long the hook takes": set(),
     "pdf'e sayfa numarası ekle": set(),
+    # fanout: two or more independent items arm the parallel-delegation rule
+    # without the user having to say "use subagents" - a numbered or bulleted
+    # list of work, or the explicit parallel/subagent ask
+    "1. fix the parser\n2. update the release notes": {"fanout"},
+    "- add a --json flag\n- write the docstring for main": {"fanout"},
+    "do everything with subagents and in parallel": {"fanout"},
+    "her şeyi alt ajanlarla paralel yap": {"fanout"},
+    "one worktree per slice": {"fanout"},
+    # one item, or a list whose second entry is not on its own line, is not a
+    # fan-out; parallelizing code is code work, not delegation
+    "1. fix the parser": set(),
+    "parallelize the loop in compute()": set(),
+    "version 2.1 is out": set(),
 }
 
 
@@ -229,5 +242,5 @@ class HintCoverage(unittest.TestCase):
         # a corpus that quietly shrank would keep passing; 100 is far under the
         # reviewed 137 and far over anything a partial revert would leave
         self.assertGreaterEqual(len(CORPUS), 100)
-        for key in ("spec", "consult", "research", "product", "graph"):
+        for key in ("spec", "consult", "research", "product", "graph", "fanout"):
             self.assertTrue(any(key in want for want in CORPUS.values()), key)

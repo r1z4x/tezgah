@@ -334,6 +334,15 @@ PROMPT_HINTS = (
             r"nerede (kullanıl|çağrıl)\w*|tanım\w* nerede|kullanım yerleri|"
             r"çağrı (zinciri|grafiği)|bağımlılık (grafiği|ağacı)|"
             r"yeniden adlandır\w*)\b"),
+    # Two or more independent items: a numbered or bulleted list of at least
+    # two entries on their own lines, or the explicit delegation ask. The owner
+    # had to say "do everything with subagents and in parallel" on every task
+    # because nothing armed the fan-out rule from the shape of the request.
+    # `parallelize` alone is code work, so only the delegation phrasings count.
+    ("fanout", r"(?ms:^[ \t]*\d+[.)][ \t]+\S.*?^[ \t]*\d+[.)][ \t]+\S)|"
+               r"(?ms:^[ \t]*[-*•][ \t]+\S.*?^[ \t]*[-*•][ \t]+\S)|"
+               r"\b(?:in parallel|paralel\w*|sub-?agents?|alt ?ajan\w*|"
+               r"worktrees?|fan[- ]?out|orchestrat\w*|orkestra\w*)\b"),
 )
 
 # the detached auto-index worker (lock-guarded, retrying); same dir as this file
@@ -364,6 +373,7 @@ CORE_RULES = (
     ("attribution", "**No AI attribution, ever, on any host.**"),
     ("lang", "**Identifiers and messages stay English.**"),
     ("workspace", "**Workspace: `.tezgah/` only.**"),
+    ("fanout", "**Parallel by default: fan out independent items.**"),
 )
 
 # The per-turn reminder's clause for each switchable rule, matched against
@@ -1227,6 +1237,7 @@ def switches(cwd):
         drop.add("product")
         disabled.append("research-off")
     if off("orchestrate-off"):
+        drop.add("fanout")
         disabled.append("orchestrate-off")
     if off("lang-off"):
         drop.add("lang")
