@@ -3,12 +3,15 @@
 of the JSON and JSONL files a store replaces. No caller opens a store file
 itself.
 
-It holds the taste stores so far:
+It holds the taste stores and the evidence ledger:
 - `<repo>/.tezgah/taste/taste.db`: the capture signals, the typed decisions,
   the defects, the calibration labels, the injection rows, the benefit gate's
   state, the repository's learnings with their meta, and the learnings each
   session's write notes already showed.
 - `~/.config/tezgah/taste/taste.db`: the user-scope learnings with their meta.
+- `<cache>/tezgah.db`: the evidence ledger, one `evidence` row per ledger line
+  of every session (`tezgah_integrity` writes and reads it, through the
+  functions under "the evidence ledger" below).
 
 A row keeps its JSON payload in `row`, so its fields stay what the old files
 held; the columns beside it are the fields a query filters on. WAL and a busy
@@ -17,9 +20,12 @@ the database file is created 0600 before SQLite opens it; SQLite gives its
 `-wal` and `-shm` files the database's mode.
 """
 import contextlib
+import hashlib
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 import time
 
 try:
@@ -44,15 +50,17 @@ TASTE_ROWS = {
     "labels": ("id", "provider", "day"),
     "injected": ("session", "day"),
 }
-USER_SCHEMA = """
-CREATE TABLE IF NOT EXISTS learnings (id TEXT PRIMARY KEY, row TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+IMPORT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS imported (name TEXT NOT NULL, dev INTEGER NOT NULL,
                                      ino INTEGER NOT NULL, bytes INTEGER NOT NULL,
                                      PRIMARY KEY (name, dev, ino));
 CREATE TABLE IF NOT EXISTS import_failed (name TEXT PRIMARY KEY, mtime_ns INTEGER NOT NULL,
                                           size INTEGER NOT NULL);
 """
+USER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS learnings (id TEXT PRIMARY KEY, row TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+""" + IMPORT_SCHEMA
 REPO_SCHEMA = USER_SCHEMA + "".join(
     "CREATE TABLE IF NOT EXISTS %s (n INTEGER PRIMARY KEY, %s, row TEXT NOT NULL);\n"
     % (table, ", ".join(cols)) for table, cols in TASTE_ROWS.items()) + """
@@ -68,16 +76,21 @@ REPO_LEGACY = ("ledger.json", "gate.json") + tuple(t + ".jsonl" for t in TASTE_R
 USER_LEGACY = ("ledger.json",)
 
 
-def connect(path, schema):
+def connect(path, schema, version=0):
     """An autocommit connection to the database at `path` with `schema`
-    applied (idempotent). Raises OSError or sqlite3.Error."""
+    applied (idempotent). With `version`, the schema runs only while the file's
+    `user_version` is not it, so a hook's open skips the DDL. Raises OSError or
+    sqlite3.Error."""
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     os.close(os.open(path, os.O_RDWR | os.O_CREAT, 0o600))
     conn = sqlite3.connect(path, isolation_level=None)
     try:
         conn.execute("PRAGMA busy_timeout = %d" % BUSY_MS)
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.executescript(schema)
+        if not version or conn.execute("PRAGMA user_version").fetchone()[0] != version:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.executescript(schema)
+            if version:
+                conn.execute("PRAGMA user_version = %d" % version)
     except sqlite3.Error:
         conn.close()
         raise
@@ -222,9 +235,23 @@ def _locked(fh):
             time.sleep(LOCK_POLL)
 
 
-def _import_rows(conn, name, src, st):
-    """The complete lines of `src` past the recorded offset; a line that is not
-    a UTF-8 JSON object is skipped, as the old reader skipped it."""
+def _taste_put(table):
+    """The import of one taste row line: a line that is not a UTF-8 JSON object
+    is skipped, as the old reader skipped it."""
+    def put(conn, line):
+        try:
+            row = json.loads(line.decode("utf-8"))
+        except ValueError:  # UnicodeDecodeError is one
+            return
+        if isinstance(row, dict):
+            append(conn, table, row)
+    return put
+
+
+def _import_rows(conn, name, src, st, put=None, keep=False):
+    """The complete lines of `src` past the recorded offset, each handed to
+    `put` (a taste table's row by default). With `keep` the file is never
+    renamed aside: its writer still reads it."""
     try:
         fh = open(src, "rb")
     except FileNotFoundError:
@@ -244,21 +271,16 @@ def _import_rows(conn, name, src, st):
         raw = fh.read()
         whole = raw[:raw.rfind(b"\n") + 1]
         if whole:
-            table = name[:-len(".jsonl")]
+            put = put or _taste_put(name[:-len(".jsonl")])
             with transaction(conn):
                 for line in whole.split(b"\n"):
-                    try:
-                        row = json.loads(line.decode("utf-8"))
-                    except ValueError:  # UnicodeDecodeError is one
-                        continue
-                    if isinstance(row, dict):
-                        append(conn, table, row)
+                    put(conn, line)
                 conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
                              "VALUES (?, ?, ?, ?)", key + (start + len(whole),))
         # aside only when every byte went in and no writer appended past the
         # read (the old writer appends unlocked once its own wait runs out)
         now = os.fstat(fh.fileno())
-        if len(whole) == len(raw) and now.st_size == start + len(raw):
+        if not keep and len(whole) == len(raw) and now.st_size == start + len(raw):
             _aside(src, now)
 
 
@@ -335,3 +357,328 @@ def mark_seen(conn, session, ids):
     with transaction(conn):
         conn.executemany("INSERT OR IGNORE INTO notes_seen (session, learning) VALUES (?, ?)",
                          [(session, lid) for lid in ids])
+
+
+# --- the evidence ledger ------------------------------------------------------------
+# One database per cache dir. A caller names a session's ledger by the path its
+# JSONL file had, `<cache>/evidence/<session>.jsonl` (`tezgah_integrity._path`):
+# the cache is two directories up and the session is the file's stem. A JSONL
+# file still at that path is the session's legacy file (opencode's plugin writes
+# one until it moves to this database), imported past the bytes already in
+# before every read or write of that session and never renamed aside, because
+# its writer reads it too.
+EVIDENCE_DB = "tezgah.db"
+EVIDENCE_VERSION = 1
+EVIDENCE_SCHEMA = IMPORT_SCHEMA + """
+CREATE TABLE IF NOT EXISTS evidence (n INTEGER PRIMARY KEY, session TEXT NOT NULL,
+                                     kind TEXT, ts INTEGER, row TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS evidence_session ON evidence (session, n);
+CREATE INDEX IF NOT EXISTS evidence_ts ON evidence (ts);
+"""
+# the bulk import's stamp in the cache dir, and how often session start may
+# launch it (`import_later`)
+IMPORT_STAMP = "evidence-import.stamp"
+IMPORT_EVERY = 86400
+# One connection per database per process: db path -> (connection, the file's
+# (dev, ino), {legacy path: its (dev, ino, size) once fully imported}). A
+# database removed or replaced under the process (doctor, uninstall, a test's
+# fresh cache) is reopened on the next call.
+_EVIDENCE = {}
+
+
+def _ledger(path):
+    """(cache dir, session) for a ledger path."""
+    folder, name = os.path.split(path)
+    return os.path.dirname(folder), name[:-len(".jsonl")] if name.endswith(".jsonl") else name
+
+
+def _evidence_db(cache, create=True):
+    """The held evidence database of `cache`; None when it does not exist and
+    not `create`."""
+    path = os.path.join(cache, EVIDENCE_DB)
+    try:
+        st = os.stat(path)
+        here = (st.st_dev, st.st_ino)
+    except OSError:
+        here = None
+    held = _EVIDENCE.get(path)
+    if held and held[1] == here:
+        return held
+    if held:
+        del _EVIDENCE[path]
+        held[0].close()
+    if here is None and not create:
+        return None
+    conn = connect(path, EVIDENCE_SCHEMA, EVIDENCE_VERSION)
+    # no fsync per commit under WAL: a crash can lose the newest rows but never
+    # corrupts the file, the durability the JSONL append had
+    conn.execute("PRAGMA synchronous = NORMAL")
+    st = os.stat(path)
+    held = _EVIDENCE[path] = (conn, (st.st_dev, st.st_ino), {})
+    return held
+
+
+def _insert(conn, session, text):
+    """One evidence row: `text` verbatim, its `kind` and `ts` beside it when it
+    is a JSON object that carries them."""
+    try:
+        row = json.loads(text)
+    except ValueError:
+        row = None
+    row = row if isinstance(row, dict) else {}
+    kind, ts = row.get("kind"), row.get("ts")
+    try:
+        ts = int(ts) if isinstance(ts, (int, float)) and not isinstance(ts, bool) else None
+    except (ValueError, OverflowError):  # NaN, infinity
+        ts = None
+    conn.execute("INSERT INTO evidence (session, kind, ts, row) VALUES (?, ?, ?, ?)",
+                 (session, kind if isinstance(kind, str) else None,
+                  ts if ts is not None and -2 ** 63 <= ts < 2 ** 63 else None, text))
+
+
+def _evidence_put(session):
+    """The import of one legacy ledger line: kept as it was written, so a line
+    that does not parse stays a line the reader names as damage."""
+    def put(conn, line):
+        if not line.strip():
+            return
+        try:
+            text = line.decode("utf-8")
+        except UnicodeDecodeError:
+            # the marker `tezgah_integrity._parse` names as damage, as the
+            # file reader's was
+            text = "\x00not utf-8 %s" % hashlib.sha1(line).hexdigest()[:12]
+        _insert(conn, session, text)
+    return put
+
+
+def _sync(held, path):
+    """Import the legacy JSONL at `path` past the bytes already in. Without a
+    file, or with nothing new in it, this is one stat (and one lookup the first
+    time a process sees it)."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return
+    conn, _here, seen = held
+    mark = (st.st_dev, st.st_ino, st.st_size)
+    if seen.get(path) == mark:
+        return
+    name = os.path.basename(path)
+    found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? AND ino = ?",
+                         (name, st.st_dev, st.st_ino)).fetchone()
+    if found and found[0] == st.st_size:
+        seen[path] = mark
+        return
+    if conn.execute("SELECT 1 FROM import_failed WHERE name = ? AND mtime_ns = ? "
+                    "AND size = ?", (name, st.st_mtime_ns, st.st_size)).fetchone():
+        return
+    _import_rows(conn, name, path, st, _evidence_put(_ledger(path)[1]), keep=True)
+
+
+def _session(path, create=False):
+    """(held database, session) for the ledger at `path`, its legacy file
+    imported first; the database is None when neither it nor a legacy file
+    exists and not `create`, so a read leaves no file behind."""
+    cache, session = _ledger(path)
+    held = _evidence_db(cache, create or os.path.exists(path))
+    if held:
+        _sync(held, path)
+    return held, session
+
+
+def import_session(path):
+    """The legacy JSONL at `path` into its cache's database."""
+    if os.path.exists(path):
+        _session(path)
+
+
+def append_evidence(path, text):
+    """One row (`text`, its JSON) into the ledger at `path`: one INSERT in
+    autocommit, so a row is whole or absent. Raises OSError or sqlite3.Error."""
+    cache, session = _ledger(path)
+    _insert(_evidence_db(cache)[0], session, text)
+
+
+def evidence_rows(path, tail=None, kind=None):
+    """The row texts of the ledger at `path`, oldest first: the last `tail`
+    with one, only the rows of `kind` with that."""
+    held, session = _session(path)
+    if held is None:
+        return []
+    conn = held[0]
+    if kind:
+        found = conn.execute("SELECT row FROM evidence WHERE session = ? AND kind = ? "
+                             "ORDER BY n", (session, kind))
+    elif tail:
+        return [text for (text,) in reversed(conn.execute(
+            "SELECT row FROM evidence WHERE session = ? ORDER BY n DESC LIMIT ?",
+            (session, tail)).fetchall())]
+    else:
+        found = conn.execute("SELECT row FROM evidence WHERE session = ? ORDER BY n",
+                             (session,))
+    return [text for (text,) in found]
+
+
+def evidence_first(path):
+    """The first row text of the ledger at `path`, or None."""
+    held, session = _session(path)
+    found = held and held[0].execute(
+        "SELECT row FROM evidence WHERE session = ? ORDER BY n LIMIT 1", (session,)).fetchone()
+    return found[0] if found else None
+
+
+def has_evidence(path):
+    """True when the ledger at `path` has a legacy file or a row; creates
+    nothing."""
+    if os.path.exists(path):
+        return True
+    cache, session = _ledger(path)
+    held = _evidence_db(cache, create=False)
+    return bool(held and held[0].execute(
+        "SELECT 1 FROM evidence WHERE session = ? LIMIT 1", (session,)).fetchone())
+
+
+def import_evidence(cache):
+    """Every legacy session file under `<cache>/evidence` into the cache's
+    database, the least recently written first; the count of files seen.
+    Idempotent: a file imports only past the bytes the `imported` table
+    already counts for it."""
+    found = []
+    try:
+        for entry in os.scandir(os.path.join(cache, "evidence")):
+            if entry.name.endswith(".jsonl"):
+                try:
+                    found.append((entry.stat().st_mtime, entry.path))
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    if found:
+        held = _evidence_db(cache)
+        for _mtime, path in sorted(found):
+            _sync(held, path)
+    return len(found)
+
+
+def sessions(cache):
+    """[(session, its newest ts)] of every ledger in `cache`, the one written
+    last first, after the bulk import (`import_evidence`)."""
+    import_evidence(cache)
+    held = _evidence_db(cache, create=False)
+    return held[0].execute(
+        "SELECT session, max(ts) FROM evidence GROUP BY session "
+        "ORDER BY max(ts) DESC, max(n) DESC").fetchall() if held else []
+
+
+def recent_rows(cache, since, kinds, but):
+    """(session, row text) of every row of `kinds` stamped at or after `since`
+    in a ledger other than session `but`, oldest first. The legacy files
+    written since are imported first; the older ones cannot hold such a row."""
+    fresh = []
+    try:
+        for entry in os.scandir(os.path.join(cache, "evidence")):
+            try:
+                if entry.name.endswith(".jsonl") and entry.stat().st_mtime >= since:
+                    fresh.append(entry.path)
+            except OSError:
+                continue
+    except OSError:
+        pass
+    held = _evidence_db(cache, create=bool(fresh))
+    if held is None:
+        return []
+    for path in fresh:
+        _sync(held, path)
+    return held[0].execute(
+        "SELECT session, row FROM evidence WHERE ts >= ? AND kind IN (%s) AND session != ? "
+        "ORDER BY n" % ", ".join("?" * len(kinds)), (since,) + tuple(kinds) + (but,)).fetchall()
+
+
+def _forget(conn, cache, session):
+    """Delete one session's rows, its import offsets and its legacy file (inside
+    the caller's transaction); the count of rows deleted. The offsets go with the
+    file: a later file at that name may reuse its inode."""
+    rows = conn.execute("DELETE FROM evidence WHERE session = ?", (session,)).rowcount
+    conn.execute("DELETE FROM imported WHERE name = ?", (session + ".jsonl",))
+    try:
+        os.remove(os.path.join(cache, "evidence", session + ".jsonl"))
+    except OSError:
+        pass
+    return rows
+
+
+def forget_session(path):
+    """Delete the ledger at `path`: its rows and its legacy file; the count of
+    rows deleted."""
+    cache, session = _ledger(path)
+    held = _evidence_db(cache, create=False)
+    if held is None:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return 0
+    with transaction(held[0]) as conn:
+        return _forget(conn, cache, session)
+
+
+def sweep_evidence(cache, cutoff, keep=None):
+    """Delete every ledger in `cache` whose newest row is older than `cutoff`
+    (epoch seconds), all but session `keep`: (sessions, rows) deleted. A
+    session is the unit, as the file was: a ledger cut short at its start would
+    lose the first row the switch latch reads."""
+    import_evidence(cache)
+    held = _evidence_db(cache, create=False)
+    if held is None:
+        return 0, 0
+    with transaction(held[0]) as conn:
+        idle = [s for (s,) in conn.execute(
+            "SELECT session FROM evidence GROUP BY session HAVING max(coalesce(ts, 0)) < ?",
+            (cutoff,)).fetchall() if s != keep]
+        return len(idle), sum(_forget(conn, cache, s) for s in idle)
+
+
+def import_later(cache):
+    """Start `import-evidence` for `cache` detached, while legacy files exist
+    and at most once per IMPORT_EVERY (the stamp's mtime, written before the
+    start, so a failed start waits a day). Total."""
+    try:
+        if not os.path.isdir(os.path.join(cache, "evidence")):
+            return
+        stamp = os.path.join(cache, IMPORT_STAMP)
+        try:
+            if time.time() - os.path.getmtime(stamp) < IMPORT_EVERY:
+                return
+        except OSError:
+            pass
+        with open(stamp, "w"):
+            pass
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "import-evidence", cache],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except (OSError, ValueError):
+        pass
+
+
+def main(argv):
+    """`import-evidence [CACHE...]`: the bulk import, for the given cache dirs
+    or for the cache and its temp fallback."""
+    if argv[1:2] != ["import-evidence"]:
+        print("usage: tezgah_store.py import-evidence [CACHE_DIR...]", file=sys.stderr)
+        return 2
+    caches = argv[2:]
+    if not caches:
+        import tezgah_paths as tp
+        caches = list(dict.fromkeys((tp.CACHE, tp.fallback_cache())))
+    for cache in caches:
+        try:
+            print("%s: %d legacy ledger file(s) imported" % (cache, import_evidence(cache)))
+        except ERRORS as exc:
+            print("%s: import failed: %s" % (cache, exc), file=sys.stderr)
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

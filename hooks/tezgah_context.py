@@ -17,6 +17,7 @@ import time
 import tezgah_embed
 import tezgah_orca
 import tezgah_research
+import tezgah_store
 from tezgah_guard import import_crash_mark
 from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
                               _shell_segments, bind_session,
@@ -1627,10 +1628,11 @@ POST_TOOL_ROWS = frozenset(k.encode() for k in STEP_KINDS + ("external", "unknow
 
 
 def _ledger_lines(path):
+    """The ledger's rows at `path` as their JSON bytes, oldest first."""
     try:
-        with open(path, "rb") as fh:
-            return fh.read().split(b"\n")
-    except OSError:
+        return [text.encode("utf-8", "replace")
+                for text in tezgah_store.evidence_rows(path)]
+    except tezgah_store.ERRORS:
         return []
 
 
@@ -2210,6 +2212,10 @@ def context_for(event, cwd, payload=None, with_core=True):
                 tezgah_taste.learn_later(taste_root)
             except Exception:
                 pass
+        # The legacy JSONL ledgers into the evidence database: a detached
+        # bulk import at most daily (tezgah_store.import_later).
+        if event == "session_start":
+            tezgah_store.import_later(cache_dir())
         broken = tezgah_research.failing(root) if not off("research-off") else []
         if broken:
             line_slug, err = broken[0]

@@ -59,6 +59,7 @@ import tezgah_paths as tp  # noqa: E402
 import tezgah_policy as policy  # noqa: E402
 import tezgah_agents  # noqa: E402
 import tezgah_integrity  # noqa: E402
+import tezgah_store  # noqa: E402
 import tezgah_attest as ta  # noqa: E402
 from tezgah_policy import (  # noqa: E402
     ADHD, CODEGRAPH_RULE, CODEGRAPH_STATIC, CONSULT, EXEC, NO_CONSULT,
@@ -4211,14 +4212,14 @@ def live_probe(host, deny=False):
                                   capture_output=True, text=True, env=env,
                                   cwd=root, timeout=LIVE_TIMEOUT)
         ms = int((time.monotonic() - started) * 1000)
-        try:
-            with open(ledger, encoding="utf-8") as fh:
-                kinds = [json.loads(ln).get("kind") for ln in fh if ln.strip()]
-        except (OSError, ValueError):
-            kinds = []
+        kinds = [row.get("kind") for row in tezgah_integrity.events_path(ledger)]
     except (OSError, subprocess.SubprocessError) as exc:
         return "miss", "live %s: the hook did not run (%s)" % (who, exc)
     finally:
+        try:
+            tezgah_store.forget_session(ledger)
+        except tezgah_store.ERRORS:
+            pass
         _live_cleanup(slug)
         shutil.rmtree(root, ignore_errors=True)
     err = (proc.stderr or "").strip().splitlines()

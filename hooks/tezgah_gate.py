@@ -1867,13 +1867,15 @@ SHELL_NAMES = frozenset(("sh", "bash", "zsh", "dash", "ksh"))
 SHELL_KEYWORDS = frozenset(("if", "then", "elif", "else", "do", "while",
                             "until", "!", "{", "time"))
 SHELL_OPS = re.compile(r"^[;&|()<>]+$")
-# The cache subtrees whose rows the rules read: the evidence ledger, the session
+# The cache subtrees whose rows the rules read: the evidence ledger (its
+# database with its WAL files, and the JSONL files it imports), the session
 # store, the switch baseline (tezgah_context.disarmed), the gate mark, and the
 # marks the status line reads for a drifted hook entry
 # (tezgah_attest.drift_mark) and a core that failed to import
 # (tezgah_guard.import_crash_mark).
-CONTROL_CACHE = ("evidence", "sessions", "switches", "gate-inactive",
-                 "harness-drift", "import-crash", "workspace-index.json")
+CONTROL_CACHE = ("evidence", "tezgah.db", "tezgah.db-wal", "tezgah.db-shm", "sessions",
+                 "switches", "gate-inactive", "harness-drift", "import-crash",
+                 "workspace-index.json")
 # Top-level keys tezgah writes into Claude's settings (bin/tezgah-setup
 # wire_claude_statusline, wire_claude_attribution), and the one that turns every
 # hook off at once; any other key or entry is tezgah's only when it names tezgah.

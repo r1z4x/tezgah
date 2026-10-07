@@ -612,50 +612,40 @@ def reply_lang():
 # `authorized` row, the stand-down text) - the control rule refuses the routes
 # the gate sees, and an interpreter writing them is SECURITY.md's residual.
 STAND_DOWN = "tezgah-setup --uninstall --full\n"
-_LATCH = {"ledger": None, "since": None, "auth": None}
+_LATCH = {"ledger": None, "since": None}
 
 
 def latch(ledger):
     """Bind this process's `off()` to one session's ledger path (None unbinds)."""
-    _LATCH.update(ledger=ledger, since=None, auth=None)
+    _LATCH.update(ledger=ledger, since=None)
 
 
 def _first_ts(ledger):
+    import tezgah_store  # deferred: an unbound process never opens the ledger
     try:
-        with open(ledger, "rb") as fh:
-            ts = json.loads(fh.readline()).get("ts")
-    except (OSError, ValueError, AttributeError):
+        ts = json.loads(tezgah_store.evidence_first(ledger) or "null").get("ts")
+    except (*tezgah_store.ERRORS, ValueError, AttributeError):
         return None
     return ts if isinstance(ts, (int, float)) else None
 
 
 def _authorized(ledger):
-    """The switch names this session's `authorized` rows carry, memoized on
-    the ledger's size: read only when a switch is newer than the first row."""
-    try:
-        size = os.path.getsize(ledger)
-    except OSError:
-        return frozenset()
-    memo = _LATCH["auth"]
-    if memo and memo[0] == size:
-        return memo[1]
+    """The switch names this session's `authorized` rows carry: read only when
+    a switch is newer than the first row."""
+    import tezgah_store
     names = set()
     try:
-        with open(ledger, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if '"authorized"' not in line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                if row.get("kind") == "authorized" and isinstance(
-                        row.get("authorized"), list):
-                    names.update(n for n in row["authorized"] if isinstance(n, str))
-    except OSError:
+        found = tezgah_store.evidence_rows(ledger, kind="authorized")
+    except tezgah_store.ERRORS:
         return frozenset()
-    _LATCH["auth"] = (size, frozenset(names))
-    return _LATCH["auth"][1]
+    for text in found:
+        try:
+            row = json.loads(text)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and isinstance(row.get("authorized"), list):
+            names.update(n for n in row["authorized"] if isinstance(n, str))
+    return frozenset(names)
 
 
 def _honored(path, name):

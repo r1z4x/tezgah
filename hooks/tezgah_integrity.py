@@ -39,6 +39,7 @@ except ImportError:  # not POSIX: the append stays unlocked, as it was before
 
 from tezgah_paths import (SWITCHES, _toplevel, cache_dir, latch, off, reply_lang,
                           root_for)
+import tezgah_store as ts
 
 # A command that actually checks the change, as opposed to one that merely runs.
 # Command position, like UI_CHECK: `echo pytest` and `cat pytest.ini` were
@@ -748,11 +749,11 @@ def _stored_text(value):
     return redact(str(value or ""))[:DETAIL_MAX]
 
 
-# How long an append waits for the lock before falling back to the unlocked
-# write it replaces. The holders are other hook processes appending one line, so
-# the wait is normally microseconds; the bound is what keeps a stuck holder from
-# wedging a hook, and the fallback is what keeps the row from being lost to the
-# lock that was meant to protect it.
+# How long a JSONL append (`_jsonl_append`) waits for the lock before falling
+# back to the unlocked write it replaces. The holders are other hook processes
+# appending one line, so the wait is normally microseconds; the bound is what
+# keeps a stuck holder from wedging a hook, and the fallback is what keeps the
+# row from being lost to the lock that was meant to protect it.
 LOCK_WAIT = 1.0
 LOCK_POLL = 0.01
 
@@ -765,8 +766,8 @@ def committed_size(handle):
     record. A process killed inside a write leaves a trailing fragment that no
     newline ever terminated, and that fragment is not a record - it is the gap
     between what the writer meant to say and what reached the disk. The read
-    walks backwards in TAIL_CHUNK steps (the tail reader's own chunk below), so
-    its cost does not grow with a ledger that has run for a long session.
+    walks backwards in TAIL_CHUNK steps, so its cost does not grow with a file
+    that has run for a long session.
 
     `handle` is an open binary file object and is left positioned wherever the
     walk stopped: the callers truncate or append next, and neither reads the
@@ -795,6 +796,43 @@ def truncate_to_committed(handle):
 
 
 def _append(path, line):
+    """Append one row (`line`: its JSON and a newline) to the ledger at `path`.
+
+    The row goes into the cache's evidence database (`tezgah_store`) as one
+    INSERT in autocommit, so it is whole or absent: no torn tail, and two
+    writers queue on the database's lock instead of a file's. Best effort: a
+    write that fails is not fatal, as `note` promises. A session whose JSONL
+    file still exists is written there instead (`_jsonl_mirror`)."""
+    if _jsonl_mirror(path, line):
+        return
+    try:
+        ts.append_evidence(path, line.rstrip("\n"))
+    except ts.ERRORS:
+        pass
+
+
+def _jsonl_mirror(path, line):
+    """Write `line` to the session's legacy JSONL file and mirror the file into
+    the database, when that file exists; False when it does not.
+
+    opencode's plugin still writes and reads its sessions' JSONL files (ADR 021,
+    until plan 071 slice 2b moves it to the database, which removes this
+    branch): a row a Python process writes for such a session (the gate's deny,
+    a snapshot capture, a `turn` or `authorized` row) has to land in the file
+    the plugin reads. The database takes the file's new lines through the
+    offset import right after, so the row is in both and imported once. A
+    session that existed before the database keeps its file the same way."""
+    if not os.path.exists(path):
+        return False
+    _jsonl_append(path, line)
+    try:
+        ts.import_session(path)
+    except ts.ERRORS:
+        pass
+    return True
+
+
+def _jsonl_append(path, line):
     """Append one line to `path` under an exclusive flock on the file itself.
 
     Two writers reach one ledger file for real: a host fires PostToolUse once per
@@ -884,22 +922,17 @@ def note(session_id, kind, detail="", **fields):
 
 
 def ledgers():
-    """Every evidence ledger, newest activity first.
+    """Every evidence ledger, newest activity first, as the paths
+    `events_path` reads: the sessions of this cache's evidence database, after
+    the bulk import of the legacy files (`tezgah_store.sessions`).
 
     The newest first is what a reader without a session id needs: the ledger a
     refusal was just written to is the one whose activity is newest."""
-
-    def mtime(path):
-        try:
-            return os.path.getmtime(path)
-        except OSError:
-            return 0.0
-
     d = os.path.join(cache_dir(), "evidence")
     try:
-        return sorted((os.path.join(d, n) for n in os.listdir(d)
-                       if n.endswith(".jsonl")), key=mtime, reverse=True)
-    except OSError:
+        return [os.path.join(d, session + ".jsonl")
+                for session, _ts in ts.sessions(cache_dir())]
+    except ts.ERRORS:
         return []
 
 
@@ -908,56 +941,21 @@ def kinds(session_id):
     return {str(e.get("kind")) for e in events(session_id) if e.get("kind")}
 
 
-# How much of the file one backwards read pulls in. The tail is a bounded number
-# of lines, so a chunk size only decides how many read() calls it takes.
+# How much of a file one backwards read pulls in (`committed_size`).
 TAIL_CHUNK = 8192
 
 
-def _tail_lines(path, n):
-    """The last `n` lines of a file, read by seeking from the end.
+def _ledger_lines(path, tail=None):
+    """The ledger's rows at `path` as text lines, each ending in a newline (the
+    shape `_parse` reads), oldest first; the last `tail` with one.
 
-    An unreadable file yields nothing: this is the reader the PreToolUse path
-    uses, and a gate that cannot see the ledger must let the call through."""
+    A ledger that cannot be read yields nothing: this is the reader the
+    PreToolUse path uses, and a gate that cannot see the ledger must let the
+    call through."""
     try:
-        with open(path, "rb") as fh:
-            fh.seek(0, os.SEEK_END)
-            pos = fh.tell()
-            data = b""
-            while pos > 0 and data.count(b"\n") <= n:
-                step = min(TAIL_CHUNK, pos)
-                pos -= step
-                fh.seek(pos)
-                data = fh.read(step) + data
-    except OSError:
+        return [text + "\n" for text in ts.evidence_rows(path, tail)]
+    except ts.ERRORS:
         return []
-    # `keepends`: whether the last line was terminated is what `_parse` reads to
-    # tell a torn tail from a committed record, and splitting it away here would
-    # leave every line looking unterminated.
-    return _lines(data)[-n:]
-
-
-def _lines(data):
-    """A ledger's bytes as text lines, ends kept, split on b"\\n" alone.
-
-    `str.splitlines` also splits on U+2028, U+2029 and U+0085, which a JSON
-    writer may leave raw inside a string (opencode's JSON.stringify does), so an
-    honest row read as two damaged ones. A line that is not UTF-8 becomes a
-    marker no JSON reader parses, so `_parse` names it as damage; decoding the
-    whole file strictly raised instead, and the Stop rule failed open."""
-    parts = data.split(b"\n")
-    out = []
-    for i, part in enumerate(parts):
-        if i < len(parts) - 1:
-            part += b"\n"
-        elif not part:
-            break
-        try:
-            out.append(part.decode("utf-8"))
-        except UnicodeDecodeError:
-            out.append("\x00not utf-8 %s%s" % (
-                hashlib.sha1(part).hexdigest()[:12],
-                "\n" if part.endswith(b"\n") else ""))
-    return out
 
 
 # The kind a damaged ledger line is recorded under: one row per damaged line,
@@ -976,15 +974,11 @@ _DAMAGE_SEEN = set()
 
 def _note_damage(path, key, line):
     """Write the one `ledger_damage` row for a damaged line, unless the ledger
-    already holds it. Damage is rare, so the dedup reads the whole file."""
+    already holds it. Damage is rare, so the dedup reads the whole ledger."""
     if (path, key) in _DAMAGE_SEEN:
         return
     _DAMAGE_SEEN.add((path, key))
-    try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            if any(DAMAGE_KIND in held and key in held for held in fh):
-                return
-    except OSError:
+    if any(DAMAGE_KIND in held and key in held for held in _ledger_lines(path)):
         return
     note_path(path, DAMAGE_KIND, cut(line.strip(), 80), key=key)
 
@@ -1045,21 +1039,14 @@ def events_path(path, tail=None):
     """Every parseable ledger entry at an explicit ledger path, oldest first.
     `events` is this function with the path derived from a session id. Every
     `verify_ok` is paired with the gate's `began` row on the way out (`_pair`)."""
-    if tail:
-        lines = _tail_lines(path, tail)
-    else:
-        try:
-            with open(path, "rb") as fh:
-                lines = _lines(fh.read())
-        except OSError:
-            return []
+    lines = _ledger_lines(path, tail)
     return _pair(_parse(lines, path), path, lines)
 
 
 def events(session_id, tail=None):
     """Every parseable ledger entry for this session, oldest first.
 
-    With `tail`, only the last `tail` lines are read. The file grows with the
+    With `tail`, only the last `tail` rows are read. The ledger grows with the
     session and the gate reads it on every gated call, so the tail path must
     never parse the whole of it."""
     return events_path(_path(session_id), tail)
@@ -1100,11 +1087,7 @@ def turn_rows(session_id, turns=False, agent=None):
     taint another's effects (security-09). The parent (`agent` None) keeps the
     whole turn, its subagents' work included - that work is the parent's turn."""
     path = _path(session_id)
-    try:
-        with open(path, "rb") as fh:
-            lines = _lines(fh.read())
-    except OSError:
-        return ([], 0) if turns else []
+    lines = _ledger_lines(path)
     start = _turn_line(lines)
     rows = _pair(_parse(lines[start:], path), path, lines, lines[:start])
     if agent:
@@ -1194,13 +1177,6 @@ def prior_calls(session_id, digest, tail=200, agent=None):
             turn[-1].get("fail_class"))
 
 
-# How much of a sibling session's ledger a cross-session read parses. A write
-# inside the window is that ledger's newest activity by definition of "inside",
-# so the tail is where it is; a session whose window-write sits further back
-# than this many rows is missed.
-WRITE_TAIL = 200
-
-
 def _abs_target(path, cwd):
     """`path` as an absolute real path, resolved against `cwd` when relative.
 
@@ -1276,11 +1252,9 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None):
     back to a reader that takes a session id (`_path` would slug it a second
     time and open another file).
 
-    Neutral value: [] when the cache cannot be listed; a ledger that cannot be
-    read or holds a damaged committed line costs only its own rows
-    (`_foreign_rows`, audit GAP-02 / M-7). A cross-session rule that cannot see
-    the other ledgers has learned nothing, and must stay silent rather than act
-    on a guess.
+    Neutral value: [] when the ledger cannot be read; a row that does not
+    parse is skipped. A cross-session rule that cannot see the other ledgers has
+    learned nothing, and must stay silent rather than act on a guess.
 
     ponytail: a shell write counts only through the target its `run` row
     carries (a redirect or `tee`, `tezgah_gate.write_paths`): a sibling that
@@ -1289,38 +1263,21 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None):
     want = _abs_target(path, cwd)
     if not want:
         return []
-    d = os.path.join(cache_dir(), "evidence")
-    mine = _slug(session_id) + ".jsonl"
     now = time.time()
-    window = minutes * 60
-    found = []
+    found = {}
     try:
-        entries = list(os.scandir(d))
-    except OSError:
+        recent = ts.recent_rows(cache_dir(), now - minutes * 60, ("edit", "run"),
+                                _slug(session_id))
+    except ts.ERRORS:
         return []
-    for entry in entries:
-        if not entry.name.endswith(".jsonl") or entry.name == mine:
-            continue
+    for stem, text in recent:
         try:
-            # nothing in a file whose last write is older than the window can
-            # be inside it, so most of a long-lived cache is skipped unread
-            if now - entry.stat().st_mtime > window:
-                continue
-        except OSError:
+            row = json.loads(text)
+        except ValueError:
             continue
-        newest = None
-        for row in _foreign_rows(entry.path, WRITE_TAIL):
-            if row.get("kind") not in ("edit", "run"):
-                continue
-            ts = row.get("ts")
-            if not isinstance(ts, (int, float)) or now - ts > window:
-                continue
-            if row.get("target") != want:
-                continue
-            newest = ts if newest is None else max(newest, ts)
-        if newest is not None:
-            found.append((newest, entry.name[:-len(".jsonl")]))
-    return [stem for _, stem in sorted(found, key=lambda pair: -pair[0])]
+        if isinstance(row, dict) and row.get("target") == want:
+            found[stem] = max(found.get(stem, row["ts"]), row["ts"])
+    return sorted(found, key=lambda stem: -found[stem])
 
 
 def note_turn(session_id, prompt, workspace=None):
@@ -5185,4 +5142,4 @@ def _unpaired_exempt(path, lines):
     fallback = os.path.realpath(os.path.join(fallback_cache(), "evidence"))
     dirs = {os.path.realpath(os.path.join(CACHE, "evidence")), fallback} - {here}
     return here == fallback or any(
-        os.path.exists(os.path.join(d, os.path.basename(path))) for d in dirs)
+        ts.has_evidence(os.path.join(d, os.path.basename(path))) for d in dirs)

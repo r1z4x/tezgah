@@ -40,6 +40,8 @@ this tree.
                                    (--retention-days N); $TEZGAH_SESSION's
                                    own files are always kept
   tezgah-doctor --prune-sessions 30   delete sessions idle > 30 days, then vacuum
+  tezgah-doctor --import-evidence  import the legacy JSONL evidence ledgers
+                                   into the evidence database now
 """
 import argparse
 import importlib.machinery
@@ -277,20 +279,30 @@ def prune_sessions(days):
 
 def sweep_state(days, session=None):
     """Delete the hook state not modified for `days`, in the global cache and
-    the temp fallback; (removed, bytes freed).
+    the temp fallback; (files removed, bytes freed, evidence sessions deleted,
+    evidence rows deleted).
 
-    By mtime because every writer appends or rewrites in place, so a file's
-    mtime is its session's last activity. The current session's files
-    (`TEZGAH_SESSION`, the id omp and the judgement CLIs export) are kept
-    whatever their age: a session idle past the window and then resumed must
-    not lose its ledger mid-flight."""
+    The evidence ledger is swept in its database (`tezgah_store.sweep_evidence`,
+    after importing the legacy JSONL files): every session whose newest row is
+    older than the cutoff loses its rows. The other files go by mtime, because
+    every writer appends or rewrites in place, so a file's mtime is its
+    session's last activity. The current session (`TEZGAH_SESSION`, the id omp
+    and the judgement CLIs export) is kept whatever its age: a session idle past
+    the window and then resumed must not lose its ledger mid-flight."""
+    import tezgah_store
     from tezgah_context import slug
     from tezgah_integrity import _slug
     keep = ({_slug(session) + ".jsonl", slug(session) + ".json",
              slug(session) + ".jsonl"} if session else set())
     cutoff = time.time() - days * 86400
-    removed = freed = 0
+    removed = freed = sessions = rows = 0
     for base in dict.fromkeys((CACHE, fallback_cache())):
+        try:
+            swept = tezgah_store.sweep_evidence(base, cutoff,
+                                                _slug(session) if session else None)
+        except tezgah_store.ERRORS:
+            swept = (0, 0)
+        sessions, rows = sessions + swept[0], rows + swept[1]
         paths = [os.path.join(base, name) for name in STATE_LOGS]
         for sub in STATE_DIRS:
             try:
@@ -310,7 +322,15 @@ def sweep_state(days, session=None):
                 continue
             removed += 1
             freed += st.st_size
-    return removed, freed
+    return removed, freed, sessions, rows
+
+
+def import_evidence():
+    """The bulk import of the legacy JSONL ledgers into the evidence database
+    of the cache and of the temp fallback: {cache: files seen}."""
+    import tezgah_store
+    return {base: tezgah_store.import_evidence(base)
+            for base in dict.fromkeys((CACHE, fallback_cache()))}
 
 
 
@@ -431,6 +451,10 @@ def main():
                          "%(default)s days)")
     ap.add_argument("--prune-sessions", type=int, metavar="DAYS",
                     help="delete sessions idle longer than DAYS, then vacuum")
+    ap.add_argument("--import-evidence", action="store_true",
+                    help="import the legacy JSONL evidence ledgers into the "
+                         "evidence database now, instead of at the next "
+                         "session start's daily run")
     args = ap.parse_args()
     if args.retention_days < 1:
         ap.error("--retention-days wants a positive day count")
@@ -439,6 +463,19 @@ def main():
         repo = os.path.realpath(os.path.expanduser(args.repo[0]) if args.repo
                                 else os.getcwd())
         return coverage_report(repo, args.dump)
+    if args.import_evidence:
+        import tezgah_store
+        try:
+            seen = import_evidence()
+        except tezgah_store.ERRORS as exc:
+            print("evidence import failed: %s" % exc, file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps({"imported": seen}, indent=2))
+        else:
+            for base, n in seen.items():
+                print("%s: %d legacy ledger file(s) imported" % (base, n))
+        return 0
     if args.stack:
         import tezgah_stack
         repo = os.path.realpath(os.path.expanduser(args.repo[0]) if args.repo
@@ -470,10 +507,12 @@ def main():
                 except sqlite3.Error as exc:
                     cleaned["vacuum"] = "failed: %s" % exc
         if args.clean:
-            removed, freed = sweep_state(args.retention_days,
-                                         os.environ.get("TEZGAH_SESSION"))
+            removed, freed, sessions, rows = sweep_state(args.retention_days,
+                                                         os.environ.get("TEZGAH_SESSION"))
             cleaned["state"] = {"removed": removed, "bytes": freed,
                                 "days": args.retention_days}
+            cleaned["evidence"] = {"sessions": sessions, "rows": rows,
+                                   "days": args.retention_days}
         rep = collect(pairs)
 
     if args.json:
@@ -499,6 +538,10 @@ def main():
         if st:
             print("  hook state    %d file(s) older than %d days removed, %s"
                   % (st["removed"], st["days"], human(st["bytes"])))
+        ev = cleaned.get("evidence")
+        if ev:
+            print("  evidence      %d session(s) idle > %d days deleted (%d rows)"
+                  % (ev["sessions"], ev["days"], ev["rows"]))
     elif rep["opencode_db_bytes"] > 500 * 1024 * 1024:
         print("\nrun with --clean to vacuum; --prune-sessions DAYS to shrink the db")
     return 0

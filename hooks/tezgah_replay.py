@@ -426,7 +426,6 @@ def child(run):
     items = {it["i"]: it for it in _read_jsonl(os.path.join(run, "corpus.jsonl"))}
     evidence = os.path.join(ti.cache_dir(), "evidence")
     nudged = os.path.join(ti.cache_dir(), "nudged")
-    os.makedirs(evidence, mode=0o700, exist_ok=True)
     os.makedirs(nudged, mode=0o700, exist_ok=True)
     now = [0.0]
 
@@ -454,11 +453,9 @@ def child(run):
                 now[0] = float(it["ts"])
                 results.append(_replay_one(it, rows_of[fname], tg, seen, live_events))
             rows_of[fname].append(row)
-            path = os.path.join(evidence, fname)
-            with open(path, "a", encoding="utf-8") as out:
-                out.write(json.dumps(row) + "\n")
-            if isinstance(row.get("ts"), (int, float)):
-                os.utime(path, (row["ts"], row["ts"]))
+            # the row as the live writer stored it; its own `ts` is the time the
+            # cross-session read (`writers_elsewhere`) windows on
+            ti._append(os.path.join(evidence, fname), json.dumps(row) + "\n")
             if row.get("kind") == "nudge":
                 # the once-per-session nudge mark the live gate wrote with this
                 # row (`first_nudge`): disk state the ledger records
