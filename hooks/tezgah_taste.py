@@ -183,8 +183,8 @@ def note_write(session_id, row_id, inp, cwd, host=None):
 
 
 def write_note(session_id, inp, cwd, tool=None):
-    """The in-scope taste learnings for the first write to a file type in a
-    session (`tezgah_taste_ledger.write_note`), or "". Every host's post-tool
+    """The in-scope taste learnings this write has not yet shown in the session
+    (`tezgah_taste_ledger.write_note`), or "". Every host's post-tool
     channel carries it beside its other notices; off, it costs the marker stat.
     `tool` is the call's tool name; a call that is not a write gets nothing."""
     try:

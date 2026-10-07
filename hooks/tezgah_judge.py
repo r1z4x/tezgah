@@ -256,6 +256,9 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
     decision must come from a typed model passes `only=("typesafe",)` and gets
     None rather than another provider's answer."""
     tried = providers() if only is None else named(only)
+    if any(isinstance(q, dict) and q.get("type") == "text" for q in questions.values()):
+        # TypeSafe answers no prose: left out up front, not logged as a failure
+        tried = [(p, s) for p, s in tried if p != "typesafe"]
     if not tried or not tried[0][1]:
         return None
     stop = None if deadline is None else time.monotonic() + deadline
@@ -286,9 +289,6 @@ def _ask_one(provider, secret, state, questions, model, timeout, attempts, stop)
     """One provider's attempts: `(result, None)`, or `(None, why)`."""
     try:
         if provider == "typesafe":
-            if any(isinstance(q, dict) and q.get("type") == "text"
-                   for q in questions.values()):
-                return None, "typesafe answers no text question"
             used, url = model, endpoint()
             body = json.dumps({"state": state, "model": used,
                                "questions": questions}).encode()

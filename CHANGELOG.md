@@ -16,8 +16,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   computes each learning's confidence from its evidence and forgets it over
   time. A contradiction flags a learning and never overwrites it. A learning
   goes active in its second session. Session start injects active learnings as
-  rules or hints. Every host notes them on the first write to a matching file
-  type. A rule needs a measured calibration bound. A defect never enters the
+  rules or hints. Every host notes the in-scope ones on a write, each once per
+  session. A rule needs a measured calibration bound. A defect never enters the
   ledger. A before/after gate stops injection when corrections do not fall.
   `list`, `accept`, `reject`, `edit` and `export` give the user control, and
   `learn --from-transcripts` bootstraps from history. The judge seam gains

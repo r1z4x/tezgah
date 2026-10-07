@@ -844,6 +844,14 @@ class OpenRouterFallback(JudgeCase):
         self.assertEqual(out["answers"], {})
         self.assertIsNone(tezgah_judge.noul(out, "urgent"))
 
+    def test_a_text_question_skips_typesafe_without_counting_it_a_failure(self):
+        os.environ.update(TYPESAFE_API_KEY="ts", OPENROUTER_API_KEY="or-secret")
+        self.chat({"line": {"text": "Prefer pathlib."}})
+        out = self.ask(questions={"line": {"type": "text", "instructions": "One line."}})
+        self.assertEqual(tezgah_judge.text(out, "line"), "Prefer pathlib.")
+        self.assertEqual([s["path"] for s in Fake.seen], ["/v1/chat/completions"])
+        self.assertNotIn("typesafe", out["fallback"] or "")
+
     def test_a_message_that_is_not_json_is_no_judgement_and_is_not_retried(self):
         os.environ["OPENROUTER_API_KEY"] = "or-secret"
         Fake.reply = {"choices": [{"message": {"content": "not json"}}],
