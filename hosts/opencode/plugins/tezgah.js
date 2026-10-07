@@ -56,9 +56,9 @@
 // (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
 // lacks is safe and must never be a load-time error.
 import { closeSync, createReadStream, existsSync, lstatSync, mkdirSync, openSync,
-  readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync,
+  readFileSync, readdirSync, realpathSync, rmSync, statSync,
   writeFileSync } from "node:fs"
-import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { homedir, tmpdir } from "node:os"
@@ -1172,7 +1172,7 @@ const DETAIL_MAX = 200
 // agree on the credential itself; they differ only for an astral character
 // inside a quoted named value.
 
-// Evidence ledger, the same JSONL the Python gate and Stop hook read. Written
+// Evidence ledger, the store the Python gate and Stop hook read. Written
 // per tool call so a "done/tested" claim can be checked against what ran.
 // The bash tool returns `metadata.exit` (the process exit code), so a check's
 // real outcome is available: exit 0 -> verify_ok, non-zero -> verify_fail, and
@@ -1268,7 +1268,7 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   // lives where the kill switches do (tezgah_paths.armed), so off it costs two
   // stats and spawns nothing. The process prints the taste note for the first
   // write to this file type (tezgah_taste.write_note), returned to the caller.
-  if (kind === "edit" && row.exit !== 1 && off("taste-on")) {
+  if (kind === "edit" && row.exit !== 1 && await off("taste-on")) {
     return await noteTaste(sessionID, row.id, args, cwd)
   }
 }
@@ -1396,67 +1396,206 @@ async function postWrite(sessionID, args, cwd) {
   return { hash: after, changed: before !== after }
 }
 
-// One row appended to a session's ledger, the same JSONL the Python gate and the
-// Stop hook read (hooks/tezgah_integrity.note). Best effort: a write failure is
-// not fatal, and a reader that needs the row to exist simply reads the tail
-// without it rather than letting the action through.
+// The evidence ledger: `<cache>/tezgah.db`, the SQLite store the Python gate and
+// the Stop hook write and read (hooks/tezgah_store.py, "the evidence ledger").
+// A session's rows are the `evidence` rows whose `session` is its ledger stem,
+// each one the JSON text this file writes, in append order (`n`). The plugin
+// opens the file itself through node:sqlite with tezgah_store's settings - the
+// busy timeout, WAL with its switch retried (`_wal`), EVIDENCE_SCHEMA at
+// EVIDENCE_VERSION (`connect`) - so either side may be the one that creates it;
+// tests/test_opencode_plugin.py holds the two schemas equal. A runtime without
+// node:sqlite (node before 22.5, a build that does not expose it) asks
+// tezgah_store's `evidence` CLI instead, one process per read or write, and
+// TEZGAH_OPENCODE_NO_SQLITE=1 forces that path.
 //
-// The line is written by one write(2) of the whole row on an O_APPEND handle,
-// which is not the flock the Python writer takes: node core exposes no flock(2)
-// (typeof fs.flock is undefined, and fcntl is not bound either), so the same
-// lock would need a native addon or a helper process, neither of which belongs
-// in a plugin that has to load on a bare host. Same file, one line at a time,
-// not the same lock: the kernel's atomic append for a single write is what
-// serializes this writer against Python's, and on a filesystem where that
-// atomicity is not guaranteed (NFS) a torn line is possible here where the
-// flock would prevent it.
+// A session may still have the JSONL file this plugin wrote before the store
+// (`<cache>/evidence/<stem>.jsonl`). It is never written again; its import is
+// tezgah_store's (`import_session`), asked once per session in this process
+// before the first read or write, so its rows stay ahead of the new ones. The
+// CLI path imports it on every call, as every Python reader does.
+const EVIDENCE_DB = "tezgah.db"
+const EVIDENCE_VERSION = 1
+const EVIDENCE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS imported (name TEXT NOT NULL, dev INTEGER NOT NULL,
+                                     ino INTEGER NOT NULL, bytes INTEGER NOT NULL,
+                                     PRIMARY KEY (name, dev, ino));
+CREATE TABLE IF NOT EXISTS import_failed (name TEXT PRIMARY KEY, mtime_ns INTEGER NOT NULL,
+                                          size INTEGER NOT NULL);
+
+CREATE TABLE IF NOT EXISTS evidence (n INTEGER PRIMARY KEY, session TEXT NOT NULL,
+                                     kind TEXT, ts INTEGER, row TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS evidence_session ON evidence (session, n);
+CREATE INDEX IF NOT EXISTS evidence_ts ON evidence (ts);
+`
+const BUSY_MS = 5000
+const LOCK_POLL_MS = 20
+const READS = {
+  tail: "SELECT row FROM (SELECT n, row FROM evidence WHERE session = ? " +
+    "ORDER BY n DESC LIMIT ?) ORDER BY n",
+  first: "SELECT row FROM evidence WHERE session = ? ORDER BY n LIMIT 1",
+  kind: "SELECT row FROM evidence WHERE session = ? AND kind = ? ORDER BY n",
+}
+let sqliteMemo = null
+// db path -> { db, id }: one connection per database, reopened when the file
+// was removed or replaced under this process (doctor, uninstall), as
+// tezgah_store._evidence_db does
+const evidenceDbs = new Map()
+// stem -> the pending or settled import of its legacy file (importLegacy)
+const legacyAsked = new Map()
+
+function sqlite() {
+  return (sqliteMemo ??= process.env.TEZGAH_OPENCODE_NO_SQLITE === "1"
+    ? Promise.resolve(null) : import("node:sqlite").catch(() => null))
+}
+
+function ledgerPath(sessionID) {
+  return join(cacheDir(), "evidence", ledgerStem(sessionID) + ".jsonl")
+}
+
+function fileId(path) {
+  try {
+    const st = statSync(path)
+    return st.dev + ":" + st.ino
+  } catch { return null }
+}
+
+// The open database, or null when it does not exist and `create` is false (a
+// read creates nothing). Throws what SQLite throws.
+function evidenceDb(mod, create) {
+  const path = join(cacheDir(), EVIDENCE_DB)
+  const id = fileId(path)
+  const held = evidenceDbs.get(path)
+  if (held && held.id === id) return held.db
+  if (held) {
+    evidenceDbs.delete(path)
+    try { held.db.close() } catch {}
+  }
+  if (id === null && !create) return null
+  // owner-only before SQLite creates it: a row carries commands and paths
+  // (audit SEC-05); SQLite gives its -wal and -shm files the same mode
+  closeSync(openSync(path, "a", 0o600))
+  const db = new mod.DatabaseSync(path)
+  try {
+    db.exec("PRAGMA busy_timeout = " + BUSY_MS)
+    walMode(db)
+    if (db.prepare("PRAGMA user_version").get().user_version !== EVIDENCE_VERSION) {
+      // the write lock first, so a second opener waits on the busy timeout
+      db.exec("BEGIN IMMEDIATE")
+      try {
+        db.exec(EVIDENCE_SCHEMA + "PRAGMA user_version = " + EVIDENCE_VERSION + ";")
+        db.exec("COMMIT")
+      } catch (err) {
+        try { db.exec("ROLLBACK") } catch {}
+        throw err
+      }
+    }
+    db.exec("PRAGMA synchronous = NORMAL")
+  } catch (err) {
+    db.close()
+    throw err
+  }
+  evidenceDbs.set(path, { db, id: fileId(path) })
+  return db
+}
+
+// The switch to WAL needs the file to itself and SQLite answers "locked" at
+// once instead of waiting, so it is retried for as long as the busy timeout
+// would have waited (tezgah_store._wal).
+function walMode(db) {
+  const deadline = Date.now() + BUSY_MS
+  for (;;) {
+    try {
+      db.exec("PRAGMA journal_mode = WAL")
+      return
+    } catch (err) {
+      if (Date.now() >= deadline) throw err
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_POLL_MS)
+    }
+  }
+}
+
+// hooks/tezgah_store.py's `evidence` CLI for one ledger, settled by `done`
+// like every collect; a missing script is a spawn failure.
+function storeCli(args, done) {
+  const script = hookScript("tezgah_store.py")
+  if (!script) return Promise.resolve(done(null, "", "spawn"))
+  return collect([script, "evidence", ...args],
+                 { stdio: ["ignore", "pipe", "ignore"] }, null, done)
+}
+
+// The legacy JSONL of a session into the store, asked once per session (see
+// above): every caller of one session awaits the same import, so none reads or
+// writes before it has landed.
+function importLegacy(sessionID) {
+  const stem = ledgerStem(sessionID)
+  if (!legacyAsked.has(stem)) {
+    const path = ledgerPath(sessionID)
+    legacyAsked.set(stem, existsSync(path)
+      ? storeCli(["import", path], () => undefined) : Promise.resolve())
+  }
+  return legacyAsked.get(stem)
+}
+
+function parseRows(texts) {
+  const rows = []
+  for (const text of texts) {
+    try {
+      const row = JSON.parse(text)
+      if (row && typeof row === "object" && !Array.isArray(row)) rows.push(row)
+    } catch {}
+  }
+  return rows
+}
+
+// One row appended to a session's ledger (hooks/tezgah_integrity.note): one
+// INSERT in autocommit, so a row is whole or absent, and two writers queue on
+// the database's lock. Best effort: a write failure is not fatal, and a reader
+// that needs the row to exist simply reads the tail without it rather than
+// letting the action through.
 async function appendRow(sessionID, row) {
   try {
-    const dir = join(cacheDir(), "evidence")
-    // owner-only, as the Python writer creates them: a ledger row carries
-    // commands and paths (audit SEC-05 measured 0644 under the default umask);
-    // the modes apply when the dir and file are created
-    await mkdir(dir, { recursive: true, mode: 0o700 })
-    await appendFile(join(dir, ledgerStem(sessionID) + ".jsonl"),
-      JSON.stringify(row) + "\n", { mode: 0o600 })
+    const text = JSON.stringify(row)
+    const mod = await sqlite()
+    if (!mod) {
+      await storeCli(["append", ledgerPath(sessionID), text], () => undefined)
+      return
+    }
+    await importLegacy(sessionID)
+    // the two columns beside the text, as tezgah_store._insert fills them
+    const kind = typeof row.kind === "string" ? row.kind : null
+    const ts = Number.isFinite(row.ts) ? Math.trunc(row.ts) : null
+    evidenceDb(mod, true).prepare(
+      "INSERT INTO evidence (session, kind, ts, row) VALUES (?, ?, ?, ?)")
+      .run(ledgerStem(sessionID), kind, ts, text)
   } catch {}
+}
+
+// A session's rows, oldest first, by one of READS: `tail` with the row count,
+// `first`, or `kind` with the kind. A row that does not parse is dropped, the
+// tolerance the old file reader had; nothing found, or a failed read, is [].
+async function ledgerRead(sessionID, verb, arg) {
+  const more = arg === undefined ? [] : [arg]
+  try {
+    const mod = await sqlite()
+    if (!mod) {
+      return await storeCli([verb, ledgerPath(sessionID), ...more.map(String)],
+        (code, out) => (code === 0 ? parseRows(out.split("\n")) : []))
+    }
+    await importLegacy(sessionID)
+    const db = evidenceDb(mod, false)
+    if (!db) return []
+    return parseRows(db.prepare(READS[verb]).all(ledgerStem(sessionID), ...more)
+      .map((found) => found.row))
+  } catch {
+    return []
+  }
 }
 
 // The ledger tail, oldest first, as the Python guard reads it
 // (hooks/tezgah_integrity.events(session_id, tail)). It is read only after a
-// rule has matched, so a normal call pays nothing - but it runs on every gated
-// bash call of a matched one, and the file grows with the session, so the read
-// is bounded like the Python one: backwards in chunks until the last `tail`
-// lines are in hand, never a parse of the whole ledger. A chunk boundary can
-// split the first line; it fails to parse and is dropped, which is the same
-// partial-line tolerance `_tail_lines` has.
-const TAIL_CHUNK = 8192
-
-async function ledgerTail(sessionID, tail) {
-  let text = ""
-  try {
-    const fh = await open(join(cacheDir(), "evidence",
-                               ledgerStem(sessionID) + ".jsonl"), "r")
-    try {
-      let pos = (await fh.stat()).size
-      while (pos > 0 && (text.match(/\n/g) || []).length <= tail) {
-        const step = Math.min(TAIL_CHUNK, pos)
-        pos -= step
-        const buf = Buffer.alloc(step)
-        await fh.read(buf, 0, step, pos)
-        text = buf.toString("utf8") + text
-      }
-    } finally {
-      await fh.close()
-    }
-  } catch {
-    return []
-  }
-  const rows = []
-  for (const line of text.split("\n").filter((l) => l.trim()).slice(-tail)) {
-    try { rows.push(JSON.parse(line)) } catch {}
-  }
-  return rows
+// rule has matched, so a normal call pays nothing.
+function ledgerTail(sessionID, tail) {
+  return ledgerRead(sessionID, "tail", tail)
 }
 
 // (attempts in the current user turn, attempts over the whole tail, the newest
@@ -2057,55 +2196,43 @@ const SWITCHES = new Set(["adhd-off", "consult-off", "docs-judge-off",
 // serves many sessions, so the id is an argument, not process state.
 const STAND_DOWN = "tezgah-setup --uninstall --full\n"
 
-function off(name, sessionID) {
-  return SWITCHES.has(name) && [CONFIG, join(HOME, ".claude")].some(
-    (d) => honored(join(d, name), name, sessionID))
+async function off(name, sessionID) {
+  if (!SWITCHES.has(name)) return false
+  for (const d of [CONFIG, join(HOME, ".claude")]) {
+    if (await honored(join(d, name), name, sessionID)) return true
+  }
+  return false
 }
 
-function honored(path, name, sessionID) {
+async function honored(path, name, sessionID) {
   // the link's own times too: statSync follows a link, and a link made now to
   // an old file would read as old
   let stats
   try { stats = [statSync(path), lstatSync(path)] } catch { return false }
   if (!sessionID) return true
-  const ledger = join(cacheDir(), "evidence", ledgerStem(sessionID) + ".jsonl")
-  let since = null
-  try {
-    const fd = openSync(ledger, "r")
-    try {
-      const buf = Buffer.alloc(65536)
-      const n = readSync(fd, buf, 0, buf.length, 0)
-      const ts = JSON.parse(buf.toString("utf8", 0, n).split("\n")[0]).ts
-      if (typeof ts === "number") since = ts
-    } finally { closeSync(fd) }
-  } catch {}
+  const [first] = await ledgerRead(sessionID, "first")
+  const since = typeof first?.ts === "number" ? first.ts : null
   const newest = Math.max(...stats.flatMap((s) => [s.mtimeMs, s.ctimeMs])) / 1000
   if (since === null || newest < since + 1) return true
   try {
     if (name === "pretooluse-off" && readFileSync(path, "utf8") === STAND_DOWN) return true
-    for (const line of readFileSync(ledger, "utf8").split("\n")) {
-      if (!line.includes('"authorized"')) continue
-      try {
-        const row = JSON.parse(line)
-        if (row.kind === "authorized" && Array.isArray(row.authorized) &&
-            row.authorized.includes(name)) return true
-      } catch {}
-    }
   } catch {}
-  return false
+  return (await ledgerRead(sessionID, "kind", "authorized")).some(
+    (row) => Array.isArray(row.authorized) && row.authorized.includes(name))
 }
 
 function slug(p) {
   return p.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
 }
 
-// The evidence ledger's filename stem, frozen with the Python reader
-// (hooks/tezgah_integrity._slug): the punctuation-collapsed session id cut to
-// 40 characters, then the first 12 hex of sha1 over the raw id. Two ids
-// differing only in punctuation collapse to the same prefix, and without the
-// hash suffix this writer would append one session's rows to another session's
-// ledger - the file the loop guard and the counters then read. The plain
-// `slug()` above still names the used-marks and index files, as before.
+// The evidence ledger's session key (its `session` column, and the stem of its
+// legacy file), frozen with the Python reader (hooks/tezgah_integrity._slug):
+// the punctuation-collapsed session id cut to 40 characters, then the first 12
+// hex of sha1 over the raw id. Two ids differing only in punctuation collapse
+// to the same prefix, and without the hash suffix this writer would append one
+// session's rows to another session's ledger - the rows the loop guard and the
+// counters then read. The plain `slug()` above still names the used-marks and
+// index files, as before.
 function ledgerStem(sessionID) {
   const raw = String(sessionID == null ? "" : sessionID) || "nosession"
   return slug(raw).slice(0, 40) + "-" +
@@ -2373,16 +2500,21 @@ function captureSnapshot(tool, args, dir, sessionID) {
   { stdio: "ignore" }, null, () => undefined)
 }
 
-// hooks/tezgah_taste.py's own entry point, found beside the bin the snapshot
-// capture runs (the installed bins are links into the checkout, which holds no
-// copy of hooks/ under CONFIG). Best effort, like captureSnapshot: a failure is
-// ignored. It resolves to the taste note the process printed, else undefined.
-function noteTaste(sessionID, id, args, cwd) {
-  let script
+// A hooks/ module's own entry point, found beside the bin the snapshot capture
+// runs (the installed bins are links into the checkout, which holds no copy of
+// hooks/ under CONFIG), or null when that bin is not installed.
+function hookScript(name) {
   try {
-    script = join(dirname(dirname(realpathSync(CAPTURE_BIN))), "hooks",
-      "tezgah_taste.py")
-  } catch { return undefined }
+    return join(dirname(dirname(realpathSync(CAPTURE_BIN))), "hooks", name)
+  } catch { return null }
+}
+
+// hooks/tezgah_taste.py's own entry point. Best effort, like captureSnapshot: a
+// failure is ignored. It resolves to the taste note the process printed, else
+// undefined.
+function noteTaste(sessionID, id, args, cwd) {
+  const script = hookScript("tezgah_taste.py")
+  if (!script) return undefined
   return collect([script, JSON.stringify({
     session_id: sessionID, id, input: args, cwd, host: "opencode" })],
   { stdio: ["ignore", "pipe", "ignore"] }, null,
@@ -2403,7 +2535,7 @@ export const Tezgah = async ({ directory }) => {
     config: async (cfg) => {
       try {
         if (!cfg || typeof cfg !== "object") return
-        if (off("agents-off")) return
+        if (await off("agents-off")) return
         if (!(await rootFor(dir))) return
         const extra = await opencodeAgents(dir)
         const agents = (extra && extra.agent) || {}
@@ -2422,7 +2554,7 @@ export const Tezgah = async ({ directory }) => {
       try {
         if (!output || typeof output !== "object") return
         const sessionID = input?.sessionID || input?.sessionId
-        if (off("pretooluse-off", sessionID)) return
+        if (await off("pretooluse-off", sessionID)) return
         if (!(await rootFor(dir))) return
         const { tool, args } = permissionToolArgs(input)
         const sub = String(args.subagent_type || args.agent || "")
@@ -2449,7 +2581,7 @@ export const Tezgah = async ({ directory }) => {
       const core = {}
       try {
         const sessionID = input?.sessionID || input?.sessionId
-        if (off("pretooluse-off", sessionID)) return
+        if (await off("pretooluse-off", sessionID)) return
         const base = await rootFor(dir)
         if (!base) return
         const tool = String(input?.tool || "").toLowerCase()
@@ -2458,7 +2590,7 @@ export const Tezgah = async ({ directory }) => {
         const sub = String(args.subagent_type || args.agent || "")
         // the shortcut denials are the gate half of the integrity rule, which
         // `verify-off` removes; attribution and explore are other rules and stay
-        const shortcuts = !off("verify-off", sessionID)
+        const shortcuts = !(await off("verify-off", sessionID))
         // The control rule is the Python gate's first (hooks/tezgah_gate.decision),
         // so a shell line CONTROL_CMD says could touch the control plane is put to
         // the core before any rule here: its answer is the whole gate's, in the

@@ -11,7 +11,8 @@ It holds the taste stores and the evidence ledger:
 - `~/.config/tezgah/taste/taste.db`: the user-scope learnings with their meta.
 - `<cache>/tezgah.db`: the evidence ledger, one `evidence` row per ledger line
   of every session (`tezgah_integrity` writes and reads it, through the
-  functions under "the evidence ledger" below).
+  functions under "the evidence ledger" below, and so does opencode's plugin,
+  through node:sqlite or the `evidence` CLI in `main`).
 
 A row keeps its JSON payload in `row`, so its fields stay what the old files
 held; the columns beside it are the fields a query filters on. WAL and a busy
@@ -383,10 +384,10 @@ def mark_seen(conn, session, ids):
 # One database per cache dir. A caller names a session's ledger by the path its
 # JSONL file had, `<cache>/evidence/<session>.jsonl` (`tezgah_integrity._path`):
 # the cache is two directories up and the session is the file's stem. A JSONL
-# file still at that path is the session's legacy file (opencode's plugin writes
-# one until it moves to this database), imported past the bytes already in
-# before every read or write of that session and never renamed aside, because
-# its writer reads it too.
+# file still at that path is the session's legacy file, written before this
+# database (or by an opencode process still running a plugin from before it),
+# imported past the bytes already in before every read or write of that session
+# and never renamed aside, because that writer may still append to it.
 EVIDENCE_DB = "tezgah.db"
 EVIDENCE_VERSION = 1
 EVIDENCE_SCHEMA = IMPORT_SCHEMA + """
@@ -514,10 +515,11 @@ def import_session(path):
 
 
 def append_evidence(path, text):
-    """One row (`text`, its JSON) into the ledger at `path`: one INSERT in
-    autocommit, so a row is whole or absent. Raises OSError or sqlite3.Error."""
-    cache, session = _ledger(path)
-    _insert(_evidence_db(cache)[0], session, text)
+    """One row (`text`, its JSON) into the ledger at `path`, after its legacy
+    file's rows: one INSERT in autocommit, so a row is whole or absent. Raises
+    OSError or sqlite3.Error."""
+    held, session = _session(path, create=True)
+    _insert(held[0], session, text)
 
 
 def evidence_rows(path, tail=None, kind=None):
@@ -681,11 +683,58 @@ def import_later(cache):
         pass
 
 
+# `evidence VERB LEDGER [ARG]`: the ledger reads and writes for a caller that
+# cannot open the database itself (opencode's plugin on a runtime without
+# node:sqlite), each verb with the count of arguments it takes after LEDGER.
+EVIDENCE_VERBS = {"append": 1, "tail": 1, "first": 0, "kind": 1, "import": 0}
+EVIDENCE_USAGE = ("usage: tezgah_store.py evidence append LEDGER JSON | tail LEDGER N"
+                  " | first LEDGER | kind LEDGER KIND | import LEDGER")
+
+
+def _evidence_cli(args):
+    """One verb on the ledger at args[1]: `append` stores JSON as a row,
+    `import` brings its legacy file in, and a read prints row texts one per
+    line, oldest first - the last N (`tail`), the first (`first`), or the rows
+    of KIND (`kind`)."""
+    verb = args[0] if args else None
+    if EVIDENCE_VERBS.get(verb) != len(args) - 2:
+        print(EVIDENCE_USAGE, file=sys.stderr)
+        return 2
+    path, rest = args[1], args[2:]
+    try:
+        if verb == "append":
+            append_evidence(path, rest[0])
+            return 0
+        if verb == "import":
+            import_session(path)
+            return 0
+        if verb == "first":
+            found = [evidence_first(path)]
+        elif verb == "kind":
+            found = evidence_rows(path, kind=rest[0])
+        else:
+            try:
+                tail = int(rest[0])
+            except ValueError:
+                print(EVIDENCE_USAGE, file=sys.stderr)
+                return 2
+            found = evidence_rows(path, tail=max(tail, 1))
+    except ERRORS as exc:
+        print("tezgah_store: %s" % exc, file=sys.stderr)
+        return 1
+    sys.stdout.buffer.write("".join(text + "\n" for text in found if text is not None)
+                            .encode("utf-8", "surrogatepass"))
+    return 0
+
+
 def main(argv):
     """`import-evidence [CACHE...]`: the bulk import, for the given cache dirs
-    or for the cache and its temp fallback."""
+    or for the cache and its temp fallback. `evidence ...`: `_evidence_cli`."""
+    if argv[1:2] == ["evidence"]:
+        return _evidence_cli(argv[2:])
     if argv[1:2] != ["import-evidence"]:
-        print("usage: tezgah_store.py import-evidence [CACHE_DIR...]", file=sys.stderr)
+        print("usage: tezgah_store.py import-evidence [CACHE_DIR...]\n" + EVIDENCE_USAGE,
+              file=sys.stderr)
         return 2
     caches = argv[2:]
     if not caches:

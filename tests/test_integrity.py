@@ -3,14 +3,12 @@
 The pure detectors run in-process; the ledger and the two Claude hooks run in a
 subprocess with a throwaway HOME so the real cache is never touched.
 """
-import fcntl
 import hashlib
 import json
 import os
 import shutil
 import sys
 import tempfile
-import threading
 import time
 import unittest
 from unittest import mock
@@ -2197,14 +2195,14 @@ class DesignContractEvidence(unittest.TestCase):
 
 
 class CommittedBoundary(unittest.TestCase):
-    """W3: the byte boundary a legacy JSONL ledger has committed, and what both
-    paths do with a tail past it.
+    """W3: the byte boundary a JSONL file has committed, and what the import of
+    a legacy ledger file does with a tail past it.
 
-    The session here has a JSONL file (the one opencode's plugin still writes),
-    so every row goes to that file and is imported into the database from it.
-    A process killed inside a write leaves a fragment no newline ever terminated.
-    It is not a record, so no reader may see it - but it must not stay in the
-    file for ever either, and the damage that *was* terminated is the other
+    The session here has a legacy JSONL file (the one opencode's plugin wrote
+    before the database), whose lines the store imports before every read; a
+    row the hooks write goes into the database. A process killed inside a write
+    leaves a fragment no newline ever terminated. It is not a record, so no
+    reader may see it - and the damage that *was* terminated is the other
     damage entirely: a committed record that lost bytes is a hard error, not a
     gap a reader silently steps over. (`_path` is patched so the real cache is
     never touched.)"""
@@ -2222,6 +2220,11 @@ class CommittedBoundary(unittest.TestCase):
         with open(self.path, "rb") as fh:
             return fh.read()
 
+    def legacy(self, row):
+        """One row appended to the legacy file, the way the plugin wrote it."""
+        with open(self.path, "ab") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False).encode("utf-8") + b"\n")
+
     def torn(self):
         """The fragment a killed writer leaves: a record prefix, no newline."""
         with open(self.path, "ab") as fh:
@@ -2229,7 +2232,7 @@ class CommittedBoundary(unittest.TestCase):
         return len(self.raw())
 
     def test_the_boundary_is_the_whole_file_it_ends_in_a_newline(self):
-        ti.note("s", "run", "ls")
+        self.legacy({"kind": "run", "detail": "ls"})
         whole = os.path.getsize(self.path)
         with open(self.path, "a+b") as fh:
             self.assertEqual(ti.committed_size(fh), whole)
@@ -2237,7 +2240,7 @@ class CommittedBoundary(unittest.TestCase):
         self.assertEqual(len(self.raw()), whole)
 
     def test_the_boundary_stops_at_the_last_newline_and_is_zero_without_one(self):
-        ti.note("s", "run", "ls")
+        self.legacy({"kind": "run", "detail": "ls"})
         whole = os.path.getsize(self.path)
         self.assertEqual(self.torn(), whole + len(b'{"kind": "run", "det'))
         with open(self.path, "a+b") as fh:
@@ -2252,27 +2255,29 @@ class CommittedBoundary(unittest.TestCase):
             self.assertEqual(ti.committed_size(fh), 0)
 
     def test_only_the_unterminated_tail_is_invisible_to_a_reader(self):
-        ti.note("s", "run", "ls")
+        self.legacy({"kind": "run", "detail": "ls"})
         self.torn()
         self.assertEqual([r["detail"] for r in ti.events("s")], ["ls"])
         self.assertEqual([r["detail"] for r in ti.events("s", tail=2)], ["ls"])
         self.assertEqual([r["detail"] for r in ti.events_path(self.path,
                                                              tail=2)], ["ls"])
+        # and it reads as no damage while the hooks' rows follow it
+        ti.note("s", "run", "pwd")
+        self.assertEqual([r["detail"] for r in ti.events("s")], ["ls", "pwd"])
 
     def test_a_terminated_line_that_lost_its_bytes_is_named_once(self):
         # the other damage: the newline is there, so the record committed. It
         # used to raise, which failed the Stop rule open; it is skipped now, and
-        # one `ledger_damage` row lands in the damaged file however often the
-        # file is read
-        ti.note("s", "run", "ls")
+        # one `ledger_damage` row lands in the ledger however often it is read
+        self.legacy({"kind": "run", "detail": "ls"})
         with open(self.path, "a") as fh:
             fh.write("{broken\n")
         for _ in range(3):
             self.assertEqual([r["kind"] for r in ti.events("s")][:2],
                              ["run", ti.DAMAGE_KIND])
             ti.events("s", tail=2)
-        stored = [json.loads(line) for line in self.raw().splitlines()
-                  if line.startswith(b"{\"")]
+        stored = [json.loads(text) for text in support.ledger_rows(self.path, raw=True)
+                  if text.startswith("{\"")]
         self.assertEqual([r["kind"] for r in stored].count(ti.DAMAGE_KIND), 1)
 
     def test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered(self):
@@ -2292,30 +2297,13 @@ class CommittedBoundary(unittest.TestCase):
         self.assertNotIn("Evidence tampered",
                          ti.stop_reason("Done, doğrulanmadı.", "s") or "")
 
-    def test_an_honest_writer_leaves_no_damage(self):
-        # the two ways a write can be cut short - a torn tail, and the unlocked
-        # fallback taken when the lock cannot be had - must not themselves read
-        # as tampering
-        ti.note("s", "run", "ls")
-        self.torn()
-        ti.note("s", "run", "pwd")
-        self.addCleanup(setattr, ti, "LOCK_WAIT", ti.LOCK_WAIT)
-        ti.LOCK_WAIT = 0.0
-        with open(self.path, "a+b") as holder:
-            fcntl.flock(holder, fcntl.LOCK_EX)
-            ti.note("s", "run", "whoami")
-        self.assertEqual([r["detail"] for r in ti.events("s")],
-                         ["ls", "pwd", "whoami"])
-
     def test_a_unicode_line_separator_inside_a_row_is_one_row(self):
         # opencode's JSON.stringify leaves U+2028/U+2029 raw inside a string,
         # and `str.splitlines` split the row on them: an honest row read as two
         # damaged ones and the Stop rule blocked an honest turn
         detail = "a\u2028b\u2029c\x85d"
-        ti.note("s", "run", "ls")
-        with open(self.path, "ab") as fh:  # raw, the way opencode writes it
-            fh.write(json.dumps({"kind": "run", "detail": detail, "v": 2},
-                                ensure_ascii=False).encode("utf-8") + b"\n")
+        self.legacy({"kind": "run", "detail": "ls"})
+        self.legacy({"kind": "run", "detail": detail, "v": 2})
         for _ in range(2):  # the second read sees any damage row the first wrote
             self.assertEqual([(r["kind"], r["detail"]) for r in ti.events("s")],
                              [("run", "ls"), ("run", detail)])
@@ -2330,64 +2318,6 @@ class CommittedBoundary(unittest.TestCase):
         self.assertEqual(rows[-1]["kind"], ti.DAMAGE_KIND)
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIn("Evidence tampered", reason or "")
-
-    def test_the_next_append_repairs_the_torn_tail_instead_of_burying_it(self):
-        # left in place, the fragment is terminated by the row written after it
-        # and the two become one line no reader can parse - the file would hold
-        # one record where two were written, for ever
-        ti.note("s", "run", "ls")
-        whole = os.path.getsize(self.path)
-        self.torn()
-        ti.note("s", "verify_ok", "pytest -q")
-        # both rows are readable again, where the fragment left in place would
-        # have merged them into a line no reader can parse
-        self.assertEqual([r["detail"] for r in ti.events("s")],
-                         ["ls", "pytest -q"])
-        # and the file's own shape says the same: two records, the second one
-        # starting exactly where the first ended
-        self.assertEqual(self.raw().count(b"\n"), 2)
-        self.assertTrue(self.raw()[whole:].startswith(b'{"kind": "verify_ok"'))
-        self.assertEqual([json.loads(line)["detail"]
-                          for line in self.raw().splitlines()], ["ls", "pytest -q"])
-
-
-class LedgerAppendLock(unittest.TestCase):
-    """B9: the ledger's appender serializes on an exclusive lock.
-
-    A host fires PostToolUse once per call of a parallel batch, each in its own
-    process, so two writers reach one file at once. The lock is taken on the
-    ledger's own descriptor - what it must do is what is under test, exclude a
-    second writer. (`_path` is patched so the real cache is never touched.)
-
-    ponytail: a row LOST to an unlocked append could not be reproduced on APFS
-    even with six writers and 400-byte lines, because one `write(2)` on an
-    O_APPEND handle lands whole - so this asserts the exclusion, which is what
-    the change adds and what can be observed, not a torn line this filesystem
-    does not produce."""
-
-    def setUp(self):
-        self.dir = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.dir, True)
-        self.addCleanup(setattr, ti, "_path", ti._path)
-        self.path = os.path.join(self.dir, "evidence", "s.jsonl")
-        ti._path = lambda session: self.path
-        os.makedirs(os.path.dirname(self.path))
-
-    def test_the_append_waits_for_the_lock_a_second_writer_holds(self):
-        # the lock's own premise: a holder excludes the append. Without it the
-        # append returns at once and the two writers are back to racing.
-        held = open(self.path, "a")
-        self.addCleanup(held.close)
-        fcntl.flock(held, fcntl.LOCK_EX)
-        release = threading.Timer(0.4, lambda: fcntl.flock(held, fcntl.LOCK_UN))
-        release.daemon = True
-        release.start()
-        self.addCleanup(release.cancel)
-        start = time.time()
-        ti.note("s", "run", "ls")
-        self.assertGreaterEqual(time.time() - start, 0.3,
-                                "the append did not wait for the lock")
-        self.assertEqual([r["detail"] for r in ti.events("s")], ["ls"])
 
 
 class StopHook(TempHome):
@@ -4877,21 +4807,19 @@ class OrphanPass(unittest.TestCase):
             self.assert_unrefused()
 
     def test_an_unlocked_append_exempts_the_pass(self):
-        # the legacy JSONL append's LOCK_WAIT fallback truncates without the
-        # lock, and can cut a concurrent writer's began row; the row it writes
-        # says so
-        os.makedirs(os.path.dirname(self.path))
-        open(self.path, "w").close()
+        # the legacy JSONL append's LOCK_WAIT fallback truncated without the
+        # lock, and could cut a concurrent writer's began row; the row it wrote
+        # says so, and it still says so once the file is imported
         self.turn("t1")
         self.honest()
         self.turn("t2")
-        self.addCleanup(setattr, ti, "LOCK_WAIT", ti.LOCK_WAIT)
-        ti.LOCK_WAIT = 0.0
-        with open(self.path, "a+b") as holder:
-            fcntl.flock(holder, fcntl.LOCK_EX)
-            ti.note("s", "edit", "app.py", changed=True)
-        self.assertEqual(ti.events("s")[-1].get(ti.UNLOCKED), 1)
+        os.makedirs(os.path.dirname(self.path))
+        with open(self.path, "w") as fh:
+            fh.write(json.dumps({"kind": "edit", "ts": int(time.time()),
+                                 "v": ti.ROW_VERSION, "detail": "app.py",
+                                 "changed": True, ti.UNLOCKED: 1}) + "\n")
         ti.note_tool("s", "Bash", self.CHECK, failed=False, out_bytes=42)
+        self.assertEqual(ti.events("s")[-2].get(ti.UNLOCKED), 1)
         self.assert_unrefused()
 
     # ---- every passing_check caller gets the paired answer -----------------

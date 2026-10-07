@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,7 @@ import tezgah_gate as tg  # noqa: E402
 # The taint notice's own wording lives in the untrusted module (the label and the
 # channel test do not), so the plugin's second half is checked against it.
 import tezgah_untrusted as tu  # noqa: E402
+import tezgah_store as ts  # noqa: E402
 
 NODE = shutil.which("node")
 # The marker the detector must catch, assembled at runtime: the gate denies a
@@ -192,21 +194,12 @@ class OpenCodePlugin(TempHome):
                             ti._slug(session) + ".jsonl")
 
     def ledger(self, session="s1"):
-        path = self.evidence_path(session)
-        if not os.path.exists(path):
-            return []
-        with open(path) as fh:
-            return [json.loads(line) for line in fh if line.strip()]
+        return support.ledger_rows(self.evidence_path(session))
 
     def ledger_rows_on_disk(self):
-        """Every row the plugin wrote under `evidence/`, whatever it named the
-        file - the filename itself is pinned by its own test."""
-        d = os.path.join(self.home, ".cache", "tezgah", "evidence")
-        rows = []
-        for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-            with open(os.path.join(d, name)) as fh:
-                rows += [json.loads(line) for line in fh if line.strip()]
-        return rows
+        """Every row the plugin wrote to the store, whatever session key it
+        used - the key itself is pinned by its own test."""
+        return support.all_ledger_rows(os.path.join(self.home, ".cache", "tezgah"))
 
     def kinds(self, session="s1"):
         return [entry["kind"] for entry in self.ledger(session)]
@@ -465,9 +458,7 @@ class OpenCodePlugin(TempHome):
 
         def first_row(session, ts):
             path = self.evidence_path(session)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w") as fh:
-                fh.write(json.dumps({"kind": "attest", "ts": ts}) + "\n")
+            support.seed_ledger(path, [{"kind": "attest", "ts": ts}])
             return path
 
         self.touch(os.path.join(switches, "verify-off"))
@@ -475,9 +466,8 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(answers("older"), (True, True))
         ledger = first_row("newer", int(time.time()) - 100)
         self.assertEqual(answers("newer"), (False, False))
-        with open(ledger, "a") as fh:
-            fh.write(json.dumps({"kind": "authorized", "ts": 0,
-                                 "authorized": ["verify-off"]}) + "\n")
+        support.seed_ledger(ledger, [{"kind": "authorized", "ts": 0,
+                                      "authorized": ["verify-off"]}], append=True)
         self.assertEqual(answers("newer"), (True, True))
         os.remove(os.path.join(switches, "verify-off"))
         first_row("down", int(time.time()) - 100)
@@ -859,14 +849,11 @@ class OpenCodePlugin(TempHome):
         # long turn's re-statement reaches it as the core's own refusal, once per
         # turn - the identical re-issue passes.
         self.gate_bin()
-        path = self.evidence_path()
-        os.makedirs(os.path.dirname(path), exist_ok=True)
         now = int(time.time())
-        with open(path, "w") as fh:
-            fh.write(json.dumps({"kind": "turn", "ts": now, "detail": "p"}) + "\n")
-            for i in range(tg.DRIFT_STEPS + 5):
-                fh.write(json.dumps({"kind": "run", "ts": now,
-                                     "detail": "step %d" % i}) + "\n")
+        support.seed_ledger(self.evidence_path(), [
+            {"kind": "turn", "ts": now, "detail": "p"}] + [
+            {"kind": "run", "ts": now, "detail": "step %d" % i}
+            for i in range(tg.DRIFT_STEPS + 5)])
         args = {"file_path": os.path.join(self.repo, "src", "a.py"),
                 "old_string": "x = 1", "new_string": "x = 2"}
         error = self.denied(self.before("edit", args))
@@ -1150,40 +1137,86 @@ class OpenCodePlugin(TempHome):
         self.assertIn("Retry ceiling denied: this is attempt 4", error)
         self.assertEqual(self.ledger()[-1]["detail"][:7], "retry: ")
 
+    def failures(self, count=2):
+        """`count` failed `pytest -q` rows, as the Python half writes them."""
+        digest = ti.call_id("bash", {"command": "pytest -q"})
+        return [{"kind": "verify_fail", "ts": 1, "detail": "pytest -q", "id": digest,
+                 "exit": 1, "workspace": self.roots}] * count
+
     def test_the_guard_reads_the_rows_the_python_writer_produces(self):
-        # The tail is the same file, the same identity and the same fields the
+        # The tail is the same store, the same identity and the same fields the
         # Python half writes, so a row written there counts here: a fork in any
         # of the three would make an opencode session's attempts a second,
         # invisible history.
-        digest = ti.call_id("bash", {"command": "pytest -q"})
-        path = self.evidence_path("s1")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as fh:
-            for _ in range(2):
-                fh.write(json.dumps({"kind": "verify_fail", "ts": 1,
-                                     "detail": "pytest -q", "id": digest,
-                                     "exit": 1, "workspace": self.roots}) + "\n")
+        support.seed_ledger(self.evidence_path("s1"), self.failures())
         error = self.denied(self.before("bash", {"command": "pytest -q"}))
         self.assertIn("Loop guard denied: this is attempt 3", error)
 
-    def test_the_tail_read_survives_a_ledger_longer_than_one_chunk(self):
-        # The tail is read backwards in chunks, so the attempts must be found
-        # across that boundary: a reader that stopped at the first chunk would
-        # silently stop counting a long session's repeats.
-        digest = ti.call_id("bash", {"command": "pytest -q"})
+    def test_the_tail_is_the_newest_rows_of_a_long_ledger(self):
+        # The guards read the last LEDGER_TAIL rows: a read that took the oldest
+        # instead would silently stop counting a long session's repeats.
         filler = {"kind": "run", "ts": 1, "detail": "ls", "id": "0" * 12,
                   "exit": 0, "workspace": self.roots}
+        support.seed_ledger(self.evidence_path("s1"), [filler] * 300 + self.failures())
+        error = self.denied(self.before("bash", {"command": "pytest -q"}))
+        self.assertIn("Loop guard denied: this is attempt 3", error)
+
+    def test_a_legacy_jsonl_ledger_is_imported_ahead_of_the_new_rows(self):
+        # A session this plugin wrote before the store keeps its JSONL file:
+        # the store imports it before the plugin's first read or write, so its
+        # attempts count and its rows stay first.
+        support.linked(os.path.join(support.REPO, "bin", "tezgah-capture"), self.home)
         path = self.evidence_path("s1")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as fh:
-            for _ in range(300):          # several 8 KB chunks of history
-                fh.write(json.dumps(filler) + "\n")
-            for _ in range(2):
-                fh.write(json.dumps({"kind": "verify_fail", "ts": 1,
-                                     "detail": "pytest -q", "id": digest,
-                                     "exit": 1, "workspace": self.roots}) + "\n")
+            for row in self.failures():
+                fh.write(json.dumps(row, separators=(",", ":")) + "\n")
         error = self.denied(self.before("bash", {"command": "pytest -q"}))
         self.assertIn("Loop guard denied: this is attempt 3", error)
+        self.assertEqual(self.kinds(), ["verify_fail", "verify_fail", "deny"])
+
+    def test_without_node_sqlite_the_ledger_goes_through_the_python_store(self):
+        # node before 22.5 has no node:sqlite: every row is written and read
+        # through tezgah_store's `evidence` CLI, into the same database.
+        support.linked(os.path.join(support.REPO, "bin", "tezgah-capture"), self.home)
+        self.envv["TEZGAH_OPENCODE_NO_SQLITE"] = "1"
+        for _ in range(2):
+            self.after("bash", {"command": "pytest -q"}, exit=1)
+        self.assertEqual(self.kinds(), ["verify_fail", "verify_fail"])
+        # the tail read back: the third identical attempt is the loop
+        self.assertIn("Loop guard denied: this is attempt 3",
+                      self.denied(self.before("bash", {"command": "pytest -q"})))
+        # the first row read back: a verify-off newer than it is latched out
+        switch = os.path.join(self.home, ".config", "tezgah", "verify-off")
+        self.touch(switch)
+        later = time.time() + 100
+        os.utime(switch, (later, later))
+        self.denied(self.before("bash", {"command": "pytest -q"}))
+        # the `authorized` rows read back: the user's own prompt named it
+        support.seed_ledger(self.evidence_path(), [
+            {"kind": "authorized", "ts": 0, "authorized": ["verify-off"]}], append=True)
+        self.allowed(self.before("bash", {"command": "pytest -q"}))
+
+    def test_the_plugin_creates_the_store_python_creates(self):
+        # Either side may create the database first, so the two must create the
+        # same tables, indexes and version.
+        self.after("bash", {"command": "ls"})
+        python_db = os.path.join(self.home, "python", "tezgah.db")
+        ts.connect(python_db, ts.EVIDENCE_SCHEMA, ts.EVIDENCE_VERSION).close()
+
+        def shape(path):
+            conn = sqlite3.connect(path)
+            try:
+                return (conn.execute("PRAGMA user_version").fetchone()[0],
+                        conn.execute("PRAGMA journal_mode").fetchone()[0],
+                        [(kind, name, " ".join((sql or "").split()))
+                         for kind, name, sql in conn.execute(
+                             "SELECT type, name, sql FROM sqlite_master ORDER BY name")])
+            finally:
+                conn.close()
+
+        self.assertEqual(shape(os.path.join(self.home, ".cache", "tezgah", "tezgah.db")),
+                         shape(python_db))
 
     def test_verify_off_drops_the_repeat_guards(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
@@ -1453,13 +1486,13 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(rows[0]["id"],
                          ti.call_id("exec_command", {"command": "pytest  -q"}))
 
-    def test_the_ledger_file_is_the_one_python_reads(self):
-        # The stem is Python's: the punctuation-collapsed session id cut to 40
+    def test_the_ledger_key_is_the_one_python_reads(self):
+        # The key is Python's: the punctuation-collapsed session id cut to 40
         # chars, then sha1(raw id)[:12]. Two ids that collapse alike must not
-        # share a file, or one session's failures become another's denials.
+        # share a ledger, or one session's failures become another's denials.
         for session in ("abc-123", "abc_123"):
             self.after("bash", {"command": "ls"}, session=session)
-            self.assertTrue(os.path.exists(self.evidence_path(session)), session)
+            self.assertEqual(self.kinds(session), ["run"], session)
         self.assertNotEqual(self.evidence_path("abc-123"),
                             self.evidence_path("abc_123"))
 
@@ -1545,12 +1578,11 @@ class OpenCodePlugin(TempHome):
         self.assertNotIn("S3cretPass", json.dumps(self.ledger()))
 
     def test_a_new_ledger_is_owner_only(self):
-        # audit SEC-05 / L-6: the JS writer creates the ledger 0600 in a 0700 dir,
-        # as the Python writer does
+        # audit SEC-05 / L-6: the JS writer creates the database 0600, as the
+        # Python writer does
         self.after("bash", {"command": "ls"})
-        path = self.evidence_path()
+        path = os.path.join(self.home, ".cache", "tezgah", "tezgah.db")
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
-        self.assertEqual(os.stat(os.path.dirname(path)).st_mode & 0o777, 0o700)
 
     def test_an_edit_row_carries_the_absolute_real_target(self):
         # audit CHAT-03 / M-6: the Python race guard compares `target`, so the

@@ -34,7 +34,7 @@ import time
 
 try:
     import fcntl
-except ImportError:  # not POSIX: the append stays unlocked, as it was before
+except ImportError:  # not POSIX: a legacy JSONL ledger was appended unlocked
     fcntl = None
 
 from tezgah_paths import (SWITCHES, _toplevel, cache_dir, latch, off, reply_lang,
@@ -749,15 +749,6 @@ def _stored_text(value):
     return redact(str(value or ""))[:DETAIL_MAX]
 
 
-# How long a JSONL append (`_jsonl_append`) waits for the lock before falling
-# back to the unlocked write it replaces. The holders are other hook processes
-# appending one line, so the wait is normally microseconds; the bound is what
-# keeps a stuck holder from wedging a hook, and the fallback is what keeps the
-# row from being lost to the lock that was meant to protect it.
-LOCK_WAIT = 1.0
-LOCK_POLL = 0.01
-
-
 def committed_size(handle):
     """The byte offset just past the last `\\n` in `handle`'s file, or 0 when the
     file holds no newline at all.
@@ -801,100 +792,11 @@ def _append(path, line):
     The row goes into the cache's evidence database (`tezgah_store`) as one
     INSERT in autocommit, so it is whole or absent: no torn tail, and two
     writers queue on the database's lock instead of a file's. Best effort: a
-    write that fails is not fatal, as `note` promises. A session whose JSONL
-    file still exists is written there instead (`_jsonl_mirror`)."""
-    if _jsonl_mirror(path, line):
-        return
+    write that fails is not fatal, as `note` promises."""
     try:
         ts.append_evidence(path, line.rstrip("\n"))
     except ts.ERRORS:
         pass
-
-
-# The hosts whose plugin still writes and reads its sessions' JSONL ledgers
-# itself (opencode, until plan 071 slice 2b), and whether this process answers
-# for one (`serve_host`, set by the CLIs that plugin runs).
-JSONL_HOSTS = frozenset(("opencode",))
-_JSONL_HOST = [False]
-
-
-def serve_host(host):
-    """Note the host this process answers for: a JSONL host's rows go to the
-    session's JSONL file (`_jsonl_mirror`)."""
-    _JSONL_HOST[0] = host in JSONL_HOSTS
-
-
-def _jsonl_mirror(path, line):
-    """Write `line` to the session's legacy JSONL file and mirror the file into
-    the database, when this process answers for a JSONL host (`serve_host`)
-    or that file exists; False otherwise.
-
-    opencode's plugin still writes and reads its sessions' JSONL files (ADR 021,
-    until plan 071 slice 2b moves it to the database, which removes this
-    branch): a row a Python process writes for such a session (a `turn` or
-    `authorized` row, a snapshot capture, the `attest` row) has to land in the
-    file the plugin reads. The database takes the file's new lines through the
-    offset import right after, so the row is in both and imported once. A
-    session that existed before the database keeps its file the same way."""
-    if not (_JSONL_HOST[0] or os.path.exists(path)):
-        return False
-    _jsonl_append(path, line)
-    try:
-        ts.import_session(path)
-    except ts.ERRORS:
-        pass
-    return True
-
-
-def _jsonl_append(path, line):
-    """Append one line to `path` under an exclusive flock on the file itself.
-
-    Two writers reach one ledger file for real: a host fires PostToolUse once per
-    call of a parallel batch, each in its own process. Serialized, a row is
-    written by one writer at a time - the construction guarantee, not the
-    kernel's per-write atomicity on whichever filesystem the cache sits on. The
-    lock is the ledger's own descriptor, so no sidecar file appears beside it: a
-    reader lists that directory to find a session's ledger, and one extra name
-    per session would be a false record there. It dies with the process, so a
-    crash leaves nothing held.
-
-    A lock that cannot be taken within LOCK_WAIT is not taken, and the append
-    falls back to the write that was there before: no worse than the unlocked
-    path this replaced, and a busy lock never costs a row.
-
-    The torn tail is repaired before the write - under the lock when it is held,
-    and on the fallback too, because a fragment left in place would be terminated
-    by this very write and become the unparseable committed line the reader has
-    to refuse. The boundary is the last newline in the file, so the repair
-    removes a fragment and can never cut a record (the fallback's row says so:
-    `_unlocked`)."""
-    handle = None
-    try:
-        # owner-only: a row carries commands and paths, and the default umask
-        # left the dir 0755 and the file 0644 (audit SEC-05 / L-6). The modes
-        # apply when the dir and the file are created.
-        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        # binary: the boundary below is counted in bytes, not in characters
-        handle = os.fdopen(os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT,
-                                   0o600), "a+b")
-        if fcntl is not None:
-            deadline = time.time() + LOCK_WAIT
-            while True:
-                try:
-                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except OSError:
-                    if time.time() >= deadline:
-                        line = _unlocked(line)
-                        break
-                    time.sleep(LOCK_POLL)
-        truncate_to_committed(handle)
-        handle.write(line.encode("utf-8"))
-    except OSError:
-        pass
-    finally:
-        if handle is not None:
-            handle.close()  # flushes the line and releases the flock
 
 
 def note_path(path, kind, detail="", **fields):
@@ -5026,10 +4928,11 @@ def changed_files_notice(session_id, base=None):
 
 
 # --- pairing: a pass the gate never saw begin (plan 051 part 8) --------------
-# The field `_append` adds to a row it wrote without the lock, and the in-memory
-# mark `_pair` puts on a `verify_ok` no gate-written `began` row answers. The
-# mark is never written: `passing_check` refuses a marked row, and the Stop rule
-# reads one in the turn as "evidence tampered".
+# The field the legacy JSONL append added to a row it wrote without the lock
+# (an imported row may still carry it), and the in-memory mark `_pair` puts on
+# a `verify_ok` no gate-written `began` row answers. The mark is never written:
+# `passing_check` refuses a marked row, and the Stop rule reads one in the turn
+# as "evidence tampered".
 UNLOCKED = "unlocked"
 ORPHAN = "orphan"
 ORPHANED = (
@@ -5043,19 +4946,6 @@ UNLOCKED_ROW = re.compile(r'"%s"\s*:\s*1\b' % UNLOCKED)
 # How many rows before a `turn_rows` slice seed `_pair`'s waiting `began` rows:
 # the same 200-row bound the gate's tail readers use.
 PAIR_SEED = 200
-
-
-def _unlocked(line):
-    """`line` with `unlocked: 1` added to its row (`_append`'s LOCK_WAIT
-    fallback), or as it was when it is not one row."""
-    try:
-        row = json.loads(line)
-    except ValueError:
-        return line
-    if not isinstance(row, dict):
-        return line
-    row[UNLOCKED] = 1
-    return json.dumps(row, ensure_ascii=False) + "\n"
 
 
 def _pair(rows, path, lines, before=()):
@@ -5077,8 +4967,11 @@ def _pair(rows, path, lines, before=()):
     - in a turn holding a `crash` row: the gate that writes `began` may be the
       code that crashed;
     - with `pretooluse-off` armed: no gate ran;
-    - when an append took `_append`'s unlocked fallback, or this platform has
-      no lock at all: that truncate can cut a concurrent writer's `began` row;
+    - when a row imported from a legacy JSONL file says its append took the
+      unlocked fallback (UNLOCKED), or this platform has no flock, so that
+      file's appends were all unlocked: that append's truncate can have cut a
+      concurrent writer's `began` row. The database insert cuts no row, but
+      the imported rows stay in the ledger for the session's life;
     - for a ledger in the sandbox fallback cache, or one whose session also has
       a ledger in the other cache dir: a sandboxed host can split one call's two
       rows over two files (`tezgah_context`'s fallback-cache note).
