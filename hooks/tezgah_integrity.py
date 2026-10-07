@@ -37,7 +37,8 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
-from tezgah_paths import _toplevel, cache_dir, off, reply_lang, root_for
+from tezgah_paths import (SWITCHES, _toplevel, cache_dir, latch, off, reply_lang,
+                          root_for)
 
 # A command that actually checks the change, as opposed to one that merely runs.
 # Command position, like UI_CHECK: `echo pytest` and `cat pytest.ini` were
@@ -473,6 +474,11 @@ PERMANENT_ERROR = re.compile(
 # (`tezgah_lessons.lesson_key`, absent when the gate could not read it), `source`
 # the channel the turn had read, `target` the ledger, `id` the call. The planned
 # `lesson_hit` row (plan 061 Phase B, not written yet) needs only `key` and `id`.
+# `authorized` is an `authorized` row's list of switch names the user's prompt
+# named (`note_turn`); the switch latch (`tezgah_paths.off`) honors a switch
+# made mid-session only when one of these rows names it. `inflight` marks a
+# `turn` row written while a call was still unanswered (`_in_flight`): it
+# slices the turn like any other, and it is no boundary for `_in_flight`.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -480,7 +486,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "summary_chars", "summary_hash",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
-                           "host", "switches", "harness"))
+                           "host", "switches", "harness", "authorized", "inflight"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -1327,15 +1333,69 @@ def note_turn(session_id, prompt, workspace=None):
     ~90-byte append. A repeat of the same prompt after any ledger activity is a
     real new turn and writes its own marker.
 
+    The switch names the prompt carries as whole words go to an `authorized`
+    row first, from the prompt itself and before it is hashed: the switch latch
+    (`tezgah_paths.off`) honors a switch made mid-session only once the user
+    named it. Keyword match, not intent: "don't touch verify-off" names it too.
+    No `authorized` row while a call is in flight (`_in_flight`): a host hands
+    its prompt hook a prompt between calls, and a hook run from inside a tool
+    call with a forged payload is the one that finds its own call's `began`
+    unanswered. The `turn` row is still written, since the Stop rule slices
+    turns on every one of them, but marked `inflight`, and `_in_flight` reads
+    a marked row as no boundary: a first forged run cannot close the window
+    for a second one.
+
     ponytail: the same prompt re-sent as the very next thing, with no ledger row
     written in between, resets nothing - that direction can only deny too much,
     never too little."""
-    key = hashlib.sha1(str(prompt or "").encode("utf-8", "replace")
-                       ).hexdigest()[:12]
+    text = str(prompt or "")
+    key = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:12]
     rows = events(session_id, tail=1)
     if rows and rows[-1].get("kind") == "turn" and rows[-1].get("detail") == key:
         return
-    note(session_id, "turn", key, workspace=workspace)
+    inflight = _in_flight(session_id)
+    named = [n for n in SWITCHES
+             if re.search(r"(?<![\w.-])%s(?![\w-])" % re.escape(n), text)]
+    if named and not inflight:
+        note(session_id, "authorized", workspace=workspace, authorized=named)
+    note(session_id, "turn", key, workspace=workspace, inflight=1 if inflight else None)
+
+
+# How far back `_in_flight` looks for the previous turn or reply boundary, and
+# how old an unanswered `began` row may be and still count as a call in flight.
+IN_FLIGHT_TAIL = 200
+IN_FLIGHT_MAX_AGE = 600
+
+
+def _in_flight(session_id):
+    """True when a `began` row since the newest boundary - a `turn` row not
+    marked `inflight`, or a Stop hook's `shape` row - has no answer yet and is
+    under IN_FLIGHT_MAX_AGE seconds old. A refused call is answered: by its
+    `deny` row, or by the `nudge` row the identifier nudge writes instead
+    (both REFUSAL_KINDS).
+
+    ponytail: a host writes no PostToolUse for a call the user interrupted, so
+    a switch-naming prompt within ten minutes of one authorizes nothing; and a
+    forge inside a call that runs longer than that is the background-forge
+    residual SECURITY.md names."""
+    rows = events(session_id, tail=IN_FLIGHT_TAIL)
+    start = max((i + 1 for i, r in enumerate(rows)
+                 if r.get("kind") == "shape"
+                 or (r.get("kind") == TURN_KIND and not r.get("inflight"))), default=0)
+    window = rows[start:]
+    now = time.time()
+    return any(isinstance(r.get("ts"), (int, float)) and now - r["ts"] < IN_FLIGHT_MAX_AGE
+               for r in _began_fold(window)[0])
+
+
+
+def bind_session(session_id):
+    """Latch this process's `off()` to `session_id`'s ledger (`tezgah_paths.latch`).
+
+    Every hook entry that knows its session calls it before its first `off()`:
+    the gate (`decision`), the prompt path (`context_for`) and the host
+    adapters' Stop paths. No session id leaves the process unbound."""
+    latch(_path(session_id) if session_id else None)
 
 
 def note_compaction(session_id, summary, trigger=None, found=None, expected=None,

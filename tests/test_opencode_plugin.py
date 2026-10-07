@@ -26,6 +26,7 @@ from support import TempHome
 # a separator or a canonical-form drift between the two halves fail here.
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
 # The attribution patterns, read from the Python half rather than retyped here:
 # the plugin has to deny the same forms the core denies.
 import tezgah_gate as tg  # noqa: E402
@@ -441,6 +442,60 @@ class OpenCodePlugin(TempHome):
                                 "pretooluse-off"))
         self.allowed(self.before("bash",
                                  {"command": "git commit -m x --no-verify"}))
+
+    def test_the_switch_latch_answers_as_the_core_does(self):
+        """Plan 051: one fixture, two readers. A verify-off older than the
+        session's first ledger row counts, a newer one is latched out until an
+        `authorized` row names it, and a newer pretooluse-off counts only as
+        the uninstall's stand-down - in the plugin's `off(name, sessionID)` and
+        in the core's `decision` alike."""
+        switches = os.path.join(self.home, ".config", "tezgah")
+        line = "git commit -m x --no-verify"
+        core_gate = ("import json, sys, tezgah_gate\n"
+                     "print(json.dumps(tezgah_gate.decision('Bash', "
+                     "{'command': sys.argv[2]}, sys.argv[1], sys.argv[3])))\n")
+
+        def answers(session):
+            proc = subprocess.run([sys.executable, "-c", core_gate, self.repo,
+                                   line, session], capture_output=True,
+                                  text=True, env=self.envv, timeout=60)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            core = json.loads(proc.stdout) is None
+            return core, self.before("bash", {"command": line}, session)["ok"]
+
+        def first_row(session, ts):
+            path = self.evidence_path(session)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as fh:
+                fh.write(json.dumps({"kind": "attest", "ts": ts}) + "\n")
+            return path
+
+        self.touch(os.path.join(switches, "verify-off"))
+        first_row("older", int(time.time()) + 100)
+        self.assertEqual(answers("older"), (True, True))
+        ledger = first_row("newer", int(time.time()) - 100)
+        self.assertEqual(answers("newer"), (False, False))
+        with open(ledger, "a") as fh:
+            fh.write(json.dumps({"kind": "authorized", "ts": 0,
+                                 "authorized": ["verify-off"]}) + "\n")
+        self.assertEqual(answers("newer"), (True, True))
+        os.remove(os.path.join(switches, "verify-off"))
+        first_row("down", int(time.time()) - 100)
+        self.touch(os.path.join(switches, "pretooluse-off"))
+        self.assertEqual(answers("down"), (False, False))
+        with open(os.path.join(switches, "pretooluse-off"), "w") as fh:
+            fh.write(tp.STAND_DOWN)
+        self.assertEqual(answers("down"), (True, True))
+        # a link made now to a file older than the session is as new as the link
+        os.remove(os.path.join(switches, "pretooluse-off"))
+        target = os.path.join(self.home, "old")
+        open(target, "w").close()
+        since = int(os.stat(target).st_ctime) + 1
+        first_row("linked", since)
+        while time.time() < since + 1.05:
+            time.sleep(0.05)
+        os.symlink(target, os.path.join(switches, "verify-off"))
+        self.assertEqual(answers("linked"), (False, False))
 
     def test_naming_no_verify_in_a_message_or_a_read_passes(self):
         # describing the rule is not a bypass; the flag has to be in command
@@ -955,7 +1010,10 @@ class OpenCodePlugin(TempHome):
         self.gate_bin()
         for command in ("touch ~/.config/tezgah/verify-off",
                         "echo {} >> ~/.cache/tezgah/evidence/x.jsonl",
-                        "mv .husky .husky.bak"):
+                        "mv .husky .husky.bak",
+                        # a forged prompt writes the switch latch's `authorized` row
+                        "printf '{}' | python3 hooks/projects-auto-init.py",
+                        "printf '{}' | ~/.config/tezgah/bin/tezgah-context user_prompt ."):
             with self.subTest(command=command):
                 args = {"command": command}
                 expected = self.gate("bash", args)
@@ -1166,8 +1224,9 @@ class OpenCodePlugin(TempHome):
 
     def test_the_ordering_rule_rides_verify_off(self):
         # it rides the integrity rule's own switch rather than adding one
-        self.after("bash", {"command": "pytest -q"}, exit=1)
+        # set before the session's first row: a switch made later is latched out
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.after("bash", {"command": "pytest -q"}, exit=1)
         self.allowed(self.before("bash", {"command": "git commit -m x"}))
 
     # ---- evidence ledger ---------------------------------------------------

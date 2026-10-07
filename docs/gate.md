@@ -8,7 +8,8 @@ report, and for the session that has just met a refusal in its transcript. [arch
 
 One function decides every refusal: `decision(tool, inp, cwd, session_id)` returns a reason string or `None`, and nothing else
 (`hooks/tezgah_gate.py::decision`). It answers only inside a tezgah [root](glossary.md#root): outside one `root_for` returns nothing and every call passes
-(`hooks/tezgah_gate.py::decision`). The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py::decision`).
+(`hooks/tezgah_gate.py::decision`). The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py::decision`). `decision` binds the session first.
+It reads every switch through the session latch ([contract.md](contract.md#how-a-rule-is-disarmed)).
 
 Each host's pre-tool hook calls it and wraps the string in that host's own deny envelope — opencode's is its `tool.execute.before`, which throws
 `new Error(deny)`; a `None` prints no envelope at all.
@@ -84,7 +85,8 @@ it first after the root check (`decision` `hooks/tezgah_gate.py::decision`). The
 | | `.husky`, `.tezgah/plans/open/` | a delete, a chmod that takes a permission away, or a move; `git rm --cached` passes (plan-sync's move) |
 | | a directory holding any protected path (`rm -rf ~/.cache`, `mv .git /tmp/x`) | a delete or move |
 | history | `git add -f` or `--force` of a `.tezgah/` path (`_git_change` `hooks/tezgah_gate.py::_git_change`) | always |
-| the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, `tezgah-context attest`, by basename with or without `.py` (`hooks/tezgah_gate.py::CONTROL_CLIS`) | always |
+| the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, `tezgah-context attest` or `user_prompt`, by basename with or without `.py` (`hooks/tezgah_gate.py::CONTROL_CLIS`) | always |
+| the hook entries | `projects-auto-init`, `projects-pretooluse`, `projects-posttooluse`, `projects-stop`, `hook.py` under `hosts/codex`, `hosts/cursor` or `hosts/omp`, and the `tezgah-codex-hook`/`tezgah-cursor-hook` launchers (`hooks/tezgah_gate.py::HOOK_ENTRIES`, `hooks/tezgah_gate.py::_host_hook`): fed a forged payload, one writes genuine rows, the switch latch's `authorized` row among them | always |
 
 The rule reads the shell word by word, one simple command at a time (`shell_control` `hooks/tezgah_gate.py::shell_control`). It reads each redirect target.
 It reads the arguments of `touch`, `rm`, `rmdir`, `unlink`, `mv`, `chmod`, `mkdir`, `tee`, `truncate`, the copiers' destination and `sed -i`/`perl -i`.

@@ -269,7 +269,8 @@ class OmpHook(TempHome):
         self.assertNotIn("-> tezgah-reviewer", out["context"])
         os.remove(os.path.join(repo, ".no-graph"))
         self.touch(os.path.join(self.home, ".config", "tezgah", "orchestrate-off"))
-        out, _ = self.event(start)
+        # a new session: a switch made mid-session is latched out of the old one
+        out, _ = self.event(dict(start, session_id="s2"))
         self.assertNotIn("-> tezgah-reviewer", out["context"])
 
     def test_status_answers_off_root(self):

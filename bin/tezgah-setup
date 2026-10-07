@@ -3508,9 +3508,12 @@ def uninstall(hosts, dry_run=False):
     # full run stands the gate down; a partial run never touches the file, which
     # also keeps a switch the user set themselves (the f38423b version wrote the
     # file and then deleted it, taking the user's own switch with it).
+    # The text is the switch latch's carve-out (tezgah_paths.STAND_DOWN): a
+    # session that began before this run ignores a switch made mid-session, and
+    # this one is made mid-session on purpose.
     if full:
         with open(stand_down, "w", encoding="utf-8") as fh:
-            fh.write("")
+            fh.write(tp.STAND_DOWN)
         print("%s gate stood down (%s); this session will not be asked again"
               % (OK, stand_down))
     else:

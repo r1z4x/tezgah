@@ -266,6 +266,31 @@ A kill switch removes the rule's text, not just a status mark
 legacy `~/.claude` (`hooks/tezgah_paths.py::OFF_DIRS`, `hooks/tezgah_paths.py::off`); the drop itself
 happens in `core_split()`.
 
+The session latches a switch (`hooks/tezgah_paths.py::latch`). A hook that knows
+its session binds the session's ledger first
+(`hooks/tezgah_integrity.py::bind_session`). From then on `off()` ignores a
+switch file whose ctime or mtime is newer than the ledger's first row. The agent
+under the rules writes files too. Without the latch, a switch it made mid-session
+would disarm the rule that judges it. The check reads ctime: `touch -t` sets
+mtime back, and nothing sets ctime back. A switch made mid-session counts in that session in
+three cases:
+
+- the user's prompt names it as a word (`verify-off`). `note_turn` writes an
+  `authorized` row, and the switch counts from that turn on. While a tool call
+  is in flight it writes none, and marks the turn row `inflight`
+  (`hooks/tezgah_integrity.py::_in_flight`). A host hands its prompt hook a
+  prompt between calls. An unanswered call older than ten minutes no longer
+  counts, since a host writes no answer for a call the user interrupted.
+- it is the stand-down `tezgah-setup --uninstall --full` writes into
+  `pretooluse-off` (`hooks/tezgah_paths.py::STAND_DOWN`).
+- it appeared within the first row's second, because the row's `ts` holds whole
+  seconds.
+
+Otherwise a switch made mid-session counts from the next session on. A CLI and
+a hook with no session id bind nothing and read the file alone, as before. The
+opencode plugin answers the same way (`off(name, sessionID)`). A prompt match is
+a keyword match, not intent: "don't touch `verify-off`" names the switch too.
+
 | Switch file | Rule it removes | Where the drop is implemented |
 |---|---|---|
 | `exec-mode.off` | `**{REPLY_LANG}, BLUF.**` | `hooks/tezgah_context.py::switches` |

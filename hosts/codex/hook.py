@@ -31,7 +31,7 @@ try:
         shell_kind)
     from tezgah_gate import decision  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
-        SUBAGENT_CHANNEL, changed_files_notice, note_tool, ran_nothing,
+        SUBAGENT_CHANNEL, bind_session, changed_files_notice, note_tool, ran_nothing,
         report_bytes, stop_reason, untrusted_source)
     from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
@@ -157,6 +157,7 @@ def main():
     event = payload.get("hook_event_name") or "SessionStart"
     cwd = payload.get("cwd") or os.getcwd()
     session_id = payload.get("session_id")
+    safe(session_id, bind_session, session_id)  # the switch latch (tezgah_paths.off)
     if event == "SessionStart":
         safe(session_id, attest_session, "codex", session_id, cwd)
 

@@ -657,12 +657,13 @@ class Gate(TempHome):
             self.assertEqual(tg._value("foo bar"), "foo")
 
     def test_the_session_ceiling_respects_verify_off(self):
+        # set before the session's first row: a switch made later is latched out
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
         for _ in range(3):
             run_json([support.PROBE_INTEGRITY],
                      {"fn": "note_tool", "session": "spin-off", "tool": "Bash",
                       "input": {"command": "git status"}, "failed": False,
                       "cwd": self.repo}, env=self.envv)
-        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
         self.assertIsNone(
             self.decide("Bash", {"command": "git status"}, session_id="spin-off"))
 
@@ -735,8 +736,8 @@ class Gate(TempHome):
             self.decide("Bash", {"command": "pytest -q"}, session_id="abc_123"))
 
     def test_loop_guard_respects_verify_off(self):
-        self.seed_failure("pytest -q", "loop", times=2)
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.seed_failure("pytest -q", "loop", times=2)
         self.assertIsNone(
             self.decide("Bash", {"command": "pytest -q"}, session_id="loop"))
 
@@ -822,8 +823,8 @@ class Gate(TempHome):
     def test_the_ordering_rule_rides_verify_off(self):
         # it rides the integrity rule's own switch instead of adding a switch:
         # the state it refuses is that rule's claim, one step earlier
-        self.seed_run("pytest -q", "order", failed=True)
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.seed_run("pytest -q", "order", failed=True)
         self.assertIsNone(self.decide("Bash", {"command": "git commit -m x"},
                                       session_id="order"))
 
@@ -1889,7 +1890,8 @@ class TaskGate(TempHome):
         command = {"command": "cat > app/api.py <<'EOF'\nx\nEOF"}
         self.assertIsNotNone(self.decide(command, tool="Bash"))
         self.touch(os.path.join(self.home, ".config", "tezgah", "task-off"))
-        self.assertIsNone(self.decide(command, tool="Bash"))
+        # a new session: the switch latch ignores one made mid-session
+        self.assertIsNone(self.decide(command, tool="Bash", session_id="task-s2"))
 
     # ---- the allowlist ----------------------------------------------------
     def test_a_path_outside_the_allowlist_refuses_and_names_what_it_knows(self):
@@ -2099,7 +2101,9 @@ class TaskGate(TempHome):
         self.dirty()
         self.assertIsNotNone(self.write_path("hooks/x.py"))
         self.touch(os.path.join(self.home, ".config", "tezgah", "task-off"))
-        self.assertIsNone(self.write_path("hooks/x.py"))
+        # a new session: the switch latch ignores one made mid-session
+        self.assertIsNone(self.decide({"file_path": "hooks/x.py"},
+                                      session_id="task-s2"))
 
     # ---- kill switch ------------------------------------------------------
     def test_task_off_removes_the_rule(self):
