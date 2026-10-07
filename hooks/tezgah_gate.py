@@ -2338,6 +2338,19 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     if not base:
         return None
     t = str(tool or "").lower()
+    # A write or shell call's first row (tezgah_integrity.BEGAN_KIND), written
+    # before any rule runs: a host that kills a slow gate still runs the call,
+    # and a pass with no `began` reads as an orphan (`_pair`). The PostToolUse
+    # hook writes the second row; a refusal below answers it with its `deny`.
+    # Through `note`, so the dry run writes none. `check` is decided here, from
+    # the whole command: the stored detail is cut at DETAIL_MAX.
+    if t in WRITE_TOOLS or t in BASH_TOOLS:
+        digest = call_id(tool, inp)
+        if digest:
+            command = str(inp.get("command") or inp.get("cmd") or "")
+            note(session_id, BEGAN_KIND, command or (write_paths(inp) or [""])[0],
+                 id=digest, tool=str(tool or "").strip() or None, workspace=base,
+                 check=1 if t in BASH_TOOLS and verify_command(command) else None)
     # Claude's Task names the agent `subagent_type`; omp's task names it `agent`,
     # on the call (flat shape) or on each `tasks[]` item (batch shape).
     subs = [inp.get("subagent_type"),
@@ -2555,22 +2568,6 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     # field and takes no shell tool name, so the target goes in the shape it
     # reads - SHELL_AS_WRITE - and the row it writes carries no tool name, so
     # nothing on the ledger claims a write tool ran.
-    #
-    # A write or shell call let through also leaves its first row here
-    # (tezgah_integrity.BEGAN_KIND): the PostToolUse hook writes the second, and
-    # one with no answer is a call whose outcome nobody saw. Through `note`, so
-    # the dry run writes none. `check` is decided here, from the whole command:
-    # the stored detail is cut at DETAIL_MAX, and a check past that cut read as
-    # no check at all.
-    if t in WRITE_TOOLS or t in BASH_TOOLS:
-        digest = call_id(tool, inp)
-        if digest:
-            command = str(inp.get("command") or inp.get("cmd") or "")
-            note(session_id, BEGAN_KIND,
-                 command or (write_paths(inp) or [""])[0],
-                 id=digest, tool=str(tool or "").strip() or None,
-                 workspace=base,
-                 check=1 if t in BASH_TOOLS and verify_command(command) else None)
     if capture and t in WRITE_TOOLS:
         try:
             capture(tool, inp, cwd, session_id)

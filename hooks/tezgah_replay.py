@@ -318,6 +318,16 @@ def build_corpus(cutoff, since=None):
         fname = canon_of[stem] + ".jsonl"
         order = list(range(len(rows)))
         turn_start = 0
+        # The gate writes a call's `began` before its rules (plan 051), so a
+        # call it refused has a `began` whose next row of the same id is the
+        # refusal: the call's live outcome is that `deny` (or nudge), not an allow.
+        refused, upcoming = set(), {}
+        for idx in range(len(rows) - 1, -1, -1):
+            digest, kind = rows[idx].get("id"), rows[idx].get("kind")
+            if kind == "began" and upcoming.get(digest) in ("deny", "nudge"):
+                refused.add(idx)
+            if digest:
+                upcoming[digest] = kind
         for idx, row in enumerate(rows):
             kind, detail = row.get("kind"), str(row.get("detail") or "")
             if kind == ti.TURN_KIND:
@@ -325,7 +335,9 @@ def build_corpus(cutoff, since=None):
             if kind not in ITEM_KINDS:
                 continue
             reason = None
-            if kind == "deny" and rule_of(detail) not in tg.DENY_RULES:
+            if idx in refused:
+                reason = "refused-began"
+            elif kind == "deny" and rule_of(detail) not in tg.DENY_RULES:
                 reason = "retired-rule"
             elif len(detail) >= ti.DETAIL_MAX:
                 reason = "capped"
