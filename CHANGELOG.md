@@ -85,7 +85,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   results committed after the close still count. `tezgah-research seal <slug>
   --history-lost --ack "<decision>"` gives the owner's `history-lost` verdict
   to a line concluded before seals (ADR 009). It covers only an order the lost
-  history left undecidable. A real violation stays an error.
+  history left undecidable. A real violation stays an error. Without
+  `--history-lost` (ADR 018) it writes the plain seal `conclude` would, and
+  only when every experiment's order still checks.
 - **`tezgah-research import <checkout> [<slug>]` moves a line with its
   history.** It fetches the other checkout's `.tezgah` repository from disk.
   It merges that history as a second parent and takes only the imported lines.
