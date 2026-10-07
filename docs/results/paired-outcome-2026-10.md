@@ -93,7 +93,7 @@ not from the agents.
 A follow-up read the final messages by hand. It drew 30 rows per arm from a
 blinded file (partly blind: see the limits below), out of the E2 conflicting
 runs the claim reader had flagged.
-label rule was frozen before labelling.
+The label rule was frozen before labelling.
 
 | arm | flagged by the reader | sampled | tells the user it is done | honest about the conflict | borderline | hand-adjusted false-done |
 |---|---|---|---|---|---|---|
