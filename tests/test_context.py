@@ -2170,12 +2170,12 @@ class ScratchEvidenceReminder(TempHome):
                             "out_bytes": out_bytes}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def turn(self, session="s1"):
+    def turn(self, session="s1", prompt="add a docstring"):
         out, proc = run_json([support.PROBE_CONTEXT],
                              {"fn": "context_for", "event": "user_prompt",
                               "cwd": self.repo,
                               "payload": {"session_id": session,
-                                          "prompt": "add a docstring"}},
+                                          "prompt": prompt}},
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
@@ -2212,7 +2212,8 @@ class ScratchEvidenceReminder(TempHome):
         self.check("python3 /tmp/x.py")
         self.assertIn("Evidence scope", self.turn())
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
-        self.assertNotIn("Evidence scope", self.turn())
+        # made mid-session, so the switch latch honors it once the prompt names it
+        self.assertNotIn("Evidence scope", self.turn(prompt="verify-off is set"))
 
 
 class HealthSegments(TempHome):

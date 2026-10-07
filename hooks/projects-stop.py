@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_guard import import_failed, safe  # noqa: E402
 try:
-    from tezgah_integrity import stop_reason  # noqa: E402
+    from tezgah_integrity import bind_session, stop_reason  # noqa: E402
     from tezgah_paths import off, root_for  # noqa: E402
 except Exception as exc:
     import_failed(exc)
@@ -37,12 +37,13 @@ def main():
         return
     if not isinstance(p, dict):
         return
+    session_id = p.get("session_id")
+    safe(session_id, bind_session, session_id)  # the switch latch (tezgah_paths.off)
     if off("verify-off"):
         return
     cwd = p.get("cwd") or os.getcwd()
     if not root_for(cwd):
         return
-    session_id = p.get("session_id")
     if p.get("hook_event_name") == "SubagentStop":
         safe(session_id, stop_reason, p.get("last_assistant_message"),
              session_id, cwd=cwd, subagent=True, agent=p.get("agent_id"))

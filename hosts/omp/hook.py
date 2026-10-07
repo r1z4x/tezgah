@@ -59,7 +59,7 @@ try:
         render_tiers, shell_kind, skill_read_kind)
     from tezgah_gate import decision  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
-        SUBAGENT_CHANNEL, note, note_tool, stop_reason, untrusted_label,
+        SUBAGENT_CHANNEL, bind_session, note, note_tool, stop_reason, untrusted_label,
         untrusted_source)
     from tezgah_paths import off, root_for  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
@@ -136,6 +136,7 @@ def handle(payload):
     event = payload.get("event") or ""
     cwd = payload.get("cwd") or os.getcwd()
     session_id = payload.get("session_id")
+    safe(session_id, bind_session, session_id)  # the switch latch (tezgah_paths.off)
     if event == "status":
         # turn end and the session switch: the probe runs, so the idx mark is
         # answered at every turn boundary

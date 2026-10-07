@@ -50,7 +50,8 @@ try:
         command_text, context_for, record, shell_kind, slug, under)
     from tezgah_gate import decision, explored  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
-        SUBAGENT_CHANNEL, note, note_tool, ran_nothing, report_bytes, stop_reason)
+        SUBAGENT_CHANNEL, bind_session, note, note_tool, ran_nothing, report_bytes,
+        stop_reason)
     from tezgah_paths import cache_dir, off  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
 except Exception as exc:
@@ -273,6 +274,7 @@ def dispatch(payload):
     cwd = cwd_of(payload)
     session_id = (payload.get("conversation_id") or payload.get("session_id")
                   or payload.get("parent_conversation_id"))
+    bind_session(session_id)  # the switch latch (tezgah_paths.off); dispatch runs in safe()
     kind = classify(payload, event)
     quiet = off("reminder-off")
 

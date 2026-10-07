@@ -37,7 +37,8 @@ try:
 except ImportError:  # not POSIX: the append stays unlocked, as it was before
     fcntl = None
 
-from tezgah_paths import _toplevel, cache_dir, off, reply_lang, root_for
+from tezgah_paths import (SWITCHES, _toplevel, cache_dir, latch, off, reply_lang,
+                          root_for)
 
 # A command that actually checks the change, as opposed to one that merely runs.
 # Command position, like UI_CHECK: `echo pytest` and `cat pytest.ini` were
@@ -473,6 +474,9 @@ PERMANENT_ERROR = re.compile(
 # (`tezgah_lessons.lesson_key`, absent when the gate could not read it), `source`
 # the channel the turn had read, `target` the ledger, `id` the call. The planned
 # `lesson_hit` row (plan 061 Phase B, not written yet) needs only `key` and `id`.
+# `authorized` is an `authorized` row's list of switch names the user's prompt
+# named (`note_turn`); the switch latch (`tezgah_paths.off`) honors a switch
+# made mid-session only when one of these rows names it.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -480,7 +484,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "summary_chars", "summary_hash",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
-                           "host", "switches", "harness"))
+                           "host", "switches", "harness", "authorized"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -1321,15 +1325,33 @@ def note_turn(session_id, prompt, workspace=None):
     ~90-byte append. A repeat of the same prompt after any ledger activity is a
     real new turn and writes its own marker.
 
+    The switch names the prompt carries as whole words go to an `authorized`
+    row first, from the prompt itself and before it is hashed: the switch latch
+    (`tezgah_paths.off`) honors a switch made mid-session only once the user
+    named it. Keyword match, not intent: "don't touch verify-off" names it too.
+
     ponytail: the same prompt re-sent as the very next thing, with no ledger row
     written in between, resets nothing - that direction can only deny too much,
     never too little."""
-    key = hashlib.sha1(str(prompt or "").encode("utf-8", "replace")
-                       ).hexdigest()[:12]
+    text = str(prompt or "")
+    key = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:12]
     rows = events(session_id, tail=1)
     if rows and rows[-1].get("kind") == "turn" and rows[-1].get("detail") == key:
         return
+    named = [n for n in SWITCHES
+             if re.search(r"(?<![\w.-])%s(?![\w-])" % re.escape(n), text)]
+    if named:
+        note(session_id, "authorized", workspace=workspace, authorized=named)
     note(session_id, "turn", key, workspace=workspace)
+
+
+def bind_session(session_id):
+    """Latch this process's `off()` to `session_id`'s ledger (`tezgah_paths.latch`).
+
+    Every hook entry that knows its session calls it before its first `off()`:
+    the gate (`decision`), the prompt path (`context_for`) and the host
+    adapters' Stop paths. No session id leaves the process unbound."""
+    latch(_path(session_id) if session_id else None)
 
 
 def note_compaction(session_id, summary, trigger=None, found=None, expected=None,

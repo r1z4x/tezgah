@@ -18,7 +18,7 @@ import tezgah_embed
 import tezgah_research
 from tezgah_guard import import_crash_mark
 from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
-                              _shell_segments,
+                              _shell_segments, bind_session,
                               changed_files, cut, last_check, note,
                               note_compaction, note_turn, redact, scratch_evidence,
                               UNTRUSTED_CHANNEL)
@@ -1910,12 +1910,10 @@ def context_for(event, cwd, payload=None, with_core=True):
     if event == "post_compact" or (event == "session_start" and isinstance(
             payload, dict) and payload.get("source") == "compact"):
         forget_seen(session_of(payload))
-    core, disabled = core_for(cwd)
-    # A disabled rule is also removed from the on-demand skill's reach, because
-    # the skill is loaded separately and would otherwise re-enable it.
-    off_note = ("Kill switches active this session: %s. Those rules are OFF; "
-                "ignore the matching section in the `tezgah-contract` skill."
-                % ", ".join(disabled)) if disabled else ""
+    # The switch latch: every off() below answers for this session, and a
+    # prompt's turn marker (with its `authorized` row) is written first, so a
+    # switch the user's prompt names is honored from this very turn.
+    bind_session(session_of(payload))
     if event == "user_prompt":
         # One marker per user turn, written before the reminder check: the loop
         # guard counts an identical call's failures in the current turn only, so
@@ -1923,9 +1921,16 @@ def context_for(event, cwd, payload=None, with_core=True):
         # guard state rather than part of the reminder. Only a hash of the prompt
         # is stored - note_turn keys the row on it so one submission cannot write
         # two markers and hide the failures the guard had just counted.
+        note_turn(session_of(payload), prompt_text(payload), workspace=root_for(cwd))
+    core, disabled = core_for(cwd)
+    # A disabled rule is also removed from the on-demand skill's reach, because
+    # the skill is loaded separately and would otherwise re-enable it.
+    off_note = ("Kill switches active this session: %s. Those rules are OFF; "
+                "ignore the matching section in the `tezgah-contract` skill."
+                % ", ".join(disabled)) if disabled else ""
+    if event == "user_prompt":
         prompt = prompt_text(payload)
         session_id = session_of(payload)
-        note_turn(session_id, prompt, workspace=root_for(cwd))
         # the taste capture (tezgah_taste), opt-in: off, one marker stat
         if tezgah_taste:
             host = (payload or {}).get("host") if isinstance(payload, dict) else None
@@ -2706,6 +2711,8 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
     idx_override: an idx glyph the host already resolved (one of "✓↻✗?–"), for a
     redraw that must not fork git for a cosmetic line - omp re-renders on every
     turn_end and tool_result. None probes as before; the other marks stay live."""
+    if session_id:
+        bind_session(session_id)  # the marks show the switches this session honors
     base, marks = repo_marks(cwd)
     seen = set(used_override) if used_override is not None else used(session_id)
     flags = [

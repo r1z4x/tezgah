@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 import unittest
 from unittest import mock
 
@@ -1671,6 +1672,38 @@ class PartialUninstallGate(SetupBase):
         proc = self.setup("--uninstall", "--hosts", "omp,codex")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("gate stood down", proc.stdout)
+
+    def test_a_full_uninstall_stands_down_a_latched_session(self):
+        """The carve-out of the switch latch (plan 051): a running session's
+        `off()` ignores a switch made after its first ledger row, and the full
+        uninstall writes `pretooluse-off` mid-session on purpose. Read at the
+        moment the teardown starts, in a process latched to a session that
+        began before the run, the stand-down the real uninstall wrote is
+        honored; an empty file in its place is not."""
+        self.assertEqual(self.setup("--install", "--hosts", "omp,codex").returncode, 0)
+        ledger = self.path("latched.jsonl")
+        with open(ledger, "w") as fh:
+            fh.write(json.dumps({"kind": "attest", "ts": int(time.time()) - 100})
+                     + "\n")
+        runner = (
+            "import importlib.machinery, importlib.util, json, sys\n"
+            "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+            "m = importlib.util.module_from_spec(importlib.util.spec_from_loader('s', l))\n"
+            "l.exec_module(m)\n"
+            "m.tp.latch(%r)\n"
+            "seen = []\n"
+            "def common():\n"
+            "    seen.append(m.tp.off('pretooluse-off'))\n"
+            "    open(m.os.path.join(m.tp.CONFIG_DIR, 'pretooluse-off'), 'w').close()\n"
+            "    seen.append(m.tp.off('pretooluse-off'))\n"
+            "    raise SystemExit(json.dumps(seen))\n"
+            "m.uninstall_common = common\n"
+            "m.uninstall(['omp', 'codex'])\n" % (SETUP, ledger))
+        proc = subprocess.run([sys.executable, "-c", runner], env=self.env,
+                              capture_output=True, text=True, timeout=120)
+        self.assertIn("gate stood down", proc.stdout)
+        self.assertEqual(json.loads(proc.stderr.strip().splitlines()[-1]),
+                         [True, False], proc.stdout + proc.stderr)
 
 
 class CodexHookTrust(SetupBase):

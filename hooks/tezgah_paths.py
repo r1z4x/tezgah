@@ -563,9 +563,94 @@ def reply_lang():
     return value if value in REPLY_LANGS else "tr"
 
 
+# Switch latching (plan 051, ADR 018). A hook process that knows its session
+# binds the session's ledger here (`tezgah_integrity.bind_session`), and from
+# then on `off()` ignores a switch file whose ctime or mtime is newer than the
+# ledger's first row: the agent being judged writes files too, and a switch it
+# made mid-session would otherwise disarm the rule judging it. ctime is the
+# point - `touch -t` backdates mtime, never ctime. Three ways through:
+# - the user's own prompt named the switch (an `authorized` row, `note_turn`);
+# - the file is `tezgah-setup --uninstall --full`'s stand-down (STAND_DOWN),
+#   which writes pretooluse-off mid-session on purpose;
+# - the file is within the first row's second: the row's `ts` is whole seconds.
+# An unbound process (every CLI, a hook with no session id) answers as before.
+# ponytail: the first two are bytes the agent can also write (an
+# `authorized` row, the stand-down text) - the control rule refuses the routes
+# the gate sees, and an interpreter writing them is SECURITY.md's residual.
+STAND_DOWN = "tezgah-setup --uninstall --full\n"
+_LATCH = {"ledger": None, "since": None, "auth": None}
+
+
+def latch(ledger):
+    """Bind this process's `off()` to one session's ledger path (None unbinds)."""
+    _LATCH.update(ledger=ledger, since=None, auth=None)
+
+
+def _first_ts(ledger):
+    try:
+        with open(ledger, "rb") as fh:
+            ts = json.loads(fh.readline()).get("ts")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return ts if isinstance(ts, (int, float)) else None
+
+
+def _authorized(ledger):
+    """The switch names this session's `authorized` rows carry, memoized on
+    the ledger's size: read only when a switch is newer than the first row."""
+    try:
+        size = os.path.getsize(ledger)
+    except OSError:
+        return frozenset()
+    memo = _LATCH["auth"]
+    if memo and memo[0] == size:
+        return memo[1]
+    names = set()
+    try:
+        with open(ledger, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if '"authorized"' not in line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if row.get("kind") == "authorized" and isinstance(
+                        row.get("authorized"), list):
+                    names.update(n for n in row["authorized"] if isinstance(n, str))
+    except OSError:
+        return frozenset()
+    _LATCH["auth"] = (size, frozenset(names))
+    return _LATCH["auth"][1]
+
+
+def _honored(path, name):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    ledger = _LATCH["ledger"]
+    if not ledger:
+        return True
+    if _LATCH["since"] is None:
+        _LATCH["since"] = _first_ts(ledger)
+    since = _LATCH["since"]
+    if since is None or max(st.st_mtime, st.st_ctime) < since + 1:
+        return True
+    if name == "pretooluse-off":
+        try:
+            with open(path, encoding="utf-8") as fh:
+                if fh.read(len(STAND_DOWN) + 1) == STAND_DOWN:
+                    return True
+        except (OSError, UnicodeDecodeError):
+            pass
+    return name in _authorized(ledger)
+
+
 def off(name):
-    """A kill switch, canonical (~/.config/tezgah) or legacy (~/.claude)."""
-    return any(os.path.exists(os.path.join(d, name)) for d in OFF_DIRS)
+    """A kill switch, canonical (~/.config/tezgah) or legacy (~/.claude),
+    latched to the bound session (see `latch`)."""
+    return any(_honored(os.path.join(d, name), name) for d in OFF_DIRS)
 
 
 def armed(name):

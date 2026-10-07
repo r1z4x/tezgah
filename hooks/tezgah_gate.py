@@ -99,7 +99,7 @@ import time
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               GIT_WRAPPER, HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
                               PLAIN_TAIL, SECRET_PREFIXED, STEP_KINDS,
-                              WRITE_TOOLS, _blank_heredocs, _heredocs,
+                              WRITE_TOOLS, _blank_heredocs, _heredocs, bind_session,
                               _shell_lines, _shell_segments, _turn_start,
                               _unquoted_backticks, call_id, cut, events,
                               heredoc_bodies, mask, mcp_class, mcp_text, note,
@@ -2330,6 +2330,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     `agent` is the host's subagent id when the call came from one (Claude's
     `agent_id`): the repeat ceilings count that agent's own attempts, so one
     sibling's failures are not spent as another's."""
+    bind_session(session_id)  # the switch latch: off() below answers for this session
     if not record:
         return _dry_decision(tool, inp, cwd, session_id, agent)
     if off("pretooluse-off"):
