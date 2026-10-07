@@ -313,6 +313,13 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    has only its words as the trigger. There a claim word inside a question or under a negation in
    its own clause is no claim (`asserted_claims`). Examples: "testler geçti mi?", "is it done?",
    "not tested yet", "tamamlandı değil". "Tamamlandı, push edeyim mi?" still claims.
+   A prose edit is no step and no change (`hooks/tezgah_integrity.py::_prose_edit`,
+   `hooks/tezgah_integrity.py::_work_row`). Such an `edit` row has a real `target` ending in
+   `.md`, `.markdown`, `.rst` or `.adoc`. It owes no check and does not stale a pass. An agent
+   instruction file is not prose: `SKILL.md`, `AGENTS.md`, `CLAUDE.md` and anything under
+   `skills/`, `prompts/`, `agents/`, `commands/` or a host directory stay a change. A reply that
+   claims a test ran ("tested", "tüm testler geçti") still needs a pass after a prose-only turn.
+   A comment-only edit to code is still a change: the row carries no text to tell it apart.
 10. **no external read** — the reply states the state of a system tezgah does not own — a registry,
    a release, a tag, a formula, a CI run — and no read of that system ran in the same turn
    (`hooks/tezgah_integrity.py::_external_claim`, over `EXTERNAL_SYSTEM`/`EXTERNAL_STATE`

@@ -276,6 +276,9 @@ VERIFIED = re.compile(
     r"\b(tested|verified|i ran|ran the (?:tests?|suite|build|lint|checks?)|"
     r"doğruladım|test ettim|kontrol ettim|denetledim|doğrulandı|test edildi)\b",
     re.I)
+# The DONE forms that say a check passed ("all tests pass", "testler yeşil"):
+# such a claim rests on a pass even when the turn only edited prose.
+TESTED_WORD = re.compile(r"test|check|suite", re.I)
 # an explicit admission that removes the lie: an unverified claim is allowed
 NEGATED = re.compile(
     r"doğrulanmadı|doğrulamadım|unverified|not verified|could ?n[o']t verify|"
@@ -3587,6 +3590,43 @@ def _changed_write(row):
     return "hash" in row and "changed" not in row
 
 
+# Prose a person reads and no program runs: a write tool's edit to one owes no
+# check and does not stale a pass (`_prose_edit`). The owner's rule (2026-10-07)
+# is "a non-code change needs no suite", and the stale branch on a NOTES.md
+# written after green moved no outcome (PREREGISTRATION-E8 F3: 17/25 against
+# 18/25). `.txt` is not here: requirements.txt is code by another name.
+PROSE_EXT = (".md", ".markdown", ".rst", ".adoc")
+# Markdown an agent loads as instructions is the product, not prose: these names
+# and anything under these directories stay a change like any code file.
+INSTRUCTION_NAMES = frozenset(("skill.md", "agents.md", "claude.md", "gemini.md",
+                               "copilot-instructions.md", "rules.md"))
+INSTRUCTION_DIRS = frozenset(("skills", "prompts", "templates", "agents",
+                              "commands", "output-styles", "hooks", ".claude",
+                              ".cursor", ".codex", ".omp", ".github"))
+
+
+def _prose_edit(row):
+    """True for a write tool's `edit` row whose real target is prose
+    (`PROSE_EXT`) and not an agent instruction file (`INSTRUCTION_NAMES`,
+    `INSTRUCTION_DIRS`). The target is the realpath `note_tool` stored, so a
+    `.md` link over a code file is judged by the file it writes; a row with no
+    target is never prose. ponytail: a comment-only edit to a code file is
+    still a change - telling it apart needs the file's text before and after,
+    which the row does not carry."""
+    target = row.get("target")
+    if row.get("kind") != "edit" or not target:
+        return False
+    parts = str(target).replace("\\", "/").lower().split("/")
+    return (parts[-1].endswith(PROSE_EXT) and parts[-1] not in INSTRUCTION_NAMES
+            and not INSTRUCTION_DIRS.intersection(parts[:-1]))
+
+
+def _work_row(row):
+    """True when the row is one step of work a check is owed for: a `WORK_KINDS`
+    row that is not a prose edit (`_prose_edit`)."""
+    return str(row.get("kind")) in WORK_KINDS and not _prose_edit(row)
+
+
 def _change_row(row):
     """True when this row is one the freshness fold counts as a change to the
     tree: a write tool's `edit` row, a shell call that wrote a file (`run`), or
@@ -3602,9 +3642,9 @@ def _change_row(row):
     check in one call (`sed -i ... && pytest`, `ruff format . && pytest`) records
     as the check, so it is not read as a change; a write whose target is not a
     redirect carries no captured state either (tezgah_gate.write_paths names
-    both ceilings)."""
+    both ceilings). A prose edit (`_prose_edit`) is never one either."""
     kind = str(row.get("kind"))
-    return kind in ("edit", "run") and (
+    return kind in ("edit", "run") and not _prose_edit(row) and (
         _changed_write(row)
         or (kind == "run" and format_write(str(row.get("detail") or ""))))
 
@@ -3663,7 +3703,7 @@ def _stale_paths(rows):
     with no file named at all."""
     names = []
     for row in rows[_last_pass(rows) + 1:]:
-        if row.get("kind") == "edit" and _changed_write(row):
+        if row.get("kind") == "edit" and _change_row(row):
             name = str(row.get("detail") or "").strip()
             if len(name) > 80:
                 name = "..." + name[-77:]
@@ -4441,7 +4481,7 @@ def _bookkeeping_turn(rows):
     cut it there, and the command after the cut is unread (review F1). Nor is
     one that holds a redaction marker: the marker can swallow the rest of a
     word and what was glued to it (`echo token=x;./regen.sh`, review N3)."""
-    steps = [r for r in rows if str(r.get("kind")) in WORK_KINDS]
+    steps = [r for r in rows if _work_row(r)]
     return bool(steps) and all(
         r.get("kind") == "run" and not _change_row(r)
         and len(str(r.get("detail") or "")) < DETAIL_MAX
@@ -4456,7 +4496,7 @@ def _settled(rows):
     last = _last_pass(rows)
     if last < 0:
         return False
-    after = [r for r in rows[last + 1:] if str(r.get("kind")) in WORK_KINDS]
+    after = [r for r in rows[last + 1:] if _work_row(r)]
     return not after or _bookkeeping_turn(after)
 
 
@@ -4528,7 +4568,6 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
         return ("evidence tampered", TAMPERED)
     if (done or verified) and any(r.get(ORPHAN) for r in rows):
         return ("evidence tampered", ORPHANED)
-    ev = {str(entry.get("kind")) for entry in rows}
     # The trigger is the turn's own evidence, not its words. The claim vocabulary
     # below catches a claim-shaped reply; it missed the same unfounded state
     # stated as a description ("the parser is wired up now"), which is what E2
@@ -4541,7 +4580,12 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # owes the check it never got - which is the `no verify_ok` floor below and
     # not the partial-failure branch above it, because an interruption is no
     # failure at all (the row carries no `exit`).
-    worked = ev & WORK_KINDS
+    # A prose edit (`_prose_edit`) is no step a check is owed for - unless the
+    # reply says something was tested or checked, a claim that rests on a pass.
+    worked = {str(r.get("kind")) for r in rows if _work_row(r)}
+    if not worked and any(_prose_edit(r) for r in rows) and (
+            verified or any(TESTED_WORD.search(m.group(0)) for m in DONE.finditer(t))):
+        worked = {"edit"}
     if not worked:
         # With no work, the words are the whole trigger, so a question or a
         # negation is not read as the claim it names (`asserted_claims`).
@@ -4599,7 +4643,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
             # allowed on all five Stop hosts (audit INT-01 / M-2).
             prior = _before_turn(events(session_id))
             refused = fold(
-                prior, {str(r.get("kind")) for r in prior} & WORK_KINDS, None,
+                prior, {str(r.get("kind")) for r in prior if _work_row(r)}, None,
                 "this session")
             if refused[0]:
                 return refused
@@ -4624,7 +4668,7 @@ def _before_turn(rows):
         if row.get("kind") == TURN_KIND:
             pending = row
             continue
-        if pending is not None and str(row.get("kind")) in WORK_KINDS:
+        if pending is not None and _work_row(row):
             out.append(pending)
             pending = None
         out.append(row)
@@ -4732,8 +4776,9 @@ def _evidence_block(rows, worked, external, where="this turn"):
         return ("stale evidence",
                 "Stale evidence: the newest check that passed ran before %s %s "
                 "written, so it verified an earlier revision of the tree than the "
-                "one this reply is about. Re-run the check over what is on disk "
-                "now and report its output, or mark the claim \"doğrulanmadı\". "
+                "one this reply is about. Re-run the smallest check that covers "
+                "the files written since (their own tests, not the whole suite) "
+                "and report its output, or mark the claim \"doğrulanmadı\". "
                 "A green run over the previous revision does not cover this one."
                 % (shown or "a file this session wrote",
                    "was" if len(names) <= 1 else "were"))
@@ -4753,8 +4798,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "%s did work (edits or commands) and no check ran "
                 "successfully in it (nothing recorded as verify_ok with a "
                 "real result and an unmasked command), so nothing here supports "
-                "calling it done, complete or verified. Run the real check and "
-                "report its output, or mark the claim \"doğrulanmadı\". Do not "
+                "calling it done, complete or verified. Run the smallest check "
+                "that proves the change (the tests of what changed, not the "
+                "whole suite) and report its output, or mark the claim "
+                "\"doğrulanmadı\". Do not "
                 "describe a check you did not run as if it ran."
                 % where.capitalize())
     # Last, so none of the classes above loses its turn to it: every shape this

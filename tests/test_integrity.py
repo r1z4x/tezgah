@@ -4407,6 +4407,43 @@ class StopRuleRest(unittest.TestCase):
         self.assertFalse(ti._change_row({"kind": "verify_ok",
                                          "detail": "ruff format . && pytest"}))
 
+    # ---- a prose edit owes no check (owner, 2026-10-07: "a non-code change
+    # needs no suite"; the stale branch on a NOTES.md written after green moved
+    # no outcome, 17/25 against 18/25, PREREGISTRATION-E8 F3) -------------------
+    def write(self, rel, text="x\n"):
+        path = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tz.capture("Edit", {"file_path": path}, self.repo, "s")
+        with open(path, "a") as fh:
+            fh.write(text)
+        ti.note_tool("s", "Edit", {"file_path": path}, failed=False, cwd=self.repo)
+        return ti.events("s")[-1]
+
+    def test_a_prose_edit_after_a_pass_does_not_stale_it(self):
+        self.edit()
+        self.shell("pytest -q")
+        self.write("docs/notes.md")
+        self.write("README.rst")
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_prose_only_turn_owes_no_check_for_done_but_does_for_tested(self):
+        self.write("README.md")
+        self.assertIsNone(ti.stop_reason("Tamamlandı, README güncellendi.", "s"))
+        # a claim that something was tested still needs the pass it names
+        self.assertIn("did work", ti.stop_reason(self.CLAIM, "s"))
+
+    def test_instruction_markdown_and_a_prose_link_to_code_stay_changes(self):
+        # an agent instruction file is the product a prompt loads, and a `.md`
+        # name over a code file is judged by the file it writes
+        os.symlink(self.target, os.path.join(self.repo, "notes.md"))
+        for rel in ("AGENTS.md", "skills/x/SKILL.md", "prompts/p.md", "notes.md"):
+            with self.subTest(rel=rel):
+                self.reset()
+                self.edit()
+                self.shell("pytest -q")
+                self.assertTrue(ti._change_row(self.write(rel)))
+                self.assertIn("Stale evidence", ti.stop_reason(self.CLAIM, "s"))
+
     def test_an_empty_run_is_no_pass(self):
         for text in ({"stdout": "== test session starts ==\ncollected 0 items\n\n"
                                 "== no tests ran in 0.01s =="},
