@@ -3181,9 +3181,9 @@ def changed_files(session_id):
 BEGAN_KIND = "began"
 # The rows that answer a `began` one: the kinds `note_tool` writes, and a `deny`
 # - the gate's own refusal of the call, or opencode's: it asks the core first
-# (which writes `began`) and may still refuse the call with a rule of its own.
-# Either way the call never ran.
-OUTCOME_KINDS = frozenset(STEP_KINDS) | {"external", "unknown", "deny"}
+# (which writes `began`) and may refuse the call with a rule of its own - and a
+REFUSAL_KINDS = frozenset(("deny", "nudge"))  # `nudge`: the call never ran
+OUTCOME_KINDS = frozenset(STEP_KINDS) | {"external", "unknown"} | REFUSAL_KINDS
 
 
 def _began_fold(rows):
@@ -3201,7 +3201,7 @@ def _began_fold(rows):
             waiting.setdefault(digest, []).append(row)
         elif kind in OUTCOME_KINDS and waiting.get(digest):
             began = waiting[digest].pop(0)
-            if kind != "deny":
+            if kind not in REFUSAL_KINDS:
                 delivered.add(began.get("tool"))
     return [row for rows_ in waiting.values() for row in rows_], delivered
 
@@ -5011,7 +5011,7 @@ def _pair(rows, path, lines, before=()):
             return None
         if kind not in OUTCOME_KINDS or not waiting.get(digest):
             return None
-        if kind != "deny" and row.get("exit") is None:
+        if kind not in REFUSAL_KINDS and row.get("exit") is None:
             return None
         return waiting[digest].pop(0)
 

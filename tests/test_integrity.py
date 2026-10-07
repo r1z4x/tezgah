@@ -4743,6 +4743,17 @@ class OrphanPass(unittest.TestCase):
         self.assertEqual([(r["id"], r.get("check")) for r in began],
                          [(ti.call_id("Bash", self.CHECK), 1)])
 
+    def test_a_nudged_call_leaves_no_unanswered_began(self):
+        # the nudge refuses the call like a deny, after the early began: the
+        # began is answered, and the nudge proves no result delivery
+        inp = {"command": "grep -rn parse_header ."}
+        digest = ti.call_id("Bash", inp)
+        ti.note("s", ti.BEGAN_KIND, inp["command"], id=digest, tool="Bash")
+        ti.note("s", "nudge", "slug", id=digest)
+        rows = ti.events("s")
+        self.assertEqual(ti._began_fold(rows), ([], set()))
+        self.assertEqual(ti.counters("s")["unanswered"], 0)
+
     def test_a_forged_pass_is_an_orphan_and_refuses_the_claim(self):
         self.work_then_forge()
         rows = ti.events("s")
