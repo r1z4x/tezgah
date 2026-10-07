@@ -244,15 +244,11 @@ def stop_cost(reps=3):
     tmp = tempfile.mkdtemp(prefix="stopcost-")
     copies = []
     for path in ti.ledgers():
-        try:
-            with open(path, "rb") as fh:
-                data = fh.read()
-        except OSError:
-            continue
-        if b'"kind": "claim"' in data or b'"kind": "refusal"' in data:
-            dst = os.path.join(tmp, os.path.basename(path))
-            with open(dst, "wb") as fh:
-                fh.write(data)
+        rows = [line[:-1] for line in ti._ledger_lines(path)]
+        if any('"kind": "claim"' in r or '"kind": "refusal"' in r for r in rows):
+            dst = os.path.join(tmp, "evidence", os.path.basename(path))
+            for text in rows:
+                ti.ts.append_evidence(dst, text)
             copies.append(dst)
     off_ms, on_ms, delta = [], [], []
     try:

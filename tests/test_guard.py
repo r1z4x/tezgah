@@ -13,7 +13,6 @@ The crash is also asserted to be *recorded*: a swallowed fault that leaves no ro
 is indistinguishable from a rule that never fired, which is the reason the gate
 records every refusal it makes (hooks/tezgah_gate._deny).
 """
-import glob
 import hashlib
 import json
 import os
@@ -100,11 +99,7 @@ class EntryPoints(TempHome):
         root = self.make_repo()
         name, hook, module, function, payload = self.rows(root)[0]
         self.probe(hook, module, function, payload, root)
-        rows = []
-        for path in glob.glob(os.path.join(self.home, ".cache", "tezgah",
-                                           "evidence", "*.jsonl")):
-            with open(path) as fh:
-                rows += [json.loads(line) for line in fh if line.strip()]
+        rows = support.all_ledger_rows(os.path.join(self.home, ".cache", "tezgah"))
         crashes = [r for r in rows if r.get("kind") == "crash"]
         self.assertTrue(crashes, "no crash row was written: %r" % rows)
         self.assertIn("decision", crashes[0].get("detail", ""))
@@ -168,12 +163,7 @@ class ImportGuard(TempHome):
             timeout=60)
 
     def rows(self):
-        rows = []
-        for path in glob.glob(os.path.join(self.home, ".cache", "tezgah",
-                                           "evidence", "*.jsonl")):
-            with open(path) as fh:
-                rows += [json.loads(line) for line in fh if line.strip()]
-        return rows
+        return support.all_ledger_rows(os.path.join(self.home, ".cache", "tezgah"))
 
     def expected_code(self, name):
         # `tezgah-gate check` is asked for a verdict: an empty answer with exit

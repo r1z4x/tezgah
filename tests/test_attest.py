@@ -55,8 +55,7 @@ class AttestBase(TempHome):
         self.assertEqual(proc.stdout, "", "attest must print nothing")
         path = os.path.join(self.home, ".cache", "tezgah", "evidence",
                             ti._slug(session) + ".jsonl")
-        with open(path) as fh:
-            rows = [json.loads(line) for line in fh if line.strip()]
+        rows = support.ledger_rows(path)
         attest = [r for r in rows if r["kind"] == "attest"]
         self.assertEqual(len(attest), 1, rows)
         mark = os.path.join(self.home, ".cache", "tezgah", "harness-drift", "%s.%s" % (

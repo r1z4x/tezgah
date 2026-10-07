@@ -491,7 +491,7 @@ class TurnRows(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "%s.jsonl" % session)
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "%s.jsonl" % session)
 
     def path(self, session):
         return ti._path(session)
@@ -530,10 +530,13 @@ class TurnRows(unittest.TestCase):
                          ["external"])
 
     def test_a_half_written_marker_line_is_not_a_turn(self):
-        # A killed process leaves half a line, and the marker's text can be in
-        # it. The line is not a row - `events` drops it - so a scan that treated
-        # its text as a marker would start the turn past the end of the ledger
-        # and answer about a turn with nothing in it.
+        # A killed process leaves half a line in a legacy JSONL ledger, and the
+        # marker's text can be in it. The line is not a row - the import leaves
+        # it out - so a scan that treated its text as a marker would start the
+        # turn past the end of the ledger and answer about a turn with nothing
+        # in it.
+        os.makedirs(os.path.dirname(self.path("s")))
+        open(self.path("s"), "w").close()
         self.seed("s", [("turn", "abc"), ("run", "make")])
         with open(self.path("s"), "a") as fh:
             fh.write('{"kind": "turn"')

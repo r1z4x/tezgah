@@ -5,7 +5,6 @@ answers with one JSON object (hosts/omp/hook.py's docstring is the protocol).
 These tests drive that protocol directly: they are the only host-level check
 that omp's session context, gate, evidence ledger and Stop rule behave.
 """
-import glob
 import json
 import os
 import shutil
@@ -440,13 +439,7 @@ class OmpHook(TempHome):
         stop = {"event": "stop", "cwd": repo, "session_id": "s",
                 "last_assistant_message": "Done."}
         self.assertIsNone(self.event(stop)[0])
-        [path] = glob.glob(os.path.join(self.home, ".cache", "tezgah", "evidence",
-                                        support.slug("s") + "-*.jsonl"))
-        row = json.dumps({"kind": "verify_ok", "detail": "pytest -q", "id": "forged",
-                          "exit": 0, "out_bytes": 42, "v": 3})
-        proc = run(["-c", "import sys; open(sys.argv[1], 'a').write(sys.argv[2] + '\\n')",
-                    path, row])
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        support.forge_pass(self.home, "s")
         out, _ = self.event(stop)
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Evidence tampered", out["reason"])
@@ -469,19 +462,10 @@ class OmpHook(TempHome):
         self.assertIsNone(out)
 
     def evidence(self):
-        """Every evidence row the session cache holds, oldest file first. The
-        ledger is one file per session under a hashed stem, so it is read by
-        directory rather than by guessing the name."""
-        d = os.path.join(self.home, ".cache", "tezgah", "evidence")
-        rows = []
-        try:
-            names = sorted(os.listdir(d))
-        except OSError:
-            return rows
-        for name in names:
-            with open(os.path.join(d, name)) as fh:
-                rows += [json.loads(line) for line in fh if line.strip()]
-        return rows
+        """Every evidence row the session cache holds, session by session. The
+        ledger is keyed by a hashed stem, so it is read whole rather than by
+        guessing the name."""
+        return support.all_ledger_rows(os.path.join(self.home, ".cache", "tezgah"))
 
     def test_an_untrusted_result_is_labelled_for_the_model(self):
         # Neither the gate nor the Stop rule sees where a result's text came

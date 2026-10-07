@@ -74,6 +74,33 @@ def ledger_sessions(cache):
         conn.close()
 
 
+def all_ledger_rows(cache):
+    """Every session's rows in `<cache>/tezgah.db`, session by session."""
+    return [row for session in ledger_sessions(cache)
+            for row in ledger_rows(os.path.join(cache, "evidence", session + ".jsonl"))]
+
+
+def forge_row(path, row):
+    """`row` inserted into the evidence ledger at `path` by a separate
+    interpreter, the way a session forges one outside the hooks; the process."""
+    db = os.path.join(os.path.dirname(os.path.dirname(path)), "tezgah.db")
+    return run(["-c", "import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); "
+                "c.execute('INSERT INTO evidence (session, kind, row) VALUES (?, ?, ?)', "
+                "(sys.argv[2], sys.argv[3], sys.argv[4])); c.commit()",
+                db, os.path.basename(path)[:-len(".jsonl")], row.get("kind"), json.dumps(row)])
+
+
+def forge_pass(home, session):
+    """A passing `verify_ok` row forged into `session`'s ledger under `home`
+    through `python3 -c`, the interpreter route no hook sees (plan 051)."""
+    cache = os.path.join(home, ".cache", "tezgah")
+    [stem] = [s for s in ledger_sessions(cache) if s.startswith(slug(session) + "-")]
+    proc = forge_row(os.path.join(cache, "evidence", stem + ".jsonl"),
+                     {"kind": "verify_ok", "detail": "pytest -q", "id": "forged",
+                      "exit": 0, "out_bytes": 42, "v": 3})
+    assert proc.returncode == 0, proc.stderr
+
+
 def seed_ledger(path, rows, append=False):
     """Write `rows` (dicts) as the evidence ledger at `path` through the store, the
     way `tezgah_integrity._append` stores a row; the session's earlier rows go

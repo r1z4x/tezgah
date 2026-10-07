@@ -1,5 +1,4 @@
 """hosts/cursor/hook.py: event translation and the shared gate."""
-import glob
 import json
 import os
 import re
@@ -263,13 +262,7 @@ class CursorHook(TempHome):
                        tool_output='{"exitCode":0,"stdout":"5 passed"}'))
         self.response("Done. All tests pass.")
         self.assertEqual(self.stop(), {})
-        [path] = glob.glob(os.path.join(self.home, ".cache", "tezgah", "evidence",
-                                        support.slug("s") + "-*.jsonl"))
-        row = json.dumps({"kind": "verify_ok", "detail": "pytest -q", "id": "forged",
-                          "exit": 0, "out_bytes": 42, "v": 3})
-        proc = support.run(["-c", "import sys; open(sys.argv[1], 'a')"
-                            ".write(sys.argv[2] + '\\n')", path, row])
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        support.forge_pass(self.home, "s")
         self.response("Done. All tests pass.")
         out = self.stop()
         self.assertEqual(out.get("decision"), "block")

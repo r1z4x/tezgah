@@ -578,10 +578,12 @@ class Gate(TempHome):
 
     def test_a_damaged_foreign_ledger_does_not_turn_the_write_gate_off(self):
         # audit GAP-02 / M-7: one `[1,2]` row in any recent ledger raised out of
-        # the race reader, and every write of every session went through
+        # the race reader, and every write of every session went through; the
+        # damaged ledgers here are legacy JSONL files the read imports
         self.wrote("writer", "x.py", self.repo)
         for name, junk in (("bad-list", "[1, 2]\n"), ("bad-json", "{oops\n")):
             path = self.ledger_path(name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w") as fh:
                 fh.write(junk)
         reason = self.decide("Write", {"file_path": "x.py"}, session_id="mine")
@@ -1360,35 +1362,35 @@ class Gate(TempHome):
     LONG = 60
 
     def ledger(self, session, kind="turn"):
-        """The ledger file a session's rows land in, found rather than derived:
-        the stem is tezgah_integrity._slug's, and a test that re-implemented it
-        would stop testing the file the hooks actually read. The file the marker
-        row lands in is the one that grew, so one test may seed several sessions
-        - and seed one session twice - without knowing any of their stems.
+        """The ledger a session's rows land in, found rather than derived: the
+        stem is tezgah_integrity._slug's, and a test that re-implemented it
+        would stop testing the ledger the hooks actually read. The ledger the
+        marker row lands in is the one that grew, so one test may seed several
+        sessions - and seed one session twice - without knowing any of their
+        stems.
 
-        `kind` is the row written to find the file: `turn` (the default) opens a
-        new turn, a work kind appends to the turn already open, which is the one
-        way a fixture reaches a turn longer than the drift count's window."""
-        d = os.path.join(self.home, ".cache", "tezgah", "evidence")
-        before = {}
-        if os.path.isdir(d):
-            before = {n: os.path.getsize(os.path.join(d, n))
-                      for n in os.listdir(d)}
+        `kind` is the row written to find the ledger: `turn` (the default) opens
+        a new turn, a work kind appends to the turn already open, which is the
+        one way a fixture reaches a turn longer than the drift count's window."""
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        d = os.path.join(cache, "evidence")
+
+        def sizes():
+            return {s: len(support.ledger_rows(os.path.join(d, s + ".jsonl")))
+                    for s in support.ledger_sessions(cache)}
+        before = sizes()
         run_json([support.PROBE_INTEGRITY],
                  {"fn": "note", "session": session, "kind": kind,
                   "detail": "seed"}, env=self.envv)
-        grew = [n for n in sorted(os.listdir(d))
-                if before.get(n) != os.path.getsize(os.path.join(d, n))]
+        grew = [s for s, n in sorted(sizes().items()) if before.get(s) != n]
         self.assertEqual(len(grew), 1, grew)
-        return os.path.join(d, grew[0])
+        return os.path.join(d, grew[0] + ".jsonl")
 
     def seed_turn(self, session, steps):
         """One user turn's ledger: the turn marker, then `steps` work rows."""
-        path = self.ledger(session)
-        with open(path, "a") as fh:
-            for i in range(steps):
-                fh.write(json.dumps({"kind": "run", "ts": int(time.time()),
-                                     "detail": "step %d" % i}) + "\n")
+        support.seed_ledger(self.ledger(session), [
+            {"kind": "run", "ts": int(time.time()), "detail": "step %d" % i}
+            for i in range(steps)], append=True)
 
     def write_call(self, session, path="a.py"):
         return self.decide("Edit", {"file_path": path, "old_string": "x",
@@ -1472,10 +1474,9 @@ class Gate(TempHome):
         self.seed_turn("grew", self.LONG)
         self.assertIsNotNone(self.write_call("grew"))
         path = self.ledger("grew", kind="run")  # the same turn, one more step
-        with open(path, "a") as fh:
-            for i in range(tg.DRIFT_TAIL):
-                fh.write(json.dumps({"kind": "run", "ts": int(time.time()),
-                                     "detail": "more %d" % i}) + "\n")
+        support.seed_ledger(path, [{"kind": "run", "ts": int(time.time()),
+                                    "detail": "more %d" % i}
+                                   for i in range(tg.DRIFT_TAIL)], append=True)
         # the turn's own marker and the drift row are both older than the window
         self.assertIsNone(self.write_call("grew", path="b.py"))
         self.assertEqual([r["kind"] for r in self.rows("grew")

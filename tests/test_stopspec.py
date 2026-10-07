@@ -141,7 +141,7 @@ class Shadow(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ledger = os.path.join(self.dir, "s.jsonl")
+        ledger = os.path.join(self.dir, "evidence", "s.jsonl")
         ti._path = lambda session: ledger
         os.environ.pop(ss.STRICT, None)
         ti.note_turn("s", "do it")

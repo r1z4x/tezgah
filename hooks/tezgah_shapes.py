@@ -212,7 +212,7 @@ def rule_yield(files=None, shipped=None):
     `rule_ship_times()`. Fixture ledgers are left out by `ti.fixture_ledger`, the
     exclusion `counters_all` applies, because a probe run measures the harness
     and not use. A rule's exposure is the real ledgers last written at or after
-    it shipped (the file's mtime), and its fires are the deny rows under its
+    it shipped (the newest row's `ts`), and its fires are the deny rows under its
     label in those ledgers. `mark` is `retire-candidate` at or below
     `RETIRE_FIRES` fires over at least `MIN_EXPOSURE` ledgers, `low-exposure` at
     or below `RETIRE_FIRES` over fewer (or an unknown ship date), else None.
@@ -227,9 +227,9 @@ def rule_yield(files=None, shipped=None):
         rows = ti._foreign_rows(path)
         if ti.fixture_ledger(rows):
             continue
-        try:
-            when = os.path.getmtime(path)
-        except OSError:
+        when = max((r["ts"] for r in rows if isinstance(r.get("ts"), (int, float))),
+                   default=None)
+        if when is None:
             continue
         real.append((when, Counter(_label(row.get("detail")) for row in rows
                                    if row.get("kind") == "deny")))

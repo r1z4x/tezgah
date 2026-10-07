@@ -4724,11 +4724,7 @@ class OrphanPass(unittest.TestCase):
         row = {"kind": "verify_ok", "ts": int(time.time()), "v": ti.ROW_VERSION,
                "detail": "pytest -q", "id": ti.call_id("Bash", self.CHECK),
                "tool": "Bash", "exit": 0, "out_bytes": 42}
-        db = os.path.join(os.path.dirname(os.path.dirname(self.path)), "tezgah.db")
-        proc = support.run(["-c", "import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); "
-                            "c.execute(\"INSERT INTO evidence (session, kind, ts, row) "
-                            "VALUES ('s', 'verify_ok', 0, ?)\", (sys.argv[2],)); c.commit()",
-                            db, json.dumps(row)])
+        proc = support.forge_row(self.path, row)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def rewrite(self, rows):

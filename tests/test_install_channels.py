@@ -15,7 +15,6 @@ fallback, and the install-update-uninstall cycle (.github/workflows/ci.yml).
 """
 import contextlib
 import io
-import json
 import os
 import re
 import shutil
@@ -27,6 +26,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import support
 from test_setup import SetupBase, setup_module
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -376,8 +376,7 @@ class BrewKeg(Base):
             timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         path = self.path(".cache", "tezgah", "evidence", ti._slug(session) + ".jsonl")
-        with open(path) as fh:
-            rows = [json.loads(line) for line in fh if line.strip()]
+        rows = support.ledger_rows(path)
         return [r["detail"] for r in rows if r["kind"] == "attest"][-1]
 
     def test_a_session_started_from_the_keg_reports_no_drift_before_or_after_an_upgrade(self):

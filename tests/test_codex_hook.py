@@ -1,5 +1,4 @@
 """hosts/codex/hook.py: SessionStart context, the gate, evidence and Stop."""
-import glob
 import json
 import os
 import re
@@ -7,18 +6,6 @@ import unittest
 
 import support
 from support import TempHome, run, run_json
-
-
-def forge_pass(home, session):
-    """Append a passing `verify_ok` row to `session`'s ledger with
-    `python3 -c`, the interpreter route no hook sees (plan 051)."""
-    [path] = glob.glob(os.path.join(home, ".cache", "tezgah", "evidence",
-                                    support.slug(session) + "-*.jsonl"))
-    row = json.dumps({"kind": "verify_ok", "detail": "pytest -q", "id": "forged",
-                      "exit": 0, "out_bytes": 42, "v": 3})
-    proc = run(["-c", "import sys; open(sys.argv[1], 'a').write(sys.argv[2] + '\\n')",
-                path, row])
-    assert proc.returncode == 0, proc.stderr
 
 
 class CodexHook(TempHome):
@@ -447,7 +434,7 @@ class CodexStopGate(TempHome):
             env=self.envv)
         self.post("exec_command", inp, {"exit_code": 0, "output": "5 passed"})
         self.assertNotIn("decision", self.stop("Done. All tests pass."))
-        forge_pass(self.home, self.session)
+        support.forge_pass(self.home, self.session)
         out = self.stop("Done. All tests pass.")
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Evidence tampered", out["reason"])
