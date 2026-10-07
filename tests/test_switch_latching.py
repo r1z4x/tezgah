@@ -206,6 +206,40 @@ class Latching(TempHome):
                 auth = [r for r in self.rows(path) if r["kind"] == "authorized"]
                 self.assertEqual(bool(auth), want)
 
+    def test_two_forged_prompts_in_one_call_authorize_nothing(self):
+        """The first forged run must not close the in-flight window: in flight,
+        `note_turn` writes neither the `turn` row nor the `authorized` one."""
+        path = self.ledger(int(time.time()) - 100)
+        self.switch("verify-off")
+        child = ("import tezgah_integrity as ti\n"
+                 "ti.note('s', 'turn', 'k')\n"
+                 "ti.note('s', 'began', 'x', id='abc', tool='Bash')\n")
+        proc = subprocess.run([sys.executable, "-c", child], capture_output=True,
+                              text=True, env=self.env(), timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.probe([], prompt="first")
+        out = self.probe(["verify-off"], prompt="verify-off")
+        self.assertEqual(out, {"verify-off": False})
+        self.assertEqual([r["kind"] for r in self.rows(path)][1:],
+                         ["turn", "began"])
+
+    def test_a_wrapped_hook_entry_is_refused_like_the_bare_one(self):
+        repo = self.make_repo()
+        for command in ("/usr/bin/env python3 hooks/projects-auto-init.py",
+                        "env -i python3 hooks/projects-auto-init.py",
+                        "python3 -u hooks/projects-auto-init.py",
+                        "python3 -I -B -X utf8 hooks/projects-auto-init.py",
+                        "nice -n 5 python3 hooks/projects-stop.py",
+                        "nohup timeout 5 python3 hooks/projects-stop.py",
+                        "/usr/bin/nice python3 -u hosts/codex/hook.py",
+                        "command -p python3 hooks/projects-stop.py"):
+            with self.subTest(command=command):
+                self.assertIn("Control plane", self.gate_answer(repo, command) or "")
+        for command in ("python3 -u -m unittest discover -s tests",
+                        "/usr/bin/env python3 -c 'print(1)'"):
+            with self.subTest(command=command):
+                self.assertNotIn("Control plane", self.gate_answer(repo, command) or "")
+
     def test_a_link_to_an_old_file_is_as_new_as_the_link(self):
         """`stat` follows a link: a switch made now as a link to a file older
         than the session would read as old. The link's own times count too."""

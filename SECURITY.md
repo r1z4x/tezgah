@@ -94,10 +94,18 @@ an adversarial agent, and it does not claim to be one.
     stand-down text into `pretooluse-off`. It can also reset the latch for
     good: an emptied or deleted ledger has no first row, and the next row it
     gets becomes the first. Rewriting the first row's `ts` moves the latch the
-    same way. `note_turn` writes no `authorized` row while a call is in flight
-    (an unanswered `began` row since the last turn or reply), so a prompt hook
-    run from inside a tool call authorizes nothing; the row appended directly
-    still counts. The latch is a keyword
+    same way. The cheapest route is still a direct append of an `authorized`
+    row to the ledger.
+  - A forged prompt run through a hook entry meets two layers. The control
+    rule refuses a hook entry named on the command line, through the wrappers
+    and interpreter options it reads (`env`, `nice`, `timeout`, `python3 -u`).
+    `note_turn` writes no row at all while a call is in flight (an unanswered
+    `began` row since the last turn or reply). Neither layer catches a forge
+    the call starts in the background to run after it is answered
+    (`(sleep 2; … | python3 hook) &`). Inside the call, the in-flight layer
+    alone stops a form the command line does not name: `runpy`,
+    `exec(open(…))`, a script on stdin, or a renamed copy of a hook.
+  - The latch is a keyword
     match, not intent: "don't touch verify-off" authorizes the flip. A prompt
     computed by a workflow, or a parent's task text a host hands a child as its
     prompt, arrives through the same path as the user's. A switch made within

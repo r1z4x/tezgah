@@ -97,7 +97,7 @@ import shlex
 import time
 
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
-                              GIT_WRAPPER, HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
+                              HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
                               PLAIN_TAIL, SECRET_PREFIXED, STEP_KINDS,
                               WRITE_TOOLS, _blank_heredocs, _heredocs, bind_session,
                               _shell_lines, _shell_segments, _turn_start,
@@ -2091,14 +2091,38 @@ def _shell_words(command):
     return out
 
 
+# The wrappers `_program` reads past, by basename, with the options that take
+# the next word as their value; `timeout` also takes its duration.
+WRAPPER_VALUE_OPTS = {"sudo": ("-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U"),
+                      "env": ("-u", "--unset", "-C", "--chdir"),
+                      "nice": ("-n", "--adjustment"), "nohup": (), "exec": ("-a",),
+                      "time": ("-f", "-o"), "command": (),
+                      "timeout": ("-s", "--signal", "-k", "--kill-after"),
+                      "stdbuf": ("-i", "-o", "-e")}
+# An interpreter's options that take the next word as their value, and the ones
+# that make the program its own text rather than a script (`python3 -c`, `-m`).
+INTERPRETER_VALUE_OPTS = ("-X", "-W", "-o", "+o", "-O")
+
+
 def _program(words):
     """(program basename without `.py`, its arguments) for one simple command,
-    past compound keywords, env assignments, the wrappers and an interpreter
-    running a script."""
+    past compound keywords, env assignments, the wrappers (WRAPPER_VALUE_OPTS,
+    by basename, with their options) and an interpreter's options before the
+    script it runs."""
     i = 0
-    while i < len(words) and (ENV_WORD.match(words[i]) or words[i] in GIT_WRAPPER
-                              or words[i] in SHELL_KEYWORDS):
-        i += 2 if words[i] == "timeout" else 1
+    while i < len(words):
+        word = words[i]
+        wrapper = os.path.basename(word)
+        if ENV_WORD.match(word) or word in SHELL_KEYWORDS:
+            i += 1
+            continue
+        if wrapper not in WRAPPER_VALUE_OPTS:
+            break
+        i += 1
+        while i < len(words) and words[i].startswith("-"):
+            i += 2 if words[i] in WRAPPER_VALUE_OPTS[wrapper] else 1
+        if wrapper == "timeout" and i < len(words):
+            i += 1  # the duration
     words = words[i:]
     if words and words[0] == "[":
         # the test command: its operands are not a program, and the command
@@ -2107,9 +2131,18 @@ def _program(words):
         words = words[close + 1:]
     if not words:
         return "", []
-    if len(words) > 1 and os.path.basename(words[0]) in INTERPRETERS \
-            and not words[1].startswith("-"):
-        words = words[1:]
+    name = os.path.basename(words[0])
+    if name in INTERPRETERS or re.fullmatch(r"python[\d.]+", name):
+        j = 1
+        while j < len(words) and words[j].startswith(("-", "+")) and words[j] != "-":
+            flag = words[j]
+            if re.fullmatch(r"-[A-Za-z]*[cm]" if name.startswith("python")
+                            else r"-[A-Za-z]*c[A-Za-z]*", flag):
+                j = len(words) + 1  # the program is its own text: no script word
+                break
+            j += 2 if flag in INTERPRETER_VALUE_OPTS else 1
+        if j < len(words):
+            words = words[j:]
     if not words:
         return "", []
     name = os.path.basename(words[0])

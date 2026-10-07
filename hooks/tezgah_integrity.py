@@ -1329,13 +1329,17 @@ def note_turn(session_id, prompt, workspace=None):
     row first, from the prompt itself and before it is hashed: the switch latch
     (`tezgah_paths.off`) honors a switch made mid-session only once the user
     named it. Keyword match, not intent: "don't touch verify-off" names it too.
-    No row while a call is in flight (`_in_flight`): a host hands its prompt
-    hook a prompt between calls, and a hook run from inside a tool call with a
-    forged payload is the one that finds its own call's `began` unanswered.
+    No row at all while a call is in flight (`_in_flight`): a host hands its
+    prompt hook a prompt between calls, and a hook run from inside a tool call
+    with a forged payload is the one that finds its own call's `began`
+    unanswered. Not the `turn` row either, or a first forged run would close
+    the window and a second one would authorize.
 
     ponytail: the same prompt re-sent as the very next thing, with no ledger row
     written in between, resets nothing - that direction can only deny too much,
     never too little."""
+    if _in_flight(session_id):
+        return
     text = str(prompt or "")
     key = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:12]
     rows = events(session_id, tail=1)
@@ -1343,7 +1347,7 @@ def note_turn(session_id, prompt, workspace=None):
         return
     named = [n for n in SWITCHES
              if re.search(r"(?<![\w.-])%s(?![\w-])" % re.escape(n), text)]
-    if named and not _in_flight(session_id):
+    if named:
         note(session_id, "authorized", workspace=workspace, authorized=named)
     note(session_id, "turn", key, workspace=workspace)
 
@@ -1357,9 +1361,10 @@ def _in_flight(session_id):
     `turn` row, a Stop hook's `shape` row) has no outcome row yet.
 
     ponytail: a host that abandons a call mid-turn and writes no Stop row
-    (opencode has no Stop port) leaves that call waiting, so a switch-naming
-    prompt in the next turn authorizes nothing; the user names it once more on
-    a later turn, or in their own terminal starts a new session."""
+    (opencode has no Stop port) leaves that call waiting, so the prompts after
+    it write no turn marker until a Stop row lands or the call falls out of the
+    IN_FLIGHT_TAIL rows read: the repeat guards then count across those turns,
+    which can only deny too much, and a switch-naming prompt authorizes nothing."""
     rows = events(session_id, tail=IN_FLIGHT_TAIL)
     start = max((i + 1 for i, r in enumerate(rows)
                  if r.get("kind") in (TURN_KIND, "shape")), default=0)
