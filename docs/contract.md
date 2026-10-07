@@ -276,7 +276,9 @@ mtime back, and nothing sets ctime back. A switch made mid-session counts in tha
 three cases:
 
 - the user's prompt names it as a word (`verify-off`). `note_turn` writes an
-  `authorized` row, and the switch counts from that turn on.
+  `authorized` row, and the switch counts from that turn on. It writes none
+  while a tool call is in flight (`hooks/tezgah_integrity.py::_in_flight`): a
+  host hands its prompt hook a prompt between calls.
 - it is the stand-down `tezgah-setup --uninstall --full` writes into
   `pretooluse-off` (`hooks/tezgah_paths.py::STAND_DOWN`).
 - it appeared within the first row's second, because the row's `ts` holds whole

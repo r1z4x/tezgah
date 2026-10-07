@@ -49,8 +49,11 @@ an adversarial agent, and it does not claim to be one.
   - a forced `git add` of a `.tezgah/` path, and a delete or move under
     `.tezgah/plans/open/` (a `--cached` removal is plan-sync's and passes);
   - the CLIs that change that state: `tezgah-gate decide`, `tezgah-capture`,
-    `tezgah-pony <level>`, `tezgah-adhd on|off`, `tezgah-context attest`.
-    The task CLI is the task rule's.
+    `tezgah-pony <level>`, `tezgah-adhd on|off`, `tezgah-context attest` and
+    `tezgah-context user_prompt`. The task CLI is the task rule's.
+  - a hook entry run from a tool call (`hooks/projects-*.py`,
+    `hosts/<host>/hook.py` and their launchers): fed a forged payload, it
+    writes genuine rows, a prompt's `authorized` row among them.
 
   Only `pretooluse-off` removes the rule, and it is one of the protected
   files. The refusal names no command. A ledger line that is not a row is
@@ -86,15 +89,23 @@ an adversarial agent, and it does not claim to be one.
   - A script fed to a shell on stdin through a quoted-tag heredoc
     (`bash <<'EOF'`): bash expands nothing in that body, and the gate reads it
     as data.
-  - Switch latching's ways through are bytes the agent can write: an
-    `authorized` row appended to the ledger, the uninstall's stand-down text in
-    `pretooluse-off`, or an emptied ledger (no first row, so no latch), each
-    written by an interpreter. The latch is a
-    keyword match, not intent: "don't touch verify-off" authorizes the flip,
-    and a prompt computed by a workflow, or a parent's task text a host hands
-    a child as its prompt, arrives through the same path as the user's. A
-    clock set back makes a new switch look old, and a switch the user flips in
-    their own terminal waits for the next session or a prompt that names it.
+  - Switch latching's ways through are bytes the agent can write. An
+    interpreter can append an `authorized` row, or write the uninstall's
+    stand-down text into `pretooluse-off`. It can also reset the latch for
+    good: an emptied or deleted ledger has no first row, and the next row it
+    gets becomes the first. Rewriting the first row's `ts` moves the latch the
+    same way. `note_turn` writes no `authorized` row while a call is in flight
+    (an unanswered `began` row since the last turn or reply), so a prompt hook
+    run from inside a tool call authorizes nothing; the row appended directly
+    still counts. The latch is a keyword
+    match, not intent: "don't touch verify-off" authorizes the flip. A prompt
+    computed by a workflow, or a parent's task text a host hands a child as its
+    prompt, arrives through the same path as the user's. A switch made within
+    the first row's second counts, because the row's `ts` holds whole seconds.
+    A clock set back makes a new switch look old, and a link inside the
+    switch's directory path is not read (the link's own times are, when the
+    switch file itself is one). A switch the user flips in their own terminal
+    waits for the next session or a prompt that names it.
 - **The same uid ceiling.** The agent runs as the user, with the user's file
   permissions. Nothing tezgah writes is out of its reach at the filesystem
   level; the gate is the only barrier, and it is a policy check, not a

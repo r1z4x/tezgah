@@ -85,7 +85,8 @@ it first after the root check (`decision` `hooks/tezgah_gate.py::decision`). The
 | | `.husky`, `.tezgah/plans/open/` | a delete, a chmod that takes a permission away, or a move; `git rm --cached` passes (plan-sync's move) |
 | | a directory holding any protected path (`rm -rf ~/.cache`, `mv .git /tmp/x`) | a delete or move |
 | history | `git add -f` or `--force` of a `.tezgah/` path (`_git_change` `hooks/tezgah_gate.py::_git_change`) | always |
-| the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, `tezgah-context attest`, by basename with or without `.py` (`hooks/tezgah_gate.py::CONTROL_CLIS`) | always |
+| the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, `tezgah-context attest` or `user_prompt`, by basename with or without `.py` (`hooks/tezgah_gate.py::CONTROL_CLIS`) | always |
+| the hook entries | `projects-auto-init`, `projects-pretooluse`, `projects-posttooluse`, `projects-stop`, `hook.py` under `hosts/codex`, `hosts/cursor` or `hosts/omp`, and the `tezgah-codex-hook`/`tezgah-cursor-hook` launchers (`hooks/tezgah_gate.py::HOOK_ENTRIES`, `hooks/tezgah_gate.py::_host_hook`): fed a forged payload, one writes genuine rows, the switch latch's `authorized` row among them | always |
 
 The rule reads the shell word by word, one simple command at a time (`shell_control` `hooks/tezgah_gate.py::shell_control`). It reads each redirect target.
 It reads the arguments of `touch`, `rm`, `rmdir`, `unlink`, `mv`, `chmod`, `mkdir`, `tee`, `truncate`, the copiers' destination and `sed -i`/`perl -i`.
