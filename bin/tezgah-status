@@ -62,6 +62,10 @@ their status line; this CLI is how every host (and a human) gets it:
                            records, prose-only) and the record from
                            docs/contract.md. A report, not a gate: it always
                            exits 0. `--json` prints the rows.
+  tezgah-status --judge    what the judgement seam used last: the provider and
+                           model that answered, and why it was not the session's
+                           own CLI when it was not, or the refusal and the
+                           failures that left no judgement. `--json` prints it.
   tezgah-status --legend   explain the marks
   tezgah-status --orca [PATH]
                            this repository's checkouts as Orca sees them: each
@@ -256,7 +260,7 @@ def main():
     pos = [a for a in args if not a.startswith("--")] + rest
     known = {"--legend", "--json", "--color", "--no-color", "--counters",
              "--all", "--trend", "--skill-fitness", "--failure-shapes",
-             "--rule-yield", "--enforcers", "--orca", "--help"}
+             "--rule-yield", "--enforcers", "--orca", "--judge", "--help"}
     unknown = sorted(f for f in flags
                      if f not in known and not f.startswith("--observable="))
     if unknown:
@@ -289,6 +293,23 @@ def main():
         sys.stderr.write("tezgah-status: %s only means something with "
                          "--counters\n" % modifier)
         return 2
+    if "--judge" in flags:
+        import tezgah_judge as tj
+        last = tj.last_use()
+        if "--json" in flags:
+            print(json.dumps(last, sort_keys=True))
+        elif not last:
+            print("judge: no judgement recorded")
+        elif last.get("provider"):
+            print("judge: %s answered with %s/%s (fallback=%s)%s" % (
+                last.get("at"), last["provider"], last.get("model"),
+                last.get("policy"), "; not the session: " + last["fallback"]
+                if last.get("fallback") else ""))
+        else:
+            print("judge: %s no judgement (fallback=%s): %s; failed: %s" % (
+                last.get("at"), last.get("policy"),
+                last.get("refused") or "every provider failed", last.get("failed")))
+        return 0
     if "--skill-fitness" in flags:
         fit = skill_fitness()
         if "--json" in flags:

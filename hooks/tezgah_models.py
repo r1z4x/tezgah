@@ -280,17 +280,50 @@ def _selector(family, slot):
     return FAMILY_PREFIX[family] + model + (":" + effort if effort else "")
 
 
+# The OpenRouter id of a host-column model: the route the default `vendor`
+# fallback keeps - the same model through another provider and account - when
+# the `any` column names another vendor's model on that slot.
+OPENROUTER_ID = {"claude-opus-5-5": "anthropic/claude-opus-5.5",
+                 "zai/glm-5.3-flash": "z-ai/glm-5.3-flash"}
+VENDOR_STEMS = (("claude", "anthropic"), ("glm", "zai"), ("gpt", "openai"),
+                ("deepseek", "deepseek"))
+
+
+def _vendor(model):
+    """The vendor a table id's model comes from, or the id itself."""
+    name = model.split("/")[-1].lower()
+    return next((v for stem, v in VENDOR_STEMS if name.startswith(stem)), name)
+
+
 def _chain(mode, slot, funded, agent=""):
     """[selector, ...] for one slot: the mode's family first - the user picked it,
-    so it leads even when its credential is not visible from here - then every
-    other funded family, each on that slot's own row.
+    so it leads even when its credential is not visible from here - then the
+    fallbacks the `fallback` setting allows (`tp.fallback_policy()`).
 
-    The fallbacks are rotated by the agent's own name (`agent`): identical chains
+    `vendor`, the default: only the mode's own model vendor - the same model
+    through OpenRouter, or another funded column whose model is that vendor's -
+    because a session on Opus that ran its subagents on GPT and GLM after one
+    Anthropic 429 is the failure the owner reported (2026-10-07). `none`: the
+    mode's selector alone. `any`: every other funded family, each on that
+    slot's own row, rotated by the agent's own name (`agent`): identical chains
     for every agent meant one family's 429 moved all of them onto the same next
     family in the same moment, which is the cascade the chain exists to break
     (independent review, 2026-10-01). The rotation is deterministic - the same
     agent resolves the same order on every machine - so nothing here is random."""
+    policy = tp.fallback_policy()
     families = [mode] + [f for f in OMP_FAMILIES if f != mode and f in funded]
+    if policy == "none":
+        return [_selector(mode, slot)]
+    if policy == "vendor":
+        model, effort = SLOTS[slot][mode]
+        out = [_selector(mode, slot)]
+        for family in families[1:]:
+            if _vendor(SLOTS[slot][family][0]) == _vendor(model):
+                out.append(_selector(family, slot))
+            elif family == "any" and model in OPENROUTER_ID:
+                out.append("openrouter/" + OPENROUTER_ID[model]
+                           + (":" + effort if effort else ""))
+        return list(dict.fromkeys(out))
     tail = families[1:]
     if agent and len(tail) > 1:
         shift = sum(ord(c) for c in agent) % len(tail)

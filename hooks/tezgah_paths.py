@@ -497,18 +497,23 @@ def have_typesafe_key():
 
 
 def have_judge_key():
-    """True when tezgah's own judgement seam resolves a credential: the env var
-    it reads, else its key file - and, when neither resolves, the OpenRouter
-    fallback's own two channels (`OPENROUTER_API_KEY`, `~/.config/openrouter/key`),
-    which are the channels `hooks/tezgah_judge.py`'s `credential()` picks
-    between. This is what `bin/tezgah-triage`, `bin/tezgah-docs` and the skill
-    picker spend. Never omp's login store: the seam does not open it.
+    """True when tezgah's own judgement seam can ask anyone: the session's own
+    CLI (`session_cli()`), else - when the `fallback` setting lets a third party
+    answer - the TypeSafe env var or key file, then the OpenRouter fallback's own
+    two channels (`OPENROUTER_API_KEY`, `~/.config/openrouter/key`), which are
+    the channels `hooks/tezgah_judge.py`'s `providers()` picks between. This is
+    what `bin/tezgah-triage`, `bin/tezgah-docs` and the skill picker spend. Never
+    omp's login store: the seam does not open it.
 
     Kept next to `have_typesafe_key()` because the two are asked together and a
     report that showed one answer under both questions was wrong in both
     directions - a key file alone (seam works, omp does not) and a login-store
     record alone (omp works, seam does not). A blank file is not a credential
     here either, so this stays in step with the seam's own `strip() or None`."""
+    if session_cli():
+        return True
+    if fallback_policy() == "none":
+        return False
     for env, home in (("TYPESAFE_API_KEY", ".config/typesafe/key"),
                       ("OPENROUTER_API_KEY", ".config/openrouter/key")):
         if os.environ.get(env, "").strip():
@@ -520,6 +525,35 @@ def have_judge_key():
         except OSError:
             pass
     return False
+
+
+# How far a model call may leave the session's own vendor (config.json
+# `fallback`). `vendor`, the default: the session's own model first, and a
+# fallback only to the same vendor's model (a subagent chain may reach Opus
+# through OpenRouter; the judge has no such route, so it falls back to nobody
+# while the session CLI exists, and to a third party only when there is no
+# session CLI at all). `any`: a cross-vendor fallback is allowed after the
+# session's own model fails. `none`: no provider but the session's, ever.
+FALLBACKS = ("vendor", "any", "none")
+
+
+def fallback_policy():
+    """The configured `fallback` value, `vendor` when unset or unknown."""
+    cfg = config()
+    value = cfg.get("fallback") if isinstance(cfg, dict) else None
+    return value if value in FALLBACKS else "vendor"
+
+
+def session_cli():
+    """`omp` or `claude` - the CLI of the host this process runs under, when it
+    is installed - else None. omp sets CLAUDECODE too, so OMPCODE is read first,
+    and an omp session whose binary is missing is None rather than Claude: the
+    session's credential is omp's, not whatever `claude` is logged in as."""
+    if os.environ.get("OMPCODE"):
+        return "omp" if omp_bin() else None
+    if os.environ.get("CLAUDECODE"):
+        return "claude" if claude_bin() else None
+    return None
 
 
 def orx_bin():
