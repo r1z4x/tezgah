@@ -63,6 +63,9 @@ class SetupBase(unittest.TestCase):
             "TEZGAH_OMP_BIN": os.path.join(self.home, "no-such-omp"),
             # and claude: `--install` registers the plugin through `claude plugin`
             "TEZGAH_CLAUDE_BIN": os.path.join(self.home, "no-such-claude"),
+            # and orca: `--status` asks the Orca CLI, which a suite run inside
+            # Orca finds on PATH
+            "TEZGAH_ORCA_BIN": os.path.join(self.home, "no-such-orca"),
             # never let a test hit the network: --install installs missing deps
             # by default, so the suite opts out and the Deps tests exercise it
             "TEZGAH_NO_DEPS": "1",

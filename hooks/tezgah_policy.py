@@ -280,6 +280,12 @@ sequence them. The shared artifact is the coordination channel, not chatter -
 naming a lead coordinates nothing by itself. If the work
 cannot be split - one file, one bounded change, a strictly serial chain - do it
 directly. Never spawn a subagent whose briefing is bigger than the work.
+A slice that needs its own checkout: inside Orca (the session-start `Orca:`
+line) create it with `orca worktree create --name <slug> --parent-worktree
+active --json` and track it with `orca worktree ps --json` or `tezgah-status
+--orca` - a raw `git worktree add` gets no card, terminal tracking or agent
+status in Orca; outside Orca, `git worktree add`. Either way the brief names
+absolute paths under that checkout.
 Routing: `{ROUTE_BIN} "<brief>"` names the worker - tezgah-cheap, -standard or
 -frontier (overrides for stored data, credentials, security first; then a Jev
 judgement; the static phase table with no key). A worker that answers

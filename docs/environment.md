@@ -44,6 +44,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_NO_EXCLUDE` | `hooks/tezgah_agents.py::ensure_exclude` | unset | `1` stops tezgah adding its generated-agent dirs to the repository's `.git/info/exclude`. |
 | `CODEX_HOME` | `hooks/tezgah_paths.py::HOST_DIRS` | `~/.codex` | The Codex home tezgah installs into and checks; the same variable Codex itself reads. |
 | `DSH_HOME` | `hooks/tezgah_paths.py::HOST_DIRS`, `bin/tezgah-dsh`, `bin/tezgah-dsh.cmd` | `~/.dsh` | The dsh home tezgah installs into, and where `tezgah-dsh` looks for the CLI. |
+| `ORCA_WORKTREE_ID`, `ORCA_TERMINAL_HANDLE`, `ORCA_PANE_KEY`, `TERM_PROGRAM=Orca` | `hooks/tezgah_orca.py::session` | unset | Exported by an Orca terminal. Any one marks the session as inside Orca: the session-start block gains the `Orca:` line and `tezgah-setup --status` an `orca:` line ([orca](orca.md)). tezgah never writes them. |
 | `TEZGAH_OPENCODE_DATA` | `bin/tezgah-setup::OPENCODE_DATA`, `bin/tezgah-doctor` | `~/.local/share/opencode` | opencode's data dir: its session database for `tezgah-doctor` and the installer. |
 
 ## Which binary runs
@@ -52,6 +53,7 @@ the kill switches are files, not variables, and live in
 |---|---|---|---|
 | `TEZGAH_CODEGRAPH_BIN` | `hooks/tezgah_paths.py::codegraph_bin` | the config file, then `codegraph` on PATH | The codegraph executable the index and the graph marks use. |
 | `TEZGAH_ORX_BIN` | `hooks/tezgah_paths.py::orx_bin` | `orx` on PATH | The OpenResearch CLI the research rule routes to. |
+| `TEZGAH_ORCA_BIN` | `hooks/tezgah_orca.py::cli` | `ORCA_CLI_COMMAND`, then `$ORCA_CLI_BIN_DIR/orca`, then `orca` on PATH (`orca-ide` on Linux outside Orca), then the macOS app's CLI | The Orca CLI `tezgah-status --orca` and `tezgah-setup --status` ask. A missing path is no CLI, never a fallback: the test suite points it at one. |
 | `TEZGAH_OMP_BIN` | `hooks/tezgah_paths.py::omp_bin` | `omp` on PATH | The omp binary the installer, the model table and consult's session-model lookup run. |
 | `TEZGAH_CLAUDE_BIN` | `claude_bin`, `hooks/tezgah_paths.py::claude_bin` | `claude` on PATH | The Claude Code CLI `--install` registers the plugin with (`claude plugin`); the test suite points it at a path that does not exist. |
 | `TEZGAH_DSH_BIN` | `bin/tezgah-setup::reconcile_json_servers` | the profile-local entry, then `bin/tezgah-dsh`, then npx | How the installer invokes the dsh CLI. |

@@ -287,7 +287,10 @@ def _orch_body(names):
         "tezgah-frontier); an ESCALATE answer is restarted on tezgah-frontier with\n"
         "the same brief. Never delegate a task a specialist is not\n"
         "listed for, and never let a subagent spawn its own subagents. Verify each\n"
-        "returned claim against the code before acting." % listed)
+        "returned claim against the code before acting. A slice that needs its\n"
+        "own checkout gets one from `orca worktree create --parent-worktree\n"
+        "active` when the session runs inside Orca, else from `git worktree add`;\n"
+        "its brief names absolute paths under that checkout." % listed)
 
 
 # ---------------------------------------------------------------- renderers --

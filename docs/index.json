@@ -466,6 +466,34 @@
         "docs/testing.md",
         "AGENTS.md"
       ]
+    },
+    {
+      "path": "docs/orca.md",
+      "title": "Orca: what it owns, what tezgah owns, where they meet",
+      "title_tr": "Orca: neyin sahibi, tezgah neyin sahibi, nerede kesişirler",
+      "audience": "maintainer, agent working inside Orca",
+      "answers": [
+        "how does a session know it runs inside Orca",
+        "should a slice use orca worktree create or git worktree add",
+        "which checkouts of this repo does Orca track",
+        "does tezgah overwrite Orca's codex home or hooks"
+      ],
+      "answers_tr": [
+        "bir oturum Orca içinde çalıştığını nasıl anlar",
+        "bir dilim orca worktree create mi yoksa git worktree add mi kullanmalı",
+        "Orca bu deponun hangi çalışma kopyalarını izliyor",
+        "tezgah Orca'nın codex dizinini veya hook'larını ezer mi"
+      ],
+      "sources": [
+        "hooks/tezgah_orca.py",
+        "hooks/tezgah_context.py",
+        "hooks/tezgah_policy.py",
+        "hooks/tezgah_agents.py",
+        "bin/tezgah-status",
+        "bin/tezgah-setup",
+        "skills/tezgah-contract/SKILL.md",
+        "statusline.py"
+      ]
     }
   ]
 }

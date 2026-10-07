@@ -36,6 +36,7 @@ citation you can open: `path::symbol` into Python code, `path:line` elsewhere.
 | Which model runs which subagent, and how does `tezgah-route` pick one? | [models](models.md) |
 | Where does a research line live, and what does `tezgah-research check` refuse? | [research](research.md) |
 | What does each host get, and what can it observe? | [hosts](hosts.md) |
+| Inside Orca, who owns worktrees and terminals, and which checkouts does Orca track? | [orca](orca.md) |
 | Which skills ship, and how does one reach a host? | [skills](skills.md) |
 | How is one feature audited across its layers, and what does a capability change need to carry? | [feature-audit](feature-audit.md) |
 | How do I check a change, and how do I test it? | [testing](testing.md) |
