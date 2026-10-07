@@ -2,6 +2,7 @@
 import glob
 import json
 import os
+import re
 import unittest
 
 import support
@@ -30,6 +31,18 @@ class CodexHook(TempHome):
         hso = out["hookSpecificOutput"]
         self.assertEqual(hso["hookEventName"], "SessionStart")
         self.assertTrue(hso["additionalContext"].strip())
+
+    def test_the_pretool_matcher_names_every_shell_spelling_the_post_side_records(self):
+        # review R051b F5: PostToolUse has no matcher, so a `shell` call there
+        # writes its `verify_ok` while a PreToolUse that misses it writes no
+        # `began` - the pass reads as an orphan. The shipped manifest and the
+        # one setup renders carry the same matcher.
+        with open(os.path.join(support.REPO, "hosts", "codex", "hooks.json")) as fh:
+            [group] = json.load(fh)["hooks"]["PreToolUse"]
+        from test_setup import setup_module
+        self.assertEqual(group["matcher"], setup_module().CODEX_PRETOOL_MATCHER)
+        for name in ("Bash", "exec_command", "shell", "Shell", "PowerShell", "pwsh"):
+            self.assertTrue(re.fullmatch(group["matcher"], name), name)
 
     def test_post_compact_carries_no_context_envelope(self):
         # Codex's PostCompact output schema allows only the common fields
