@@ -733,6 +733,13 @@ arrives, so a run that stops early keeps what it paid for. A second run asks onl
 `api.typesafe.ai`. The key and the corpus stay on it. Kappa against a model rater
 measures human-model agreement, not inter-rater reliability.
 
+`--provider deepseek --model deepseek-v4-pro` asks the same questions from the same prompt file
+over DeepSeek's OpenAI-compatible chat endpoint instead (key `DEEPSEEK_API_KEY`). It sends the
+judge seam's chat body with `temperature: 0` and thinking off, and writes
+`labels-deepseek.jsonl` (rater `deepseek`). The cost line prices input and output tokens at
+DeepSeek's peak rate, an upper bound. With two model raters, the report labels kappa as
+model-model agreement, not human judgement (ADR 018).
+
 ## Source of truth
 
 - `hooks/tezgah_integrity.py` — ledger, kinds, redaction, Stop rule, counters

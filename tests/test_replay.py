@@ -20,6 +20,7 @@ from support import TempHome
 sys.path.insert(0, support.HOOKS)
 import tezgah_gate as tg  # noqa: E402
 import tezgah_integrity as ti  # noqa: E402
+import tezgah_judge as tj  # noqa: E402
 import tezgah_replay as tr  # noqa: E402
 
 CLI = os.path.join(support.REPO, "bin", "tezgah-gate")
@@ -304,6 +305,88 @@ class Corpus(TempHome):
         self.assertEqual(sorted(r["n"] for r in kept),
                          sorted(r["n"] for r in rows if r["set"] == "replay-gate"))
 
+    def test_label_model_through_an_openai_compatible_provider(self):
+        """Rater 1 (H2 amendment 2026-10-07, ADR 018): `--provider deepseek` asks
+        the same prompt's question over DeepSeek's chat endpoint (a local stub),
+        temperature 0 with thinking off, the row redacted; labels go to
+        `labels-deepseek.jsonl` (0600) under rater `deepseek`, a reply without a
+        valid label stays unlabelled, and two raters' files give kappa."""
+        s = self.replay()
+        self.cli("--sheet")
+        sheet = os.path.join(s["run"], "sheet.jsonl")
+        with open(sheet, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh]
+        secret = "ghp_" + "b" * 36
+        rows[0]["text"] += "\nexport K=" + secret
+        jsonl(sheet, rows)
+        prompt = os.path.join(self.home, "prompt.json")
+        questions = {
+            "replay-gate": {"instructions": "GATE RULES",
+                            "criteria": {"refuse": "r", "allow": "a", "unsure": "u"}},
+            "replay-stop": {"instructions": "STOP RULES",
+                            "criteria": {"honest": "h", "false": "f", "unsure": "u"}}}
+        with open(prompt, "w", encoding="utf-8") as fh:
+            json.dump(questions, fh)
+        ChatStub.seen, ChatStub.auth = [], []
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ChatStub)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        extra = {"DEEPSEEK_API_KEY": "dsk-stub", "TYPESAFE_API_KEY": "",
+                 "TEZGAH_DEEPSEEK_URL": "http://127.0.0.1:%d/chat/completions"
+                 % server.server_address[1]}
+        out = self.cli("--label-model", "--provider", "deepseek", "--model",
+                       "deepseek-v4-pro", "--run", s["run"], "--prompt", prompt, extra=extra)
+        self.assertEqual(len(ChatStub.seen), 5)
+        self.assertEqual(set(ChatStub.auth), {"Bearer dsk-stub"})
+        self.assertIn("labelled 4 of 5 asked, 1 unanswered", out)
+        self.assertIn("deepseek/deepseek-v4-pro-stub 5", out)
+        self.assertIn("50 input tokens", out)
+        self.assertIn("20 output tokens", out)
+        sent = json.dumps(ChatStub.seen)
+        self.assertNotIn(secret, sent)
+        self.assertIn("[redacted:", sent)
+        for body in ChatStub.seen:
+            self.assertEqual(body["model"], "deepseek-v4-pro")
+            self.assertEqual(body["temperature"], 0)
+            self.assertEqual(body["thinking"], {"type": "disabled"})
+            self.assertEqual(body["response_format"], {"type": "json_object"})
+            self.assertEqual(body["messages"][0]["content"], tj.CHAT_SYSTEM)
+            user = json.loads(body["messages"][1]["content"])
+            gate = "This call:" in user["state"]
+            self.assertEqual(user["questions"]["label"], dict(
+                questions["replay-gate" if gate else "replay-stop"], type="choice"))
+        path = os.path.join(s["run"], "labels-deepseek.jsonl")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        with open(path, encoding="utf-8") as fh:
+            got = [json.loads(line) for line in fh]
+        self.assertEqual(sorted(r["n"] for r in got),
+                         sorted(r["n"] for r in rows if r is not rows[0]))
+        self.assertEqual({(r["rater"], r["model"], r["provider"]) for r in got},
+                         {("deepseek", "deepseek-v4-pro-stub", "deepseek")})
+        self.assertFalse(os.path.exists(os.path.join(s["run"], "labels-model.jsonl")))
+        # the second rater's file beside it: kappa over the rows both labelled
+        other = os.path.join(s["run"], "labels-model.jsonl")
+        jsonl(other, [{"set": r["set"], "n": r["n"], "label": r["label"], "rater": "model"}
+                      for r in got])
+        report = self.cli("--report", "--run", s["run"], "--labels", other, "--labels", path)
+        self.assertIn("raters: deepseek, model", report)
+        self.assertIn("model-model agreement", report)
+        self.assertNotIn("one rater", report)
+
+    def test_label_model_deepseek_needs_its_key(self):
+        s = self.replay()
+        self.cli("--sheet")
+        prompt = os.path.join(self.home, "prompt.json")
+        with open(prompt, "w", encoding="utf-8") as fh:
+            json.dump({}, fh)
+        proc = subprocess.run([sys.executable, CLI, "replay", "--label-model", "--provider",
+                               "deepseek", "--model", "deepseek-v4-pro", "--run", s["run"],
+                               "--prompt", prompt], capture_output=True, text=True,
+                              env=self.env(extra={"DEEPSEEK_API_KEY": ""}), timeout=120)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("DEEPSEEK_API_KEY", proc.stderr)
+
 
 class Stub(BaseHTTPRequestHandler):
     """A TypeSafe-shaped endpoint: `refuse` for a gate row, `honest` for a Stop
@@ -320,6 +403,32 @@ class Stub(BaseHTTPRequestHandler):
                  else "refuse" if gate else "honest")
         data = json.dumps({"model": "jev-stub", "answers": {"label": {"choice": label}},
                            "usage": {"input_tokens": 10, "output_tokens": 0}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+class ChatStub(BaseHTTPRequestHandler):
+    """An OpenAI-compatible chat endpoint: `refuse` for a gate row, `honest` for
+    a Stop row, and a label outside the criteria for the row that carried a secret."""
+
+    seen, auth = [], []
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        type(self).seen.append(body)
+        type(self).auth.append(self.headers.get("Authorization"))
+        state = json.loads(body["messages"][1]["content"])["state"]
+        label = ("maybe" if "[redacted:" in state
+                 else "refuse" if "This call:" in state else "honest")
+        content = json.dumps({"answers": {"label": {"choice": label}}})
+        data = json.dumps({"model": "deepseek-v4-pro-stub",
+                           "choices": [{"message": {"content": content}}],
+                           "usage": {"prompt_tokens": 10, "completion_tokens": 4}}).encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
