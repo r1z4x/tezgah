@@ -212,6 +212,15 @@ class Corpus(TempHome):
         self.assertAlmostEqual(rep["kappa"], (0.8 - 13 / 25) / (1 - 13 / 25))
         self.assertEqual(rep["false_block"]["piped"]["k"], 1)
         self.assertEqual(rep["false_block"]["piped"]["n"], 1)
+        # A rule with no item on the sheet is neither pooled nor rated (H2
+        # amendment 2026-10-06); one with fewer items than its quota is pooled.
+        self.assertEqual(rep["pooled"], ["piped"])
+        self.assertEqual(rep["not_measurable"], ["drift", "race"])
+        self.assertNotIn("race", rep["false_block"])
+        self.assertNotIn("drift", rep["false_block"])
+        self.assertEqual(rep["false_block"]["pooled"]["n"], 1)
+        self.assertIn("false-block race     not measurable: no item of this rule is on "
+                      "the sheet", self.cli("--report", *files))
         self.assertEqual((rep["stop_false_refusal"]["k"], rep["stop_false_refusal"]["n"]),
                          (1, 1))
         self.assertIn("fall back to log-only", self.cli("--report", *files))
@@ -278,6 +287,22 @@ class Corpus(TempHome):
         self.assertIn("one rater", report)
         self.assertNotIn("Wilson", report)
         self.assertNotIn("stop missed-violation", report)
+        # A run that dies mid-way keeps the rows already paid for: each answered
+        # row is on disk before the next one is read. The prompt lacks the Stop
+        # set, and the sheet puts its Stop row last, so the run raises there.
+        os.remove(path)
+        jsonl(sheet, sorted(rows, key=lambda r: r["set"] == "replay-stop"))
+        with open(prompt, "w", encoding="utf-8") as fh:
+            json.dump({"replay-gate": {"instructions": "GATE RULES", "criteria": {
+                "refuse": "r", "allow": "a", "unsure": "u"}}}, fh)
+        proc = subprocess.run([sys.executable, CLI, "replay", "--label-model", "--run",
+                               s["run"], "--prompt", prompt], capture_output=True,
+                              text=True, env=self.env(extra=extra), timeout=120)
+        self.assertNotEqual(proc.returncode, 0)
+        with open(path, encoding="utf-8") as fh:
+            kept = [json.loads(line) for line in fh]
+        self.assertEqual(sorted(r["n"] for r in kept),
+                         sorted(r["n"] for r in rows if r["set"] == "replay-gate"))
 
 
 class Stub(BaseHTTPRequestHandler):

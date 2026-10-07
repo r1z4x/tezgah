@@ -830,10 +830,13 @@ def report(run, label_files=()):
             stop[side + ":n"] += label in ("honest", "false")
             stop[side + ":hit"] += label == ("false" if side == "allow" else "honest")
     # a rule whose joined denies fell short of its quota is pooled with the
-    # other rules (H2 protocol, stated before the draw)
+    # other rules (H2 protocol, stated before the draw); a rule with no item on
+    # the sheet is neither pooled nor rated (H2 amendment 2026-10-06)
     drawn = Counter(k["bucket"] for k in key.values())
-    out["pooled"] = sorted(b.split(":", 1)[1] for b, q in QUOTA.items()
-                           if b.startswith("deny:") and b != "deny:other" and drawn[b] < q)
+    short = [(b.split(":", 1)[1], drawn[b]) for b, q in QUOTA.items()
+             if b.startswith("deny:") and b != "deny:other" and drawn[b] < q]
+    out["pooled"] = sorted(rule for rule, n in short if n)
+    out["not_measurable"] = sorted(rule for rule, n in short if not n)
     for rule in out["pooled"]:
         rules["pooled"].update(rules[rule])
     if out["pooled"]:
@@ -883,19 +886,25 @@ def label_model(run, prompt_file):
         label = tj.choice(result, "label")
         return row, result, label if label in question["criteria"] else None
 
-    tokens, models, new = 0, Counter(), []
-    with ThreadPoolExecutor(LABEL_WORKERS) as pool:
+    tokens, models, new = 0, Counter(), 0
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.fchmod(fd, 0o600)
+    # Each answered row is appended as it arrives, so a run that dies mid-way
+    # keeps every label already paid for.
+    with os.fdopen(fd, "a", encoding="utf-8") as fh, ThreadPoolExecutor(LABEL_WORKERS) as pool:
         for row, result, label in pool.map(one, todo):
             if result:
                 tokens += result["usage"]["input_tokens"]
                 models["%s/%s" % (result["provider"], result["model"])] += 1
             if label:
-                new.append({"set": row["set"], "n": row["n"], "label": label,
-                            "rater": "model", "model": result["model"],
-                            "provider": result["provider"]})
-    _write_jsonl(path, done + new)
-    return {"path": path, "asked": len(todo), "labelled": len(new),
-            "total": len(done) + len(new), "input_tokens": tokens,
+                fh.write(json.dumps({"set": row["set"], "n": row["n"], "label": label,
+                                     "rater": "model", "model": result["model"],
+                                     "provider": result["provider"]},
+                                    ensure_ascii=False) + "\n")
+                fh.flush()
+                new += 1
+    return {"path": path, "asked": len(todo), "labelled": new,
+            "total": len(done) + new, "input_tokens": tokens,
             "cost_usd": tokens * JEV_PRICE_PER_MILLION / 1e6, "models": dict(models)}
 
 
@@ -1012,6 +1021,8 @@ def _print_labels(out):
               % ", ".join(out["pooled"]))
     for rule, r in out["false_block"].items():
         print("false-block %-8s %s" % (rule, _fmt(r)))
+    for rule in out["not_measurable"]:
+        print("false-block %-8s not measurable: no item of this rule is on the sheet" % rule)
     print("stop missed-violation %s" % _fmt(out["stop_missed_violation"]))
     print("stop false-refusal    %s" % _fmt(out["stop_false_refusal"]))
     bar = out["race_intra_false_block"]
