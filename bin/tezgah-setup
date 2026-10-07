@@ -4403,7 +4403,7 @@ def dsh_servers(path):
 
 
 def host_checks_claude():
-    copies = plugin_copies()
+    copies = live_plugin_copies()
     return [
         ("statusline wired (link or copy)",
          is_tezgah_entry(os.path.join(CLAUDE, "statusline.py"))),
@@ -4971,6 +4971,19 @@ def plugin_copies():
     return sorted(out)
 
 
+def live_plugin_copies():
+    """The plugin copies a refresh keeps current: the one installed_plugins.json
+    names, or every copy when it names none. An older version dir is Claude's
+    cache to collect; refreshing it rewrote a tree no session loads, and its
+    staleness turned the report red for nothing."""
+    copies = plugin_copies()
+    rows = read_json(INSTALLED_PLUGINS, {}).get("plugins") or {}
+    named = {os.path.realpath(r.get("installPath") or "")
+             for k, v in rows.items() if k.split("@")[0] == "tezgah"
+             for r in (v or [])[-1:] if isinstance(r, dict)}
+    return [t for t in copies if os.path.realpath(t) in named] or copies
+
+
 def copy_files(target):
     """Every managed relpath the copy holds.
 
@@ -5201,7 +5214,7 @@ def sync():
     cache = os.path.join(HOME, ".claude", "plugins", "cache")
     plugins = os.path.dirname(cache)
     _recover_sync(plugins)
-    targets = plugin_copies()
+    targets = live_plugin_copies()
     if not targets:
         print("no installed tezgah found under %s (nothing to sync)" % cache)
         return 1
@@ -5277,12 +5290,12 @@ def refresh_plugin_copy(hosts):
     `.mcp.json` is excluded from `plugin_copy_current` in both directions on
     purpose - rendering into the copy must not make a current copy read stale -
     which also means a copy carrying no tezgah row at all is still judged
-    current. So a claude install always renders the file into every copy with
-    that copy as the root, the same half `sync()` performs."""
+    current. So a claude install always renders the file into every live copy
+    (`live_plugin_copies`) with that copy as the root, the same half `sync()` performs."""
     if "claude" in hosts:
-        for t in plugin_copies():
+        for t in live_plugin_copies():
             write_mcp_json(path=os.path.join(t, MCP_JSON), selected=selection(), root=t)
-        if any(not plugin_copy_current(t) for t in plugin_copies()):
+        if any(not plugin_copy_current(t) for t in live_plugin_copies()):
             print()
             sync()
 

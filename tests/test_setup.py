@@ -1202,6 +1202,26 @@ class PluginCopy(SetupBase):
         "sys.exit(m.sync())\n"
     )
 
+    def test_sync_refreshes_only_the_copy_installed_plugins_names(self):
+        """An older version dir under the cache is Claude's to collect: sync
+        refreshed it too, rewriting a tree no session loads."""
+        base = self.path(".claude", "plugins", "cache", "local-market", "tezgah")
+        live, old = os.path.join(base, "1.0.0"), os.path.join(base, "0.9.0")
+        for root in (live, old):
+            fingerprint = os.path.join(root, "hooks", "tezgah_policy.py")
+            os.makedirs(os.path.dirname(fingerprint), exist_ok=True)
+            with open(fingerprint, "w") as fh:
+                fh.write("# frozen copy\n")
+        self.write_json(self.path(".claude", "plugins", "installed_plugins.json"),
+                        {"version": 2, "plugins": {"tezgah@local-market": [
+                            {"scope": "user", "installPath": live}]}})
+        proc = self.setup("--sync")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(self.current(live), proc.stdout)
+        self.assertNotIn(old, proc.stdout)
+        self.assertEqual(self.read_text(os.path.join(old, "hooks", "tezgah_policy.py")),
+                         "# frozen copy\n")
+
     def test_a_failed_copy_makes_sync_exit_non_zero(self):
         root = self.synced_copy()
         out = subprocess.run([sys.executable, "-c", self.FAILING_COPY_PROBE, SETUP],
