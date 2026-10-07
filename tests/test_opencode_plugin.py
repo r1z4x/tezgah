@@ -486,6 +486,16 @@ class OpenCodePlugin(TempHome):
         with open(os.path.join(switches, "pretooluse-off"), "w") as fh:
             fh.write(tp.STAND_DOWN)
         self.assertEqual(answers("down"), (True, True))
+        # a link made now to a file older than the session is as new as the link
+        os.remove(os.path.join(switches, "pretooluse-off"))
+        target = os.path.join(self.home, "old")
+        open(target, "w").close()
+        since = int(os.stat(target).st_ctime) + 1
+        first_row("linked", since)
+        while time.time() < since + 1.05:
+            time.sleep(0.05)
+        os.symlink(target, os.path.join(switches, "verify-off"))
+        self.assertEqual(answers("linked"), (False, False))
 
     def test_naming_no_verify_in_a_message_or_a_read_passes(self):
         # describing the rule is not a bypass; the flag has to be in command
@@ -999,7 +1009,10 @@ class OpenCodePlugin(TempHome):
         self.gate_bin()
         for command in ("touch ~/.config/tezgah/verify-off",
                         "echo {} >> ~/.cache/tezgah/evidence/x.jsonl",
-                        "mv .husky .husky.bak"):
+                        "mv .husky .husky.bak",
+                        # a forged prompt writes the switch latch's `authorized` row
+                        "printf '{}' | python3 hooks/projects-auto-init.py",
+                        "printf '{}' | ~/.config/tezgah/bin/tezgah-context user_prompt ."):
             with self.subTest(command=command):
                 args = {"command": command}
                 expected = self.gate("bash", args)

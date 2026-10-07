@@ -1689,9 +1689,19 @@ CONTROL_DENY = (
 # attest` re-attests a session, and a clean result clears its drift mark. The
 # task CLI is not here: it is the task rule's (TASK_CHANGE), which `task-off`
 # removes, and that switch is one of the files this rule protects.
+# `tezgah-context user_prompt` is a prompt event, and a prompt naming a switch
+# writes the `authorized` row the switch latch honors (tezgah_paths.off).
 CONTROL_CLIS = {"tezgah-gate": ("decide",), "tezgah-capture": "",
                 "tezgah-pony": "", "tezgah-adhd": ("on", "off"),
-                "tezgah-context": ("attest",)}
+                "tezgah-context": ("attest", "user_prompt")}
+# The hook entries a host runs, by basename without `.py`: run from a tool call
+# with a forged payload on stdin, any of them writes genuine rows - a prompt's
+# `authorized` row, a `began` row, a Stop verdict. A host adapter is `hook.py`
+# under `hosts/<host>/` (HOOK_HOSTS); its launchers carry their own names.
+HOOK_ENTRIES = frozenset(("projects-auto-init", "projects-pretooluse",
+                          "projects-posttooluse", "projects-stop",
+                          "tezgah-codex-hook", "tezgah-cursor-hook"))
+HOOK_HOSTS = frozenset(("codex", "cursor", "omp"))
 # Programs that change a path named in their arguments. Every positional is a
 # target, except for the copiers, whose last one is (`cp switch /tmp` reads it).
 # `sed`/`perl` count only with an in-place flag.
@@ -2169,6 +2179,16 @@ def _git_change(args, cwd, origin):
     return None
 
 
+def _host_hook(words, cwd):
+    """True when the `hook.py` this command runs sits under `hosts/<host>/`
+    (HOOK_HOSTS), as written or with its links resolved."""
+    word = next((w for w in words if os.path.basename(w) == "hook.py"), "")
+    written = os.path.join(cwd or os.sep, os.path.expanduser(word))
+    return any(os.path.basename(os.path.dirname(p)) in HOOK_HOSTS
+               and os.path.basename(os.path.dirname(os.path.dirname(p))) == "hosts"
+               for p in (os.path.normpath(written), _full(word, cwd)))
+
+
 def _command_change(words, cwd, depth, origin):
     """The control-plane label one simple command changes, or None."""
     program, args = _program(words)
@@ -2183,6 +2203,8 @@ def _command_change(words, cwd, depth, origin):
         script = script[1:] if script[:1] == ["--"] else script
         if script:
             return shell_control(script[0], cwd, depth + 1, origin)
+    if program in HOOK_ENTRIES or (program == "hook" and _host_hook(words, cwd)):
+        return "tezgah's hook state through one of its hook entries"
     if program in CONTROL_CLIS:
         verbs = CONTROL_CLIS[program]
         positional = [a for a in args if not a.startswith("-")]

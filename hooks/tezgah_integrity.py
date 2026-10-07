@@ -1329,6 +1329,9 @@ def note_turn(session_id, prompt, workspace=None):
     row first, from the prompt itself and before it is hashed: the switch latch
     (`tezgah_paths.off`) honors a switch made mid-session only once the user
     named it. Keyword match, not intent: "don't touch verify-off" names it too.
+    No row while a call is in flight (`_in_flight`): a host hands its prompt
+    hook a prompt between calls, and a hook run from inside a tool call with a
+    forged payload is the one that finds its own call's `began` unanswered.
 
     ponytail: the same prompt re-sent as the very next thing, with no ledger row
     written in between, resets nothing - that direction can only deny too much,
@@ -1340,9 +1343,28 @@ def note_turn(session_id, prompt, workspace=None):
         return
     named = [n for n in SWITCHES
              if re.search(r"(?<![\w.-])%s(?![\w-])" % re.escape(n), text)]
-    if named:
+    if named and not _in_flight(session_id):
         note(session_id, "authorized", workspace=workspace, authorized=named)
     note(session_id, "turn", key, workspace=workspace)
+
+
+# How far back `_in_flight` looks for the previous turn or reply boundary.
+IN_FLIGHT_TAIL = 200
+
+
+def _in_flight(session_id):
+    """True when a `began` row since the newest turn or reply boundary (a
+    `turn` row, a Stop hook's `shape` row) has no outcome row yet.
+
+    ponytail: a host that abandons a call mid-turn and writes no Stop row
+    (opencode has no Stop port) leaves that call waiting, so a switch-naming
+    prompt in the next turn authorizes nothing; the user names it once more on
+    a later turn, or in their own terminal starts a new session."""
+    rows = events(session_id, tail=IN_FLIGHT_TAIL)
+    start = max((i + 1 for i, r in enumerate(rows)
+                 if r.get("kind") in (TURN_KIND, "shape")), default=0)
+    return bool(_began_fold(rows[start:])[0])
+
 
 
 def bind_session(session_id):

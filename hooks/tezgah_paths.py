@@ -626,7 +626,9 @@ def _authorized(ledger):
 
 def _honored(path, name):
     try:
-        st = os.stat(path)
+        # the link's own times too: `stat` follows a link, and a link made now
+        # to an old file would read as old
+        stats = (os.stat(path), os.lstat(path))
     except OSError:
         return False
     ledger = _LATCH["ledger"]
@@ -635,7 +637,8 @@ def _honored(path, name):
     if _LATCH["since"] is None:
         _LATCH["since"] = _first_ts(ledger)
     since = _LATCH["since"]
-    if since is None or max(st.st_mtime, st.st_ctime) < since + 1:
+    if since is None or max(t for st in stats for t in (st.st_mtime, st.st_ctime)) \
+            < since + 1:
         return True
     if name == "pretooluse-off":
         try:

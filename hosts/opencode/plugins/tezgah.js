@@ -55,8 +55,9 @@
 // Hook names a given opencode build does not know are skipped by the runtime
 // (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
 // lacks is safe and must never be a load-time error.
-import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync,
-  readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { closeSync, createReadStream, existsSync, lstatSync, mkdirSync, openSync,
+  readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync,
+  writeFileSync } from "node:fs"
 import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -564,7 +565,7 @@ const TASK_CLI = /\btezgah-task\b\s+\S/
 // CLIs with an argument. The rule, its path table and its `~`/`$HOME`/XDG
 // expansion are the core's; this is only the bound on asking, loose the same
 // way TASK_CLI is: a false hit costs one spawn whose answer comes back empty.
-const CONTROL_CMD = /(?:\b(?:touch|rm|rmdir|unlink|shred|truncate|chmod|chown|chgrp|mv|mkdir|tee|cp|ln|install|rsync|dd|sed|perl|git|sh|bash|zsh)\b|>)[\s\S]*(?:tezgah|\.no-|\.husky|\.git\/hooks|\.claude|\.codex|\.cursor|opencode|\.omp|\.local\/share)|\btezgah-(?:gate(?:\.py)?\s+decide|(?:capture|pony|adhd)(?:\.py)?\s+\S)/
+const CONTROL_CMD = /(?:\b(?:touch|rm|rmdir|unlink|shred|truncate|chmod|chown|chgrp|mv|mkdir|tee|cp|ln|install|rsync|dd|sed|perl|git|sh|bash|zsh)\b|>)[\s\S]*(?:tezgah|\.no-|\.husky|\.git\/hooks|\.claude|\.codex|\.cursor|opencode|\.omp|\.local\/share)|\btezgah-(?:gate(?:\.py)?\s+decide|(?:capture|pony|adhd)(?:\.py)?\s+\S|context(?:\.py)?\s+(?:attest|user_prompt)\b|(?:codex|cursor)-hook\b)|\bprojects-(?:auto-init|pretooluse|posttooluse|stop)\b|\bhook\.py\b/
 // The same bound for the language rule: the command shapes that dream up an
 // identifier which outlives the session - `git commit` (its message), `git
 // checkout -b`/`-B`/`--branch` and `git switch -c`/`-C`/`--create` (a branch),
@@ -2060,8 +2061,10 @@ function off(name, sessionID) {
 }
 
 function honored(path, name, sessionID) {
-  let st
-  try { st = statSync(path) } catch { return false }
+  // the link's own times too: statSync follows a link, and a link made now to
+  // an old file would read as old
+  let stats
+  try { stats = [statSync(path), lstatSync(path)] } catch { return false }
   if (!sessionID) return true
   const ledger = join(cacheDir(), "evidence", ledgerStem(sessionID) + ".jsonl")
   let since = null
@@ -2074,7 +2077,8 @@ function honored(path, name, sessionID) {
       if (typeof ts === "number") since = ts
     } finally { closeSync(fd) }
   } catch {}
-  if (since === null || Math.max(st.mtimeMs, st.ctimeMs) / 1000 < since + 1) return true
+  const newest = Math.max(...stats.flatMap((s) => [s.mtimeMs, s.ctimeMs])) / 1000
+  if (since === null || newest < since + 1) return true
   try {
     if (name === "pretooluse-off" && readFileSync(path, "utf8") === STAND_DOWN) return true
     for (const line of readFileSync(ledger, "utf8").split("\n")) {
